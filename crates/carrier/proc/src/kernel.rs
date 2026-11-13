@@ -28,7 +28,7 @@ use harnix_ext::engine::ToolSpec;
 use harnix_ext::{codes, Access, Call, CallMeta, DescriptorBuilder, ExtId, ExtensionDescriptor, MethodHandler, PackageCarrier, RpcError, Trust};
 use harnix_host_api::{AdoptedEngine, ExtensionHandle, Installed, TopicSink};
 use harnix_package::acquire::{internal, refused};
-use harnix_package::egress::{Egress, Request};
+use harnix_package::egress::{self, Egress, Request};
 use harnix_package::manifest::Manifest;
 use harnix_wasm_port::rpc::{ControlClient, Wire};
 use harnix_wasm_port::socket::{Answer, Hello, Inbound, KernelAnswer, SocketWire, HELLO};
@@ -43,6 +43,10 @@ use tokio::sync::{mpsc, watch};
 use crate::registry::Registry;
 use harnix_carrier_shared::{McpEndpoint, UiFiles};
 use harnix_carrier_shared::sync::lock;
+
+/// What a process says, as the audit names a refusal of it.
+const REGISTER: &str = "proc.register";
+const FETCH: &str = "proc.fetch";
 
 /// A `[[tool]]`, as the port carries it.
 pub(crate) fn declared_tool(t: &harnix_package::manifest::Tool) -> ToolDef {
@@ -91,14 +95,20 @@ pub(crate) fn declared(manifest: &Manifest, digest: &str) -> Registration {
     }
 }
 
-/// How what a process registered is not within what was registered for it, if it is not.
-pub(crate) fn exceeds(expected: &Registration, got: &Registration) -> Option<String> {
+/// How what a process registered is not within what was registered for it, if it is not: which
+/// check it failed, as the audit records it, and why.
+pub(crate) fn exceeds(expected: &Registration, got: &Registration) -> Option<(&'static str, String)> {
     if got.app != expected.app {
-        return Some(format!("it registered `{}`, and it is `{}`", got.app, expected.app));
+        return Some(("another package's registration", format!("it registered `{}`, and it is `{}`", got.app, expected.app)));
     }
     if got.digest != expected.digest {
-        return Some("its manifest is not the one consented to (its digest differs)".into());
+        return Some(("not the manifest consented to", "its manifest is not the one consented to (its digest differs)".into()));
     }
+    past(expected, got).map(|why| ("past its consent", why))
+}
+
+/// A name a process registered that its manifest does not declare, or opened wider.
+fn past(expected: &Registration, got: &Registration) -> Option<String> {
     for m in &got.methods {
         match expected.methods.iter().find(|e| e.name == m.name) {
             None => return Some(format!("it registered the method `{}`, which its manifest does not declare", m.name)),
@@ -403,7 +413,11 @@ impl Answer for ProductEnd {
         told.hello_seen.notify_waiters();
         match answer {
             Ok(_) => Ok(json!({})),
-            Err(why) => Err(Hello::refused(why)),
+            Err(why) => {
+                tracing::warn!(package = %self.connection.app, %why, "an extension process's hello was refused");
+                self.connection.handle.refused(HELLO, "not a process of this build for it");
+                Err(Hello::refused(why))
+            }
         }
     }
 
@@ -419,8 +433,9 @@ impl Kernel for Connection {
     /// Within what the product registered for it, with the digest consented to — or refused, and
     /// the process ended.
     async fn register(&self, _meta: CallMeta, r: Registration) -> Result<(), RpcError> {
-        if let Some(why) = exceeds(&self.expected, &r) {
+        if let Some((check, why)) = exceeds(&self.expected, &r) {
             tracing::warn!(package = %self.app, %why, "an extension process registered what was not consented to; ending it");
+            self.handle.refused(REGISTER, check);
             self.told.violation.send_replace(Some(why.clone()));
             return Err(refused(format!("`{}`: {why}", self.app)));
         }
@@ -467,8 +482,14 @@ impl Kernel for Connection {
             Some(body) => Some(base64::engine::general_purpose::STANDARD.decode(body).map_err(|e| RpcError::invalid_params(e.to_string()))?),
             None => None,
         };
+        if let Err(why) = egress::allowed(&self.net, &f.url) {
+            // Its own host checks first: a request past it is a process not to be taken at its word.
+            tracing::warn!(package = %self.app, %why, "an extension process asked for a host outside its `net`");
+            self.handle.refused(FETCH, "a host outside its net");
+            return Err(refused(why));
+        }
         let request = Request { method: f.method, url: f.url, headers: f.headers, body };
-        let response = self.egress.send_for(&self.net, request).await.map_err(refused)?;
+        let response = self.egress.send(request).await.map_err(refused)?;
         Ok(Fetched {
             status: response.status,
             headers: response.headers,
@@ -547,18 +568,20 @@ mod tests {
 
         let mut more = expected.clone();
         more.methods.push(MethodDecl { name: "wipe".into(), description: String::new(), subjects: vec!["device".into()] });
-        assert!(exceeds(&expected, &more).unwrap().contains("`wipe`"));
+        assert!(exceeds(&expected, &more).unwrap().1.contains("`wipe`"));
         let mut wider = expected.clone();
         wider.methods[0].subjects.push("module".into());
-        assert!(exceeds(&expected, &wider).unwrap().contains("opened the method `add`"));
+        assert!(exceeds(&expected, &wider).unwrap().1.contains("opened the method `add`"));
         let mut calls = expected.clone();
         calls.calls.push("harnix.session.delete".into());
-        assert!(exceeds(&expected, &calls).unwrap().contains("harnix.session.delete"));
+        assert!(exceeds(&expected, &calls).unwrap().1.contains("harnix.session.delete"));
         let mut other = expected.clone();
         other.digest = "d2".into();
-        assert!(exceeds(&expected, &other).unwrap().contains("digest"));
+        assert!(exceeds(&expected, &other).unwrap().1.contains("digest"));
+        assert_eq!(exceeds(&expected, &other).unwrap().0, "not the manifest consented to");
+        assert_eq!(exceeds(&expected, &more).unwrap().0, "past its consent");
         let mut someone = expected.clone();
         someone.app = "acme.other".into();
-        assert!(exceeds(&expected, &someone).unwrap().contains("acme.other"));
+        assert!(exceeds(&expected, &someone).unwrap().1.contains("acme.other"));
     }
 }

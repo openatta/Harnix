@@ -23,7 +23,7 @@ use harnix_ext::engine::ToolSpec;
 use harnix_ext::{Access, Call, CallMeta, DescriptorBuilder, ExtId, ExtensionContext, MethodHandler, PackageCarrier, Trust};
 use harnix_host_api::{Availability, ExtensionHandle, HostServices, Installed, TopicSink};
 use harnix_package::acquire::{internal, refused};
-use harnix_package::egress::{Egress, Request};
+use harnix_package::egress::{self, Egress, Request};
 use harnix_wasm_port::{
     CallAs, Control, Fetch, Fetched, Kernel, MethodCall, Progress, Publish, Registration, Subscription, TopicValue, TurnChain,
     TurnRef,
@@ -84,6 +84,17 @@ impl CarrierKernel {
 
     pub fn forget(&self, app: &str) {
         lock(&self.pending).remove(app);
+    }
+
+    /// Whether `app`, whose `net` is `net`, may send `url`. Its VM checks first: one past it is
+    /// on the record as refused.
+    pub(crate) fn allowed(&self, app: &str, net: &[String], url: &str) -> Result<(), String> {
+        let Err(why) = egress::allowed(net, url) else { return Ok(()) };
+        tracing::warn!(package = %app, %why, "a package's request past its VM's check of `net`");
+        if let Ok(handle) = self.handle(app) {
+            handle.refused("proc.fetch", "a host outside its net");
+        }
+        Err(why)
     }
 
     pub(crate) fn handle(&self, app: &str) -> Result<ExtensionHandle, RpcError> {
@@ -272,12 +283,13 @@ impl Kernel for CarrierKernel {
     /// A package's request, sent only to the hosts its `net` lists: decided here.
     async fn fetch(&self, _meta: CallMeta, f: Fetch) -> Result<Fetched, RpcError> {
         let net = self.registry.net(&f.app).ok_or_else(|| refused(format!("`{}` is not running", f.app)))?;
+        self.allowed(&f.app, &net, &f.url).map_err(refused)?;
         let body = match f.body_b64 {
             Some(body) => Some(base64::engine::general_purpose::STANDARD.decode(body).map_err(|e| RpcError::invalid_params(e.to_string()))?),
             None => None,
         };
         let request = Request { method: f.method, url: f.url, headers: f.headers, body };
-        let response = self.egress.send_for(&net, request).await.map_err(refused)?;
+        let response = self.egress.send(request).await.map_err(refused)?;
         Ok(Fetched {
             status: response.status,
             headers: response.headers,

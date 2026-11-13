@@ -464,6 +464,11 @@ impl RegisteredExtension for Registered {
         self.host.packages.frame(self.by.as_str(), self.id.as_str(), calls)
     }
 
+    fn refused(&self, what: &str, why: &'static str) {
+        let subject = harnix_contract::Subject::extension(self.id.clone());
+        self.host.router.audit().record_change(&subject, what, harnix_authz::Change::Refuse, Some(why));
+    }
+
     async fn withdraw(&self) -> Rpc<Withdrawn> {
         self.host.routes.set(self.id.as_str(), Vec::new());
         let gone = self.host.packages.withdraw(self.by.as_str(), self.id.as_str()).await?;
