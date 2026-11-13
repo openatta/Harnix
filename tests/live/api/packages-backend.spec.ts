@@ -5,7 +5,7 @@
  * it does as itself (`ext:example.showcase`) admitted against its manifest's `calls` and audited.
  *
  * The round trip a page makes (a method, the backend, its topic, back to the page) is here as a
- * client makes it; `ui/apps.spec.ts` makes it from the showcase's own interface module. A
+ * client makes it; `ui/packages.spec.ts` makes it from the showcase's own interface module. A
  * timeout, a crash and a withdrawal are each provoked on purpose and answered the way the design
  * says: the instance recycled, rebuilt once and then set aside, the names gone.
  *
@@ -24,7 +24,7 @@ import { type Backend, type TestClient, connect, expect, runTurn, sleep, test, t
 
 import { SHOWCASE_CHATS, SHOWCASE_ID, recalledOf, showcasePackage, startApps } from "./packages-host";
 
-const TAGS = { tag: ["@feature:apps", "@layer:api"] };
+const TAGS = { tag: ["@feature:packages", "@layer:api"] };
 
 const M = (name: string) => `${SHOWCASE_ID}.${name}`;
 const ME = `ext:${SHOWCASE_ID}`;

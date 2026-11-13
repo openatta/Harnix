@@ -4,7 +4,7 @@
  * new conversation — in an isolated frame, its in-page module listed as not running (only a
  * trusted publisher's runs in the page) — and the page reports nothing. Its space draws the
  * backend's board, in a frame too: it calls the backend's methods and draws what its topics push,
- * through the shell's bridge (`apps-frames.spec.ts` has the rest of the frames). The system
+ * through the shell's bridge (`packages-frames.spec.ts` has the rest of the frames). The system
  * space's Apps tab shows its VM. Disabled, the card is gone after a reload.
  */
 
@@ -14,7 +14,7 @@ import { type Backend, connect, expect, test } from "@harnix/testkit";
 import { SHOWCASE_ID, showcasePackage, startApps } from "../api/packages-host";
 import { open, watchConsole } from "./page";
 
-const TAGS = { tag: ["@feature:apps", "@layer:ui"] };
+const TAGS = { tag: ["@feature:packages", "@layer:ui"] };
 
 let backend: Backend;
 

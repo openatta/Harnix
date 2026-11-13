@@ -13,7 +13,7 @@ import { type Backend, ROOT, connect, expect, launchFor, startHarnix, test } fro
 
 import { newSession, open, say, watchConsole } from "./page";
 
-const TAGS = { tag: ["@feature:packages", "@layer:ui"] };
+const TAGS = { tag: ["@feature:plugins", "@layer:ui"] };
 
 let backend: Backend;
 

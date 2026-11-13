@@ -36,7 +36,7 @@ import { type Backend, type TestClient, connect, expect, modelMode, sleep, test,
 import { SHOWCASE_CHATS, SHOWCASE_ID, appsTools, readZip, recalledOf, showcasePackage, startApps, variant } from "./packages-host";
 import { appsTestApp } from "./packages-store";
 
-const TAGS = { tag: ["@feature:apps", "@layer:api"] };
+const TAGS = { tag: ["@feature:packages", "@layer:api"] };
 
 const M = (name: string) => `${SHOWCASE_ID}.${name}`;
 /** Installed as another extension, whose process says hello as the showcase. */

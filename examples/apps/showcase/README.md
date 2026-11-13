@@ -2,8 +2,8 @@
 
 One of everything a runtime application can bring to this Harnix, in one package — the sample
 the LIVE suites install (`tests/live/api/packages-runtime.spec.ts`, `tests/live/api/packages-backend.spec.ts`,
-`tests/live/ui/apps.spec.ts`, `tests/live/api/packages-inline.spec.ts`, `tests/live/ui/apps-inline.spec.ts`, and for its
-isolated interface `tests/live/api/packages-frames.spec.ts`, `tests/live/ui/apps-frames.spec.ts`), and the one the store
+`tests/live/ui/packages.spec.ts`, `tests/live/api/packages-inline.spec.ts`, `tests/live/ui/packages-inline.spec.ts`, and for its
+isolated interface `tests/live/api/packages-frames.spec.ts`, `tests/live/ui/packages-frames.spec.ts`), and the one the store
 suites sign, list in a mock store and install
 by name (`tests/live/api/packages-store.spec.ts`, `tests/live/ui/packages-store.spec.ts`).
 

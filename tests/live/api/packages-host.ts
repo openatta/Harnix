@@ -30,7 +30,7 @@ export const SHOWCASE_ID = "example.showcase";
 export const SHOWCASE_CHATS = "example.showcase.chats";
 
 /**
- * A release build in `target/apps`, unless the caller built it already (`HARNIX_BIN` says the
+ * A release build in `target/packages`, unless the caller built it already (`HARNIX_BIN` says the
  * caller built everything): cargo is asked every run, as testkit's `binary()` does.
  */
 export function buildBeside(pkg: string, args: string[]): void {

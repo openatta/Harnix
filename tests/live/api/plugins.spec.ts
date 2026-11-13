@@ -12,7 +12,7 @@
 import { METHOD_NOT_FOUND, REFUSED } from "@harnix/core/protocol";
 import { assert, defineSuite } from "@harnix/testkit";
 
-defineSuite("plugins", { feature: "packages" }, {
+defineSuite("plugins", { feature: "plugins" }, {
   tests: {
     "the shipped build can install packages": async ({ client }) => {
       // The engine's own list, asked directly: it is read-only, so it stays

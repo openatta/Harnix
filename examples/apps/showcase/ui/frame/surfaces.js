@@ -7,7 +7,7 @@
 // follows the shell's theme and language.
 //
 // The board's buttons each show one thing the bridge does; the LIVE suite
-// (`tests/live/ui/apps-frames.spec.ts`) presses them. "Crash" makes the page go away, as a crash
+// (`tests/live/ui/packages-frames.spec.ts`) presses them. "Crash" makes the page go away, as a crash
 // does: the shell's frame catches it and offers a reload.
 "use strict";
 

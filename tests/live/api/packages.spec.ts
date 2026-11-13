@@ -15,7 +15,7 @@ import { type Backend, type TestClient, connect, expect, test } from "@harnix/te
 
 import { startTestApp } from "./testapp";
 
-const TAGS = { tag: ["@feature:apps", "@layer:api"] };
+const TAGS = { tag: ["@feature:packages", "@layer:api"] };
 
 /** Install records as an installation leaves them, under `~/.harnix/ext/`. */
 function seedRecords(scratch: string): void {
