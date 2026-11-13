@@ -88,7 +88,7 @@ impl Host for AppState {
             let refused =
                 crate::host_of(&url).unwrap_or_else(|| "(not an http(s) URL)".to_string());
             return Err(format!(
-                "network access to `{refused}` is not in this application's `net` capability"
+                "network access to `{refused}` is not in this package's `net` capability"
             ));
         }
         let request = HttpRequest {

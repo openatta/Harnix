@@ -184,7 +184,7 @@ test.describe("an application with a backend", () => {
     for (const host of ["elsewhere.showcase.test", "127.0.0.1"]) {
       const elsewhere = await outcome(`http://${host}/ping`);
       expect(elsewhere.status).toBeUndefined();
-      expect(elsewhere.error).toContain(`\`${host}\` is not in this application's \`net\` capability`);
+      expect(elsewhere.error).toContain(`\`${host}\` is not in this package's \`net\` capability`);
     }
     expect(proxied).toHaveLength(1);
   });

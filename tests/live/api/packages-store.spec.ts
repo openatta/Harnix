@@ -175,7 +175,7 @@ test.describe("the store, trusted", () => {
       expect((await api.call("packages.list")).packages, name).toEqual([]);
       expect(existsSync(join(backend.state, "ext", SHOWCASE_ID)), name).toBe(false);
     }
-    expect((await api.refused("packages.install", { id: "example.nobody" }))?.message).toContain("no application `example.nobody`");
+    expect((await api.refused("packages.install", { id: "example.nobody" }))?.message).toContain("no package `example.nobody`");
     expect((await api.refused("packages.install", { id: SHOWCASE_ID, version: "9.9.9" }))?.message).toContain("no version 9.9.9");
     expect((await api.refused("packages.install", {}))?.code).toBe(INVALID_PARAMS);
     expect((await api.refused("packages.update", { id: SHOWCASE_ID }))?.message).toContain(`no package \`${SHOWCASE_ID}\` is installed`);

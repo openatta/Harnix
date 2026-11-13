@@ -139,7 +139,8 @@ fn principals(access: &Access) -> Vec<String> {
     out.push("kernel".to_string());
     if access.opens_every_extension() {
         out.push("module:*".to_string());
+    } else {
+        out.extend(access.extensions_listed().into_iter().map(|id| format!("module:{id}")));
     }
-    out.extend(access.extensions_listed().into_iter().map(|id| format!("module:{id}")));
     out
 }

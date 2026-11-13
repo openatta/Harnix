@@ -404,7 +404,7 @@ impl Store {
             .packages
             .iter()
             .find(|a| a.id == id)
-            .ok_or_else(|| format!("the store has no application `{id}`"))?;
+            .ok_or_else(|| format!("the store has no package `{id}`"))?;
         let chosen = match version {
             Some(wanted) => {
                 let v = app
@@ -690,7 +690,7 @@ mod tests {
         assert!(store
             .resolve(&index, "acme.nobody", None, fp)
             .unwrap_err()
-            .contains("no application"));
+            .contains("no package"));
     }
 
     #[test]
