@@ -1817,7 +1817,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P23"]
     fn c18_nothing_in_this_file_is_ignored() {
         let text = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/layering.rs")).unwrap();
         // The attribute, spelled so that this test does not count itself.
