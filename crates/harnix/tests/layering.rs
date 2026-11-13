@@ -1190,11 +1190,11 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P20"]
     fn l24_facade() {
-        // Always: the assembly, the extension interface and the engine's. Optionally: the
+        // Always: the assembly, the extension interface, the engine's, and the contract's types it
+        // re-exports (`caps`, `RpcError`, `Subject`). Optionally: the
         // engine, every first-party extension and host component, both carriers, the process.
-        let always = [ASSEMBLY, EXT, ENGINE_API];
+        let always = [ASSEMBLY, EXT, ENGINE_API, CONTRACT];
         for (dep, optional) in normal(FACADE) {
             if !is_harnix(&dep) || always.contains(&dep.as_str()) {
                 continue;
@@ -1227,7 +1227,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P20"]
     fn l25_the_process_library_is_the_facades_alone() {
         only_used_by(PROC, &[FACADE], &[FACADE]);
         assert!(member_names().iter().any(|n| n == PROC), "`{PROC}` does not exist (yet)");

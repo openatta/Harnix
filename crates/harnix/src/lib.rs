@@ -129,7 +129,22 @@ pub mod agix {
 
 pub use async_trait::async_trait;
 pub use axum;
-pub use harnix_assembly::{App, AppBuilder, ExtensionSlot, ExtensionStatus, HARNIX_VERSION, SHUTDOWN_GRACE};
+
+/// The application: [`App::builder`].
+pub struct App;
+
+impl App {
+    /// The builder of [`harnix_assembly::App`], with the `ext-proc` subcommand registered in a
+    /// build with the `proc` feature: a product that runs packages in their own process is
+    /// re-executed as `<product> ext-proc`, and needs no second binary or line in `main`.
+    pub fn builder() -> AppBuilder {
+        let builder = harnix_assembly::App::builder();
+        #[cfg(feature = "proc")]
+        let builder = builder.child_entry("ext-proc", harnix_proc::entry);
+        builder
+    }
+}
+pub use harnix_assembly::{AppBuilder, ExtensionSlot, ExtensionStatus, HARNIX_VERSION, SHUTDOWN_GRACE};
 pub use harnix_contract::s1::{caps, Capability, CapabilitySpec, ExtId};
 pub use harnix_contract::{codes, RpcError, Subject, MAIN_INSTANCE};
 pub use harnix_ext::{

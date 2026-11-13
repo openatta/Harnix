@@ -1384,7 +1384,6 @@ dependencies = [
  "async-trait",
  "axum",
  "harnix-assembly",
- "harnix-authz",
  "harnix-carrier-wasm",
  "harnix-contract",
  "harnix-engine",
@@ -1398,6 +1397,7 @@ dependencies = [
  "harnix-ext-plugins",
  "harnix-ext-settings",
  "harnix-ext-system",
+ "harnix-proc",
  "serde",
  "serde_json",
 ]
@@ -1815,7 +1815,6 @@ dependencies = [
  "harnix-ext-flow",
  "harnix-host-api",
  "harnix-package",
- "harnix-proc",
  "harnix-supervise",
  "harnix-wasm-port",
  "libc",
