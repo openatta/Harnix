@@ -133,7 +133,8 @@ test.describe("an application's inline points and its data", () => {
       { describe: "the card's entry to be pushed" },
     );
     expect(pushed.params.event.entry.event).toBe("card");
-    const { entries } = await api.call("engine.session.entries", carded);
+    // Claiming its space: on the process carrier the session is on the package's own engine.
+    const { entries } = await api.call("engine.session.entries", { ...carded, space: SHOWCASE_CHATS });
     expect(entries.map((e: any) => [e.ns, e.event])).toEqual([[`${SHOWCASE_ID}`, "card"]]);
     // Only through its `calls`: a session in which the entry is appended is still the session's.
     // Claiming no space of its own, the backend is refused before the session is even looked for.
