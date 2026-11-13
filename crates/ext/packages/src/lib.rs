@@ -10,8 +10,10 @@
 //!
 //! Each installed package is one directory beside the native extensions' (`records.rs`).
 //!
-//! - `packages.list` — every record (and the ones that do not read, with why), what the carrier
-//!   says of each, and every extension registered while the process runs, by whichever component.
+//! - `packages.list` — `packages`: every record, with what the carrier says of it (`runtime`) and
+//!   what its manifest describes (`ext`); `unreadable`: the directories that do not read, with
+//!   why; `registered`: every extension registered while the process runs, by whichever component;
+//!   `runtime`: the carrier, its engine's fingerprint and whether unsigned packages install.
 //! - `packages.installFile {path}` — install a local `.hxext`. A signed one (by the store, or by a
 //!   publisher the profile trusts) is verified and installed; an unsigned one only with
 //!   `[ext.packages] dev = true`, the developer's door and nobody else's. All or nothing: a step

@@ -30,7 +30,7 @@ fn package(dir: &Path, id: &str, calls: &[&str]) -> PathBuf {
 }
 
 fn listed<'a>(list: &'a Value, id: &str) -> Option<&'a Value> {
-    list["apps"].as_array()?.iter().find(|a| a["id"] == id)
+    list["packages"].as_array()?.iter().find(|a| a["id"] == id)
 }
 
 #[tokio::test]

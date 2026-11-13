@@ -1014,7 +1014,7 @@ IPDrun 已经有能对着 Harnix 协议跑的 React 对话组件，直接回流�
 
 **UI 包怎么进来。** 一个 UI 包导出它是哪个后端扩展的界面（`extension`）与一个 `register(r, host)`。`hello` 带着启用了的扩展，外壳在握手之后、首屏之前
 就对每个启用了的扩展的包调 `register`——**激活是同步的**，首屏不闪；之后 `harnix.ui` 推来变化：新启用的补调，被停用的扩展的注册按 owner 整批撤下、
-外壳重画。不写 `extension` 的入口（应用自己的）总是调。所以「这个产品有没有系统 space」只看后端有没有链 `system`、有没有 `[extensions] off` 它，
+外壳重画；`register` 可以返回一个函数，撤下时一起调（它订的主题、起的计时器随之停）。不写 `extension` 的入口（应用自己的）总是调。所以「这个产品有没有系统 space」只看后端有没有链 `system`、有没有 `[extensions] off` 它，
 界面一侧不另设开关。
 
 **Harnix 自带的 space 都只是用例和默认值**，来自第一方 UI 包：

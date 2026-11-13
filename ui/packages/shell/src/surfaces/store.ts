@@ -1,9 +1,8 @@
 /**
  * How this page's frames are doing: each surface's state, the failures counted against it, the
  * bridge requests refused to each application. Page-local by choice — the backend cannot see a
- * frame, and each window has frames of its own — so the system space's Apps tab reads it from
- * here (`status.tsx`) beside what the backend reports of the application's VM, and refusals go to
- * Settings → Diagnostics through the registry as well.
+ * frame, and each window has frames of its own — so Settings → Diagnostics reads it from here
+ * (`status.tsx`) beside each extension, and refusals go there through the registry as well.
  *
  * Failures: a frame that fails is shown as failed, with a reload. `ASIDE_AFTER` failures within
  * `ASIDE_WITHIN` set the surface aside: it is not made again until someone asks for it on purpose

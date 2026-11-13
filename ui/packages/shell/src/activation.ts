@@ -17,7 +17,8 @@ import type { App } from "./app.ts";
 export interface UiPackage {
   /** The backend extension it is the interface of; absent: always registered. */
   extension?: string;
-  register?: (registry: Registry, host: HostApi) => void;
+  /** May answer a `Dispose`, called when it is withdrawn: the topics it follows stop with it. */
+  register?: (registry: Registry, host: HostApi) => unknown;
 }
 
 /** Whether an enabled extension is drawn by this package: its `bundle`, else its own id. */

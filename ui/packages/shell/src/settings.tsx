@@ -7,12 +7,15 @@
  * like any application's. A section that throws loses its page, not the panel: the nav stays usable.
  */
 
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { Fragment, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { errorText } from "@harnix/core";
-import { Contributed, Glyph, SettingsReload, SettingsRow, SettingsSection, SettingsValue, localeChoice, setLocale, t, useRegistry, useT, type LocaleChoice } from "@harnix/react";
+import { Contributed, Glyph, SettingsReload, SettingsRow, SettingsSection, SettingsValue, localeChoice, setLocale, t, useRegistry, useT, type LocaleChoice, type SettingsNeed } from "@harnix/react";
 
 import type { App, ThemeChoice } from "./app.ts";
+import { APPS_LIST } from "./constants.ts";
 import { Body, CloseFoot } from "./dialogs.tsx";
+import { appsOf } from "./inline/index.tsx";
+import { PageFrames } from "./surfaces/status.tsx";
 
 let active = "general";
 
@@ -20,6 +23,12 @@ export function openSettings(app: App, section?: string): void {
   if (section) active = section;
   // Opened again while it is on top (`host.settings.open` from a section's frame), it is drawn anew in place.
   app.openModal({ title: t("settings.title"), wide: true, key: "settings", content: <Settings app={app} /> });
+}
+
+/** The settings at the section that covers `need` (`settings.section`'s `covers`); at the panel's
+ *  first when none does. */
+export function openSettingsFor(app: App, need: SettingsNeed): void {
+  openSettings(app, app.registry.at("settings.section").find((s) => s.covers?.includes(need))?.id ?? settingsSections(app)[0]);
 }
 
 /** The shell's own sections, around the registered ones. */
@@ -135,11 +144,30 @@ function General({ app }: { app: App }) {
           }}
         />
       </SettingsRow>
+      <PackagesMark app={app} />
     </>
   );
 }
 
-/** Every extension and whether it is enabled, as hello and `harnix.ui` say: which UI packages draw. */
+/**
+ * Whether the left column marks the spaces extension packages brought: the mark is the shell's,
+ * drawn for what `packages.list` says is installed, so the choice is here, where this page hosts
+ * packages at all.
+ */
+function PackagesMark({ app }: { app: App }) {
+  const t = useT();
+  const watch = appsOf(app);
+  useSyncExternalStore(watch.subscribe, watch.getVersion);
+  if (!app.snapshot.reachable.includes(APPS_LIST)) return null;
+  return (
+    <SettingsRow label={t("apps.mark")} hint={t("apps.markHint")}>
+      <input type="checkbox" data-testid="apps-mark-toggle" checked={watch.marked()} onChange={(e) => watch.setMarked(e.target.checked)} />
+    </SettingsRow>
+  );
+}
+
+/** Every extension and whether it is enabled, as hello and `harnix.ui` say: which UI packages draw;
+ *  and under it, what its frames on this page are doing. */
 function Extensions({ app }: { app: App }) {
   const t = useT();
   const extensions = useSyncExternalStore(app.subscribe, () => app.snapshot.extensions);
@@ -148,10 +176,13 @@ function Extensions({ app }: { app: App }) {
       <h3>{t("diag.extensions")}</h3>
       <div className="kv-table" data-testid="extensions">
         {extensions.map((e) => (
-          <div key={e.id} className="kv-row" data-extension={e.id} data-enabled={e.enabled}>
-            <code>{e.id}</code>
-            <span className="muted">{[e.carrier ?? "", e.trust, e.version ?? "", e.enabled ? "" : t("diag.extensionOff")].filter(Boolean).join(" · ")}</span>
-          </div>
+          <Fragment key={e.id}>
+            <div className="kv-row" data-extension={e.id} data-enabled={e.enabled}>
+              <code>{e.id}</code>
+              <span className="muted">{[e.carrier ?? "", e.trust, e.version ?? "", e.enabled ? "" : t("diag.extensionOff")].filter(Boolean).join(" · ")}</span>
+            </div>
+            <PageFrames ext={e.id} />
+          </Fragment>
         ))}
       </div>
     </>

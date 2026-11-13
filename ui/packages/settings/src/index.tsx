@@ -10,17 +10,19 @@
 
 import { useState, type ReactNode } from "react";
 import { errorText, type Hello } from "@harnix/core";
-import { Glyph, SettingsRow, SettingsSection, SettingsValue, t, useHello, useSettingsReload, useT, type HostApi, type Registry } from "@harnix/react";
+import { Glyph, SettingsRow, SettingsSection, SettingsValue, t, useHello, useSettingsReload, useT, type HostApi, type Registry, type SettingsNeed } from "@harnix/react";
 
 /** The backend extension this is the interface of. */
 export const extension = "settings";
 
 /** The sections, at `settings.section`, in this order. */
 export function register(r: Registry, host: HostApi): void {
-  const section = (id: string, label: string, render: () => ReactNode) => r.register("settings.section", { id, label: () => t(label), render }, extension);
+  const section = (id: string, label: string, render: () => ReactNode, covers?: SettingsNeed[]) =>
+    r.register("settings.section", { id, label: () => t(label), render, ...(covers ? { covers } : {}) }, extension);
   section("engine", "settings.engineDefaults", () => <EngineSettings host={host} only={["permission_mode", "memory_enabled", "allow_client_permission_override"]} />);
   section("scenes", "settings.nav.scenes", () => <Scenes host={host} />);
-  section("models", "settings.nav.models", () => <Models host={host} />);
+  // Where the shell sends a reader when a turn has no model to go to.
+  section("models", "settings.nav.models", () => <Models host={host} />, ["models"]);
   section("mcp", "settings.nav.mcp", () => <Mcp host={host} />);
 }
 

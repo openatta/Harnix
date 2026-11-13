@@ -172,13 +172,13 @@ test("its chats space's sessions are grouped as its backend answers", TAGS, asyn
   await expect(page.locator('#space-column [data-testid="space-group"]')).toHaveCount(0);
 });
 
-async function applications(page: Page): Promise<void> {
+async function applications(page: Page, section = "apps"): Promise<void> {
   await openSettings(page);
-  await settingsSection(page, "apps").click();
+  await settingsSection(page, section).click();
   await expect(page.getByTestId("settings-page")).toBeVisible();
 }
 
-test("its space carries the application mark, which the settings turn off and on", TAGS, async ({ page }) => {
+test("its space carries the application mark, which the general settings turn off and on", TAGS, async ({ page }) => {
   await open(page, backend.url);
   const mark = page.locator(`#side [data-space="${SHOWCASE_ID}"] [data-testid="space-app-mark"]`);
   await expect(mark).toBeVisible({ timeout: 15_000 });
@@ -186,7 +186,8 @@ test("its space carries the application mark, which the settings turn off and on
   // The product's own spaces carry none.
   await expect(page.locator('#side [data-space="sessions"] [data-testid="space-app-mark"]')).toHaveCount(0);
 
-  await applications(page);
+  // The mark is the shell's: its switch is in the shell's own section.
+  await applications(page, "general");
   const toggle = page.getByTestId("apps-mark-toggle");
   await expect(toggle).toBeChecked();
   await toggle.uncheck();
@@ -195,7 +196,7 @@ test("its space carries the application mark, which the settings turn off and on
   await open(page, backend.url);
   await expect(page.locator(`#side [data-space="${SHOWCASE_ID}"]`)).toBeVisible({ timeout: 15_000 });
   await expect(mark).toHaveCount(0);
-  await applications(page);
+  await applications(page, "general");
   await page.getByTestId("apps-mark-toggle").check();
   await expect(mark).toBeVisible();
 });
@@ -215,8 +216,10 @@ test("Settings → Applications shows its permissions, and clears what it keeps"
   expect(Number(await data.getAttribute("data-bytes"))).toBeGreaterThan(0);
 
   await row.getByTestId("app-clear").click();
-  const asked = page.getByTestId("app-clear-ask");
+  // The shell's confirmation, over the settings.
+  const asked = page.getByTestId("modal").filter({ has: page.getByTestId("confirm") });
   await expect(asked).toBeVisible();
+  await expect(asked).toContainText(/Clear|清/);
   // Escape closes the question, and only the question.
   await page.keyboard.press("Escape");
   await expect(asked).toHaveCount(0);
@@ -224,7 +227,7 @@ test("Settings → Applications shows its permissions, and clears what it keeps"
   expect((await withApi((api) => api.call(M("notes.list")))).notes.length).toBeGreaterThan(0);
 
   await row.getByTestId("app-clear").click();
-  await page.getByTestId("app-clear-ask-confirm").click();
+  await page.getByTestId("confirm").click();
   await expect(row.getByTestId("app-data")).toHaveAttribute("data-bytes", "0", { timeout: 15_000 });
   await expect(row.getByTestId("app-clear")).toBeDisabled();
   await expect(page.locator("#banner")).toContainText(/cleared|清掉了/);

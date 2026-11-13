@@ -47,7 +47,7 @@ test.describe("with [apps] enabled", () => {
 
   test("the install records are listed and switched on and off", TAGS, async () => {
     const listed = await api.call("packages.list");
-    expect(listed.apps).toEqual([
+    expect(listed.packages).toEqual([
       // A record written before signatures says nothing of them: unsigned, from a file. Without a
       // runtime nothing measures what it keeps.
       { id: "acme.notes", version: "1.2.0", title: "Notes", enabled: false, registered: false, trust: "unsigned", source: "file", data_bytes: null },
@@ -56,9 +56,9 @@ test.describe("with [apps] enabled", () => {
     expect(listed.registered).toEqual([]);
 
     expect(await api.call("packages.enable", { id: "acme.notes" })).toMatchObject({ id: "acme.notes", enabled: true });
-    expect((await api.call("packages.list")).apps[0].enabled).toBe(true);
+    expect((await api.call("packages.list")).packages[0].enabled).toBe(true);
     expect(await api.call("packages.disable", { id: "acme.notes" })).toMatchObject({ enabled: false, withdrawn: false });
-    expect((await api.call("packages.list")).apps[0].enabled).toBe(false);
+    expect((await api.call("packages.list")).packages[0].enabled).toBe(false);
 
     expect((await api.refused("packages.enable", { id: "nobody" }))?.code).toBe(INVALID_PARAMS);
     expect((await api.refused("packages.disable", { id: "../etc" }))?.code).toBe(INVALID_PARAMS);

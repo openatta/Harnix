@@ -1,8 +1,8 @@
-/** Which way the store's newest version is from the installed one: Settings → Applications offers going back only by name. */
+/** Which way the store's newest version is from the installed one: the packages' settings section offers going back only by name. */
 
 import { describe, expect, it } from "vitest";
 
-import { older } from "../src/apps";
+import { older } from "../src/settings.tsx";
 
 describe("older", () => {
   it("compares part by part as numbers", () => {

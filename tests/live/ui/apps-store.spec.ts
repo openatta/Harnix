@@ -40,10 +40,13 @@ async function applications(page: Page): Promise<void> {
   await expect(page.getByTestId("settings-page")).toBeVisible();
 }
 
+/** The shell's dialog the disclosure is drawn in: its title, what it asks for, its buttons. */
+const disclosureDialog = (page: Page) => page.getByRole("dialog").filter({ has: page.getByTestId("app-disclosure") });
+
 const listed = async () => {
   const api = await connect(backend, { topology: topology() });
   try {
-    return (await api.call("packages.list")).apps as any[];
+    return (await api.call("packages.list")).packages as any[];
   } finally {
     api.close();
   }
@@ -59,12 +62,12 @@ test("the store's application is installed through its disclosure, and only thro
   await expect(page.getByTestId("app-installed")).toHaveCount(0);
 
   await offered.getByTestId("app-install").click();
-  const disclosure = page.getByTestId("app-disclosure");
+  const disclosure = disclosureDialog(page);
   await expect(disclosure).toBeVisible();
-  // A modal over the settings, every capability a sentence.
-  await expect(disclosure).toHaveAttribute("role", "dialog");
+  // The shell's dialog over the settings, every capability a sentence; the focus in it, not on "Install".
   await expect(disclosure).toHaveAttribute("aria-modal", "true");
-  await expect(disclosure).toBeFocused();
+  await expect(disclosure.locator(":focus")).toHaveCount(1);
+  await expect(disclosure.getByTestId("app-consent")).not.toBeFocused();
   await expect(disclosure).toContainText(/Showcase 0\.2\.0/);
   await expect(disclosure.locator('[data-capability="net"]').first()).toContainText(/Reach the host|访问主机/);
   await expect(disclosure.locator('[data-capability="calls"]', { hasText: "sessions.status" })).toContainText(/Watch the topic|订阅主题/);
@@ -134,7 +137,7 @@ test("an update shows only what it adds, and waits for its own consent", TAGS, a
   await expect(installed).toHaveAttribute("data-version", "0.1.0");
   await expect(installed.getByTestId("app-update")).toContainText("0.2.0");
   await installed.getByTestId("app-update").click();
-  const disclosure = page.getByTestId("app-disclosure");
+  const disclosure = disclosureDialog(page);
   await expect(disclosure).toContainText(/0\.1\.0.*0\.2\.0/);
   // What 0.1.0 already had is not asked for again.
   await expect(disclosure.locator("[data-capability]")).toHaveCount(3);
@@ -165,7 +168,7 @@ test("the store's newest older than the installed: going back is named as such, 
     await expect(back).toHaveAttribute("data-direction", "back");
     await expect(back).toContainText(/Go back to 0\.1\.0|回到 0\.1\.0/);
     await back.click();
-    const disclosure = page.getByTestId("app-disclosure");
+    const disclosure = disclosureDialog(page);
     // The row that says what going back means, and nothing done until it is consented to.
     await expect(disclosure.getByTestId("app-downgrade")).toContainText(/0\.2\.0 → 0\.1\.0/);
     await expect(disclosure.getByTestId("app-downgrade")).toContainText(/older version|旧版本/);
@@ -182,9 +185,9 @@ test("uninstalled from its row: gone, and on offer again", TAGS, async ({ page }
   await open(page, backend.url);
   await applications(page);
   await page.locator(`[data-testid="app-installed"][data-app="${SHOWCASE_ID}"]`).getByTestId("app-uninstall").click();
-  // Asked in a modal of its own over the settings.
-  await expect(page.getByTestId("app-uninstall-ask")).toContainText(/Its data goes with it|数据会一起删除/);
-  await page.getByTestId("app-uninstall-ask-confirm").click();
+  // Asked in the shell's confirmation over the settings.
+  await expect(page.getByTestId("modal").filter({ has: page.getByTestId("confirm") })).toContainText(/Its data goes with it|数据会一起删除/);
+  await page.getByTestId("confirm").click();
   await expect(page.getByTestId("app-installed")).toHaveCount(0, { timeout: 30_000 });
   await expect(page.locator(`[data-testid="app-offered"][data-app="${SHOWCASE_ID}"]`).getByTestId("app-install")).toBeVisible();
   expect(await listed()).toEqual([]);

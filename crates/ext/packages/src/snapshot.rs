@@ -72,7 +72,7 @@ pub(crate) async fn snapshot(state: &State, fresh: bool) -> Value {
             "source": r.parts.get("source").cloned().unwrap_or(json!("file")),
             "data_bytes": kept,
             "runtime": status,
-            "app": described(state, r, &app_dir),
+            "ext": described(state, r, &app_dir),
         });
         if let Some(why) = &r.revoked {
             entry["revoked"] = json!(why);
@@ -94,7 +94,7 @@ pub(crate) async fn snapshot(state: &State, fresh: bool) -> Value {
     }
     json!({
         "dir": state.dir.display().to_string(),
-        "apps": packages,
+        "packages": packages,
         "unreadable": unreadable,
         "registered": registered,
         "runtime": runtime(state),

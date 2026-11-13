@@ -33,7 +33,7 @@ import { referencesIn, sessionMentions, useCommands, withContributed } from "./c
 import { followEnvelopes } from "./envelope.tsx";
 import { sessionMenu } from "./dialogs.tsx";
 import { MenuHost, menuBelow } from "./Menu.tsx";
-import { openSettings } from "./settings.tsx";
+import { openSettingsFor } from "./settings.tsx";
 import { Sidebar, spacesOf } from "./Sidebar.tsx";
 import { ActionButtons } from "./actions.tsx";
 
@@ -412,7 +412,7 @@ function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app:
   );
   const send = async (message: string, attachments: unknown[]): Promise<boolean> => {
     if (!app.modelReady()) {
-      openSettings(app, "models");
+      openSettingsFor(app, "models");
       return false;
     }
     try {
@@ -507,8 +507,8 @@ function modelParams(option: ModelOption): Record<string, string> {
 
 /** What the model menu offers: the default model first, then each provider's default and allowed models. */
 function useModels(app: App): ModelOption[] {
-  const providers = useSyncExternalStore(app.subscribe, () => app.snapshot.providers);
   const hello = useSyncExternalStore(app.subscribe, () => app.snapshot.hello);
+  const providers = hello?.engine?.providers;
   return useMemo(() => {
     const out: ModelOption[] = [];
     const seen = new Set<string>();
@@ -536,7 +536,7 @@ function ModelSetupNote({ app }: { app: App }) {
     <div className="hx-cmp-note hx-cmp-note-warn model-setup" data-testid="model-setup">
       <Glyph name="key" className="glyph" />
       <span className="text">{t("model.setupNeeded")}</span>
-      <button type="button" className="btn sm primary" data-testid="model-setup-open" onClick={() => openSettings(app, "models")}>
+      <button type="button" className="btn sm primary" data-testid="model-setup-open" onClick={() => openSettingsFor(app, "models")}>
         {t("model.setupAction")}
       </button>
     </div>

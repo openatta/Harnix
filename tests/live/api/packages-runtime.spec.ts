@@ -114,7 +114,7 @@ carrier = "spawn"
     expect((await api.refused("packages.installFile", { path: join(scratch, "missing.hxext") }))?.code).toBe(REFUSED);
     expect((await api.refused("packages.installFile", {}))?.message).toContain("missing path");
     const listed = await api.call("packages.list");
-    expect(listed.apps).toEqual([]);
+    expect(listed.packages).toEqual([]);
     expect(listed.runtime).toMatchObject({ fingerprint, dev: true });
     const plugins = (await api.call("engine.plugin.list")).plugins.map((p: any) => p.name);
     expect(plugins).not.toContain("example-showcase");
@@ -130,7 +130,7 @@ carrier = "spawn"
       agent: { package: "example-showcase", instances: ["main"] },
       skills: { main: ["showcase-tour"] },
     });
-    const listed = (await api.call("packages.list")).apps;
+    const listed = (await api.call("packages.list")).packages;
     expect(listed).toHaveLength(1);
     expect(listed[0]).toMatchObject({ id: SHOWCASE_ID, enabled: true, runtime: { state: "running" } });
     expect(listed[0].runtime.tools.map((t: any) => t.name).sort()).toEqual([...TOOLS].sort());
@@ -243,7 +243,7 @@ carrier = "spawn"
     await sleep(1000);
     const after = api.events.filter((f) => f.method === "harnix.topic" && f.params.value?.session_id === s.session_id).length;
     expect(after, "the call went on after the turn was cancelled").toBe(seen);
-    const runtime = (await api.call("packages.list")).apps[0].runtime;
+    const runtime = (await api.call("packages.list")).packages[0].runtime;
     expect(runtime.state).toBe("running");
     expect(runtime.health.consecutive_faults).toBe(0);
   });
@@ -263,7 +263,7 @@ carrier = "spawn"
     expect(settled.params.error, JSON.stringify(settled.params.error)).toBeUndefined();
     expect(asks.length, "each call asked").toBeGreaterThanOrEqual(3);
     expect(api.text(s.session_id)).toContain("The showcase's crash tool failed three times.");
-    const runtime = (await api.call("packages.list")).apps[0].runtime;
+    const runtime = (await api.call("packages.list")).packages[0].runtime;
     expect(runtime.state).toBe("running");
     expect(Object.keys(runtime.health.tools_aside)).toEqual(["crash"]);
     expect(runtime.health.tools_aside.crash).toContain("3 consecutive faults");
@@ -376,7 +376,7 @@ carrier = "spawn"
   test("uninstalled: everything it brought goes, its data with it", TAGS, async () => {
     const removed = await api.call("packages.uninstall", { id: SHOWCASE_ID });
     expect(removed).toMatchObject({ id: SHOWCASE_ID, uninstalled: true, removed: { agent: { package: "example-showcase" } } });
-    expect((await api.call("packages.list")).apps).toEqual([]);
+    expect((await api.call("packages.list")).packages).toEqual([]);
     expect((await api.call("engine.plugin.list")).plugins.map((p: any) => p.name)).not.toContain("example-showcase");
     expect(JSON.stringify(await api.call("engine.commands.list", { instance: "main" }))).not.toContain("showcase-tour");
     const { text, tools } = await context(api);
@@ -447,7 +447,7 @@ test.describe("an application, with [ext.packages] dev off", () => {
     const error = await api.refused("packages.installFile", { path: showcasePackage().path });
     expect(error?.code).toBe(REFUSED);
     expect(error?.message).toContain("[ext.packages] dev = true");
-    expect((await api.call("packages.list")).apps).toEqual([]);
+    expect((await api.call("packages.list")).packages).toEqual([]);
     expect((await api.call("packages.list")).runtime).toMatchObject({ dev: false });
   });
 });
@@ -482,8 +482,8 @@ test.describe("its event hook, as far as its manifest's [events]", () => {
 
   test("own, the default: another's tool call is not its to see, and the installer is told nothing of it", TAGS, async () => {
     await api.call("packages.installFile", { path: showcasePackage().path });
-    const app = (await api.call("packages.list")).apps[0].app;
-    expect(app.lines.map((l: any) => l.capability)).not.toContain("events");
+    const described = (await api.call("packages.list")).packages[0].ext;
+    expect(described.lines.map((l: any) => l.capability)).not.toContain("events");
     const out = await bash();
     expect(out).toContain("harnix-fixture");
     expect(out).not.toContain("refused by the application");
@@ -496,7 +496,7 @@ test.describe("its event hook, as far as its manifest's [events]", () => {
       entries.set("harnix-ext.toml", Buffer.from(manifest.replace('net = ["api.showcase.test"]', 'net = ["127.0.0.1", "api.showcase.test"]')));
     });
     await api.call("packages.installFile", { path: local });
-    const lines = (await api.call("packages.list")).apps[0].app.lines;
+    const lines = (await api.call("packages.list")).packages[0].ext.lines;
     expect(lines).toContainEqual({ capability: "net_local", value: "127.0.0.1" });
     expect(lines).toContainEqual({ capability: "net", value: "api.showcase.test" });
     await api.call("packages.uninstall", { id: SHOWCASE_ID });
@@ -508,8 +508,8 @@ test.describe("its event hook, as far as its manifest's [events]", () => {
       entries.set("harnix-ext.toml", Buffer.from(manifest.replace('[events]\ntools = "own"', '[events]\ntools = "all"')));
     });
     await api.call("packages.installFile", { path: all });
-    const app = (await api.call("packages.list")).apps[0].app;
-    expect(app.lines).toContainEqual({ capability: "events", value: "all" });
+    const described = (await api.call("packages.list")).packages[0].ext;
+    expect(described.lines).toContainEqual({ capability: "events", value: "all" });
     const out = await bash();
     expect(out).toContain(`refused by the application \`${SHOWCASE_ID}\``);
     expect(out).not.toContain("harnix-fixture\\n");

@@ -276,7 +276,7 @@ impl Backend for Showcase {
             }
             "overreach" => {
                 // Its `calls` do not list this; the answer is the refusal, as the backend got it.
-                match host::call("harnix.apps.uninstall", &json!({"id": ID}).to_string()) {
+                match host::call("packages.uninstall", &json!({"id": ID}).to_string()) {
                     Ok(answer) => json!({"refused": false, "answer": answer}),
                     Err(refusal) => json!({"refused": true, "message": refusal}),
                 }

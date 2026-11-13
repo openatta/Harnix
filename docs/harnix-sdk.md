@@ -1182,7 +1182,7 @@ export function register(r: Registry, host: NestHost): void
 | `flow.block` | **`id`**、**`match(block)`**、**`render(block)`**：对话流里的块，先于内建的匹配 |
 | `sidebar.group` | **`id`**、**`group(sessions)`** → `[{ key, title, hint?, workspace?, rows }]`、`label()` |
 | `command` | **`id`**、**`complete(query, ctx?)`** → `[{ replacement, label, description?, source?, run?(ctx) }]`、`trigger: "/" \| "@"`（默认 `/`；`@` 的候选排在外壳自己的文件、会话候选之后）。`ctx = { space, session }`；带 `run` 的候选选中即执行、不插入 |
-| `settings.section` | **`id`**、**`label()`**、**`render()`** |
+| `settings.section` | **`id`**、**`label()`**、**`render()`**、`covers: ["models"]`（外壳要人去配模型时——一轮没有模型可用——打开 `covers` 里有它的那一节；没有一节写，就开设置的第一节） |
 
 `space` 的可选函数怎么用（外壳每次画时读，抛错只丢那一样、诊断页记一条）：
 

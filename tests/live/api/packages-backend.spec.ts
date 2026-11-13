@@ -32,7 +32,7 @@ const ME = `ext:${SHOWCASE_ID}`;
 type Session = { instance: string; session_id: string };
 
 const audit = async (api: TestClient) => (await api.call("harnix.audit", { limit: 1000 })).entries as any[];
-const runtime = async (api: TestClient) => (await api.call("packages.list")).apps.find((a: any) => a.id === SHOWCASE_ID).runtime;
+const runtime = async (api: TestClient) => (await api.call("packages.list")).packages.find((a: any) => a.id === SHOWCASE_ID).runtime;
 const topicValues = (api: TestClient, topic: string) =>
   api.events.filter((f) => f.method === "harnix.topic" && f.params.topic === topic).map((f) => f.params.value);
 
@@ -215,7 +215,7 @@ test.describe("an application with a backend", () => {
     await expect
       .poll(() => {
         const last = topicValues(api, "packages.list").at(-1);
-        return JSON.stringify(last?.apps?.find((a: any) => a.id === SHOWCASE_ID)?.runtime?.calls?.refused ?? []);
+        return JSON.stringify(last?.packages?.find((a: any) => a.id === SHOWCASE_ID)?.runtime?.calls?.refused ?? []);
       }, { timeout: 10_000 })
       .toContain("packages.uninstall");
   });

@@ -68,6 +68,12 @@ export interface HelloInstance {
   protocol_version?: number | null;
 }
 
+/** The engine's model providers as `hello` tells them: their models only, nothing of how each is reached. */
+export interface EngineProviders {
+  providers: Record<string, { default_model?: string | null; models?: string[] }>;
+  default_provider?: string | null;
+}
+
 export interface Hello {
   protocol_version: number;
   contrib_api_version: number;
@@ -83,6 +89,9 @@ export interface Hello {
     /** The scene a session that names none is created in. */
     scene?: string | null;
     has_credentials?: boolean;
+    /** What a session can be switched to: each provider's default model and the others it allows,
+     *  and the default provider. Null when the engine could not say. */
+    providers?: EngineProviders | null;
     [key: string]: unknown;
   };
   scenes: Scene[];

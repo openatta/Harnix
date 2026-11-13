@@ -19,7 +19,6 @@ import modules from "virtual:harnix-modules";
 
 import { activate } from "./activation.ts";
 import { App } from "./app.ts";
-import { registerApps } from "./apps-tab.tsx";
 import { registerBuiltins } from "./builtins.tsx";
 import { hostFor } from "./host.ts";
 import { followModules } from "./packages.ts";
@@ -71,7 +70,6 @@ app.start(
   (a) => {
     registerBuiltins(a);
     activate(a, host, modules, a.snapshot.extensions);
-    registerApps(a);
   },
   async (a, view) => {
     activate(a, host, modules, view.extensions);

@@ -1,38 +1,16 @@
 /**
- * The runtime applications in the console of the process (`system.console.tab`, where a space
+ * The extension packages in the console of the process (`system.console.tab`, where a space
  * defines it): the ones this process hosts, and how each one's VM is doing — its backend up or
  * down, how often it was recycled or rebuilt, its faults, its memory and storage against their
  * limits, the calls into its methods and their errors, and the calls it made as itself that were
- * refused. With the applications' settings section (`apps.tsx`), the shell's until the packages
- * extension's UI package draws them.
+ * refused. What this page's frames of it do is the shell's, in its diagnostics.
  *
- * Fed by the `apps` module's topic `packages.list` (the same value as `packages.list`, pushed
- * when it changes), so it stays current without asking. Offered only where that module runs:
- * `[apps] enabled`.
+ * Fed by the topic `packages.list` (the same value as `packages.list`, pushed when it changes), so
+ * it stays current without asking.
  */
 
 import { Fragment, useEffect, useState } from "react";
-import { t, useT, megabytes, rowKeys } from "@harnix/react";
-
-import type { App } from "./app.ts";
-import { AppsSettings } from "./apps.tsx";
-import { APPS_LIST, APPS_TOPIC } from "./constants.ts";
-import { SurfaceCount, SurfaceDetail } from "./surfaces/status.tsx";
-import { topicsOf } from "./topics.ts";
-
-/** The applications' settings section and console tab, where this process hosts them. Registered
- *  after the UI packages, so the section comes after theirs. A console nobody defines drops the
- *  tab quietly: the settings section is where the applications are then. */
-export function registerApps(app: App): void {
-  if (!appsOffered(app)) return;
-  app.registry.register("settings.section", { id: "apps", label: () => t("settings.nav.apps"), render: () => <AppsSettings app={app} /> }, "builtin");
-  app.registry.register(
-    "system.console.tab",
-    { id: "apps", order: 30, title: () => t("system.apps"), about: () => t("system.about.apps"), render: () => <AppsTab app={app} /> },
-    "builtin",
-    { orElse: () => undefined },
-  );
-}
+import { megabytes, rowKeys, useT, type HostApi } from "@harnix/react";
 
 interface Health {
   world?: "tools" | "backend";
@@ -80,14 +58,9 @@ interface AppRow {
   runtime?: Runtime;
 }
 
-interface AppsList {
-  apps: AppRow[];
+interface PackagesList {
+  packages: AppRow[];
   unreadable?: { dir: string; reason: string }[];
-}
-
-/** Whether this process hosts applications: then the tab is there. */
-export function appsOffered(app: App): boolean {
-  return app.snapshot.reachable.includes(APPS_LIST);
 }
 
 /** What the row's dot says: running, idle with its backend stopped until the next call, set aside
@@ -97,13 +70,13 @@ function appState(row: AppRow): Runtime["state"] {
   return row.runtime?.state ?? "stopped";
 }
 
-export function AppsTab({ app }: { app: App }) {
+export function PackagesTab({ host }: { host: HostApi }) {
   const tr = useT();
-  const [list, setList] = useState<AppsList | undefined>(undefined);
+  const [list, setList] = useState<PackagesList | undefined>(undefined);
   const [open, setOpen] = useState<string | null>(null);
-  useEffect(() => topicsOf(app.conn).subscribe(APPS_TOPIC, {}, (value) => setList((value as AppsList | null) ?? undefined)), [app]);
+  useEffect(() => host.subscribe("packages.list", {}, (value) => setList((value as PackagesList | null) ?? undefined)), [host]);
   if (!list) return <div className="system-pane" data-testid="system-apps">{tr("system.apps.loading")}</div>;
-  if (!list.apps.length) {
+  if (!list.packages.length) {
     return (
       <div className="system-pane" data-testid="system-apps">
         <div className="muted" data-testid="system-apps-empty">{tr("system.apps.none")}</div>
@@ -111,7 +84,7 @@ export function AppsTab({ app }: { app: App }) {
     );
   }
   const dot: Record<string, string> = { running: "running", hibernating: "cold", faulted: "waiting", stopped: "cold", failed: "waiting" };
-  // Six columns, each a word or two: what an application is and how it answers. Its VM's figures
+  // Five columns, each a word or two: what a package is and how it answers. Its VM's figures
   // (recycles, faults, memory, storage) are in the row opened, which has the room for them.
   return (
     <div className="system-pane system-apps" data-testid="system-apps">
@@ -124,11 +97,10 @@ export function AppsTab({ app }: { app: App }) {
               <th>{tr("system.apps.backend")}</th>
               <th>{tr("system.apps.calls")}</th>
               <th>{tr("system.apps.refused")}</th>
-              <th>{tr("system.apps.interface")}</th>
             </tr>
           </thead>
           <tbody data-rows="">
-            {list.apps.map((row) => {
+            {list.packages.map((row) => {
               const state = appState(row);
               const rt = row.runtime;
               const h = rt?.health ?? undefined;
@@ -157,13 +129,10 @@ export function AppsTab({ app }: { app: App }) {
                     <td data-field="backend">{backend ? tr(`system.apps.backend.${backend}`) : "—"}</td>
                     <td data-field="calls">{rt?.calls ? `${rt.calls.calls} · ${rt.calls.errors}` : "—"}</td>
                     <td data-field="refused">{refused.length}</td>
-                    <td data-field="surfaces">
-                      <SurfaceCount app={row.id} />
-                    </td>
                   </tr>
                   {shown ? (
                     <tr className="app-detail" data-testid="system-app-detail" data-app={row.id}>
-                      <td colSpan={6}>
+                      <td colSpan={5}>
                         {h ? (
                           <dl className="facts" data-testid="system-app-vm">
                             <div className="fact" data-field="recycles"><dt>{tr("system.apps.recycles")}</dt><dd>{`${h.recycles ?? 0} / ${h.rebuilds ?? 0}`}</dd></div>
@@ -188,7 +157,6 @@ export function AppsTab({ app }: { app: App }) {
                         ) : (
                           <div className="muted">{tr("system.apps.noRefusals")}</div>
                         )}
-                        <SurfaceDetail app={row.id} />
                       </td>
                     </tr>
                   ) : null}
