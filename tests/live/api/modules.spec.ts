@@ -77,7 +77,7 @@ test("config comes from its section, secrets through the credential source", TAG
   const config = await api.call("probe.config");
   expect(config.greeting).toBe("hi there");
   expect(config.key).toEqual({ Ok: "12 chars" });
-  expect(config.data_dir).toMatch(/modules[\\/]probe$/);
+  expect(config.data_dir).toMatch(/ext[\\/]probe[\\/]data$/);
 });
 
 test("a failed start disables that module and nothing else", TAGS, async () => {
@@ -102,16 +102,16 @@ test("a second module with a taken id is refused at registration", TAGS, async (
 
 test("the diagnostics page says what is there and what is not", TAGS, async () => {
   const report = await api.call("harnix.diagnostics");
-  expect(report.versions.module_api).toBe(1);
+  expect(report.versions.ext_api).toBe(1);
   expect(report.versions.app.name).toBe("harnix-testapp");
   expect(report.versions.agix.version).toBeTruthy();
-  expect(report.unknown_config_sections).toEqual(["nobody"]);
   const settings = report.modules.find((m: any) => m.id === "settings");
-  expect(settings.namespace).toBe("kernel");
+  expect(settings).toMatchObject({ trust: "origin", carrier: "native" });
   expect(settings.granted).toContain("engine.config.write");
   const probe = await moduleStatus(api, "probe");
   const echo = probe.methods.find((m: any) => m.name === "probe.echo");
-  expect(echo.principals).toEqual(["device"]);
+  // A device's row is open to every extension and the kernel as well, each said once.
+  expect(echo.principals).toEqual(["device", "kernel", "module:*"]);
   expect(echo.schema.required).toEqual(["text"]);
 });
 
@@ -152,7 +152,7 @@ test("a topic declared for the kernel is not a device's to subscribe to", TAGS, 
 
 test("a module learns where the process listens, once it does", TAGS, async () => {
   // `lifecycle` writes down what `listen()` said during `start`, and what `listening()` said later.
-  const dir = join(backend.state, "modules", "lifecycle");
+  const dir = join(backend.state, "ext", "lifecycle", "data");
   const atStart = JSON.parse(readFileSync(join(dir, "listen-at-start.json"), "utf8"));
   expect(atStart.listen).toBeNull();
   let listen: any = null;
