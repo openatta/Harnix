@@ -252,7 +252,7 @@ carrier = "spawn"
     const s = await session(api, "app-vetoed");
     await runTurn(api, s, "Use the vetoed tool");
     const out = results(api, s);
-    expect(out).toContain(`refused by the application \`${SHOWCASE_ID}\``);
+    expect(out).toContain(`refused by the package \`${SHOWCASE_ID}\``);
     expect(out).toContain("blocked_tool");
     expect(out).not.toContain("should not have");
   });
@@ -305,7 +305,8 @@ carrier = "spawn"
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
     });
     expect(anonymous.status, "the page's token opened the MCP endpoint").toBe(401);
-    expect((await fetch(url)).status).toBe(405);
+    // Who asks is decided before how: without a credential a GET is refused as anyone else is.
+    expect((await fetch(url)).status).toBe(401);
   });
 
   test("a spawned daemon's credential is its own, and stops opening the endpoint when the daemon goes or is started again", TAGS, async () => {
@@ -323,26 +324,30 @@ carrier = "spawn"
       return settings.mcp_servers?.[MCP_SERVER]?.headers?.Authorization;
     };
     const before = bearer();
-    expect(before).toMatch(/^Bearer [0-9a-f]{32}$/);
+    expect(before).toMatch(/^Bearer [0-9a-f]{64}$/);
     expect(before, "the daemon was given the page's token").not.toBe(`Bearer ${backend.token}`);
     expect((await list(before!)).status).toBe(200);
+    // A POST endpoint: the daemon's own credential gets no further with a GET.
+    expect((await fetch(url, { headers: { authorization: before! } })).status).toBe(405);
 
     // Restarted: the daemon that held it is gone, and with it what it presented.
     await api.call("system.instances.restart", { instance: "far", space: "system" });
     expect((await list(before!)).status, "a daemon that is gone still opened the endpoint").toBe(401);
     const after = bearer();
-    expect(after).toMatch(/^Bearer [0-9a-f]{32}$/);
+    expect(after).toMatch(/^Bearer [0-9a-f]{64}$/);
     expect(after).not.toBe(before);
     expect((await list(after!)).status).toBe(200);
 
     // Killed: its link starts another process, which reads a credential of its own; the killed
     // one's opens nothing any more.
-    const pid = (await api.call("harnix.instances.list")).instances.find((i: any) => i.id === "far").pid;
-    expect(pid).toBeGreaterThan(0);
+    // Restarted, its process may not be listed yet.
+    const farPid = async () => (await api.call("harnix.instances.list")).instances.find((i: any) => i.id === "far").pid ?? 0;
+    await expect.poll(farPid, { timeout: 60_000, intervals: [250] }).toBeGreaterThan(0);
+    const pid = await farPid();
     process.kill(pid, "SIGKILL");
     await expect.poll(() => bearer(), { timeout: 60_000, intervals: [250] }).not.toBe(after);
     const again = bearer();
-    expect(again).toMatch(/^Bearer [0-9a-f]{32}$/);
+    expect(again).toMatch(/^Bearer [0-9a-f]{64}$/);
     expect((await list(after!)).status, "a killed daemon's credential still opened the endpoint").toBe(401);
     expect((await list(again!)).status).toBe(200);
     // And the new daemon reaches the tools with it.
@@ -384,7 +389,7 @@ carrier = "spawn"
     expect(text).not.toContain(BLOCK_MARKER);
     expect(existsSync(join(backend.state, "ext", SHOWCASE_ID)), "its directory, data and all").toBe(false);
     expect((await fetch(`${backend.url.replace(/\/$/, "")}/ext/${SHOWCASE_ID}/ui/showcase.js`)).status).toBe(404);
-    expect((await api.refused("packages.uninstall", { id: SHOWCASE_ID }))?.message).toContain("no application");
+    expect((await api.refused("packages.uninstall", { id: SHOWCASE_ID }))?.message).toContain(`no package \`${SHOWCASE_ID}\` is installed`);
 
     // And it installs again, from nothing: the count starts over.
     await api.call("packages.installFile", { path: showcasePackage().path });
@@ -486,7 +491,7 @@ test.describe("its event hook, as far as its manifest's [events]", () => {
     expect(described.lines.map((l: any) => l.capability)).not.toContain("events");
     const out = await bash();
     expect(out).toContain("harnix-fixture");
-    expect(out).not.toContain("refused by the application");
+    expect(out).not.toContain("refused by the package");
     await api.call("packages.uninstall", { id: SHOWCASE_ID });
   });
 
@@ -511,7 +516,7 @@ test.describe("its event hook, as far as its manifest's [events]", () => {
     const described = (await api.call("packages.list")).packages[0].ext;
     expect(described.lines).toContainEqual({ capability: "events", value: "all" });
     const out = await bash();
-    expect(out).toContain(`refused by the application \`${SHOWCASE_ID}\``);
+    expect(out).toContain(`refused by the package \`${SHOWCASE_ID}\``);
     expect(out).not.toContain("harnix-fixture\\n");
     await api.call("packages.uninstall", { id: SHOWCASE_ID });
   });
