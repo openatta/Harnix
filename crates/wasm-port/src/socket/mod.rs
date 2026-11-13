@@ -40,7 +40,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
@@ -281,7 +281,7 @@ impl SocketWire {
     where
         S: AsyncRead + AsyncWrite + Send + 'static,
     {
-        Self::start(stream, End::Client, answer, options)
+        Self::client_with(stream, |_| answer, options)
     }
 
     /// The product's end, to the extension process of `ext`: it sends `ctl.*` and answers `proc.*`
@@ -290,28 +290,52 @@ impl SocketWire {
     where
         S: AsyncRead + AsyncWrite + Send + 'static,
     {
+        Self::serve_with(stream, ext, |_| answer, options)
+    }
+
+    /// [`SocketWire::client`], for an answerer that sends calls back over this same wire (the
+    /// wire → the answerer → a host → its kernel → the wire): it is made from a weak reference to
+    /// the wire, so the two do not hold each other, and dropping the last strong reference to the
+    /// wire closes it.
+    pub fn client_with<S, F>(stream: S, answer: F, options: Options) -> Arc<Self>
+    where
+        S: AsyncRead + AsyncWrite + Send + 'static,
+        F: FnOnce(Weak<SocketWire>) -> Arc<dyn Answer>,
+    {
+        Self::start(stream, End::Client, answer, options)
+    }
+
+    /// [`SocketWire::serve`], with the answerer made as [`SocketWire::client_with`]'s is.
+    pub fn serve_with<S, F>(stream: S, ext: impl Into<String>, answer: F, options: Options) -> Arc<Self>
+    where
+        S: AsyncRead + AsyncWrite + Send + 'static,
+        F: FnOnce(Weak<SocketWire>) -> Arc<dyn Answer>,
+    {
         Self::start(stream, End::Serve { ext: ext.into() }, answer, options)
     }
 
-    fn start<S>(stream: S, end: End, answer: Arc<dyn Answer>, options: Options) -> Arc<Self>
+    fn start<S, F>(stream: S, end: End, answer: F, options: Options) -> Arc<Self>
     where
         S: AsyncRead + AsyncWrite + Send + 'static,
+        F: FnOnce(Weak<SocketWire>) -> Arc<dyn Answer>,
     {
         let (read, write) = tokio::io::split(stream);
-        let inner = Arc::new(Inner {
-            end,
-            options,
-            answer,
-            state: Mutex::new(State::default()),
-            wake: Notify::new(),
-            closed: watch::channel(None).0,
-            counts: Counters::default(),
-        });
-        tokio::spawn(read_loop(inner.clone(), read));
-        let writer = tokio::spawn(write_loop(inner.clone(), write));
-        Arc::new(Self {
-            inner,
-            writer: Mutex::new(Some(writer)),
+        Arc::new_cyclic(|weak| {
+            let inner = Arc::new(Inner {
+                end,
+                options,
+                answer: answer(weak.clone()),
+                state: Mutex::new(State::default()),
+                wake: Notify::new(),
+                closed: watch::channel(None).0,
+                counts: Counters::default(),
+            });
+            tokio::spawn(read_loop(inner.clone(), read));
+            let writer = tokio::spawn(write_loop(inner.clone(), write));
+            Self {
+                inner,
+                writer: Mutex::new(Some(writer)),
+            }
         })
     }
 
