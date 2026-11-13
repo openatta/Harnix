@@ -8,7 +8,8 @@
 //! The packages have no component (nothing to compile); one's process runs another manifest than
 //! the one installed, through a `proc_program` that hands it another package directory.
 //!
-//! One test, one process: the state directory is the process's environment.
+//! One test, one process: the state directory is the process's environment. Its processes start
+//! unsandboxed (`profile`).
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -119,8 +120,10 @@ async fn start(dir: &Path, app: harnix::AppBuilder, profile: &str) -> Product {
     Product { kernel }
 }
 
+/// Unsandboxed: the swapping script starts a program, and hands a process a package, that no
+/// sandbox would let it reach. A process in its sandbox is `tests/sandboxed.rs`.
 fn profile(program: &Path) -> String {
-    format!("[ext.packages]\ndev = true\ncarrier = \"process\"\nproc_program = \"{}\"\n", program.display())
+    format!("[ext.packages]\ndev = true\ncarrier = \"process\"\nproc_program = \"{}\"\nsandbox = \"off\"\n", program.display())
 }
 
 #[tokio::test(flavor = "multi_thread")]

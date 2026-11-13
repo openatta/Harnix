@@ -9,7 +9,10 @@
  * and up again with its rows never gone; killed three times soon after starting, and set aside
  * until it is switched off and on; and a process that is not what was installed — another
  * extension's hello, a manifest with one more method — refused and ended. `proc_program` is a
- * small script that starts this binary, but lies for the packages those tests install.
+ * small script that starts this binary, but lies for the packages those tests install; these run
+ * with `sandbox = "off"`, since the script starts a program the sandbox does not let a process run
+ * and hands TAMPERED a package outside its sandbox. The last describe runs the showcase in its
+ * sandbox, started as this binary.
  *
  * Without the engine part: no `agent/`, no `[[space]]` sessions on `proc.<id>`. A product
  * of another build (another Harnix, Agix or VM engine) is refused too; that takes another build,
@@ -105,7 +108,7 @@ test.describe("packages in processes of their own", () => {
     );
     chmodSync(program, 0o755);
     variants = { wrong, tampered };
-    backend = await startApps({ profile: `carrier = "process"\nproc_program = "${program}"\n` });
+    backend = await startApps({ profile: `carrier = "process"\nproc_program = "${program}"\nsandbox = "off"\n` });
     const client = await connect(backend);
     try {
       await client.call("packages.installFile", { path: showcasePackage().path });
@@ -205,5 +208,34 @@ test.describe("packages in processes of their own", () => {
     expect(await runtime(api)).toMatchObject({ state: "stopped" });
     expect(alive(pid)).toBe(false);
     await api.call("packages.enable", { id: SHOWCASE_ID });
+  });
+});
+
+test.describe("packages in processes of their own, in their sandbox", () => {
+  test.describe.configure({ mode: "serial" });
+
+  let backend: Backend;
+  let api: TestClient;
+
+  test.beforeAll(async () => {
+    test.setTimeout(600_000);
+    backend = await startApps({ profile: `carrier = "process"\n` });
+  });
+  test.afterAll(async () => {
+    await backend?.dispose();
+  });
+  test.beforeEach(async () => {
+    api = await connect(backend, { topology: topology() });
+  });
+  test.afterEach(() => api?.close());
+
+  test("the showcase runs and answers in its sandbox, and the list says so", TAGS, async () => {
+    const sandbox = (await api.call("packages.list")).runtime.sandbox;
+    test.skip(sandbox?.mode === "unavailable", `no sandbox on this machine: ${sandbox?.why}`);
+    expect(sandbox).toMatchObject({ mode: "on", mechanism: expect.any(String) });
+    await api.call("packages.installFile", { path: showcasePackage().path });
+    expect(await until(api, "running", (rt) => rt.state === "running")).toMatchObject({ carrier: "process" });
+    expect((await entry(api, SHOWCASE_ID)).sandbox).toBe("on");
+    expect(await api.call(M("notes.add"), { text: "from inside" })).toEqual({ count: 1 });
   });
 });
