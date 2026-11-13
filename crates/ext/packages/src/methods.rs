@@ -217,17 +217,17 @@ async fn clear(state: &State, params: Value) -> Rpc<Value> {
     let _serial = state.serial.lock().await;
     let record = read_one(&state.dir, &id)?;
     let ext = harnix_ext::ExtId::package(&id).map_err(|e| RpcError::invalid_params(e.to_string()))?;
-    let app_dir = state.app_dir(&id);
+    let run_dir = state.run_dir(&id);
     let status = state.carrier.status(&ext).await;
     // What the list said it keeps, counted the same way.
-    let before = snapshot::kept_bytes(&status, &app_dir);
+    let before = snapshot::kept_bytes(&status, &run_dir);
     // Stopped around it: a backend's memory, or a store it has open, would outlive the files
     // otherwise.
     let running = record.enabled && status["state"] != json!("stopped");
     if running {
         state.carrier.stop(&ext, StopReason::Disabled).await;
     }
-    let cleared = records::clear_data(&app_dir);
+    let cleared = records::clear_data(&run_dir);
     let mut started = Value::Null;
     if running {
         started = match starting::start(state, &record).await {
@@ -236,8 +236,8 @@ async fn clear(state: &State, params: Value) -> Rpc<Value> {
             Err(e) => json!({"error": e.message}),
         };
     }
-    cleared.map_err(|e| internal(format!("{}: {e}", app_dir.display())))?;
-    let after = snapshot::kept_bytes(&state.carrier.status(&ext).await, &app_dir);
+    cleared.map_err(|e| internal(format!("{}: {e}", run_dir.display())))?;
+    let after = snapshot::kept_bytes(&state.carrier.status(&ext).await, &run_dir);
     tracing::info!(package = %id, bytes = ?before, "package data cleared");
     Ok(json!({"id": id, "cleared_bytes": before, "data_bytes": after, "restarted": running, "started": started}))
 }

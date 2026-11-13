@@ -4,8 +4,12 @@
 //! ```text
 //! ~/.<product_id>/ext/<id>/install.json   {"id", "version", "title"?, "enabled", "parts"?, …}
 //! ~/.<product_id>/ext/<id>/<version>/     the unpacked package
-//! ~/.<product_id>/ext/<id>/data/, kv/     what the package keeps (its carrier's)
+//! ~/.<product_id>/ext/<id>/run/           what its carrier writes for it: `data/`, `kv/`, and
+//!                                         for a process of its own `engine/`, `work/`, `home/`, `tmp/`
 //! ```
+//!
+//! A package reaches nothing of its directory but `run/` to write: its record (its consent) and
+//! its unpacked files are this component's.
 //!
 //! A native extension's directory is named by a one-segment id, a package's by two: only a
 //! directory whose name is a package's id is a record's.
@@ -15,6 +19,9 @@ use std::path::Path;
 use harnix_ext::{codes, ExtId, RpcError};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+
+/// Under a package's directory, what its carrier writes for it.
+pub(crate) const RUN: &str = "run";
 
 /// The file that makes a directory an installed package.
 pub(crate) const RECORD: &str = "install.json";
@@ -130,11 +137,11 @@ pub(crate) fn refuse_installed(dir: &Path, id: &str) -> Result<(), RpcError> {
     Ok(())
 }
 
-/// Delete what a package keeps — its data directory and its key-value store — leaving the
-/// directories in place and empty.
-pub(crate) fn clear_data(app_dir: &Path) -> std::io::Result<()> {
+/// Delete what a package keeps — its data directory and its key-value store, under its `run_dir` —
+/// leaving the directories in place and empty.
+pub(crate) fn clear_data(run_dir: &Path) -> std::io::Result<()> {
     for part in ["data", "kv"] {
-        let dir = app_dir.join(part);
+        let dir = run_dir.join(part);
         match std::fs::remove_dir_all(&dir) {
             Ok(()) => std::fs::create_dir_all(&dir)?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -144,13 +151,13 @@ pub(crate) fn clear_data(app_dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// What a package that is not running keeps under `app_dir`, in bytes: its `data/` and `kv/`,
+/// What a package that is not running keeps under `run_dir`, in bytes: its `data/` and `kv/`,
 /// symlinks not followed; `None` past as many entries as no quota allows.
-pub(crate) fn data_bytes(app_dir: &Path) -> Option<u64> {
+pub(crate) fn data_bytes(run_dir: &Path) -> Option<u64> {
     const MAX_ENTRIES: usize = 100_000;
     let mut total = 0u64;
     let mut seen = 0usize;
-    let mut stack: Vec<std::path::PathBuf> = ["data", "kv"].iter().map(|p| app_dir.join(p)).collect();
+    let mut stack: Vec<std::path::PathBuf> = ["data", "kv"].iter().map(|p| run_dir.join(p)).collect();
     while let Some(dir) = stack.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else { continue };
         for entry in entries.flatten() {

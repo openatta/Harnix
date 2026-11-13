@@ -92,26 +92,37 @@ async fn reload(engine: &dyn Agent, instance: &str) {
     }
 }
 
-/// Put the package unpacked at `root` in place: its agent package into each instance it names,
-/// its skills into each one's skills directory. What was put where is written to `placed` as it is
-/// done, so that a failure takes back exactly that.
+/// Put the package unpacked at `root` in place: its agent package into each instance it goes
+/// into, its skills into each one's skills directory. What was put where is written to `placed` as
+/// it is done, so that a failure takes back exactly that.
+///
+/// Which instances, the carrier says (`instances`): given, they are the agent engine's own, and
+/// the manifest's `install_into` — the product's instances, which get only the package's tools —
+/// is not looked for here. Not given, each instance `install_into` names must be the agent
+/// engine's.
 pub(crate) async fn place(
     engine: &Arc<dyn Agent>,
     root: &Path,
     app_dir: &Path,
+    instances: Option<&[String]>,
     placed: &mut Placed,
 ) -> Result<(), RpcError> {
     let inspected = package::inspect_dir(root).map_err(refused)?;
     let manifest = &inspected.manifest;
     let id = manifest.app.id.clone();
-    let targets = &manifest.agent.install_into;
-    for target in targets {
-        if !engine.has_instance(target.clone()).await? {
-            return Err(refused(format!(
-                "`{id}` installs its agent package into `{target}`, and there is no such instance"
-            )));
+    let targets: &[String] = match instances {
+        Some(instances) => instances,
+        None => {
+            for target in &manifest.agent.install_into {
+                if !engine.has_instance(target.clone()).await? {
+                    return Err(refused(format!(
+                        "`{id}` installs its agent package into `{target}`, and there is no such instance"
+                    )));
+                }
+            }
+            &manifest.agent.install_into
         }
-    }
+    };
     if let Some(agent) = &inspected.agent {
         let zip = app_dir.join("agent.zip");
         package::zip_dir(&root.join("agent"), &zip).map_err(internal)?;

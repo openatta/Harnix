@@ -30,8 +30,8 @@ pub(crate) struct Looked {
 
 /// What a package keeps, in bytes: as its VM counts it against its quota while it runs
 /// (`health.storage_bytes`), measured on disk when it does not.
-pub(crate) fn kept_bytes(status: &Value, app_dir: &Path) -> Option<u64> {
-    status["health"]["storage_bytes"].as_u64().or_else(|| records::data_bytes(app_dir))
+pub(crate) fn kept_bytes(status: &Value, run_dir: &Path) -> Option<u64> {
+    status["health"]["storage_bytes"].as_u64().or_else(|| records::data_bytes(run_dir))
 }
 
 /// Every record (and the ones that do not read, with why), what the carrier says of each, and
@@ -58,7 +58,7 @@ pub(crate) async fn snapshot(state: &State, fresh: bool) -> Value {
                     Ok(id) => state.carrier.status(&id).await,
                     Err(_) => Value::Null,
                 };
-                let kept = kept_bytes(&status, &app_dir);
+                let kept = kept_bytes(&status, &state.run_dir(&r.id));
                 (status, kept)
             }
         };

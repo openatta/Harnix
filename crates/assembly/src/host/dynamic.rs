@@ -270,7 +270,9 @@ impl DynamicRegistry for RegistryFor {
             Trust::Consent { carrier, .. } => *carrier,
             _ => PackageCarrier::Wasm,
         };
-        let data_dir = self.host.state_root.join("ext").join(id.as_str()).join("data");
+        // A package writes nothing of its directory but `run/`: its record and its files are its
+        // component's.
+        let data_dir = self.host.state_root.join("ext").join(id.as_str()).join("run").join("data");
         d.seat(self.host.seats.seat(&id, &Value::Null, &data_dir));
         let availability = Arc::new(RwLock::new(Availability::Starting));
         let prefix = format!("{id}.");

@@ -85,7 +85,7 @@ fn described(state: &State, record: &InstallRecord, verified: Option<&Verified>)
         .filter(|(name, _)| manifest.capabilities.env.contains(name))
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
-    let mut installed = Installed::new(id, &record.version, pkg_dir.clone(), app_dir)
+    let mut installed = Installed::new(id, &record.version, pkg_dir.clone(), app_dir.join(crate::records::RUN))
         .record(serde_json::to_value(record).map_err(|e| internal(e.to_string()))?)
         .manifest(manifest_value(&pkg_dir))
         .grants(held, calls)
