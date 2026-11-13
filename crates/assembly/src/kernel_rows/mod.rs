@@ -139,7 +139,6 @@ pub fn table(behind: &Behind) -> RouteTable {
         Row::method(UI, Access::device(), late(&behind.hello, |h: Arc<Hello>| async move { Ok(h.ui.view()) })),
         Row::topic(UI, Access::device()),
         Row::method("harnix.bulk.upload", Access::device(), Arc::new(BulkUpload(behind.uploads.clone()))),
-        Row::method("harnix.contributions", Access::device(), answer(|d, _| d.contributions())),
         // Every extension, and why one does nothing: what a person asks first.
         Row::method("harnix.extensions", Access::device(), answer(|d, _| d.list())),
         Row::method("harnix.diagnostics", Access::device(), answer(|d, _| d.report())),

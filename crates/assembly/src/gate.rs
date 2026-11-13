@@ -108,23 +108,6 @@ impl Diagnostics {
         }
         out
     }
-
-    /// The shape `harnix.contributions` has always had: every method the
-    /// extensions registered, and what did not take.
-    pub(crate) fn contributions(&self) -> Value {
-        let modules = read(&self.extensions);
-        let methods: Vec<&String> = modules
-            .iter()
-            .filter(|m| m.enabled)
-            .flat_map(|m| m.methods.iter().map(|method| &method.name))
-            .collect();
-        let refused: Vec<Value> = modules
-            .iter()
-            .filter(|m| !m.enabled)
-            .map(|m| json!({"who": m.id, "point": m.phase, "reason": m.reason}))
-            .collect();
-        json!({"methods": methods, "refused": refused})
-    }
 }
 
 #[cfg(test)]
