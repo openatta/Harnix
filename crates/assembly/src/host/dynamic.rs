@@ -17,8 +17,8 @@ use harnix_contract::sync::{lock, read, write};
 use harnix_contract::{codes, RpcError};
 use harnix_ext::{ExtensionDescriptor, RouteDecl};
 use harnix_host_api::{
-    AdoptSpec, Availability, ChildHandle, ChildRequest, ChildSandbox, DynamicRegistrar, DynamicRegistry, ExtensionSummary, HostApi,
-    RegisteredExtension, TopicSink, ToolEndpoint, Withdrawn,
+    AdoptSpec, AdoptedEngine, Availability, ChildHandle, ChildRequest, ChildSandbox, DynamicRegistrar, DynamicRegistry,
+    ExtensionSummary, HostApi, RegisteredExtension, TopicSink, ToolEndpoint, Withdrawn,
 };
 use harnix_instance::SharedServers;
 use harnix_kernel::seat::Seated;
@@ -52,6 +52,8 @@ pub(crate) struct DynamicHost {
     pub children: Arc<harnix_authz::ChildBindings>,
     /// The components whose section turns their processes' sandbox off.
     pub unsandboxed: BTreeSet<String>,
+    /// Where an extension process's own engine is adopted.
+    pub instances: Arc<harnix_instance::InstanceRegistry>,
     /// What each component shares with every spawned daemon, merged.
     shared: Mutex<BTreeMap<ExtId, Vec<ToolEndpoint>>>,
 }
@@ -59,6 +61,7 @@ pub(crate) struct DynamicHost {
 /// What [`DynamicHost`] is made of besides the packages' table.
 pub(crate) struct DynamicParts {
     pub router: Arc<Router>,
+    pub instances: Arc<harnix_instance::InstanceRegistry>,
     pub seats: Arc<Seats>,
     pub servers: Arc<SharedServers>,
     pub state_root: std::path::PathBuf,
@@ -70,7 +73,7 @@ pub(crate) struct DynamicParts {
 
 impl DynamicHost {
     pub fn new(packages: Arc<PackageTable>, parts: DynamicParts) -> Arc<Self> {
-        let DynamicParts { router, seats, servers, state_root, ui, runtime_modules, sections, unsandboxed } = parts;
+        let DynamicParts { router, instances, seats, servers, state_root, ui, runtime_modules, sections, unsandboxed } = parts;
         Arc::new(Self {
             packages,
             router,
@@ -83,6 +86,7 @@ impl DynamicHost {
             routes: Arc::default(),
             children: Arc::default(),
             unsandboxed,
+            instances,
             shared: Mutex::new(BTreeMap::new()),
         })
     }
@@ -158,6 +162,18 @@ impl HostFor {
     }
 }
 
+impl HostFor {
+    /// Whether `id` is an extension this component registered.
+    fn registered(&self, id: &ExtId) -> Rpc<()> {
+        let ours = self.host.packages.registered().iter().any(|a| a.id == id.as_str() && a.by == self.by.as_str());
+        match ours {
+            true => Ok(()),
+            false => Err(RpcError::refused(format!("`{id}` is not an extension `{}` registered", self.by))),
+        }
+    }
+}
+
+#[async_trait::async_trait]
 impl HostApi for HostFor {
     fn registrar(&self) -> DynamicRegistrar {
         DynamicRegistrar::new(Arc::new(RegistryFor { host: self.host.clone(), by: self.by.clone() }))
@@ -166,10 +182,7 @@ impl HostApi for HostFor {
     /// Only for an extension this component registered: its process is that extension, and no
     /// other component's.
     fn spawn_child(&self, id: &ExtId, req: ChildRequest) -> Rpc<ChildHandle> {
-        let ours = self.host.packages.registered().iter().any(|a| a.id == id.as_str() && a.by == self.by.as_str());
-        if !ours {
-            return Err(RpcError::refused(format!("`{id}` is not an extension `{}` registered", self.by)));
-        }
+        self.registered(id)?;
         super::spawn::spawn(&self.host.children, id, req, self.unsandboxed())
     }
 
@@ -191,11 +204,17 @@ impl HostApi for HostFor {
         Ok(())
     }
 
-    fn adopt(&self, _id: &ExtId, _child: &ChildHandle, _spec: AdoptSpec) -> Rpc<()> {
-        Err(RpcError::refused("this build adopts no extension process's engine: that is the process carrier's"))
+    /// Only for an extension this component registered: the engine is that extension's.
+    async fn adopt(&self, id: &ExtId, spec: AdoptSpec) -> Rpc<Arc<dyn AdoptedEngine>> {
+        self.registered(id)?;
+        super::adopt::adopt(&self.host.instances, id, spec).await
     }
 
-    fn release(&self, _id: &ExtId) {}
+    async fn release(&self, id: &ExtId) {
+        if self.registered(id).is_ok() {
+            self.host.instances.release(id.as_str()).await;
+        }
+    }
 
     fn publish_ui(&self, entries: Vec<Value>) {
         let entries = if self.host.runtime_modules { entries } else { Vec::new() };

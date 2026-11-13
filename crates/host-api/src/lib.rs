@@ -16,12 +16,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use harnix_contract::s1::{caps, CallMeta, Capability, ExtId, PackageCarrier};
+use harnix_contract::ChainLink;
 use harnix_engine_api::ToolProvider;
 use harnix_ext::http::RouteHandler;
 use harnix_ext::{ExtensionContext, ExtensionDescriptor, Rpc, Service};
 use serde::Serialize;
 use serde_json::Value;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 
 /// The host's pipes, as the service a context hands out to an extension granted
 /// `extensions.manage`: `cx.service::<HostServices>()`.
@@ -35,6 +36,7 @@ impl Service for HostServices {
 
 /// What the host does for one host component. Every registration and every process it starts
 /// through this is on the record as that component's.
+#[async_trait::async_trait]
 pub trait HostApi: Send + Sync {
     /// Registering extensions while the process runs.
     fn registrar(&self) -> DynamicRegistrar;
@@ -52,11 +54,14 @@ pub trait HostApi: Send + Sync {
     /// component shared before.
     fn share_tools(&self, entries: Vec<ToolEndpoint>) -> Rpc<()>;
 
-    /// Adopt an extension process's own engine as the instance `proc.<id>`.
-    fn adopt(&self, id: &ExtId, child: &ChildHandle, spec: AdoptSpec) -> Rpc<()>;
+    /// Adopt an extension process's own engine as the instance `proc.<id>`, before its process
+    /// first starts: listed, as an extension's engine, starting until a run of the process hands
+    /// over its engine's stream ([`AdoptedEngine::attach`]). Only for an extension this component
+    /// registered.
+    async fn adopt(&self, id: &ExtId, spec: AdoptSpec) -> Rpc<Arc<dyn AdoptedEngine>>;
 
     /// Let go of what was adopted for `id`.
-    fn release(&self, id: &ExtId);
+    async fn release(&self, id: &ExtId);
 
     /// The interface entries of the extensions this component runs, as the page is told them in
     /// `harnix.ui`: a trusted package's modules, every other one's frames. Replaces what this
@@ -262,15 +267,11 @@ pub enum ChildEvent {
     Stopped,
 }
 
-/// What wakes an idle extension process when a session of its engine is asked for.
+/// What wakes an idle extension process when a session of its engine is asked for: started
+/// again, and answered once it is ready — its engine attached again included.
 #[async_trait::async_trait]
 pub trait Waker: Send + Sync {
     async fn wake(&self) -> Rpc<()>;
-}
-
-/// What answers the session list of an adopted engine while its process sleeps.
-pub trait ListCache: Send + Sync {
-    fn sessions(&self) -> Value;
 }
 
 /// How an extension process's engine is adopted.
@@ -279,12 +280,12 @@ pub struct AdoptSpec {
     data_root: PathBuf,
     inherit_providers: bool,
     waker: Arc<dyn Waker>,
-    list_cache: Arc<dyn ListCache>,
 }
 
 impl AdoptSpec {
-    pub fn new(data_root: PathBuf, waker: Arc<dyn Waker>, list_cache: Arc<dyn ListCache>) -> Self {
-        Self { data_root, inherit_providers: false, waker, list_cache }
+    /// Its engine's data root (`run/engine/`), and what wakes its process.
+    pub fn new(data_root: PathBuf, waker: Arc<dyn Waker>) -> Self {
+        Self { data_root, inherit_providers: false, waker }
     }
 
     pub fn inherit_providers(mut self) -> Self {
@@ -303,10 +304,50 @@ impl AdoptSpec {
     pub fn waker(&self) -> &Arc<dyn Waker> {
         &self.waker
     }
+}
 
-    pub fn list_cache(&self) -> &Arc<dyn ListCache> {
-        &self.list_cache
-    }
+/// An extension process's engine, adopted as the instance `proc.<id>`: one instance across the
+/// process's runs, each handing over its engine's stream.
+#[async_trait::async_trait]
+pub trait AdoptedEngine: Send + Sync {
+    /// Its instance's name.
+    fn instance(&self) -> &str;
+
+    /// A run of its process started: the product's end of its engine's stream. Up once the
+    /// engine answers as one of this build's.
+    async fn attach(&self, stream: std::os::unix::net::UnixStream) -> Rpc<()>;
+
+    /// Its process is gone, and started again: degraded until the next run attaches.
+    async fn detach(&self, why: &str);
+
+    /// Its process is let go while idle: listed hibernating, its session list answered from what
+    /// it listed last, until a call that needs it wakes it (the spec's [`Waker`]).
+    async fn hibernate(&self);
+
+    /// Whether it hibernates now.
+    fn hibernating(&self) -> bool;
+
+    /// Whether anything uses its engine: a session in its memory, or one with a watcher, a turn,
+    /// a task or a question.
+    async fn engaged(&self) -> bool;
+
+    /// The chain of the turn running in one of its sessions; none when none runs.
+    fn turn_chain(&self, session: &str) -> Vec<ChainLink>;
+
+    /// What it tells its carrier, from now on; the first caller gets it.
+    fn notes(&self) -> Option<mpsc::UnboundedReceiver<EngineNote>>;
+}
+
+/// What an adopted engine tells its carrier.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq)]
+pub enum EngineNote {
+    /// A turn started in one of its sessions, or the running one is now on behalf of more: its
+    /// whole chain.
+    TurnStarted { session_id: String, chain: Vec<ChainLink> },
+    TurnSettled { session_id: String },
+    /// It kept sending more than an extension's engine may: its process is to be ended.
+    Flooded,
 }
 
 /// Registering extensions while the process runs, as one host component.

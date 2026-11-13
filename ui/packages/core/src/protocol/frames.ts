@@ -456,7 +456,11 @@ export interface InstanceRow {
   template: string | null;
   params: Record<string, string>;
   owner: string;
-  status: { state: "starting" | "ready" } | { state: "degraded"; since_ms: number; reason: string } | { state: "down"; reason: string };
+  status:
+    | { state: "starting" | "ready" }
+    | { state: "degraded"; since_ms: number; reason: string }
+    | { state: "down"; reason: string }
+    | { state: "hibernating"; since_ms: number };
   version?: string | null;
   protocol_version?: number | null;
   data_root: string;

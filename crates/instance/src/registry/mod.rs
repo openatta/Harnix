@@ -16,6 +16,7 @@
 //! called holding it, and the hub never calls in holding its own (each asserted in a debug
 //! build, [`harnix_kernel::instances`]).
 
+mod adopt;
 mod rows;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -34,6 +35,7 @@ use crate::link::{self, DownLink};
 use crate::templates::{carrier_of, InstanceTemplate, Ledger, LedgerEntry, Owner, TemplateCarrier};
 use crate::{Built, Facts, Factory};
 
+pub use adopt::{instance_of, Adopting, Adoption, EngineNote, Wake, WAKE_WITHIN};
 pub use rows::{InstanceRow, RegistryCell, INSTANCES_TOPIC};
 
 /// The instance every process has: the profile's `[engine]`.
@@ -93,10 +95,15 @@ pub(crate) struct Slot {
     watching: Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// Since when its engine has sent more than its trust allows, while it does.
     flooding: Mutex<Option<u64>>,
+    /// An extension's own engine, adopted: its carrier's to start, stop and wake.
+    adopted: Option<Arc<Adoption>>,
 }
 
 impl Slot {
     fn status(&self) -> LinkStatus {
+        if let Some(since_ms) = self.adopted.as_ref().and_then(|a| a.asleep()) {
+            return LinkStatus::Hibernating { since_ms };
+        }
         let status = self.control.status().borrow().clone();
         match (*lock(&self.flooding), &status) {
             (Some(since_ms), LinkStatus::Ready) => LinkStatus::Degraded { since_ms, reason: "flooding".into() },
@@ -348,8 +355,16 @@ impl InstanceRegistry {
     /// see it, the hub already reads it. A build that overlapped an inheritance of providers
     /// (`providers` is the count it started under) inherits again once it is listed.
     async fn show(&self, id: &str, built: Built, record: Record, handover: Handover, providers: u64) {
+        self.show_as(id, built, record, handover, providers, None).await
+    }
+
+    /// [`Self::show`], for the product's own engine, or for an extension's adopted one.
+    async fn show_as(&self, id: &str, built: Built, record: Record, handover: Handover, providers: u64, adopted: Option<(InstanceTrust, Arc<Adoption>)>) {
         let Built { link, control, facts } = built;
-        let trust = InstanceTrust::Product;
+        let (trust, adopted) = match adopted {
+            Some((trust, adoption)) => (trust, Some(adoption)),
+            None => (InstanceTrust::Product, None),
+        };
         let observer = self.observer().clone();
         match handover {
             Handover::Added => observer.added(id, link.clone(), trust.clone()).await,
@@ -367,6 +382,7 @@ impl InstanceRegistry {
             created_ms: record.created_ms,
             watching: Mutex::new(None),
             flooding: Mutex::new(None),
+            adopted,
         });
         *lock(&slot.watching) = Some(watch_status(&slot.control, observer));
         let (previous, inherits) = {
@@ -394,6 +410,54 @@ impl InstanceRegistry {
         let _claim = self.claim(id).await;
         let providers = self.state().providers;
         self.show(id, built, Record::fixed(owner), Handover::Added, providers).await;
+    }
+
+    /// Adopt an extension's own engine as `proc.<id>`: its data root made, `main`'s providers
+    /// written into it when it inherits them, the hub handed its link and the instance listed —
+    /// starting until the first run of its process attaches. Not in the ledger: it is the
+    /// extension's for as long as the extension runs, and adopted again when it starts again.
+    pub async fn adopt(&self, spec: Adopting) -> Rpc<Arc<Adoption>> {
+        let id = instance_of(spec.ext.as_str());
+        let _claim = self.claim(&id).await;
+        if self.slot(&id).is_some() {
+            return Err(refused(format!("there is already an instance `{id}`")));
+        }
+        std::fs::create_dir_all(&spec.data_root)
+            .map_err(|e| RpcError::new(codes::INTERNAL_ERROR, format!("{}: {e}", spec.data_root.display())))?;
+        let facts = Facts { data_root: spec.data_root.clone(), ..Facts::default() };
+        if spec.inherit_providers {
+            if let Err(e) = self.factory.inherit_into(&facts) {
+                tracing::warn!(instance = %id, error = %e, "the inherited providers were not written");
+            }
+        }
+        let adoption = Adoption::new(id.clone(), &spec, self.observer().clone(), self.factory.turns.clone());
+        self.factory.turns.watch(&id, adoption.clone());
+        let link = Arc::new(adopt::AdoptedLink(adoption.clone()));
+        let built = Built { link: link.clone(), control: link, facts };
+        let providers = self.state().providers;
+        let record = Record::fixed(Owner::Module(spec.ext.to_string()));
+        let trust = InstanceTrust::Extension(spec.ext.clone());
+        self.show_as(&id, built, record, Handover::Added, providers, Some((trust, adoption.clone()))).await;
+        tracing::info!(instance = %id, "an extension's engine adopted");
+        Ok(adoption)
+    }
+
+    /// Let go of the engine adopted for `ext`: unlisted, its link shut, the hub told.
+    pub async fn release(&self, ext: &str) {
+        let id = instance_of(ext);
+        let _claim = self.claim(&id).await;
+        let removed = {
+            let mut state = self.state();
+            match state.slots.get(&id) {
+                Some(slot) if slot.adopted.is_some() => state.slots.remove(&id),
+                _ => None,
+            }
+        };
+        let Some(slot) = removed else { return };
+        slot.unwatch();
+        slot.control.shutdown().await;
+        self.observer().removed(&id).await;
+        self.changed();
     }
 
     /// Build the instances the ledger records, at start. One that cannot be built is listed
@@ -561,6 +625,9 @@ impl InstanceRegistry {
     /// gone. Its data root stays; building it again from the same template picks it up.
     async fn remove(&self, instance: &str) -> Rpc<()> {
         let _claim = self.claim(instance).await;
+        if self.slot(instance).is_some_and(|s| s.adopted.is_some()) {
+            return Err(adopted(instance));
+        }
         let removed = {
             let mut state = self.state();
             let removed = state.slots.remove(instance);
@@ -589,6 +656,9 @@ impl InstanceRegistry {
         let Some(slot) = self.slot(instance) else {
             return Err(not_found(instance));
         };
+        if slot.adopted.is_some() {
+            return Err(adopted(instance));
+        }
         let fixed = self.state().fixed.get(instance).cloned();
         let providers = self.state().providers;
         let built = match (&slot.template, fixed) {
@@ -672,7 +742,10 @@ impl InstanceRegistry {
             state
                 .slots
                 .values()
-                .filter(|slot| slot.template.as_deref().is_some_and(|t| templates.contains(t)))
+                .filter(|slot| {
+                    slot.template.as_deref().is_some_and(|t| templates.contains(t))
+                        || slot.adopted.as_ref().is_some_and(|a| a.inherits)
+                })
                 .cloned()
                 .collect()
         };
@@ -816,6 +889,13 @@ impl InstanceBook for InstanceRegistry {
             self.changed();
         }
         if consecutive >= FLOODS_TO_STOP {
+            // An extension's process is its carrier's to end, and the instance stays: listed
+            // degraded while the process is started again.
+            if let Some(adoption) = &slot.adopted {
+                tracing::warn!(instance = id, consecutive, "the extension's engine keeps flooding; its carrier ends its process");
+                adoption.flooding();
+                return;
+            }
             tracing::warn!(instance = id, consecutive, "the instance's engine keeps flooding; stopping it");
             let Some(this) = self.this.upgrade() else { return };
             let id = id.to_string();
@@ -846,6 +926,11 @@ fn watch_status(link: &Arc<dyn EngineControl>, observer: Arc<dyn InstanceObserve
             observer.changed(INSTANCES_TOPIC, json!({}));
         }
     })
+}
+
+/// Asked to stop or restart an extension's adopted engine: its carrier's to do, with the process.
+fn adopted(instance: &str) -> RpcError {
+    refused(format!("`{instance}` is an extension's own engine: it stops and starts with the extension"))
 }
 
 fn refused(message: String) -> RpcError {

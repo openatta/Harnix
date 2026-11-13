@@ -139,6 +139,11 @@ impl SessionInfo {
         self.value.get("turn_state").and_then(Value::as_str)
     }
 
+    /// It is in the engine's memory, not only on disk.
+    pub fn loaded(&self) -> bool {
+        self.value.get("status").and_then(Value::as_str) == Some("active")
+    }
+
     /// The turn running in it, when one is.
     pub fn current_turn(&self) -> Option<&str> {
         self.value.get("current_turn_id").and_then(Value::as_str)

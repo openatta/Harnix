@@ -201,6 +201,18 @@ impl InstanceObserver<dyn EngineLink> for Hub {
         tokio::spawn(self.arc().resync_instance(id.to_string()));
     }
 
+    async fn engaged(&self, id: &str) -> bool {
+        debug_assert!(!holds(Side::Registry), "the registry calls the hub holding its own lock");
+        let guard = self.inner.lock().await;
+        guard.sessions.iter().filter(|(key, _)| key.0 == id).any(|(_, s)| {
+            !s.watchers.is_empty()
+                || s.running_turn.is_some()
+                || !s.queue.is_empty()
+                || !s.live_tasks.is_empty()
+                || !s.pending_prompts.is_empty()
+        })
+    }
+
     fn space(&self, claimed: Option<&str>) -> Option<String> {
         let spaces = lock(&self.spaces);
         let space = claimed.map(str::to_string).or_else(|| spaces.default_space().map(str::to_string))?;
