@@ -195,8 +195,11 @@ async function measureProcesses(root) {
   const { spawn, execFileSync: exec } = await import("node:child_process");
   const { mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
-  const { SHOWCASE_ID, showcasePackage, variant } = await import("./live/api/packages-host.ts");
-  const { appsTestApp } = await import("./live/api/packages-store.ts");
+  const { SHOWCASE_ID, TARGET, buildBeside, showcasePackage, variant } = await import("./live/api/packages-host.ts");
+  // The test application the store suites use (`appsTestApp`), built here: that module's own
+  // imports are written for the suites' loader, not for node.
+  buildBeside("harnix-testapp", ["--features", "wasm,proc"]);
+  const testappBin = join(TARGET, "release", "harnix-testapp");
   const showcase = showcasePackage().path;
   const M = (name) => `${SHOWCASE_ID}.${name}`;
   const ENGINE = `proc.${SHOWCASE_ID}`;
@@ -250,7 +253,8 @@ async function measureProcesses(root) {
       await sleep(50);
     }
   };
-  const timings = (log, field) => [...log.matchAll(new RegExp(`its extension process came up.*`, "g"))]
+  // The log is coloured whether or not anyone is looking: the colours go first.
+  const timings = (log, field) => [...log.replace(/\x1b\[[0-9;]*m/g, "").matchAll(/its extension process came up.*/g)]
     .map((m) => Number(new RegExp(`${field}=(\\d+)`).exec(m[0])?.[1]))
     .filter((n) => Number.isFinite(n));
 
@@ -295,7 +299,7 @@ async function measureProcesses(root) {
 
   // On demand, let go after 1.5 s idle (the test application's knob; a manifest's least is a
   // minute), and woken by a call.
-  const testapp = await start(appsTestApp(), { HARNIX_TESTAPP_APP_IDLE_MS: "1500" });
+  const testapp = await start(testappBin, { HARNIX_TESTAPP_APP_IDLE_MS: "1500" });
   try {
     const { client } = testapp;
     const onDemand = variant(join(testapp.scratch, "on-demand.hxext"), (e) => {
