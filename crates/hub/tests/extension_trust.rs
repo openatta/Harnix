@@ -309,7 +309,15 @@ async fn an_extensions_frames_over_the_rate_or_the_size_are_dropped_and_the_regi
     for n in 0..sent {
         rig.own.1.send(text(&n.to_string())).await.unwrap();
     }
-    until(&sink, "harnix.event", sent).await;
+    // Every one of the product's, however loaded the machine, and a moment for the extension's.
+    let own = |sink: &Sink| sink.frames("harnix.event").iter().filter(|f| f["params"]["instance"] == "own").count();
+    let waited = tokio::time::timeout(Duration::from_secs(10), async {
+        while own(&sink) < sent {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await;
+    assert!(waited.is_ok(), "{} of the product's {sent} arrived", own(&sink));
     tokio::time::sleep(Duration::from_millis(100)).await;
     let frames = sink.frames("harnix.event");
     let from_ext = frames.iter().filter(|f| f["params"]["instance"] == "ext").count();
