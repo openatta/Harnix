@@ -19,6 +19,8 @@ import { useState } from "react";
 import { errorText } from "@harnix/core";
 import { DialogBody, DialogFoot, SettingsRow, SettingsSection, SettingsValue, fileSize, t, useSettingsReload, useT, type HostApi } from "@harnix/react";
 
+import { SandboxAlert, type Sandbox } from "./sandbox.tsx";
+
 /** What the shell draws for a package from its manifest: the names, a line each. */
 export interface Inline {
   tool_row?: { tool: string }[];
@@ -207,12 +209,14 @@ export function PackagesSettings({ host }: { host: HostApi }) {
 
   return (
     <>
-      <SettingsSection title={t("packages.installed")} load={() => host.call<{ packages?: Installed[] }>("packages.list", {})}>
+      <SettingsSection title={t("packages.installed")} load={() => host.call<{ packages?: Installed[]; runtime?: { sandbox?: Sandbox | null } }>("packages.list", {})}>
         {(data) => {
           const rows = data.packages ?? [];
-          if (!rows.length) return <div className="hint">{t("packages.none")}</div>;
+          const sandbox = <SandboxAlert sandbox={data.runtime?.sandbox} />;
+          if (!rows.length) return <>{sandbox}<div className="hint">{t("packages.none")}</div></>;
           return (
             <>
+              {sandbox}
               {rows.map((a) => {
                 const listed = latest[a.id] && latest[a.id] !== a.version ? latest[a.id]! : null;
                 // The store's newest is older than this one (it took the newer back): going there is
