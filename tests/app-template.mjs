@@ -36,7 +36,7 @@ try {
   });
   const target = process.env.HARNIX_TEMPLATE_TARGET ?? join(app, "target");
   const versions = run(join(target, "debug", "myapp"), ["--version"]);
-  for (const line of ["myapp 0.1.0\n", "harnix ", "agix ", "module API ", "contribution API ", "protocol "]) {
+  for (const line of ["myapp 0.1.0\n", "harnix ", "agix ", "extension API ", "contribution API ", "protocol "]) {
     if (!versions.includes(line)) throw new Error(`--version does not say "${line}":\n${versions}`);
   }
   console.log("ok — the application builds offline and says every version:");

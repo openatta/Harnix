@@ -28,17 +28,23 @@ pub(super) struct Instances {
     pub fixed: Vec<(String, Built)>,
 }
 
+/// What the instances share with the rest of the process.
+pub(super) struct Wiring<'a> {
+    pub credentials: &'a Arc<dyn Credentials>,
+    /// What a daemon this process spawns presents when it calls back.
+    pub engines: &'a Arc<harnix_authz::EngineCredentials>,
+    pub recording: Arc<Recording>,
+    pub grants: Arc<dyn harnix_kernel::GrantBook>,
+}
+
 pub(super) async fn build(
     profile: &Profile,
     roots: &Roots,
     records: &mut [Record],
     table: &mut RouteTable,
-    credentials: &Arc<dyn Credentials>,
-    engines: &Arc<harnix_authz::EngineCredentials>,
-    recording: Arc<Recording>,
-    grants: Arc<dyn harnix_kernel::GrantBook>,
+    wiring: Wiring<'_>,
 ) -> anyhow::Result<Instances> {
-    let mut registry = registry(profile, roots, records, table, credentials, engines, recording, grants)?;
+    let mut registry = registry(profile, roots, records, table, wiring)?;
 
     let engine_profile = &profile.instances.engine;
     let engine = harnix_instance::build_engine(EngineConfig {
@@ -81,11 +87,9 @@ fn registry(
     roots: &Roots,
     records: &mut [Record],
     table: &mut RouteTable,
-    credentials: &Arc<dyn Credentials>,
-    engines: &Arc<harnix_authz::EngineCredentials>,
-    recording: Arc<Recording>,
-    grants: Arc<dyn harnix_kernel::GrantBook>,
+    wiring: Wiring<'_>,
 ) -> anyhow::Result<RegistryConfig> {
+    let Wiring { credentials, engines, recording, grants } = wiring;
     let resolve = {
         let credentials = credentials.clone();
         Arc::new(move |name: &str| credentials.get(name).ok().map(|s| s.expose().to_string()))
@@ -182,6 +186,20 @@ fn down(carrier: InstanceCarrier, reason: String) -> Built {
     Built::new(DownLink::new(carrier, reason), Facts::default())
 }
 
+/// What issues and revokes the credential each daemon this process spawns presents at a package's
+/// tool endpoint, as its instance's engine.
+struct EngineTokens(Arc<harnix_authz::EngineCredentials>);
+
+impl harnix_instance::ServerTokens for EngineTokens {
+    fn issue(&self, instance: &str) -> String {
+        self.0.issue_engine(instance)
+    }
+
+    fn revoke(&self, token: &str) {
+        self.0.revoke(token)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,19 +219,5 @@ mod tests {
         let dir = Path::new("/state/instances");
         assert_eq!(instance_root(dir, None, "worker"), dir.join("worker"));
         assert_eq!(instance_root(dir, Some("shared"), "worker"), dir.join("shared"));
-    }
-}
-
-/// What issues and revokes the credential each daemon this process spawns presents at a package's
-/// tool endpoint, as its instance's engine.
-struct EngineTokens(Arc<harnix_authz::EngineCredentials>);
-
-impl harnix_instance::ServerTokens for EngineTokens {
-    fn issue(&self, instance: &str) -> String {
-        self.0.issue_engine(instance)
-    }
-
-    fn revoke(&self, token: &str) {
-        self.0.revoke(token)
     }
 }

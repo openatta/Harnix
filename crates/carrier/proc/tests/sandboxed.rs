@@ -78,7 +78,9 @@ async fn a_package_process_starts_in_its_sandbox() {
 
     let sandbox = call("packages.list", json!({})).await.unwrap()["runtime"]["sandbox"].clone();
     if sandbox["mode"] == "unavailable" {
-        assert!(!cfg!(target_os = "macos"), "macOS has `sandbox-exec`: {sandbox}");
+        if cfg!(target_os = "macos") {
+            panic!("macOS has `sandbox-exec`: {sandbox}");
+        }
         eprintln!("not run: {}", sandbox["why"]);
         let e = call("packages.installFile", json!({"path": board})).await.unwrap_err();
         assert!(e.message.contains("cannot be sandboxed"), "{}", e.message);

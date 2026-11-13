@@ -91,10 +91,7 @@ pub(crate) async fn start_process(app: AppBuilder, cli: &Cli, basis: &Basis) -> 
         &basis.roots,
         &mut records,
         &mut table,
-        &credentials,
-        &engines,
-        recording,
-        grants.clone(),
+        instances::Wiring { credentials: &credentials, engines: &engines, recording, grants: grants.clone() },
     )
     .await?;
     let servers = instances.registry.factory.servers.clone();

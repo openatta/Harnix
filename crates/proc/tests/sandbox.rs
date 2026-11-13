@@ -88,7 +88,9 @@ impl Layout {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_extension_process_reaches_its_own_paths_and_nothing_else_of_the_state() {
     if let Err(why) = harnix_supervise::sandbox::available() {
-        assert!(!cfg!(target_os = "macos"), "macOS has `sandbox-exec`: {why}");
+        if cfg!(target_os = "macos") {
+            panic!("macOS has `sandbox-exec`: {why}");
+        }
         eprintln!("not run: {why}");
         return;
     }

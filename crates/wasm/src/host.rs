@@ -29,7 +29,7 @@ impl AppState {
         match e {
             crate::KvError::Io(detail) => {
                 tracing::warn!(app = %self.shared.app, error = %detail, "{what} failed");
-                format!("{what} failed: the application's storage could not be reached")
+                format!("{what} failed: the package's storage could not be reached")
             }
             other => other.to_string(),
         }
@@ -139,7 +139,7 @@ impl Host for AppState {
             .put(&key, Some(&value), quota)
             .map_err(|e| match e {
                 crate::KvError::QuotaExceeded { .. } => format!(
-                    "storage quota exceeded: the application's `storage_mb` allows {} bytes, and \
+                    "storage quota exceeded: the package's `storage_mb` allows {} bytes, and \
                      its stored values and its files under /data would take more",
                     shared.caps.storage_bytes
                 ),

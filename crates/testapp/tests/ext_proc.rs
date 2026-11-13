@@ -248,6 +248,8 @@ impl Connection {
     async fn start(&self, app_dir: &Path, version: &str) -> Started {
         let engine = self.hello().await.0["engine"].as_str().unwrap().to_string();
         let cwasm = app_dir.join(version).join("wasm").join(format!("tools.{engine}.cwasm"));
+        // The limits the product starts it with: its manifest's.
+        let manifest = harnix_package::package::inspect_dir(&app_dir.join(version)).unwrap().manifest;
         let start = Start {
             app: ID.into(),
             version: version.into(),
@@ -256,7 +258,7 @@ impl Connection {
             config: Value::Null,
             secrets: Default::default(),
             parts: json!({}),
-            limits: Default::default(),
+            limits: harnix_carrier_shared::limits(&manifest, None),
             pkg: None,
             run: None,
         };

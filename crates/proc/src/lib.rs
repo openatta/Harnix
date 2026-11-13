@@ -176,7 +176,7 @@ where
         (None, _) => None,
     };
     let http = Arc::new(WireFetcher(kernel.clone()));
-    let options_for_host = HostOptions { http: Some(http), ..HostOptions::default() };
+    let options_for_host = HostOptions { http: Some(http) };
     let host = match &local {
         Some(local) => Host::new(options_for_host, local.clone(), local.clone()),
         None => Host::new(options_for_host, kernel, Arc::new(NoEngine)),

@@ -384,7 +384,7 @@ impl VmHost for Bridge {
                 ))
             }
             Err(mpsc::error::TrySendError::Closed(_)) => {
-                Err("the application is stopping".to_string())
+                Err("the package is stopping".to_string())
             }
         }
     }
@@ -487,7 +487,7 @@ impl Method {
             }
         }
         let Some(vm) = vm else {
-            return Err(unavailable(&self.app, &self.full(), "the application is not running", "stopped"));
+            return Err(unavailable(&self.app, &self.full(), "the package is not running", "stopped"));
         };
         match vm.handle_as(Some(serving), &self.name, &params, &caller_json(caller)).await {
             Ok(Ok(value)) => Ok(value),

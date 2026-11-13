@@ -724,7 +724,7 @@ impl Control for Host {
             return Err(crate::bridge::unavailable(
                 &call.app,
                 &full,
-                "the application is not running",
+                "the package is not running",
                 "stopped",
             ));
         };
