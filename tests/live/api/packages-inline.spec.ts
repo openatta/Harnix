@@ -103,9 +103,9 @@ test.describe("an application's inline points and its data", () => {
     expect(inline.command.map((c: any) => `${c.trigger}${c.name}`)).toEqual(["/showcase", "@notes"]);
     expect(inline.sidebar_group[0]).toMatchObject({ space: SHOWCASE_CHATS, by: "method", method: "sessions.group" });
     // What it declares is part of what it is, stopped or running.
-    expect(app.app.inline).toEqual(inline);
+    expect(app.ext.inline).toEqual(inline);
     // It is told what is typed for its commands, and its space's sessions: each a line of its own.
-    const lines = app.app.lines.filter((l: any) => l.capability === "inline").map((l: any) => l.value);
+    const lines = app.ext.lines.filter((l: any) => l.capability === "inline").map((l: any) => l.value);
     expect(lines).toEqual(["command /showcase", "command @notes", `sidebar.group ${SHOWCASE_CHATS}`]);
     // Stopped, nothing is drawn for it.
     await api.call("packages.disable", { id: SHOWCASE_ID });

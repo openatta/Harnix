@@ -246,7 +246,7 @@ test.describe("the store, trusted", () => {
       trust: "store",
       source: "store",
       runtime: { state: "running" },
-      app: { publisher: "example", capabilities: { storage_mb: 1 } },
+      ext: { publisher: "example", capabilities: { storage_mb: 1 } },
     });
     expect(listed[0].data_bytes).toBeGreaterThanOrEqual(0);
     expect((await api.call("packages.list")).runtime).toMatchObject({ dev: false });
@@ -287,7 +287,7 @@ test.describe("the store, trusted", () => {
     expect(updated).toMatchObject({ id: SHOWCASE_ID, version: "0.2.0", from: "0.1.0", trust: "store", enabled: true });
     const listed = (await api.call("packages.list")).packages[0];
     expect(listed).toMatchObject({ version: "0.2.0", trust: "store", runtime: { state: "running" } });
-    expect(listed.app.capabilities.env).toEqual(["SHOWCASE_TOKEN", "SHOWCASE_EXTRA"]);
+    expect(listed.ext.capabilities.env).toEqual(["SHOWCASE_TOKEN", "SHOWCASE_EXTRA"]);
     expect(existsSync(join(backend.state, "ext", SHOWCASE_ID, "0.1.0")), "the old version's files").toBe(false);
     // Its data came along: the count goes on.
     const count = await session(api, "app-count");

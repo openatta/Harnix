@@ -156,7 +156,7 @@ carrier = "spawn"
       .poll(async () => JSON.stringify((await api.call("harnix.ui")).contributions ?? []), { timeout: 10_000 })
       .toContain(`/ext/${SHOWCASE_ID}/ui/frame/index.html`);
     // What a store has to compile for, for this process to run it.
-    expect(JSON.stringify(await api.call("system.process"))).toContain(fingerprint);
+    expect((await api.call("packages.list")).runtime.fingerprint).toBe(fingerprint);
   });
 
   test("a new session has its tools, its QuickJS block and its skill", TAGS, async () => {
