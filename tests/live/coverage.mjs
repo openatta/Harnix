@@ -19,16 +19,21 @@ const here = dirname(fileURLToPath(import.meta.url));
 const check = process.argv.includes("--check");
 const LAYERS = ["api", "ui"];
 
-const listed = spawnSync("pnpm", ["exec", "playwright", "test", "--list", "--reporter=json"], {
-  cwd: here,
-  encoding: "utf8",
-  maxBuffer: 64 * 1024 * 1024,
-});
-if (listed.status !== 0) {
-  console.error(listed.stderr || listed.stdout);
-  process.exit(2);
+/** The tests as Playwright lists them, on the carrier given (`HARNIX_CARRIER`). */
+function list(carrier) {
+  const listed = spawnSync("pnpm", ["exec", "playwright", "test", "--list", "--reporter=json"], {
+    cwd: here,
+    encoding: "utf8",
+    env: { ...process.env, HARNIX_CARRIER: carrier },
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (listed.status !== 0) {
+    console.error(listed.stderr || listed.stdout);
+    process.exit(2);
+  }
+  return JSON.parse(listed.stdout);
 }
-const report = JSON.parse(listed.stdout);
+const report = list("wasm");
 
 const counts = new Map(FEATURES.map((f) => [f.id, { api: 0, ui: 0 }]));
 const problems = [];
@@ -61,6 +66,18 @@ const notRun = (spec) =>
   for (const child of suite.suites ?? []) walk(child, [...path, child.title]);
 })({ suites: report.suites }, []);
 
+// The same suites once more on the process carrier (`pnpm live --carrier process`): what runs
+// there, by row. Skipped and gap tests count no more than they do above.
+const onProcess = new Map(FEATURES.map((f) => [f.id, 0]));
+(function walk(suite) {
+  for (const spec of suite.specs ?? []) {
+    const feature = (spec.tags ?? []).find((t) => t.startsWith("feature:"))?.slice(8);
+    if (!onProcess.has(feature) || notRun(spec) || (spec.tags ?? []).includes("gap")) continue;
+    onProcess.set(feature, onProcess.get(feature) + 1);
+  }
+  for (const child of suite.suites ?? []) walk(child);
+})({ suites: list("process").suites });
+
 const cell = (f, layer) => {
   const n = counts.get(f.id)[layer];
   const owed = f[layer];
@@ -74,8 +91,19 @@ const cell = (f, layer) => {
 
 const cellText = (text) => text.replace(/\|/g, "\\|");
 
+const carrierCell = (f) => {
+  const n = onProcess.get(f.id);
+  if (!f.carrier) {
+    if (n > 0) problems.push(`${f.id} has ${n} tests on the process carrier but is not marked \`carrier\` (features.mjs)`);
+    return "—";
+  }
+  if (n === 0) problems.push(`${f.id} is marked \`carrier\` but none of its tests run on the process carrier`);
+  return n > 0 ? String(n) : "**0**";
+};
+
 const total = { api: 0, ui: 0 };
 for (const c of counts.values()) for (const l of LAYERS) total[l] += c[l];
+const totalProcess = [...onProcess.values()].reduce((a, b) => a + b, 0);
 
 const lines = [
   "# LIVE 覆盖表",
@@ -83,11 +111,12 @@ const lines = [
   "> 生成的，不要手改：`pnpm --filter @harnix/live-tests coverage`。来源是每个用例的 `@feature`、`@layer`",
   "> 标签；行（功能模块）与每一行的说明见 `features.mjs`。",
   "> `0 · <何时>` 是还欠着、写明了何时补上的，`—` 是这一层不适用。",
+  "> 「进程载体」是扩展包的套件在 `--carrier process` 下再跑一遍的用例数（API 与界面合计）；`—` 是这一行不经扩展包。",
   "",
-  "| 功能模块 | id | API | 界面 |",
-  "|---|---|---|---|",
-  ...FEATURES.map((f) => `| ${f.name} | \`${f.id}\` | ${cell(f, "api")} | ${cell(f, "ui")} |`),
-  `| **合计** | | **${total.api}** | **${total.ui}** |`,
+  "| 功能模块 | id | API | 界面 | 进程载体 |",
+  "|---|---|---|---|---|",
+  ...FEATURES.map((f) => `| ${f.name} | \`${f.id}\` | ${cell(f, "api")} | ${cell(f, "ui")} | ${carrierCell(f)} |`),
+  `| **合计** | | **${total.api}** | **${total.ui}** | **${totalProcess}** |`,
   "",
   ...(skipped ? [`声明处就跳过（\`skip\`、\`fixme\`）、不算覆盖的用例：${skipped} 个。`, ""] : []),
   ...(gaps.length

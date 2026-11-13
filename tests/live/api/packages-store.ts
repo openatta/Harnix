@@ -2,13 +2,13 @@
  * What the store suites share: a mock store, and a Harnix that trusts it.
  *
  * The mock store is a directory (`file://…/index.json`) made here, from the showcase as
- * `apps-host.ts` packs it: signed by the mock publisher, countersigned by the mock store, listed by
+ * `packages-host.ts` packs it: signed by the mock publisher, countersigned by the mock store, listed by
  * `harnix-pack index` and signed by the mock store again as a catalog (`harnix-pack sign-index` after
  * every edit) — the same tools a real store and publisher use. Its keys are committed in
  * `tests/live/fixtures/store/` (`*.key` secrets, `*.pub` public keys); they are test keys and
  * nothing else. A Harnix carries the store's own key built in and cannot be told another one by a
  * profile: only `harnix-testapp`, assembled with the mock store's key (`AppBuilder::store_keys`,
- * hidden), trusts this store. It is built with `apps` into `target/apps`, beside the apps binary.
+ * hidden), trusts this store. It is built with both carriers into `target/packages`.
  *
  * Two versions of the showcase are listed: 0.1.0, as it is, and 0.2.0, asking for more — an
  * environment variable, a host, a larger store — so an update has something to disclose.
@@ -16,14 +16,14 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { type Backend, type LaunchOptions, type ModelMode, ROOT, launchFor, startHarnix } from "@harnix/testkit";
 
-import { type Entries, SHOWCASE_ID, appsTools, readZip, showcasePackage, writeZip } from "./packages-host";
+import { type Entries, SHOWCASE_ID, TARGET, appsTools, buildBeside, onCarrier, readZip, showcasePackage, writeZip } from "./packages-host";
 
 export const STORE_FIXTURE = join(ROOT, "tests", "live", "fixtures", "store");
 const key = (name: string) => join(STORE_FIXTURE, name);
@@ -31,18 +31,11 @@ export const MOCK_PUBLISHER = readFileSync(key("mock-publisher.pub"), "utf8").tr
 
 let testapp: string | null = null;
 
-/** `harnix-testapp` with `apps`: the one binary that trusts the mock store. */
+/** `harnix-testapp` with both carriers: the one binary that trusts the mock store. */
 export function appsTestApp(): string {
   if (testapp) return testapp;
-  const { bin } = appsTools();
-  testapp = join(dirname(bin), "harnix-testapp");
-  if (!process.env.HARNIX_APPS_BIN || !existsSync(testapp)) {
-    execFileSync(
-      "cargo",
-      ["build", "--release", "--target-dir", join(ROOT, "target", "apps"), "-p", "harnix-testapp", "--features", "apps"],
-      { cwd: ROOT, stdio: ["ignore", "ignore", "inherit"] },
-    );
-  }
+  buildBeside("harnix-testapp", ["--features", "wasm,proc"]);
+  testapp = join(TARGET, "release", "harnix-testapp");
   return testapp;
 }
 
@@ -137,8 +130,8 @@ export function withArtifacts(index: any, version: string, artifacts: Record<str
   return next;
 }
 
-/** A backend that hosts applications from `store`, with `dev` off unless said. `bin`: the
- *  apps testapp (trusts the mock store) unless another binary is given. */
+/** A backend that hosts applications from `store`, with `dev` off unless said, on the run's
+ *  carrier. `bin`: the test application (trusts the mock store) unless another binary is given. */
 export function startStore(
   store: MockStore,
   options: { bin?: string; dev?: boolean; profile?: string; mode?: ModelMode; topologies?: LaunchOptions["topologies"] } = {},
@@ -151,7 +144,7 @@ export function startStore(
 [ext.packages]
 dev = ${options.dev ?? false}
 store = "${store.url}"
-${options.profile ?? ""}`,
+${onCarrier(options.profile)}${options.profile ?? ""}`,
     }),
   );
 }

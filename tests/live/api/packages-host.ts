@@ -1,15 +1,18 @@
 /**
- * What the runtime-application suites share: a `harnix` that hosts applications, and the showcase
- * application (`examples/apps/showcase`) packed for it.
+ * What the extension-package suites share: a `harnix` that runs packages, and the showcase
+ * (`examples/apps/showcase`) packed for it.
  *
- * The default build carries no application runtime; one with the `apps` feature does, and it is
- * built into a target directory of its own (`target/apps`) so the default build's stays as it is.
- * `scripts/check.sh` builds it and says where (`HARNIX_APPS_BIN`); run alone, a suite builds it.
- * Next to it is `harnix-pack`, the author's packing tool, built with the engine's compiler.
+ * `harnix` runs packages in its default build, on both carriers: in this process (`wasm`, the
+ * default) and each in a process of its own (`proc`). Which one a backend uses is the run's
+ * (`pnpm live --carrier`, testkit's `carrier()`), unless a suite's profile says. Beside it, in a
+ * target directory of their own (`target/packages`) so the default build stays as it is: `harnix-pack`,
+ * the author's packing tool, built with the engine's compiler; and `harnix-testapp` with both
+ * carriers (`packages-store.ts`). `scripts/check.sh` builds all three and says so (`HARNIX_BIN`);
+ * run alone, a suite has cargo build them.
  *
  * The showcase is packed once per change to its sources (or to the WIT, or to the tools): its
  * component built for wasm32-wasip2, compiled for this binary's engine, zipped with its manifest,
- * `agent/` and `ui/`. The package is cached under `target/ext/showcase/`.
+ * `agent/` and `ui/`. The package is cached under `target/packages/showcase/`.
  */
 
 import { execFileSync } from "node:child_process";
@@ -18,29 +21,33 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { dirname, join, relative } from "node:path";
 import { crc32, inflateRawSync } from "node:zlib";
 
-import { type Backend, type LaunchOptions, type ModelMode, ROOT, launchFor, startHarnix } from "@harnix/testkit";
+import { type Backend, type LaunchOptions, type ModelMode, type TestClient, ROOT, binary, carrier, launchFor, sleep, startHarnix } from "@harnix/testkit";
 
-const TARGET = join(ROOT, "target", "apps");
+export const TARGET = join(ROOT, "target", "packages");
 export const SHOWCASE = join(ROOT, "examples", "apps", "showcase");
 export const SHOWCASE_ID = "example.showcase";
 /** The showcase's second space: the shell's session list, grouped as its backend answers. */
 export const SHOWCASE_CHATS = "example.showcase.chats";
 
+/**
+ * A release build in `target/apps`, unless the caller built it already (`HARNIX_BIN` says the
+ * caller built everything): cargo is asked every run, as testkit's `binary()` does.
+ */
+export function buildBeside(pkg: string, args: string[]): void {
+  if (process.env.HARNIX_BIN) return;
+  execFileSync("cargo", ["build", "--release", "--target-dir", TARGET, "-p", pkg, ...args], {
+    cwd: ROOT,
+    stdio: ["ignore", "ignore", "inherit"],
+  });
+}
+
 let built: { bin: string; pack: string } | null = null;
 
-/** The apps-enabled `harnix` and the packing tool beside it, built if nobody said where they are. */
+/** `harnix` as it ships, and the packing tool beside the test application. */
 export function appsTools(): { bin: string; pack: string } {
   if (built) return built;
-  const given = process.env.HARNIX_APPS_BIN;
-  if (given) {
-    built = { bin: given, pack: join(dirname(given), "harnix-pack") };
-    return built;
-  }
-  const cargo = (args: string[]) =>
-    execFileSync("cargo", ["build", "--release", "--target-dir", TARGET, ...args], { cwd: ROOT, stdio: ["ignore", "ignore", "inherit"] });
-  cargo(["-p", "harnix-cli", "--features", "apps"]);
-  cargo(["-p", "harnix-package", "--features", "compile", "--bin", "harnix-pack"]);
-  built = { bin: join(TARGET, "release", "harnix"), pack: join(TARGET, "release", "harnix-pack") };
+  buildBeside("harnix-package", ["--features", "compile", "--bin", "harnix-pack"]);
+  built = { bin: binary("harnix"), pack: join(TARGET, "release", "harnix-pack") };
   return built;
 }
 
@@ -86,8 +93,14 @@ export function showcasePackage(): { path: string; fingerprint: string } {
   return packed;
 }
 
-/** A backend of the apps binary (or `bin`) with `[apps] enabled`, `dev` unless said otherwise;
- *  replaying unless given another mode. */
+/** The `[ext.packages]` line that puts packages on the run's carrier, unless `own` (the rest of
+ *  the section) names one. */
+export function onCarrier(own = ""): string {
+  return /^\s*carrier\s*=/m.test(own) ? "" : `carrier = "${carrier()}"\n`;
+}
+
+/** A backend of `harnix` (or `bin`) running packages, `dev` unless said otherwise, on the run's
+ *  carrier unless the profile names one; replaying unless given another mode. */
 export function startApps(
   options: {
     bin?: string;
@@ -100,6 +113,7 @@ export function startApps(
   } = {},
 ): Promise<Backend> {
   const bin = options.bin ?? appsTools().bin;
+  const own = options.profile ?? "";
   return startHarnix(
     launchFor(options.mode ?? "replay", {
       bin,
@@ -109,9 +123,20 @@ export function startApps(
       profile: `
 [ext.packages]
 dev = ${options.dev ?? true}
-${options.profile ?? ""}`,
+${onCarrier(own)}${own}`,
     }),
   );
+}
+
+/** What the showcase's last `recall {later}` timer came to (its `state.recalled`), once it fired. */
+export async function recalledOf(api: TestClient): Promise<any> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const recalled = (await api.call(`${SHOWCASE_ID}.state`)).recalled;
+    if (recalled) return recalled;
+    if (Date.now() > deadline) throw new Error("the showcase's recall timer never fired");
+    await sleep(50);
+  }
 }
 
 /* ── zips, for the packages that should be refused ──────────────────────── */
