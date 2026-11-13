@@ -131,6 +131,8 @@ pub(crate) struct Summary {
     pub methods: Vec<String>,
     pub topics: Vec<String>,
     pub spaces: Vec<String>,
+    /// What its consent lets it call and subscribe to besides its own names.
+    pub calls: Vec<String>,
     pub carrier: PackageCarrier,
     pub since_ms: u64,
 }
@@ -358,6 +360,7 @@ impl PackageTable {
             methods,
             topics,
             spaces: added_spaces,
+            calls: spec.calls.clone(),
             carrier: spec.carrier,
             since_ms: now_ms(),
         };

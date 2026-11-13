@@ -370,7 +370,7 @@ impl DynamicRegistry for RegistryFor {
             .filter_map(|a| {
                 let id = ExtId::package(&a.id).ok()?;
                 let by = ExtId::native(&a.by).or_else(|_| ExtId::package(&a.by)).ok()?;
-                Some(ExtensionSummary::new(&id, &by, a.carrier, a.since_ms).names(a.methods, a.topics, a.spaces))
+                Some(ExtensionSummary::new(&id, &by, a.carrier, a.since_ms).names(a.methods, a.topics, a.spaces).consented(a.calls))
             })
             .collect()
     }
