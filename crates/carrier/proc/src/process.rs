@@ -601,6 +601,7 @@ async fn connect(
     engine: Option<std::os::unix::net::UnixStream>,
 ) -> Result<(Up, Started), NotUp> {
     let id = package.id.to_string();
+    let began = Instant::now();
     let crashed = |why: String| NotUp::Crashed(why);
     stream.set_nonblocking(true).map_err(|e| crashed(format!("its wire: {e}")))?;
     let stream = tokio::net::UnixStream::from_std(stream).map_err(|e| crashed(format!("its wire: {e}")))?;
@@ -646,6 +647,7 @@ async fn connect(
     if let Err(why) = hello {
         return Err(failed(&wire, NotUp::Refused(format!("its hello was refused: {why}"))).await);
     }
+    let hello_ms = began.elapsed().as_millis() as u64;
     let control: Arc<dyn Control> = Arc::new(ControlClient(wire.clone() as Arc<dyn Wire>));
 
     // Its own engine, served on the stream it was given: up before anything is asked of it.
@@ -672,6 +674,7 @@ async fn connect(
     }
 
     // Its start: its `proc.register` and its backend's `init` come before the answer.
+    let asked = Instant::now();
     let mut violation = connection.violation();
     let start = start_of(&package.installed, package.placed(), package.limits.clone());
     let meta = CallMeta::default().with_deadline(Some(deadline_ms));
@@ -695,6 +698,15 @@ async fn connect(
     if !connection.told.registered.load(std::sync::atomic::Ordering::Acquire) {
         return Err(failed(&wire, NotUp::Refused("it started without registering".into())).await);
     }
+    // How long each step took (`tests/budget.mjs` reads it): from its start to its hello, its
+    // `ctl.start` to the answer, and the whole.
+    tracing::debug!(
+        package = %id,
+        hello_ms,
+        start_ms = asked.elapsed().as_millis() as u64,
+        up_ms = began.elapsed().as_millis() as u64,
+        "its extension process came up"
+    );
     Ok((Up { wire, connection, control, violation, misses: 0 }, started))
 }
 
