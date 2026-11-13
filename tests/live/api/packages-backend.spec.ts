@@ -1,5 +1,5 @@
 /**
- * Runtime applications, stage four: a WebAssembly backend. The showcase (`examples/apps/showcase`)
+ * Runtime applications, stage four: a WebAssembly backend. The showcase (`examples/packages/showcase`)
  * is a `backend-ext`: one resident instance in this process, its methods `example.showcase.*`
  * in the authorization table, its topics pushed like any host topic, its space listed — and what
  * it does as itself (`ext:example.showcase`) admitted against its manifest's `calls` and audited.

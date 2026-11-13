@@ -1,6 +1,6 @@
 /**
  * What the shell draws for a runtime application from its manifest alone, in the browser: the
- * showcase (`examples/apps/showcase`) installed from a file. Its tool's row is drawn as its
+ * showcase (`examples/packages/showcase`) installed from a file. Its tool's row is drawn as its
  * `[[inline.tool_row]]` says; a card its backend appends to a session is drawn as its
  * `[[inline.flow_block]]` says, and its buttons call the backend (asking first where it says so),
  * with what came back shown in the card; the composer's `/` and `@` menus offer the backend's

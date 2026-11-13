@@ -10,7 +10,7 @@
 > （运行期包），它可以是插件 APP 的一部分（§5）。
 >
 > 分两部分。**第一部分（§1–§12）是指南**：怎么写、为什么。**第二部分（§13 起）是接口清单**。完整的例子是
-> `examples/apps/showcase`（[它的 README](../examples/apps/showcase/README.md)）：每样东西一个。代码和这里对不上时以代码为准。
+> `examples/packages/showcase`（[它的 README](../examples/packages/showcase/README.md)）：每样东西一个。代码和这里对不上时以代码为准。
 
 ---
 
@@ -593,8 +593,8 @@ Harnix 自己怎么测插件 APP（宿主核心的回环、商店的 mock 钥、
 
 ## 12. 例子：showcase
 
-`examples/apps/showcase`（id `example.showcase`）每样东西一个：带方法、主题与两个 space 的后端，工具（回声、计数、读项目、慢的、被否决的……），
-事件钩子，Agent 包与 skill，进页面的模块与每一个面，四种行内点。[它的 README](../examples/apps/showcase/README.md) 说每一部分是什么、
+`examples/packages/showcase`（id `example.showcase`）每样东西一个：带方法、主题与两个 space 的后端，工具（回声、计数、读项目、慢的、被否决的……），
+事件钩子，Agent 包与 skill，进页面的模块与每一个面，四种行内点。[它的 README](../examples/packages/showcase/README.md) 说每一部分是什么、
 怎么构建与打包。Harnix 的 LIVE 套件全拿它测。
 
 ---

@@ -24,7 +24,7 @@ pub fn showcase_wasm() -> Vec<u8> {
     static BUILT: OnceLock<Vec<u8>> = OnceLock::new();
     BUILT
         .get_or_init(|| {
-            let component = root().join("examples/apps/showcase/component");
+            let component = root().join("examples/packages/showcase/component");
             let target = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("showcase");
             let status = std::process::Command::new(env!("CARGO"))
                 .args(["build", "--release", "--target", "wasm32-wasip2"])
@@ -320,7 +320,7 @@ impl Rig {
     /// The showcase with `edit` applied to its manifest, packed for this engine and unpacked where
     /// an install would put it. Answers its version.
     pub fn unpack(&self, edit: impl Fn(String) -> String) -> String {
-        let source = root().join("examples/apps/showcase");
+        let source = root().join("examples/packages/showcase");
         let app = self.dir.path().join("src");
         for part in ["ui", "agent"] {
             copy_tree(&source.join(part), &app.join(part));

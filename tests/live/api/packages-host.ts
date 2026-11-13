@@ -1,6 +1,6 @@
 /**
  * What the extension-package suites share: a `harnix` that runs packages, and the showcase
- * (`examples/apps/showcase`) packed for it.
+ * (`examples/packages/showcase`) packed for it.
  *
  * `harnix` runs packages in its default build, on both carriers: in this process (`wasm`, the
  * default) and each in a process of its own (`proc`). Which one a backend uses is the run's
@@ -24,7 +24,7 @@ import { crc32, inflateRawSync } from "node:zlib";
 import { type Backend, type LaunchOptions, type ModelMode, type TestClient, ROOT, binary, carrier, launchFor, sleep, startHarnix } from "@harnix/testkit";
 
 export const TARGET = join(ROOT, "target", "packages");
-export const SHOWCASE = join(ROOT, "examples", "apps", "showcase");
+export const SHOWCASE = join(ROOT, "examples", "packages", "showcase");
 export const SHOWCASE_ID = "example.showcase";
 /** The showcase's second space: the shell's session list, grouped as its backend answers. */
 export const SHOWCASE_CHATS = "example.showcase.chats";

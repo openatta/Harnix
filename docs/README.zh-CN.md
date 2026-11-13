@@ -88,7 +88,7 @@ ui/packages/      @harnix/core（协议、客户端、会话状态）、@harnix/
                   @harnix/ext-sdk 与 @harnix/ext-kit（插件 APP 在 iframe 里的页面用）
 templates/        app（新应用）、desktop（Tauri 壳）
 examples/hello-app  照应用的方式做的一个应用
-examples/apps/showcase  每样东西都有一个的插件 APP
+examples/packages/showcase  每样东西都有一个的插件 APP
 tests/live/       LIVE 测试：Playwright Test 对着真二进制
 agix/             Agix（子模块）
 ```

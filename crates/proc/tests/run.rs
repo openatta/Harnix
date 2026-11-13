@@ -178,7 +178,7 @@ async fn a_start_for_another_extension_is_refused_and_ends_the_process() {
 async fn a_component_that_is_not_the_verified_one_is_refused_and_ends_the_process() {
     let dir = tempfile::tempdir().unwrap();
     let pkg = dir.path().join("pkg");
-    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/apps/showcase");
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/packages/showcase");
     copy_tree(&source, &pkg);
     let run_dir = dir.path().join("run");
     std::fs::create_dir_all(&run_dir).unwrap();
