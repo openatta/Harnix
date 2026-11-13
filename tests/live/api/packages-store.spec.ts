@@ -13,7 +13,7 @@ import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "no
 import { join } from "node:path";
 
 import { INVALID_PARAMS, REFUSED } from "@harnix/core/protocol";
-import { type Backend, type TestClient, connect, expect, runTurn, test, topology } from "@harnix/testkit";
+import { type Backend, type TestClient, carrier, connect, expect, runTurn, test, topology } from "@harnix/testkit";
 
 import { SHOWCASE_ID, appsTools, showcasePackage } from "./packages-host";
 import { MOCK_PUBLISHER, STORE_FIXTURE, type MockStore, appsTestApp, mockStore, sha256, startStore, withArtifacts, withVersion } from "./packages-store";
@@ -246,7 +246,7 @@ test.describe("the store, trusted", () => {
       trust: "store",
       source: "store",
       runtime: { state: "running" },
-      app: { publisher: "example", capabilities: { storage_mb: 1 } },
+      ext: { publisher: "example", capabilities: { storage_mb: 1 } },
     });
     expect(listed[0].data_bytes).toBeGreaterThanOrEqual(0);
     expect((await api.call("packages.list")).runtime).toMatchObject({ dev: false });
@@ -287,7 +287,7 @@ test.describe("the store, trusted", () => {
     expect(updated).toMatchObject({ id: SHOWCASE_ID, version: "0.2.0", from: "0.1.0", trust: "store", enabled: true });
     const listed = (await api.call("packages.list")).packages[0];
     expect(listed).toMatchObject({ version: "0.2.0", trust: "store", runtime: { state: "running" } });
-    expect(listed.app.capabilities.env).toEqual(["SHOWCASE_TOKEN", "SHOWCASE_EXTRA"]);
+    expect(listed.ext.capabilities.env).toEqual(["SHOWCASE_TOKEN", "SHOWCASE_EXTRA"]);
     expect(existsSync(join(backend.state, "ext", SHOWCASE_ID, "0.1.0")), "the old version's files").toBe(false);
     // Its data came along: the count goes on.
     const count = await session(api, "app-count");
@@ -299,7 +299,9 @@ test.describe("the store, trusted", () => {
 
   test("uninstalled by name: everything it brought goes, its data with it", TAGS, async () => {
     const removed = await api.call("packages.uninstall", { id: SHOWCASE_ID });
-    expect(removed).toMatchObject({ id: SHOWCASE_ID, uninstalled: true, removed: { agent: { package: "example-showcase" }, skills: { main: ["showcase-tour"] } } });
+    // Its skills are in the instance it was placed in: on the process carrier, its own engine.
+    const skillsIn = carrier() === "process" ? `proc.${SHOWCASE_ID}` : "main";
+    expect(removed).toMatchObject({ id: SHOWCASE_ID, uninstalled: true, removed: { agent: { package: "example-showcase" }, skills: { [skillsIn]: ["showcase-tour"] } } });
     expect((await api.call("packages.list")).packages).toEqual([]);
     expect((await api.call("engine.plugin.list")).plugins.map((p: any) => p.name)).not.toContain("example-showcase");
     expect(JSON.stringify(await api.call("engine.commands.list", { instance: "main" }))).not.toContain("showcase-tour");
@@ -421,6 +423,12 @@ test.describe("the store, on a Harnix with only the store's own key", () => {
     const error = await api.refused("packages.enable", { id: SHOWCASE_ID });
     expect(error?.message).toContain("`ui/showcase.js` is not the file that was signed");
     expect((await api.call("packages.list")).packages[0]).toMatchObject({ enabled: false, runtime: { state: "failed" } });
+    // Its record without its files: refused, saying so; and it still uninstalls.
+    rmSync(root, { recursive: true, force: true });
+    const gone = await api.refused("packages.enable", { id: SHOWCASE_ID });
+    expect(gone?.code).toBe(REFUSED);
+    expect(gone?.message).toContain("its files are not there");
     await api.call("packages.uninstall", { id: SHOWCASE_ID });
+    expect((await api.call("packages.list")).packages).toEqual([]);
   });
 });

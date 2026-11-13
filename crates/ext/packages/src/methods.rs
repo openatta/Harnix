@@ -8,7 +8,7 @@ use harnix_host_api::StopReason;
 use serde_json::{json, Value};
 
 use crate::records::{self, internal, read_one, refuse_installed, write_one, STAGING};
-use crate::{changed, id_param, snapshot, starting, State};
+use crate::{changed, id_param, lock, snapshot, starting, State};
 
 /// Every method, and what it does.
 pub(crate) const METHODS: &[(&str, &str)] = &[
@@ -189,6 +189,11 @@ async fn switch(state: &State, params: Value, enabled: bool) -> Rpc<Value> {
     let ext = harnix_ext::ExtId::package(&id).map_err(|e| RpcError::invalid_params(e.to_string()))?;
     let mut started = Value::Null;
     if enabled {
+        // One set aside, or whose start failed, starts again from nothing: what was running of it
+        // goes first, or its carrier would answer with it as it is.
+        if matches!(state.carrier.status(&ext).await["state"].as_str(), Some("faulted" | "failed")) {
+            state.carrier.stop(&ext, StopReason::Disabled).await;
+        }
         match starting::start(state, &record).await {
             Ok(summary) => started = summary,
             Err(e) => {
@@ -200,13 +205,14 @@ async fn switch(state: &State, params: Value, enabled: bool) -> Rpc<Value> {
         }
     } else {
         state.carrier.stop(&ext, StopReason::Disabled).await;
+        lock(&state.failed).remove(&id);
     }
     let registered = state.host.registrar().registered().iter().any(|s| s.id() == id);
     Ok(json!({
         "id": id,
         "enabled": enabled,
         "registered": registered,
-        "runtime": state.carrier.status(&ext).await,
+        "runtime": crate::status(state, &ext).await,
         "started": started,
     }))
 }
@@ -252,6 +258,7 @@ async fn uninstall(state: &State, params: Value) -> Rpc<Value> {
     let removed = state.carrier.unplace(&state.cx, &starting::recorded(state, &record)?).await?;
     let app_dir = state.package_dir(&id);
     std::fs::remove_dir_all(&app_dir).map_err(|e| internal(format!("{}: {e}", app_dir.display())))?;
+    lock(&state.failed).remove(&id);
     tracing::info!(package = %id, "package uninstalled");
     Ok(json!({"id": id, "uninstalled": true, "removed": removed}))
 }

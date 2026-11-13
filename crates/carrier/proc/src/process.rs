@@ -119,6 +119,11 @@ pub(crate) struct Phase {
     pub withdraws: u64,
     /// The last lines its process wrote to its stderr, as of its last run that wrote any.
     pub stderr: Vec<String>,
+    /// What its process said of it as it was let go while idle: its status until it is up again.
+    pub asleep: Option<Value>,
+    /// Times its process was started again to wake it: its backend's wakes, which a new process
+    /// counts from nothing.
+    pub wakes: u64,
 }
 
 impl Default for Phase {
@@ -133,6 +138,8 @@ impl Default for Phase {
             placed: None,
             withdraws: 0,
             stderr: Vec::new(),
+            asleep: None,
+            wakes: 0,
         }
     }
 }
@@ -248,7 +255,10 @@ pub(crate) async fn keep(
                             Ok(again) => {
                                 tracing::info!(package = %id, "waking its extension process");
                                 child = Some(again);
-                                package.set(|p| p.state = "starting");
+                                package.set(|p| {
+                                    p.state = "starting";
+                                    p.wakes += 1;
+                                });
                                 me.moved();
                             }
                             Err(e) => answer(&mut waiting, Err(e)),
@@ -314,9 +324,9 @@ pub(crate) async fn keep(
             }
             _ = tick(&mut idle), if up.is_some() => {
                 let (Some(now), Some(idle)) = (up.as_ref(), package.idle) else { continue };
-                if !quiet(&me, &package, now, idle).await {
+                let Some(asleep) = quiet(&me, &package, now, idle).await else {
                     continue;
-                }
+                };
                 // Its sessions as they list now are kept to answer with; its process goes.
                 tracing::info!(package = %id, "its extension process is idle; letting it go");
                 if let Some(engine) = &package.engine {
@@ -332,6 +342,7 @@ pub(crate) async fn keep(
                 package.set(|p| {
                     p.state = "hibernating";
                     p.pid = None;
+                    p.asleep = Some(asleep);
                 });
                 me.moved();
             }
@@ -359,6 +370,7 @@ pub(crate) async fn keep(
                                 package.set(|p| {
                                     p.state = "running";
                                     p.reason = None;
+                                    p.asleep = None;
                                 });
                                 tracing::info!(package = %id, pid, "its extension process is ready");
                                 if let Some(ready) = ready.take() {
@@ -485,20 +497,18 @@ fn respawn(me: &Inner, package: &Package) -> Rpc<ChildHandle> {
     cx.service::<HostServices>()?.spawn_child(&package.id, package.request.clone())
 }
 
-/// Whether its process can be let go: nothing of the product's in flight into it for `idle`, its
-/// backend let go by its own host, and nobody using its engine.
-async fn quiet(me: &Inner, package: &Package, up: &Up, idle: Duration) -> bool {
+/// Whether its process can be let go — nothing of the product's in flight into it for `idle`, its
+/// backend let go by its own host, and nobody using its engine — with what its process says of it
+/// then.
+async fn quiet(me: &Inner, package: &Package, up: &Up, idle: Duration) -> Option<Value> {
     let id = package.id.as_str();
     if !me.registry.idle_for(id).is_some_and(|quiet| quiet >= idle) {
-        return false;
+        return None;
     }
-    let hibernated = asked(&up.control, id).await.is_ok_and(|status| status["state"] == "hibernating");
-    if !hibernated {
-        return false;
-    }
+    let status = asked(&up.control, id).await.ok().filter(|status| status["state"] == "hibernating")?;
     match &package.engine {
-        Some(engine) => !engine.engaged().await,
-        None => true,
+        Some(engine) if engine.engaged().await => None,
+        _ => Some(status),
     }
 }
 

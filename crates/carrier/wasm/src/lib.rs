@@ -19,7 +19,6 @@
 //! the hosts its `net` lists (`harnix_package::egress`).
 
 mod agent;
-mod ui_stamp;
 mod kernel;
 mod registry;
 mod routes;
@@ -178,7 +177,7 @@ impl Inner {
                 let Some(host) = me.host.get() else { continue };
                 let mut now = host.generation();
                 for app in me.registry.loaded().iter().filter(|app| me.watches_ui(app)) {
-                    now = now.rotate_left(7) ^ ui_stamp::ui_stamp(&app.root.join("ui"));
+                    now = now.rotate_left(7) ^ harnix_carrier_shared::ui_stamp(&app.root.join("ui"));
                 }
                 if last.is_some_and(|last| last != now) {
                     me.moved();
@@ -206,7 +205,7 @@ impl Inner {
             // reloads its frames when this does.
             map.insert(
                 "ui_rev".into(),
-                json!(self.watches_ui(&app).then(|| format!("{:016x}", ui_stamp::ui_stamp(&app.root.join("ui"))))),
+                json!(self.watches_ui(&app).then(|| format!("{:016x}", harnix_carrier_shared::ui_stamp(&app.root.join("ui"))))),
             );
             map.insert("mcp".into(), json!(format!("/ext/{id}/mcp")));
             map.insert("inline".into(), app.inline.clone());

@@ -523,6 +523,7 @@ pub struct ExtensionSummary {
     methods: Vec<String>,
     topics: Vec<String>,
     spaces: Vec<String>,
+    calls: Vec<String>,
     since_ms: u64,
 }
 
@@ -535,8 +536,16 @@ impl ExtensionSummary {
             methods: Vec::new(),
             topics: Vec::new(),
             spaces: Vec::new(),
+            calls: Vec::new(),
             since_ms,
         }
+    }
+
+    /// What its consent lets it call and subscribe to besides its own names (`topic:<name>` for a
+    /// topic).
+    pub fn consented(mut self, calls: Vec<String>) -> Self {
+        self.calls = calls;
+        self
     }
 
     pub fn names(mut self, methods: Vec<String>, topics: Vec<String>, spaces: Vec<String>) -> Self {
@@ -565,6 +574,10 @@ impl ExtensionSummary {
 
     pub fn spaces(&self) -> &[String] {
         &self.spaces
+    }
+
+    pub fn calls(&self) -> &[String] {
+        &self.calls
     }
 }
 

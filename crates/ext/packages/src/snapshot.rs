@@ -56,7 +56,7 @@ pub(crate) async fn snapshot(state: &State, fresh: bool) -> Value {
             Some(cached) => cached,
             None => {
                 let status = match ExtId::package(&r.id) {
-                    Ok(id) => state.carrier.status(&id).await,
+                    Ok(id) => crate::status(state, &id).await,
                     Err(_) => Value::Null,
                 };
                 let kept = kept_bytes(&status, &state.run_dir(&r.id));

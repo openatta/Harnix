@@ -103,9 +103,9 @@ test.describe("an application's inline points and its data", () => {
     expect(inline.command.map((c: any) => `${c.trigger}${c.name}`)).toEqual(["/showcase", "@notes"]);
     expect(inline.sidebar_group[0]).toMatchObject({ space: SHOWCASE_CHATS, by: "method", method: "sessions.group" });
     // What it declares is part of what it is, stopped or running.
-    expect(app.app.inline).toEqual(inline);
+    expect(app.ext.inline).toEqual(inline);
     // It is told what is typed for its commands, and its space's sessions: each a line of its own.
-    const lines = app.app.lines.filter((l: any) => l.capability === "inline").map((l: any) => l.value);
+    const lines = app.ext.lines.filter((l: any) => l.capability === "inline").map((l: any) => l.value);
     expect(lines).toEqual(["command /showcase", "command @notes", `sidebar.group ${SHOWCASE_CHATS}`]);
     // Stopped, nothing is drawn for it.
     await api.call("packages.disable", { id: SHOWCASE_ID });
@@ -133,7 +133,8 @@ test.describe("an application's inline points and its data", () => {
       { describe: "the card's entry to be pushed" },
     );
     expect(pushed.params.event.entry.event).toBe("card");
-    const { entries } = await api.call("engine.session.entries", carded);
+    // Claiming its space: on the process carrier the session is on the package's own engine.
+    const { entries } = await api.call("engine.session.entries", { ...carded, space: SHOWCASE_CHATS });
     expect(entries.map((e: any) => [e.ns, e.event])).toEqual([[`${SHOWCASE_ID}`, "card"]]);
     // Only through its `calls`: a session in which the entry is appended is still the session's.
     // Claiming no space of its own, the backend is refused before the session is even looked for.

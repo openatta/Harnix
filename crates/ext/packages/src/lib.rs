@@ -201,6 +201,9 @@ pub(crate) struct State {
     looked: Mutex<snapshot::Looked>,
     /// What `packages.list` was last pushed as.
     pushed: Mutex<Value>,
+    /// Why each package's last start failed, until it starts or is switched off: what the list
+    /// says of one its carrier never ran (its files did not check out, or were not there).
+    failed: Mutex<BTreeMap<String, String>>,
     watcher: Mutex<Option<tokio::task::AbortHandle>>,
 }
 
@@ -280,6 +283,7 @@ impl Extension for Packages {
             serial: tokio::sync::Mutex::new(()),
             looked: Mutex::default(),
             pushed: Mutex::new(Value::Null),
+            failed: Mutex::default(),
             watcher: Mutex::new(None),
         });
         cx.provide_arc(state.clone());
@@ -351,6 +355,19 @@ pub(crate) fn id_param(params: &Value) -> Result<String, harnix_ext::RpcError> {
         .and_then(Value::as_str)
         .map(str::to_string)
         .ok_or_else(|| harnix_ext::RpcError::invalid_params("missing id"))
+}
+
+/// What its carrier says of it — or, when its carrier has nothing of it and its last start failed,
+/// `failed` and why: a start this component refused never reached the carrier.
+pub(crate) async fn status(state: &State, id: &harnix_ext::ExtId) -> Value {
+    let mut status = state.carrier.status(id).await;
+    if status["state"] == json!("stopped") {
+        if let Some(why) = lock(&state.failed).get(id.as_str()) {
+            status["state"] = json!("failed");
+            status["reason"] = json!(why);
+        }
+    }
+    status
 }
 
 /// What the list's top says of the carrier.
