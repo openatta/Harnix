@@ -112,10 +112,10 @@ impl Diagnostics {
 
 #[cfg(test)]
 mod tests {
-    use harnix_authz::{access_for, Audit, Principal};
+    use harnix_authz::Audit;
     use harnix_contract::s1::{PackageCarrier, Trust};
     use harnix_contract::Subject;
-    use harnix_kernel::{CallContext, Dispatch, Handler, Rpc};
+    use harnix_kernel::{Access, CallContext, Dispatch, Handler, Rpc};
     use harnix_router::Row;
 
     use super::*;
@@ -138,7 +138,7 @@ mod tests {
             .map(|s| s.to_string())
             .collect();
         let ext = harnix_contract::ExtId::package(id).unwrap();
-        grants.set(ext, [], Trust::consent(hub, PackageCarrier::Wasm));
+        grants.set(ext.clone(), [], Trust::consent(hub, PackageCarrier::Wasm));
         struct Nothing;
         #[async_trait::async_trait]
         impl Handler for Nothing {
@@ -146,11 +146,10 @@ mod tests {
                 Ok(Value::Null)
             }
         }
-        let own = |principals: &[Principal]| access_for(principals);
         let rows = vec![
-            Row::method(format!("{id}.echo"), own(&[Principal::Device, Principal::Module(id.into())]), Arc::new(Nothing)),
-            Row::method(format!("{id}.internal"), own(&[Principal::Kernel, Principal::Module(id.into())]), Arc::new(Nothing)),
-            Row::topic(&format!("{id}.ticks"), own(&[Principal::Module(id.into())])),
+            Row::method(format!("{id}.echo"), Access::kernel().with_device().with_extension(ext.clone()), Arc::new(Nothing)),
+            Row::method(format!("{id}.internal"), Access::only(ext.clone()), Arc::new(Nothing)),
+            Row::topic(&format!("{id}.ticks"), Access::only(ext.clone())),
         ];
         router.install_package(&Subject::Kernel, id, rows).unwrap();
 

@@ -522,8 +522,8 @@ mod tests {
 
     use std::future::Future;
 
-    use harnix_authz::{access_for, Audit, Principal};
-    use harnix_contract::codes;
+    use harnix_authz::Audit;
+    use harnix_contract::{codes, ExtId};
     use harnix_kernel::{Access, Handler, KernelPart, Rpc};
     use harnix_router::{RouteTable, OUTSIDE_HUB};
     use serde_json::json;
@@ -534,7 +534,7 @@ mod tests {
     /// consent, where its topic values go.
     struct Spec {
         id: String,
-        methods: Vec<(String, Vec<Principal>, Arc<dyn Handler>)>,
+        methods: Vec<(String, Access, Arc<dyn Handler>)>,
         topics: Vec<PackageTopic>,
         spaces: Vec<SpaceDecl>,
         calls: Vec<String>,
@@ -560,16 +560,16 @@ mod tests {
             Self { id: id.into(), methods: Vec::new(), topics: Vec::new(), spaces: Vec::new(), calls: Vec::new(), sink: None }
         }
 
-        fn method<F, Fut>(self, name: &str, principals: &[Principal], f: F) -> Self
+        fn method<F, Fut>(self, name: &str, access: Access, f: F) -> Self
         where
             F: Fn(Subject, Value) -> Fut + Send + Sync + 'static,
             Fut: Future<Output = Rpc<Value>> + Send + 'static,
         {
-            self.method_handler(name, principals, Arc::new(Answering(f)))
+            self.method_handler(name, access, Arc::new(Answering(f)))
         }
 
-        fn method_handler(mut self, name: &str, principals: &[Principal], handler: Arc<dyn Handler>) -> Self {
-            self.methods.push((name.to_string(), principals.to_vec(), handler));
+        fn method_handler(mut self, name: &str, access: Access, handler: Arc<dyn Handler>) -> Self {
+            self.methods.push((name.to_string(), access, handler));
             self
         }
 
@@ -599,16 +599,16 @@ mod tests {
         /// and always to the package itself.
         async fn register(&self, by: &str, spec: Spec) -> Result<Summary, RpcError> {
             let id = spec.id.clone();
-            let with_self = |principals: &[Principal]| {
-                let mut principals = principals.to_vec();
-                principals.push(Principal::Module(id.clone()));
-                access_for(&principals)
+            // An id that is no package's opens nothing more: registering it is refused anyway.
+            let with_self = |access: &Access| match ExtId::package(&id) {
+                Ok(me) => access.clone().with_extension(me),
+                Err(_) => access.clone(),
             };
             let rows: Vec<Row> = spec
                 .methods
                 .iter()
-                .map(|(name, principals, handler)| Row::method(full_name(&id, name), with_self(principals), handler.clone()))
-                .chain(spec.topics.iter().map(|t| Row::topic(&full_name(&id, &t.name), with_self(&[Principal::Device, Principal::AnyModule]))))
+                .map(|(name, access, handler)| Row::method(full_name(&id, name), with_self(access), handler.clone()))
+                .chain(spec.topics.iter().map(|t| Row::topic(&full_name(&id, &t.name), with_self(&Access::device()))))
                 .collect();
             let package = Package {
                 id: id.clone(),
@@ -765,10 +765,10 @@ mod tests {
 
     fn fake(id: &str) -> Spec {
         Spec::new(id)
-            .method("echo", &[Principal::Device], |caller, params| async move {
+            .method("echo", Access::kernel().with_device(), |caller, params| async move {
                 Ok(json!({"params": params, "caller": caller}))
             })
-            .method("internal", &[Principal::Kernel], |_c, _p| async move { Ok(json!("kernel only")) })
+            .method("internal", Access::kernel(), |_c, _p| async move { Ok(json!("kernel only")) })
             .topic("ticks", &["job"])
             .space(SpaceDecl::new(id))
     }
@@ -930,7 +930,7 @@ mod tests {
             }
         }
         let w = world();
-        let todo = Spec::new("acme.todo").method_handler("list", &[Principal::AnyModule], Arc::new(Chained));
+        let todo = Spec::new("acme.todo").method_handler("list", Access::extensions(), Arc::new(Chained));
         w.apps.register("host", todo).await.unwrap();
         w.apps.register("host", fake("acme.notes").calls(["acme.todo.list"])).await.unwrap();
         let waiting = Chain::from(vec![harnix_kernel::ChainLink::new("acme.notes", "1")]);
@@ -979,14 +979,14 @@ mod tests {
         // that is taken: refused, and nothing of them was left declared, bound or listed.
         let bad = [
             Spec::new("Bad"),
-            Spec::new("acme.one").method("a b", &[Principal::Device], |_c, p| async move { Ok(p) }),
+            Spec::new("acme.one").method("a b", Access::kernel().with_device(), |_c, p| async move { Ok(p) }),
             Spec::new("acme.two")
-                .method("x", &[Principal::Device], |_c, p| async move { Ok(p) })
-                .method("x", &[Principal::Device], |_c, p| async move { Ok(p) }),
+                .method("x", Access::kernel().with_device(), |_c, p| async move { Ok(p) })
+                .method("x", Access::kernel().with_device(), |_c, p| async move { Ok(p) }),
             Spec::new("acme.three").topic("t", &[]).space(SpaceDecl::new("elsewhere")),
             Spec::new("acme.taken")
                 .topic("t", &[])
-                .method("m", &[Principal::Device], |_c, p| async move { Ok(p) })
+                .method("m", Access::kernel().with_device(), |_c, p| async move { Ok(p) })
                 .space(SpaceDecl::new("acme.taken")),
         ];
         for spec in bad {
@@ -1035,7 +1035,7 @@ mod tests {
         let release = Arc::new(tokio::sync::Notify::new());
         let spec = {
             let release = release.clone();
-            Spec::new("acme.slow").method("wait", &[Principal::Device], move |_c, _p| {
+            Spec::new("acme.slow").method("wait", Access::kernel().with_device(), move |_c, _p| {
                 let release = release.clone();
                 let started = lock(&started_tx).take();
                 async move {

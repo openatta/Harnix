@@ -313,7 +313,6 @@ impl RouteDecider for Router {
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use harnix_authz::{access_for, Principal};
     use harnix_contract::codes;
     use harnix_contract::s1::{caps, ExtId, PackageCarrier, RowScope, Trust};
     use harnix_kernel::{Access, GrantTable, Handler, KernelPart};
@@ -363,7 +362,7 @@ mod tests {
         table
             .install(&Owner::Kernel(KernelPart::Router), vec![Row::closed(REACHABLE, Access::device())])
             .unwrap();
-        table.install(&Owner::extension(id("w")), vec![Row::route("w", access_for(&[Principal::Kernel]))]).unwrap();
+        table.install(&Owner::extension(id("w")), vec![Row::route("w", Access::kernel())]).unwrap();
         table.install_package("acme.notes", vec![Row::method("acme.notes.list", Access::device(), seen.clone())]).unwrap();
         // A first-party power, open to devices alone; and another package's method.
         table.register(&id("system"), crate::IdKind::Native).unwrap();

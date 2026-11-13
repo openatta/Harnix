@@ -514,7 +514,6 @@ impl Default for RouteTable {
 
 #[cfg(test)]
 mod tests {
-    use harnix_authz::{access_for, Principal};
     use harnix_contract::s1::{PackageCarrier, Trust};
     use harnix_kernel::{CallContext, GrantTable, KernelPart, Rpc};
 
@@ -638,8 +637,8 @@ mod tests {
         t.install(
             &ext("w"),
             vec![
-                method("w.list", access_for(&[Principal::Device, Principal::Module("trade".into())])),
-                method("w.internal", access_for(&[Principal::Kernel])),
+                method("w.list", Access::kernel().with_device().with_extension(id("trade"))),
+                method("w.internal", Access::kernel()),
             ],
         )
         .unwrap();
@@ -660,8 +659,8 @@ mod tests {
         t.install(
             &ext("w"),
             vec![
-                Row::route("w", access_for(&[Principal::Device])),
-                Row::topic("w.groups", access_for(&[Principal::Device])),
+                Row::route("w", Access::kernel().with_device()),
+                Row::topic("w.groups", Access::kernel().with_device()),
             ],
         )
         .unwrap();
@@ -677,8 +676,8 @@ mod tests {
         names
             .iter()
             .map(|n| match n.strip_prefix("topic:") {
-                Some(t) => Row::topic(t, access_for(&[Principal::Device])),
-                None => method(n, access_for(&[Principal::Device])),
+                Some(t) => Row::topic(t, Access::kernel().with_device()),
+                None => method(n, Access::kernel().with_device()),
             })
             .collect()
     }
@@ -689,12 +688,12 @@ mod tests {
         t.install(
             &ext("probe"),
             vec![
-                method("probe.echo", access_for(&[Principal::Device])),
-                Row::topic("probe.counter", access_for(&[Principal::Device])),
+                method("probe.echo", Access::kernel().with_device()),
+                Row::topic("probe.counter", Access::kernel().with_device()),
             ],
         )
         .unwrap();
-        t.install(&ext("routed"), vec![Row::route("routed", access_for(&[Principal::Device]))]).unwrap();
+        t.install(&ext("routed"), vec![Row::route("routed", Access::kernel().with_device())]).unwrap();
         t
     }
 
@@ -856,13 +855,13 @@ mod tests {
             ],
         )
         .unwrap();
-        let own = access_for(&[Principal::Device, Principal::Module("acme.notes".into())]);
+        let own = Access::kernel().with_device().with_extension(id("acme.notes"));
         t.install_package(
             "acme.notes",
             vec![method("acme.notes.echo", own.clone()), Row::topic("acme.notes.ticks", own)],
         )
         .unwrap();
-        t.install_package("acme.todo", vec![method("acme.todo.list", access_for(&[Principal::AnyModule]))]).unwrap();
+        t.install_package("acme.todo", vec![method("acme.todo.list", Access::extensions())]).unwrap();
         let g = grants(
             &["probe"],
             &[("acme.notes", &["harnix.session.create", "settings.write", "topic:harnix.sessions.status", "acme.todo.list"])],
