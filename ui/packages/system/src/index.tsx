@@ -29,6 +29,7 @@ import { SubAgentOverview } from "./pane/subagent.tsx";
 import { TasksTab } from "./pane/tasks.tsx";
 import type { InspectorTab, InspectorTarget } from "./types.ts";
 import { View, type Selection } from "./view.ts";
+import "./system.css";
 
 export type { ConsoleTab, InspectorTab, InspectorTarget } from "./types.ts";
 export type { Selection } from "./view.ts";

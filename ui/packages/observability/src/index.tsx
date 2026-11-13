@@ -12,6 +12,7 @@ import { t, type HostApi, type HostSessionRef as SessionKey, type Registry } fro
 import { CallsTab } from "./calls.tsx";
 import type { Observed } from "./shared.tsx";
 import { TurnsTab } from "./turns.tsx";
+import "./observability.css";
 
 /** The backend extension this package is the interface of. */
 export const extension = "observability";

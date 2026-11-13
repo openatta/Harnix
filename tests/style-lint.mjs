@@ -29,8 +29,8 @@ const files = (dir, pattern) => {
   return out;
 };
 
-// The flow space is built into the shell (xops-02 §7): its package is held to the same rules.
-const builtIn = ["react", "shell", "flow"];
+// The first-party UI packages with styles of their own are built into the shell: held to the same rules.
+const builtIn = ["react", "shell", "flow", "system", "observability", "packages"];
 const sheets = builtIn.flatMap((p) => files(join(packages, p, "src"), /\.css$/));
 const css = sheets.map(([, body]) => body).join("\n");
 const sources = builtIn.flatMap((p) => files(join(packages, p, "src"), /\.tsx?$/));

@@ -20,7 +20,7 @@ export function PageFrames({ ext }: { ext: string }) {
       <div className="muted">
         {t("diag.frames")} <span data-field="surfaces">{`${s.live} · ${s.crashes}`}</span>
       </div>
-      <div className="turnh">{t("diag.frames.surfaces")}</div>
+      <div className="hint">{t("diag.frames.surfaces")}</div>
       {s.surfaces.length ? (
         <ul>
           {s.surfaces.map((x) => (
@@ -33,7 +33,7 @@ export function PageFrames({ ext }: { ext: string }) {
       ) : (
         <div className="muted">{t("diag.frames.noSurfaces")}</div>
       )}
-      <div className="turnh">{t("diag.frames.bridgeRefused")}</div>
+      <div className="hint">{t("diag.frames.bridgeRefused")}</div>
       {s.refused.length ? (
         <ul>
           {s.refused.map((r, i) => (
