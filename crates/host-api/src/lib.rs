@@ -234,6 +234,12 @@ impl ChildHandle {
     pub async fn stop(self) {
         self.run.stop().await
     }
+
+    /// The last lines its process wrote to its stderr, across the run's starts, oldest first: a few
+    /// dozen, a few KB at most. Each one went to the product's log as well.
+    pub fn stderr(&self) -> Vec<String> {
+        self.run.stderr()
+    }
 }
 
 /// The host's side of a [`ChildHandle`].
@@ -242,6 +248,10 @@ pub trait ChildRun: Send + Sync {
     async fn next(&mut self) -> Option<ChildEvent>;
     fn kill(&self);
     async fn stop(self: Box<Self>);
+    /// The last lines of its stderr; none kept, none told.
+    fn stderr(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// What happened to an extension process, in order.

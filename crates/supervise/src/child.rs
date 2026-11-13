@@ -9,11 +9,12 @@ use std::time::Duration;
 use tokio::process::Command;
 
 use crate::sandbox::{self, SandboxSpec};
+use crate::tail::Tail;
 
 /// What to run and what it is given. Its stdin is a pipe held by [`Child`]: the child is meant to
 /// exit when the pipe closes, which is also what happens when this process is killed outright —
-/// nothing else reliably outlives a SIGKILL to tell it. Its stdout goes nowhere and its stderr is
-/// this process's.
+/// nothing else reliably outlives a SIGKILL to tell it. Its stdout goes nowhere; its stderr is
+/// this process's, or read into a [`Tail`] and this process's log when it is given one.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct ChildSpec {
@@ -31,6 +32,8 @@ pub struct ChildSpec {
     pub own_session: bool,
     /// Started inside this sandbox, or not at all ([`crate::sandbox`]).
     pub sandbox: Option<SandboxSpec>,
+    /// Where its stderr goes, a line at a time: kept, the last few, and logged.
+    pub stderr: Option<Tail>,
 }
 
 impl ChildSpec {
@@ -44,6 +47,7 @@ impl ChildSpec {
             inherit: Vec::new(),
             own_session: false,
             sandbox: None,
+            stderr: None,
         }
     }
 
@@ -83,6 +87,13 @@ impl ChildSpec {
 
     pub fn sandbox(mut self, spec: SandboxSpec) -> Self {
         self.sandbox = Some(spec);
+        self
+    }
+
+    /// Read its stderr into `tail`, and on into this process's log, rather than hand it this
+    /// process's.
+    pub fn stderr_to(mut self, tail: Tail) -> Self {
+        self.stderr = Some(tail);
         self
     }
 
@@ -137,7 +148,7 @@ impl ChildSpec {
             .envs(self.env.iter().cloned())
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
+            .stderr(if self.stderr.is_some() { Stdio::piped() } else { Stdio::inherit() })
             .kill_on_drop(true);
         if self.own_session {
             own_session_for(&mut command);
@@ -172,7 +183,11 @@ impl ChildSpec {
         let mut child = spawned?;
         let stdin = child.stdin.take();
         let pid = child.id();
-        Ok(Child { inner: child, stdin, pid, own_session: self.own_session })
+        let stderr = match (self.stderr, child.stderr.take()) {
+            (Some(tail), Some(from)) => Some(tokio::spawn(tail.follow(from, pid.unwrap_or(0)))),
+            _ => None,
+        };
+        Ok(Child { inner: child, stdin, pid, own_session: self.own_session, stderr })
     }
 }
 
@@ -203,6 +218,8 @@ pub struct Child {
     stdin: Option<tokio::process::ChildStdin>,
     pid: Option<u32>,
     own_session: bool,
+    /// What reads its stderr into its tail, until the last writer closes it.
+    stderr: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl Child {
@@ -222,6 +239,16 @@ impl Child {
     /// Kill it outright (SIGKILL), and wait for it.
     pub async fn kill(&mut self) -> io::Result<()> {
         self.inner.kill().await
+    }
+
+    /// Wait up to `within` for its stderr to be read to the end, so that its tail has its last
+    /// lines: once it is gone, and what it left in its session with it.
+    pub async fn drained(&mut self, within: Duration) {
+        if let Some(reading) = self.stderr.as_mut() {
+            if tokio::time::timeout(within, reading).await.is_ok() {
+                self.stderr = None;
+            }
+        }
     }
 
     /// End whatever the child left in its session. Nothing when it did not lead one.

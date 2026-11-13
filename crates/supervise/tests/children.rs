@@ -307,3 +307,26 @@ async fn a_killed_child_starts_again_and_a_stopped_one_does_not() {
     assert_eq!(starts.load(std::sync::atomic::Ordering::SeqCst), at_stop, "started again after the stop");
     assert!(!alive(second as i32));
 }
+
+/// What a child writes to its stderr is in its tail by the time its exit is told, across its
+/// starts.
+#[tokio::test]
+async fn the_last_lines_of_stderr_are_kept_by_the_time_an_exit_is_told() {
+    let tail = harnix_supervise::Tail::new("test");
+    let given = tail.clone();
+    let mut supervisor = Supervisor::start(
+        move || Ok(sh("echo one >&2; echo two >&2; exit 3").stderr_to(given.clone())),
+        quick_policy(),
+    );
+    let exited = loop {
+        match tokio::time::timeout(Duration::from_secs(10), supervisor.next_event()).await.unwrap() {
+            Some(ChildEvent::Exited { .. }) => break tail.lines(),
+            Some(_) => continue,
+            None => panic!("the supervisor finished"),
+        }
+    };
+    assert_eq!(exited, ["one", "two"]);
+    let seen = events_until_done(supervisor).await;
+    assert!(matches!(seen.last(), Some(ChildEvent::GaveUp { .. })), "{seen:?}");
+    assert_eq!(tail.lines().len(), 6, "{:?}", tail.lines());
+}

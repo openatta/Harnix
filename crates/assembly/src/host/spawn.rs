@@ -17,6 +17,9 @@
 //! there can be no sandbox (no `sandbox-exec`, no Landlock, Yama's `ptrace_scope` at 0, another
 //! system) no process starts, and the refusal says why. Only the component's own section turns it
 //! off (`sandbox = "off"`), for development: then each start is a warning.
+//!
+//! Its stderr is not this process's: each line goes to this process's log, and the last few are
+//! kept for the component to show ([`harnix_host_api::ChildHandle::stderr`]).
 
 use std::collections::BTreeSet;
 use std::os::fd::OwnedFd;
@@ -31,7 +34,7 @@ use harnix_contract::RpcError;
 use harnix_host_api::{ChildEvent, ChildHandle, ChildRequest, ChildRun, ChildSandbox, RestartPolicy};
 use harnix_kernel::Rpc;
 use harnix_supervise::sandbox::{self, Mechanism};
-use harnix_supervise::{ChildSpec, SandboxSpec, Supervisor};
+use harnix_supervise::{ChildSpec, SandboxSpec, Supervisor, Tail};
 use serde_json::Value;
 use tokio::sync::mpsc;
 
@@ -106,6 +109,9 @@ pub(crate) fn spawn(children: &Arc<ChildBindings>, id: &ExtId, req: ChildRequest
     let subject = children.bind_child(id);
     let (ends_tx, ends) = mpsc::unbounded_channel::<Ends>();
     let with_engine = req.has_engine();
+    // One tail for the run: an exit's last lines are still there once it is started again.
+    let tail = Tail::new(id.to_string());
+    let stderr = tail.clone();
     let make = move || {
         let (product, process) = UnixStream::pair()?;
         let mut spec = ChildSpec::new(&program)
@@ -114,7 +120,8 @@ pub(crate) fn spawn(children: &Arc<ChildBindings>, id: &ExtId, req: ChildRequest
             .envs(env.iter().cloned())
             .current_dir(&run)
             .inherit_fd(3, OwnedFd::from(process))
-            .own_session();
+            .own_session()
+            .stderr_to(stderr.clone());
         if let Some(jail) = &jail {
             spec = spec.sandbox(jail.clone());
         }
@@ -129,7 +136,7 @@ pub(crate) fn spawn(children: &Arc<ChildBindings>, id: &ExtId, req: ChildRequest
     };
     let supervisor = Supervisor::start(make, policy(req.restart_policy()));
     tracing::info!(extension = %id, "extension process started");
-    Ok(ChildHandle::new(id.clone(), Box::new(Run { supervisor: Some(supervisor), ends, pending: None, _subject: subject })))
+    Ok(ChildHandle::new(id.clone(), Box::new(Run { supervisor: Some(supervisor), ends, pending: None, tail, _subject: subject })))
 }
 
 /// What the process reaches of the state: its run directory, read and written (its data, kv, own
@@ -188,6 +195,8 @@ struct Run {
     ends: mpsc::UnboundedReceiver<Ends>,
     /// The ends of the start being made: handed out with its `Started`.
     pending: Option<Ends>,
+    /// The last lines of its stderr.
+    tail: Tail,
     /// Bound to the streams for as long as the handle is held.
     _subject: ChildSubject,
 }
@@ -232,6 +241,10 @@ impl ChildRun for Run {
         if let Some(supervisor) = self.supervisor.take() {
             supervisor.stop().await;
         }
+    }
+
+    fn stderr(&self) -> Vec<String> {
+        self.tail.lines()
     }
 }
 
