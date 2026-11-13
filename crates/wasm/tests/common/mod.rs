@@ -119,6 +119,8 @@ pub struct MockHost {
     pub route_to: OnceLock<AppVm>,
     /// What `secret` gives, by name.
     pub secrets: Mutex<HashMap<String, String>>,
+    /// What `delivering` was told, in order.
+    pub delivering: Mutex<Vec<Option<String>>>,
 }
 
 impl MockHost {
@@ -178,6 +180,10 @@ impl AppHost for MockHost {
 
     fn secret(&self, _app: &str, key: &str) -> Option<String> {
         self.secrets.lock().unwrap().get(key).cloned()
+    }
+
+    fn delivering(&self, _app: &str, serving: Option<&str>) {
+        self.delivering.lock().unwrap().push(serving.map(str::to_string));
     }
 }
 

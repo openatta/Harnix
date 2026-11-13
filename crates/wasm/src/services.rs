@@ -36,6 +36,15 @@ pub trait AppHost: Send + Sync {
         self.call(app, method, params).await
     }
 
+    /// The backend answers something of its own — a timer firing, a topic value — as `serving`,
+    /// an id the VM made for it, until it is told `None`. What it calls meanwhile is made within
+    /// `serving` ([`AppHost::call_within`]) and waits on the backend as a method call's would: a
+    /// host that sees the call come back into this backend, on another task or from another
+    /// process, refuses it by that id instead of letting it wait for itself.
+    fn delivering(&self, app: &str, serving: Option<&str>) {
+        let _ = (app, serving);
+    }
+
     /// `host.publish`: publish on `app.<app>.<topic>`.
     fn publish(&self, app: &str, topic: &str, value: Value) -> Result<(), String>;
 

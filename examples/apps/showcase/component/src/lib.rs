@@ -16,7 +16,7 @@
 //! | `fetch {url}` | slow work started, then reported: a job at once; a timer makes the request (`host.http-request`, to a host in `net` only) and publishes it on `fetched` |
 //! | `session.start {message, space, …}` | driving the agent: `harnix.session.create` and `harnix.session.send` in its own space, as `ext:example.showcase` |
 //! | `overreach` | a call its `calls` does not list: refused, and on the record |
-//! | `recall` | a call back into its own backend while it answers: refused at once (`reentrant`) |
+//! | `recall {later?}` | a call back into its own backend while it answers: refused at once (`reentrant`); `later`, the same from a timer, told by `state` (`recalled`) |
 //! | `spin`, `crash` | what a timeout and a trap do to the instance |
 //! | `card.post {session_id, space, …}` | an entry in the flow of a session of its own space (`harnix.session.entries.append`), which the shell draws as the manifest's card |
 //! | `complete {trigger, name, query}` | the candidates of its `/showcase` command and its `@notes` source |
@@ -77,6 +77,8 @@ struct Memory {
     /// The last `fetch` job started, and the URL of each one still to run, by job.
     fetch_job: u64,
     fetching: Vec<(u64, String)>,
+    /// How the call back into itself a `recall {later}` timer made went.
+    recalled: Value,
 }
 
 static MEMORY: Mutex<Option<Memory>> = Mutex::new(None);
@@ -180,6 +182,7 @@ fn state() -> Value {
         "status_seen": status_seen,
         "running_sessions": running,
         "started_ms": started,
+        "recalled": memory(|m| m.recalled.clone()),
         "secret_set": host::secret("SHOWCASE_TOKEN").is_some(),
         // How long it is, so a test can tell the profile's from anything else of that name.
         "secret_length": host::secret("SHOWCASE_TOKEN").map_or(0, |s| s.len()),
@@ -282,6 +285,12 @@ impl Backend for Showcase {
                     Err(refusal) => json!({"refused": true, "message": refusal}),
                 }
             }
+            "recall" if params["later"].as_bool() == Some(true) => {
+                // The same from a timer, which no call of the product's waits on: refused at once
+                // all the same, the backend held on the firing it answers.
+                host::set_timer("recall", 0).map_err(|e| error(3, e))?;
+                json!({"armed": true})
+            }
             "recall" => {
                 // Back into its own backend, which is busy answering this very call: the product
                 // works out the chain from the call this one was made for, and the backend is
@@ -361,6 +370,18 @@ impl Backend for Showcase {
     }
 
     fn on_timer(id: String) {
+        if id == "recall" {
+            let began = host::now_ms();
+            let outcome = host::call(&format!("{ID}.state"), "{}");
+            let took_ms = host::now_ms().saturating_sub(began);
+            memory(|m| {
+                m.recalled = match outcome {
+                    Ok(_) => json!({"refused": false, "took_ms": took_ms}),
+                    Err(refusal) => json!({"refused": true, "message": refusal, "took_ms": took_ms}),
+                }
+            });
+            return;
+        }
         if let Some(job) = id.strip_prefix("fetch:").and_then(|j| j.parse::<u64>().ok()) {
             fetched(job);
             return;
