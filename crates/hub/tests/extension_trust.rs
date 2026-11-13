@@ -8,6 +8,9 @@
 //! - nobody reaches its settings or its plugins, the kernel included;
 //! - its sessions are marked `trust: "extension"` wherever they are shown.
 //!
+//! Who may name it — its extension, its spaces, a call across spaces — is what an instance a
+//! template built for a space is held to as well, without the extension.
+//!
 //! The links here are fakes: the hub reaches an engine through `EngineLink` and nothing else.
 
 use std::collections::HashMap;
@@ -137,8 +140,9 @@ impl EngineOps for FakeLink {
     }
 }
 
-/// The registry's side: two instances — `ext` the extension `acme`'s own engine, for the spaces it
-/// declared — and what it was told of floods.
+/// The registry's side: three instances — `ext` the extension `acme`'s own engine, for the spaces it
+/// declared; `own`, no space's, as `main` is; `board`, the one a template built for the space
+/// `acme` — and what it was told of floods.
 #[derive(Default)]
 struct Book {
     floods: Mutex<Vec<(String, u32)>>,
@@ -152,11 +156,12 @@ impl InstanceBook for Book {
         match id.as_str() {
             "ext" => Some(Listed { id, spaces: self.acme_spaces.clone(), extension: Some(ExtId::native("acme").unwrap()) }),
             "own" => Some(Listed { id, spaces: Vec::new(), extension: None }),
+            "board" => Some(Listed { id, spaces: vec!["acme".into()], extension: None }),
             _ => None,
         }
     }
     fn all(&self) -> Vec<Listed> {
-        ["ext", "own"].iter().filter_map(|id| self.listed(id)).collect()
+        ["ext", "own", "board"].iter().filter_map(|id| self.listed(id)).collect()
     }
     async fn ensure_for_space(&self, _: &str, _: &str, _: &str) -> Rpc<()> {
         Ok(())
@@ -190,6 +195,7 @@ struct Rig {
     rows: HashMap<&'static str, Arc<dyn Handler>>,
     ext: (Arc<FakeLink>, mpsc::Sender<EngineEvent>),
     own: (Arc<FakeLink>, mpsc::Sender<EngineEvent>),
+    board: (Arc<FakeLink>, mpsc::Sender<EngineEvent>),
     _dir: tempfile::TempDir,
 }
 
@@ -217,11 +223,12 @@ impl Rig {
             })
             .collect();
         let _ = cell.set(hub.clone());
-        let (ext, own) = (FakeLink::new(), FakeLink::new());
+        let (ext, own, board) = (FakeLink::new(), FakeLink::new(), FakeLink::new());
         let extension = InstanceTrust::Extension(ExtId::native("acme").unwrap());
         hub.added("ext", ext.0.clone(), extension).await;
         hub.added("own", own.0.clone(), InstanceTrust::Product).await;
-        Self { hub, book, rows, ext, own, _dir: dir }
+        hub.added("board", board.0.clone(), InstanceTrust::Product).await;
+        Self { hub, book, rows, ext, own, board, _dir: dir }
     }
 
     async fn call(&self, cx: CallContext, method: &str, params: Value) -> Rpc<Value> {
@@ -453,4 +460,56 @@ async fn an_extensions_engine_is_used_by_it_from_its_spaces_and_across_spaces_on
     assert_eq!(refused(rig.call(device(), "engine.scene.list", naming(Some("other"))).await), codes::SPACE_MISMATCH);
     rig.call(as_ext("acme"), "harnix.session.create", naming(Some("acme"))).await.unwrap();
     rig.call(device(), "engine.scene.list", naming(Some("system"))).await.unwrap();
+}
+
+#[tokio::test]
+async fn an_instance_built_for_a_space_is_used_from_it_and_across_spaces_only() {
+    let declared = || vec![SpaceDecl::new("acme"), SpaceDecl::new("other"), SpaceDecl::new("system").cross_space()];
+    let rig = Rig::with_spaces(declared()).await;
+    let device = || CallContext::root(Subject::device("d"), None);
+    let as_ext = |id: &str| CallContext::root(Subject::extension(ExtId::native(id).unwrap()), None);
+    let refused = |r: Rpc<Value>| r.map(|_| ()).unwrap_err().code;
+    let board = |space: Option<&str>| {
+        let mut params = json!({"instance": "board"});
+        if let Some(space) = space {
+            params["space"] = json!(space);
+        }
+        params
+    };
+
+    // Another space naming it, or a call claiming none with no default space: refused, a row open
+    // to any space included, and its engine never asked.
+    for space in [Some("other"), None] {
+        for method in ["engine.scene.list", "engine.session.list", "engine.daemon.status"] {
+            assert_eq!(refused(rig.call(device(), method, board(space)).await), codes::SPACE_MISMATCH, "{method} from {space:?}");
+        }
+        assert_eq!(refused(rig.call(device(), "harnix.session.create", board(space)).await), codes::SPACE_MISMATCH);
+    }
+    assert_eq!(refused(rig.call(as_ext("other"), "engine.scene.list", board(Some("other"))).await), codes::SPACE_MISMATCH);
+    let mut framed = device();
+    framed.on_behalf_of = Some(ExtId::native("other").unwrap());
+    assert_eq!(refused(rig.call(framed, "engine.scene.list", board(Some("other"))).await), codes::SPACE_MISMATCH);
+    assert!(rig.board.0.passed().is_empty(), "{:?}", rig.board.0.passed());
+
+    // From its own space, across spaces from the system space, and by the kernel.
+    rig.call(device(), "engine.scene.list", board(Some("acme"))).await.unwrap();
+    rig.call(as_ext("other"), "engine.scene.list", board(Some("acme"))).await.unwrap();
+    rig.call(device(), "engine.scene.list", board(Some("system"))).await.unwrap();
+    rig.call(CallContext::root(Subject::Kernel, None), "engine.scene.list", board(None)).await.unwrap();
+    assert_eq!(rig.board.0.passed().len(), 4, "{:?}", rig.board.0.passed());
+
+    // An instance that is no space's, as `main`, is any space's and a call's that claims none.
+    for space in [Some("acme"), Some("other"), None] {
+        let mut params = json!({"instance": "own"});
+        if let Some(space) = space {
+            params["space"] = json!(space);
+        }
+        rig.call(device(), "engine.scene.list", params).await.unwrap();
+    }
+
+    // A call claiming none is the default space's: from there it is used, from elsewhere not.
+    let rig = Rig::with_spaces(vec![SpaceDecl::new("acme").default_space(), SpaceDecl::new("other")]).await;
+    rig.call(device(), "engine.scene.list", board(None)).await.unwrap();
+    let rig = Rig::with_spaces(vec![SpaceDecl::new("acme"), SpaceDecl::new("other").default_space()]).await;
+    assert_eq!(refused(rig.call(device(), "engine.scene.list", board(None)).await), codes::SPACE_MISMATCH);
 }
