@@ -655,6 +655,7 @@ fn every_harnix_dependency_resolves() {
         "assembly",
         "instance",
         "authz",
+        "carrier/shared",
         "carrier/wasm",
         "carrier/proc",
         "cli",
@@ -739,6 +740,7 @@ mod rules {
         pub const EXT: &str = "harnix-ext";
         pub const HOST_API: &str = "harnix-host-api";
         pub const PACKAGES: &str = "harnix-ext-packages";
+        pub const CARRIER_SHARED: &str = "harnix-carrier-shared";
         pub const CARRIER_WASM: &str = "harnix-carrier-wasm";
         pub const CARRIER_PROC: &str = "harnix-carrier-proc";
         pub const PROC: &str = "harnix-proc";
@@ -764,7 +766,7 @@ mod rules {
         /// Every crate the workspace may have (C12).
         pub const ALL: &[&str] = &[
             CONTRACT, KERNEL, AUTHZ, ROUTER, TRANSPORT, HUB, INSTANCE, ENGINE_API, ENGINE, SUPERVISE,
-            ASSEMBLY, EXT, HOST_API, PACKAGES, CARRIER_WASM, CARRIER_PROC, PROC, PACKAGE, WASM_PORT,
+            ASSEMBLY, EXT, HOST_API, PACKAGES, CARRIER_SHARED, CARRIER_WASM, CARRIER_PROC, PROC, PACKAGE, WASM_PORT,
             WASM_HOST, WASM, CLIENT, FACADE, CLI, TESTAPP,
             "harnix-ext-system",
             "harnix-ext-harnix-app",
@@ -1131,19 +1133,25 @@ mod rules {
 
     #[test]
     fn l15_packages() {
-        let forbidden = agix_and(&[CARRIER_WASM, CARRIER_PROC, WASM, WASM_HOST]);
+        let forbidden = agix_and(&[CARRIER_SHARED, CARRIER_WASM, CARRIER_PROC, WASM, WASM_HOST]);
         depends(PACKAGES, &[EXT, HOST_API, PACKAGE], &forbidden, &[]);
     }
 
     #[test]
+    fn l16_carrier_shared() {
+        let forbidden = agix_and(&[CARRIER_WASM, CARRIER_PROC, WASM, WASM_HOST, PROC, ENGINE]);
+        depends(CARRIER_SHARED, &[EXT, HOST_API, WASM_PORT, PACKAGE], &forbidden, &[]);
+    }
+
+    #[test]
     fn l16_carrier_wasm() {
-        depends(CARRIER_WASM, &[EXT, HOST_API, WASM_HOST, WASM_PORT, PACKAGE], &agix_and(&[]), &[]);
+        depends(CARRIER_WASM, &[CARRIER_SHARED, EXT, HOST_API, WASM_HOST, WASM_PORT, PACKAGE], &agix_and(&[CARRIER_PROC]), &[]);
     }
 
     #[test]
     fn l17_carrier_proc() {
-        let forbidden = agix_and(&[WASM, WASM_HOST, PROC, ENGINE]);
-        depends(CARRIER_PROC, &[EXT, HOST_API, WASM_PORT, PACKAGE], &forbidden, &[]);
+        let forbidden = agix_and(&[CARRIER_WASM, WASM, WASM_HOST, PROC, ENGINE]);
+        depends(CARRIER_PROC, &[CARRIER_SHARED, EXT, HOST_API, WASM_PORT, PACKAGE], &forbidden, &[]);
     }
 
     #[test]
@@ -1224,6 +1232,12 @@ mod rules {
         only_used_by(WASM, &[WASM_HOST, PROC, PACKAGE], &[PACKAGE]);
         only_used_by(WASM_HOST, &[CARRIER_WASM, PROC], &[]);
         assert!(member_names().iter().any(|n| n == WASM_HOST), "`{WASM_HOST}` does not exist (yet)");
+    }
+
+    #[test]
+    fn l25_the_shared_carrier_code_is_the_two_carriers_alone() {
+        only_used_by(CARRIER_SHARED, &[CARRIER_WASM, CARRIER_PROC], &[]);
+        assert!(member_names().iter().any(|n| n == CARRIER_SHARED), "`{CARRIER_SHARED}` does not exist (yet)");
     }
 
     #[test]
@@ -1434,7 +1448,7 @@ mod rules {
 
     fn host_components_and_first_party() -> Vec<String> {
         let mut scope = first_party_members();
-        scope.extend([PACKAGES, CARRIER_WASM, CARRIER_PROC].iter().map(|s| s.to_string()));
+        scope.extend([PACKAGES, CARRIER_SHARED, CARRIER_WASM, CARRIER_PROC].iter().map(|s| s.to_string()));
         scope
     }
 
@@ -1864,7 +1878,7 @@ pub struct OpenTuple(pub u8);
     #[test]
     fn the_rules_name_only_crates_that_are_listed() {
         for name in [CONTRACT, KERNEL, AUTHZ, ROUTER, TRANSPORT, HUB, INSTANCE, ENGINE_API, ENGINE, SUPERVISE, ASSEMBLY, EXT, HOST_API,
-            PACKAGES, CARRIER_WASM, CARRIER_PROC, PROC, PACKAGE, WASM_PORT, WASM_HOST, WASM, CLIENT, FACADE, CLI, TESTAPP] {
+            PACKAGES, CARRIER_SHARED, CARRIER_WASM, CARRIER_PROC, PROC, PACKAGE, WASM_PORT, WASM_HOST, WASM, CLIENT, FACADE, CLI, TESTAPP] {
             assert!(ALL.contains(&name), "`{name}` is in a rule and not in the list of crates");
         }
         for name in FIRST_PARTY {
