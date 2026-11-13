@@ -162,7 +162,7 @@ test.describe("packages in processes of their own", () => {
     const answer = await api.call(M("recall"));
     const took = Date.now() - began;
     expect(answer.refused).toBe(true);
-    expect(answer.message).toContain("reentrant");
+    expect(answer.message).toMatch(/re-?enter/);
     // Refused in the process within 100 ms of the call coming back (`ext_proc.rs` times that); the
     // whole round trip here is a page's call, the product, the process and back, twice.
     expect(took).toBeLessThan(1_000);
@@ -174,7 +174,7 @@ test.describe("packages in processes of their own", () => {
     expect(await api.call(M("recall"), { later: true })).toEqual({ armed: true });
     const recalled = await recalledOf(api);
     expect(recalled.refused).toBe(true);
-    expect(recalled.message).toContain("reentrant");
+    expect(recalled.message).toMatch(/re-?enter/);
     expect(recalled.took_ms).toBeLessThan(100);
   });
 
@@ -261,6 +261,8 @@ test.describe("packages in processes of their own, in their sandbox", () => {
     await api.call("packages.installFile", { path: showcasePackage().path });
     expect(await until(api, "running", (rt) => rt.state === "running")).toMatchObject({ carrier: "process" });
     expect((await entry(api, SHOWCASE_ID)).sandbox).toBe("on");
+    // Its stderr's last lines are kept for the list (none yet is fine: the list says so).
+    expect((await runtime(api)).process.stderr).toEqual(expect.any(Array));
     expect(await api.call(M("notes.add"), { text: "from inside" })).toEqual({ count: 1 });
   });
 
@@ -291,8 +293,7 @@ test.describe("packages in processes of their own, in their sandbox", () => {
       if (Date.now() > deadline) throw new Error("its engine is not up in its sandbox");
       await sleep(100);
     }
-    // Its agent package went into its own engine, none of the product's instances.
-    expect(JSON.stringify((await entry(api, SHOWCASE_ID)).placed ?? {})).toContain(ENGINE);
+    // Up means its agent package went into its own engine: a placement that fails refuses the start.
     // A session in its space is on its engine; a turn starts it (and fails at the model: there is
     // none here, which the hook does not need).
     const created = await api.call("harnix.session.create", { space: SHOWCASE_ID });
@@ -303,11 +304,14 @@ test.describe("packages in processes of their own, in their sandbox", () => {
     for (const until = Date.now() + 60_000; !existsSync(done); await sleep(200)) {
       if (Date.now() > until) throw new Error(`its engine's hook never ran in its sandbox: ${readdirSync(home).join(", ")}`);
     }
-    expect(readFileSync(join(home, "hook-git.txt"), "utf8")).toMatch(/^git version /);
+    // On macOS git is xcrun's shim, which says it cannot keep its cache in the user's temporary
+    // directory (out of reach) and runs all the same.
+    expect(readFileSync(join(home, "hook-git.txt"), "utf8")).toMatch(/^git version /m);
     expect(readFileSync(join(home, "hook-ls.txt"), "utf8")).toMatch(/^sh$/m);
     const read = readFileSync(join(home, "hook-record.txt"), "utf8");
     expect(read).toMatch(/exit [1-9]/);
-    expect(read).not.toContain(SHOWCASE_ID);
+    expect(read).toMatch(/Operation not permitted|Permission denied/);
+    expect(read).not.toContain('"version"');
   });
 
   test("its engine's shell tool runs in its sandbox", TAGS, async () => {

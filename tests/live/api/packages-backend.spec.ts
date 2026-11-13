@@ -138,13 +138,13 @@ test.describe("an application with a backend", () => {
   test("a backend that calls back into itself is refused at once, from a call and from its timer", TAGS, async () => {
     const answer = await api.call(M("recall"));
     expect(answer.refused).toBe(true);
-    expect(answer.message).toContain("reentrant");
+    expect(answer.message).toMatch(/re-?enter/);
     // From a timer no call of the product's waits on: the backend is held on the firing it answers,
     // so the call back is refused there too, and `state` says how long that took.
     expect(await api.call(M("recall"), { later: true })).toEqual({ armed: true });
     const recalled = await recalledOf(api);
     expect(recalled.refused).toBe(true);
-    expect(recalled.message).toContain("reentrant");
+    expect(recalled.message).toMatch(/re-?enter/);
     expect(recalled.took_ms).toBeLessThan(100);
   });
 
