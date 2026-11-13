@@ -81,6 +81,7 @@ export {
   type PointSpec,
   type RegisterOptions,
   type SessionAction,
+  type SettingsNeed,
   type CommandCandidate,
   type CommandContext,
   type Contributions,

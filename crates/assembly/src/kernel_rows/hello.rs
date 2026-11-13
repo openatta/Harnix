@@ -1,5 +1,5 @@
-//! `harnix.hello`: what a client is told once, after the handshake — what the `main` engine is,
-//! what scenes and commands exist there, every instance and the protocol it speaks, the ceilings,
+//! `harnix.hello`: what a client is told once, after the handshake — what the `main` engine is
+//! and the models it can run a session on, what scenes and commands exist there, every instance and the protocol it speaks, the ceilings,
 //! the shell's part, and every extension (what the shell activates its UI packages by).
 //!
 //! The assembly's to answer: it is the one layer that knows all of it.
@@ -9,7 +9,7 @@ use std::sync::Arc;
 use harnix_hub::{Hub, MAIN};
 use harnix_instance::InstanceRegistry;
 use harnix_kernel::Rpc;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use super::UiModules;
 
@@ -31,11 +31,12 @@ pub(crate) struct Hello {
 
 impl Hello {
     pub async fn answer(&self) -> Rpc<Value> {
-        // Once per connection, and none of the three waits on another.
-        let (status, scenes, commands) = tokio::join!(
+        // Once per connection, and none of the four waits on another.
+        let (status, scenes, commands, providers) = tokio::join!(
             self.hub.passthrough(MAIN, "engine.daemon.status", json!({})),
             self.hub.passthrough(MAIN, "engine.scene.list", json!({})),
             self.hub.passthrough(MAIN, "engine.commands.list", json!({})),
+            self.hub.passthrough(MAIN, "engine.config.getProvider", json!({})),
         );
         let (status, scenes, commands) = (
             status.unwrap_or(json!({})),
@@ -55,6 +56,7 @@ impl Hello {
                 "scene": facts.scene,
                 "data_root": facts.root_label(),
                 "has_credentials": facts.has_credentials,
+                "providers": model_choices(providers.ok()),
                 "status": status,
             },
             "instances": self.instances.identities(),
@@ -71,5 +73,49 @@ impl Hello {
             "shell": self.shell,
             "limits": self.limits,
         }))
+    }
+}
+
+/// What `engine.config.getProvider` answers, cut to what a client offers to switch a session to:
+/// each provider's default model and the others it allows, and which provider is the default —
+/// no key, no address. `null` when it could not be read: a client then does not say that no model
+/// is set up.
+fn model_choices(answer: Option<Value>) -> Value {
+    let Some(answer) = answer else {
+        return Value::Null;
+    };
+    let providers: Map<String, Value> = answer["providers"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(id, p)| {
+            let models = p.get("models").filter(|m| m.is_array()).cloned().unwrap_or(json!([]));
+            (id.clone(), json!({"default_model": p["default_model"].clone(), "models": models}))
+        })
+        .collect();
+    json!({"providers": providers, "default_provider": answer["default_provider"].clone()})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_client_is_told_the_models_and_nothing_of_how_they_are_reached() {
+        let answer = json!({
+            "default_provider": "acme",
+            "providers": {
+                "acme": {"api_type": "openai_compatible", "base_url": "https://acme.invalid/v1", "api_key": "sk-…", "default_model": "m-1", "models": ["m-2"]},
+                "bare": {"api_type": "anthropic"},
+            },
+        });
+        assert_eq!(
+            model_choices(Some(answer)),
+            json!({
+                "default_provider": "acme",
+                "providers": {"acme": {"default_model": "m-1", "models": ["m-2"]}, "bare": {"default_model": null, "models": []}},
+            })
+        );
+        assert_eq!(model_choices(None), Value::Null);
     }
 }

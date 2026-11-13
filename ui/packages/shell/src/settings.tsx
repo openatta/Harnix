@@ -9,7 +9,7 @@
 
 import { Fragment, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { errorText } from "@harnix/core";
-import { Contributed, Glyph, SettingsReload, SettingsRow, SettingsSection, SettingsValue, localeChoice, setLocale, t, useRegistry, useT, type LocaleChoice } from "@harnix/react";
+import { Contributed, Glyph, SettingsReload, SettingsRow, SettingsSection, SettingsValue, localeChoice, setLocale, t, useRegistry, useT, type LocaleChoice, type SettingsNeed } from "@harnix/react";
 
 import type { App, ThemeChoice } from "./app.ts";
 import { APPS_LIST } from "./constants.ts";
@@ -23,6 +23,12 @@ export function openSettings(app: App, section?: string): void {
   if (section) active = section;
   // Opened again while it is on top (`host.settings.open` from a section's frame), it is drawn anew in place.
   app.openModal({ title: t("settings.title"), wide: true, key: "settings", content: <Settings app={app} /> });
+}
+
+/** The settings at the section that covers `need` (`settings.section`'s `covers`); at the panel's
+ *  first when none does. */
+export function openSettingsFor(app: App, need: SettingsNeed): void {
+  openSettings(app, app.registry.at("settings.section").find((s) => s.covers?.includes(need))?.id ?? settingsSections(app)[0]);
 }
 
 /** The shell's own sections, around the registered ones. */

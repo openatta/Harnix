@@ -12,7 +12,7 @@
  * | `flow.block` | `match(块)`、`render(块)` | 后注册的先认领 |
  * | `sidebar.group` | `group(会话) → 组[]`、`label?()` | 只用最后注册的那一个 |
  * | `command` | `trigger?`（`/` 或 `@`）、`complete(query, ctx?) → 候选[]`（候选可带 `run`） | 全部，按注册顺序拼起来；`/` 与 `@` 两个菜单各问各的 |
- * | `settings.section` | `id`、`label()`、`render()` | 全部，按注册顺序 |
+ * | `settings.section` | `id`、`label()`、`render()`，可选的 `covers` | 全部，按注册顺序；外壳要人去配模型时打开 `covers` 里有 `"models"` 的那一节 |
  * | `session.action` | `id`、`at`、`label(target)`、`match(target)`、`run(target)` | 标题栏、会话菜单、工具行各问 `at` 里有它的，按注册顺序 |
  *
  * 扩展还可以定义自己的点（`definePoint("<扩展 id>.<名>")`），别的包往里注册；注册进还没定义的点先挂着，全部注册完
@@ -253,9 +253,18 @@ export interface Contributions {
     trigger?: "/" | "@";
     complete(query: string, ctx?: CommandContext): CommandCandidate[] | Promise<CommandCandidate[]>;
   };
-  "settings.section": { id: string; label(): string; render(): ReactNode };
+  "settings.section": {
+    id: string;
+    label(): string;
+    render(): ReactNode;
+    /** What the shell may send a reader here for: `"models"` — a turn has no model to go to. */
+    covers?: SettingsNeed[];
+  };
   "session.action": SessionAction;
 }
+
+/** What the shell itself sends a reader to the settings for, to whichever section `covers` it. */
+export type SettingsNeed = "models";
 
 /** What a point an extension defines is: how its contributions are used. */
 export interface PointSpec {

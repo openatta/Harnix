@@ -53,21 +53,6 @@ const NOTICE_QUEUE = 5;
 
 export type ThemeChoice = "auto" | "light" | "dark";
 
-/** One configured model provider, as `settings.describe` reads it (the key redacted). */
-export interface Provider {
-  api_type?: string | null;
-  base_url?: string | null;
-  api_key?: string | null;
-  default_model?: string | null;
-  models?: string[];
-}
-
-/** The engine's providers: which there are, and which one a turn goes to. */
-export interface Providers {
-  providers: Record<string, Provider>;
-  default_provider?: string | null;
-}
-
 /** The side columns' widths, as the reader dragged them: the left one, the right one, and a
  *  space's second side panel (xops-04 §7). */
 export interface Widths {
@@ -172,8 +157,6 @@ export interface ShellState {
   dragged: Partial<Widths>;
   /** The avatar's menu. */
   menu: boolean;
-  /** The model providers; null until read (or when this page may not read them). */
-  providers: Providers | null;
   /** The right column's selected tab, per space. `asked`: chosen through the host API, so it is kept
    *  when the space is entered again; a tab the reader clicked goes back to the first, as before
    *  (kept too for a space that gives `tab()`). */
@@ -333,7 +316,6 @@ export class App {
       widths: widthsWith(stored<Partial<Widths>>(WIDTHS_KEY, {})),
       dragged: stored<Partial<Widths>>(WIDTHS_KEY, {}),
       menu: false,
-      providers: null,
       tabBySpace: {},
       drawn: 0,
     };
@@ -370,7 +352,7 @@ export class App {
     }
     if (before.search.query !== next.search.query) this.search(next.search.query);
     // The settings panel closed: what it changed may be the model providers the composer offers.
-    if (before.modals.some((m) => m.key === "settings") && !next.modals.some((m) => m.key === "settings")) void this.refreshProviders();
+    if (before.modals.some((m) => m.key === "settings") && !next.modals.some((m) => m.key === "settings")) void this.refreshEngine();
   }
 
   /** Tell the front space what the left column's search box says (`sidebar.search`); `submit` when
@@ -509,7 +491,6 @@ export class App {
         const reachable = await within(asked, BOOT_WAIT_MS);
         if (reachable === TIMED_OUT) void asked.then((r) => this.set({ reachable: r.methods ?? [] }));
         else this.set({ reachable: reachable.methods ?? [] });
-        void this.refreshProviders();
         // Through the page's counted table: a space subscribing to the same topic and leaving again
         // does not take it from the shell.
         topicsOf(this.conn).subscribe("harnix.sessions.status", {}, (value) => this.applyStatus(value));
@@ -566,34 +547,32 @@ export class App {
     }
   }
 
-  /** Read the model providers again: at connect, and after the settings page changes one. */
-  async refreshProviders(): Promise<void> {
-    if (!this.state.reachable.includes("settings.describe")) return;
-    const scene = this.state.hello?.engine?.active_scenes?.[0];
-    const described = await this.conn
-      .call("settings.describe", { scene, project_root: null })
-      .catch(() => null);
-    const providers = (described as { providers?: Partial<Providers> } | null)?.providers;
-    if (providers) this.set({ providers: { providers: providers.providers ?? {}, default_provider: providers.default_provider ?? null } });
+  /** Read what hello says of the engine again — its model providers — after the settings panel,
+   *  which may have changed one, closes. */
+  async refreshEngine(): Promise<void> {
+    const hello = (await this.conn.call("harnix.hello", {}).catch(() => null)) as Hello | null;
+    if (hello?.engine && this.state.hello) this.set({ hello: { ...this.state.hello, engine: hello.engine } });
   }
 
   /**
    * Whether a turn has a model to go to: a provider, or the `ANTHROPIC_*` key the engine started
-   * with. Unknown (providers not read) counts as yes, so the page does not cry wolf.
+   * with. Unknown (hello could not read the providers) counts as yes, so the page does not cry wolf.
    */
   modelReady(): boolean {
-    const { providers, hello } = this.state;
+    const engine = this.state.hello?.engine;
+    const providers = engine?.providers;
     if (!providers) return true;
-    return Object.keys(providers.providers).length > 0 || hello?.engine?.has_credentials === true;
+    return Object.keys(providers.providers).length > 0 || engine?.has_credentials === true;
   }
 
   /** The model a new session runs on: the default provider's, else the engine's; none while no
    *  model is configured (`modelReady()`), whatever name the engine started with. */
   defaultModel(): string | null {
     if (!this.modelReady()) return null;
-    const { providers, hello } = this.state;
+    const engine = this.state.hello?.engine;
+    const providers = engine?.providers;
     const chosen = providers?.default_provider ? providers.providers[providers.default_provider] : undefined;
-    return chosen?.default_model || (typeof hello?.engine?.model === "string" ? hello.engine.model : null);
+    return chosen?.default_model || (typeof engine?.model === "string" ? engine.model : null);
   }
 
   /** The stored front space, if this product still has it; else the first one it does have. */
