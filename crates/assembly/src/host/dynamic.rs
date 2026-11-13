@@ -48,6 +48,8 @@ pub(crate) struct DynamicHost {
     /// The profile's `[ext."<package id>"]` sections.
     pub sections: BTreeMap<String, Value>,
     pub routes: Arc<PackageRoutes>,
+    /// The extension processes started, each bound to the stream it was handed.
+    pub children: Arc<harnix_authz::ChildBindings>,
     /// What each component shares with every spawned daemon, merged.
     shared: Mutex<BTreeMap<ExtId, Vec<ToolEndpoint>>>,
 }
@@ -76,6 +78,7 @@ impl DynamicHost {
             runtime_modules,
             sections,
             routes: Arc::default(),
+            children: Arc::default(),
             shared: Mutex::new(BTreeMap::new()),
         })
     }
@@ -152,8 +155,14 @@ impl HostApi for HostFor {
         DynamicRegistrar::new(Arc::new(RegistryFor { host: self.host.clone(), by: self.by.clone() }))
     }
 
-    fn spawn_child(&self, _id: &ExtId, _req: ChildRequest) -> Rpc<ChildHandle> {
-        Err(RpcError::refused("this build starts no extension processes: that is the process carrier's"))
+    /// Only for an extension this component registered: its process is that extension, and no
+    /// other component's.
+    fn spawn_child(&self, id: &ExtId, req: ChildRequest) -> Rpc<ChildHandle> {
+        let ours = self.host.packages.registered().iter().any(|a| a.id == id.as_str() && a.by == self.by.as_str());
+        if !ours {
+            return Err(RpcError::refused(format!("`{id}` is not an extension `{}` registered", self.by)));
+        }
+        super::spawn::spawn(&self.host.children, id, req)
     }
 
     fn share_tools(&self, entries: Vec<ToolEndpoint>) -> Rpc<()> {

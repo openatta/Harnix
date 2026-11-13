@@ -1427,6 +1427,7 @@ dependencies = [
  "harnix-instance",
  "harnix-kernel",
  "harnix-router",
+ "harnix-supervise",
  "harnix-transport",
  "http-body-util",
  "libc",

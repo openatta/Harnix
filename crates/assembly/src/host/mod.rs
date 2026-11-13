@@ -14,6 +14,7 @@ pub(crate) mod dynamic;
 pub(crate) mod lifecycle;
 pub(crate) mod routes;
 pub(crate) mod seat;
+pub(crate) mod spawn;
 pub mod status;
 
 use std::path::PathBuf;
