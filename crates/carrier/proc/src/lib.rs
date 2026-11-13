@@ -73,6 +73,9 @@ pub const CRASH_WINDOW: Duration = Duration::from_secs(60);
 /// Crashes in a row after which a package is set aside.
 pub const CRASHES: usize = 3;
 
+/// How often an unsigned package's interface files (in developer mode) are looked at for a change.
+const UI_TICK: Duration = Duration::from_secs(1);
+
 /// Packages in processes of their own.
 #[derive(Clone)]
 pub struct ProcCarrier(Arc<Inner>);
@@ -153,6 +156,11 @@ impl Inner {
         self.settings.get().cloned().unwrap_or_default()
     }
 
+    /// An unsigned package's interface, in developer mode, changes under it on disk.
+    fn watches_ui(&self, app: &Loaded) -> bool {
+        self.settings.get().is_some_and(CarrierSettings::is_dev) && app.trust == Trust::Unsigned
+    }
+
     /// An exit after `ran_for`: true when it is the last of [`CRASHES`] in a row, each within
     /// [`CRASH_WINDOW`] of its start. A longer run starts the count over.
     pub(crate) fn crashed(&self, id: &str, ran_for: Duration) -> bool {
@@ -208,6 +216,23 @@ impl Inner {
                 me.refresh();
             }
         });
+        // An unsigned package's interface files, in developer mode: a change moves the generation.
+        let me = Arc::downgrade(self);
+        tokio::spawn(async move {
+            let mut last = None;
+            loop {
+                tokio::time::sleep(UI_TICK).await;
+                let Some(me) = me.upgrade() else { break };
+                let mut now = 0u64;
+                for app in me.registry.loaded().iter().filter(|app| me.watches_ui(app)) {
+                    now = now.rotate_left(7) ^ harnix_carrier_shared::ui_stamp(&app.root.join("ui"));
+                }
+                if last.is_some_and(|last| last != now) {
+                    me.moved();
+                }
+                last = Some(now);
+            }
+        });
     }
 
     /// What the carrier says of it, with what its process says when it is up, and what of its
@@ -225,11 +250,20 @@ impl Inner {
         let phase = package.phase();
         let mut status = match self.registry.control(id) {
             Some(control) => process::asked(&control, id).await.unwrap_or_else(|e| json!({"reason": e.message})),
-            None => json!({}),
+            // Let go while idle: what its process said of it as it went.
+            None => phase.asleep.clone().unwrap_or_else(|| json!({})),
         };
         let Some(map) = status.as_object_mut() else { return status };
-        map.insert("state".into(), json!(phase.state));
-        map.insert("reason".into(), json!(phase.reason));
+        // A backend its process's host set aside is the package's state while the process is up.
+        let aside = phase.state == "running" && map.get("state") == Some(&json!("faulted"));
+        if !aside {
+            map.insert("state".into(), json!(phase.state));
+            map.insert("reason".into(), json!(phase.reason));
+        }
+        // Each wake is a new process, whose backend counts its wakes from nothing.
+        if let Some(wakes) = map.get_mut("health").and_then(|h| h.get_mut("wakes")) {
+            *wakes = json!(wakes.as_u64().unwrap_or(0) + phase.wakes);
+        }
         map.insert("carrier".into(), json!("process"));
         map.insert("process".into(), phase.describe());
         let app = &package.loaded;
@@ -239,7 +273,12 @@ impl Inner {
             "surfaces".into(),
             json!(app.surfaces.iter().map(|s| format!("{}:{}", s.point, s.id())).collect::<Vec<_>>()),
         );
-        map.insert("ui_rev".into(), Value::Null);
+        // An unsigned package's interface, in developer mode, changes under it: the page reloads
+        // its frames when this does.
+        map.insert(
+            "ui_rev".into(),
+            json!(self.watches_ui(app).then(|| format!("{:016x}", harnix_carrier_shared::ui_stamp(&app.root.join("ui"))))),
+        );
         map.insert("mcp".into(), json!(format!("/ext/{id}/mcp")));
         map.insert("inline".into(), app.inline.clone());
         status
