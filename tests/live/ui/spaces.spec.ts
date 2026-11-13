@@ -2,7 +2,7 @@
  * Spaces in the browser (concept §5.4), against `examples/hello-app` — an application built the way
  * applications are, with two spaces of its own beside Harnix's built-in ones:
  *
- *   greeter  a tab and a home card, a backend module, its own in-process instance
+ *   greeter  a tab and a home card, a backend extension, its own in-process instance
  *   notes    interface and Agent only, on `system`
  *
  * The invariant under test is the one between the front space and its session: whatever space is in front, the centre,
@@ -281,7 +281,7 @@ async function askApproval(page: Page, timeoutMs?: number): Promise<{ id: string
   return page.evaluate(async (timeout_ms) => {
     const { app } = (window as any).harnix;
     const current = app.snapshot.currentBySpace.greeter;
-    return app.call("app.greeter.request_approval", {
+    return app.call("greeter.request_approval", {
       instance: current.instance,
       session_id: current.sessionId,
       title: "Greet everyone at once",
@@ -318,7 +318,7 @@ test("an approval: two people see one card, and the first answer stands", APPROV
   const ticket = await mine.getAttribute("data-ticket");
   const late = await page.evaluate(async (ticket) => {
     try {
-      await (window as any).harnix.app.call("app.greeter.approve", { ticket, decision: "reject" });
+      await (window as any).harnix.app.call("greeter.approve", { ticket, decision: "reject" });
       return null;
     } catch (e: any) {
       return e.message;
@@ -335,7 +335,7 @@ test("an approval nobody answers is a no, and a module cannot answer for a perso
   await startReplaying(page);
   const pending = await askApproval(page);
   const byModule = await page.evaluate(
-    (ticket) => (window as any).harnix.app.call("app.greeter.answer_for_a_person", { ticket }),
+    (ticket) => (window as any).harnix.app.call("greeter.answer_for_a_person", { ticket }),
     pending.id,
   );
   expect(byModule.refused, JSON.stringify(byModule)).toBeTruthy();

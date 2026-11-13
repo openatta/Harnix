@@ -79,7 +79,7 @@ interface GreeterEntry {
 function entryOf(block: Shape, event: string): GreeterEntry | null {
   if (block.kind !== "custom" || block.type !== "entry") return null;
   const entry = block.data as GreeterEntry | null;
-  return entry?.ns === "app.greeter" && entry.event === event ? entry : null;
+  return entry?.ns === "greeter" && entry.event === event ? entry : null;
 }
 
 function JobDoneCard({ entry }: { entry: GreeterEntry }) {
