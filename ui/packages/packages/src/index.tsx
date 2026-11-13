@@ -15,10 +15,10 @@ import "./packages.css";
 export const extension = "packages";
 
 export function register(r: Registry, host: HostApi): void {
-  r.register("settings.section", { id: "apps", label: () => t("settings.nav.apps"), render: () => <PackagesSettings host={host} /> }, extension);
+  r.register("settings.section", { id: "packages", label: () => t("settings.nav.packages"), render: () => <PackagesSettings host={host} /> }, extension);
   r.register(
     "system.console.tab",
-    { id: "apps", order: 30, title: () => t("system.apps"), about: () => t("system.about.apps"), render: () => <PackagesTab host={host} /> },
+    { id: "packages", order: 30, title: () => t("system.packages"), about: () => t("system.about.packages"), render: () => <PackagesTab host={host} /> },
     extension,
     { orElse: () => undefined },
   );

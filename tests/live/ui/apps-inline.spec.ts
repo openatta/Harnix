@@ -63,7 +63,7 @@ test("a tool's row is drawn as its manifest says", TAGS, async ({ page }) => {
   await expect(said).toContainText(/Showcase echo|示例应用回声/);
   await expect(said).not.toContainText("ext__");
   await ask.getByTestId("conv-ask-allow").click();
-  const row = page.locator(`[data-inline="tool.row"][data-app="${SHOWCASE_ID}"][data-tool="echo"]`);
+  const row = page.locator(`[data-inline="tool.row"][data-package="${SHOWCASE_ID}"][data-tool="echo"]`);
   await expect(row).toBeVisible({ timeout: 30_000 });
   await expect(row.getByTestId("conv-tool-name")).toHaveText(/Showcase echo · showcase-echo-42|示例应用回声 · showcase-echo-42/);
   await expect(row.getByTestId("conv-tool-summary")).toHaveText("showcase-echo-42", { timeout: 30_000 });
@@ -71,7 +71,7 @@ test("a tool's row is drawn as its manifest says", TAGS, async ({ page }) => {
   // Declared unfolded: the result is shown without a click.
   await expect(row.getByTestId("conv-tool-result")).toContainText("showcase-echo-42");
   // The shell's own glyph, by the name the manifest gave.
-  await expect(row.locator(".app-inline-icon svg")).toHaveCount(1);
+  await expect(row.locator(".package-inline-icon svg")).toHaveCount(1);
   await expect(reply(page)).toBeVisible({ timeout: 30_000 });
   expect(errors).toEqual([]);
 });
@@ -85,13 +85,13 @@ test("a card the backend appends is drawn, and its buttons call the backend", TA
   const s = await current(page);
   await withApi((api) => api.call(M("card.post"), { ...s, title: "A card for the browser", body: "Some **bold** words" }));
 
-  const card = page.locator(`[data-testid="app-card"][data-app="${SHOWCASE_ID}"][data-kind="card"]`);
+  const card = page.locator(`[data-testid="package-card"][data-package="${SHOWCASE_ID}"][data-kind="card"]`);
   await expect(card).toBeVisible({ timeout: 15_000 });
-  await expect(card.getByTestId("app-card-title")).toHaveText("A card for the browser");
+  await expect(card.getByTestId("package-card-title")).toHaveText("A card for the browser");
   await expect(card).toContainText(/from Showcase|来自 Showcase/);
-  await expect(card.getByTestId("app-card-field")).toHaveCount(2);
+  await expect(card.getByTestId("package-card-field")).toHaveCount(2);
   // The body is Markdown, as the shell renders it.
-  await expect(card.getByTestId("app-card-body").locator("strong")).toHaveText("bold");
+  await expect(card.getByTestId("package-card-body").locator("strong")).toHaveText("bold");
 
   // Asks first, in the shell's own dialog: cancelled, nothing is called.
   const before = (await withApi((api) => api.call(M("state")))).counter;
@@ -101,11 +101,11 @@ test("a card the backend appends is drawn, and its buttons call the backend", TA
   expect((await withApi((api) => api.call(M("state")))).counter).toBe(before);
   await card.locator('[data-method="counter.bump"]').click();
   await page.getByTestId("confirm").click();
-  await expect(card.getByTestId("app-card-done")).toHaveText(new RegExp(`(The counter is at|计数器到了) ${before + 1}`));
+  await expect(card.getByTestId("package-card-done")).toHaveText(new RegExp(`(The counter is at|计数器到了) ${before + 1}`));
 
   // Without a confirm: called at once, with the payload in its params.
   await card.locator('[data-method="notes.add"]').click();
-  await expect(card.getByTestId("app-card-done")).toHaveText(/notes on the board|条留言/);
+  await expect(card.getByTestId("package-card-done")).toHaveText(/notes on the board|条留言/);
   const notes = (await withApi((api) => api.call(M("notes.list")))).notes.map((n: any) => n.text);
   expect(notes).toContain("A card for the browser");
   expect(errors).toEqual([]);
@@ -168,11 +168,11 @@ test("its chats space's sessions are grouped as its backend answers", TAGS, asyn
   await expect(cards.locator(`[data-sid="${plain!.session_id}"]`)).toHaveCount(0);
   // Its first space's left column is its own frame: nothing of the shell's list, grouped or not.
   await page.locator(`#side [data-space="${SHOWCASE_ID}"]`).click();
-  await expect(page.locator(`[data-testid="surface-frame"][data-app="${SHOWCASE_ID}"][data-point="space.sidebar"]`)).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator(`[data-testid="surface-frame"][data-package="${SHOWCASE_ID}"][data-point="space.sidebar"]`)).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('#space-column [data-testid="space-group"]')).toHaveCount(0);
 });
 
-async function applications(page: Page, section = "apps"): Promise<void> {
+async function applications(page: Page, section = "packages"): Promise<void> {
   await openSettings(page);
   await settingsSection(page, section).click();
   await expect(page.getByTestId("settings-page")).toBeVisible();
@@ -180,15 +180,15 @@ async function applications(page: Page, section = "apps"): Promise<void> {
 
 test("its space carries the application mark, which the general settings turn off and on", TAGS, async ({ page }) => {
   await open(page, backend.url);
-  const mark = page.locator(`#side [data-space="${SHOWCASE_ID}"] [data-testid="space-app-mark"]`);
+  const mark = page.locator(`#side [data-space="${SHOWCASE_ID}"] [data-testid="space-package-mark"]`);
   await expect(mark).toBeVisible({ timeout: 15_000 });
   await expect(mark).toHaveAttribute("data-trust", "unsigned");
   // The product's own spaces carry none.
-  await expect(page.locator('#side [data-space="sessions"] [data-testid="space-app-mark"]')).toHaveCount(0);
+  await expect(page.locator('#side [data-space="sessions"] [data-testid="space-package-mark"]')).toHaveCount(0);
 
   // The mark is the shell's: its switch is in the shell's own section.
   await applications(page, "general");
-  const toggle = page.getByTestId("apps-mark-toggle");
+  const toggle = page.getByTestId("packages-mark-toggle");
   await expect(toggle).toBeChecked();
   await toggle.uncheck();
   await expect(mark).toHaveCount(0);
@@ -197,7 +197,7 @@ test("its space carries the application mark, which the general settings turn of
   await expect(page.locator(`#side [data-space="${SHOWCASE_ID}"]`)).toBeVisible({ timeout: 15_000 });
   await expect(mark).toHaveCount(0);
   await applications(page, "general");
-  await page.getByTestId("apps-mark-toggle").check();
+  await page.getByTestId("packages-mark-toggle").check();
   await expect(mark).toBeVisible();
 });
 
@@ -206,16 +206,16 @@ test("Settings → Applications shows its permissions, and clears what it keeps"
   await withApi((api) => api.call(M("notes.add"), { text: "to be cleared" }));
   await open(page, backend.url);
   await applications(page);
-  const row = page.locator(`[data-testid="app-installed"][data-app="${SHOWCASE_ID}"]`);
+  const row = page.locator(`[data-testid="package-installed"][data-package="${SHOWCASE_ID}"]`);
   await expect(row).toHaveAttribute("data-state", "running");
-  const permissions = row.getByTestId("app-permissions");
+  const permissions = row.getByTestId("package-permissions");
   await expect(permissions.locator('[data-capability="calls"]', { hasText: "harnix.session.entries.append" })).toBeVisible();
   await expect(permissions.locator('[data-capability="inline"]', { hasText: "/showcase" })).toBeVisible();
   await expect(permissions.locator('[data-inline="flow_block"]')).toContainText("card");
-  const data = row.getByTestId("app-data");
+  const data = row.getByTestId("package-data");
   expect(Number(await data.getAttribute("data-bytes"))).toBeGreaterThan(0);
 
-  await row.getByTestId("app-clear").click();
+  await row.getByTestId("package-clear").click();
   // The shell's confirmation, over the settings.
   const asked = page.getByTestId("modal").filter({ has: page.getByTestId("confirm") });
   await expect(asked).toBeVisible();
@@ -226,10 +226,10 @@ test("Settings → Applications shows its permissions, and clears what it keeps"
   await expect(page.getByTestId("settings-page")).toBeVisible();
   expect((await withApi((api) => api.call(M("notes.list")))).notes.length).toBeGreaterThan(0);
 
-  await row.getByTestId("app-clear").click();
+  await row.getByTestId("package-clear").click();
   await page.getByTestId("confirm").click();
-  await expect(row.getByTestId("app-data")).toHaveAttribute("data-bytes", "0", { timeout: 15_000 });
-  await expect(row.getByTestId("app-clear")).toBeDisabled();
+  await expect(row.getByTestId("package-data")).toHaveAttribute("data-bytes", "0", { timeout: 15_000 });
+  await expect(row.getByTestId("package-clear")).toBeDisabled();
   await expect(page.locator("#banner")).toContainText(/cleared|清掉了/);
   expect((await withApi((api) => api.call(M("notes.list")))).notes).toEqual([]);
   await expect(row).toHaveAttribute("data-state", "running");

@@ -14,7 +14,7 @@ import { PROTOCOL, type Message } from "@harnix/ext-sdk/protocol";
 
 import { App } from "../src/app";
 import { FrameBridge, HELLO_MS, MISSES, PING_MS, type FrameHost } from "../src/surfaces/bridge";
-import { interfacesOf, type AppInterface, type SurfaceDecl } from "../src/surfaces/model";
+import { interfacesOf, type PackageInterface, type SurfaceDecl } from "../src/surfaces/model";
 import { surfaces } from "../src/surfaces/store";
 
 class Client {
@@ -33,7 +33,7 @@ class Client {
   connect(): void {}
 }
 
-const IFACE: AppInterface = { id: "acme.notes", title: "Notes", trust: "store", calls: ["harnix.sessions.list"], links: false, spaces: ["acme.notes"], surfaces: [] };
+const IFACE: PackageInterface = { id: "acme.notes", title: "Notes", trust: "store", calls: ["harnix.sessions.list"], links: false, spaces: ["acme.notes"], surfaces: [] };
 const decl = (point: SurfaceDecl["point"], id: string = point): SurfaceDecl => ({
   app: "acme.notes", point, id, frame: "/ext/acme.notes/ui/a.html", title: null, space: point.startsWith("space") ? "acme.notes" : null, sessions: "acme.notes", icon: null, order: null, center: null, kinds: [], wide: false,
 });
@@ -229,7 +229,7 @@ describe("the page's record of its frames", () => {
 
 describe("what hello says", () => {
   it("is read into each application's surfaces; a frame outside its own files is dropped", () => {
-    const { apps, refused } = interfacesOf({
+    const { packages, refused } = interfacesOf({
       contributions: [
         { plugin: "acme.notes", point: "home.card", api_version: 2, refused: "card.js", reason: "in the page" },
         { plugin: "acme.notes", point: "space", api_version: 2, frame: "/ext/acme.notes/ui/a.html", surface: { id: "space", space: "acme.notes", title: { en: "Notes" } }, interface: { calls: ["harnix.sessions.list"], links: true, trust: "store", title: "Notes", spaces: ["acme.notes"] } },
@@ -238,9 +238,9 @@ describe("what hello says", () => {
       ],
     });
     expect(refused).toEqual([{ app: "acme.notes", point: "home.card", module: "card.js", reason: "in the page" }]);
-    expect(apps).toHaveLength(1);
-    expect(apps[0]).toMatchObject({ id: "acme.notes", calls: ["harnix.sessions.list"], links: true });
-    expect(apps[0]!.surfaces.map((s) => [s.point, s.frame])).toEqual([
+    expect(packages).toHaveLength(1);
+    expect(packages[0]).toMatchObject({ id: "acme.notes", calls: ["harnix.sessions.list"], links: true });
+    expect(packages[0]!.surfaces.map((s) => [s.point, s.frame])).toEqual([
       ["space", "/ext/acme.notes/ui/a.html"],
       ["home.card", null],
     ]);

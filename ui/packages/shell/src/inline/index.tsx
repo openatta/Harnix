@@ -24,13 +24,13 @@ import { t, type CommandCandidate, type CommandContext, type Contributions, type
 import type { App } from "../app.ts";
 import { APPS_LIST, APPS_TOPIC } from "../constants.ts";
 import { topicsOf } from "../topics.ts";
-import { appsOf, toolNames, type CommandDecl, type RuntimeApp } from "./apps.ts";
+import { packagesOf, toolNames, type CommandDecl, type RuntimePackage } from "./packages.ts";
 import { InlineCard, type Entry } from "./Card.tsx";
 import { localized, words, type Text } from "./template.ts";
 import { InlineToolRow, inlineTitle } from "./ToolRow.tsx";
 
 export { GroupedSessions, groupingOf } from "./Grouping.tsx";
-export { appsOf, type Inline } from "./apps.ts";
+export { packagesOf, type Inline } from "./packages.ts";
 
 /** Start following the applications, once this page can (`packages.list` is reachable). */
 export function startInline(app: App): void {
@@ -39,7 +39,7 @@ export function startInline(app: App): void {
     if (started || !app.snapshot.reachable.includes(APPS_LIST)) return;
     started = true;
     off();
-    const watch = appsOf(app);
+    const watch = packagesOf(app);
     const made = new Map<string, { key: string; ids: [Point, string][] }>();
     topicsOf(app.conn).subscribe(APPS_TOPIC, {}, (value) => {
       watch.take(value);
@@ -60,12 +60,12 @@ export function startInline(app: App): void {
 }
 
 /** What `a` declares, as one string: when it changes, its registrations are made again. */
-function declared(a: RuntimeApp): string {
+function declared(a: RuntimePackage): string {
   return JSON.stringify([a.title, a.inline]);
 }
 
 /** Register what `a` declares; answers what was registered. */
-function register(app: App, a: RuntimeApp): [Point, string][] {
+function register(app: App, a: RuntimePackage): [Point, string][] {
   const r = app.registry;
   const made: [Point, string][] = [];
   const rows = new Map((a.inline.tool_row ?? []).flatMap((decl) => toolNames(a.id, decl.tool).map((name) => [name, decl] as const)));
@@ -114,7 +114,7 @@ interface Candidate {
 }
 
 /** One declared command: asked of the backend, and only candidates of its own name taken. */
-function command(app: App, a: RuntimeApp, decl: CommandDecl): Contributions["command"] {
+function command(app: App, a: RuntimePackage, decl: CommandDecl): Contributions["command"] {
   const prefix = `/${decl.name}`;
   return {
     id: `inline.command.${decl.trigger}${decl.name}`,
@@ -146,7 +146,7 @@ function command(app: App, a: RuntimeApp, decl: CommandDecl): Contributions["com
           const params = c.call?.params && typeof c.call.params === "object" ? c.call.params : {};
           candidate.run = async () => {
             await app.call(`${a.id}.${method}`, params);
-            app.notice(localized(c.done) || t("apps.command.done", { command: replacement.trim() }));
+            app.notice(localized(c.done) || t("packages.command.done", { command: replacement.trim() }));
           };
         }
         out.push(candidate);
@@ -158,10 +158,10 @@ function command(app: App, a: RuntimeApp, decl: CommandDecl): Contributions["com
 
 /** The left column's mark on a space an installed application brought: `owner` is the space's. */
 export function AppMark({ app, owner }: { app: App; owner: string }) {
-  const watch = appsOf(app);
+  const watch = packagesOf(app);
   useSyncExternalStore(watch.subscribe, watch.getVersion);
   const a = watch.get(owner);
   if (!a || !watch.marked()) return null;
-  const title = t("apps.mark.title", { name: a.title, trust: t(`apps.trust.${a.trust}`) });
-  return <span className="app-mark" data-testid="space-app-mark" data-trust={a.trust} title={title} aria-label={title} />;
+  const title = t("packages.mark.title", { name: a.title, trust: t(`packages.trust.${a.trust}`) });
+  return <span className="package-mark" data-testid="space-package-mark" data-trust={a.trust} title={title} aria-label={title} />;
 }

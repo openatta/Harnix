@@ -1,5 +1,5 @@
 /**
- * The runtime applications this page knows of, from the `apps` module's topic `packages.list` (the
+ * The runtime applications this page knows of, from the `packages` extension's topic `packages.list` (the
  * value of `packages.list`, pushed when it changes): which are installed and how far each is
  * trusted — what the left column's mark says — and, for each one running, the inline points its
  * manifest declares (`runtime.inline`), which the shell draws for it.
@@ -63,7 +63,7 @@ export interface Inline {
 }
 
 /** One installed application, as the shell draws for it. */
-export interface RuntimeApp {
+export interface RuntimePackage {
   id: string;
   title: string;
   /** `store`, `trusted` or `unsigned`. */
@@ -84,8 +84,8 @@ interface Listed {
 /** What the reader chose about the mark: `off` hides it. */
 const MARK_KEY = "packages.mark";
 
-export class AppsWatch {
-  private apps = new Map<string, RuntimeApp>();
+export class PackagesWatch {
+  private packages = new Map<string, RuntimePackage>();
   private listeners = new Set<() => void>();
   private version = 0;
   private hidden = readMark();
@@ -93,7 +93,7 @@ export class AppsWatch {
   /** A value of `packages.list`. */
   take(value: unknown): void {
     const listed = ((value as { packages?: Listed[] } | null)?.packages ?? []).filter((a) => a && typeof a.id === "string");
-    this.apps = new Map(
+    this.packages = new Map(
       listed.map((a) => [
         a.id,
         {
@@ -108,12 +108,12 @@ export class AppsWatch {
     this.changed();
   }
 
-  get(id: string): RuntimeApp | undefined {
-    return this.apps.get(id);
+  get(id: string): RuntimePackage | undefined {
+    return this.packages.get(id);
   }
 
-  running(): RuntimeApp[] {
-    return [...this.apps.values()].filter((a) => a.running);
+  running(): RuntimePackage[] {
+    return [...this.packages.values()].filter((a) => a.running);
   }
 
   /** Whether the left column marks applications' spaces. */
@@ -153,13 +153,13 @@ function readMark(): boolean {
   }
 }
 
-const watches = new WeakMap<App, AppsWatch>();
+const watches = new WeakMap<App, PackagesWatch>();
 
 /** The page's one watch. */
-export function appsOf(app: App): AppsWatch {
+export function packagesOf(app: App): PackagesWatch {
   let watch = watches.get(app);
   if (!watch) {
-    watch = new AppsWatch();
+    watch = new PackagesWatch();
     watches.set(app, watch);
   }
   return watch;

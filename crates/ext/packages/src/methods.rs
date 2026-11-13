@@ -116,7 +116,7 @@ async fn from_store(state: &State, params: Value, updating: bool) -> Rpc<Value> 
         (None, true) => return Err(RpcError::invalid_params(format!("no package `{id}` is installed"))),
         _ => {}
     }
-    if installed.is_none() && state.app_dir(&id).exists() {
+    if installed.is_none() && state.package_dir(&id).exists() {
         refuse_installed(&state.dir, &id)?;
     }
     let staging = state.dir.join(STAGING).join(uuid::Uuid::new_v4().simple().to_string());
@@ -131,7 +131,7 @@ async fn from_store(state: &State, params: Value, updating: bool) -> Rpc<Value> 
             &staging,
         )
         .await?;
-        let app_dir = state.app_dir(&id);
+        let app_dir = state.package_dir(&id);
         let disclosed = state.admission.disclose(
             &package,
             installed.as_ref().map(|r| (r.version.as_str(), app_dir.as_path())),
@@ -250,7 +250,7 @@ async fn uninstall(state: &State, params: Value) -> Rpc<Value> {
     let ext = harnix_ext::ExtId::package(&id).map_err(|e| RpcError::invalid_params(e.to_string()))?;
     state.carrier.stop(&ext, StopReason::Uninstalled).await;
     let removed = state.carrier.unplace(&state.cx, &starting::recorded(state, &record)?).await?;
-    let app_dir = state.app_dir(&id);
+    let app_dir = state.package_dir(&id);
     std::fs::remove_dir_all(&app_dir).map_err(|e| internal(format!("{}: {e}", app_dir.display())))?;
     tracing::info!(package = %id, "package uninstalled");
     Ok(json!({"id": id, "uninstalled": true, "removed": removed}))

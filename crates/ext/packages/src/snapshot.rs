@@ -50,7 +50,7 @@ pub(crate) async fn snapshot(state: &State, fresh: bool) -> Value {
     let mut packages = Vec::with_capacity(installed.len());
     let mut statuses = HashMap::new();
     for r in &installed {
-        let app_dir = state.app_dir(&r.id);
+        let app_dir = state.package_dir(&r.id);
         let cached = if reuse { lock(&state.looked).status.get(&r.id).cloned() } else { None };
         let (status, kept) = match cached {
             Some(cached) => cached,

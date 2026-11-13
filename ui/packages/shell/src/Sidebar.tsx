@@ -17,7 +17,7 @@ import { Contributed, setLocale, currentLocale, useRegistry, useT, type SpaceCon
 
 import { ask, disabledOf, keyOf, type App, type ShellSession, type ShellState } from "./app.ts";
 import { connectionDialog } from "./dialogs.tsx";
-import { AppMark, GroupedSessions, appsOf, groupingOf } from "./inline/index.tsx";
+import { AppMark, GroupedSessions, packagesOf, groupingOf } from "./inline/index.tsx";
 import { Menu, type MenuEntry } from "./Menu.tsx";
 import { SessionRow } from "./rows.tsx";
 import { openSettings } from "./settings.tsx";
@@ -261,7 +261,7 @@ function SearchBox({ app, s }: { app: App; s: ShellState }) {
 function SpaceSessions({ app, s, listed }: { app: App; s: ShellState; listed?: NonNullable<SpaceContribution["sidebar"]>["listSession"] }) {
   const t = useT();
   // Drawn again when an application starts or stops: its grouping comes and goes with it.
-  const watch = appsOf(app);
+  const watch = packagesOf(app);
   useSyncExternalStore(watch.subscribe, watch.getVersion);
   const rows = [...s.sessions].sort((a, b) => String(b.last_active ?? "").localeCompare(String(a.last_active ?? "")));
   if (!rows.length) return <div className="empty">{t("sidebar.noSessions")}</div>;

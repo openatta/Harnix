@@ -118,7 +118,7 @@ carrier = "spawn"
     expect(listed.runtime).toMatchObject({ fingerprint, dev: true });
     const plugins = (await api.call("engine.plugin.list")).plugins.map((p: any) => p.name);
     expect(plugins).not.toContain("example-showcase");
-    expect(existsSync(join(backend.state, "apps", SHOWCASE_ID))).toBe(false);
+    expect(existsSync(join(backend.state, "ext", SHOWCASE_ID))).toBe(false);
   });
 
   test("installed: its agent package, its skill, its tools and its interface module, at once", TAGS, async () => {
@@ -382,7 +382,7 @@ carrier = "spawn"
     const { text, tools } = await context(api);
     expect(tools.length ? tools : [text]).not.toContain(TOOL("echo"));
     expect(text).not.toContain(BLOCK_MARKER);
-    expect(existsSync(join(backend.state, "apps", SHOWCASE_ID)), "its directory, data and all").toBe(false);
+    expect(existsSync(join(backend.state, "ext", SHOWCASE_ID)), "its directory, data and all").toBe(false);
     expect((await fetch(`${backend.url.replace(/\/$/, "")}/ext/${SHOWCASE_ID}/ui/showcase.js`)).status).toBe(404);
     expect((await api.refused("packages.uninstall", { id: SHOWCASE_ID }))?.message).toContain("no application");
 

@@ -11,7 +11,7 @@
  * as they are shown.
  *
  * The application's state follows `packages.list`: one that stops loses its frames, and an unsigned
- * one under `[apps] dev = true` whose `ui/` changed (`runtime.ui_rev`) has its frames reloaded.
+ * one under `[ext.packages] dev = true` whose `ui/` changed (`runtime.ui_rev`) has its frames reloaded.
  */
 
 import { createRoot } from "react-dom/client";
@@ -25,7 +25,7 @@ import { topicsOf } from "../topics.ts";
 import { QuestionLayer } from "./confirm.tsx";
 import { SurfaceView, type SurfaceActions } from "./frame.tsx";
 import { KeeperLayer, KeptSlot, keeper } from "./keeper.tsx";
-import { interfacesOf, titleOf, type AppInterface, type SurfaceDecl } from "./model.ts";
+import { interfacesOf, titleOf, type PackageInterface, type SurfaceDecl } from "./model.ts";
 import { surfaces } from "./store.ts";
 
 /** Each space's second panel, while it is open: what its frame was opened with. */
@@ -51,7 +51,7 @@ function mountLayer(): void {
 }
 
 /** What a frame of `iface` may have the shell do for it, in the space `space`. */
-function actionsFor(app: App, iface: AppInterface, space: string | null): SurfaceActions {
+function actionsFor(app: App, iface: PackageInterface, space: string | null): SurfaceActions {
   return {
     space,
     openModal: (id, params) => openModal(app, iface, id, params),
@@ -71,7 +71,7 @@ function actionsFor(app: App, iface: AppInterface, space: string | null): Surfac
 }
 
 /** One of the application's modals, in the shell's dialog; what it closed with (null: dismissed). */
-function openModal(app: App, iface: AppInterface, id: string, params: unknown): Promise<unknown> {
+function openModal(app: App, iface: PackageInterface, id: string, params: unknown): Promise<unknown> {
   const decl = iface.surfaces.find((s) => s.point === "modal" && s.id === id);
   if (!decl) return Promise.resolve(null);
   return new Promise((resolve) => {
@@ -120,12 +120,12 @@ function Gone({ onGone, children }: { onGone: () => void; children: ReactNode })
   );
 }
 
-function firstSpace(iface: AppInterface): string | null {
+function firstSpace(iface: PackageInterface): string | null {
   return iface.surfaces.find((s) => s.point === "space")?.space ?? null;
 }
 
 /** Register one application's surfaces. */
-function register(app: App, iface: AppInterface): void {
+function register(app: App, iface: PackageInterface): void {
   const owner = iface.id;
   const reg = app.registry;
   const of = (point: SurfaceDecl["point"], space?: string | null) => iface.surfaces.filter((s) => s.point === point && (space === undefined || s.space === space));
@@ -251,7 +251,7 @@ const placed = new WeakMap<App, { ids: Set<string>; declared: Map<string, string
  * declaration changed is registered again.
  */
 export async function followSurfaces(app: App, view: Pick<UiView, "contributions">): Promise<void> {
-  const { apps, refused } = interfacesOf(view);
+  const { packages, refused } = interfacesOf(view);
   for (const r of refused) app.registry.note({ point: r.point, owner: r.app, id: r.module, reason: r.reason });
   let state = placed.get(app);
   if (!state) {
@@ -259,7 +259,7 @@ export async function followSurfaces(app: App, view: Pick<UiView, "contributions
     placed.set(app, state);
     follow(app, state.ids);
   }
-  const now = new Map(apps.map((iface) => [iface.id, JSON.stringify(iface)]));
+  const now = new Map(packages.map((iface) => [iface.id, JSON.stringify(iface)]));
   for (const id of [...state.ids]) {
     if (now.get(id) === state.declared.get(id)) continue;
     state.ids.delete(id);
@@ -267,9 +267,9 @@ export async function followSurfaces(app: App, view: Pick<UiView, "contributions
     keeper.drop(id);
     app.registry.withdraw(id);
   }
-  if (!apps.length) return;
+  if (!packages.length) return;
   mountLayer();
-  for (const iface of apps) {
+  for (const iface of packages) {
     if (state.ids.has(iface.id)) continue;
     state.ids.add(iface.id);
     state.declared.set(iface.id, now.get(iface.id)!);

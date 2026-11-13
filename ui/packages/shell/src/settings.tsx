@@ -14,7 +14,7 @@ import { Contributed, Glyph, SettingsReload, SettingsRow, SettingsSection, Setti
 import type { App, ThemeChoice } from "./app.ts";
 import { APPS_LIST } from "./constants.ts";
 import { Body, CloseFoot } from "./dialogs.tsx";
-import { appsOf } from "./inline/index.tsx";
+import { packagesOf } from "./inline/index.tsx";
 import { PageFrames } from "./surfaces/status.tsx";
 
 let active = "general";
@@ -156,12 +156,12 @@ function General({ app }: { app: App }) {
  */
 function PackagesMark({ app }: { app: App }) {
   const t = useT();
-  const watch = appsOf(app);
+  const watch = packagesOf(app);
   useSyncExternalStore(watch.subscribe, watch.getVersion);
   if (!app.snapshot.reachable.includes(APPS_LIST)) return null;
   return (
-    <SettingsRow label={t("apps.mark")} hint={t("apps.markHint")}>
-      <input type="checkbox" data-testid="apps-mark-toggle" checked={watch.marked()} onChange={(e) => watch.setMarked(e.target.checked)} />
+    <SettingsRow label={t("packages.mark")} hint={t("packages.markHint")}>
+      <input type="checkbox" data-testid="packages-mark-toggle" checked={watch.marked()} onChange={(e) => watch.setMarked(e.target.checked)} />
     </SettingsRow>
   );
 }

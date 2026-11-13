@@ -11,7 +11,7 @@ import { currentLocale } from "@harnix/react";
 import type { SurfacePoint } from "@harnix/ext-sdk/protocol";
 
 /** One application drawn in frames. */
-export interface AppInterface {
+export interface PackageInterface {
   id: string;
   title: string | null;
   trust: string;
@@ -64,9 +64,9 @@ interface Entry {
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
 /** The applications `harnix.ui` lists surfaces for, and the modules it says will not run. */
-export function interfacesOf(view: Pick<UiView, "contributions">): { apps: AppInterface[]; refused: RefusedModule[] } {
+export function interfacesOf(view: Pick<UiView, "contributions">): { packages: PackageInterface[]; refused: RefusedModule[] } {
   const entries = (Array.isArray(view.contributions) ? view.contributions : []) as Entry[];
-  const apps = new Map<string, AppInterface>();
+  const packages = new Map<string, PackageInterface>();
   const refused: RefusedModule[] = [];
   for (const entry of entries) {
     const id = entry.plugin;
@@ -78,10 +78,10 @@ export function interfacesOf(view: Pick<UiView, "contributions">): { apps: AppIn
     const s = entry.surface;
     if (!s || !POINTS.has(entry.point as SurfacePoint)) continue;
     const i = entry.interface ?? {};
-    let app = apps.get(id);
+    let app = packages.get(id);
     if (!app) {
       app = { id, title: i.title ?? null, trust: i.trust ?? "store", calls: strings(i.calls), links: Boolean(i.links), spaces: strings(i.spaces), surfaces: [] };
-      apps.set(id, app);
+      packages.set(id, app);
     }
     // A frame is only ever this application's own files.
     const frame = typeof entry.frame === "string" && entry.frame.startsWith(`/ext/${id}/ui/`) ? entry.frame : null;
@@ -100,11 +100,11 @@ export function interfacesOf(view: Pick<UiView, "contributions">): { apps: AppIn
       wide: Boolean(s.wide),
     });
   }
-  return { apps: [...apps.values()], refused };
+  return { packages: [...packages.values()], refused };
 }
 
 /** What a surface is called here: its own title in this language, else in English, else the app's. */
-export function titleOf(app: AppInterface, decl?: SurfaceDecl): string {
+export function titleOf(app: PackageInterface, decl?: SurfaceDecl): string {
   const titles = decl?.title;
   return titles?.[currentLocale()] ?? titles?.en ?? Object.values(titles ?? {})[0] ?? app.title ?? app.id;
 }

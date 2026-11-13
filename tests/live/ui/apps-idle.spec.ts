@@ -53,8 +53,8 @@ test("the Apps tab shows a hibernating backend, and a call waking it", TAGS, asy
   await open(page, backend.url);
   await page.locator('#side [data-space="system"]:not(#space-column)').click();
   await expect(page.getByTestId("system-console")).toBeVisible();
-  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="apps"]').click();
-  const row = page.locator(`[data-testid="system-app"][data-app="${SHOWCASE_ID}"]`);
+  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="packages"]').click();
+  const row = page.locator(`[data-testid="system-package"][data-package="${SHOWCASE_ID}"]`);
   await expect(row).toHaveAttribute("data-state", "hibernating", { timeout: 20_000 });
   await expect(row.locator('[data-field="state"]')).toHaveText(/Hibernating|休眠中/);
   await expect(row.locator('[data-field="backend"]')).toHaveText(/Asleep|休眠/);

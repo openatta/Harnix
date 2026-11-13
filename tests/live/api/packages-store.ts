@@ -132,7 +132,7 @@ export function withVersion(index: any, version: string, edit: (v: any, app: any
 /** The index with `version`'s artifacts replaced. */
 export function withArtifacts(index: any, version: string, artifacts: Record<string, unknown>): any {
   const next = structuredClone(index);
-  const v = next.apps[0].versions.find((x: any) => x.version === version);
+  const v = next.packages[0].versions.find((x: any) => x.version === version);
   v.artifacts = artifacts;
   return next;
 }
