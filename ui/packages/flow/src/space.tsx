@@ -191,9 +191,9 @@ function registerBlocks(registry: Registry, space: string, module: string, owner
     "flow.block",
     {
       id: `${space}.proposal-handled`,
-      match: (block: BlockShape) => proposalHandledOf(block, `app.${module}`) !== null,
+      match: (block: BlockShape) => proposalHandledOf(block, module) !== null,
       render: (block: BlockShape) => {
-        const h = proposalHandledOf(block, `app.${module}`)!;
+        const h = proposalHandledOf(block, module)!;
         return (
           <div className="hx-blk hx-flow-faint" data-testid="flow-proposal-handled">
             {translate("flowui.proposal.handled", { action: translate("flowui.proposal.action." + h.action), by: actorLabel(h.by) })}
@@ -208,9 +208,9 @@ function registerBlocks(registry: Registry, space: string, module: string, owner
     "flow.block",
     {
       id: `${space}.proposal`,
-      match: (block: BlockShape) => proposalOf(block, `app.${module}`) !== null,
+      match: (block: BlockShape) => proposalOf(block, module) !== null,
       render: (block: BlockShape) => {
-        const found = proposalOf(block, `app.${module}`)!;
+        const found = proposalOf(block, module)!;
         return <ProposalCard id={found.id} proposal={found.proposal} module={module} />;
       },
     },

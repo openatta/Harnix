@@ -1,6 +1,6 @@
 /**
  * The flow module (xops-01) in `harnix-testapp`: runs of the two demonstration flows, driven
- * through `app.flow.*` and watched on `flow.run {run}`.
+ * through `flow.*` and watched on `flow.run {run}`.
  *
  * Session stations replay `flow-analyze` and `flow-report`: each session calls `flow_submit`
  * with a fixed output and ends its turn, so what is under test is the module — dispatch, the
@@ -237,7 +237,7 @@ test("a session's write no permission allows is refused, its proposal is accepte
   expect(history).toContain("station propose of the flow does not allow TodoWrite");
 
   const { entries } = await api.call("engine.session.entries", { instance, session_id });
-  const proposal = entries.find((e: any) => e.ns === "app.flow" && e.event === "proposal");
+  const proposal = entries.find((e: any) => e.ns === "flow" && e.event === "proposal");
   expect(proposal.payload).toMatchObject({ run, station: "propose", kind: "rework", to: "propose", session: { instance, session_id } });
   const ref = { instance, session_id, entry: proposal.id };
   expect((await api.call("flow.proposal", ref)).handled).toBeNull();

@@ -347,9 +347,9 @@ describe("registerFlowSpace", () => {
     expect(typeof space.conversation?.composerNotice).toBe("function");
     expect((space.details?.tabs as { id: string }[]).map((x) => x.id)).toEqual([flow.tabs.flows, flow.tabs.runs, flow.tabs.reference]);
     expect(flow.tabs).toEqual({ flows: "flow.flows", runs: "flow.runs", reference: "flow.reference" });
-    const block = { kind: "custom", type: "entry", data: { id: "e", ns: "app.flow", event: "proposal", payload: { run: "r", station: "s", kind: "cancel", reason: "x" }, at: 0 } } as never;
+    const block = { kind: "custom", type: "entry", data: { id: "e", ns: "flow", event: "proposal", payload: { run: "r", station: "s", kind: "cancel", reason: "x" }, at: 0 } } as never;
     expect(r.claim("flow.block", block)?.id).toBe("flow.proposal");
-    const handled = { kind: "custom", type: "entry", data: { id: "h", ns: "app.flow", event: "proposal_handled", payload: { entry: "e", action: "cancel", by: { kind: "device", id: "d" } }, at: 0 } } as never;
+    const handled = { kind: "custom", type: "entry", data: { id: "h", ns: "flow", event: "proposal_handled", payload: { entry: "e", action: "cancel", by: { kind: "device", id: "d" } }, at: 0 } } as never;
     expect(r.claim("flow.block", handled)?.id).toBe("flow.proposal-handled");
   });
 
@@ -357,8 +357,8 @@ describe("registerFlowSpace", () => {
     const r = new Registry();
     registerFlowSpace(r, { space: "ops", module: "ops" });
     const block = (ns: string) => ({ kind: "custom", type: "entry", data: { id: "e", ns, event: "proposal", payload: { run: "r", station: "s", kind: "cancel", reason: "x" }, at: 0 } }) as never;
-    expect(r.claim("flow.block", block("app.ops"))?.id).toBe("ops.proposal");
-    expect(r.claim("flow.block", block("app.flow"))).toBe(null);
+    expect(r.claim("flow.block", block("ops"))?.id).toBe("ops.proposal");
+    expect(r.claim("flow.block", block("flow"))).toBe(null);
   });
 });
 

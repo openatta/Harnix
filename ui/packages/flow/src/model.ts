@@ -453,7 +453,7 @@ export interface BlockShape {
 }
 
 /** The flow's proposal in a conversation block, if that is what it is. */
-export function proposalOf(block: BlockShape, ns = "app.flow"): { id: string; proposal: Proposal } | null {
+export function proposalOf(block: BlockShape, ns = "flow"): { id: string; proposal: Proposal } | null {
   if (block.kind !== "custom" || block.type !== "entry") return null;
   const entry = block.data as { id?: string; ns?: string; event?: string; payload?: unknown } | null;
   if (!entry || entry.ns !== ns || entry.event !== "proposal") return null;
@@ -467,7 +467,7 @@ export function proposalOf(block: BlockShape, ns = "app.flow"): { id: string; pr
 }
 
 /** A `proposal_handled` entry in a conversation block, if that is what it is. */
-export function proposalHandledOf(block: BlockShape, ns = "app.flow"): ProposalHandled | null {
+export function proposalHandledOf(block: BlockShape, ns = "flow"): ProposalHandled | null {
   if (block.kind !== "custom" || block.type !== "entry") return null;
   const entry = block.data as { ns?: string; event?: string; payload?: unknown } | null;
   if (!entry || entry.ns !== ns || entry.event !== "proposal_handled") return null;

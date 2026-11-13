@@ -358,7 +358,7 @@ impl<'a> Sessions<'a> {
     /// come before it.
     pub async fn entries(&self, session: &SessionRef) -> Rpc<Vec<Value>> {
         let mut params = self.named(session);
-        params["namespaces"] = json!([format!("app.{}", self.cx.id())]);
+        params["namespaces"] = json!([self.cx.id().as_str()]);
         let listed = self.cx.call("engine.session.entries", params).await?;
         Ok(listed.get("entries").and_then(Value::as_array).cloned().unwrap_or_default())
     }

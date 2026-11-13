@@ -857,7 +857,7 @@ describe("a changing tool call names what it acts on", () => {
   it("leaves a task session's settings entry undrawn", () => {
     const r = new Registry();
     registerFlowSpace(r);
-    const entry = { kind: "custom", type: "entry", data: { id: "e", ns: "app.flow", event: "session_settings", payload: { scene: "flow-harnix" }, at: 0 } } as never;
+    const entry = { kind: "custom", type: "entry", data: { id: "e", ns: "flow", event: "session_settings", payload: { scene: "flow-harnix" }, at: 0 } } as never;
     expect(r.claim("flow.block", entry)).toBe(null);
   });
 });
