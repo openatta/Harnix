@@ -138,7 +138,7 @@ async fn a_call_routed_back_into_the_same_backend_is_refused_rather_than_deadloc
     rig.host.route_to.set(rig.vm.clone()).ok().unwrap();
     let answer = tokio::time::timeout(
         Duration::from_secs(3),
-        call(&rig.vm, "call", json!({"target": "app.acme.probe.count"})),
+        call(&rig.vm, "call", json!({"target": "acme.probe.count"})),
     )
     .await
     .expect("deadlocked")

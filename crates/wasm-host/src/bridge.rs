@@ -5,7 +5,7 @@
 //! host makes for it ([`Kernel::register`]). That registration is everything the application is
 //! to the rest of the product:
 //!
-//! - **Its methods** (`[[method]]`, `app.<id>.<name>`) are declared with the principals the
+//! - **Its methods** (`[[method]]`, `<id>.<name>`) are declared with the principals the
 //!   manifest names, so a call from the page, a module or another application is admitted and
 //!   audited before [`Method::answer`] sees it. Its params are checked against the declared schema
 //!   here, then the call queues for the resident backend's `handle`.

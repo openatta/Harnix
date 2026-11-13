@@ -65,7 +65,7 @@ async function results(session_id: string): Promise<Record<string, any[]>> {
 }
 
 const topic = async (name: string, params: Record<string, unknown> = {}) =>
-  (await api.call("harnix.topics.subscribe", { topic: `app.flow.${name}`, params })).value;
+  (await api.call("harnix.topics.subscribe", { topic: `flow.${name}`, params })).value;
 
 test("without a selection, changing the current flow answers that the user must select one first", TAGS, async () => {
   const session = await author("flow-author-unfocused");

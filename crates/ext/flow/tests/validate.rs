@@ -117,7 +117,7 @@ fn a_session_station_needs_an_output_contract_and_any_catalog_scene() {
 #[test]
 fn placement_fields_parse_and_are_checked_against_what_the_catalog_says() {
     let ok = session(
-        ", model: m1, provider: acme, template: app.box, params: {name: 'box-${run}', who: '${inputs.who}'}, space: dev",
+        ", model: m1, provider: acme, template: acme.box, params: {name: 'box-${run}', who: '${inputs.who}'}, space: dev",
         ", output: {type: object}",
     );
     let def = FlowDef::parse(&ok).unwrap();
@@ -130,7 +130,7 @@ fn placement_fields_parse_and_are_checked_against_what_the_catalog_says() {
             ..
         } => {
             assert_eq!(model.as_deref(), Some("m1"));
-            assert_eq!(template.as_deref(), Some("app.box"));
+            assert_eq!(template.as_deref(), Some("acme.box"));
             assert_eq!(params["name"], "box-${run}");
             assert_eq!(space.as_deref(), Some("dev"));
         }
@@ -139,15 +139,15 @@ fn placement_fields_parse_and_are_checked_against_what_the_catalog_says() {
     // An empty catalog part checks nothing.
     assert_eq!(problems(&ok), Vec::<String>::new());
     // A filled one checks its names.
-    let strict = packs().template("app.other").space("prod").model("acme/m2");
+    let strict = packs().template("acme.other").space("prod").model("acme/m2");
     let ps: Vec<String> = validate_yaml(&ok, &strict)
         .iter()
         .map(|p| p.to_string())
         .collect();
-    for want in ["template app.box", "space dev", "model acme/m1"] {
+    for want in ["template acme.box", "space dev", "model acme/m1"] {
         assert!(ps.iter().any(|p| p.contains(want)), "{want}: {ps:#?}");
     }
-    let known = packs().template("app.box").space("dev").model("acme/m1");
+    let known = packs().template("acme.box").space("dev").model("acme/m1");
     assert!(validate_yaml(&ok, &known).is_empty());
     // A bare model name matches a `provider/model` entry when no provider is named.
     let bare = session(", model: m1", ", output: {type: object}");

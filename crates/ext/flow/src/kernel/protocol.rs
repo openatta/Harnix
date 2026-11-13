@@ -399,7 +399,7 @@ stations:
         )
         .unwrap();
         let granted = vec![Granted {
-            permission: serde_yaml::from_str("{effect: allow, tools: [app.x.findings_add], message: only findings}").unwrap(),
+            permission: serde_yaml::from_str("{effect: allow, tools: [x.findings_add], message: only findings}").unwrap(),
             from: "station analyze".into(),
         }];
         let gates: BTreeMap<String, GateDef> = [(
@@ -411,7 +411,7 @@ stations:
         for want in [
             "demo-1",
             "findings",
-            "app.x.findings_add allowed (station analyze): only findings",
+            "x.findings_add allowed (station analyze): only findings",
             "flow_submit",
             "flow_propose",
             "`count`",
