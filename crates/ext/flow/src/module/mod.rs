@@ -793,10 +793,10 @@ mod tests {
             packs.catalog().templates.is_empty(),
             "templates the application does not list are not checked"
         );
-        let listed = catalog_packs(MemPacks::new().template("app.box"), &["flow.local"]);
+        let listed = catalog_packs(MemPacks::new().template("acme.box"), &["flow.local"]);
         assert_eq!(
             listed.catalog().templates.into_iter().collect::<Vec<_>>(),
-            ["app.box", "flow.local"]
+            ["acme.box", "flow.local"]
         );
     }
 

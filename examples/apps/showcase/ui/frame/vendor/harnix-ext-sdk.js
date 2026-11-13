@@ -13,7 +13,7 @@ var HarnixExt = (function(exports) {
     return point === "modal" || point === "settings.section";
   }
   function admits(ext, calls, name, topic) {
-    if (name.startsWith(`app.${ext}.`)) return true;
+    if (name.startsWith(`${ext}.`)) return true;
     return calls.includes(topic ? `topic:${name}` : name);
   }
   const SDK_VERSION = "0.1.0";
@@ -106,7 +106,7 @@ var HarnixExt = (function(exports) {
       return () => this.paramListeners.delete(fn);
     }
     /* ── data ── */
-    /** A method: the application's own `app.<id>.*`, or one its `[interface] calls` lists. */
+    /** A method: the application's own `<id>.*`, or one its `[interface] calls` lists. */
     call(method, params) {
       return this.request("call", { method, params });
     }

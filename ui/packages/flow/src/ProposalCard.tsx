@@ -1,5 +1,5 @@
 /**
- * A session's proposal (xops-01 §6): `flow_propose` writes an `app.<module>` entry with
+ * A session's proposal (xops-01 §6): `flow_propose` writes an entry under `<module>` with
  * `event: "proposal"` into the conversation, and nothing happens until a person takes it. Accept
  * calls `rework` or `cancel` with the session's reason and the proposal itself: the module acts
  * once and records `proposal_handled` in the session, so after a reload — or from another tab —

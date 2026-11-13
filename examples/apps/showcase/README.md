@@ -44,17 +44,17 @@ showcase has a second space, `example.showcase.chats`, a conversation space the 
 installer says what the showcase is told through them — what is typed for its commands, its space's
 sessions — a line each.
 
-Try it: with the showcase installed, `app.example.showcase.card.post {"session_id": "<an open
+Try it: with the showcase installed, `example.showcase.card.post {"session_id": "<an open
 session>"}` puts a card in that session's flow.
 
 ## The backend's methods
 
-`app.example.showcase.<method>`, in the authorization table like any method: the page calls them
+`example.showcase.<method>`, in the authorization table like any method: the page calls them
 under its token (they are declared for `device`), and the application itself always may (its
 `board` tool asks `state`). `state` is also open to modules. The params of `notes.add`,
 `timer.start`, `fetch` and `session.start` are checked against the schema in the manifest before
-the backend sees them. A client subscribes to `app.example.showcase.notes`,
-`app.example.showcase.heartbeat` and `app.example.showcase.fetched` with `harnix.topics.subscribe`.
+the backend sees them. A client subscribes to `example.showcase.notes`,
+`example.showcase.heartbeat` and `example.showcase.fetched` with `harnix.topics.subscribe`.
 
 `fetch` is the shape for work that waits on something slow. A backend's calls come in one at a
 time, and a `handle` waiting on the host still holds the backend; made inside `handle`, the request
@@ -104,7 +104,7 @@ origin, no storage, no cookies, the page's token out of reach) and served under 
 
 | On the board | What it does through the bridge |
 |---|---|
-| Pin it / Compose… | `app.example.showcase.notes.add`; Compose opens its `compose` modal (`openModal`), which answers the note |
+| Pin it / Compose… | `example.showcase.notes.add`; Compose opens its `compose` modal (`openModal`), which answers the note |
 | a note | its second panel (`secondary.open`), with the note as params |
 | Count one more / Start the heartbeat | `counter.bump`, `timer.start`; the `heartbeat` topic, here and in the right column's tab |
 | Reach too far | `packages.list`, which its `[interface] hub` does not list: refused, and listed in the system space's Apps tab and in Diagnostics |

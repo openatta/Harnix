@@ -20,7 +20,7 @@
 //! storage_mb = 1                # the key-value store's ceiling
 //! calls = ["harnix.session.create", "topic:harnix.sessions.status"]
 //!                               # what it may call (methods) and subscribe to (`topic:<name>`) as
-//!                               # `ext:<id>`; its own `app.<id>.*` needs no entry
+//!                               # `ext:<id>`; its own `<id>.*` needs no entry
 //! fs = ["${data}", "${project}"]# ${data} read-write; ${project} read-only, tool calls only
 //!
 //! [[component]]                 # at most one
@@ -41,7 +41,7 @@
 //! [events]                      # what its `events` export is offered (when it has one)
 //! tools = "own"                 # own (the default): its own tools' calls; all: every tool call
 //!
-//! [[method]]                    # app.<id>.<name>, answered by the backend (`backend-ext` only)
+//! [[method]]                    # <id>.<name>, answered by the backend (`backend-ext` only)
 //! name = "notes.add"
 //! subject = "device"            # who may call it: device (the default), module, kernel, or a list
 //! description = "…"             # optional
@@ -49,7 +49,7 @@
 //! type = "object"
 //! required = ["text"]
 //!
-//! [[topic]]                     # app.<id>.<name>, published by the backend (`backend-ext` only)
+//! [[topic]]                     # <id>.<name>, published by the backend (`backend-ext` only)
 //! name = "notes"
 //!
 //! [[space]]                     # a backend space: where its sessions land
@@ -66,7 +66,7 @@
 //! api_version = 3
 //!
 //! [interface]                   # the interface in isolated frames (`surface.rs`)
-//! calls = ["harnix.sessions.list"]   # beyond app.<id>.*, what a frame may call
+//! calls = ["harnix.sessions.list"]   # beyond <id>.*, what a frame may call
 //!
 //! [[surface]]                   # a region of the shell a frame fills
 //! point = "space"
@@ -178,7 +178,7 @@ fn default_event_scope() -> String {
     EVENT_SCOPES[0].to_string()
 }
 
-/// One `[[method]]`: `app.<id>.<name>`, answered by the backend's `handle`.
+/// One `[[method]]`: `<id>.<name>`, answered by the backend's `handle`.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Method {
@@ -218,7 +218,7 @@ fn default_subject() -> Subjects {
 /// Who a method may be declared for.
 pub const SUBJECTS: &[&str] = &["device", "module", "kernel"];
 
-/// One `[[topic]]`: `app.<id>.<name>`, whole values the backend publishes (`host.publish`).
+/// One `[[topic]]`: `<id>.<name>`, whole values the backend publishes (`host.publish`).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Topic {

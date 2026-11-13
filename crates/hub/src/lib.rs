@@ -411,13 +411,13 @@ impl Hub {
     }
 
     /// `harnix.session.entries.append {instance, session_id, event, payload}`: an entry in the session's log,
-    /// for people and never for the model (concept §3.2.1). A module writes under its own namespace,
-    /// `app.<id>`, so no module can write another's; the kernel names one. A person's words are
-    /// `harnix.session.send`, so a device writes none.
+    /// for people and never for the model (concept §3.2.1). An extension writes under its own id
+    /// as the namespace, as its methods are named, so none can write another's; the kernel names
+    /// one. A person's words are `harnix.session.send`, so a device writes none.
     pub(crate) async fn append_entry(&self, subject: &Subject, params: Value) -> Result<Value, RpcError> {
         let key = self.key_of(&params)?;
         let ns = match subject {
-            Subject::Extension { id } => format!("app.{id}"),
+            Subject::Extension { id } => id.as_str().to_string(),
             Subject::Kernel => params
                 .get("ns")
                 .and_then(Value::as_str)
@@ -426,7 +426,7 @@ impl Hub {
             _ => {
                 return Err(RpcError::new(
                     codes::REFUSED,
-                    "entries are the application's; a device speaks through harnix.session.send",
+                    "entries are an extension's; a device speaks through harnix.session.send",
                 ))
             }
         };

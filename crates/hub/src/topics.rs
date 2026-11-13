@@ -361,16 +361,16 @@ mod tests {
     #[test]
     fn a_withdrawn_topic_ends_every_subscription_and_forgets_its_values() {
         let mut topics = Topics::default();
-        assert!(topics.declare_new("app.fake.ticks", vec!["job".into()]));
-        assert!(!topics.declare_new("app.fake.ticks", Vec::new()), "declared twice");
-        let a = topics.key("app.fake.ticks", &json!({"job": "a"})).unwrap();
-        let b = topics.key("app.fake.ticks", &json!({"job": "b"})).unwrap();
+        assert!(topics.declare_new("fake.ticks", vec!["job".into()]));
+        assert!(!topics.declare_new("fake.ticks", Vec::new()), "declared twice");
+        let a = topics.key("fake.ticks", &json!({"job": "a"})).unwrap();
+        let b = topics.key("fake.ticks", &json!({"job": "b"})).unwrap();
         topics.subscribe(ClientId(1), a.clone(), None);
         topics.subscribe(ClientId(2), a.clone(), None);
         topics.subscribe(ClientId(3), b.clone(), None);
         topics.publish(a.clone(), json!({"job": "a"}), json!(1), &|_, v, _| v.clone());
 
-        let mut told = topics.withdraw("app.fake.ticks");
+        let mut told = topics.withdraw("fake.ticks");
         told.sort_by_key(|(_, p)| p.to_string());
         assert_eq!(told.len(), 2);
         let mut first = told[0].0.clone();
@@ -380,12 +380,12 @@ mod tests {
         assert_eq!(told[1].0, vec![ClientId(3)]);
 
         // Unknown from now on; nothing kept.
-        assert!(topics.key("app.fake.ticks", &json!({"job": "a"})).is_err());
+        assert!(topics.key("fake.ticks", &json!({"job": "a"})).is_err());
         assert!(!topics.has_subscribers(&a));
         assert!(topics.values.is_empty());
-        assert!(topics.withdraw("app.fake.ticks").is_empty());
+        assert!(topics.withdraw("fake.ticks").is_empty());
         // Declaring it again starts from nothing.
-        assert!(topics.declare_new("app.fake.ticks", vec!["job".into()]));
+        assert!(topics.declare_new("fake.ticks", vec!["job".into()]));
         assert_eq!(topics.subscribe(ClientId(1), a, None), Value::Null);
     }
 

@@ -266,15 +266,40 @@ impl SendOptions {
 /// An extension's sessions, as itself.
 pub struct Sessions<'a> {
     cx: &'a ExtensionContext,
+    /// The space every call claims, when one is: see [`Sessions::in_space`].
+    space: Option<String>,
 }
 
 impl<'a> Sessions<'a> {
     pub(crate) fn new(cx: &'a ExtensionContext) -> Self {
-        Self { cx }
+        Self { cx, space: None }
+    }
+
+    /// Every call these make claims `space`. An instance a template built for a space is that
+    /// space's: a call naming it — opening one of its sessions, reading its entries — that claims
+    /// no space, or another, is answered `SPACE_MISMATCH`, an extension's as a device's. A session
+    /// named is checked against the claim too, as a device's is. A new session without a space of
+    /// its own goes in this one.
+    pub fn in_space(mut self, space: &str) -> Self {
+        self.space = Some(space.to_string());
+        self
+    }
+
+    /// `params` with the space claimed, when one is.
+    fn claim(&self, mut params: Value) -> Value {
+        if let (Some(space), Some(obj)) = (&self.space, params.as_object_mut()) {
+            obj.entry("space").or_insert_with(|| json!(space));
+        }
+        params
+    }
+
+    /// A session's name as a call's params, with the space claimed.
+    fn named(&self, session: &SessionRef) -> Value {
+        self.claim(key(session))
     }
 
     pub async fn create(&self, spec: SessionSpec) -> Rpc<SessionRef> {
-        let created = self.cx.call("harnix.session.create", spec.params()).await?;
+        let created = self.cx.call("harnix.session.create", self.claim(spec.params())).await?;
         let field = |k: &str| created.get(k).and_then(Value::as_str).map(str::to_string);
         Ok(SessionRef::new(
             field("instance").unwrap_or_else(|| MAIN_INSTANCE.to_string()),
@@ -285,7 +310,7 @@ impl<'a> Sessions<'a> {
     /// A session that already exists — in memory or only on disk.
     pub async fn open(&self, instance: &str, session_id: &str) -> Rpc<SessionRef> {
         let session = SessionRef::new(instance, session_id);
-        self.cx.call("engine.session.get", key(&session)).await?;
+        self.cx.call("engine.session.get", self.named(&session)).await?;
         Ok(session)
     }
 
@@ -298,20 +323,21 @@ impl<'a> Sessions<'a> {
     /// never steered into a running turn: with [`OnBusy::Steer`] it waits for the next one, as
     /// from the interface.
     pub async fn send_with(&self, session: &SessionRef, message: &str, options: SendOptions) -> Rpc<Value> {
-        self.cx.call("harnix.session.send", options.params(session, message)).await
+        self.cx.call("harnix.session.send", self.claim(options.params(session, message))).await
     }
 
     pub async fn interrupt(&self, session: &SessionRef) -> Rpc<Value> {
-        self.cx.call("harnix.session.interrupt", key(session)).await
+        self.cx.call("harnix.session.interrupt", self.named(session)).await
     }
 
     pub async fn close(&self, session: &SessionRef) -> Rpc<Value> {
-        self.cx.call("harnix.session.close", key(session)).await
+        self.cx.call("harnix.session.close", self.named(session)).await
     }
 
     /// Bind the session to another space, transcript and all. Already there ⇒ nothing changes.
     /// `{space, from, moved}`.
     pub async fn move_to(&self, session: &SessionRef, space: &str) -> Rpc<Value> {
+        // `space` here is where it goes, not a claim.
         let mut params = key(session);
         params["space"] = json!(space);
         self.cx.call("harnix.session.move", params).await
@@ -322,7 +348,7 @@ impl<'a> Sessions<'a> {
     /// and stays through a refresh, a replay and a fork. The interface draws it with a
     /// `flow.block` contribution that claims `{ns, event}`.
     pub async fn append_entry(&self, session: &SessionRef, entry: Entry) -> Rpc<Value> {
-        let mut params = key(session);
+        let mut params = self.named(session);
         params["event"] = json!(entry.event);
         params["payload"] = entry.payload;
         self.cx.call("harnix.session.entries.append", params).await
@@ -331,8 +357,8 @@ impl<'a> Sessions<'a> {
     /// This extension's entries in the session, oldest first, each with `at`: how many messages
     /// come before it.
     pub async fn entries(&self, session: &SessionRef) -> Rpc<Vec<Value>> {
-        let mut params = key(session);
-        params["namespaces"] = json!([format!("app.{}", self.cx.id())]);
+        let mut params = self.named(session);
+        params["namespaces"] = json!([self.cx.id().as_str()]);
         let listed = self.cx.call("engine.session.entries", params).await?;
         Ok(listed.get("entries").and_then(Value::as_array).cloned().unwrap_or_default())
     }

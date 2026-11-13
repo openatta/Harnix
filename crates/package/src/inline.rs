@@ -18,14 +18,14 @@
 //! [[inline.flow_block.field]]   # key and value rows
 //! label = "Notes"
 //! value = "{payload.notes}"
-//! [[inline.flow_block.button]]  # calls app.<id>.<method>: one of its own, callable by a device
+//! [[inline.flow_block.button]]  # calls <id>.<method>: one of its own, callable by a device
 //! label = "Count one more"
 //! method = "counter.bump"
 //! params = { by = "{payload.step}" }   # a string that is one placeholder keeps the value's type
 //! confirm = "Count one more?"   # the shell asks first
 //! done = "Now at {result.counter}"     # shown in the card after; `{result.<path>}` too
 //!
-//! [[inline.command]]            # a `/` command or an `@` source; app.<id>.complete gives candidates
+//! [[inline.command]]            # a `/` command or an `@` source; <id>.complete gives candidates
 //! trigger = "/"
 //! name = "showcase"
 //! description = "The showcase's commands"
@@ -33,7 +33,7 @@
 //! [[inline.sidebar_group]]      # how one of its spaces groups its sessions in the left column
 //! space = "example.showcase"    # a `[[space]]` of its own (the application's id when absent)
 //! by = "method"                 # `scene`, `field` (with `field = "<the session row's key>"`), or
-//! method = "sessions.group"     #   `method`: app.<id>.<method> {space, sessions} → {groups}
+//! method = "sessions.group"     #   `method`: <id>.<method> {space, sessions} → {groups}
 //! other = "Everything else"     # the group for what no rule places
 //! ```
 //!
@@ -58,7 +58,7 @@ pub const LOCALES: &[&str] = &["en", "zh-CN"];
 /// What a card is drawn from: the entry an application appends, through this method.
 pub const APPEND: &str = "harnix.session.entries.append";
 
-/// What a command's candidates come from: `app.<id>.complete`.
+/// What a command's candidates come from: `<id>.complete`.
 pub const COMPLETE: &str = "complete";
 
 const MAX_TEXT: usize = 200;
@@ -138,7 +138,7 @@ pub struct Field {
 #[serde(deny_unknown_fields)]
 pub struct Button {
     pub label: Text,
-    /// One of the application's own `[[method]]`s, without the `app.<id>.` it is called by.
+    /// One of the application's own `[[method]]`s, without the `<id>.` it is called by.
     pub method: String,
     /// The params, as a table; its strings may be templates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -199,7 +199,7 @@ impl Inline {
         self == &Inline::default()
     }
 
-    /// The method `app.<id>.<name>` a device may call, by its short name.
+    /// The method `<id>.<name>` a device may call, by its short name.
     fn device_method(manifest: &Manifest, name: &str) -> bool {
         manifest
             .methods

@@ -3,7 +3,7 @@
  * a writable layer in the module's data directory, the flow space whose conversations run
  * `flow-author`, and no programs, gates or tools of an application's.
  *
- * What a client can tell at start: `harnix.reachable` lists `app.flow.*`, and
+ * What a client can tell at start: `harnix.reachable` lists `flow.*`, and
  * `harnix.spaces.list` has the flow space with `flow-author` as its scene.
  */
 

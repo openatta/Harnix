@@ -46,7 +46,7 @@ test("a module's entry lands where it was written, under its own name, and watch
   // the start of the conversation (the session's context, its skills).
   const { total } = await api.call("engine.session.history", s);
   const { written, mine } = await api.call("probe.note", { ...s, event: "job_done", payload: { title: "entry-marker-41" } });
-  expect(written).toMatchObject({ ns: "app.probe", event: "job_done", at: total, payload: { title: "entry-marker-41" } });
+  expect(written).toMatchObject({ ns: "probe", event: "job_done", at: total, payload: { title: "entry-marker-41" } });
   expect(mine.map((e: any) => e.id)).toEqual([written.id]);
 
   // The attached client was told, outside any turn.
@@ -57,7 +57,7 @@ test("a module's entry lands where it was written, under its own name, and watch
   expect(frame.params.event.entry.id).toBe(written.id);
 
   const { entries } = await api.call("engine.session.entries", s);
-  expect(entries.map((e: any) => [e.ns, e.event, e.at])).toEqual([["app.probe", "job_done", total]]);
+  expect(entries.map((e: any) => [e.ns, e.event, e.at])).toEqual([["probe", "job_done", total]]);
 });
 
 test("the model never sees an entry", TAGS, async () => {
@@ -107,5 +107,5 @@ test("a device writes no entries, and a module none outside its namespace", TAGS
     params: { ...s, ns: "app.other", event: "claimed", payload: {} },
   });
   const { entries } = await api.call("engine.session.entries", s);
-  expect(entries.map((e: any) => [e.ns, e.event])).toEqual([["app.probe", "claimed"]]);
+  expect(entries.map((e: any) => [e.ns, e.event])).toEqual([["probe", "claimed"]]);
 });

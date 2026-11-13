@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { SessionController, type SessionStrings } from "../src/state/index.ts";
 
-const entry = (id: string, at: number) => ({ id, ns: "app.greeter", event: "job_done", payload: { id }, at });
+const entry = (id: string, at: number) => ({ id, ns: "greeter", event: "job_done", payload: { id }, at });
 
 const strings: SessionStrings = {
   openFailed: (r) => r,

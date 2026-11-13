@@ -3,7 +3,7 @@
 /// A package ships at most one component. A `tools-ext` component gives the
 /// agent tools and may observe and veto lifecycle events; a `backend-ext`
 /// component additionally holds the application's state, answers its methods
-/// (`app.<id>.<method>`), publishes its topics and reacts to timers and hub
+/// (`<id>.<method>`), publishes its topics and reacts to timers and hub
 /// topics. Harnix runs the backend as one long-lived instance per process and
 /// every tool call and event in a fresh, short-lived one, so a tool cannot see
 /// the backend's memory: a tool that needs the application's state asks for
@@ -149,7 +149,7 @@ interface host {
   /// compiled-in module's grants. The answer is the method's result as JSON,
   /// or its error message.
   call: func(method: string, params-json: string) -> result<string, string>;
-  /// Publish `value-json` on the application's topic `app.<id>.<topic>`.
+  /// Publish `value-json` on the application's topic `<id>.<topic>`.
   publish: func(topic: string, value-json: string) -> result<_, string>;
 
   /// Backend only. Subscribe to a hub topic; each value arrives at
@@ -202,7 +202,7 @@ interface backend {
   /// are not initialized: what they need of the application's state they
   /// ask the backend for, with `host.call`.
   init: func(config-json: string) -> result<_, string>;
-  /// Answer the method `app.<id>.<method>`. `caller-json` describes who
+  /// Answer the method `<id>.<method>`. `caller-json` describes who
   /// called (`{"subject": …}`); the hub has already admitted the call.
   handle: func(method: string, params-json: string, caller-json: string) -> result<string, ext-error>;
   /// A value on a topic this instance subscribed to.

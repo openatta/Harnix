@@ -11,7 +11,7 @@
 //! isolate = true                 # a trusted publisher's interface in frames too (see below)
 //! calls = ["harnix.sessions.list", "harnix.session.send"]
 //!                                # what a frame may call and subscribe to beyond its own
-//!                                # app.<id>.*: `harnix.*` or `session.*`, `topic:` for topics
+//!                                # <id>.*: `harnix.*` or `session.*`, `topic:` for topics
 //! links = true                   # may ask the shell to open a web page (confirmed each time)
 //!
 //! [[surface]]
@@ -89,7 +89,7 @@ pub struct Interface {
     #[serde(default)]
     pub isolate: bool,
     /// What a frame may call and subscribe to (`topic:<name>`) beyond the application's own
-    /// `app.<id>.*`. The page's calls through it carry the application's id, and the router takes
+    /// `<id>.*`. The page's calls through it carry the application's id, and the router takes
     /// what a device may do, what this lists, and the row's scope: the application's own spaces
     /// and their sessions.
     #[serde(default)]

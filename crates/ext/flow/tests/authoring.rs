@@ -20,7 +20,7 @@ name: placed
 inputs: {box: {schema: {type: string}, default: b1}}
 stations:
   - id: work
-    executor: {kind: session, scene: harnix, model: m1, provider: acme, template: app.box, params: {name: "box-${inputs.box}", run: "${run}"}, space: dev}
+    executor: {kind: session, scene: harnix, model: m1, provider: acme, template: acme.box, params: {name: "box-${inputs.box}", run: "${run}"}, space: dev}
     skill: analyze
     output: {type: object, required: [done], properties: {done: {const: true}}}
     exit: [{kind: output}]
@@ -76,7 +76,7 @@ async fn session_work_carries_its_placement_resolved_and_how_it_hands_in() {
     let p = placement.unwrap();
     assert_eq!(p.model.as_deref(), Some("m1"));
     assert_eq!(p.provider.as_deref(), Some("acme"));
-    assert_eq!(p.template.as_deref(), Some("app.box"));
+    assert_eq!(p.template.as_deref(), Some("acme.box"));
     assert_eq!(p.space.as_deref(), Some("dev"));
     assert_eq!(p.params["name"], "box-b1");
     assert_eq!(p.params["run"], run);
@@ -140,7 +140,7 @@ async fn session_work_carries_its_placement_resolved_and_how_it_hands_in() {
     );
     assert_ne!(default_instance("r-1", "t"), default_instance("r-1", "u"));
     let long = format!("{}-12", "a-very-long-flow-name".repeat(5));
-    assert!(default_instance(&long, "app.box").len() <= 64);
+    assert!(default_instance(&long, "acme.box").len() <= 64);
 }
 
 // ── writable packs ───────────────────────────────────────────────────────────

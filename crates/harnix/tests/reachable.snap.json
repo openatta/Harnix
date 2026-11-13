@@ -245,8 +245,6 @@
       "system.tasks.stop"
     ],
     "topics": [
-      "app.probe.counter",
-      "app.probe.job",
       "flow.defs",
       "flow.dry_runs",
       "flow.focus",
@@ -256,6 +254,8 @@
       "harnix.instances.sessions",
       "harnix.session.tasks",
       "harnix.sessions.status",
+      "probe.counter",
+      "probe.job",
       "system.process"
     ]
   },

@@ -612,7 +612,7 @@ export interface Problem {
   message: string;
 }
 
-/** The payload of an `app.flow` entry with `event: "proposal"`, written by `flow_propose`. */
+/** The payload of a `flow` entry with `event: "proposal"`, written by `flow_propose`. */
 export interface Proposal {
   run: string;
   station: string;
@@ -623,7 +623,7 @@ export interface Proposal {
   session?: TaskSession | null;
 }
 
-/** An `app.flow` entry with `event: "proposal_handled"`: a proposal was accepted, once. */
+/** A `flow` entry with `event: "proposal_handled"`: a proposal was accepted, once. */
 export interface ProposalHandled {
   entry: string;
   action: "rework" | "cancel";

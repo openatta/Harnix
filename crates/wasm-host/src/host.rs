@@ -7,7 +7,7 @@
 //!    far they vouched ([`Start::trust`]) and the sha256 they gave its component
 //!    ([`Start::cwasm_sha256`]). The host checks only that the bytes it loads are those.
 //! 3. Its agent package and skills are switched on in the instances the install put them in.
-//! 4. It is registered with the kernel — its methods, topics and spaces, under `app.<id>.*`,
+//! 4. It is registered with the kernel — its methods, topics and spaces, under `<id>.*`,
 //!    its `calls` capability, its tools and its manifest's digest — then its component loaded
 //!    (refused if it was compiled for another engine, or its bytes are not the ones verified), its
 //!    VM started under the product's [`Start::limits`] (a backend's `init` runs, serving the
@@ -70,7 +70,7 @@ struct Running {
     idle: Option<std::time::Duration>,
     /// Ends its idle watch.
     watch: CancellationToken,
-    /// What it declared, by full name: `app.<id>.<name>`.
+    /// What it declared, by full name: `<id>.<name>`.
     method_names: Vec<String>,
     topics: Vec<String>,
     spaces: Vec<String>,
