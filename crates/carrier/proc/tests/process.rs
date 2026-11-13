@@ -61,14 +61,17 @@ fn package(dir: &Path, id: &str) -> (PathBuf, PathBuf) {
 /// its own: a process that runs what was not installed.
 fn swapping(dir: &Path, real: &Path, id: &str, other: &Path) -> PathBuf {
     let script = dir.join("swapping.sh");
-    // `ext-proc --ext <id> --pkg <dir> --run <dir> --wire-fd 3`, as the host starts it.
+    // `ext-proc --ext <id> --pkg <dir> --run <dir> --wire-fd 3 [--engine-fd 4]`, as the host
+    // starts it.
     std::fs::write(
         &script,
         format!(
-            "#!/bin/sh\npkg=\"$5\"\nif [ \"$3\" = \"{id}\" ]; then pkg=\"{}\"; fi\n\
-             exec \"{}\" \"$1\" \"$2\" \"$3\" \"$4\" \"$pkg\" \"$6\" \"$7\" \"$8\" \"$9\"\n",
-            other.display(),
-            real.display()
+            "#!/bin/sh\nif [ \"$3\" = \"{id}\" ]; then\n\
+             a=\"$1\"; b=\"$2\"; c=\"$3\"; d=\"$4\"; shift 5\n\
+             exec \"{real}\" \"$a\" \"$b\" \"$c\" \"$d\" \"{other}\" \"$@\"\nfi\n\
+             exec \"{real}\" \"$@\"\n",
+            other = other.display(),
+            real = real.display()
         ),
     )
     .unwrap();
@@ -93,6 +96,25 @@ struct Product {
 impl Product {
     async fn call(&self, method: &str, params: Value) -> Result<Value, harnix::RpcError> {
         self.kernel.call(Subject::device("d"), method, params).await
+    }
+
+    /// Its row in the instance list, or null.
+    async fn instance(&self, id: &str) -> Value {
+        let list = self.call("harnix.instances.list", json!({})).await.unwrap();
+        list["instances"].as_array().and_then(|l| l.iter().find(|i| i["id"] == id).cloned()).unwrap_or(Value::Null)
+    }
+
+    /// Its instance row, once `f` says it is what was waited for.
+    async fn until_instance(&self, id: &str, what: &str, f: impl Fn(&Value) -> bool) -> Value {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        loop {
+            let row = self.instance(id).await;
+            if f(&row) {
+                return row;
+            }
+            assert!(Instant::now() < deadline, "never: {what}; last {row}");
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
     }
 
     async fn runtime(&self, id: &str) -> Value {
@@ -161,6 +183,24 @@ async fn packages_run_kept_and_checked_in_processes_of_their_own() {
     let record: Value = serde_json::from_slice(&std::fs::read(dir.join("state/ext/acme.board/install.json")).unwrap()).unwrap();
     assert_eq!(record["digest"].as_str().map(str::len), Some(64), "{record}");
 
+    // With a space it runs an engine of its own, adopted as an extension's: its space's sessions
+    // are there, and only routed by the product.
+    let engine = product.instance("proc.acme.board").await;
+    assert_eq!((engine["carrier"].as_str(), engine["trust"].as_str()), (Some("adopted"), Some("extension")), "{engine}");
+    assert_eq!(engine["status"]["state"], "ready", "{engine}");
+    assert!(run.join("engine").is_dir());
+    let created = product.call("harnix.session.create", json!({"space": "acme.board"})).await.unwrap();
+    let session = created["session_id"].as_str().expect("a session").to_string();
+    let sessions = product.call("harnix.sessions.list", json!({"space": "acme.board"})).await.unwrap();
+    let row = sessions["sessions"].as_array().unwrap().iter().find(|s| s["session_id"] == session.as_str()).cloned();
+    let row = row.unwrap_or_else(|| panic!("its session is not listed in its space: {sessions}"));
+    assert_eq!((row["instance"].as_str(), row["trust"].as_str()), (Some("proc.acme.board"), Some("extension")), "{row}");
+    // Nobody reaches its engine's settings or plugins, and nobody but it stops it.
+    let e = product.call("engine.plugin.list", json!({"instance": "proc.acme.board"})).await.unwrap_err();
+    assert_eq!(e.code, codes::REFUSED, "{e:?}");
+    let e = product.call("harnix.instances.stop", json!({"instance": "proc.acme.board"})).await.unwrap_err();
+    assert_eq!(e.code, codes::REFUSED, "{e:?}");
+
     // Killed: up again, on a new process, its rows never gone.
     // SAFETY: a signal to a process this test's product started.
     unsafe { libc::kill(pid as i32, libc::SIGKILL) };
@@ -168,6 +208,10 @@ async fn packages_run_kept_and_checked_in_processes_of_their_own() {
         .until("acme.board", "up again on another pid", |r| r["state"] == "running" && r["process"]["pid"].as_i64().is_some_and(|p| p != pid))
         .await;
     assert_eq!(again["process"]["starts"], 2, "{again}");
+    // Its engine came back with it, and its session from its own store.
+    product.until_instance("proc.acme.board", "its engine back", |i| i["status"]["state"] == "ready").await;
+    let sessions = product.call("harnix.sessions.list", json!({"instance": "proc.acme.board"})).await.unwrap();
+    assert!(sessions["sessions"].as_array().unwrap().iter().any(|s| s["session_id"] == session.as_str()), "{sessions}");
     let list = product.call("packages.list", json!({})).await.unwrap();
     assert_eq!(entry(&list, "acme.board").unwrap()["registered"], true);
 
@@ -188,8 +232,10 @@ async fn packages_run_kept_and_checked_in_processes_of_their_own() {
     // Switched off and on: it starts over.
     product.call("packages.disable", json!({"id": "acme.board"})).await.unwrap();
     assert_eq!(product.runtime("acme.board").await["state"], "stopped");
+    assert!(product.instance("proc.acme.board").await.is_null(), "switched off, its engine is let go");
     product.call("packages.enable", json!({"id": "acme.board"})).await.unwrap();
     assert_eq!(product.runtime("acme.board").await["state"], "running");
+    assert_eq!(product.instance("proc.acme.board").await["status"]["state"], "ready");
 
     // A process that registers what was not installed — another manifest, one more space — is
     // refused and ended, and the install is undone.
@@ -205,6 +251,7 @@ async fn packages_run_kept_and_checked_in_processes_of_their_own() {
     let running = product.runtime("acme.board").await["process"]["pid"].as_i64().unwrap();
     product.call("packages.uninstall", json!({"id": "acme.board"})).await.unwrap();
     assert!(!alive(running), "uninstalled, and its process still there");
+    assert!(product.instance("proc.acme.board").await.is_null());
     product.kernel.shutdown().await;
 
     // A product of another build: the process's hello names one Harnix, the product another, and
