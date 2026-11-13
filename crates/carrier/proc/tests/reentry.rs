@@ -3,7 +3,7 @@
 //! product starts the chain with the process, held on the firing the process says it answers, and
 //! the process knows that firing as one its backend is still answering.
 //!
-//! The showcase (`examples/apps/showcase`), packed by the author's tool and installed unsigned
+//! The showcase (`examples/packages/showcase`), packed by the author's tool and installed unsigned
 //! (`dev`), runs in the test application built with `proc` and re-executed as `ext-proc`, as in
 //! `tests/process.rs`, unsandboxed: what the sandbox does is `tests/sandboxed.rs`. One test, one
 //! process: the state directory is the process's environment.
@@ -50,7 +50,7 @@ fn testapp(into: &Path) -> PathBuf {
 /// The showcase, its component compiled and packed by the author's tool, unsigned.
 fn showcase(into: &Path) -> PathBuf {
     let target = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("showcase");
-    cargo(&root().join("examples/apps/showcase/component"), &["build", "--release", "--target", "wasm32-wasip2"], &[(
+    cargo(&root().join("examples/packages/showcase/component"), &["build", "--release", "--target", "wasm32-wasip2"], &[(
         "CARGO_TARGET_DIR",
         &target,
     )]);
@@ -61,7 +61,7 @@ fn showcase(into: &Path) -> PathBuf {
         &root(),
         &[
             "run", "-q", "-p", "harnix-package", "--features", "compile", "--bin", "harnix-pack", "--", "pack",
-            "examples/apps/showcase", "--wasm", wasm, "-o", out_s,
+            "examples/packages/showcase", "--wasm", wasm, "-o", out_s,
         ],
         &[],
     );

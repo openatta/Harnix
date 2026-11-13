@@ -307,7 +307,7 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
 | `harnix` | 缺省构建（`target/release`），同 `pnpm live`；载体由 `--carrier` 定（`tests/live/api/packages-host.ts`） |
 | 打包工具 `harnix-pack` | `cargo build --release -p harnix-package --features compile --bin harnix-pack --target-dir target/apps`；`scripts/check.sh` 编好（设了 `HARNIX_BIN` 时套件不再问 cargo），单跑时套件自己编 |
 | 带 `wasm,proc` 的 `harnix-testapp` | 同一个目录；信 mock 商店、能缩短休眠的只有它（见下面的隐藏钩子） |
-| 示例应用 | `examples/apps/showcase`：测试开始时编组件（`wasm32-wasip2`）、为这个引擎编译、打成 `.hxext`，按源码哈希缓存在 `target/apps/showcase/` |
+| 示例应用 | `examples/packages/showcase`：测试开始时编组件（`wasm32-wasip2`）、为这个引擎编译、打成 `.hxext`，按源码哈希缓存在 `target/packages/showcase/` |
 | mock 商店 | `tests/live/api/packages-store.ts` 在临时目录里用 `harnix-pack sign` / `countersign` / `index` 把 showcase 做成两个版本（0.2.0 多要几项能力）、写出 `index.json`，经 `[apps] store = "file://…"` 给后端；mock 的发布者与商店密钥在 `tests/live/fixtures/store/`，只是测试钥 |
 
 **Rust 这边**：

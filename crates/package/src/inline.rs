@@ -621,7 +621,7 @@ other = { en = "Other", zh-CN = "其他" }
     #[test]
     fn the_showcase_declares_one_of_each() {
         let m = parse(include_str!(
-            "../../../examples/apps/showcase/harnix-ext.toml"
+            "../../../examples/packages/showcase/harnix-ext.toml"
         ))
         .unwrap();
         let inline = &m.inline;

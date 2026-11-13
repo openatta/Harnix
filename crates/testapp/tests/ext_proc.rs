@@ -1,6 +1,6 @@
 //! This binary re-executed as an extension process, `harnix-testapp ext-proc`, kept by
 //! `harnix-supervise` with the extension wire on an inherited socket pair, running the showcase
-//! (`examples/apps/showcase`) behind it: its methods, topics, tools and cancellation, as a product
+//! (`examples/packages/showcase`) behind it: its methods, topics, tools and cancellation, as a product
 //! would drive them, with a fake product's kernel at the wire's serving end.
 //!
 //! `HARNIX_EXT_PROC_BIN` runs another build of the binary instead (a release one, to measure); it
@@ -58,7 +58,7 @@ fn showcase_package() -> &'static Path {
         let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
         let target = tmp.join("showcase");
         cargo(
-            &root().join("examples/apps/showcase/component"),
+            &root().join("examples/packages/showcase/component"),
             &["build", "--release", "--target", "wasm32-wasip2"],
             &[("CARGO_TARGET_DIR", &target)],
         );
@@ -68,7 +68,7 @@ fn showcase_package() -> &'static Path {
         cargo(
             &root(),
             &["run", "-q", "-p", "harnix-package", "--features", "compile", "--bin", "harnix-pack", "--",
-              "pack", "examples/apps/showcase", "--wasm", wasm, "-o", out_s],
+              "pack", "examples/packages/showcase", "--wasm", wasm, "-o", out_s],
             &[],
         );
         out

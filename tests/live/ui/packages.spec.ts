@@ -1,5 +1,5 @@
 /**
- * A runtime application's interface in the browser: the showcase (`examples/apps/showcase`),
+ * A runtime application's interface in the browser: the showcase (`examples/packages/showcase`),
  * installed unsigned from a file on the apps-enabled binary, puts its `home.card` in front of a
  * new conversation — in an isolated frame, its in-page module listed as not running (only a
  * trusted publisher's runs in the page) — and the page reports nothing. Its space draws the

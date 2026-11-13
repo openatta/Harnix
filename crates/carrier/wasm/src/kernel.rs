@@ -200,7 +200,7 @@ pub(crate) fn tool_specs(app: &str, tools: &[harnix_wasm_port::ToolDef]) -> Vec<
         .iter()
         .map(|t| {
             let schema = serde_json::from_str(&t.input_schema).unwrap_or_else(|_| json!({"type": "object"}));
-            let mut spec = ToolSpec::new(&harnix_package::tool_name(app, &t.name), &t.description, schema).source(&format!("app:{app}"));
+            let mut spec = ToolSpec::new(&harnix_package::tool_name(app, &t.name), &t.description, schema).source(&format!("ext:{app}"));
             if t.read_only {
                 spec = spec.read_only();
             }

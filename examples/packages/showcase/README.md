@@ -132,7 +132,7 @@ which links the engine's compiler and so is never part of the product:
 
 ```sh
 cargo build --release -p harnix-package --features compile --bin harnix-pack --target-dir target/packages
-target/packages/release/harnix-pack pack examples/apps/showcase --build -o showcase.hxext
+target/packages/release/harnix-pack pack examples/packages/showcase --build -o showcase.hxext
 ```
 
 `--build` runs `cargo build --release --target wasm32-wasip2` in `component/` (or give an already
@@ -141,7 +141,7 @@ manifest, `ui/`, `agent/` and both forms of the component. It prints the package
 engine fingerprint: the package installs on a Harnix whose engine reports the same one
 (`packages.list` → `runtime.fingerprint`; `harnix.hello` → `apps_engine`).
 
-`harnix-pack build examples/apps/showcase` does the first half alone: the component, and its
+`harnix-pack build examples/packages/showcase` does the first half alone: the component, and its
 artifact compiled for this engine, in `build/`. Artifacts are compiled for the target's baseline
 CPU, so one built here loads on any machine of the same target triple.
 

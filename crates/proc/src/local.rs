@@ -270,7 +270,7 @@ impl ToolProvider for LocalTools {
             for def in &offer.tools {
                 let name = tool_name(&offer.app, &def.name);
                 let schema = serde_json::from_str(&def.input_schema).unwrap_or_else(|_| json!({"type": "object"}));
-                let mut spec = ToolSpec::new(&name, &def.description, schema).source(&format!("app:{}", offer.app));
+                let mut spec = ToolSpec::new(&name, &def.description, schema).source(&format!("ext:{}", offer.app));
                 if let Some(doc) = &def.doc {
                     spec = spec.doc(doc);
                 }

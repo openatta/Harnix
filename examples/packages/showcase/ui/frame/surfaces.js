@@ -319,7 +319,7 @@
         h(
           "div",
           { className: "hk-page flush", testid: "showcase-card" },
-          h("div", { className: "hk-muted" }, s("card"), " ", h("a", { href: "https://github.com/xbitsmaster/Harnix/tree/main/examples/apps/showcase", testid: "showcase-readme" }, s("readme"))),
+          h("div", { className: "hk-muted" }, s("card"), " ", h("a", { href: "https://github.com/xbitsmaster/Harnix/tree/main/examples/packages/showcase", testid: "showcase-readme" }, s("readme"))),
         ),
       );
     }

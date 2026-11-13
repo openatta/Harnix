@@ -1,6 +1,6 @@
 /**
  * The SDK as a classic script (`dist/harnix-ext-sdk.js`, global `HarnixExt`), for an application
- * that ships its page unbundled — the showcase does (`examples/apps/showcase/ui/frame/vendor/`).
+ * that ships its page unbundled — the showcase does (`examples/packages/showcase/ui/frame/vendor/`).
  * A bundling application imports `@harnix/ext-sdk` instead.
  */
 

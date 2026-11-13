@@ -58,7 +58,7 @@ impl ToolSpec {
         self
     }
 
-    /// Where the tool comes from, as the engine's tool table annotates it (`app:<id>`); a tool
+    /// Where the tool comes from, as the engine's tool table annotates it (`ext:<id>`); a tool
     /// that says nothing is `builtin` there.
     pub fn source(mut self, origin: &str) -> Self {
         self.origin = Some(origin.to_string());

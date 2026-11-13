@@ -48,7 +48,7 @@ pub async fn cancellable<T>(
 pub fn tool_spec(app: &Loaded, def: &ToolDef) -> ToolSpec {
     let name = app.tool_name(&def.name);
     let schema = serde_json::from_str(&def.input_schema).unwrap_or_else(|_| json!({"type": "object"}));
-    let mut spec = ToolSpec::new(&name, &def.description, schema).source(&format!("app:{}", app.id));
+    let mut spec = ToolSpec::new(&name, &def.description, schema).source(&format!("ext:{}", app.id));
     if let Some(doc) = &def.doc {
         spec = spec.doc(doc);
     }

@@ -103,7 +103,7 @@ ui/packages/      @harnix/core (protocol, client, session state), @harnix/react 
                   @harnix/ext-sdk and @harnix/ext-kit (a plugin app's page in its frame)
 templates/        app (a new application), desktop (the Tauri shell)
 examples/hello-app  an application built the way applications are
-examples/apps/showcase  a plugin app with one of everything
+examples/packages/showcase  a plugin app with one of everything
 tests/live/       the LIVE suites: Playwright Test against the real binary
 agix/             Agix (submodule)
 ```

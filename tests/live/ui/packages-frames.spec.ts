@@ -1,6 +1,6 @@
 /**
  * An application's interface in isolated frames (harnix-plugin.md §6): the showcase
- * (`examples/apps/showcase`), installed unsigned under `[ext.packages] dev`, draws every surface it
+ * (`examples/packages/showcase`), installed unsigned under `[ext.packages] dev`, draws every surface it
  * declares in a sandboxed frame of its own (`ui/frame/`, on `@harnix/ext-sdk` and
  * `@harnix/ext-kit`), and does everything through the shell's bridge.
  *

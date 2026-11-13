@@ -1,4 +1,4 @@
-//! The host against the real showcase (`examples/apps/showcase`), with a fake platform and every
+//! The host against the real showcase (`examples/packages/showcase`), with a fake platform and every
 //! call of the port, both ways, carried through JSON: put in place, started, its methods, tools,
 //! topics and hook used, stopped and taken back.
 #![cfg(feature = "compile")]

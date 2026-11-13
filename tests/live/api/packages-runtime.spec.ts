@@ -3,7 +3,7 @@
  * its WebAssembly tools in every new session (asking first, every time), its event hook on every
  * tool call, its agent package (a QuickJS prompt block, an agent type), its skill, its interface
  * module — then switched off, on, and taken out. On the apps-enabled binary (`apps-host.ts`), with
- * the showcase application (`examples/apps/showcase`).
+ * the showcase application (`examples/packages/showcase`).
  *
  * The model's tool calls are hand-made recordings (`fixtures/recordings/app-*`). A daemon this
  * process spawns runs no VM: it reaches the same tools over the application's MCP endpoint, and

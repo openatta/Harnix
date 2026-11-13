@@ -1,5 +1,5 @@
 // The showcase's interface ships @harnix/ext-sdk and @harnix/ext-kit as built files
-// (examples/apps/showcase/ui/frame/vendor/), as an unbundled application would. This builds both
+// (examples/packages/showcase/ui/frame/vendor/), as an unbundled application would. This builds both
 // packages and checks the copies are what they build to — or, with --write, puts them there.
 //
 //   node tests/app-ui-vendored.mjs           # check
@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const vendor = join(root, "examples", "apps", "showcase", "ui", "frame", "vendor");
+const vendor = join(root, "examples", "packages", "showcase", "ui", "frame", "vendor");
 const files = [
   ["ext-sdk", "harnix-ext-sdk.js"],
   ["ext-kit", "harnix-ext-kit.js"],
