@@ -26,12 +26,13 @@ use async_trait::async_trait;
 use base64::Engine as _;
 use harnix_ext::engine::ToolSpec;
 use harnix_ext::{codes, Access, Call, CallMeta, DescriptorBuilder, ExtId, ExtensionDescriptor, MethodHandler, PackageCarrier, RpcError, Trust};
-use harnix_host_api::{ExtensionHandle, Installed, TopicSink};
+use harnix_host_api::{AdoptedEngine, ExtensionHandle, Installed, TopicSink};
 use harnix_package::acquire::{internal, refused};
 use harnix_package::egress::{Egress, Request};
 use harnix_package::manifest::Manifest;
 use harnix_wasm_port::rpc::{ControlClient, Wire};
 use harnix_wasm_port::socket::{Answer, Hello, Inbound, KernelAnswer, SocketWire, HELLO};
+use harnix_ext::DefaultInstance;
 use harnix_wasm_port::{
     CallAs, Control, Fetch, Fetched, Kernel, MethodCall, MethodDecl, Progress, Publish, Registration, SpaceDecl, Subscription,
     ToolDef, TopicValue, TurnChain, TurnRef,
@@ -155,8 +156,15 @@ fn tool_specs(app: &str, tools: &[ToolDef]) -> Vec<ToolSpec> {
 }
 
 /// The package's descriptor, from what was installed and consented to: the carrier's handlers over
-/// its declared names.
-pub(crate) fn descriptor(installed: &Installed, manifest: &Manifest, r: &Registration, registry: &Arc<Registry>) -> Result<ExtensionDescriptor, RpcError> {
+/// its declared names. With an engine of its own (`engine`, the instance it is adopted as), its
+/// spaces' sessions are there, whatever instance its manifest names.
+pub(crate) fn descriptor(
+    installed: &Installed,
+    manifest: &Manifest,
+    r: &Registration,
+    registry: &Arc<Registry>,
+    engine: Option<&str>,
+) -> Result<ExtensionDescriptor, RpcError> {
     let id = ExtId::package(&r.app).map_err(|e| refused(e.to_string()))?;
     let accesses = r.methods.iter().map(|m| access(&id, &m.name, &m.subjects)).collect::<Result<Vec<_>, _>>()?;
     let ext_manifest = harnix_ext::Manifest::new(&r.app, installed.version())
@@ -174,7 +182,7 @@ pub(crate) fn descriptor(installed: &Installed, manifest: &Manifest, r: &Registr
         d.topic(&format!("{}.{topic}", r.app)).access(Access::device().with_extension(id.clone()));
     }
     for space in &r.spaces {
-        d.space(space.clone());
+        d.space(space_on(&r.app, space, engine));
     }
     for spec in tool_specs(&r.app, &r.tools) {
         d.tool(spec);
@@ -182,6 +190,19 @@ pub(crate) fn descriptor(installed: &Installed, manifest: &Manifest, r: &Registr
     d.route("ui", Access::device(), UiFiles::new(registry.clone()));
     d.route("mcp", Access::engine(), McpEndpoint::new(registry.clone()));
     Ok(d.build())
+}
+
+/// One `[[space]]`, its sessions on the package's own engine when it has one.
+fn space_on(app: &str, space: &SpaceDecl, engine: Option<&str>) -> SpaceDecl {
+    let Some(engine) = engine else { return space.clone() };
+    if let DefaultInstance::Fixed(named) = &space.instance {
+        if named != engine && named != harnix_ext::MAIN_INSTANCE {
+            tracing::info!(package = %app, space = %space.id, instance = %named, "its space's sessions are on its own engine, not the instance its manifest names");
+        }
+    }
+    let mut on = space.clone();
+    on.instance = DefaultInstance::Fixed(engine.to_string());
+    on
 }
 
 /// One `[[method]]` as the router has it: answered by the package's process, while it is up.
@@ -193,8 +214,15 @@ struct Forward {
 
 #[async_trait]
 impl MethodHandler for Forward {
+    /// A method wakes a process let go while idle.
     async fn call(&self, call: Call, params: Value) -> harnix_ext::Rpc<Value> {
-        let Some(control) = self.registry.upgrade().and_then(|r| r.control(&self.app)) else {
+        let registry = self.registry.upgrade();
+        let _held = registry.as_ref().map(|r| r.hold(&self.app));
+        let control = match &registry {
+            Some(registry) => registry.awake(&self.app).await,
+            None => None,
+        };
+        let Some(control) = control else {
             let mut e = RpcError::new(codes::EXTENSION_UNAVAILABLE, format!("`{}.{}`: its process is not up", self.app, self.name));
             e.data = Some(json!({"failure": "starting"}));
             return Err(e);
@@ -271,6 +299,8 @@ pub(crate) struct Connection {
     pub(crate) told: Arc<Told>,
     /// What it subscribed to as itself: given back when it goes.
     subscriptions: Mutex<BTreeSet<(String, String)>>,
+    /// Its own engine, adopted, when it has one: whose turns' chains it may ask for.
+    engine: Option<Arc<dyn AdoptedEngine>>,
 }
 
 /// What a [`Connection`] is made with, besides its wire.
@@ -281,6 +311,7 @@ pub(crate) struct Parts {
     pub net: Vec<String>,
     pub egress: Arc<Egress>,
     pub registry: Arc<Registry>,
+    pub engine: Option<Arc<dyn AdoptedEngine>>,
 }
 
 impl Connection {
@@ -304,6 +335,7 @@ impl Connection {
                     wire: weak,
                     told: told.clone(),
                     subscriptions: Mutex::new(BTreeSet::new()),
+                    engine: parts.engine,
                 });
                 made = Some(connection.clone());
                 Arc::new(ProductEnd { connection: connection.clone(), ours, kernel: KernelAnswer(connection) })
@@ -444,10 +476,14 @@ impl Kernel for Connection {
         })
     }
 
-    /// The chains of the product's turns reach the process with each tool call; there is none to
-    /// add here.
+    /// A turn on its own engine, as the hub runs it; none for any other instance's — the chains
+    /// of the product's turns reach the process with each tool call.
     async fn turn_chain(&self, _meta: CallMeta, t: TurnRef) -> Result<TurnChain, RpcError> {
-        Ok(TurnChain { instance: t.instance, session_id: t.session_id, chain: Vec::new() })
+        let chain = match &self.engine {
+            Some(engine) if engine.instance() == t.instance => engine.turn_chain(&t.session_id),
+            _ => Vec::new(),
+        };
+        Ok(TurnChain { instance: t.instance, session_id: t.session_id, chain })
     }
 
     fn progress(&self, p: Progress) {

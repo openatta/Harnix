@@ -158,8 +158,10 @@ impl Tool for AppTool {
         ))
     }
 
+    /// A tool wakes a process let go while idle.
     async fn call(&self, cx: ToolCx, input: Value) -> Result<ToolOutput, ToolError> {
-        let Some(control) = self.registry.control(&self.app.id) else {
+        let _held = self.registry.hold(&self.app.id);
+        let Some(control) = self.registry.awake(&self.app.id).await else {
             return Err(ToolError::NotFound(format!("`{}` is not running", self.app.id)));
         };
         let call_id = cx.tool_use_id().to_string();
@@ -240,10 +242,12 @@ fn note_for(app: &str, tool: &str, note: &str) -> Option<String> {
 
 #[async_trait::async_trait]
 impl ToolHook for AppEvents {
+    /// Not for a process let go while idle: a session's every tool call does not wake it.
     async fn before(&self, call: &ToolCallFacts) -> HookDecision {
         let Some(control) = self.registry.control(&self.app.id) else {
             return HookDecision::Proceed;
         };
+        let _held = self.registry.hold(&self.app.id);
         let payload = json!({
             "tool": call.name(),
             "input": call.input(),

@@ -18,7 +18,14 @@
 //!   15 s, killed after three answers missed; started again after an exit, with backoff; three
 //!   exits within 60 s of starting — across runs, which the carrier counts, not its supervisor —
 //!   and it is set aside (`faulted`: its rows stay and answer `EXTENSION_UNAVAILABLE {faulted}`)
-//!   until it is switched off and on.
+//!   until it is switched off and on. An on-demand backend's process is let go once idle, and
+//!   started again by what needs it (`process.rs`).
+//! - **Its engine is its own.** A package with `agent/` or a `[[space]]` runs an Agix of its own in
+//!   its process, which the product adopts as the instance `proc.<id>` (`HostApi::adopt`): an
+//!   extension's engine, held by the hub to what the product's are not. Its spaces' sessions are
+//!   there, its agent package goes in there, and nothing of the product's engine policy does. The
+//!   product only routes: the hub keeps its sessions; the carrier tells the process of each turn
+//!   the hub runs on it, with the calls it runs on behalf of.
 //!
 //! What runs is in a [`Registry`] the rest of the process reaches through what the carrier hands
 //! out, as with the in-process carrier: [`ProcTools`], the tool provider every engine built in this
@@ -41,8 +48,8 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use harnix_ext::{codes, ExtId, ExtensionContext, PackageCarrier, Rpc, RpcError};
 use harnix_host_api::{
-    Availability, Carrier, CarrierRegistrar, CarrierSettings, ChildRequest, HostApi, HostServices, Installed, Running,
-    StopReason, ToolEndpoint,
+    AdoptSpec, Availability, Carrier, CarrierRegistrar, CarrierSettings, ChildRequest, HostApi, HostServices, Installed,
+    Running, StopReason, ToolEndpoint,
 };
 use harnix_package::egress::Egress;
 use harnix_package::signature::Trust;
@@ -55,7 +62,7 @@ pub use registry::{Loaded, Registry};
 pub use routes::FRAME_CSP;
 pub use tools::{ProcTools, MAX_NOTE, NAME as TOOLS_NAME};
 
-use crate::process::{Package, Phase};
+use crate::process::{Package, Phase, Wakes};
 use crate::sync::{lock, read, write};
 
 /// How long a package's process has, from its start, to say hello, register and start.
@@ -128,8 +135,21 @@ impl Inner {
         }
     }
 
-    fn cx(&self) -> Option<ExtensionContext> {
+    pub(crate) fn cx(&self) -> Option<ExtensionContext> {
         read(&self.cx).clone()
+    }
+
+    /// Let go of the engine adopted for `id`, when there is one.
+    async fn release(&self, host: Option<&dyn HostApi>, id: &ExtId) {
+        match host {
+            Some(host) => host.release(id).await,
+            None => {
+                let Some(cx) = self.cx() else { return };
+                if let Ok(host) = cx.service::<HostServices>() {
+                    host.release(id).await;
+                }
+            }
+        }
     }
 
     fn settings(&self) -> CarrierSettings {
@@ -288,20 +308,47 @@ impl Carrier for ProcCarrier {
         }
         let manifest = harnix_package::acquire::manifest_in(app.pkg_dir())?;
         let expected = kernel::declared(&manifest, &kernel::consented_digest(&app)?);
+        // With an agent package or a space, its process runs an engine of its own.
+        let instance = (app.pkg_dir().join("agent").is_dir() || !manifest.spaces.is_empty()).then(|| format!("proc.{id}"));
         // The product's to register, from what was consented to, before the process says a word.
-        let descriptor = kernel::descriptor(&app, &manifest, &expected, &me.registry)?;
+        let descriptor = kernel::descriptor(&app, &manifest, &expected, &me.registry, instance.as_deref())?;
         let handle = host.registrar().register(descriptor, app.capabilities().to_vec()).await?;
         handle.mark(Availability::Starting);
+        let (commands, received) = tokio::sync::mpsc::unbounded_channel();
+        let given_up = |e: RpcError| {
+            let (handle, name) = (handle.clone(), id.to_string());
+            async move {
+                let _ = handle.withdraw().await;
+                lock(&me.failed).insert(name, e.message.clone());
+                e
+            }
+        };
+        // Adopted before its process first starts: `main`'s providers are in its settings by then.
+        let engine = match &instance {
+            Some(_) => {
+                let spec = AdoptSpec::new(app.run_dir().join("engine"), Arc::new(Wakes(commands.clone()))).inherit_providers();
+                match host.adopt(&id, spec).await {
+                    Ok(engine) => Some(engine),
+                    Err(e) => return Err(given_up(e).await),
+                }
+            }
+            None => None,
+        };
+        debug_assert_eq!(engine.as_ref().map(|e| e.instance().to_string()), instance);
         let mut request = ChildRequest::new().pkg_dir(app.pkg_dir().clone()).run_dir(app.run_dir().clone());
+        if engine.is_some() {
+            request = request.with_engine();
+        }
         if let Some(program) = me.settings().proc_program_path() {
             request = request.program(program.clone());
         }
-        let child = match host.spawn_child(&id, request) {
+        let child = match host.spawn_child(&id, request.clone()) {
             Ok(child) => child,
             Err(e) => {
-                let _ = handle.withdraw().await;
-                lock(&me.failed).insert(id.to_string(), e.message.clone());
-                return Err(e);
+                if engine.is_some() {
+                    me.release(Some(host), &id).await;
+                }
+                return Err(given_up(e).await);
             }
         };
         let timeout = manifest.component.as_ref().map(|c| Duration::from_millis(c.timeout_ms)).unwrap_or(DEFAULT_TIMEOUT);
@@ -320,7 +367,11 @@ impl Carrier for ProcCarrier {
             inline: serde_json::to_value(&manifest.inline).unwrap_or(Value::Null),
             timeout,
         });
-        let (commands, received) = tokio::sync::mpsc::unbounded_channel();
+        // An on-demand backend's process is let go once idle.
+        let idle = manifest
+            .backend
+            .on_demand()
+            .then(|| me.settings().idle_for().unwrap_or(Duration::from_secs(manifest.backend.idle_secs)));
         let package = Arc::new(Package {
             id: id.clone(),
             parts: placed_of(&app),
@@ -329,13 +380,20 @@ impl Carrier for ProcCarrier {
             handle: handle.clone(),
             loaded: loaded.clone(),
             expected,
-            commands,
+            commands: commands.clone(),
             phase: Mutex::new(Phase::default()),
+            request,
+            engine: engine.clone(),
+            idle,
         });
         lock(&me.packages).insert(id.to_string(), package.clone());
         lock(&me.failed).remove(id.as_str());
         let (ready, readied) = oneshot::channel();
         tokio::spawn(process::keep(me.clone(), package.clone(), child, received, ready));
+        if let Some(notes) = engine.as_ref().and_then(|e| e.notes()) {
+            let instance = engine.as_ref().map(|e| e.instance().to_string()).unwrap_or_default();
+            tokio::spawn(process::tell(me.registry.clone(), id.to_string(), instance, notes, commands));
+        }
         let started = match tokio::time::timeout(READY_WITHIN + Duration::from_secs(5), readied).await {
             Ok(Ok(started)) => started,
             Ok(Err(_)) => Err(unavailable("stopped", format!("`{id}`'s process went before it was ready"))),
@@ -344,6 +402,9 @@ impl Carrier for ProcCarrier {
         if let Err(e) = started {
             package.stop().await;
             lock(&me.packages).remove(id.as_str());
+            if engine.is_some() {
+                me.release(Some(host), &id).await;
+            }
             let _ = handle.withdraw().await;
             lock(&me.failed).insert(id.to_string(), e.message.clone());
             me.moved();
@@ -368,6 +429,10 @@ impl Carrier for ProcCarrier {
         let Some(package) = package else { return };
         tracing::info!(package = %id, ?why, "stopping its extension process");
         package.stop().await;
+        // Its engine goes with it; its sessions stay on disk, in its run directory.
+        if package.engine.is_some() {
+            me.release(None, id).await;
+        }
         if let Err(e) = package.handle.withdraw().await {
             tracing::warn!(package = %id, error = %e.message, "its registration was not withdrawn");
         }
