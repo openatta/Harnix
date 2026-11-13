@@ -486,7 +486,7 @@ async fn it_goes_with_the_product_and_says_why_it_cannot_start() {
     // No wire where it was told to find one: it says so and exits 78.
     let mut child = ChildSpec::new(program()).args(["ext-proc", "--ext", ID]).spawn().unwrap();
     assert_eq!(child.wait().await.unwrap().code(), Some(78));
-    // Asked for an engine of its own, which this build's extension process does not serve yet.
+    // Asked for an engine's stream that is not there either.
     let (ends, _product_ends) = mpsc::unbounded_channel();
     let mut child = ChildSpec::new(program())
         .args(["ext-proc", "--ext", ID, "--engine-fd", "4"])

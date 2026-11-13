@@ -46,6 +46,7 @@ fn options() -> Options {
         ext: "example.showcase".into(),
         pkg: None,
         run: None,
+        engine: None,
     }
 }
 
@@ -180,7 +181,7 @@ async fn a_component_that_is_not_the_verified_one_is_refused_and_ends_the_proces
     std::fs::create_dir_all(&run_dir).unwrap();
 
     let (product, wire, process) = pair(false);
-    let options = Options { ext: ID.into(), pkg: Some(pkg.clone()), run: Some(run_dir) };
+    let options = Options { ext: ID.into(), pkg: Some(pkg.clone()), run: Some(run_dir), engine: None };
     let running = tokio::spawn(run(options, process, std::future::pending()));
     // The component for this engine is there, and its bytes are not what the product verified.
     let engine = hello(&product).await["engine"].as_str().unwrap().to_string();
@@ -203,4 +204,54 @@ fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
             std::fs::copy(entry.path(), target).unwrap();
         }
     }
+}
+
+/// A request to the process's own engine, on the stream it was given: one line out, the line that
+/// answers it back.
+async fn engine_call(stream: &mut tokio::io::BufReader<UnixStream>, id: u64, method: &str) -> Value {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    let request = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": {}});
+    stream.get_mut().write_all(format!("{request}\n").as_bytes()).await.unwrap();
+    loop {
+        let mut line = String::new();
+        let n = tokio::time::timeout(Duration::from_secs(30), stream.read_line(&mut line)).await.unwrap().unwrap();
+        assert!(n > 0, "the engine's stream closed");
+        let frame: Value = serde_json::from_str(&line).unwrap();
+        if frame["id"] == json!(id) {
+            return frame;
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn it_serves_its_own_engine_on_the_stream_it_was_given() {
+    let dir = tempfile::tempdir().unwrap();
+    let run_dir = dir.path().join("run");
+    std::fs::create_dir_all(&run_dir).unwrap();
+    let (product, wire, process) = pair(false);
+    let (theirs, engine) = UnixStream::pair().unwrap();
+    let options = Options { ext: ID.into(), pkg: None, run: Some(run_dir.clone()), engine: Some(engine) };
+    let running = tokio::spawn(run(options, process, std::future::pending()));
+    hello(&product).await;
+
+    // The product is the only one on it, and the engine answers as a daemon does.
+    let mut engine = tokio::io::BufReader::new(theirs);
+    let pong = engine_call(&mut engine, 1, "daemon.ping").await;
+    assert!(pong["error"].is_null(), "{pong}");
+    let sessions = engine_call(&mut engine, 2, "session.list").await;
+    assert!(sessions["error"].is_null(), "{sessions}");
+    // Its data root is under the run directory.
+    assert!(run_dir.join("engine").is_dir());
+
+    ControlClient(wire.clone()).shutdown(CallMeta::default(), "done".into()).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), running).await.unwrap().unwrap().unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_engine_stream_without_a_run_directory_is_a_setup_failure() {
+    let (_product, _wire, process) = pair(false);
+    let (_theirs, engine) = UnixStream::pair().unwrap();
+    let options = Options { ext: ID.into(), pkg: None, run: None, engine: Some(engine) };
+    let ended = run(options, process, std::future::pending()).await.unwrap_err();
+    assert!(format!("{ended:#}").contains("--run"), "{ended:#}");
 }
