@@ -22,7 +22,7 @@ import { startTestApp } from "./testapp";
 const TAGS = { tag: ["@feature:instances", "@layer:api"] };
 
 /**
- * A daemon from some other Agix: it answers `engine.daemon.ping` with a protocol
+ * A daemon from some other Agix: it answers Agix's `daemon.ping` with a protocol
  * version nobody speaks.
  */
 function fakeDaemon(socket: string): Server {
@@ -34,7 +34,7 @@ function fakeDaemon(socket: string): Server {
         const line = buffer.slice(0, at);
         buffer = buffer.slice(at + 1);
         const request = JSON.parse(line);
-        const result = request.method === "engine.daemon.ping"
+        const result = request.method === "daemon.ping"
           ? { pong: true, version: "9.9.9", protocol_version: 999, capabilities: [] }
           : {};
         conn.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }) + "\n");

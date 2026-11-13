@@ -19,7 +19,7 @@ const TAGS = { tag: ["@feature:instances", "@layer:api"] };
 
 /**
  * A daemon from some other Agix, as a program a spawn template starts: it listens where it is told
- * and answers `engine.daemon.ping` with a protocol version nobody speaks, so its instance goes down.
+ * and answers Agix's `daemon.ping` with a protocol version nobody speaks, so its instance goes down.
  */
 const FOREIGN_DAEMON = `#!/usr/bin/env node
 const net = require("node:net");
@@ -31,7 +31,7 @@ net.createServer((conn) => {
     for (let at = buffer.indexOf("\\n"); at >= 0; at = buffer.indexOf("\\n")) {
       const request = JSON.parse(buffer.slice(0, at));
       buffer = buffer.slice(at + 1);
-      const result = request.method === "engine.daemon.ping"
+      const result = request.method === "daemon.ping"
         ? { pong: true, version: "9.9.9", protocol_version: 999, capabilities: [] } : {};
       conn.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }) + "\\n");
     }
