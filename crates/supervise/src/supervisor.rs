@@ -28,9 +28,13 @@ pub enum ChildEvent {
     Stopped,
 }
 
+/// Keeps one child for one run of whatever it serves: an exit nobody asked for is started again
+/// by the policy; once [`Supervisor::stop`] is called, nothing is. What outlives a run — a record
+/// of crashes across sleeping and waking, say — is the owner's to keep.
 pub struct Supervisor {
     events: mpsc::UnboundedReceiver<ChildEvent>,
     stop: watch::Sender<bool>,
+    kill: watch::Sender<u64>,
     task: JoinHandle<()>,
 }
 
@@ -40,6 +44,7 @@ impl Supervisor {
     pub fn start(mut make: impl FnMut() -> io::Result<ChildSpec> + Send + 'static, policy: RestartPolicy) -> Self {
         let (tx, events) = mpsc::unbounded_channel();
         let (stop, stopped) = watch::channel(false);
+        let (kill, mut killed) = watch::channel(0u64);
         let task = tokio::spawn(async move {
             let mut restarts = policy.restarts();
             let mut stopped = stopped;
@@ -50,13 +55,15 @@ impl Supervisor {
                     Ok(child) => child,
                     Err(e) => {
                         let _ = tx.send(ChildEvent::SpawnFailed { error: e.to_string() });
-                        if !retry(&mut restarts, Duration::ZERO, &tx, &mut stopped).await {
+                        if !retry(&mut restarts, None, Duration::ZERO, &tx, &mut stopped).await {
                             return;
                         }
                         continue;
                     }
                 };
                 let _ = tx.send(ChildEvent::Started { pid: child.id().unwrap_or(0) });
+                // A kill asked for before this child started is not this child's.
+                killed.borrow_and_update();
                 let status = tokio::select! {
                     biased;
                     _ = stop_asked(&mut stopped) => {
@@ -64,29 +71,41 @@ impl Supervisor {
                         let _ = tx.send(ChildEvent::Stopped);
                         return;
                     }
+                    _ = killed.changed() => {
+                        let _ = child.kill().await;
+                        child.wait().await
+                    }
                     status = child.wait() => status,
                 };
                 child.reap().await;
                 let ran_for = started.elapsed();
-                match status {
+                let code = match status {
                     Ok(status) => {
                         let _ = tx.send(ChildEvent::Exited { status, ran_for });
+                        status.code()
                     }
                     Err(e) => {
                         let _ = tx.send(ChildEvent::SpawnFailed { error: e.to_string() });
+                        None
                     }
-                }
-                if !retry(&mut restarts, ran_for, &tx, &mut stopped).await {
+                };
+                if !retry(&mut restarts, code, ran_for, &tx, &mut stopped).await {
                     return;
                 }
             }
         });
-        Self { events, stop, task }
+        Self { events, stop, kill, task }
     }
 
     /// The next event; `None` once the supervisor has finished (gave up, or was stopped).
     pub async fn next_event(&mut self) -> Option<ChildEvent> {
         self.events.recv().await
+    }
+
+    /// Kill the child that runs now, outright: it counts as an exit like any other, and is
+    /// started again by the policy. For one that is up but does not answer.
+    pub fn kill(&self) {
+        self.kill.send_modify(|n| *n = n.wrapping_add(1));
     }
 
     /// End the child — stdin closed, a grace, a kill, its session reaped — and stop starting it.
@@ -105,11 +124,12 @@ impl Drop for Supervisor {
 /// Decide, announce, wait. False when the supervisor is done: it gave up or was stopped.
 async fn retry(
     restarts: &mut crate::policy::Restarts,
+    code: Option<i32>,
     ran_for: Duration,
     tx: &mpsc::UnboundedSender<ChildEvent>,
     stopped: &mut watch::Receiver<bool>,
 ) -> bool {
-    match restarts.exited(ran_for) {
+    match restarts.exited_with(code, ran_for) {
         Decision::GiveUp { reason } => {
             tracing::error!(%reason, "child given up on");
             let _ = tx.send(ChildEvent::GaveUp { reason });

@@ -14,7 +14,14 @@ pub struct RestartPolicy {
     /// This many quick exits in a row and the child is not started again: something about it is
     /// wrong, and a restart loop would hide what.
     pub give_up_after: u32,
+    /// Exit codes by which the child says it cannot run here at all — its setup failed, and a
+    /// start again would fail the same way: given up on at once, with no wait.
+    pub fatal: Vec<i32>,
 }
+
+/// The exit code an extension process ends with when it cannot be set up (`EX_CONFIG`): no wire
+/// at its descriptor, no sandbox, no VM engine, a component that is not the one verified.
+pub const EXIT_SETUP: i32 = 78;
 
 impl RestartPolicy {
     /// What a link keeps a spawned Agix daemon by: 0.2 s doubling to 5 s, five quick exits (under
@@ -25,17 +32,20 @@ impl RestartPolicy {
             reset_after: Duration::MAX,
             quick: Duration::from_secs(5),
             give_up_after: 5,
+            fatal: Vec::new(),
         }
     }
 
     /// What an extension process is kept by: 1, 2, 4, 8, 16, 30, 60 s; a run of 120 s starts the
-    /// schedule over; three exits within 60 s of starting in a row and it is set aside.
+    /// schedule over; three exits within 60 s of starting in a row and it is set aside; one that
+    /// says it cannot be set up ([`EXIT_SETUP`]) is set aside at once.
     pub fn extension() -> Self {
         Self {
             backoff: [1, 2, 4, 8, 16, 30, 60].map(Duration::from_secs).to_vec(),
             reset_after: Duration::from_secs(120),
             quick: Duration::from_secs(60),
             give_up_after: 3,
+            fatal: vec![EXIT_SETUP],
         }
     }
 
@@ -87,6 +97,14 @@ impl Restarts {
         if ran_for >= self.policy.reset_after {
             self.reset_backoff();
         }
+    }
+
+    /// The child exited with `code` (`None`: killed by a signal) after `ran_for`.
+    pub fn exited_with(&mut self, code: Option<i32>, ran_for: Duration) -> Decision {
+        if let Some(code) = code.filter(|c| self.policy.fatal.contains(c)) {
+            return Decision::GiveUp { reason: format!("it exited {code}: it cannot be set up here") };
+        }
+        self.exited(ran_for)
     }
 
     /// The child exited after `ran_for`.
@@ -151,6 +169,18 @@ mod tests {
         r.exited(secs(1));
         assert!(matches!(r.exited(secs(90)), Decision::Restart { after } if after == secs(4)));
         assert!(matches!(r.exited(secs(1)), Decision::Restart { after } if after == secs(8)));
+    }
+
+    #[test]
+    fn a_fatal_exit_is_given_up_on_at_once_and_nothing_else_is() {
+        let mut r = RestartPolicy::extension().restarts();
+        assert!(matches!(r.exited_with(Some(1), secs(1)), Decision::Restart { .. }));
+        assert!(matches!(r.exited_with(None, secs(1)), Decision::Restart { .. }));
+        let Decision::GiveUp { reason } = r.exited_with(Some(EXIT_SETUP), secs(500)) else { panic!("restarted") };
+        assert!(reason.contains("78"), "{reason}");
+        // The daemon's policy knows no fatal code.
+        let mut d = RestartPolicy::daemon().restarts();
+        assert!(matches!(d.exited_with(Some(EXIT_SETUP), secs(1)), Decision::Restart { .. }));
     }
 
     #[test]

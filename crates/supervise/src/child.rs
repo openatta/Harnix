@@ -19,7 +19,11 @@ use crate::sandbox::{self, SandboxSpec};
 pub struct ChildSpec {
     pub program: PathBuf,
     pub args: Vec<String>,
+    /// Start from an empty environment rather than this process's: only `env` reaches the child.
+    pub env_clear: bool,
     pub env: Vec<(String, String)>,
+    /// Where the child starts; this process's own directory when unset.
+    pub current_dir: Option<PathBuf>,
     /// Descriptors the child gets, each at the number it is to have there. Moved in: this process
     /// closes its copies once the child is started.
     pub inherit: Vec<(RawFd, OwnedFd)>,
@@ -34,7 +38,9 @@ impl ChildSpec {
         Self {
             program: program.into(),
             args: Vec::new(),
+            env_clear: false,
             env: Vec::new(),
+            current_dir: None,
             inherit: Vec::new(),
             own_session: false,
             sandbox: None,
@@ -48,6 +54,18 @@ impl ChildSpec {
 
     pub fn envs(mut self, env: impl IntoIterator<Item = (String, String)>) -> Self {
         self.env.extend(env);
+        self
+    }
+
+    /// The child gets no variable of this process's environment, only the ones given with
+    /// [`ChildSpec::envs`] (and a sandbox's own).
+    pub fn env_clear(mut self) -> Self {
+        self.env_clear = true;
+        self
+    }
+
+    pub fn current_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.current_dir = Some(dir.into());
         self
     }
 
@@ -104,6 +122,12 @@ impl ChildSpec {
         }
         let open = open_fds();
         let mut command = Command::new(&program);
+        if self.env_clear {
+            command.env_clear();
+        }
+        if let Some(dir) = &self.current_dir {
+            command.current_dir(dir);
+        }
         command
             .args(&args)
             .envs(self.env.iter().cloned())
@@ -183,6 +207,11 @@ impl Child {
 
     pub async fn wait(&mut self) -> io::Result<ExitStatus> {
         self.inner.wait().await
+    }
+
+    /// Kill it outright (SIGKILL), and wait for it.
+    pub async fn kill(&mut self) -> io::Result<()> {
+        self.inner.kill().await
     }
 
     /// End whatever the child left in its session. Nothing when it did not lead one.
