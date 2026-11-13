@@ -656,6 +656,7 @@ fn every_harnix_dependency_resolves() {
         "instance",
         "authz",
         "carrier/wasm",
+        "carrier/proc",
         "cli",
         "client",
         "contract",
@@ -1140,7 +1141,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P19"]
     fn l17_carrier_proc() {
         let forbidden = agix_and(&[WASM, WASM_HOST, PROC, ENGINE]);
         depends(CARRIER_PROC, &[EXT, HOST_API, WASM_PORT, PACKAGE], &forbidden, &[]);
@@ -1439,7 +1439,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P19"]
     fn c07_extensions_and_host_components_reach_neither_agix_nor_the_kernel() {
         let owned = host_components_and_first_party();
         let scope: Vec<&str> = owned.iter().map(String::as_str).collect();
@@ -1491,7 +1490,6 @@ mod rules {
     }
 
     #[test]
-    #[ignore = "0.5.0：P19"]
     fn c09_only_the_facade_and_the_cli_switch_on_a_carrier() {
         let mut scope: Vec<String> = SKELETON.iter().map(|s| s.to_string()).collect();
         scope.extend([EXT, HOST_API].iter().map(|s| s.to_string()));

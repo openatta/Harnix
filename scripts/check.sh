@@ -60,7 +60,7 @@ free_port() {
 CRATES=(-p harnix -p harnix-cli -p harnix-assembly -p harnix-instance -p harnix-engine -p harnix-engine-api -p harnix-authz -p harnix-kernel -p harnix-router
         -p harnix-client -p harnix-contract -p harnix-ext-flow -p harnix-hub -p harnix-transport
         -p harnix-testapp -p harnix-wasm -p harnix-package -p harnix-wasm-port -p harnix-wasm-host
-        -p harnix-carrier-wasm -p harnix-ext-packages -p harnix-supervise -p harnix-proc -p harnix-ext -p harnix-host-api
+        -p harnix-carrier-wasm -p harnix-carrier-proc -p harnix-ext-packages -p harnix-supervise -p harnix-proc -p harnix-ext -p harnix-host-api
         -p harnix-ext-system -p harnix-ext-harnix-app -p harnix-ext-settings -p harnix-ext-plugins
         -p harnix-ext-observability -p harnix-ext-devices)
 

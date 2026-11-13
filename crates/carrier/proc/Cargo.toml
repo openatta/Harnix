@@ -1,0 +1,37 @@
+[package]
+name = "harnix-carrier-proc"
+version      = "0.4.2-2026110901"
+edition      = "2021"
+rust-version = "1.87"
+license      = "Apache-2.0"
+publish      = false
+description  = "Packages in processes of their own: each one's WebAssembly in an extension process, registered as an extension here, its tools in every session"
+
+# The carrier the `packages` component runs packages on in processes of their own (mode 3): each
+# package's extension process started through the host (`HostApi::spawn_child`), kept, and driven
+# over the extension wire (`harnix-wasm-port`'s `socket`); what the process says checked against
+# what was consented to; the package's methods, topics, tools and routes forwarded to it. It names
+# no VM: the VM is in the process, which is the product's own binary re-executed as `ext-proc`
+# (`harnix-proc`), and only the facade links both (`crates/harnix/tests/layering.rs`).
+[dependencies]
+harnix-wasm-port  = { workspace = true, features = ["socket"] }
+harnix-package    = { workspace = true }
+harnix-host-api   = { workspace = true }
+harnix-ext        = { workspace = true }
+async-trait = { workspace = true }
+base64      = { workspace = true }
+http        = { workspace = true }
+http-body-util = { workspace = true }
+serde_json  = { workspace = true }
+tokio       = { workspace = true }
+tracing     = { workspace = true }
+uuid        = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+# `tests/process.rs` runs the `packages` component on `harnix::testing::Kernel` with this carrier,
+# and starts the test application, built with `proc`, as each package's extension process.
+harnix   = { workspace = true, features = ["testing", "proc"] }
+# The build a process of this one says it is, to make a product of another.
+harnix-proc = { workspace = true }
+libc     = { workspace = true }

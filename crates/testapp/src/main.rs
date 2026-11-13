@@ -49,7 +49,7 @@ mod fake_app;
 mod flow_demo;
 
 /// The key the LIVE suites' mock store countersigns with (its secret is beside it).
-#[cfg(feature = "wasm")]
+#[cfg(any(feature = "wasm", feature = "proc"))]
 const MOCK_STORE_KEY: &str = include_str!("../../../tests/live/fixtures/store/mock-store.pub");
 
 fn main() -> anyhow::Result<()> {
@@ -75,7 +75,7 @@ fn main() -> anyhow::Result<()> {
         // The host's registrar, the way the `packages` component holds it.
         .extension(fake_app::FakeHost)
         .grant([harnix::caps::EXTENSIONS_MANAGE]);
-    #[cfg(feature = "wasm")]
+    #[cfg(any(feature = "wasm", feature = "proc"))]
     let builder = {
         // The mock store's key, instead of the one built in: only a test application says this.
         let packages = harnix::first_party::packages().store_keys([MOCK_STORE_KEY.trim()]);
