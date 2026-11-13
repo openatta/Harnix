@@ -1,29 +1,31 @@
 /**
- * Settings → Applications: the runtime applications installed here, and the store's catalog.
+ * Settings → the extension packages installed here, and the store's catalog.
  *
  * Installed: each with its version, how far it is trusted (countersigned by the store, signed by a
  * publisher the profile trusts, or unsigned), whether it runs; its permissions — every capability
  * as a sentence, and what the shell draws for it from its manifest; what it keeps, with a button
  * that clears it; and its switches — enable or disable, update when the store has a newer version,
- * uninstall. Above them, whether the left column marks the spaces applications brought.
+ * uninstall.
  *
  * The store: what it offers this Harnix, each with an install button. Installing and updating go
- * through the disclosure, a modal over the settings: the backend answers what the application would
- * be granted (for an update, only what it adds) and a digest, the modal shows it, and only
- * "Install" / "Update" in it sends the digest back. Nothing is installed by a click anywhere else.
- * An update that asks for nothing more is done without asking. Clearing and uninstalling ask in a
- * modal of their own too.
- *
- * Registered only when the backend hosts applications (`packages.list` is reachable).
+ * through the disclosure, the shell's dialog over the settings: the backend answers what the
+ * package would be granted (for an update, only what it adds) and a digest, the dialog shows it,
+ * and only "Install" / "Update" in it sends the digest back. Nothing is installed by a click
+ * anywhere else. An update that asks for nothing more is done without asking. Clearing and
+ * uninstalling are confirmed in the shell's dialog too.
  */
 
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { useState } from "react";
 import { errorText } from "@harnix/core";
-import { SettingsRow, SettingsSection, SettingsValue, fileSize, useLayer, useSettingsReload, useT } from "@harnix/react";
+import { DialogBody, DialogFoot, SettingsRow, SettingsSection, SettingsValue, fileSize, t, useSettingsReload, useT, type HostApi } from "@harnix/react";
 
-import type { App } from "./app.ts";
-import { appsOf, type Inline } from "./inline/index.tsx";
+/** What the shell draws for a package from its manifest: the names, a line each. */
+export interface Inline {
+  tool_row?: { tool: string }[];
+  flow_block?: { kind: string }[];
+  command?: { trigger: string; name: string }[];
+  sidebar_group?: { space?: string }[];
+}
 
 interface Line {
   capability: string;
@@ -88,15 +90,6 @@ export function older(a: string, b: string): boolean {
     if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) < (y[i] ?? 0);
   }
   return false;
-}
-
-/** A question asked before something that cannot be undone. */
-interface Asking {
-  testId: string;
-  title: string;
-  message: string;
-  confirm: string;
-  run: () => Promise<unknown>;
 }
 
 /** What a line lets it do, in a sentence: the words, the value, and why it matters. */
@@ -165,129 +158,56 @@ function InlinePoints({ inline }: { inline: Inline | null | undefined }) {
   );
 }
 
-/**
- * A modal over the settings (which are the shell's modal already): a layer of its own over them
- * (`@harnix/react`'s `layers.ts`) — the focus in it, the settings under it inert, Escape closing only this one. Drawn
- * in the page's layers, not inside the settings, which go inert under it.
- */
-function Dialog({ testId, label, onClose, children, actions }: { testId: string; label: string; onClose: () => void; children: ReactNode; actions: ReactNode }) {
-  const box = useRef<HTMLDivElement>(null);
-  // The focus on the box, not on a button: what is asked is read before an answer is a keypress away.
-  const layer = useLayer(box, { close: onClose, initial: (el) => el });
-  return createPortal(
-    <div
-      className="apps-veil"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <div ref={box} className="apps-dialog" data-testid={testId} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1} onKeyDown={layer.onKeyDown}>
-        <h3>{label}</h3>
-        <div className="apps-dialog-body">{children}</div>
-        <div className="apps-actions">{actions}</div>
-      </div>
-    </div>,
-    document.getElementById("layers") ?? document.body,
-  );
-}
-
-export function AppsSettings({ app }: { app: App }) {
+export function PackagesSettings({ host }: { host: HostApi }) {
   const t = useT();
   const reload = useSettingsReload();
-  const watch = appsOf(app);
-  useSyncExternalStore(watch.subscribe, watch.getVersion);
-  const [pending, setPending] = useState<Pending | null>(null);
-  const [asking, setAsking] = useState<Asking | null>(null);
   const [busy, setBusy] = useState(false);
   const [latest, setLatest] = useState<Record<string, string>>({});
 
-  const fail = (e: unknown) => app.notice(errorText(e), "error");
+  const fail = (e: unknown) => host.shell.notice(errorText(e), "error");
   /** Ask; a disclosure waits for the person, anything else is done. */
   const ask = async (method: Pending["method"], id: string, version?: string, downgrade?: boolean) => {
     setBusy(true);
+    let asked: Asked;
     try {
-      const asked = await app.call<Asked>(method, { id, version, ...(downgrade ? { allow_downgrade: true } : {}) });
-      if (asked.consent === "required") setPending({ method, asked, version, downgrade });
-      else {
-        if (asked.up_to_date) app.notice(t("apps.upToDate", { name: id }));
-        reload();
-      }
+      asked = await host.call<Asked>(method, { id, version, ...(downgrade ? { allow_downgrade: true } : {}) });
     } catch (e) {
       fail(e);
+      return;
     } finally {
       setBusy(false);
     }
-  };
-  const consent = async () => {
-    if (!pending) return;
-    setBusy(true);
-    try {
-      const done = await app.call<Asked>(pending.method, {
-        id: pending.asked.id,
-        version: pending.version,
-        consent: pending.asked.digest,
-        ...(pending.downgrade ? { allow_downgrade: true } : {}),
-      });
-      // Something changed since it was shown: show what it is now.
-      if (done.consent === "required") setPending({ ...pending, asked: done });
-      else {
-        setPending(null);
-        reload();
-      }
-    } catch (e) {
-      setPending(null);
-      fail(e);
-    } finally {
-      setBusy(false);
+    if (asked.consent !== "required") {
+      if (asked.up_to_date) host.shell.notice(t("apps.upToDate", { name: id }));
+      reload();
+      return;
     }
+    const pending = { method, asked, version, downgrade };
+    const done = await host.dialogs.open<true>((close) => <Disclosure host={host} first={pending} close={close} />, { title: disclosureTitle(pending) });
+    if (done) reload();
   };
   const act = (method: string, params: unknown) =>
-    app
+    host
       .call(method, params)
       .then(reload)
       .catch(fail);
-  const confirmed = async () => {
-    if (!asking) return;
+  /** Something that cannot be undone, confirmed first in the shell's dialog. */
+  const confirmed = async (title: string, message: string, run: () => Promise<unknown>) => {
+    if (!(await host.dialogs.confirm(message, { title, confirm: title, danger: true }))) return;
     setBusy(true);
     try {
-      await asking.run();
+      await run();
     } catch (e) {
       fail(e);
     } finally {
-      setAsking(null);
       setBusy(false);
       reload();
     }
   };
 
-  const trust = (value: string | undefined) => t(`apps.trust.${value ?? "unsigned"}`);
-
   return (
     <>
-      {pending ? <Disclosure pending={pending} busy={busy} onConsent={() => void consent()} onCancel={() => setPending(null)} trust={trust} /> : null}
-      {asking ? (
-        <Dialog
-          testId={asking.testId}
-          label={asking.title}
-          onClose={() => setAsking(null)}
-          actions={
-            <>
-              <button type="button" className="btn sm outline" disabled={busy} onClick={() => setAsking(null)}>
-                {t("common.cancel")}
-              </button>
-              <button type="button" className="btn sm danger" data-testid={`${asking.testId}-confirm`} disabled={busy} onClick={() => void confirmed()}>
-                {asking.confirm}
-              </button>
-            </>
-          }
-        >
-          <div>{asking.message}</div>
-        </Dialog>
-      ) : null}
-      <SettingsRow label={t("apps.mark")} hint={t("apps.markHint")}>
-        <input type="checkbox" data-testid="apps-mark-toggle" checked={watch.marked()} onChange={(e) => watch.setMarked(e.target.checked)} />
-      </SettingsRow>
-      <SettingsSection title={t("apps.installed")} load={() => app.call<{ packages?: Installed[] }>("packages.list", {})}>
+      <SettingsSection title={t("apps.installed")} load={() => host.call<{ packages?: Installed[] }>("packages.list", {})}>
         {(data) => {
           const apps = data.packages ?? [];
           if (!apps.length) return <div className="hint">{t("apps.none")}</div>;
@@ -301,7 +221,7 @@ export function AppsSettings({ app }: { app: App }) {
                 const newer = back ? null : listed;
                 const name = a.title || a.id;
                 const state = a.enabled ? (a.runtime?.state ?? "stopped") : "stopped";
-                const hint = [a.id, trust(a.trust), t(`apps.state.${state}`)];
+                const hint = [a.id, trustText(a.trust), t(`apps.state.${state}`)];
                 if (state === "failed" || state === "faulted") hint.push(a.runtime?.reason ?? "");
                 return (
                   <div
@@ -349,15 +269,7 @@ export function AppsSettings({ app }: { app: App }) {
                         className="btn sm danger"
                         data-testid="app-uninstall"
                         disabled={busy}
-                        onClick={() =>
-                          setAsking({
-                            testId: "app-uninstall-ask",
-                            title: t("apps.uninstall"),
-                            message: t("apps.uninstallConfirm", { name }),
-                            confirm: t("apps.uninstall"),
-                            run: () => app.call("packages.uninstall", { id: a.id }),
-                          })
-                        }
+                        onClick={() => void confirmed(t("apps.uninstall"), t("apps.uninstallConfirm", { name }), () => host.call("packages.uninstall", { id: a.id }))}
                       >
                         {t("apps.uninstall")}
                       </button>
@@ -379,15 +291,9 @@ export function AppsSettings({ app }: { app: App }) {
                         data-testid="app-clear"
                         disabled={busy || !a.data_bytes}
                         onClick={() =>
-                          setAsking({
-                            testId: "app-clear-ask",
-                            title: t("apps.clearData"),
-                            message: t("apps.clearDataConfirm", { name, size: fileSize(a.data_bytes) }),
-                            confirm: t("apps.clearData"),
-                            run: async () => {
-                              const done = await app.call<{ cleared_bytes?: number }>("packages.clearData", { id: a.id });
-                              app.notice(t("apps.cleared", { name, size: fileSize(done.cleared_bytes) }));
-                            },
+                          void confirmed(t("apps.clearData"), t("apps.clearDataConfirm", { name, size: fileSize(a.data_bytes) }), async () => {
+                            const done = await host.call<{ cleared_bytes?: number }>("packages.clearData", { id: a.id });
+                            host.shell.notice(t("apps.cleared", { name, size: fileSize(done.cleared_bytes) }));
                           })
                         }
                       >
@@ -404,7 +310,7 @@ export function AppsSettings({ app }: { app: App }) {
       <SettingsSection
         title={t("apps.store")}
         load={() =>
-          app.call<{ name?: string | null; store?: string; apps?: CatalogApp[] }>("packages.catalog", {}).then((catalog) => {
+          host.call<{ name?: string | null; store?: string; apps?: CatalogApp[] }>("packages.catalog", {}).then((catalog) => {
             setLatest(Object.fromEntries((catalog.apps ?? []).filter((c) => c.latest).map((c) => [c.id, c.latest as string])));
             return catalog;
           })
@@ -436,63 +342,82 @@ export function AppsSettings({ app }: { app: App }) {
   );
 }
 
-function Disclosure({
-  pending,
-  busy,
-  onConsent,
-  onCancel,
-  trust,
-}: {
-  pending: Pending;
-  busy: boolean;
-  onConsent: () => void;
-  onCancel: () => void;
-  trust: (value: string | undefined) => string;
-}) {
-  const t = useT();
-  const { asked } = pending;
+const trustText = (value: string | undefined) => t(`apps.trust.${value ?? "unsigned"}`);
+
+/** What the dialog is titled: installing a version, or updating from one to another. */
+function disclosureTitle({ method, asked }: Pending): string {
   const d = asked.disclosure ?? {};
   const name = d.title || asked.id;
+  const update = method === "packages.update" ? d.update : undefined;
+  return update ? t("apps.askUpdate", { name, from: update.from, version: asked.version }) : t("apps.askInstall", { name, version: asked.version });
+}
+
+/**
+ * What the package would be granted, in the shell's dialog: only "Install" / "Update" here sends
+ * the digest back. Asked again when what would be installed changed since it was shown.
+ */
+function Disclosure({ host, first, close }: { host: HostApi; first: Pending; close: (done: true | null) => void }) {
+  const t = useT();
+  const [pending, setPending] = useState(first);
+  const [busy, setBusy] = useState(false);
+  const consent = async () => {
+    setBusy(true);
+    try {
+      const done = await host.call<Asked>(pending.method, {
+        id: pending.asked.id,
+        version: pending.version,
+        consent: pending.asked.digest,
+        ...(pending.downgrade ? { allow_downgrade: true } : {}),
+      });
+      // Something changed since it was shown: show what it is now.
+      if (done.consent === "required") setPending({ ...pending, asked: done });
+      else close(true);
+    } catch (e) {
+      host.shell.notice(errorText(e), "error");
+      close(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const { asked } = pending;
+  const d = asked.disclosure ?? {};
   const update = pending.method === "packages.update" ? d.update : undefined;
-  const title = update ? t("apps.askUpdate", { name, from: update.from, version: asked.version }) : t("apps.askInstall", { name, version: asked.version });
   return (
-    <Dialog
-      testId="app-disclosure"
-      label={title}
-      onClose={onCancel}
-      actions={
-        <>
-          <button type="button" className="btn sm outline" disabled={busy} onClick={onCancel}>
-            {t("common.cancel")}
-          </button>
-          <button type="button" className="btn sm primary" data-testid="app-consent" disabled={busy} onClick={onConsent}>
-            {update ? t("apps.consentUpdate") : t("apps.consentInstall")}
-          </button>
-        </>
-      }
-    >
-      {d.description ? <div className="hint">{d.description}</div> : null}
-      <SettingsRow label={t("apps.publisher")} hint={asked.id}>
-        <SettingsValue>{d.publisher ?? "—"}</SettingsValue>
-      </SettingsRow>
-      <SettingsRow label={t("apps.signature")}>
-        <SettingsValue tone={d.trust === "unsigned" ? "err" : "ok"}>{trust(d.trust)}</SettingsValue>
-      </SettingsRow>
-      {update?.downgrade ? (
-        <div className="hint err" data-testid="app-downgrade">
-          {t("apps.downgrade", { from: update.from, version: asked.version })}
+    <>
+      <DialogBody>
+        <div data-testid="app-disclosure">
+          {d.description ? <div className="hint">{d.description}</div> : null}
+          <SettingsRow label={t("apps.publisher")} hint={asked.id}>
+            <SettingsValue>{d.publisher ?? "—"}</SettingsValue>
+          </SettingsRow>
+          <SettingsRow label={t("apps.signature")}>
+            <SettingsValue tone={d.trust === "unsigned" ? "err" : "ok"}>{trustText(d.trust)}</SettingsValue>
+          </SettingsRow>
+          {update?.downgrade ? (
+            <div className="hint err" data-testid="app-downgrade">
+              {t("apps.downgrade", { from: update.from, version: asked.version })}
+            </div>
+          ) : null}
+          <div className="hint">{update ? t("apps.asksMore") : t("apps.asks")}</div>
+          <Lines lines={update ? update.added : d.lines ?? []} empty={t("apps.asksNothing")} />
+          {update ? (
+            <div className="hint">{t("apps.updateKeeps")}</div>
+          ) : (
+            <>
+              <div className="hint">{d.ui_in_page ? t("apps.interfaceInPage") : t("apps.interfaceNone")}</div>
+              <InlinePoints inline={d.inline} />
+            </>
+          )}
         </div>
-      ) : null}
-      <div className="hint">{update ? t("apps.asksMore") : t("apps.asks")}</div>
-      <Lines lines={update ? update.added : d.lines ?? []} empty={t("apps.asksNothing")} />
-      {update ? (
-        <div className="hint">{t("apps.updateKeeps")}</div>
-      ) : (
-        <>
-          <div className="hint">{d.ui_in_page ? t("apps.interfaceInPage") : t("apps.interfaceNone")}</div>
-          <InlinePoints inline={d.inline} />
-        </>
-      )}
-    </Dialog>
+      </DialogBody>
+      <DialogFoot>
+        <button type="button" className="btn outline" disabled={busy} onClick={() => close(null)}>
+          {t("common.cancel")}
+        </button>
+        <button type="button" className="btn primary" data-testid="app-consent" disabled={busy} onClick={() => void consent()}>
+          {update ? t("apps.consentUpdate") : t("apps.consentInstall")}
+        </button>
+      </DialogFoot>
+    </>
   );
 }

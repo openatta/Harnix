@@ -1048,6 +1048,17 @@ html.resizing #frame {
   color: var(--label-tertiary);
 }
 
+/* This page's frames of an extension, under its row. */
+.kv-table .page-frames {
+  padding: 4px 0 8px 12px;
+  border-bottom: 1px solid var(--border-l1);
+}
+
+.kv-table .page-frames ul {
+  margin: 2px 0 6px;
+  padding-left: 16px;
+}
+
 /* An entry found by `host.session.reveal` / `session.open(ref, {reveal})`: flashed for 2.4 s. */
 #main [data-revealed] {
   border-radius: var(--radius-sm);
@@ -1138,69 +1149,6 @@ html.resizing #frame {
 
 .frames tr[tabindex]:focus-visible {
   outline-offset: -2px;
-}
-
-/* The applications: a table a row of which opens below it. Too wide for the column, it scrolls
- * inside its own box rather than pushing the page; a header never breaks a word. */
-.system-apps .table-wrap {
-  overflow-x: auto;
-}
-
-.frames.apps {
-  font-family: inherit;
-  font-size: 12.5px;
-}
-
-.frames.apps td {
-  vertical-align: top;
-  font-variant-numeric: tabular-nums;
-}
-
-.frames.apps .app-row {
-  cursor: pointer;
-}
-
-.frames.apps .app-row:hover {
-  background: var(--interactive-hover);
-}
-
-.frames.apps .app-name {
-  white-space: normal;
-  min-width: 10em;
-}
-
-.frames.apps .app-name .muted {
-  font-family: var(--font-code);
-  font-size: 11.5px;
-}
-
-.frames.apps .app-detail td {
-  white-space: normal;
-  padding: 8px 10px 12px;
-  background: var(--surface);
-}
-
-/* The VM's four figures, as the inspector's facts are drawn: a label and its value on one line. */
-.frames.apps .app-detail .facts {
-  display: grid;
-  gap: 4px;
-  margin: 0 0 8px;
-}
-
-.frames.apps .app-detail .fact {
-  display: grid;
-  grid-template-columns: 120px 1fr;
-  gap: 8px;
-}
-
-.frames.apps .app-detail .fact dt {
-  color: var(--label-caption);
-}
-
-.frames.apps .app-detail .fact dd {
-  margin: 0;
-  font-family: var(--font-code);
-  font-size: 12px;
 }
 
 /* A goal the engine opens no rounds for, until someone resumes it. */

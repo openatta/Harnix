@@ -22,6 +22,7 @@
     "@harnix/flow": "workspace:*",
     "@harnix/harnix-app": "workspace:*",
     "@harnix/observability": "workspace:*",
+    "@harnix/packages": "workspace:*",
     "@harnix/plugins": "workspace:*",
     "@harnix/settings": "workspace:*",
     "@harnix/system": "workspace:*",

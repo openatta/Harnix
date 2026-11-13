@@ -103,7 +103,7 @@ test.describe("an application in isolated frames", () => {
     expect(errors).toEqual([]);
   });
 
-  test("a call it may not make is refused, and shows in diagnostics and the Apps tab", TAGS, async ({ page }) => {
+  test("a call it may not make is refused, and shows in diagnostics", TAGS, async ({ page }) => {
     await open(page, backend.url);
     const frame = await board(page);
     await frame.getByTestId("showcase-overreach").click();
@@ -112,19 +112,15 @@ test.describe("an application in isolated frames", () => {
     const noted = await page.evaluate(() => (window as any).harnix.app.registry.refusals().filter((r: any) => r.point === "bridge"));
     expect(noted).toEqual([expect.objectContaining({ owner: SHOWCASE_ID, id: "packages.list" })]);
 
-    await toSpace(page, "system");
-    await page.locator('[data-testid="system-console"] [role="tab"][data-tab="apps"]').click();
-    const row = page.locator(`[data-testid="system-app"][data-app="${SHOWCASE_ID}"]`);
-    await expect(row.locator('[data-field="surfaces"]')).toHaveText(/^\d+ · 0$/, { timeout: 15_000 });
-    await row.click();
-    const detail = page.locator(`[data-testid="system-app-detail"][data-app="${SHOWCASE_ID}"]`);
-    await expect(detail.getByTestId("system-app-bridge-refusal")).toContainText("packages.list");
-    await expect(detail.locator('[data-testid="system-app-surface"][data-point="space"]')).toHaveAttribute("data-state", "ready");
-
-    // And in Settings → Diagnostics, with the other refusals.
+    // In Settings → Diagnostics: with the other refusals, and under the extension, beside this
+    // page's frames of it.
     await page.evaluate(() => (window as any).harnix.host.settings.open("diagnostics"));
     await page.locator('[data-section="diagnostics"]').click();
     await expect(page.locator("#modal")).toContainText("packages.list");
+    const frames = page.locator(`[data-testid="ext-frames"][data-ext="${SHOWCASE_ID}"]`);
+    await expect(frames.locator('[data-field="surfaces"]')).toHaveText(/^\d+ · 0$/, { timeout: 15_000 });
+    await expect(frames.getByTestId("ext-bridge-refusal")).toContainText("packages.list");
+    await expect(frames.locator('[data-testid="ext-surface"][data-point="space"]')).toHaveAttribute("data-state", "ready");
   });
 
   test("what its hub lists reaches its own space's sessions, and no other", TAGS, async ({ page }) => {
@@ -199,13 +195,12 @@ test.describe("an application in isolated frames", () => {
     // to this origin, so what it carried in the address goes nowhere else.
     await page.waitForTimeout(500);
     expect(reached, "the frame reached another host").toEqual([]);
-    // On the record: the Apps tab's count of its interface's failures, and Diagnostics.
+    // On the record: the registry's refusals, and the count of its frames' failures in Diagnostics.
     const failures = await page.evaluate(() => (window as any).harnix.app.registry.refusals().filter((r: any) => r.point === "surface" && r.owner === "example.showcase"));
     expect(failures.length).toBeGreaterThanOrEqual(1);
-    await toSpace(page, "system");
-    await page.locator('[data-testid="system-console"] [role="tab"][data-tab="apps"]').click();
-    const row = page.locator(`[data-testid="system-app"][data-app="${SHOWCASE_ID}"]`);
-    await expect(row.locator('[data-field="surfaces"]')).toHaveText(/ · 1$/, { timeout: 15_000 });
+    await page.evaluate(() => (window as any).harnix.host.settings.open("diagnostics"));
+    const frames = page.locator(`[data-testid="ext-frames"][data-ext="${SHOWCASE_ID}"]`);
+    await expect(frames.locator('[data-field="surfaces"]')).toHaveText(/ · 1$/, { timeout: 15_000 });
   });
 
   test("it cannot read the page's token, storage or cookies, nor reach the network", TAGS, async ({ page }) => {
