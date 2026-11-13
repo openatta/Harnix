@@ -86,12 +86,21 @@ impl Serving {
 
 impl Drop for Serving {
     fn drop(&mut self) {
-        let mut served = lock(&self.bridge.served);
-        if let Some(entry) = served.get_mut(&self.id) {
-            entry.count -= 1;
-            if entry.count == 0 {
-                served.remove(&self.id);
-            }
+        leave(&mut lock(&self.bridge.served), &self.id);
+    }
+}
+
+fn enter(served: &mut HashMap<String, Served>, id: &str, meta: CallMeta, holds: bool) {
+    let entry = served.entry(id.to_string()).or_insert(Served { meta, holds, count: 0 });
+    entry.holds |= holds;
+    entry.count += 1;
+}
+
+fn leave(served: &mut HashMap<String, Served>, id: &str) {
+    if let Some(entry) = served.get_mut(id) {
+        entry.count -= 1;
+        if entry.count == 0 {
+            served.remove(id);
         }
     }
 }
@@ -269,11 +278,7 @@ impl Bridge {
             "" => meta.clone().with_call_id(id.as_str()),
             _ => meta.clone(),
         };
-        let mut served = lock(&self.served);
-        let entry = served.entry(id.clone()).or_insert(Served { meta, holds, count: 0 });
-        entry.holds |= holds;
-        entry.count += 1;
-        drop(served);
+        enter(&mut lock(&self.served), &id, meta, holds);
         Serving { bridge: self.clone(), id }
     }
 
