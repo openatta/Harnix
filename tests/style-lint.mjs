@@ -196,6 +196,21 @@ const RETIRED = [
   [new RegExp("[Ee]mpty " + "application"), "the empty application — the Harnix app"],
   [new RegExp("空" + "应用"), "空应用 — Harnix app"],
 ];
+// The 0.4 words (`crates/`, `examples/`, `ui/`), spelled so that this file does not say them.
+const OLD_WORDS = [
+  [new RegExp("插件 ?" + "APP"), "插件 APP — an extension package"],
+  [new RegExp("运行期" + "应用"), "运行期应用 — an extension package"],
+  [new RegExp("编译期" + "模块"), "编译期模块 — a native extension"],
+  [new RegExp("内建" + "模块"), "内建模块 — a first-party extension"],
+  [new RegExp("with_" + "builtins"), "with_builtins"],
+  [new RegExp("Nest" + "Host|use" + "Nest\\b"), "NestHost, useNest — HostApi, useHost"],
+  [new RegExp("harnix\\." + "apps\\."), "harnix.apps.* — packages.*"],
+  [new RegExp("\\[mod" + "ules\\."), "[modules.*] — [ext.*]"],
+  [new RegExp("harnix-" + "builtin\\b"), "harnix-builtin"],
+  [new RegExp("\\.hx" + "app\\b"), ".hxapp — .hxext"],
+  [new RegExp("features " + "apps\\b"), "--features apps"],
+];
+const oldWordsAt = /^(crates|examples|ui\/packages|templates)\//;
 const cited = [];
 let read = 0;
 for (const file of tracked) {
@@ -207,7 +222,8 @@ for (const file of tracked) {
     continue; // listed but not on disk: a deleted file not yet committed
   }
   read += 1;
-  const rules = file.startsWith("crates/") || file.startsWith("examples/") ? [...CITATIONS, ...RETIRED] : CITATIONS;
+  let rules = file.startsWith("crates/") || file.startsWith("examples/") ? [...CITATIONS, ...RETIRED] : CITATIONS;
+  if (oldWordsAt.test(file)) rules = [...rules, ...OLD_WORDS];
   const lines = body.split("\n");
   lines.forEach((line, i) => {
     for (const [pattern, what] of rules) if (pattern.test(line)) cited.push(`${file}:${i + 1} cites ${what}`);

@@ -63,7 +63,7 @@ recycled. So `fetch` only arms a timer and answers `{job, url, started}`; the ti
 request and publishes `{job, url, status, body}`, or `{job, url, error}`, on `fetched`.
 
 What the backend does as itself is admitted against its `calls`: `harnix.session.create`, `harnix.session.send`, and
-the topic `harnix.sessions.status`. Anything else — `overreach` tries `harnix.apps.uninstall` — is
+the topic `harnix.sessions.status`. Anything else — `overreach` tries `packages.uninstall` — is
 refused, on the record (`harnix.audit`, subject `module:example.showcase`), and listed in the
 system space's Apps tab with the application's VM health.
 
@@ -81,7 +81,7 @@ idle_secs = 600   # the default; 60 at the least
 
 and its backend is stopped (its `stop` runs) once it has held no subscription, no timer and no call
 — a method, a tool call or its hook — for `idle_secs`. The system space's Apps tab and
-`harnix.apps.list` say `hibernating`, which is neither a fault nor a recycle. The next method call
+`packages.list` say `hibernating`, which is neither a fault nor a recycle. The next method call
 starts it again: `init` runs, what it kept in its key-value store is there (the board), and what it
 held in memory is not (the counter). Two calls at once start one instance. Its tools run in an
 instance of their own either way, so a tool call wakes nothing unless it calls the backend, as
@@ -107,7 +107,7 @@ origin, no storage, no cookies, the page's token out of reach) and served under 
 | Pin it / Compose… | `app.example.showcase.notes.add`; Compose opens its `compose` modal (`openModal`), which answers the note |
 | a note | its second panel (`secondary.open`), with the note as params |
 | Count one more / Start the heartbeat | `counter.bump`, `timer.start`; the `heartbeat` topic, here and in the right column's tab |
-| Reach too far | `harnix.apps.list`, which its `[interface] hub` does not list: refused, and listed in the system space's Apps tab and in Diagnostics |
+| Reach too far | `packages.list`, which its `[interface] hub` does not list: refused, and listed in the system space's Apps tab and in Diagnostics |
 | Clear the board | the shell's own confirmation (`confirm`), then `notes.clear` |
 | Say hello | a notice under the showcase's name (`notify`) |
 | Crash | the page goes away; the shell's frame says so and offers a reload. Three in a row set it aside |
@@ -122,7 +122,7 @@ origin is opaque, and a module script would need CORS). `node tests/app-ui-vendo
 builds them again; the front-end check fails when they are stale.
 
 Under `[apps] dev = true`, an unsigned application's frames reload when a file under its
-installed `ui/` changes (`<apps dir>/example.showcase/0.1.0/ui/`, `harnix.apps.list` → `dir`): edit
+installed `ui/` changes (`<apps dir>/example.showcase/0.1.0/ui/`, `packages.list` → `dir`): edit
 there, and the page follows.
 
 ## Build and pack
@@ -131,15 +131,15 @@ You need the `wasm32-wasip2` target (`rustup target add wasm32-wasip2`) and the 
 which links the engine's compiler and so is never part of the product:
 
 ```sh
-cargo build --release -p harnix-package --features compile --bin harnix-pack --target-dir target/apps
-target/apps/release/harnix-pack pack examples/apps/showcase --build -o showcase.hxext
+cargo build --release -p harnix-package --features compile --bin harnix-pack --target-dir target/packages
+target/packages/release/harnix-pack pack examples/apps/showcase --build -o showcase.hxext
 ```
 
 `--build` runs `cargo build --release --target wasm32-wasip2` in `component/` (or give an already
 built component with `--wasm <file>`); `pack` compiles it for this machine's engine and zips the
 manifest, `ui/`, `agent/` and both forms of the component. It prints the package's path and the
 engine fingerprint: the package installs on a Harnix whose engine reports the same one
-(`harnix.apps.list` → `runtime.fingerprint`; `harnix.hello` → `apps_engine`).
+(`packages.list` → `runtime.fingerprint`; `harnix.hello` → `apps_engine`).
 
 `harnix-pack build examples/apps/showcase` does the first half alone: the component, and its
 artifact compiled for this engine, in `build/`. Artifacts are compiled for the target's baseline
@@ -151,7 +151,7 @@ A Harnix built with the `apps` feature, and a profile that hosts applications an
 ones (`dev = true`, for developing an application):
 
 ```sh
-cargo build --release -p harnix-cli --features apps --target-dir target/apps
+cargo build --release -p harnix-cli --target-dir target/packages
 cat > /tmp/apps.toml <<'EOF'
 [apps]
 enabled = true
@@ -165,21 +165,21 @@ greeting = "hello from my profile"
 [apps.secrets."example.showcase"]
 SHOWCASE_TOKEN = "anything"
 EOF
-target/apps/release/harnix --profile /tmp/apps.toml
+target/packages/release/harnix --profile /tmp/apps.toml
 ```
 
-Then, from any client: `harnix.apps.installFile {"path": "/abs/path/showcase.hxext"}`. New
+Then, from any client: `packages.installFile {"path": "/abs/path/showcase.hxext"}`. New
 sessions have the tools, the prompt block and the agent type; the home screen has the card, and
 the left column the showcase's space. `fetch` reaches `api.showcase.test` only (any port), a name
 nothing answers for: point `HTTP_PROXY` at something that does to try it (the LIVE suite does). A
 host on this machine would do as well, but the installer warns about one and the store does not
 countersign it. `state` reports `secret_set: true` when the profile sets `SHOWCASE_TOKEN` for it.
-`harnix.apps.disable` / `enable {"id": "example.showcase"}` switch it, `harnix.apps.clearData`
-deletes its stored counts, notes and cards and starts it again from nothing, `harnix.apps.uninstall`
+`packages.disable` / `enable {"id": "example.showcase"}` switch it, `packages.clearData`
+deletes its stored counts, notes and cards and starts it again from nothing, `packages.uninstall`
 takes it out, its stored counts and notes with it. Settings → Applications does each of these, and
 shows its permissions; its space in the left column carries the application mark (the same page
 turns it off). After a second crash the application is set
-aside (`harnix.apps.list` → `runtime.state: "faulted"`); `harnix.apps.enable` starts it again.
+aside (`packages.list` → `runtime.state: "faulted"`); `packages.enable` starts it again.
 
 ## Sign, publish, install by name
 
@@ -187,7 +187,7 @@ A signed package runs without `dev`. Its publisher signs every file; a store che
 signature, adds the components it compiled, and countersigns:
 
 ```sh
-T=target/apps/release/harnix-pack
+T=target/packages/release/harnix-pack
 $T keygen publisher.key                       # prints the public key
 $T sign showcase.hxext --key publisher.key
 # The store's side:
@@ -208,9 +208,9 @@ store = "https://store.example.com/index.json"   # or file:///…/store/index.js
 example = ["<the publisher's public key>"]
 ```
 
-`harnix.apps.catalog` lists what the store has for this Harnix's engine.
-`harnix.apps.install {"id": "example.showcase"}` downloads the newest version, checks it against
+`packages.catalog` lists what the store has for this Harnix's engine.
+`packages.install {"id": "example.showcase"}` downloads the newest version, checks it against
 the sha256 the index lists and against its signatures, and answers what the application asks for
-and a `digest`; the same call with `"consent": "<digest>"` installs it. `harnix.apps.update` lists
+and a `digest`; the same call with `"consent": "<digest>"` installs it. `packages.update` lists
 only what a newer version asks for beyond the installed one, and asks again only then. Settings →
 Applications does the same in the page.

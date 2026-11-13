@@ -68,7 +68,7 @@ CRATES=(-p harnix -p harnix-cli -p harnix-assembly -p harnix-instance -p harnix-
 # application running packages are built in a target directory of their own, so the default build
 # above is exactly what it was; the LIVE suites that need them are told where the binary is
 # (`HARNIX_APPS_BIN`, the rest beside it).
-APPS_TARGET="$root/target/apps"
+PACKAGES_TARGET="$root/target/packages"
 export HARNIX_APPS_BIN="$root/target/release/harnix"
 
 scratch="$(mktemp -d)"
@@ -142,16 +142,16 @@ run_build() {
   pnpm install --frozen-lockfile || return 1
   pnpm --filter @harnix/shell build || return 1
   cargo build --release -p harnix-cli -p harnix-testapp || return 1
-  cargo build --release -p harnix-package --features compile --bin harnix-pack --target-dir "$APPS_TARGET" || return 1
+  cargo build --release -p harnix-package --features compile --bin harnix-pack --target-dir "$PACKAGES_TARGET" || return 1
   # What an author starts from builds: `harnix-pack new`, then `build`. Its component's target
   # directory is kept between runs, so only the first is slow.
   local scaffold="$scratch/scaffold"
-  "$APPS_TARGET/release/harnix-pack" new "$scaffold" --id example.scaffold || return 1
+  "$PACKAGES_TARGET/release/harnix-pack" new "$scaffold" --id example.scaffold || return 1
   mkdir -p "$root/target/scaffold" && ln -s "$root/target/scaffold" "$scaffold/component/target" || return 1
-  CARGO_NET_OFFLINE=true "$APPS_TARGET/release/harnix-pack" build "$scaffold" || return 1
+  CARGO_NET_OFFLINE=true "$PACKAGES_TARGET/release/harnix-pack" build "$scaffold" || return 1
   # The test application running packages too: the one binary that trusts the mock store the
   # store suites make (tests/live/api/packages-store.ts).
-  cargo build --release -p harnix-testapp --features wasm --target-dir "$APPS_TARGET" || return 1
+  cargo build --release -p harnix-testapp --features wasm --target-dir "$PACKAGES_TARGET" || return 1
   # The example application, built as an application is — its own workspace,
   # its spaces' interface compiled in. The spaces suites run it.
   examples/hello-app/scripts/build.sh --offline
