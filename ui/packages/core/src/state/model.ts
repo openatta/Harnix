@@ -103,6 +103,8 @@ export interface SessionState {
   /** attach 失败的理由。 */
   failed: string | null;
   session: SessionInfo | null;
+  /** 扩展进程里的引擎的会话（attach 的应答说的，见 `InstanceTrust`）：界面按不受信内容画它。 */
+  trust?: "extension";
   blocks: Block[];
   /** 已见到的最大 seq：追赶锚。 */
   seq: number;
@@ -272,6 +274,7 @@ export function applyAttach(state: SessionState, attached: AttachResult, truncat
   return {
     ...state,
     session: attached.session ?? null,
+    trust: attached.trust === "extension" || attached.session?.trust === "extension" ? "extension" : undefined,
     seq: attached.seq || 0,
     queue: attached.queue || [],
     usage: attached.session?.usage ?? null,

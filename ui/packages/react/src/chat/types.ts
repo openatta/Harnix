@@ -132,6 +132,9 @@ export interface ChatIds {
 
 export type ChatVariant = "conversation" | "transcript";
 
+/** 会话受信到哪一步：`extension` 是扩展进程里的引擎的会话，按不受信内容画（同 `InstanceTrust`）。 */
+export type ChatTrust = "product" | "extension";
+
 /** 组件内部共享的配置（工具行、编号、diff 开合） */
 export interface ChatContextValue {
   variant: ChatVariant;
@@ -144,6 +147,8 @@ export interface ChatContextValue {
   toolSummary?: ChatRenderers["toolSummary"];
   /** The calls waiting on a person, and how their rows name them (a live session only). */
   asks?: ToolAsks;
+  /** 不受信的内容（扩展进程里的引擎的会话）：链接不可点、只画 `data:` 图片 */
+  untrusted?: boolean;
 }
 
 export const ChatContext = createContext<ChatContextValue>({
