@@ -6,7 +6,8 @@
  * served under a policy of their own; the page's own allows frames of its origin and nothing
  * else; under `[ext.packages] dev` a change to an unsigned application's files moves `runtime.ui_rev`,
  * which the page reloads its frames on. A manifest that asks for a frame what is the shell's own,
- * or names a page it does not carry, is refused at install. (The browser's half is
+ * or names a page it does not carry, is refused at install; anything else it lists, the router
+ * narrows call by call. (The browser's half is
  * `ui/packages-frames.spec.ts`.)
  */
 
@@ -133,9 +134,15 @@ test.describe("unsigned, under [ext.packages] dev", () => {
   test("a frame is never given what is the shell's own, nor a page its package does not carry", TAGS, async () => {
     const shells = edited("calls", (m) => m.replace('calls = ["harnix.sessions.list", "engine.session.get"]', 'calls = ["harnix.sessions.list", "packages.uninstall"]'));
     expect((await api.refused("packages.installFile", { path: shells }))?.message).toContain("the shell's own");
-    // An allowlist: a name of the families a frame may reach, but not on it, is refused too.
+    // Beyond the shell's own, a name is not refused at install: the router narrows the frame's
+    // call by its row, to the package's own spaces and their sessions.
     const unlisted = edited("unlisted", (m) => m.replace('calls = ["harnix.sessions.list", "engine.session.get"]', 'calls = ["harnix.sessions.list", "harnix.session.delete"]'));
-    expect((await api.refused("packages.installFile", { path: unlisted }))?.message).toContain("not one a frame may be given");
+    await api.call("packages.installFile", { path: unlisted });
+    const elsewhere = await api.call("harnix.session.create", {});
+    const narrowed = await api.refused("harnix.session.delete", { session_id: elsewhere.session_id, $ext: SHOWCASE_ID });
+    expect(narrowed?.message, "a frame deleted a session outside its package's spaces").toContain("own space");
+    await api.call("harnix.session.delete", { session_id: elsewhere.session_id });
+    await api.call("packages.uninstall", { id: SHOWCASE_ID });
     const missing = edited("page", (m) => m.replace('point = "home.card"\npage = "frame/index.html"', 'point = "home.card"\npage = "frame/missing.html"'));
     expect((await api.refused("packages.installFile", { path: missing }))?.message).toContain("frame/missing.html");
     const unknown = edited("point", (m) => m.replace('point = "modal"', 'point = "flow.block"'));

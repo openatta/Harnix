@@ -34,11 +34,11 @@ test.afterEach(() => api?.close());
 test("the instances are listed with where they came from", TAGS, async () => {
   await until(api, "ci", "ready");
   const all = await instances(api);
-  expect(all.system).toMatchObject({ carrier: "in_process", owner: "kernel", template: null });
+  expect(all.main).toMatchObject({ carrier: "in_process", owner: "kernel", template: null });
   expect(all.side).toMatchObject({ carrier: "in_process", owner: "kernel", scenes: ["harnix"] });
   expect(all.ci).toMatchObject({ carrier: "spawn", owner: "kernel" });
   expect(all.ci.pid).toBeGreaterThan(0);
-  expect(all.ci.protocol_version).toBe(all.system.protocol_version);
+  expect(all.ci.protocol_version).toBe(all.main.protocol_version);
   // The module's own, built from its template at start.
   expect(all["fleet-side"]).toMatchObject({ carrier: "in_process", owner: "module:fleet", template: "fleet.side" });
   const roots = Object.values(all).map((i: any) => i.data_root);
@@ -48,7 +48,7 @@ test("the instances are listed with where they came from", TAGS, async () => {
   expect(hello.permission_prompt_timeout_secs).toBeGreaterThan(0);
   const ids = hello.instances.map((i: any) => i.id);
   expect(ids).toEqual(expect.arrayContaining(["main", "side", "ci", "fleet-side"]));
-  for (const i of hello.instances) expect(i.protocol_version, i.id).toBe(all.system.protocol_version);
+  for (const i of hello.instances) expect(i.protocol_version, i.id).toBe(all.main.protocol_version);
 });
 
 test("each instance runs its own sessions and sees none of the others'", TAGS, async () => {

@@ -12,14 +12,14 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { type Backend, ROOT, alive, expect, gone, sleep, test } from "@harnix/testkit";
+import { type Backend, ROOT, alive, connect, expect, gone, sleep, test } from "@harnix/testkit";
 
 import { startTestApp } from "./testapp";
 
 const TAGS = { tag: ["@feature:modules", "@layer:api"] };
 
 /** The `lifecycle` module's data directory: where its `stop` leaves its marks. */
-const marks = (backend: Backend) => join(backend.state, "modules", "lifecycle");
+const marks = (backend: Backend) => join(backend.state, "ext", "lifecycle", "data");
 
 test.describe.configure({ mode: "serial" });
 
@@ -27,7 +27,11 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
   test(`${signal} runs every module's stop before the process exits`, TAGS, async () => {
     const backend = await startTestApp();
     try {
+      // The process's upload directory is made with its first grant.
       const uploads = join(backend.state, "uploads", String(backend.pid));
+      const api = await connect(backend);
+      await api.call("harnix.bulk.upload", { name: "note.txt", bytes: 4 });
+      api.close();
       expect(existsSync(uploads)).toBe(true);
       await backend.halt(signal);
       expect(existsSync(join(marks(backend), "stopped"))).toBe(true);

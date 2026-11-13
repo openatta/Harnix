@@ -75,8 +75,10 @@ defineSuite("plugins", { feature: "plugins" }, {
 
     "a package's interface module is not reachable before one is installed":
       async ({ backend }) => {
+        // With the credential the route wants, so the 404 is the route's, not the door's.
         const response = await fetch(
-          `http://127.0.0.1:${backend.port}/plugins/nothing-installed/ui/x.js`);
+          `http://127.0.0.1:${backend.port}/ext/plugins/ui/nothing-installed/x.js`,
+          { headers: { authorization: `Bearer ${backend.token}` } });
         assert(response.status === 404, `status ${response.status}`);
       },
 

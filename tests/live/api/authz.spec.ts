@@ -34,9 +34,9 @@ defineSuite("authz", { feature: "authz" }, {
 
     "the hub's own semantics are not reachable around it": async ({ client }) => {
       const reachedBy: [string, RegExp][] = [
-        ["engine.session.run_turn", /harnix\.send/],
-        ["engine.session.subscribe", /harnix\.attach/],
-        ["engine.session.unsubscribe", /harnix\.detach/],
+        ["engine.session.run_turn", /harnix\.session\.send/],
+        ["engine.session.subscribe", /harnix\.session\.attach/],
+        ["engine.session.unsubscribe", /harnix\.session\.detach/],
         ["engine.daemon.subscribeEvents", /host events/i],
       ];
       for (const [method, expect] of reachedBy) {

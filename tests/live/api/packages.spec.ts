@@ -71,7 +71,8 @@ test.describe("with the packages extension", () => {
     // A record without its package: switched on, it says what is missing, and nothing is
     // registered.
     const e = await api.refused("packages.enable", { id: "acme.notes" });
-    expect(e?.message).toContain("harnix-ext.toml");
+    expect(e?.code).toBe(REFUSED);
+    expect(e?.message).toContain("its files are not there");
     const notes = (await api.call("packages.list")).packages.find((p: any) => p.id === "acme.notes");
     expect(notes).toMatchObject({ enabled: false, registered: false });
     expect(await api.call("packages.disable", { id: "acme.notes" })).toMatchObject({ enabled: false });

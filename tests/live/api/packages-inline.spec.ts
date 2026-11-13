@@ -78,7 +78,7 @@ test.describe("an application's inline points and its data", () => {
       ["no-append", "harnix.session.entries.append", edit(', "harnix.session.entries.append"]', "]")],
       ["unknown-locale", "the locale `fr`", edit('zh-CN = "示例应用回声', 'fr = "示例应用回声')],
       // Only the component knows its tools: a row for one it does not list fails the start.
-      ["unknown-tool", "does not list as a tool", edit('tool = "count"', 'tool = "counted"')],
+      ["unknown-tool", "which it does not declare as a `[[tool]]`", edit('tool = "count"', 'tool = "counted"')],
     ];
     for (const [name, says, change] of cases) {
       const path = variant(join(scratch, `${name}.hxext`), change);

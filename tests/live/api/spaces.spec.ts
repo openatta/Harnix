@@ -40,7 +40,7 @@ test("a space's new session lands on its default instance and is listed in it al
   const fleet = await createIn("fleet");
   expect(fleet.instance).toBe("fleet-side");
   const mine = await createIn("sessions");
-  expect(mine.instance).toBe("system");
+  expect(mine.instance).toBe("main");
 
   const inFleet = (await api.call("harnix.sessions.list", { space: "fleet" })).sessions.map((s: any) => s.session_id);
   const inSessions = (await api.call("harnix.sessions.list", { space: "sessions" })).sessions.map((s: any) => s.session_id);

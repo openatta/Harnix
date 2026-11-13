@@ -263,7 +263,7 @@ test("a linear run: a program, a session that hands in through flow_submit, a co
   expect(task.status).toBe("submitted");
   expect(task.output.findings).toHaveLength(1);
   // The session it ran in is an ordinary one, in the flow space, and it called the tool.
-  expect(task.session).toMatch(/^system\//);
+  expect(task.session).toMatch(/^main\//);
   const session_id = task.session.split("/")[1];
   const { sessions } = await api.call("harnix.sessions.list");
   expect(sessions.find((s: any) => s.session_id === session_id)?.space).toBe("flow");
