@@ -22,7 +22,7 @@ import { type Server, createServer } from "node:http";
 import { DEADLINE_EXCEEDED, EXTENSION_UNAVAILABLE, INVALID_PARAMS, METHOD_NOT_FOUND } from "@harnix/core/protocol";
 import { type Backend, type TestClient, connect, expect, runTurn, sleep, test, topology } from "@harnix/testkit";
 
-import { SHOWCASE_CHATS, SHOWCASE_ID, showcasePackage, startApps } from "./packages-host";
+import { SHOWCASE_CHATS, SHOWCASE_ID, recalledOf, showcasePackage, startApps } from "./packages-host";
 
 const TAGS = { tag: ["@feature:apps", "@layer:api"] };
 
@@ -133,6 +133,19 @@ test.describe("an application with a backend", () => {
       describe: "the third heartbeat",
     });
     expect(topicValues(api, M("heartbeat")).filter(Boolean).map((v) => v.ticks)).toEqual([1, 2, 3]);
+  });
+
+  test("a backend that calls back into itself is refused at once, from a call and from its timer", TAGS, async () => {
+    const answer = await api.call(M("recall"));
+    expect(answer.refused).toBe(true);
+    expect(answer.message).toContain("reentrant");
+    // From a timer no call of the product's waits on: the backend is held on the firing it answers,
+    // so the call back is refused there too, and `state` says how long that took.
+    expect(await api.call(M("recall"), { later: true })).toEqual({ armed: true });
+    const recalled = await recalledOf(api);
+    expect(recalled.refused).toBe(true);
+    expect(recalled.message).toContain("reentrant");
+    expect(recalled.took_ms).toBeLessThan(100);
   });
 
   test("a tool reads the backend's state, which its own instance cannot see, through host.call", TAGS, async () => {
