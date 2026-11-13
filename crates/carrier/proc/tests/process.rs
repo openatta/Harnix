@@ -77,7 +77,7 @@ fn swapping(dir: &Path, real: &Path, id: &str, other: &Path) -> PathBuf {
 }
 
 fn entry<'a>(list: &'a Value, id: &str) -> Option<&'a Value> {
-    list["apps"].as_array()?.iter().find(|a| a["id"] == id)
+    list["packages"].as_array()?.iter().find(|a| a["id"] == id)
 }
 
 fn alive(pid: i64) -> bool {
