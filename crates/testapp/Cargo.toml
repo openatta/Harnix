@@ -24,8 +24,6 @@ serde_json  = { workspace = true }
 tokio       = { workspace = true }
 futures     = { workspace = true }
 tracing     = { workspace = true }
-# `proc` below: this binary is also an extension process, `harnix-testapp ext-proc`.
-harnix-proc = { workspace = true, optional = true }
 
 [features]
 default = []
@@ -35,10 +33,10 @@ default = []
 wasm = ["harnix/wasm"]
 # `cargo build -p harnix-testapp --features proc`: this binary re-executed as `ext-proc` runs an
 # extension package behind the extension wire (`tests/ext_proc.rs` starts it so).
-proc = ["dep:harnix-proc"]
+proc = ["harnix/proc"]
 # `--features probe`: `harnix-testapp ext-proc --probe …` tries what its sandbox lets it reach
 # (`crates/proc/tests/sandbox.rs` builds it so).
-probe = ["proc", "harnix-proc/probe"]
+probe = ["harnix/proc-probe"]
 
 [dev-dependencies]
 harnix-package   = { workspace = true }

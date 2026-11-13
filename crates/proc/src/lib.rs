@@ -8,12 +8,14 @@
 //!
 //! What [`entry`] does, in order:
 //!
-//! 1. Takes the stream it inherited at `--wire-fd` (3) — before anything else could open a
-//!    descriptor that takes the number — and keeps it from its own children.
+//! 1. Takes the streams it inherited at `--wire-fd` (3) and, with an engine of its own,
+//!    `--engine-fd` (4) — before anything else could open a descriptor that takes the number —
+//!    checks each is a socket, and keeps them from its own children.
 //! 2. On Linux, sandboxes itself as the product asked (`sandbox`), before it reads anything of
 //!    its package; on macOS it was started inside its sandbox.
 //! 3. Builds the host (`harnix-wasm-host`): one VM engine, deserializing only. The host's
-//!    [`Kernel`] is the wire's client end; its agent engine is this process's own, beside it.
+//!    [`Kernel`] is the wire's client end; its agent engine, with `--engine-fd`, is this
+//!    process's own (`local`), served to the product on that stream; without, it has none.
 //! 4. Says `proc.hello` (its wire, Harnix and package-interface versions) and waits for the
 //!    product to answer: the product refuses a process that is not of its own build.
 //! 5. Answers the product's `ctl.*` with the host — `ctl.start` starts the package, whose names
@@ -25,6 +27,7 @@
 
 mod agent;
 mod answer;
+mod local;
 pub mod args;
 #[cfg(feature = "probe")]
 mod probe;
@@ -32,11 +35,15 @@ mod sandbox;
 
 use std::ffi::OsString;
 use std::future::Future;
+use std::path::Path;
 use std::os::fd::{FromRawFd, RawFd};
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context};
+use harnix_engine::assemble::{engine_config, serve_stream};
+use harnix_engine::{Chains, InProcessLink};
+use harnix_engine_api::{EngineContribution, EngineControl, EngineProfile};
 use harnix_wasm_host::{Host, HostOptions};
 use harnix_wasm_port::rpc::{KernelClient, Wire};
 use harnix_wasm_port::socket::{now_ms, CallMeta, CancellationToken, Hello, Options as WireOptions, SocketWire, HELLO};
@@ -47,6 +54,7 @@ pub use args::Args;
 
 use crate::agent::NoEngine;
 use crate::answer::Answering;
+use crate::local::{Local, LocalTools, WireFetcher};
 
 /// The exit status of a process that could not be set up — no wire at the descriptor it was
 /// given, no sandbox where one was asked for, no VM engine — with why on the first line of stderr
@@ -69,6 +77,9 @@ pub struct Options {
     pub ext: String,
     pub pkg: Option<std::path::PathBuf>,
     pub run: Option<std::path::PathBuf>,
+    /// The stream its own engine is served on, when it has one (`--engine-fd`): the engine's data
+    /// root is `run/engine/`, with provider settings the product wrote there beforehand.
+    pub engine: Option<tokio::net::UnixStream>,
 }
 
 /// The `ext-proc` subcommand: what the product registers with `AppBuilder::child_entry`.
@@ -77,10 +88,13 @@ pub struct Options {
 /// the product's doing, and is not an error.
 pub fn entry(args: Vec<OsString>) -> anyhow::Result<()> {
     let args = Args::parse(args).unwrap_or_else(|e| setup_failed(&e));
+    // Step 0: before anything opens a descriptor that could take the number, and before the sandbox.
     let stream = take_stream(args.wire_fd).unwrap_or_else(|e| setup_failed(&e));
-    if args.engine_fd.is_some() {
-        setup_failed(&anyhow!("`--engine-fd`: this extension process serves no engine of its own yet"));
-    }
+    let engine = args
+        .engine_fd
+        .map(|fd| take_stream(fd).context("the engine's stream"))
+        .transpose()
+        .unwrap_or_else(|e| setup_failed(&e));
     sandbox::apply().context("its sandbox").unwrap_or_else(|e| setup_failed(&e));
     if let Some(run) = &args.run {
         std::env::set_current_dir(run)
@@ -104,9 +118,11 @@ pub fn entry(args: Vec<OsString>) -> anyhow::Result<()> {
         ext: args.ext,
         pkg: args.pkg,
         run: args.run,
+        engine: None,
     };
     let ran = runtime.block_on(async move {
         let stream = tokio::net::UnixStream::from_std(stream)?;
+        let options = Options { engine: engine.map(tokio::net::UnixStream::from_std).transpose()?, ..options };
         run(options, stream, stdin_closed()).await
     });
     // What the host left running does not hold the process up: the product has already moved on.
@@ -124,10 +140,25 @@ pub async fn run<S>(options: Options, stream: S, until: impl Future<Output = ()>
 where
     S: AsyncRead + AsyncWrite + Send + 'static,
 {
-    let answering = Arc::new(Answering::new(options.pkg.clone(), options.run.clone()));
+    let answering = Arc::new(Answering::new(options.ext.clone(), options.pkg.clone(), options.run.clone()));
     let wire = SocketWire::client(stream, answering.clone(), WireOptions::default());
     let kernel: Arc<dyn Kernel> = Arc::new(KernelClient(wire.clone() as Arc<dyn Wire>));
-    let host = match Host::new(HostOptions::default(), kernel, Arc::new(NoEngine)) {
+    // With an engine of its own, its tool calls' progress and turn chains stay here.
+    let local = match (&options.engine, &options.run) {
+        (Some(_), Some(run)) => Some(Local::new(&options.ext, &run.join("engine"), kernel.clone())),
+        (Some(_), None) => {
+            wire.close("the extension process could not be set up").await;
+            return Err(anyhow!("`--engine-fd` needs `--run`: its engine's data root is `run/engine/`").context(Setup));
+        }
+        (None, _) => None,
+    };
+    let http = Arc::new(WireFetcher(kernel.clone()));
+    let options_for_host = HostOptions { http: Some(http), ..HostOptions::default() };
+    let host = match &local {
+        Some(local) => Host::new(options_for_host, local.clone(), local.clone()),
+        None => Host::new(options_for_host, kernel, Arc::new(NoEngine)),
+    };
+    let host = match host {
         Ok(host) => host,
         Err(e) => {
             wire.close("the extension process could not be set up").await;
@@ -135,13 +166,25 @@ where
         }
     };
     answering.answer_with(host.clone());
+    let engine = match (local, options.engine) {
+        (Some(local), Some(stream)) => {
+            local.host_is(&host);
+            match serve_engine(&options.ext, &local, options.run.as_deref().unwrap_or(Path::new(".")), stream).await {
+                Ok(engine) => Some(engine),
+                Err(e) => {
+                    wire.close("the extension process could not be set up").await;
+                    return Err(e.context(Setup));
+                }
+            }
+        }
+        _ => None,
+    };
 
     let hello = Hello {
         wire: EXT_WIRE_VERSION,
         ext: options.ext.clone(),
         version: HARNIX_VERSION.to_string(),
-        // This process serves no engine of its own yet, so it links no Agix it could name.
-        agix_version: None,
+        agix_version: harnix_engine::identity().version,
         engine: host.engine().fingerprint().to_string(),
         harnix_api: harnix_package::manifest::HARNIX_API,
         pid: std::process::id(),
@@ -156,6 +199,16 @@ where
 
     tokio::pin!(until);
     let (why, shut_down) = tokio::select! {
+        why = answering.fatal() => {
+            // The refusal of the start is written first; the product then ends this process
+            // itself or the wire closes.
+            tokio::select! {
+                _ = wire.closed() => {}
+                _ = tokio::time::sleep(SHUTDOWN_LINGER) => {}
+            }
+            wire.close(&why).await;
+            return Err(anyhow!(why).context(Setup));
+        }
         why = wire.closed() => (format!("the product's wire closed: {why}"), false),
         _ = &mut until => ("stdin closed: the product is gone".to_string(), false),
         _ = answering.shutdown.notified() => {
@@ -172,7 +225,28 @@ where
         let _ = host.shutdown(CallMeta::default(), why.clone()).await;
     }
     wire.close(&why).await;
+    if let Some(engine) = engine {
+        engine.shutdown().await;
+    }
     Ok(())
+}
+
+/// The process's own engine, built on `run/engine/` with the package's tools in its sessions, and
+/// served to the product on `stream` for as long as the stream stays open.
+async fn serve_engine(ext: &str, local: &Arc<Local>, run: &Path, stream: tokio::net::UnixStream) -> anyhow::Result<Arc<InProcessLink>> {
+    let root = run.join("engine");
+    std::fs::create_dir_all(&root).with_context(|| format!("its engine's data root {}", root.display()))?;
+    let mut contrib = EngineContribution::new();
+    contrib.provider(Arc::new(LocalTools(local.clone())));
+    contrib.admit_everywhere("ext__*");
+    let mut config = engine_config(local.instance(), &EngineProfile::new(), &root, contrib);
+    config.chains = Chains(local.clone());
+    let engine = harnix_engine::build(config).await.with_context(|| format!("the engine of `{ext}`"))?;
+    let server = engine.server.clone();
+    let link = InProcessLink::start(engine).await;
+    local.link_is(link.clone());
+    tokio::spawn(serve_stream(server, stream));
+    Ok(link)
 }
 
 /// Marks an error as one of setting the process up: [`entry`] exits [`EXIT_SETUP`] with it.

@@ -283,3 +283,34 @@ pub(crate) fn resolve_profile(cli: &Cli) -> anyhow::Result<Profile> {
     }
     Ok(profile)
 }
+
+#[cfg(test)]
+mod child_entry_tests {
+    use std::ffi::OsString;
+
+    fn entered(_: Vec<OsString>) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn dispatched(argv: &[&str]) -> bool {
+        let app = crate::App::builder()
+            .child_entry("ext-proc", entered)
+            .args(argv.iter().map(OsString::from).collect::<Vec<_>>());
+        super::child_entry(&app).is_some()
+    }
+
+    #[test]
+    fn only_the_second_argument_exactly_is_the_entrys_name() {
+        assert!(dispatched(&["product", "ext-proc", "--ext", "a.b"]));
+        for argv in [
+            &["product", "ext-proc-x", "--ext", "a.b"][..],
+            &["product", "ext", "--ext", "a.b"][..],
+            &["product", "EXT-PROC"][..],
+            &["product", "--ext", "a.b", "ext-proc"][..],
+            &["product", "", "ext-proc"][..],
+            &["product"][..],
+        ] {
+            assert!(!dispatched(argv), "{argv:?} reached the entry");
+        }
+    }
+}

@@ -94,6 +94,14 @@ pub(crate) fn run(targets: &str, args: &Args, mut wire: UnixStream) -> anyhow::R
         checks.push(Check { check: format!("a child cannot write {what}"), ok: child_refused(&out, path), saw: shown(&out) });
     }
 
+    // The wire and the engine's stream are this process's: a shell it starts must not be handed them.
+    for (what, fd) in [("the wire", Some(args.wire_fd)), ("the engine's stream", args.engine_fd)] {
+        let Some(fd) = fd else { continue };
+        let out = Command::new("/bin/sh").args(["-c", r#"{ : >&"$1"; } 2>/dev/null"#, "probe"]).arg(fd.to_string()).status();
+        let ok = matches!(&out, Ok(status) if status.code() == Some(1) || status.code() == Some(2));
+        checks.push(Check { check: format!("a child is not handed {what}"), ok, saw: format!("{out:?}") });
+    }
+
     checks.push(match vm_engine() {
         Ok(fingerprint) => Check { check: "its VM engine builds".into(), ok: true, saw: fingerprint },
         Err(e) => Check { check: "its VM engine builds".into(), ok: false, saw: format!("{e:#}") },
@@ -201,7 +209,7 @@ fn vm_engine() -> anyhow::Result<String> {
     runtime.block_on(async {
         // A kernel at the end of a pair nothing answers: the host is made, not used.
         let (stream, _other) = tokio::net::UnixStream::pair()?;
-        let wire = SocketWire::client(stream, Arc::new(Answering::new(None, None)), WireOptions::default());
+        let wire = SocketWire::client(stream, Arc::new(Answering::new(String::new(), None, None)), WireOptions::default());
         let host = Host::new(HostOptions::default(), Arc::new(KernelClient(wire.clone() as Arc<dyn Wire>)), Arc::new(NoEngine))
             .map_err(|e| anyhow!("{e:#}"))?;
         let fingerprint = host.engine().fingerprint().to_string();

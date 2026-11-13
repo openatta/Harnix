@@ -12,6 +12,7 @@
 //! instance layer builds the links; the hub only ever holds them as `EngineLink`s.
 
 mod adapt;
+pub mod assemble;
 mod daemon_link;
 pub mod engine;
 mod hooks;

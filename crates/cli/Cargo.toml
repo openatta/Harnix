@@ -20,9 +20,11 @@ anyhow      = { workspace = true }
 
 [features]
 # The Harnix app as it ships: its own extensions, flows, and packages in this process.
-default = ["wasm", "flow"]
+default = ["wasm", "flow", "proc"]
 # Packages, run in this process's WebAssembly (mode 2).
 wasm = ["harnix/wasm"]
+# Extension processes: the `ext-proc` subcommand this binary is re-executed as (mode 3).
+proc = ["harnix/proc"]
 flow = ["harnix/flow", "dep:harnix-ext-flow"]
 
 [dev-dependencies]

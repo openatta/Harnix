@@ -88,8 +88,6 @@ fn main() -> anyhow::Result<()> {
         };
         builder.extension(packages).grant(harnix::first_party::PACKAGES_GRANTS)
     };
-    #[cfg(feature = "proc")]
-    let builder = builder.child_entry("ext-proc", harnix_proc::entry);
     builder.run()
 }
 
