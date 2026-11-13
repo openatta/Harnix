@@ -13,7 +13,7 @@ pub mod reap;
 pub mod sandbox;
 mod supervisor;
 
-pub use child::{Child, ChildSpec};
+pub use child::{Child, ChildSpec, TERM_GRACE};
 pub use sandbox::SandboxSpec;
 pub use policy::{Decision, RestartPolicy, Restarts, EXIT_SETUP};
 pub use supervisor::{ChildEvent, Supervisor};

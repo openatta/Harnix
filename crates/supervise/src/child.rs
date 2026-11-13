@@ -232,18 +232,37 @@ impl Child {
         }
     }
 
-    /// Ask the child to finish by closing its stdin, wait up to `grace`, kill it if it has not,
-    /// then reap its session.
+    /// Ask the child to finish by closing its stdin and wait up to `grace`; then TERM, a shorter
+    /// grace ([`TERM_GRACE`]), KILL; then reap its session.
     pub async fn stop(mut self, grace: Duration) -> Option<ExitStatus> {
         drop(self.stdin.take());
         let status = match tokio::time::timeout(grace, self.inner.wait()).await {
+            Ok(status) => status.ok(),
+            Err(_) => self.terminate(TERM_GRACE).await,
+        };
+        self.reap().await;
+        status
+    }
+
+    /// TERM, up to `grace` for it to go, KILL.
+    async fn terminate(&mut self, grace: Duration) -> Option<ExitStatus> {
+        // Not waited for yet, so the pid is still this child's.
+        if let Some(pid) = self.inner.id() {
+            // SAFETY: kill(2) on our own unreaped child; the worst case is ESRCH.
+            unsafe {
+                libc::kill(pid as i32, libc::SIGTERM);
+            }
+        }
+        match tokio::time::timeout(grace, self.inner.wait()).await {
             Ok(status) => status.ok(),
             Err(_) => {
                 let _ = self.inner.kill().await;
                 self.inner.wait().await.ok()
             }
-        };
-        self.reap().await;
-        status
+        }
     }
 }
+
+/// How long a child that did not finish when asked has between TERM and KILL: what the processes
+/// left in its session get too.
+pub const TERM_GRACE: Duration = crate::reap::REAP_GRACE;

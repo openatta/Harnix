@@ -98,6 +98,28 @@ async fn a_child_that_ignores_stdin_is_killed_after_the_grace() {
     assert!(!status.success());
 }
 
+/// A child that does not leave when its stdin closes is sent TERM before it is killed: one that
+/// finishes on TERM finishes its own way.
+#[tokio::test]
+async fn a_child_is_asked_with_term_before_it_is_killed() {
+    let child = sh("trap 'exit 7' TERM; while :; do sleep 0.05; done").spawn().unwrap();
+    // Its trap is set before it is asked to go.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let status = child.stop(Duration::from_millis(100)).await.unwrap();
+    assert_eq!(status.code(), Some(7), "{status:?}");
+}
+
+/// One that ignores TERM too is killed once the grace after it is over.
+#[tokio::test]
+async fn a_child_that_ignores_term_is_killed_after_its_grace() {
+    let child = sh("trap '' TERM; while :; do sleep 0.05; done").spawn().unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let started = Instant::now();
+    let status = child.stop(Duration::from_millis(100)).await.unwrap();
+    assert_eq!(status.code(), None, "{status:?}: killed by a signal");
+    assert!(started.elapsed() >= harnix_supervise::TERM_GRACE, "{:?}", started.elapsed());
+}
+
 /// What a child leaves running in its session is ended with it, even once it has been killed.
 #[tokio::test]
 async fn what_the_child_leaves_in_its_session_is_ended_with_it() {

@@ -230,7 +230,7 @@ impl ChildHandle {
         self.run.kill()
     }
 
-    /// End the process — stdin closed, a grace, a kill — and start it no more.
+    /// End the process — stdin closed, a grace, TERM, a shorter grace, KILL — and start it no more.
     pub async fn stop(self) {
         self.run.stop().await
     }

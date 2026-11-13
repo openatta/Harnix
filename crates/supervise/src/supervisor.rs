@@ -108,7 +108,8 @@ impl Supervisor {
         self.kill.send_modify(|n| *n = n.wrapping_add(1));
     }
 
-    /// End the child — stdin closed, a grace, a kill, its session reaped — and stop starting it.
+    /// End the child — stdin closed, a grace, TERM, a shorter grace, KILL, its session reaped —
+    /// and stop starting it.
     pub async fn stop(mut self) {
         let _ = self.stop.send(true);
         let _ = (&mut self.task).await;
