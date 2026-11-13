@@ -24,7 +24,7 @@ export const FEATURES = [
     name: "实例层",
     ui: { na: "实例层没有自己的界面；界面上看实例是系统 space 的事（system）" },
   },
-  { id: "modules", name: "模块契约" },
+  { id: "modules", name: "扩展契约" },
   { id: "spaces", name: "space 与会话绑定" },
   { id: "session-space", name: "会话 space" },
   {
@@ -37,7 +37,7 @@ export const FEATURES = [
   { id: "settings", name: "设置" },
   { id: "plugins", name: "Agix 包（插件）与它们的界面模块" },
   { id: "migrations", name: "迁移", ui: { na: "迁移没有自己的界面；结果在诊断页（设置 · 诊断）" } },
-  { id: "routes", name: "模块自有链接" },
+  { id: "routes", name: "扩展的 HTTP 路由" },
   { id: "entries", name: "扩展条目" },
   { id: "brand", name: "品牌与主题" },
   { id: "flow", name: "流程（harnix-ext-flow，xops-01、xops-02）" },

@@ -179,9 +179,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_tool_is_told_what_agix_tells_and_answers_in_agixs_terms() {
-        let spec = ToolSpec::new("echo", "says it back", json!({"type": "object"})).doc("at length").source("app:x").read_only();
+        let spec = ToolSpec::new("echo", "says it back", json!({"type": "object"})).doc("at length").source("ext:x").read_only();
         let tool = AgixTool::new(Arc::new(Echo(spec)), Site::bare("main"));
-        assert_eq!((tool.name(), tool.description(), tool.source().as_ref()), ("echo", "says it back", "app:x"));
+        assert_eq!((tool.name(), tool.description(), tool.source().as_ref()), ("echo", "says it back", "ext:x"));
         assert_eq!(tool.prompt(&PromptContext::default()).await, "says it back\n\nat length");
         assert!(tool.is_read_only(&json!({})) && !tool.is_concurrency_safe(&json!({})));
         let mut ctx = ToolContext::for_test("/p".into());
