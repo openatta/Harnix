@@ -106,11 +106,7 @@ impl Inner {
         if let Some(host) = self.host.get() {
             return Ok(host.clone());
         }
-        let settings = self.settings.get().cloned().unwrap_or_default();
-        let options = HostOptions {
-            idle: settings.idle_for(),
-            http: Some(Arc::new(Fetcher { registry: self.registry.clone(), egress: Egress::new() })),
-        };
+        let options = HostOptions { http: Some(Arc::new(Fetcher { registry: self.registry.clone(), egress: Egress::new() })) };
         let host = Host::new(options, self.kernel.clone(), self.kernel.clone()).map_err(|e| internal(format!("{e:#}")))?;
         let control: Arc<dyn Control> = host.clone();
         self.kernel.lend_to(Arc::downgrade(&control));
@@ -304,6 +300,7 @@ impl Carrier for WasmCarrier {
             config: app.config_value().clone(),
             secrets: app.secret_values().clone(),
             parts: parts.clone(),
+            limits: harnix_carrier_shared::limits(&manifest, self.0.settings.get().and_then(|s| s.idle_for())),
             pkg: Some(pkg_dir.clone()),
             run: Some(app.run_dir().clone()),
         };

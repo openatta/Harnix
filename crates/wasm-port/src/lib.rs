@@ -344,6 +344,8 @@ pub struct Start {
     pub secrets: BTreeMap<String, String>,
     /// The record's `parts`: which agent package and skills to switch on with it.
     pub parts: Value,
+    /// What it is held to: the consented manifest's, with what the product shortens.
+    pub limits: Limits,
     /// The unpacked package (`<ext>/<id>/<version>/`). Given by the carrier that runs several
     /// applications in one host; an extension process has its own from its command line, and is
     /// never sent one.
@@ -352,6 +354,39 @@ pub struct Start {
     /// Where the application keeps what it writes: its `data/` and its store `kv/`. As `pkg`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run: Option<PathBuf>,
+}
+
+/// What an application is held to as it runs. The product's to say, from the manifest consented
+/// to — and its own settings, which may only shorten how long a backend idles — so that the host
+/// runs it as the product keeps it: an extension process hibernates its backend when the product
+/// expects it to.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Limits {
+    /// Linear memory for the whole application (`[component] memory_mb`).
+    pub memory_mb: u32,
+    /// How long one call may take (`[component] timeout_ms`).
+    pub timeout_ms: u64,
+    /// Its store's and its `${data}` files' ceiling (`[capabilities] storage_mb`).
+    pub storage_mb: u32,
+    /// `[backend] resident`: `always`, or `on-demand`.
+    pub resident: String,
+    /// How long an on-demand backend idles before it hibernates: its `idle_secs`, or less where the
+    /// product says. In milliseconds: a test application's is under a second.
+    pub idle_ms: u64,
+}
+
+impl Default for Limits {
+    /// A manifest's defaults.
+    fn default() -> Self {
+        Self { memory_mb: 64, timeout_ms: 30_000, storage_mb: 0, resident: "always".into(), idle_ms: 600_000 }
+    }
+}
+
+impl Limits {
+    /// Whether its backend is let go while idle.
+    pub fn on_demand(&self) -> bool {
+        self.resident == "on-demand"
+    }
 }
 
 /// What starting it made.

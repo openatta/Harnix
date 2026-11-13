@@ -26,6 +26,7 @@ use std::sync::Arc;
 
 use harnix_contract::sync::{lock, read, write};
 use harnix_contract::{codes, DefaultInstance, RpcError, SpaceDecl, Subject};
+use harnix_kernel::{CallContext, Listed};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -244,6 +245,32 @@ impl Spaces {
     }
 }
 
+/// Whether a call claiming `space` (empty: none) may use the instance `slot`. One built for a
+/// space is that space's, when a call claims one. An extension's own engine is third-party code's
+/// and held to more: only the extension itself — or a page of it in a frame — uses it, besides its
+/// spaces and a call reaching across spaces (the system space's), whatever the call claims.
+pub(crate) fn may_use(slot: &Listed, cx: &CallContext, space: &str, crosses: bool) -> Result<(), RpcError> {
+    if crosses || slot.spaces.iter().any(|s| s == space) {
+        return Ok(());
+    }
+    let mismatch = |message: String| Err(RpcError::new(codes::SPACE_MISMATCH, message));
+    let (named, theirs) = (&slot.id, slot.spaces.join("`, `"));
+    match &slot.extension {
+        Some(ext) => {
+            let itself = matches!(cx.subject, Subject::Kernel)
+                || cx.subject.extension_id() == Some(ext)
+                || cx.on_behalf_of.as_ref() == Some(ext);
+            match (itself, slot.spaces.is_empty()) {
+                (true, _) => Ok(()),
+                (false, true) => mismatch(format!("instance `{named}` is `{ext}`'s own engine, and no space's")),
+                (false, false) => mismatch(format!("instance `{named}` is `{ext}`'s own engine, for `{theirs}`, not `{space}`")),
+            }
+        }
+        None if slot.spaces.is_empty() || space.is_empty() => Ok(()),
+        None => mismatch(format!("instance `{named}` belongs to the space `{theirs}`, not `{space}`")),
+    }
+}
+
 impl Hub {
     /// Add a space at runtime (see [`Spaces::add_runtime`]); the
     /// `harnix.spaces` topic is pushed to whoever watches it.
@@ -282,6 +309,15 @@ impl Hub {
             ));
         }
         Ok(space)
+    }
+
+    /// The space a call means — the one it claims, or the default; empty when neither — and
+    /// whether it reaches across spaces.
+    pub(crate) fn claim_of(&self, params: &Value) -> (String, bool) {
+        let spaces = lock(&self.spaces);
+        let space = spaces.claimed_space(params);
+        let crosses = spaces.exists(&space) && spaces.crosses(&space);
+        (space, crosses)
     }
 
     /// Check a session call's claimed space against the ledger.
@@ -325,13 +361,17 @@ impl Hub {
 
     /// Where a new session in this space goes, and in what scene: the instance the caller named
     /// (if the space may use it), else the space's default — built from its template the first time.
-    pub(crate) async fn place(self: &std::sync::Arc<Self>, params: &mut Value) -> Result<String, RpcError> {
+    pub(crate) async fn place(self: &std::sync::Arc<Self>, cx: &CallContext, params: &mut Value) -> Result<String, RpcError> {
         let (space, decl, built, crosses) = {
             let spaces = lock(&self.spaces);
             let space = spaces.claimed_space(params);
             // No space claimed and none the default: the session lands where an instance is
             // named, or on `system`, and belongs to no space.
             if space.is_empty() {
+                drop(spaces);
+                if let Some(slot) = params.get("instance").and_then(Value::as_str).and_then(|named| self.slot(named)) {
+                    may_use(&slot, cx, &space, false)?;
+                }
                 return Ok(space);
             }
             if !spaces.exists(&space) {
@@ -347,19 +387,19 @@ impl Hub {
         }
         if let Some(named) = params.get("instance").and_then(Value::as_str).map(str::to_string) {
             if let Some(slot) = self.slot(&named) {
-                if let Some(owner) = &slot.space {
-                    if *owner != space && !crosses {
-                        return Err(RpcError::new(
-                            codes::SPACE_MISMATCH,
-                            format!("instance `{named}` belongs to the space `{owner}`, not `{space}`"),
-                        ));
-                    }
-                }
+                may_use(&slot, cx, &space, crosses)?;
             }
             return Ok(space);
         }
         let instance = match decl.map(|d| d.instance).unwrap_or_default() {
-            DefaultInstance::Fixed(id) => id,
+            // A runtime space's names an instance that exists, and may name another extension's
+            // own engine: held to the same as a call naming it.
+            DefaultInstance::Fixed(id) => {
+                if let Some(slot) = self.slot(&id) {
+                    may_use(&slot, cx, &space, crosses)?;
+                }
+                id
+            }
             DefaultInstance::Template(template) => match built.filter(|id| self.slot(id).is_some()) {
                 Some(id) => id,
                 None => {
@@ -383,8 +423,8 @@ impl Hub {
     /// space is where a product put a session, not where a client would like to see it. The target
     /// must be a space the session's instance may serve (as for a new session there); one reaching
     /// across spaces is nobody's home.
-    pub(crate) async fn move_session(self: &std::sync::Arc<Self>, subject: &Subject, params: Value) -> Result<Value, RpcError> {
-        if matches!(subject, Subject::Device { .. }) {
+    pub(crate) async fn move_session(self: &std::sync::Arc<Self>, cx: &CallContext, params: Value) -> Result<Value, RpcError> {
+        if matches!(cx.subject, Subject::Device { .. }) {
             return Err(RpcError::new(
                 codes::REFUSED,
                 "which space a session belongs to is the application's to change, not a device's",
@@ -404,14 +444,7 @@ impl Hub {
             }
         }
         if let Some(slot) = self.slot(&key.0) {
-            if let Some(owner) = &slot.space {
-                if *owner != space {
-                    return Err(RpcError::new(
-                        codes::SPACE_MISMATCH,
-                        format!("instance `{}` belongs to the space `{owner}`, not `{space}`", key.0),
-                    ));
-                }
-            }
+            may_use(&slot, cx, &space, false)?;
         }
         // Only a session there is: an unknown one is the engine's not-found, not a record of nothing.
         self.engine(&key.0)?.ops().get(&key.1).await?;

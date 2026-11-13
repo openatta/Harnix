@@ -44,12 +44,17 @@ pub trait InstanceBook: Send + Sync {
     fn flooding(&self, id: &str, consecutive: u32);
 }
 
-/// A listed instance, as the hub needs it.
+/// A listed instance, as the hub needs it: whose sessions it may carry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Listed {
     pub id: String,
-    /// The space it was built for, when it was: its sessions are that space's.
-    pub space: Option<String>,
+    /// The spaces its sessions are, when it is some spaces': the one a template built it for, or
+    /// those an extension declared for its own engine. Empty: any space's — unless it is an
+    /// extension's, which is then no space's.
+    pub spaces: Vec<String>,
+    /// The extension whose own engine it is: used only by that extension, from its spaces, or by
+    /// a call reaching across spaces.
+    pub extension: Option<harnix_contract::s1::ExtId>,
 }
 
 /// What the registry tells the hub. Never called while the registry holds its lock, and none of

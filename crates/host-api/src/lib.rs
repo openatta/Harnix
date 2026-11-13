@@ -280,17 +280,29 @@ pub struct AdoptSpec {
     data_root: PathBuf,
     inherit_providers: bool,
     waker: Arc<dyn Waker>,
+    spaces: Vec<String>,
 }
 
 impl AdoptSpec {
     /// Its engine's data root (`run/engine/`), and what wakes its process.
     pub fn new(data_root: PathBuf, waker: Arc<dyn Waker>) -> Self {
-        Self { data_root, inherit_providers: false, waker }
+        Self { data_root, inherit_providers: false, waker, spaces: Vec::new() }
     }
 
     pub fn inherit_providers(mut self) -> Self {
         self.inherit_providers = true;
         self
+    }
+
+    /// The extension's spaces, whose sessions are on its engine: calls from them may use it, as
+    /// may the extension itself and a call reaching across spaces. With none, it is no space's.
+    pub fn spaces(mut self, spaces: impl IntoIterator<Item = String>) -> Self {
+        self.spaces = spaces.into_iter().collect();
+        self
+    }
+
+    pub fn declared_spaces(&self) -> &[String] {
+        &self.spaces
     }
 
     pub fn data_root(&self) -> &PathBuf {

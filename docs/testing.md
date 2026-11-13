@@ -313,7 +313,7 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
 - `cargo test -p harnix-apps --features compile`：嵌入的粘合层，照 `apps` 模块那样装、用、停、卸，和装到一半失败的回滚；装签名包、篡改、
   升级与升级失败的回滚在 `crates/apps/tests/signed.rs`。
 - 签名、目录、披露的逻辑另有单测（`crates/package/src/{signature,store,disclosure,publish}.rs`）；休眠的规则在
-  `crates/wasm-host/tests/idle.rs`（`HostOptions::idle`）与 `crates/wasm/tests/hibernate.rs`。
+  `crates/wasm-host/tests/idle.rs`（闲置时限由 `Start::limits` 给）与 `crates/wasm/tests/hibernate.rs`。
 
 **LIVE 这边**（都在 `tests/live/{api,ui}/apps*.spec.ts`）：装与运行时、后端、商店、iframe、行内点、休眠，API 与界面各一份，两种拓扑都跑。
 

@@ -256,6 +256,7 @@ impl Connection {
             config: Value::Null,
             secrets: Default::default(),
             parts: json!({}),
+            limits: Default::default(),
             pkg: None,
             run: None,
         };

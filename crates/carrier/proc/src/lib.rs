@@ -321,7 +321,10 @@ impl Carrier for ProcCarrier {
         // Adopted before its process first starts: `main`'s providers are in its settings by then.
         let engine = match &instance {
             Some(_) => {
-                let spec = AdoptSpec::new(app.run_dir().join("engine"), Arc::new(Wakes(commands.clone()))).inherit_providers();
+                // Its spaces' sessions are on it, and nobody else's: what the hub holds a call naming it to.
+                let spec = AdoptSpec::new(app.run_dir().join("engine"), Arc::new(Wakes(commands.clone())))
+                    .inherit_providers()
+                    .spaces(manifest.spaces.iter().map(|s| s.id.clone()));
                 match host.adopt(&id, spec).await {
                     Ok(engine) => Some(engine),
                     Err(e) => return Err(given_up(e).await),
@@ -362,11 +365,10 @@ impl Carrier for ProcCarrier {
             inline: serde_json::to_value(&manifest.inline).unwrap_or(Value::Null),
             timeout,
         });
-        // An on-demand backend's process is let go once idle.
-        let idle = manifest
-            .backend
-            .on_demand()
-            .then(|| me.settings().idle_for().unwrap_or(Duration::from_secs(manifest.backend.idle_secs)));
+        // What its process is told to hold it to: an on-demand backend's process is let go once
+        // idle as long as its backend is told to idle.
+        let limits = harnix_carrier_shared::limits(&manifest, me.settings().idle_for());
+        let idle = limits.on_demand().then(|| Duration::from_millis(limits.idle_ms));
         let package = Arc::new(Package {
             id: id.clone(),
             parts: placed_of(&app),
@@ -379,6 +381,7 @@ impl Carrier for ProcCarrier {
             phase: Mutex::new(Phase::default()),
             request,
             engine: engine.clone(),
+            limits,
             idle,
         });
         lock(&me.packages).insert(id.to_string(), package.clone());

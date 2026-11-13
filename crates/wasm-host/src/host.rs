@@ -10,8 +10,8 @@
 //! 4. It is registered with the kernel — its methods, topics and spaces, under `app.<id>.*`,
 //!    its `calls` capability, its tools and its manifest's digest — then its component loaded
 //!    (refused if it was compiled for another engine, or its bytes are not the ones verified), its
-//!    VM started (a backend's `init` runs, serving the start, and may already publish, call and
-//!    subscribe), its tools listed and offered.
+//!    VM started under the product's [`Start::limits`] (a backend's `init` runs, serving the
+//!    start, and may already publish, call and subscribe), its tools listed and offered.
 //!
 //! A step that fails undoes every step before it, and why is kept for [`Control::status`].
 
@@ -46,11 +46,6 @@ use crate::placement::{self, Placed};
 /// [`Start`].
 #[derive(Default)]
 pub struct HostOptions {
-    /// How long every on-demand backend idles before it hibernates, in place of its manifest's
-    /// `idle_secs` (which is never under a minute). For a test application that needs to see one
-    /// hibernate; a product has no reason to, and a profile cannot.
-    #[doc(hidden)]
-    pub idle: Option<std::time::Duration>,
     /// Where applications' HTTP goes out, when the product decides their `net` on its side too;
     /// this process's network otherwise.
     pub http: Option<Arc<dyn HttpFetcher>>,
@@ -98,7 +93,6 @@ pub struct Host {
     engine: WasmEngine,
     kernel: Arc<dyn Kernel>,
     agent: Arc<dyn Agent>,
-    options: HostOptions,
     http: Arc<dyn HttpFetcher>,
     apps: RwLock<BTreeMap<String, Arc<Running>>>,
     /// The bridges of applications starting or running: where their subscriptions' values go,
@@ -206,8 +200,7 @@ impl Host {
             engine: WasmEngine::new()?,
             kernel,
             agent,
-            http: options.http.clone().unwrap_or_else(|| Arc::new(crate::http::Http::new())),
-            options,
+            http: options.http.unwrap_or_else(|| Arc::new(crate::http::Http::new())),
             apps: RwLock::new(BTreeMap::new()),
             bridges: Mutex::new(BTreeMap::new()),
             failed: Mutex::new(BTreeMap::new()),
@@ -413,7 +406,7 @@ impl Host {
             capabilities: Capabilities {
                 net: caps.net.clone(),
                 env: caps.env.clone(),
-                storage_bytes: u64::from(caps.storage_mb) << 20,
+                storage_bytes: u64::from(start.limits.storage_mb) << 20,
                 fs: caps
                     .fs
                     .iter()
@@ -424,8 +417,8 @@ impl Host {
                     .collect(),
             },
             limits: Limits {
-                memory_bytes: u64::from(component.memory_mb) << 20,
-                timeout: std::time::Duration::from_millis(component.timeout_ms),
+                memory_bytes: u64::from(start.limits.memory_mb) << 20,
+                timeout: std::time::Duration::from_millis(start.limits.timeout_ms),
             },
             dirs: harnix_wasm::AppDirs {
                 data: run.join("data"),
@@ -514,11 +507,9 @@ impl Host {
         let full = |name: &String| format!("{id}.{name}");
         let world = booted.vm.as_ref().map(|vm| world_name(vm.world()));
         let backend = booted.vm.as_ref().filter(|vm| vm.world() == World::Backend);
-        let idle = backend.and(manifest.backend.on_demand().then(|| {
-            self.options
-                .idle
-                .unwrap_or(std::time::Duration::from_secs(manifest.backend.idle_secs))
-        }));
+        // Held to what the product keeps it to: an extension process's backend hibernates when
+        // the product expects it to.
+        let idle = backend.and(start.limits.on_demand().then(|| std::time::Duration::from_millis(start.limits.idle_ms)));
         let activity = Arc::new(Activity::default());
         let watch = CancellationToken::new();
         if let (Some(vm), Some(idle)) = (backend, idle) {
@@ -533,7 +524,7 @@ impl Host {
             bridge,
             methods,
             activity,
-            resident: manifest.backend.resident.clone(),
+            resident: start.limits.resident.clone(),
             idle,
             watch,
             method_names: manifest.methods.iter().map(|m| full(&m.name)).collect(),

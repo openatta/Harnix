@@ -173,7 +173,7 @@ impl Hub {
                 owner: Owner::Kernel(KernelPart::Hub),
                 access: Access::device().scoped(RowScope::Session),
                 handler: Some(answer(hub, "harnix.session.move", false, |h, cx, p| async move {
-                    h.move_session(&cx.subject, p).await
+                    h.move_session(&cx, p).await
                 })),
             },
             own(hub, "harnix.session.answerer", |h, cx, p| async move { h.answerer(&cx.subject, &p) }),

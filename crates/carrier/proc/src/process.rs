@@ -74,7 +74,10 @@ pub(crate) struct Package {
     pub request: ChildRequest,
     /// Its own engine, adopted, when it has `agent/` or a `[[space]]`.
     pub engine: Option<Arc<dyn AdoptedEngine>>,
-    /// How long it idles before its process is let go: an on-demand backend's.
+    /// What its process holds it to ([`harnix_wasm_port::Start::limits`]).
+    pub limits: harnix_wasm_port::Limits,
+    /// How long it idles before its process is let go: an on-demand backend's, as long as its
+    /// backend idles before it hibernates.
     pub idle: Option<Duration>,
 }
 
@@ -645,7 +648,7 @@ async fn connect(
 
     // Its start: its `proc.register` and its backend's `init` come before the answer.
     let mut violation = connection.violation();
-    let start = start_of(&package.installed, package.placed());
+    let start = start_of(&package.installed, package.placed(), package.limits.clone());
     let meta = CallMeta::default().with_deadline(Some(deadline_ms));
     let started = tokio::select! {
         started = control.start(meta, start) => started,

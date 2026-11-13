@@ -19,16 +19,15 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use harnix_contract::sync::lock;
 use harnix_contract::{codes, ChainLink, RpcError};
-use harnix_engine::{Connection, DaemonLink, Refusal, Taken};
-use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
-use harnix_engine_api::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, Subscribed, Tasks, TurnInput};
+use harnix_engine::{Connection, DaemonLink, Refusal, Taken, WakeGate};
+use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, InstanceCarrier, LinkStatus};
+use harnix_engine_api::ops::{Answer, SessionInfo};
 use harnix_kernel::{Chain, InstanceObserver, Rpc, TurnChains, TurnWatch};
-use serde_json::Value;
 use tokio::sync::{mpsc, watch};
 
 use crate::link::now_ms;
@@ -58,6 +57,9 @@ pub struct Adopting {
     /// change.
     pub inherit_providers: bool,
     pub wake: Arc<dyn Wake>,
+    /// The spaces it declared, whose sessions are on this engine: who may use it besides itself.
+    /// None, and it is no space's.
+    pub spaces: Vec<String>,
 }
 
 /// What the carrier of an adopted engine is told.
@@ -75,6 +77,9 @@ pub enum EngineNote {
 /// One extension's adopted engine: what the carrier keeps, and what the registry lists.
 pub struct Adoption {
     instance: String,
+    ext: harnix_contract::ExtId,
+    /// Its extension's spaces ([`Adopting::spaces`]).
+    spaces: Vec<String>,
     link: Arc<DaemonLink>,
     pub(super) inherits: bool,
     wake: Arc<dyn Wake>,
@@ -103,9 +108,11 @@ impl Adoption {
         turns: Arc<TurnChains>,
     ) -> Arc<Self> {
         let (notes, notes_rx) = mpsc::unbounded_channel();
-        Arc::new(Self {
-            link: DaemonLink::new(InstanceCarrier::Adopted, instance.clone()),
+        Arc::new_cyclic(|me| Self {
+            link: DaemonLink::gated(InstanceCarrier::Adopted, instance.clone(), Arc::new(Gate(me.clone()))),
             instance,
+            ext: spec.ext.clone(),
+            spaces: spec.spaces.clone(),
             inherits: spec.inherit_providers,
             wake: spec.wake.clone(),
             observer,
@@ -122,6 +129,17 @@ impl Adoption {
 
     pub fn instance(&self) -> &str {
         &self.instance
+    }
+
+    /// The link the hub is handed: the daemon link itself, whose gate wakes the process for a
+    /// call and answers its list while it sleeps.
+    pub(super) fn link(&self) -> Arc<DaemonLink> {
+        self.link.clone()
+    }
+
+    /// Whose engine it is, and the spaces its sessions are.
+    pub(super) fn whose(&self) -> (&harnix_contract::ExtId, &[String]) {
+        (&self.ext, &self.spaces)
     }
 
     /// What it tells its carrier; the first caller gets it.
@@ -157,9 +175,8 @@ impl Adoption {
     /// Its process is let go while idle: its sessions as they list now kept to answer with, and
     /// the instance listed hibernating until a call that needs its engine wakes it.
     pub async fn hibernate(&self) {
-        if let Ok(rows) = self.link.ops().list().await {
-            *lock(&self.listed) = rows;
-        }
+        // Kept by the gate as it answers.
+        let _ = self.link.ops().list().await;
         self.asleep.send_replace(Some(now_ms()));
         lock(&self.taken).take();
         self.link.disconnect().await;
@@ -180,11 +197,7 @@ impl Adoption {
             return true;
         }
         match self.link.ops().list().await {
-            Ok(rows) => {
-                let loaded = rows.iter().any(SessionInfo::loaded);
-                *lock(&self.listed) = rows;
-                loaded
-            }
+            Ok(rows) => rows.iter().any(SessionInfo::loaded),
             // What it cannot say is not a sign that nobody uses it.
             Err(_) => true,
         }
@@ -243,12 +256,11 @@ impl TurnWatch for Adoption {
     }
 }
 
-/// The link the hub is handed: the daemon link, behind what wakes the process for a call and
-/// answers its list while it sleeps.
-pub(super) struct AdoptedLink(pub(super) Arc<Adoption>);
+/// What the registry keeps of the instance: its status, and stopping it, which lets it go.
+pub(super) struct AdoptedControl(pub(super) Arc<Adoption>);
 
 #[async_trait::async_trait]
-impl EngineControl for AdoptedLink {
+impl EngineControl for AdoptedControl {
     fn status(&self) -> watch::Receiver<LinkStatus> {
         self.0.link.status()
     }
@@ -274,94 +286,26 @@ impl EngineControl for AdoptedLink {
     }
 }
 
+/// What the daemon link asks of the adoption before each call.
+struct Gate(Weak<Adoption>);
+
 #[async_trait::async_trait]
-impl EngineLink for AdoptedLink {
-    fn ops(&self) -> &dyn EngineOps {
-        self
-    }
-
-    fn take_events(&self) -> Option<EventReceiver> {
-        self.0.link.take_events()
-    }
-
-    async fn mark(&self, id: u64) {
-        self.0.link.mark(id).await
-    }
-}
-
-/// Every call wakes a sleeping engine but the list, which is answered from what it listed last.
-#[async_trait::async_trait]
-impl EngineOps for AdoptedLink {
-    async fn create(&self, params: Value) -> Answer<SessionCreated> {
-        self.0.awake().await?;
-        self.0.link.ops().create(params).await
-    }
-    async fn get(&self, session: &str) -> Answer<SessionInfo> {
-        self.0.awake().await?;
-        self.0.link.ops().get(session).await
-    }
-    async fn list(&self) -> Answer<Vec<SessionInfo>> {
-        if self.0.asleep().is_some() {
-            return Ok(lock(&self.0.listed).clone());
+impl WakeGate for Gate {
+    async fn awake(&self) -> Result<(), RpcError> {
+        match self.0.upgrade() {
+            Some(adoption) => adoption.awake().await,
+            None => Ok(()),
         }
-        let rows = self.0.link.ops().list().await?;
-        *lock(&self.0.listed) = rows.clone();
-        Ok(rows)
     }
-    async fn subscribe(&self, session: &str) -> Answer<Option<Subscribed>> {
-        self.0.awake().await?;
-        self.0.link.ops().subscribe(session).await
+
+    fn asleep_list(&self) -> Option<Vec<SessionInfo>> {
+        let adoption = self.0.upgrade()?;
+        adoption.asleep().map(|_| lock(&adoption.listed).clone())
     }
-    async fn resume(&self, session: &str, from: &SessionInfo) -> Answer<()> {
-        self.0.awake().await?;
-        self.0.link.ops().resume(session, from).await
-    }
-    async fn history_len(&self, session: &str) -> Answer<u64> {
-        self.0.awake().await?;
-        self.0.link.ops().history_len(session).await
-    }
-    async fn transcript(&self, session: &str, limit: usize) -> Answer<Vec<Said>> {
-        self.0.awake().await?;
-        self.0.link.ops().transcript(session, limit).await
-    }
-    async fn tasks(&self, session: &str) -> Answer<Tasks> {
-        self.0.awake().await?;
-        self.0.link.ops().tasks(session).await
-    }
-    async fn run_turn(&self, session: &str, input: TurnInput) -> Answer<Value> {
-        self.0.awake().await?;
-        self.0.link.ops().run_turn(session, input).await
-    }
-    async fn interrupt(&self, session: &str) -> Answer<Value> {
-        self.0.awake().await?;
-        self.0.link.ops().interrupt(session).await
-    }
-    async fn rename(&self, session: &str, title: &str) -> Answer<Value> {
-        self.0.awake().await?;
-        self.0.link.ops().rename(session, title).await
-    }
-    async fn set_model(&self, session: &str, model: &str, provider: Option<&str>) -> Answer<Value> {
-        self.0.awake().await?;
-        self.0.link.ops().set_model(session, model, provider).await
-    }
-    async fn close(&self, params: Value, delete: bool) -> Answer<Value> {
-        self.0.awake().await?;
-        self.0.link.ops().close(params, delete).await
-    }
-    async fn fork(&self, params: Value) -> Answer<SessionCreated> {
-        self.0.awake().await?;
-        self.0.link.ops().fork(params).await
-    }
-    async fn append_entry(&self, session: &str, entry: Entry) -> Answer<Value> {
-        self.0.awake().await?;
-        self.0.link.ops().append_entry(session, entry).await
-    }
-    async fn respond(&self, params: Value) -> Answer<Value> {
-        self.0.awake().await?;
-        self.0.link.ops().respond(params).await
-    }
-    async fn passthrough(&self, method: &str, params: Value) -> Answer<Value> {
-        self.0.awake().await?;
-        self.0.link.ops().passthrough(method, params).await
+
+    fn listed(&self, rows: &[SessionInfo]) {
+        if let Some(adoption) = self.0.upgrade() {
+            *lock(&adoption.listed) = rows.to_vec();
+        }
     }
 }

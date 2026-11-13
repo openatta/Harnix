@@ -1,5 +1,5 @@
 //! Idle hibernation, against the showcase made on-demand (its `watch_sessions` off, so `init`
-//! subscribes to nothing), idling 300 ms here (`HostOptions::idle`) — through the same JSON
+//! subscribes to nothing), idling 300 ms here (as the product says in `Start::limits`) — through the same JSON
 //! loopback as every other host test.
 #![cfg(feature = "compile")]
 
@@ -21,7 +21,7 @@ fn on_demand(watch: bool) -> impl Fn(String) -> String {
 }
 
 async fn idle_rig(edit: impl Fn(String) -> String) -> (Rig, Value) {
-    let rig = Rig::new(|o| o.idle = Some(IDLE));
+    let rig = Rig::idling(IDLE);
     let parts = rig.install(edit).await;
     (rig, parts)
 }
@@ -128,7 +128,7 @@ async fn a_subscription_a_timer_or_a_call_in_flight_holds_it_up() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn resident_always_it_never_hibernates() {
-    let rig = Rig::new(|o| o.idle = Some(IDLE));
+    let rig = Rig::idling(IDLE);
     rig.install(|m| m.replace("watch_sessions = true", "watch_sessions = false")).await;
     tokio::time::sleep(IDLE * 4).await;
     let status = rig.status().await;

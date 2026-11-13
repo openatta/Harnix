@@ -12,7 +12,7 @@ use harnix_contract::sync::lock;
 use harnix_contract::{codes, RpcError, Subject};
 use harnix_engine_api::ops::SessionInfo;
 use harnix_contract::s1::{caps, Capability, RowScope};
-use harnix_kernel::{Access, Owner, Rpc};
+use harnix_kernel::{Access, CallContext, Owner, Rpc};
 use serde_json::{json, Value};
 
 use crate::rows::{answer, HubCell, HubRow};
@@ -160,7 +160,7 @@ fn engine(hub: &HubCell, name: &'static str, access: Access, through: Through) -
         name,
         owner: Owner::Engine,
         access,
-        handler: Some(answer(hub, name, through.checked, move |h, _, p| async move { h.pass_through(name, p, through).await })),
+        handler: Some(answer(hub, name, through.checked, move |h, cx, p| async move { h.pass_through(&cx, name, p, through).await })),
     }
 }
 
@@ -172,7 +172,7 @@ pub(crate) fn rows(hub: &HubCell) -> Vec<HubRow> {
             name: "harnix.session.create",
             owner: Owner::Kernel(harnix_kernel::KernelPart::Hub),
             access: Access::device().scoped(RowScope::Space),
-            handler: Some(answer(hub, "harnix.session.create", false, |h, cx, p| async move { h.create(&cx.subject, p).await })),
+            handler: Some(answer(hub, "harnix.session.create", false, |h, cx, p| async move { h.create(&cx, p).await })),
         },
         HubRow::Method {
             name: "harnix.session.fork",
@@ -218,7 +218,7 @@ pub(crate) fn rows(hub: &HubCell) -> Vec<HubRow> {
 impl Hub {
     /// One engine method into the instance the call names (or the main instance), with the
     /// instance and space names taken off: the engine has no notion of either.
-    async fn pass_through(self: &Arc<Self>, method: &str, params: Value, through: Through) -> Rpc<Value> {
+    async fn pass_through(self: &Arc<Self>, cx: &CallContext, method: &str, params: Value, through: Through) -> Rpc<Value> {
         let instance = self.instance_of(&params)?;
         let linked = self.engine(&instance)?;
         let extension = linked.is_extension();
@@ -227,6 +227,14 @@ impl Hub {
                 codes::REFUSED,
                 format!("instance `{instance}` runs an extension's engine: its settings and plugins are its carrier's, and nobody's to change"),
             ));
+        }
+        // An extension's own engine is its own, its spaces' and the system space's, whatever the
+        // row: before anything reaches it, or wakes it.
+        if extension {
+            if let Some(slot) = self.slot(&instance) {
+                let (space, crosses) = self.claim_of(&params);
+                crate::spaces::may_use(&slot, cx, &space, crosses)?;
+            }
         }
         let session = params.get("session_id").and_then(Value::as_str).map(str::to_string);
         // A caller that claimed a space is told of that space's sessions only: the engine lists

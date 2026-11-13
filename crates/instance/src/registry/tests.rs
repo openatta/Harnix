@@ -1,7 +1,6 @@
 use std::sync::{Mutex, OnceLock, Weak};
 
 use harnix_contract::Subject;
-use harnix_engine_api::ops::EngineOps;
 use harnix_kernel::TopicChanged;
 
 use super::*;
@@ -202,7 +201,8 @@ async fn an_adopted_engine_is_the_extensions_and_sleeps_until_it_is_needed() {
     let (registry, seen) = registry(dir.path());
     let waking = Arc::new(Waking::default());
     let ext = harnix_contract::ExtId::package("acme.board").unwrap();
-    let spec = Adopting { ext, data_root: dir.path().join("run/engine"), inherit_providers: false, wake: waking.clone() };
+    let spaces = vec!["acme.board".to_string()];
+    let spec = Adopting { ext, data_root: dir.path().join("run/engine"), inherit_providers: false, wake: waking.clone(), spaces };
     let adoption = registry.adopt(spec).await.unwrap();
     let _ = waking.adoption.set(Arc::downgrade(&adoption));
     let mut notes = adoption.notes().expect("the first caller has its notes");
@@ -233,7 +233,8 @@ async fn an_adopted_engine_is_the_extensions_and_sleeps_until_it_is_needed() {
     // Let go while idle: listed hibernating; its list answered from before, waking nothing.
     adoption.hibernate().await;
     assert_eq!(row(&registry, "proc.acme.board")["status"]["state"], "hibernating");
-    let link = adopt::AdoptedLink(adoption.clone());
+    let link = adoption.link();
+    let link = link.ops();
     let rows = link.list().await.unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(waking.woken.load(std::sync::atomic::Ordering::Relaxed), 0);
@@ -260,6 +261,9 @@ async fn an_adopted_engine_is_the_extensions_and_sleeps_until_it_is_needed() {
     assert_eq!(notes.recv().await.unwrap(), EngineNote::Flooded);
     assert!(notes.try_recv().is_err(), "told once");
     assert!(registry.facts("proc.acme.board").is_some());
+    // The extension's, and its spaces': what the hub holds a call naming it to.
+    let whose = InstanceBook::listed(&*registry, "proc.acme.board").unwrap();
+    assert_eq!((whose.extension.as_ref().map(|e| e.as_str()), whose.spaces.as_slice()), (Some("acme.board"), &["acme.board".to_string()][..]));
 
     // Nobody stops or restarts it but its extension.
     assert_eq!(registry.remove("proc.acme.board").await.unwrap_err().code, codes::REFUSED);
@@ -269,6 +273,7 @@ async fn an_adopted_engine_is_the_extensions_and_sleeps_until_it_is_needed() {
         data_root: dir.path().join("run/engine"),
         inherit_providers: false,
         wake: waking.clone(),
+        spaces: Vec::new(),
     };
     assert_eq!(registry.adopt(again).await.err().map(|e| e.code), Some(codes::REFUSED));
 

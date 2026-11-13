@@ -344,6 +344,7 @@ async fn every_port_method_crosses_the_wire_its_own_way() {
             config: json!({"k": 1}),
             secrets: [("TOKEN".to_string(), "t".to_string())].into(),
             parts: Value::Null,
+            limits: Default::default(),
             pkg: None,
             run: None,
         })
