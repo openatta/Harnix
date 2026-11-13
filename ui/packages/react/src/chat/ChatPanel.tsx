@@ -45,6 +45,7 @@ import {
   type ChatIds,
   type ChatRenderers,
   type ChatRole,
+  type ChatTrust,
   type ChatVariant,
   type MentionItem,
   type QuickReply,
@@ -57,6 +58,8 @@ export interface ChatPanelProps {
   instance?: string;
   /** 调用方所在的 space，每个调用都带上（概念与架构 §5.4） */
   space?: string;
+  /** 按不受信内容画：`extension`。缺省看 attach 的应答（中枢给扩展进程里的引擎的会话标 `trust`） */
+  trust?: ChatTrust;
   /** 发送时加进 `harnix.session.send` 的参数（例如 `@session` 引用）。要稳定的引用，否则会话会重开 */
   sendExtras?: (text: string) => Record<string, unknown>;
   /** 拿到控制器时告诉调用方（应用往流里放自己的块、外部触发发送时用） */
@@ -279,6 +282,7 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
     lastAsks.current = { key, names: toolNames, tools, asks: next };
     return next;
   }, [blocks, toolNames]);
+  const untrusted = props.trust === "extension" || state?.trust === "extension";
   const context = useMemo<ChatContextValue>(
     () => ({
       variant,
@@ -288,8 +292,9 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
       diffGeneration: diffs.generation,
       toolSummary: props.renderers?.toolSummary,
       asks,
+      untrusted,
     }),
-    [variant, toolNames, props.ids, diffs, props.renderers?.toolSummary, asks],
+    [variant, toolNames, props.ids, diffs, props.renderers?.toolSummary, asks, untrusted],
   );
 
   // 应用自己发送（send / interrupt 给了）：一轮由服务端发起，客户端看到的是"别处在跑"，照样算在跑、能停

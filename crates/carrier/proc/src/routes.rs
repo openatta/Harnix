@@ -196,7 +196,8 @@ impl RouteHandler for McpEndpoint {
 }
 
 async fn call(registry: &Registry, app: &Loaded, params: &Value) -> Result<Value, (i64, String)> {
-    let control = match registry.control(&app.id) {
+    let _held = registry.hold(&app.id);
+    let control = match registry.awake(&app.id).await {
         Some(control) if app.component => control,
         _ => return Err((-32601, format!("`{}` has no tools", app.id))),
     };

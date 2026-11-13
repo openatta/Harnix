@@ -6,6 +6,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use harnix_engine::{Connection, DaemonLink};
+use harnix_engine_api::link::{EngineLink, InstanceCarrier};
 use harnix_proc::{run, Options};
 use harnix_wasm_port::rpc::ControlClient;
 use harnix_wasm_port::socket::{Answer, Inbound, Options as WireOptions, SocketWire};
@@ -206,23 +208,6 @@ fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
     }
 }
 
-/// A request to the process's own engine, on the stream it was given: one line out, the line that
-/// answers it back.
-async fn engine_call(stream: &mut tokio::io::BufReader<UnixStream>, id: u64, method: &str) -> Value {
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
-    let request = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": {}});
-    stream.get_mut().write_all(format!("{request}\n").as_bytes()).await.unwrap();
-    loop {
-        let mut line = String::new();
-        let n = tokio::time::timeout(Duration::from_secs(30), stream.read_line(&mut line)).await.unwrap().unwrap();
-        assert!(n > 0, "the engine's stream closed");
-        let frame: Value = serde_json::from_str(&line).unwrap();
-        if frame["id"] == json!(id) {
-            return frame;
-        }
-    }
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn it_serves_its_own_engine_on_the_stream_it_was_given() {
     let dir = tempfile::tempdir().unwrap();
@@ -234,12 +219,14 @@ async fn it_serves_its_own_engine_on_the_stream_it_was_given() {
     let running = tokio::spawn(run(options, process, std::future::pending()));
     hello(&product).await;
 
-    // The product is the only one on it, and the engine answers as a daemon does.
-    let mut engine = tokio::io::BufReader::new(theirs);
-    let pong = engine_call(&mut engine, 1, "daemon.ping").await;
-    assert!(pong["error"].is_null(), "{pong}");
-    let sessions = engine_call(&mut engine, 2, "session.list").await;
-    assert!(sessions["error"].is_null(), "{sessions}");
+    // The product is the only one on it, and the engine answers as a daemon of this build does:
+    // the link the product adopts it with takes the stream, and lists its sessions.
+    let link = DaemonLink::new(InstanceCarrier::Adopted, "proc.example.showcase");
+    let _taken = tokio::time::timeout(Duration::from_secs(30), link.take(Connection::unix(theirs), None))
+        .await
+        .unwrap()
+        .unwrap_or_else(|e| panic!("the engine was not taken: {e:?}"));
+    assert!(link.ops().list().await.unwrap().is_empty());
     // Its data root is under the run directory.
     assert!(run_dir.join("engine").is_dir());
 

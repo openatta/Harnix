@@ -36,6 +36,9 @@ pub enum LinkStatus {
     Degraded { since_ms: u64, reason: String },
     /// Not coming back without someone changing something.
     Down { reason: String },
+    /// Let go while idle, with what it answers without its engine kept: the next call that needs
+    /// the engine starts it again. How an instance is listed, never what a link says of itself.
+    Hibernating { since_ms: u64 },
 }
 
 impl LinkStatus {
@@ -50,6 +53,7 @@ impl LinkStatus {
             LinkStatus::Ready => "lost its engine mid-call".to_string(),
             LinkStatus::Degraded { reason, .. } => format!("is reconnecting ({reason})"),
             LinkStatus::Down { reason } => format!("is down ({reason})"),
+            LinkStatus::Hibernating { .. } => "is hibernating".to_string(),
         };
         RpcError::new(codes::INSTANCE_UNAVAILABLE, format!("the instance {why}"))
     }

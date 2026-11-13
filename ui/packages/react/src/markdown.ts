@@ -4,7 +4,14 @@
  * 移植自 旧界面 ui/runtime/markdown.js。刻意做小：不高亮、不排公式、不透传 HTML。
  * 加任何标记之前先把全部文本转义，所以模型输出 `<script>` 只会显示成文字——这是用
  * `dangerouslySetInnerHTML` 渲染它的前提。
+ *
+ * `untrusted`（扩展进程里的引擎的会话）：链接不成为 `<a>`，写成文字加看得见的网址，点了也不会去任何地方。
  */
+
+export interface MarkdownOptions {
+  /** 不受信的内容：链接画成不可点的文字与网址 */
+  untrusted?: boolean;
+}
 
 export function escapeHtml(text: string): string {
   return text
@@ -15,7 +22,8 @@ export function escapeHtml(text: string): string {
     .replace(/'/g, "&#39;");
 }
 
-export function markdown(source: string | null | undefined): string {
+export function markdown(source: string | null | undefined, options: MarkdownOptions = {}): string {
+  const inline = options.untrusted ? inertInline : liveInline;
   const fences: string[] = [];
   const text = String(source || "").replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang: string, code: string) => {
     const cls = lang ? ` data-lang="${escapeHtml(lang)}"` : "";
@@ -158,10 +166,18 @@ function splitRow(line: string): string[] | null {
   return cells.length > 1 ? cells : null;
 }
 
-function inline(text: string): string {
+function formatted(text: string): string {
   return escapeHtml(text)
     .replace(/`([^`]+)`/g, (_, code: string) => `<code>${code}</code>`)
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/(^|[\s(（])\*([^*\n]+)\*/g, "$1<em>$2</em>")
-    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer noopener">$1</a>');
+    .replace(/(^|[\s(（])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+}
+
+function liveInline(text: string): string {
+  return formatted(text).replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer noopener">$1</a>');
+}
+
+/** 不受信：`[文字](网址)` 写成"文字 (网址)"，网址照原样看得见，没有 `<a>`。 */
+function inertInline(text: string): string {
+  return formatted(text).replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<span class="hx-inert-link">$1</span> (<code>$2</code>)');
 }

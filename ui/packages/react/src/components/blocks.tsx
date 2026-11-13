@@ -151,6 +151,15 @@ export const ContextRow = memo(function ContextRow({ block }: { block: BlockOf<"
 });
 
 export const ImageBlock = memo(function ImageBlock({ block }: { block: BlockOf<"image"> }) {
+  const strings = useStrings();
+  const { untrusted } = useChat();
+  // 不受信的会话只画随消息带来的图（`data:`）：外部网址不去取，写出来给人看
+  if (untrusted && !block.src.startsWith("data:"))
+    return (
+      <div className="hx-blk" data-testid="conv-image" data-state="blocked">
+        <span className="hx-faint">{strings.image}</span> <code>{block.src}</code>
+      </div>
+    );
   return (
     <div className="hx-blk" data-testid="conv-image">
       <img className="hx-image" src={block.src} alt="" />

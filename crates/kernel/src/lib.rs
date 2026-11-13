@@ -39,7 +39,7 @@ pub use clients::{ClientId, ClientRegistry};
 pub use instances::{InstanceBook, InstanceObserver, InstanceTrust, Listed};
 pub use owner::{KernelPart, Owner};
 pub use topics::{TopicChanged, TopicSource};
-pub use turns::TurnChains;
+pub use turns::{TurnChains, TurnWatch};
 
 use harnix_contract::{RpcError, Subject};
 

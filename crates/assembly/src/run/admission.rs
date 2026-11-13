@@ -128,6 +128,7 @@ pub(super) fn admit(
             packages.clone(),
             DynamicParts {
                 router: router.clone(),
+                instances: instances.clone(),
                 seats: seats.clone(),
                 servers: parts.servers,
                 state_root: parts.state_root,

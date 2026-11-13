@@ -1,6 +1,7 @@
 use std::sync::{Mutex, OnceLock, Weak};
 
 use harnix_contract::Subject;
+use harnix_engine_api::ops::EngineOps;
 use harnix_kernel::TopicChanged;
 
 use super::*;
@@ -10,6 +11,8 @@ use super::*;
 struct Seen {
     registry: OnceLock<Weak<InstanceRegistry>>,
     log: Mutex<Vec<String>>,
+    /// What it says when asked whether an instance's sessions are in use.
+    engaged: std::sync::atomic::AtomicBool,
 }
 
 impl Seen {
@@ -33,7 +36,7 @@ impl TopicChanged for Seen {
 #[async_trait::async_trait]
 impl InstanceObserver<dyn EngineLink> for Seen {
     async fn added(&self, id: &str, _link: Arc<dyn EngineLink>, trust: InstanceTrust) {
-        assert_eq!(trust, InstanceTrust::Product);
+        assert_eq!(trust.is_extension(), id.starts_with("proc."), "{id}: {trust:?}");
         self.note("added", id);
     }
     async fn removed(&self, id: &str) {
@@ -42,6 +45,9 @@ impl InstanceObserver<dyn EngineLink> for Seen {
     async fn restarted(&self, id: &str, link: Arc<dyn EngineLink>) {
         assert!(!link.status().borrow().is_ready());
         self.note("restarted", id);
+    }
+    async fn engaged(&self, _id: &str) -> bool {
+        self.engaged.load(std::sync::atomic::Ordering::Relaxed)
     }
     fn space(&self, claimed: Option<&str>) -> Option<String> {
         let space = claimed.unwrap_or("home");
@@ -142,4 +148,131 @@ async fn a_claimed_space_is_one_the_hub_has() {
         .await
         .unwrap_err();
     assert_eq!(e.code, codes::REFUSED, "another module's template");
+}
+
+/// An engine at the other end of a stream, in this test: it answers every request with one value
+/// that is every answer the link reads — the protocol it speaks, and `sessions` — and counts them.
+fn engine(sessions: Value) -> (std::os::unix::net::UnixStream, Arc<std::sync::atomic::AtomicUsize>) {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    let (ours, theirs) = std::os::unix::net::UnixStream::pair().unwrap();
+    theirs.set_nonblocking(true).unwrap();
+    let asked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = asked.clone();
+    tokio::spawn(async move {
+        let (r, mut w) = tokio::net::UnixStream::from_std(theirs).unwrap().into_split();
+        let mut lines = tokio::io::BufReader::new(r).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let request: Value = serde_json::from_str(&line).unwrap();
+            count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let result = json!({"protocol_version": harnix_engine::protocol_version(), "sessions": sessions, "session_id": "s1"});
+            let reply = json!({"jsonrpc": "2.0", "id": request["id"], "result": result});
+            if w.write_all(format!("{reply}\n").as_bytes()).await.is_err() {
+                break;
+            }
+        }
+    });
+    (ours, asked)
+}
+
+/// Wakes by handing the adoption a new engine's stream, once it is set.
+#[derive(Default)]
+struct Waking {
+    adoption: OnceLock<Weak<Adoption>>,
+    woken: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl Wake for Waking {
+    async fn wake(&self) -> Rpc<()> {
+        self.woken.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let adoption = self.adoption.get().and_then(Weak::upgrade).expect("adopted");
+        adoption.attach(engine(json!([{"session_id": "s1", "status": "active"}])).0).await
+    }
+}
+
+fn row(registry: &InstanceRegistry, id: &str) -> Value {
+    registry.view()["instances"].as_array().unwrap().iter().find(|i| i["id"] == id).cloned().unwrap_or(Value::Null)
+}
+
+/// An extension's engine is listed as its own, carried by each run of its process in turn; let go
+/// while idle, it answers its list without waking and wakes for anything else.
+#[tokio::test]
+async fn an_adopted_engine_is_the_extensions_and_sleeps_until_it_is_needed() {
+    let dir = tempfile::tempdir().unwrap();
+    let (registry, seen) = registry(dir.path());
+    let waking = Arc::new(Waking::default());
+    let ext = harnix_contract::ExtId::package("acme.board").unwrap();
+    let spec = Adopting { ext, data_root: dir.path().join("run/engine"), inherit_providers: false, wake: waking.clone() };
+    let adoption = registry.adopt(spec).await.unwrap();
+    let _ = waking.adoption.set(Arc::downgrade(&adoption));
+    let mut notes = adoption.notes().expect("the first caller has its notes");
+    assert_eq!(seen.log(), ["added proc.acme.board listed=false"]);
+    let listed = row(&registry, "proc.acme.board");
+    assert_eq!((listed["carrier"].as_str(), listed["trust"].as_str()), (Some("adopted"), Some("extension")), "{listed}");
+    assert_eq!(listed["owner"], "module:acme.board");
+    assert_eq!(listed["status"]["state"], "starting");
+    assert!(dir.path().join("run/engine").is_dir());
+    assert_eq!(registry.facts("proc.acme.board").unwrap().trust.label(), "extension");
+
+    // Its process's first run attaches: up, and what is in its memory is in use.
+    let (stream, _) = engine(json!([{"session_id": "s1", "status": "active"}]));
+    adoption.attach(stream).await.unwrap();
+    assert_eq!(row(&registry, "proc.acme.board")["status"]["state"], "ready");
+    assert!(adoption.engaged().await, "a session in its memory");
+
+    // Gone, and back on the next run.
+    adoption.detach("its process exited").await;
+    assert_eq!(row(&registry, "proc.acme.board")["status"]["state"], "degraded");
+    let (stream, _) = engine(json!([{"session_id": "s1", "status": "stored"}]));
+    adoption.attach(stream).await.unwrap();
+    assert!(!adoption.engaged().await, "nothing in its memory, nobody watching");
+    seen.engaged.store(true, std::sync::atomic::Ordering::Relaxed);
+    assert!(adoption.engaged().await, "the hub has one of its sessions in use");
+    seen.engaged.store(false, std::sync::atomic::Ordering::Relaxed);
+
+    // Let go while idle: listed hibernating; its list answered from before, waking nothing.
+    adoption.hibernate().await;
+    assert_eq!(row(&registry, "proc.acme.board")["status"]["state"], "hibernating");
+    let link = adopt::AdoptedLink(adoption.clone());
+    let rows = link.list().await.unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(waking.woken.load(std::sync::atomic::Ordering::Relaxed), 0);
+    assert!(!adoption.engaged().await);
+    // Anything else wakes it, once.
+    let (a, b) = tokio::join!(link.get("s1"), link.tasks("s1"));
+    a.unwrap();
+    b.unwrap();
+    assert_eq!(waking.woken.load(std::sync::atomic::Ordering::Relaxed), 1);
+    assert_eq!(row(&registry, "proc.acme.board")["status"]["state"], "ready");
+
+    // The hub's turns on it reach its carrier, with their chains.
+    registry.factory.turns.start("proc.acme.board", "s1", vec![harnix_contract::ChainLink::new("acme.board", "c1")].into());
+    registry.factory.turns.settle("proc.acme.board", "s1");
+    registry.factory.turns.start("main", "s9", vec![harnix_contract::ChainLink::new("acme.other", "c2")].into());
+    assert_eq!(adoption.turn_chain("s1"), Vec::<harnix_contract::ChainLink>::new());
+    let first = notes.recv().await.unwrap();
+    assert_eq!(first, EngineNote::TurnStarted { session_id: "s1".into(), chain: vec![harnix_contract::ChainLink::new("acme.board", "c1")] });
+    assert_eq!(notes.recv().await.unwrap(), EngineNote::TurnSettled { session_id: "s1".into() });
+
+    // Flooding: the carrier is told, once a run; the instance stays.
+    registry.flooding("proc.acme.board", 3);
+    registry.flooding("proc.acme.board", 4);
+    assert_eq!(notes.recv().await.unwrap(), EngineNote::Flooded);
+    assert!(notes.try_recv().is_err(), "told once");
+    assert!(registry.facts("proc.acme.board").is_some());
+
+    // Nobody stops or restarts it but its extension.
+    assert_eq!(registry.remove("proc.acme.board").await.unwrap_err().code, codes::REFUSED);
+    assert_eq!(registry.rebuild("proc.acme.board").await.unwrap_err().code, codes::REFUSED);
+    let again = Adopting {
+        ext: harnix_contract::ExtId::package("acme.board").unwrap(),
+        data_root: dir.path().join("run/engine"),
+        inherit_providers: false,
+        wake: waking.clone(),
+    };
+    assert_eq!(registry.adopt(again).await.err().map(|e| e.code), Some(codes::REFUSED));
+
+    registry.release("acme.board").await;
+    assert!(registry.facts("proc.acme.board").is_none());
+    assert_eq!(seen.log().last().unwrap(), "removed proc.acme.board listed=false");
 }

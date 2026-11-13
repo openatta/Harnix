@@ -70,6 +70,11 @@ pub trait InstanceObserver<L: ?Sized + Send + Sync + 'static>: TopicChanged {
     /// sessions anyone watches back in step.
     async fn restarted(&self, id: &str, link: Arc<L>);
 
+    /// Whether anyone is using one of the instance's sessions: a client watching it, a turn
+    /// running or queued in it, a task or a question of it outstanding. What an engine let go
+    /// while idle is let go by.
+    async fn engaged(&self, id: &str) -> bool;
+
     /// The space a call means — the one it claims, or the default space when it claims none —
     /// when this product has it.
     fn space(&self, claimed: Option<&str>) -> Option<String>;

@@ -21,6 +21,7 @@ export {
   type ChatRenderers,
   type ChatRole,
   type ChatTone,
+  type ChatTrust,
   type ChatVariant,
   type MentionItem,
   type QuickReply,
@@ -44,7 +45,7 @@ export { SessionList, type SessionListProps } from "./components/SessionList";
 export { ConnectionBadge } from "./components/ConnectionBadge";
 export { BuiltinToolRow, Disclosure, STATUS_GLYPH, ToolDetails, argumentSummary, askedTool, clip, rowTitle, toolAsks, useToolState, type ToolAsks, type ToolRowContribution, type UserRowContribution } from "./components/blocks";
 export { lineDiff, hunks, type DiffLine } from "./diff";
-export { markdown, escapeHtml } from "./markdown";
+export { markdown, escapeHtml, type MarkdownOptions } from "./markdown";
 export { zhCN, en, uiStrings, type HarnixUiStrings } from "./strings";
 export { Icon } from "./chat/icons";
 export { GLYPHS, Glyph, glyphHtml, iconsFrom, toolGlyph } from "./glyph";
