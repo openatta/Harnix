@@ -53,6 +53,15 @@ fn manifest_value(root: &Path) -> Value {
 /// files as they are on disk — what is there may not be what was installed.
 pub(crate) fn installed(state: &State, record: &InstallRecord, verified: Option<&Verified>) -> Rpc<Installed> {
     let pkg_dir = state.package_dir(&record.id).join(&record.version);
+    // Its record without its files: nothing to start, and nothing to check them against.
+    if !pkg_dir.join(harnix_package::manifest::MANIFEST).is_file() {
+        return Err(refused(format!(
+            "`{}` {}: its files are not there ({}); install it again",
+            record.id,
+            record.version,
+            pkg_dir.display()
+        )));
+    }
     match verified {
         Some(verified) => described(state, record, Some(verified)),
         None => {
@@ -88,6 +97,14 @@ fn described(state: &State, record: &InstallRecord, verified: Option<&Verified>)
             record.id
         )));
     }
+    let installed = Installed::new(id, &record.version, pkg_dir.clone(), app_dir.join(crate::records::RUN))
+        .record(serde_json::to_value(record).map_err(|e| internal(e.to_string()))?)
+        .config(state.sections.get(&record.id).cloned().unwrap_or(Value::Null))
+        .trust(verified.map(|v| v.trust.as_str()).unwrap_or(record.trust()));
+    // Taking back what it put in place needs only its record: its files may be gone.
+    if verified.is_none() && !pkg_dir.join(harnix_package::manifest::MANIFEST).is_file() {
+        return Ok(installed);
+    }
     let manifest = harnix_package::acquire::manifest_in(&pkg_dir)?;
     let (held, calls) = grants(&manifest);
     // Only the secrets its `env` names: what the person consented to it reading.
@@ -99,13 +116,7 @@ fn described(state: &State, record: &InstallRecord, verified: Option<&Verified>)
         .filter(|(name, _)| manifest.capabilities.env.contains(name))
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
-    let mut installed = Installed::new(id, &record.version, pkg_dir.clone(), app_dir.join(crate::records::RUN))
-        .record(serde_json::to_value(record).map_err(|e| internal(e.to_string()))?)
-        .manifest(manifest_value(&pkg_dir))
-        .grants(held, calls)
-        .config(state.sections.get(&record.id).cloned().unwrap_or(Value::Null))
-        .secrets(secrets)
-        .trust(verified.map(|v| v.trust.as_str()).unwrap_or(record.trust()));
+    let mut installed = installed.manifest(manifest_value(&pkg_dir)).grants(held, calls).secrets(secrets);
     let fingerprint = state.carrier.fingerprint();
     if let (Some(verified), Some(component)) = (verified, &manifest.component) {
         if let Some(sha) = verified.files.get(&format!("wasm/{}.{fingerprint}.cwasm", component.name)) {
@@ -126,7 +137,18 @@ fn parts(placed: Value, trust: &str, source: &str) -> Value {
 /// Start an installed package: at process start, when it is enabled, after its data is cleared.
 /// What its carrier placed for it is written to its record when it changed.
 pub(crate) async fn start(state: &State, record: &InstallRecord) -> Rpc<Value> {
-    let running = state.carrier.start(&*state.host, &state.cx, installed(state, record, None)?).await?;
+    let running = async { state.carrier.start(&*state.host, &state.cx, installed(state, record, None)?).await }.await;
+    // Why it is not running, for the list, until it starts or is switched off.
+    let running = match running {
+        Ok(running) => {
+            crate::lock(&state.failed).remove(&record.id);
+            running
+        }
+        Err(e) => {
+            crate::lock(&state.failed).insert(record.id.clone(), e.message.clone());
+            return Err(e);
+        }
+    };
     let (placed, summary) = running.into_parts();
     let source = record.parts.get("source").and_then(Value::as_str).unwrap_or("file");
     let next = InstallRecord { parts: parts(placed, record.trust(), source), reason: None, ..record.clone() };
