@@ -44,6 +44,11 @@ pub struct InstallRecord {
     /// what uninstalling has to take back.
     #[serde(default, skip_serializing_if = "Value::is_null")]
     pub parts: Value,
+    /// The sha256 of the manifest it was installed with — the one disclosed and consented to:
+    /// every start checks the manifest on disk against it, and a process of its own must report
+    /// the same.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest: Option<String>,
     /// Why the store withdrew this version, as its catalog said when it was last read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revoked: Option<String>,
