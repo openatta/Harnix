@@ -1,5 +1,6 @@
-//! A child started with a sandbox: on macOS inside `sandbox-exec`, on Linux handed its spec to
-//! apply itself. What a real extension process can reach under it is `crates/proc/tests/sandbox.rs`.
+//! A child started with a sandbox: on macOS inside `sandbox-exec`, on Linux under Landlock applied
+//! between fork and exec. What a real extension process can reach under it is
+//! `crates/proc/tests/sandbox.rs`.
 
 use std::time::Duration;
 
@@ -12,9 +13,14 @@ async fn run(spec: SandboxSpec, script: &str, out: &std::path::Path) -> String {
     std::fs::read_to_string(out).unwrap_or_default()
 }
 
-#[cfg(target_os = "macos")]
+/// macOS always runs it; Linux when Landlock and Yama are there, and otherwise says it did not.
 #[tokio::test]
 async fn a_sandboxed_child_reaches_its_own_directory_and_not_the_one_beside_it() {
+    if let Err(why) = harnix_supervise::sandbox::available() {
+        assert!(!cfg!(target_os = "macos"), "macOS has `sandbox-exec`: {why}");
+        eprintln!("not run: {why}");
+        return;
+    }
     let tmp = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(tmp.path()).unwrap();
     let (own, beside) = (root.join("own"), root.join("beside"));
@@ -30,21 +36,6 @@ async fn a_sandboxed_child_reaches_its_own_directory_and_not_the_one_beside_it()
     );
     assert_eq!(run(SandboxSpec::new().read_write(&own), &script, &out).await, "refused\nrefused\n");
     assert!(!beside.join("x").exists());
-}
-
-#[cfg(target_os = "linux")]
-#[tokio::test]
-async fn a_child_on_linux_is_handed_its_spec_to_apply() {
-    if let Err(why) = harnix_supervise::sandbox::available() {
-        eprintln!("not run: {why}");
-        return;
-    }
-    let tmp = tempfile::tempdir().unwrap();
-    let out = tmp.path().join("out");
-    let script = format!("printf '%s' \"${}\" > {}", harnix_supervise::sandbox::ENV, out.display());
-    let spec = SandboxSpec::new().read_write(tmp.path());
-    let said = run(spec.clone(), &script, &out).await;
-    assert_eq!(said, spec.to_env(&std::fs::canonicalize("/bin/sh").unwrap()).unwrap());
 }
 
 #[tokio::test]

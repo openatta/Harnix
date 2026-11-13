@@ -63,8 +63,8 @@ impl Answering {
     }
 
     /// What a `ctl.start` may be: the only one, for this extension, and without a package or run
-    /// directory of its own — they are on the command line, where the sandbox needed them before
-    /// there was a wire.
+    /// directory of its own — they are on the command line, given with the sandbox that was made
+    /// from them before there was a wire.
     fn check_start(&self, start: &Value) -> Result<(), RpcError> {
         if self.started.swap(true, Ordering::SeqCst) {
             return Err(refused("this extension process was started already: `ctl.start` comes once"));

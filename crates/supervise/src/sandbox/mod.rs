@@ -9,21 +9,20 @@
 //! | system | mechanism | applied |
 //! |---|---|---|
 //! | macOS | `sandbox-exec` with a profile made from the spec ([`macos::profile`]) | by the exec: `sandbox-exec -p <profile> <program> …` |
-//! | Linux | Landlock and `PR_SET_NO_NEW_PRIVS` | by the child, first thing: the spec reaches it in [`ENV`] |
+//! | Linux | Landlock and `PR_SET_NO_NEW_PRIVS` | by the spawn, between fork and exec: the ruleset is built before the fork |
 //! | anything else | — | never: a spec is refused |
 //!
-//! A child that cannot be sandboxed is not started unconfined: [`available`] says why, and
-//! spawning with a spec fails with the same reason.
+//! Either way the sandbox is the spawner's to apply, before the child runs anything of its own:
+//! the child neither asks for it nor can leave it out. A child that cannot be sandboxed is not
+//! started unconfined: [`available`] says why, and spawning with a spec fails with the same reason.
 
+#[cfg(target_os = "linux")]
+pub(crate) mod linux;
 pub mod macos;
 
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
-
-/// Where a child that sandboxes itself (Linux) finds its spec, as [`SandboxSpec::to_env`] writes
-/// it. `harnix-proc` reads it under the same name.
-pub const ENV: &str = "HARNIX_SANDBOX";
 
 /// The child's own part of the file system. Paths are absolute; a directory covers what is under it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -48,23 +47,7 @@ impl SandboxSpec {
         self
     }
 
-    /// The spec as [`ENV`] carries it to a child that applies it itself: a line a path, its access
-    /// (`rw`, `ro`, or `rx` — read and execute, which only `program` gets), a tab, the path.
-    pub fn to_env(&self, program: &Path) -> io::Result<String> {
-        let mut out = String::new();
-        let lines = std::iter::once(("rx", program))
-            .chain(self.read_write.iter().map(|p| ("rw", p.as_path())))
-            .chain(self.read_only.iter().map(|p| ("ro", p.as_path())));
-        for (access, path) in lines {
-            out.push_str(access);
-            out.push('\t');
-            out.push_str(text(path)?);
-            out.push('\n');
-        }
-        Ok(out)
-    }
-
-    /// Every path is absolute, UTF-8 and on one line: what a profile and [`ENV`] can carry.
+    /// Every path is absolute, UTF-8 and on one line: what a profile can carry.
     fn check(&self) -> io::Result<()> {
         for path in self.read_write.iter().chain(&self.read_only) {
             text(path)?;
@@ -73,7 +56,7 @@ impl SandboxSpec {
     }
 }
 
-/// `path` as text a profile or [`ENV`] can carry.
+/// `path` as text a profile can carry.
 pub(crate) fn text(path: &Path) -> io::Result<&str> {
     let refuse = |why: &str| io::Error::new(io::ErrorKind::InvalidInput, format!("sandbox path {}: {why}", path.display()));
     let s = path.to_str().ok_or_else(|| refuse("not UTF-8"))?;
@@ -170,12 +153,13 @@ fn landlock_abi() -> Result<u32, Unavailable> {
     Ok(abi as u32)
 }
 
-/// What a spawn runs instead of the bare program: the program, its arguments and what to add to
-/// its environment.
+/// What a spawn runs instead of the bare program: the program and its arguments, and on Linux
+/// the ruleset the child restricts itself to before the exec.
 pub(crate) struct Wrapped {
     pub program: PathBuf,
     pub args: Vec<String>,
-    pub env: Vec<(String, String)>,
+    #[cfg(target_os = "linux")]
+    pub ruleset: Option<linux::Ruleset>,
 }
 
 /// Put `program args` under `spec`, or say why it cannot be.
@@ -189,28 +173,26 @@ pub(crate) fn wrap(spec: &SandboxSpec, program: &Path, args: &[String]) -> io::R
         Mechanism::SandboxExec => {
             let mut wrapped = vec!["-p".to_string(), macos::profile(spec, &program)?, text(&program)?.to_string()];
             wrapped.extend(args.iter().cloned());
-            Ok(Wrapped { program: macos::SANDBOX_EXEC.into(), args: wrapped, env: Vec::new() })
+            Ok(Wrapped {
+                program: macos::SANDBOX_EXEC.into(),
+                args: wrapped,
+                #[cfg(target_os = "linux")]
+                ruleset: None,
+            })
         }
-        Mechanism::Landlock { .. } => Ok(Wrapped {
-            env: vec![(ENV.to_string(), spec.to_env(&program)?)],
-            program,
-            args: args.to_vec(),
-        }),
+        #[cfg(target_os = "linux")]
+        Mechanism::Landlock { abi } => {
+            let ruleset = linux::ruleset(spec, &program, abi)?;
+            Ok(Wrapped { program, args: args.to_vec(), ruleset: Some(ruleset) })
+        }
+        #[cfg(not(target_os = "linux"))]
+        Mechanism::Landlock { .. } => Err(Unavailable("Landlock is Linux's".into()).into()),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_spec_reaches_a_child_a_line_a_path() {
-        let spec = SandboxSpec::new().read_write("/s/ext/a.b/run").read_only("/s/ext/a.b/0.1.0");
-        assert_eq!(
-            spec.to_env(Path::new("/bin/product")).unwrap(),
-            "rx\t/bin/product\nrw\t/s/ext/a.b/run\nro\t/s/ext/a.b/0.1.0\n"
-        );
-    }
 
     #[test]
     fn what_a_spec_cannot_carry_is_refused() {
