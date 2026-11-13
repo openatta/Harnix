@@ -664,9 +664,11 @@ async fn the_product_re_signs_what_the_process_says_about_a_call() {
     );
     let mut process = Raw::new(b);
 
-    // Its id is replaced by one of the product's.
+    // Its id is replaced by one of the product's; naming no parent, it holds nothing.
     process.send(request(1, "proc.x", json!({"call_id": "local-9"}), Value::Null)).await;
-    assert_eq!(process.recv().await["result"]["meta"]["call_id"], json!("local-1"));
+    let seen = process.recv().await["result"]["meta"].clone();
+    assert_eq!(seen["call_id"], json!("local-1"));
+    assert!(seen.get("chain").is_none(), "{seen}");
     // An id made up to look like one the product already gave out does not become it.
     process.send(request(2, "proc.x", json!({"call_id": "local-1"}), Value::Null)).await;
     assert_eq!(process.recv().await["result"]["meta"]["call_id"], json!("local-2"));
@@ -680,8 +682,9 @@ async fn the_product_re_signs_what_the_process_says_about_a_call() {
     process.send(json!({"jsonrpc": "2.0", "method": "$/cancel", "params": {"call_id": "dup"}})).await;
     assert_eq!(process.recv().await["result"], json!({"cancelled": true}), "the first one was untouched");
 
-    // A parent the product is not waiting on is dropped; a chain is never read; a deadline far
-    // away is brought in to the cap.
+    // A parent the product is not waiting on is dropped, and is the process's own: the chain
+    // starts with the process held on it. The chain it sent is never read; a deadline far away
+    // is brought in to the cap.
     let forged = json!({
         "call_id": "x",
         "parent": "999",
@@ -692,7 +695,7 @@ async fn the_product_re_signs_what_the_process_says_about_a_call() {
     process.send(request(5, "proc.x", forged, Value::Null)).await;
     let seen = process.recv().await["result"]["meta"].clone();
     assert!(seen.get("parent").is_none(), "{seen}");
-    assert!(seen.get("chain").is_none(), "{seen}");
+    assert_eq!(seen["chain"], json!([{"ext": EXT, "call": "999"}]));
     let deadline = seen["deadline_ms"].as_u64().unwrap();
     assert!(deadline > before && deadline <= now_ms() + 2_000, "{deadline} is not within the cap");
     assert_eq!(product.counts().dropped_parents, 1);
@@ -735,9 +738,12 @@ async fn the_product_re_signs_what_the_process_says_about_a_call() {
     process.send(json!({"jsonrpc": "2.0", "id": outbound["id"], "result": "done"})).await;
     assert_eq!(product_call.await.unwrap().unwrap(), json!("done"));
 
-    // Answered, it is no one's parent any more.
+    // Answered, it is no one's parent any more: the chain holds the process on it alone, and the
+    // process's host, done with it, waits on nothing.
     process.send(request(7, "proc.x", json!({"call_id": "z", "parent": theirs}), Value::Null)).await;
-    assert!(process.recv().await["result"]["meta"].get("parent").is_none());
+    let seen = process.recv().await["result"]["meta"].clone();
+    assert!(seen.get("parent").is_none(), "{seen}");
+    assert_eq!(seen["chain"], json!([{"ext": EXT, "call": theirs}]));
     assert_eq!(product.counts().dropped_parents, 2);
 }
 
@@ -764,6 +770,20 @@ async fn the_process_takes_the_products_word_and_names_its_own_parent() {
     call.await.unwrap().unwrap();
     product.send(json!({"jsonrpc": "2.0", "method": "$/cancel", "params": {"call_id": "p1"}})).await;
     assert_eq!(product.recv().await["result"], json!({"cancelled": true}));
+
+    // A call made for something of its own — a timer's work, which the product never sent —
+    // names it by the process's own id.
+    let own = tokio::spawn({
+        let process = process.clone();
+        async move {
+            let meta = CallMeta::default().parent("delivery-1");
+            process.call("proc.call", Value::Null, meta, &CancellationToken::new()).await
+        }
+    });
+    let sent = product.recv().await;
+    assert_eq!(sent["params"]["meta"]["parent"], json!("delivery-1"));
+    product.send(json!({"jsonrpc": "2.0", "id": sent["id"], "result": null})).await;
+    own.await.unwrap().unwrap();
 
     product.send(request(2, "ctl.x", json!({"call_id": "p2", "chain": [{"ext": "other", "call": "c0"}]}), Value::Null)).await;
     let seen = product.recv().await["result"]["meta"].clone();
