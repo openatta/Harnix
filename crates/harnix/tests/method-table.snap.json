@@ -1623,22 +1623,6 @@
         "scope": "open"
       },
       "kind": "method",
-      "name": "harnix.contributions",
-      "owner": "kernel:assembly"
-    },
-    {
-      "access": {
-        "device": true,
-        "engine": false,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
       "name": "harnix.diagnostics",
       "owner": "kernel:assembly"
     },

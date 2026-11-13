@@ -228,13 +228,11 @@ impl Hub {
                 format!("instance `{instance}` runs an extension's engine: its settings and plugins are its carrier's, and nobody's to change"),
             ));
         }
-        // An extension's own engine is its own, its spaces' and the system space's, whatever the
-        // row: before anything reaches it, or wakes it.
-        if extension {
-            if let Some(slot) = self.slot(&instance) {
-                let (space, crosses) = self.claim_of(&params);
-                crate::spaces::may_use(&slot, cx, &space, crosses)?;
-            }
+        // An instance that is some spaces' is theirs and the system space's, whatever the row —
+        // one open to any space included: before anything reaches it, or wakes it.
+        if let Some(slot) = self.slot(&instance) {
+            let (space, crosses) = self.claim_of(&params);
+            crate::spaces::may_use(&slot, cx, &space, crosses)?;
         }
         let session = params.get("session_id").and_then(Value::as_str).map(str::to_string);
         // A caller that claimed a space is told of that space's sessions only: the engine lists

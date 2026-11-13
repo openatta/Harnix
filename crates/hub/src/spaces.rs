@@ -245,10 +245,12 @@ impl Spaces {
     }
 }
 
-/// Whether a call claiming `space` (empty: none) may use the instance `slot`. One built for a
-/// space is that space's, when a call claims one. An extension's own engine is third-party code's
-/// and held to more: only the extension itself — or a page of it in a frame — uses it, besides its
-/// spaces and a call reaching across spaces (the system space's), whatever the call claims.
+/// Whether a call claiming `space` (empty: none) may use the instance `slot`. One that is some
+/// spaces' — built for a space, or an extension's own engine — is used from those spaces and by a
+/// call reaching across spaces (the system space's); one that is no space's, as `main`, by any.
+/// The kernel uses any. An extension's own engine is third-party code's and held to more: besides
+/// its spaces, only the extension itself — or a page of it in a frame — uses it, and when it
+/// declared no space, nobody else does.
 pub(crate) fn may_use(slot: &Listed, cx: &CallContext, space: &str, crosses: bool) -> Result<(), RpcError> {
     if crosses || slot.spaces.iter().any(|s| s == space) {
         return Ok(());
@@ -266,7 +268,8 @@ pub(crate) fn may_use(slot: &Listed, cx: &CallContext, space: &str, crosses: boo
                 (false, false) => mismatch(format!("instance `{named}` is `{ext}`'s own engine, for `{theirs}`, not `{space}`")),
             }
         }
-        None if slot.spaces.is_empty() || space.is_empty() => Ok(()),
+        None if slot.spaces.is_empty() || matches!(cx.subject, Subject::Kernel) => Ok(()),
+        None if space.is_empty() => mismatch(format!("instance `{named}` belongs to the space `{theirs}`, and the call claims none")),
         None => mismatch(format!("instance `{named}` belongs to the space `{theirs}`, not `{space}`")),
     }
 }

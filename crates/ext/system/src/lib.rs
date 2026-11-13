@@ -110,7 +110,8 @@ impl TopicCompute for Process {
 }
 
 /// The session a call names — its instance when it names one — and the parameters `keys` passes
-/// on.
+/// on, claiming this space: an instance built for another space is used only by a call reaching
+/// across spaces.
 fn engine_params(params: &Value, keys: &[&str]) -> Rpc<Value> {
     let mut out = target(params)?;
     for key in keys {
@@ -126,7 +127,7 @@ fn target(params: &Value) -> Rpc<Value> {
         .get("session_id")
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("missing session_id"))?;
-    let mut out = json!({"session_id": session_id});
+    let mut out = json!({"session_id": session_id, "space": SPACE});
     if let Some(instance) = params.get("instance").filter(|i| !i.is_null()) {
         out["instance"] = instance.clone();
     }
@@ -158,12 +159,15 @@ mod tests {
     use super::*;
 
     /// A session method passes on the session, the instance when named, and its own parameters —
-    /// nothing else the caller sent, a claimed space included.
+    /// nothing else the caller sent — claiming the system space, whatever the caller claimed.
     #[test]
     fn a_session_method_passes_on_only_what_it_names() {
-        let params = json!({"session_id": "S1", "instance": "side", "space": "system", "task_id": "T", "extra": 1});
-        assert_eq!(engine_params(&params, &["task_id"]).unwrap(), json!({"session_id": "S1", "instance": "side", "task_id": "T"}));
-        assert_eq!(engine_params(&json!({"session_id": "S1"}), &[]).unwrap(), json!({"session_id": "S1"}));
+        let params = json!({"session_id": "S1", "instance": "side", "space": "acme", "task_id": "T", "extra": 1});
+        assert_eq!(
+            engine_params(&params, &["task_id"]).unwrap(),
+            json!({"session_id": "S1", "instance": "side", "space": SPACE, "task_id": "T"})
+        );
+        assert_eq!(engine_params(&json!({"session_id": "S1"}), &[]).unwrap(), json!({"session_id": "S1", "space": SPACE}));
         assert!(engine_params(&json!({"instance": "side"}), &[]).is_err());
     }
 

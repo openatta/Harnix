@@ -29,36 +29,6 @@ use harnix_contract::s1::{Capability, ExtId, RowScope};
 use harnix_contract::Subject;
 use harnix_kernel::{Access, GrantBook};
 
-/// One kind of caller a module method, topic or route is declared for.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Principal {
-    /// A paired device: a person.
-    Device,
-    /// One module, by id.
-    Module(String),
-    /// Any module.
-    AnyModule,
-    /// This binary.
-    Kernel,
-}
-
-/// How far a row declared for these principals is open. The kernel reaches every row anyway.
-pub fn access_for(principals: &[Principal]) -> Access {
-    let mut access = Access::kernel();
-    for p in principals {
-        access = match p {
-            Principal::Device => access.with_device(),
-            Principal::Kernel => access,
-            Principal::AnyModule => access.with_extensions(),
-            Principal::Module(id) => match ExtId::native(id).or_else(|_| ExtId::package(id)) {
-                Ok(id) => access.with_extension(id),
-                Err(_) => access,
-            },
-        };
-    }
-    access
-}
-
 /// Why an extension is refused a row whose capability it does not hold.
 pub const LACKS_CAPABILITY: &str = "this needs a capability this extension was not granted";
 
@@ -140,10 +110,10 @@ mod tests {
     #[test]
     fn a_declaration_admits_exactly_who_it_names_and_the_kernel() {
         let grants = GrantTable::new();
-        let access = access_for(&[Principal::Device, Principal::Module("trade".into())]);
+        let access = Access::kernel().with_device().with_extension(id("trade"));
         assert_eq!(decide(&device(), &grants, &access), Decision::Allow);
         assert_eq!(decide(&ext("trade"), &grants, &access), Decision::Allow);
-        let only = access_for(&[Principal::Module("trade".into())]);
+        let only = Access::only(id("trade"));
         assert!(matches!(decide(&ext("other"), &grants, &only), Decision::Refuse(_)));
         assert!(matches!(decide(&device(), &grants, &only), Decision::Refuse(_)));
         assert_eq!(decide(&Subject::Kernel, &grants, &only), Decision::Allow);

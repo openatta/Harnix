@@ -61,9 +61,13 @@ defineSuite("authz", { feature: "authz" }, {
     },
 
     "what did not take is queryable": async ({ client }) => {
-      const { methods, refused } = await client.call("harnix.contributions");
-      assert(methods.length > 15, `${methods.length} registered`);
-      assert(Array.isArray(refused), "no refusal list");
+      // Every extension is listed whether or not it took, and one that did not says why.
+      const { extensions } = await client.call("harnix.extensions");
+      assert(extensions.length > 5, `${extensions.length} extensions`);
+      for (const e of extensions) {
+        assert(typeof e.enabled === "boolean", `${e.id}: no enabled flag`);
+        assert(e.enabled || e.reason, `${e.id} is off and does not say why`);
+      }
     },
   },
 });
