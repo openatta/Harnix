@@ -365,6 +365,15 @@ test.describe("on", () => {
     const fromSessions = (await api.call("harnix.instances.templates", {})).templates;
     expect(templates.length).toBeGreaterThanOrEqual(fromSessions.length);
     expect((await api.call("harnix.instances.templates", { space: "system" })).templates).toEqual(fromSessions);
+
+    // One the interface may not build from: the system module builds it, and stops it again.
+    expect((await api.refused("harnix.instances.create", { template: "fleet.side", name: "from-system", space: "system" }))?.code).toBe(REFUSED);
+    const built = await api.call("system.instances.create", { template: "fleet.side", name: "from-system", space: "system" });
+    expect(built).toMatchObject({ id: "from-system", template: "fleet.side" });
+    await until(api, "from-system", "ready");
+    await api.call("system.instances.stop", { instance: "from-system", space: "system" });
+    const { instances } = await api.call("harnix.instances.list");
+    expect(instances.map((i: any) => i.id)).not.toContain("from-system");
   });
 
   test("a session made in the system space is the system space's", TAGS, async () => {
