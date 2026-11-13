@@ -237,7 +237,7 @@ Harnix 本身是**框架 + 第一方扩展**：Harnix app（会话 space、项�
 | 端口与线 | `harnix-wasm-port` | 宿主核心要外面做的（`Kernel`：产品的；`Agent`：引擎的）与外面要它做的（`Control`），每个调用带 `CallMeta`；feature `socket` 是流上的扩展线 | | ✔ | ✔ |
 | 宿主核心 | `harnix-wasm-host` | 生命周期、注册表、健康、分派、进度、休眠 | | ✔ | ✔（扩展进程侧） |
 | 虚拟机 | `harnix-wasm` | wasmtime 的引擎、Store、健康、记账、休眠；feature `compile` 带 Cranelift | | ✔ | ✔（扩展进程侧） |
-| 扩展进程的入口 | `harnix-proc`（库） | `ext-proc` 子命令跑的那一份：宿主核心 + 虚拟机 + 线的客户端 + 它自己的 Agix；Linux 上自己套 Landlock | | | ✔ |
+| 扩展进程的入口 | `harnix-proc`（库） | `ext-proc` 子命令跑的那一份：宿主核心 + 虚拟机 + 线的客户端 + 它自己的 Agix；沙箱由产品在 exec 时套好 | | | ✔ |
 | 前端 | 外壳核心、第一方 UI 包、桥、`@harnix/ext-sdk`、`@harnix/ext-kit`、行内点 | | ✔ | ✔ | ✔（完全一样） |
 
 feature 的链：库 `harnix` 的缺省不带载体，应用自己选；`harnix-cli` 缺省开 `wasm`、`flow`。`wasm` 链进 `harnix-ext-packages` 与 `harnix-carrier-wasm`；

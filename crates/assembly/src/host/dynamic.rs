@@ -17,7 +17,7 @@ use harnix_contract::sync::{lock, read, write};
 use harnix_contract::{codes, RpcError};
 use harnix_ext::{ExtensionDescriptor, RouteDecl};
 use harnix_host_api::{
-    AdoptSpec, Availability, ChildHandle, ChildRequest, DynamicRegistrar, DynamicRegistry, ExtensionSummary, HostApi,
+    AdoptSpec, Availability, ChildHandle, ChildRequest, ChildSandbox, DynamicRegistrar, DynamicRegistry, ExtensionSummary, HostApi,
     RegisteredExtension, TopicSink, ToolEndpoint, Withdrawn,
 };
 use harnix_instance::SharedServers;
@@ -50,6 +50,8 @@ pub(crate) struct DynamicHost {
     pub routes: Arc<PackageRoutes>,
     /// The extension processes started, each bound to the stream it was handed.
     pub children: Arc<harnix_authz::ChildBindings>,
+    /// The components whose section turns their processes' sandbox off.
+    pub unsandboxed: BTreeSet<String>,
     /// What each component shares with every spawned daemon, merged.
     shared: Mutex<BTreeMap<ExtId, Vec<ToolEndpoint>>>,
 }
@@ -63,11 +65,12 @@ pub(crate) struct DynamicParts {
     pub ui: Arc<UiModules>,
     pub runtime_modules: bool,
     pub sections: BTreeMap<String, Value>,
+    pub unsandboxed: BTreeSet<String>,
 }
 
 impl DynamicHost {
     pub fn new(packages: Arc<PackageTable>, parts: DynamicParts) -> Arc<Self> {
-        let DynamicParts { router, seats, servers, state_root, ui, runtime_modules, sections } = parts;
+        let DynamicParts { router, seats, servers, state_root, ui, runtime_modules, sections, unsandboxed } = parts;
         Arc::new(Self {
             packages,
             router,
@@ -79,6 +82,7 @@ impl DynamicHost {
             sections,
             routes: Arc::default(),
             children: Arc::default(),
+            unsandboxed,
             shared: Mutex::new(BTreeMap::new()),
         })
     }
@@ -148,6 +152,10 @@ impl HostFor {
     pub fn new(host: Arc<DynamicHost>, by: ExtId) -> Self {
         Self { host, by }
     }
+
+    fn unsandboxed(&self) -> bool {
+        self.host.unsandboxed.contains(self.by.as_str())
+    }
 }
 
 impl HostApi for HostFor {
@@ -162,7 +170,11 @@ impl HostApi for HostFor {
         if !ours {
             return Err(RpcError::refused(format!("`{id}` is not an extension `{}` registered", self.by)));
         }
-        super::spawn::spawn(&self.host.children, id, req)
+        super::spawn::spawn(&self.host.children, id, req, self.unsandboxed())
+    }
+
+    fn child_sandbox(&self) -> ChildSandbox {
+        super::spawn::sandboxing(self.unsandboxed())
     }
 
     fn share_tools(&self, entries: Vec<ToolEndpoint>) -> Rpc<()> {

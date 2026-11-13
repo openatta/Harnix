@@ -121,6 +121,7 @@ pub(crate) async fn start_process(app: AppBuilder, cli: &Cli, basis: &Basis) -> 
             dynamic,
             runtime_modules: profile.ui.runtime_modules,
             package_sections,
+            unsandboxed: crate::host::spawn::unsandboxed(&records),
             engines,
         },
         admission::Identity { name: &name, version: &version },

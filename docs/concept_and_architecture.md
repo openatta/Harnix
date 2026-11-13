@@ -1393,9 +1393,11 @@ transcript、会话记忆、录像（每次模型调用的完整输入，含系�
 一个能改自己同意记录的进程就能在下次启动时给自己加能力。**网络开着**。
 
 - **macOS**：经系统的 `sandbox-exec` 执行，profile 按上面的路径生成，缺省拒绝一切。
-- **Linux**：进程第一件事自己套 Landlock（在读包之前），内核支持时另限信号与抽象 unix 套接字；产品在拉起前查 `ptrace_scope ≥ 1`。
+- **Linux**：Landlock，同样由产品套：父进程先建好规则集，子进程在 exec 之前只设 `PR_SET_NO_NEW_PRIVS`、套上规则集，所以进程一条指令都没跑就已在沙箱里；
+  内核支持时另限信号与抽象 unix 套接字；产品在拉起前查 `ptrace_scope ≥ 1`。
 - **套不上时拒绝**：`[ext.packages] sandbox = "required"`（缺省）下，没有 Landlock、`ptrace_scope = 0`、没有 `sandbox-exec`、Windows，模式 3 一律拒绝拉起扩展进程，
-  `packages` 的快照写明原因；不静默降级。`sandbox = "off"` 只给开发用：启动时警告，诊断标红，快照里每个进程标 `sandbox: off`。
+  `packages` 的快照写明原因（`runtime.sandbox`）；不静默降级。`sandbox = "off"` 只给开发用：启动时警告，快照里每个进程标 `sandbox: off`。
+  沙箱由宿主套，载体跳不过；`off` 只认 profile 里写的。
 
 **它挡住什么、挡不住什么**：
 

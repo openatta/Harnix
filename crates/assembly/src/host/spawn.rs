@@ -10,7 +10,15 @@
 //! process starts finds the system's tools first), `LANG` and `RUST_LOG` when this process has them,
 //! `HOME` and `TMPDIR` in its run directory, which is also where it starts. It reads no profile and
 //! no state directory of the product's.
+//!
+//! It starts inside an operating-system sandbox ([`harnix_supervise::sandbox`]), applied here and
+//! not by the carrier that asked: it reads and writes its run directory, reads its package, and
+//! reaches nothing else of the state — no other extension's, no consent record, no token. Where
+//! there can be no sandbox (no `sandbox-exec`, no Landlock, Yama's `ptrace_scope` at 0, another
+//! system) no process starts, and the refusal says why. Only the component's own section turns it
+//! off (`sandbox = "off"`), for development: then each start is a warning.
 
+use std::collections::BTreeSet;
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
@@ -20,10 +28,14 @@ use std::time::Duration;
 use harnix_authz::{ChildBindings, ChildSubject};
 use harnix_contract::s1::ExtId;
 use harnix_contract::RpcError;
-use harnix_host_api::{ChildEvent, ChildHandle, ChildRequest, ChildRun, RestartPolicy};
+use harnix_host_api::{ChildEvent, ChildHandle, ChildRequest, ChildRun, ChildSandbox, RestartPolicy};
 use harnix_kernel::Rpc;
-use harnix_supervise::{ChildSpec, Supervisor};
+use harnix_supervise::sandbox::{self, Mechanism};
+use harnix_supervise::{ChildSpec, SandboxSpec, Supervisor};
+use serde_json::Value;
 use tokio::sync::mpsc;
+
+use super::Record;
 
 /// The subcommand an extension process is.
 pub(crate) const SUBCOMMAND: &str = "ext-proc";
@@ -35,11 +47,42 @@ pub(crate) const SYSTEM_PATH: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
 /// What of this process's environment an extension process is handed, when it is set.
 const PASSED: &[&str] = &["LANG", "RUST_LOG"];
 
+/// The key in a component's own section that turns its processes' sandbox off: `sandbox = "off"`.
+const SANDBOX_KEY: &str = "sandbox";
+
 /// The product's ends of one start's streams.
 type Ends = (UnixStream, Option<UnixStream>);
 
-/// Start the extension process `req` asks for, as `id`, kept by a supervisor.
-pub(crate) fn spawn(children: &Arc<ChildBindings>, id: &ExtId, req: ChildRequest) -> Rpc<ChildHandle> {
+/// The components whose own section turns the sandbox off: nothing but `sandbox = "off"` does,
+/// and whatever else is written there is the sandbox required. Each is warned of once, here.
+pub(crate) fn unsandboxed(records: &[Record]) -> BTreeSet<String> {
+    records
+        .iter()
+        .filter(|r| r.config.get(SANDBOX_KEY).and_then(Value::as_str) == Some("off"))
+        .map(|r| {
+            let id = r.manifest.id().to_string();
+            tracing::warn!(component = %id, "`sandbox = \"off\"`: the extension processes it starts are not sandboxed; for development only");
+            id
+        })
+        .collect()
+}
+
+/// The sandbox a component's processes start in: `off` when its section says so, else how this
+/// system applies one, or why it cannot.
+pub(crate) fn sandboxing(off: bool) -> ChildSandbox {
+    if off {
+        return ChildSandbox::Off;
+    }
+    match sandbox::available() {
+        Ok(Mechanism::SandboxExec) => ChildSandbox::On("sandbox-exec".into()),
+        Ok(Mechanism::Landlock { abi }) => ChildSandbox::On(format!("landlock (ABI {abi})")),
+        Err(why) => ChildSandbox::Unavailable(why.to_string()),
+    }
+}
+
+/// Start the extension process `req` asks for, as `id`, kept by a supervisor; in its sandbox
+/// unless `unsandboxed`.
+pub(crate) fn spawn(children: &Arc<ChildBindings>, id: &ExtId, req: ChildRequest, unsandboxed: bool) -> Rpc<ChildHandle> {
     let refused = |why: String| RpcError::refused(format!("`{id}`'s extension process: {why}"));
     let program = match req.program_path() {
         Some(program) => program.clone(),
@@ -50,6 +93,14 @@ pub(crate) fn spawn(children: &Arc<ChildBindings>, id: &ExtId, req: ChildRequest
     for dir in [run.join("home"), run.join("tmp")] {
         std::fs::create_dir_all(&dir).map_err(|e| refused(format!("{}: {e}", dir.display())))?;
     }
+    let jail = match sandboxing(unsandboxed) {
+        ChildSandbox::Unavailable(why) => return Err(refused(format!("it cannot be sandboxed here: {why}"))),
+        ChildSandbox::Off => {
+            tracing::warn!(extension = %id, "its extension process starts unsandboxed (`sandbox = \"off\"`)");
+            None
+        }
+        _ => Some(sandbox_spec(&pkg, &run)),
+    };
     let env = environment(&run, |name| std::env::var(name).ok());
     let args = arguments(id, &pkg, &run, req.has_engine());
     let subject = children.bind_child(id);
@@ -64,6 +115,9 @@ pub(crate) fn spawn(children: &Arc<ChildBindings>, id: &ExtId, req: ChildRequest
             .current_dir(&run)
             .inherit_fd(3, OwnedFd::from(process))
             .own_session();
+        if let Some(jail) = &jail {
+            spec = spec.sandbox(jail.clone());
+        }
         let mut engine = None;
         if with_engine {
             let (product, process) = UnixStream::pair()?;
@@ -76,6 +130,13 @@ pub(crate) fn spawn(children: &Arc<ChildBindings>, id: &ExtId, req: ChildRequest
     let supervisor = Supervisor::start(make, policy(req.restart_policy()));
     tracing::info!(extension = %id, "extension process started");
     Ok(ChildHandle::new(id.clone(), Box::new(Run { supervisor: Some(supervisor), ends, pending: None, _subject: subject })))
+}
+
+/// What the process reaches of the state: its run directory, read and written (its data, kv, own
+/// engine, `HOME`, `TMPDIR`), and its package, read. Not the directory both are in, which holds
+/// its consent record. The program and what any program needs are the sandbox's to add.
+fn sandbox_spec(pkg: &Path, run: &Path) -> SandboxSpec {
+    SandboxSpec::new().read_write(run).read_only(pkg)
 }
 
 /// `ext-proc --ext <id> --pkg <dir> --run <dir> --wire-fd 3 [--engine-fd 4]`.
@@ -193,6 +254,22 @@ mod tests {
         assert_eq!(get("LANG"), Some("en_US.UTF-8"));
         assert_eq!(get("RUST_LOG"), None);
         assert_eq!(env.len(), 4, "{env:?}");
+    }
+
+    #[test]
+    fn the_process_reaches_its_run_directory_and_reads_its_package() {
+        let spec = sandbox_spec(Path::new("/s/ext/acme.notes/1.0.0"), Path::new("/s/ext/acme.notes/run"));
+        assert_eq!(spec.read_write, [Path::new("/s/ext/acme.notes/run")]);
+        assert_eq!(spec.read_only, [Path::new("/s/ext/acme.notes/1.0.0")]);
+    }
+
+    #[test]
+    fn only_off_turns_the_sandbox_off() {
+        assert_eq!(sandboxing(true), ChildSandbox::Off);
+        assert_ne!(sandboxing(false), ChildSandbox::Off);
+        if cfg!(target_os = "macos") {
+            assert_eq!(sandboxing(false), ChildSandbox::On("sandbox-exec".into()));
+        }
     }
 
     #[test]

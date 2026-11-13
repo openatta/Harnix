@@ -58,7 +58,7 @@ impl ChildSpec {
     }
 
     /// The child gets no variable of this process's environment, only the ones given with
-    /// [`ChildSpec::envs`] (and a sandbox's own).
+    /// [`ChildSpec::envs`].
     pub fn env_clear(mut self) -> Self {
         self.env_clear = true;
         self
@@ -90,13 +90,17 @@ impl ChildSpec {
     /// stdio, is closed in the child before the exec, whether or not it was opened `CLOEXEC`.
     /// With a sandbox that cannot be had here, nothing is started: the error says why.
     pub fn spawn(self) -> io::Result<Child> {
-        let (program, args, sandbox_env) = match &self.sandbox {
-            Some(spec) => {
-                let wrapped = sandbox::wrap(spec, &self.program, &self.args)?;
-                (wrapped.program, wrapped.args, wrapped.env)
-            }
-            None => (self.program.clone(), self.args.clone(), Vec::new()),
+        let wrapped = match &self.sandbox {
+            Some(spec) => Some(sandbox::wrap(spec, &self.program, &self.args)?),
+            None => None,
         };
+        let (program, args) = match &wrapped {
+            Some(w) => (&w.program, &w.args),
+            None => (&self.program, &self.args),
+        };
+        // Held open until the child is started: it restricts itself to it before the exec.
+        #[cfg(target_os = "linux")]
+        let ruleset = wrapped.as_ref().and_then(|w| w.ruleset.as_ref()).map(|r| r.fd());
         let mut targets: Vec<RawFd> = self.inherit.iter().map(|(at, _)| *at).collect();
         targets.sort_unstable();
         if targets.first().is_some_and(|&t| t < 3) {
@@ -121,7 +125,7 @@ impl ChildSpec {
             moves.push((high, *at));
         }
         let open = open_fds();
-        let mut command = Command::new(&program);
+        let mut command = Command::new(program);
         if self.env_clear {
             command.env_clear();
         }
@@ -129,9 +133,8 @@ impl ChildSpec {
             command.current_dir(dir);
         }
         command
-            .args(&args)
+            .args(args)
             .envs(self.env.iter().cloned())
-            .envs(sandbox_env)
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
@@ -139,10 +142,16 @@ impl ChildSpec {
         if self.own_session {
             own_session_for(&mut command);
         }
-        // SAFETY: the closure only calls dup2, fcntl and close, all async-signal-safe, and
-        // allocates nothing: `moves`, `targets` and `open` are built before the fork.
+        // SAFETY: the closure only calls prctl, the Landlock syscall, dup2 and close, all
+        // async-signal-safe, and allocates nothing: `moves`, `targets`, `open` and the ruleset are
+        // made before the fork.
         unsafe {
             command.pre_exec(move || {
+                // First, before a move could put an inherited descriptor at the ruleset's number.
+                #[cfg(target_os = "linux")]
+                if let Some(ruleset) = ruleset {
+                    sandbox::linux::restrict(ruleset)?;
+                }
                 for &(from, to) in &moves {
                     if libc::dup2(from, to) < 0 {
                         return Err(io::Error::last_os_error());
@@ -157,6 +166,7 @@ impl ChildSpec {
             });
         }
         let spawned = command.spawn();
+        drop(wrapped);
         drop(lifted);
         drop(self.inherit);
         let mut child = spawned?;

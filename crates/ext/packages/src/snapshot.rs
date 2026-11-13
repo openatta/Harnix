@@ -42,6 +42,7 @@ pub(crate) async fn snapshot(state: &State, fresh: bool) -> Value {
     let (installed, unreadable) = records::read_all(&state.dir);
     let registered = state.host.registrar().registered();
     let generation = *state.carrier.changed().borrow();
+    let sandbox = crate::sandbox(state);
     let reuse = {
         let looked = lock(&state.looked);
         !fresh && looked.generation == Some(generation) && looked.at.is_some_and(|at| at.elapsed() < RESYNC_EVERY)
@@ -74,6 +75,9 @@ pub(crate) async fn snapshot(state: &State, fresh: bool) -> Value {
             "runtime": status,
             "ext": described(state, r, &app_dir),
         });
+        if !sandbox.is_null() {
+            entry["sandbox"] = sandbox["mode"].clone();
+        }
         if let Some(why) = &r.revoked {
             entry["revoked"] = json!(why);
         }
@@ -97,7 +101,7 @@ pub(crate) async fn snapshot(state: &State, fresh: bool) -> Value {
         "packages": packages,
         "unreadable": unreadable,
         "registered": registered,
-        "runtime": runtime(state),
+        "runtime": runtime(state, sandbox),
     })
 }
 

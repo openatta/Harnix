@@ -11,19 +11,19 @@
 //! 1. Takes the streams it inherited at `--wire-fd` (3) and, with an engine of its own,
 //!    `--engine-fd` (4) — before anything else could open a descriptor that takes the number —
 //!    checks each is a socket, and keeps them from its own children.
-//! 2. On Linux, sandboxes itself as the product asked (`sandbox`), before it reads anything of
-//!    its package; on macOS it was started inside its sandbox.
-//! 3. Builds the host (`harnix-wasm-host`): one VM engine, deserializing only. The host's
+//! 2. Builds the host (`harnix-wasm-host`): one VM engine, deserializing only. The host's
 //!    [`Kernel`] is the wire's client end; its agent engine, with `--engine-fd`, is this
 //!    process's own (`local`), served to the product on that stream; without, it has none.
-//! 4. Says `proc.hello` (its wire, Harnix and package-interface versions) and waits for the
+//! 3. Says `proc.hello` (its wire, Harnix and package-interface versions) and waits for the
 //!    product to answer: the product refuses a process that is not of its own build.
-//! 5. Answers the product's `ctl.*` with the host — `ctl.start` starts the package, whose names
+//! 4. Answers the product's `ctl.*` with the host — `ctl.start` starts the package, whose names
 //!    go back as `proc.register` — until the wire closes, stdin closes (the product is gone), or
 //!    the product says `ctl.shutdown`.
 //!
 //! Who it is, the product knows from the stream: it is the child it gave fd 3 to. It reads no
-//! profile and no state directory, and listens on nothing.
+//! profile and no state directory, and listens on nothing. It was started inside its sandbox —
+//! the product applied it before the exec, `sandbox-exec` on macOS and Landlock on Linux — so it
+//! has nothing to apply and nothing to leave out.
 
 mod agent;
 mod answer;
@@ -31,7 +31,6 @@ mod local;
 pub mod args;
 #[cfg(feature = "probe")]
 mod probe;
-mod sandbox;
 
 use std::ffi::OsString;
 use std::future::Future;
@@ -57,7 +56,7 @@ use crate::answer::Answering;
 use crate::local::{Local, LocalTools, WireFetcher};
 
 /// The exit status of a process that could not be set up — no wire at the descriptor it was
-/// given, no sandbox where one was asked for, no VM engine — with why on the first line of stderr
+/// given, no run directory, no VM engine — with why on the first line of stderr
 /// (`EX_CONFIG`).
 pub const EXIT_SETUP: i32 = 78;
 
@@ -88,14 +87,13 @@ pub struct Options {
 /// the product's doing, and is not an error.
 pub fn entry(args: Vec<OsString>) -> anyhow::Result<()> {
     let args = Args::parse(args).unwrap_or_else(|e| setup_failed(&e));
-    // Step 0: before anything opens a descriptor that could take the number, and before the sandbox.
+    // Step 0: before anything opens a descriptor that could take the number.
     let stream = take_stream(args.wire_fd).unwrap_or_else(|e| setup_failed(&e));
     let engine = args
         .engine_fd
         .map(|fd| take_stream(fd).context("the engine's stream"))
         .transpose()
         .unwrap_or_else(|e| setup_failed(&e));
-    sandbox::apply().context("its sandbox").unwrap_or_else(|e| setup_failed(&e));
     if let Some(run) = &args.run {
         std::env::set_current_dir(run)
             .with_context(|| format!("its run directory {}", run.display()))
