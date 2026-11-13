@@ -21,7 +21,9 @@
 //! it names it as its parent, and — when it holds the backend (a method call, `init`) — carries its
 //! chain with the application held on it. A call that comes back into this backend while the
 //! backend still serves the call the chain holds it on is refused at once, however it travelled
-//! ([`Bridge::holds_backend`]); one whose call was answered long ago is not.
+//! ([`Bridge::holds_backend`]); one whose call was answered long ago is not. What the backend does
+//! on its own — a timer firing, a topic value — is served the same way, under an id the VM made
+//! for it ([`AppHost::delivering`]): a call it makes then holds the application on that id.
 //!
 //! Who may call an application's methods, then: whoever its manifest names — `device` (the
 //! default) is every paired device and so the page, under its token, `module` every module (a
@@ -86,12 +88,21 @@ impl Serving {
 
 impl Drop for Serving {
     fn drop(&mut self) {
-        let mut served = lock(&self.bridge.served);
-        if let Some(entry) = served.get_mut(&self.id) {
-            entry.count -= 1;
-            if entry.count == 0 {
-                served.remove(&self.id);
-            }
+        leave(&mut lock(&self.bridge.served), &self.id);
+    }
+}
+
+fn enter(served: &mut HashMap<String, Served>, id: &str, meta: CallMeta, holds: bool) {
+    let entry = served.entry(id.to_string()).or_insert(Served { meta, holds, count: 0 });
+    entry.holds |= holds;
+    entry.count += 1;
+}
+
+fn leave(served: &mut HashMap<String, Served>, id: &str) {
+    if let Some(entry) = served.get_mut(id) {
+        entry.count -= 1;
+        if entry.count == 0 {
+            served.remove(id);
         }
     }
 }
@@ -200,6 +211,8 @@ pub struct Bridge {
     served: Mutex<HashMap<String, Served>>,
     /// While its VM starts: the start it serves, which `init`'s calls are made for.
     booting: Mutex<Option<String>>,
+    /// The timer firing or topic value the backend answers now, by the id the VM gave it.
+    delivering: Mutex<Option<String>>,
 }
 
 impl Bridge {
@@ -254,6 +267,7 @@ impl Bridge {
             stats,
             served: Mutex::new(HashMap::new()),
             booting: Mutex::new(None),
+            delivering: Mutex::new(None),
         })
     }
 
@@ -269,11 +283,7 @@ impl Bridge {
             "" => meta.clone().with_call_id(id.as_str()),
             _ => meta.clone(),
         };
-        let mut served = lock(&self.served);
-        let entry = served.entry(id.clone()).or_insert(Served { meta, holds, count: 0 });
-        entry.holds |= holds;
-        entry.count += 1;
-        drop(served);
+        enter(&mut lock(&self.served), &id, meta, holds);
         Serving { bridge: self.clone(), id }
     }
 
@@ -340,6 +350,20 @@ impl AppHost for Bridge {
         let outcome = self.kernel.call(self.made_within(serving), call).await;
         self.stats.hub(method, &outcome);
         outcome.map_err(|e| e.message)
+    }
+
+    /// Served while it runs, holding the backend, as a call of the product's is: nothing waits on
+    /// it, so the chain of what it calls starts with it.
+    fn delivering(&self, _app: &str, serving: Option<&str>) {
+        let mut served = lock(&self.served);
+        let mut delivering = lock(&self.delivering);
+        if let Some(done) = delivering.take() {
+            leave(&mut served, &done);
+        }
+        if let Some(id) = serving {
+            enter(&mut served, id, CallMeta::new(id), true);
+            *delivering = Some(id.to_string());
+        }
     }
 
     fn publish(&self, _app: &str, topic: &str, value: Value) -> Result<(), String> {
@@ -569,6 +593,17 @@ mod tests {
         bridge.booting(Some(start.id()));
         assert!(bridge.made_within(None).holds("acme.notes", "s1"));
         bridge.booting(None);
+        drop(start);
+        // A timer firing or a topic value: served under the VM's id while it runs, holding the
+        // backend, with nothing before it.
+        AppHost::delivering(&*bridge, "acme.notes", Some("delivery-1"));
+        assert!(bridge.holds_backend("delivery-1"));
+        let made = bridge.made_within(Some("delivery-1"));
+        assert_eq!(made.parent_id(), Some("delivery-1"));
+        assert!(made.holds("acme.notes", "delivery-1") && made.links().len() == 1, "{made:?}");
+        AppHost::delivering(&*bridge, "acme.notes", None);
+        assert!(!bridge.holds_backend("delivery-1"));
+        assert_eq!(bridge.made_within(Some("delivery-1")), CallMeta::default());
     }
 
     #[tokio::test]

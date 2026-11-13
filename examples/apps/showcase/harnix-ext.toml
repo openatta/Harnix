@@ -179,7 +179,7 @@ description = "Try a call the application's `calls` do not list"
 
 [[method]]
 name = "recall"
-description = "Ask its own `state` while it answers this: refused at once, not left waiting for itself"
+description = "Ask its own `state` while it answers this: refused at once, not left waiting for itself. With `later`, ask it from a timer, and `state` tells how it went (`recalled`)"
 
 [[method]]
 name = "spin"

@@ -531,6 +531,26 @@ async fn a_subscription_delivers_topic_values_in_order() {
     assert_eq!(seen, [0, 1, 2, 3, 4]);
 }
 
+/// A topic value and a timer firing are each answered under an id of their own, which the host is
+/// told while the backend answers it, and told is done after: what the backend calls meanwhile is
+/// made within it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_delivery_is_answered_under_an_id_of_its_own() {
+    let rig = rig("backend-probe", backend_caps(), limits(5_000)).await;
+    ok(&rig.vm, "subscribe", json!({"topic": "harnix.sessions.status"})).await;
+    rig.vm.deliver_topic("harnix.sessions.status", &json!({"n": 1}));
+    ok(&rig.vm, "timer", json!({"id": "t1", "ms": "10"})).await;
+    eventually(Duration::from_secs(3), "both answered", || {
+        rig.host.delivering.lock().unwrap().len() == 4
+    })
+    .await;
+    let told = rig.host.delivering.lock().unwrap().clone();
+    assert!(told[0].is_some() && told[1].is_none() && told[2].is_some() && told[3].is_none(), "{told:?}");
+    assert_ne!(told[0], told[2], "an id is never made twice");
+    assert_eq!(rig.host.published_on("seen").len(), 1);
+    assert_eq!(rig.host.published_on("timer").len(), 1);
+}
+
 /// Subscriptions and timers belong to the instance that made them. When it
 /// is replaced they are undone — and `init` makes its own again.
 #[tokio::test(flavor = "multi_thread")]

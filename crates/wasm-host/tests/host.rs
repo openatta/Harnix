@@ -66,7 +66,7 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
     rig.platform.device_call("session.start", json!({"message": "hi"})).await.unwrap();
     assert_eq!(rig.platform.said("call "), ["call harnix.session.create", "call harnix.session.send"]);
     assert_eq!(rig.platform.device_call("overreach", json!({})).await.unwrap()["refused"], json!(true));
-    assert_eq!(rig.status().await["calls"]["refused"][0]["method"], json!("harnix.apps.uninstall"));
+    assert_eq!(rig.status().await["calls"]["refused"][0]["method"], json!("packages.uninstall"));
 
     // Tools: an instance each; progress in order, all of it before the answer; a cancellation;
     // and one that asks the backend, as the application, through the platform and back.

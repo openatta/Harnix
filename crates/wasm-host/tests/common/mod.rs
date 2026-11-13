@@ -55,6 +55,9 @@ pub struct FakePlatform {
     /// its own instead, called from another task: a product that routes it back into the
     /// application over a link, where nothing of the calling task comes along.
     pub reroute: OnceLock<String>,
+    /// When set, a call the application makes into its own methods is answered from another task
+    /// too, as a product that routes it over a link does.
+    pub across: std::sync::atomic::AtomicBool,
     /// The metadata of every call the application made as itself, in order.
     pub metas: Mutex<Vec<CallMeta>>,
     /// What a call routed back into the application answered when it failed, and how long it took.
@@ -140,7 +143,11 @@ impl Kernel for FakePlatform {
         let routed_back = if let Some(own) = c.method.strip_prefix(&format!("{}.", c.app)) {
             let control = self.control.get().unwrap().clone();
             let call = MethodCall { app: c.app.clone(), method: own.into(), caller, params: c.params };
-            Some(control.call_method(routed(&meta), call).await)
+            let meta = routed(&meta);
+            Some(match self.across.load(std::sync::atomic::Ordering::Relaxed) {
+                true => tokio::spawn(async move { control.call_method(meta, call).await }).await.unwrap(),
+                false => control.call_method(meta, call).await,
+            })
         } else if let Some(own) = self.reroute.get() {
             let control = self.control.get().unwrap().clone();
             let call = MethodCall { app: c.app.clone(), method: own.clone(), caller, params: json!({}) };

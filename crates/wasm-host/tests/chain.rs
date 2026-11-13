@@ -1,7 +1,8 @@
 //! A call's chain, end to end in one process: a backend whose call comes back into itself while it
 //! still serves the call that made it is refused at once, by the chain the call carries — however
-//! the product routed it — and a chain that holds it on a call it answered long ago (a turn queued
-//! by a method that has returned) is not.
+//! the product routed it, and whether a call of the product's or a timer of its own started it —
+//! and a chain that holds it on a call it answered long ago (a turn queued by a method that has
+//! returned) is not.
 #![cfg(feature = "compile")]
 
 mod common;
@@ -11,7 +12,7 @@ use std::time::Duration;
 use common::*;
 use harnix_contract::sync::lock;
 use harnix_wasm_port::*;
-use serde_json::json;
+use serde_json::{json, Value};
 
 fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64
@@ -46,6 +47,40 @@ async fn a_backend_that_calls_back_into_itself_is_refused_at_once() {
     assert_eq!(rig.status().await["health"]["recycles"], json!(0));
 
     // The same chain once that call was answered: nothing waits on it any more.
+    let later = CallMeta::new(next_id()).chain(made.links().iter().cloned());
+    rig.platform.device_call_as(later, "state", json!({})).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_timer_that_calls_back_into_its_own_backend_is_refused_at_once() {
+    let rig = Rig::new(|_| {});
+    rig.install(|m| m).await;
+    // Routed back from another task: nothing of the timer's task comes along.
+    rig.platform.across.store(true, std::sync::atomic::Ordering::Relaxed);
+    let armed = rig.platform.device_call("recall", json!({"later": true})).await.unwrap();
+    assert_eq!(armed["armed"], json!(true), "{armed}");
+    let mut recalled = Value::Null;
+    eventually("the timer's call back", async || {
+        recalled = rig.platform.device_call("state", json!({})).await.unwrap()["recalled"].clone();
+        !recalled.is_null()
+    })
+    .await;
+    assert_eq!(recalled["refused"], json!(true), "{recalled}");
+    assert!(recalled["message"].as_str().unwrap().contains("would re-enter the backend of `example.showcase`"), "{recalled}");
+    let (refused, took) = lock(&rig.platform.routed_errors)[0].clone();
+    assert_eq!(refused.code, codes::EXTENSION_UNAVAILABLE);
+    assert_eq!(refused.data.unwrap()["failure"], json!("reentrant"));
+    assert!(took < AT_ONCE, "refused after {took:?}");
+
+    // No call of the product's waits on the firing: the call it made names the firing as its
+    // parent, and holds the application on it alone.
+    let made = lock(&rig.platform.metas)[0].clone();
+    let firing = made.parent_id().expect("made within the firing").to_string();
+    assert_eq!(made.links().len(), 1, "{made:?}");
+    assert!(made.holds(ID, &firing), "{made:?}");
+    assert_eq!(rig.status().await["health"]["recycles"], json!(0));
+
+    // The firing done, the same chain waits on nothing.
     let later = CallMeta::new(next_id()).chain(made.links().iter().cloned());
     rig.platform.device_call_as(later, "state", json!({})).await.unwrap();
 }

@@ -11,10 +11,12 @@
 //! about a call is a hint. Its id is replaced by one of the product's; its `parent` is kept only
 //! when it names a call the product sent on this wire and still waits on; its `chain` is computed
 //! from that parent and never read — the parent's chain, with the process held on the parent, by
-//! the number the process knows that call by; its deadline is the earliest of the process's, the
-//! parent's and a cap. [`SocketWire::client`] is the extension process's, and takes the product's
-//! word: a call keeps the id the product sent it under, so a chain link that holds the process on
-//! a call names it as the process's host knows it.
+//! the number the process knows that call by; with no such parent, the process alone, held on the
+//! call it names (what it does on its own, a timer's work, which only it knows: a link that names
+//! the process makes nothing refuse a call but the process). Its deadline is the earliest of the
+//! process's, the parent's and a cap. [`SocketWire::client`] is the extension process's, and takes
+//! the product's word: a call keeps the id the product sent it under, so a chain link that holds
+//! the process on a call names it as the process's host knows it.
 //!
 //! A call goes out under a number of this end's, unique among every wire of this process: a chain
 //! kept past one process of an extension (a queued turn's) never names a call of the next one.
@@ -489,8 +491,12 @@ impl Inner {
             meta = meta.with_call_id((self.options.mint)());
         }
         let id = NUMBERS.fetch_add(1, Ordering::Relaxed);
-        // The parent goes out as the other end knows it, or not at all.
-        let parent = meta.parent_id().and_then(|p| self.lock().remote_of.get(p).cloned());
+        // The parent goes out as the other end knows it, or not at all. The process keeps the
+        // product's ids, and names what it does on its own (a timer's work) by its own.
+        let parent = match self.end {
+            End::Serve { .. } => meta.parent_id().and_then(|p| self.lock().remote_of.get(p).cloned()),
+            End::Client => meta.parent_id().map(str::to_string),
+        };
         let params = if BARE.contains(&method) {
             args
         } else {
@@ -647,14 +653,21 @@ impl Inner {
         let (chain, cap) = match &self.end {
             // The process is held on the parent, by the number it was sent under: the id its host
             // knows that call by, and checks a chain against.
+            // With none — what the process does on its own, a timer's work — the chain starts with
+            // the process, held on the call it names as its own: only its host knows that call,
+            // and a link that names the process can make nothing refuse a call but the process.
             End::Serve { ext } => {
-                let chain = parent.as_ref().map(|(n, p)| {
-                    let mut chain = p.links().to_vec();
-                    chain.push(ChainLink::new(ext.as_str(), n.to_string()));
-                    chain
-                });
+                let chain = match (&parent, remote.parent_id()) {
+                    (Some((n, p)), _) => {
+                        let mut chain = p.links().to_vec();
+                        chain.push(ChainLink::new(ext.as_str(), n.to_string()));
+                        chain
+                    }
+                    (None, Some(own)) => vec![ChainLink::new(ext.as_str(), own)],
+                    (None, None) => Vec::new(),
+                };
                 let cap = now.saturating_add(self.options.deadline_cap.as_millis() as u64);
-                (chain.unwrap_or_default(), Some(cap))
+                (chain, Some(cap))
             }
             End::Client => (remote.links().to_vec(), None),
         };
