@@ -1,4 +1,4 @@
-// Workspaces, titles, preferences, search — the things Agix has no
+// Workspaces, archived sessions, preferences, search — the things Agix has no
 // concept of, kept in Harnix's own directory.
 //
 // All of it registers through the contribution registry, so exercising it
@@ -109,10 +109,11 @@ defineSuite("workspaces", { feature: "session-space" }, {
       await client.call("harnix.session.rename",
         { session_id: created.session_id, title: "a name a person chose" });
 
-      const notes = await client.call("harnix-app.workspaces.list");
-      const note = notes.sessions?.[created.session_id];
-      assert(note, "the renamed session has no overlay entry");
-      assert(note.title === "a name a person chose", `the title came back as ${note.title}`);
+      // The title is the engine's name for the session: the hub's list reads it back.
+      const { sessions } = await client.call("harnix.sessions.list");
+      const row = sessions.find((s: SessionRow) => s.session_id === created.session_id);
+      assert(row, "the renamed session is not in the hub's list");
+      assert(row.name === "a name a person chose", `the title came back as ${row.name}`);
       await finish(client, created.session_id);
     },
 
@@ -133,23 +134,28 @@ defineSuite("workspaces", { feature: "session-space" }, {
     },
 
     "the two halves of a session row can actually be joined": async ({ client }) => {
-      // The hub holds sessions and the store holds the notes about them, and
-      // neither knows about the other — so what a client needs is that the
-      // keys line up. This is the assertion that the split is usable, rather
-      // than merely tidy.
+      // The hub holds sessions and the store holds the workspaces, and
+      // neither knows about the other — so what a client needs is something
+      // to join them on. This is the assertion that the split is usable,
+      // rather than merely tidy.
       const created = await client.call("harnix.session.create", {});
       await client.call("harnix.session.attach", { session_id: created.session_id });
-      await client.call("harnix.session.rename",
-        { session_id: created.session_id, title: "joinable" });
 
       const { sessions } = await client.call("harnix.sessions.list");
       const notes = await client.call("harnix-app.workspaces.list");
       const row = sessions.find((s: SessionRow) => s.session_id === created.session_id);
       assert(row, "the session is not in the hub's list");
-      assert(notes.sessions[row.session_id], "the two lists do not share a key");
       assert("project_root" in row, "the hub's row carries no project root to join a workspace on");
       assert(Array.isArray(notes.workspaces), "the store returns no workspaces to join against");
       await finish(client, created.session_id);
+    },
+
+    "the product says where its projects live, as hello does": async ({ client }) => {
+      const { projects_dir } = await client.call("harnix-app.describe");
+      assert(typeof projects_dir === "string" && projects_dir.length > 0, `projects_dir is ${projects_dir}`);
+      const hello = await client.call("harnix.hello");
+      assert(projects_dir === hello.shell.projects_dir,
+        `describe says ${projects_dir}, hello says ${hello.shell.projects_dir}`);
     },
 
     "view preferences survive": async ({ client }) => {
