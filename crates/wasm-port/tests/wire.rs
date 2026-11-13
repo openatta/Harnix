@@ -916,3 +916,33 @@ async fn an_end_that_never_reads_its_answers_is_cut_off() {
     let why = tokio::time::timeout(PATIENCE, product.closed()).await.unwrap();
     assert!(why.contains("unread"), "{why}");
 }
+
+/// An answerer that calls back over its own wire holds only a weak reference to it: the wire
+/// still closes — the other end sees the stream end — once its last strong reference is dropped.
+#[tokio::test]
+async fn an_answerer_made_from_the_wire_does_not_keep_it_open() {
+    struct Back(std::sync::Weak<SocketWire>);
+
+    #[async_trait]
+    impl Answer for Back {
+        async fn call(&self, call: Inbound, args: Value) -> Result<Value, RpcError> {
+            let Some(wire) = self.0.upgrade() else { return Err(RpcError::invalid_params("gone")) };
+            // Back over the same wire, on behalf of the call being answered.
+            let meta = CallMeta::default().with_parent(Some(call.meta.call_id().to_string()));
+            wire.call("ctl.echo", args, meta, &CancellationToken::new()).await
+        }
+    }
+
+    let (product, process) = UnixStream::pair().unwrap();
+    let wire = SocketWire::serve_with(product, EXT, |weak| Arc::new(Back(weak)), options());
+    let mut raw = Raw::new(process);
+    raw.send(request(1, "proc.call", json!({"call_id": "p1"}), json!({"n": 1}))).await;
+    let echoed = raw.recv().await;
+    assert_eq!(echoed["method"], json!("ctl.echo"), "{echoed}");
+    assert_eq!(echoed["params"]["args"], json!({"n": 1}));
+    raw.send(json!({"jsonrpc": "2.0", "id": echoed["id"], "result": {"echo": true}})).await;
+    assert_eq!(raw.recv().await["result"], json!({"echo": true}));
+
+    drop(wire);
+    assert!(raw.at_end().await, "the wire stayed open behind its own answerer");
+}

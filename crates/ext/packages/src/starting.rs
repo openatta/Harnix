@@ -70,10 +70,24 @@ pub(crate) fn recorded(state: &State, record: &InstallRecord) -> Rpc<Installed> 
     described(state, record, None)
 }
 
+/// The sha256 of the manifest unpacked at `pkg_dir`, as its bytes are on disk.
+pub(crate) fn manifest_digest(pkg_dir: &Path) -> Rpc<String> {
+    let path = pkg_dir.join(harnix_package::manifest::MANIFEST);
+    let bytes = std::fs::read(&path).map_err(|e| internal(format!("{}: {e}", path.display())))?;
+    Ok(harnix_package::signature::sha256(&bytes))
+}
+
 fn described(state: &State, record: &InstallRecord, verified: Option<&Verified>) -> Rpc<Installed> {
     let id = ext_id(&record.id)?;
     let app_dir = state.app_dir(&record.id);
     let pkg_dir = app_dir.join(&record.version);
+    // Checked whenever it is to run: the manifest it runs by is the one consented to.
+    if verified.is_some() && record.digest.as_deref() != Some(manifest_digest(&pkg_dir)?.as_str()) {
+        return Err(refused(format!(
+            "`{}`'s manifest on disk is not the one consented to (its digest is not its record's); install it again",
+            record.id
+        )));
+    }
     let manifest = harnix_package::acquire::manifest_in(&pkg_dir)?;
     let (held, calls) = grants(&manifest);
     // Only the secrets its `env` names: what the person consented to it reading.
@@ -85,7 +99,7 @@ fn described(state: &State, record: &InstallRecord, verified: Option<&Verified>)
         .filter(|(name, _)| manifest.capabilities.env.contains(name))
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
-    let mut installed = Installed::new(id, &record.version, pkg_dir.clone(), app_dir)
+    let mut installed = Installed::new(id, &record.version, pkg_dir.clone(), app_dir.join(crate::records::RUN))
         .record(serde_json::to_value(record).map_err(|e| internal(e.to_string()))?)
         .manifest(manifest_value(&pkg_dir))
         .grants(held, calls)
@@ -141,6 +155,7 @@ pub(crate) async fn install(state: &State, path: &Path, disclosed: &Disclosure, 
     };
     let started = async {
         package::extract(path, &app_dir.join(&app.version)).map_err(refused)?;
+        record.digest = Some(manifest_digest(&app_dir.join(&app.version))?);
         state.carrier.start(&*state.host, &state.cx, installed(state, &record, Some(&verified))?).await
     }
     .await;
@@ -198,7 +213,7 @@ pub(crate) async fn update(state: &State, record: &InstallRecord, path: &Path, d
     // From here on the installed version is taken down: a failure says what became of it.
     state.carrier.stop(&id, StopReason::Updating).await;
     state.carrier.unplace(&state.cx, &recorded(state, record)?).await?;
-    let next = InstallRecord {
+    let mut next = InstallRecord {
         version: version.clone(),
         title: inspected.manifest.app.title.clone(),
         parts: parts(Value::Null, verified.trust.as_str(), "store"),
@@ -209,6 +224,7 @@ pub(crate) async fn update(state: &State, record: &InstallRecord, path: &Path, d
     };
     let started = async {
         package::extract(path, &new_root).map_err(refused)?;
+        next.digest = Some(manifest_digest(&new_root)?);
         state.carrier.start(&*state.host, &state.cx, installed(state, &next, Some(&verified))?).await
     }
     .await;

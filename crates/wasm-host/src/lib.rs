@@ -32,12 +32,12 @@ pub use harnix_wasm::{HttpFetcher, HttpRequest, HttpResponse};
 /// The engine every VM of a host runs on (`Host::engine`).
 pub use harnix_wasm::WasmEngine;
 
-/// What an application keeps under `app_dir` — its files under `data/` and its key-value store
-/// under `kv/` — measured as its quota measures its files: symlinks not followed, and `None` past
-/// as many entries as no quota allows. For an application that is not running; one that is
+/// What an application keeps under its run directory — its files under `data/` and its key-value
+/// store under `kv/` — measured as its quota measures its files: symlinks not followed, and `None`
+/// past as many entries as no quota allows. For an application that is not running; one that is
 /// reports it in its health (`storage_bytes`), counted as it writes.
-pub fn data_bytes(app_dir: &std::path::Path) -> Option<u64> {
-    Some(harnix_wasm::dir_bytes(&app_dir.join("data"))? + harnix_wasm::dir_bytes(&app_dir.join("kv"))?)
+pub fn data_bytes(run_dir: &std::path::Path) -> Option<u64> {
+    Some(harnix_wasm::dir_bytes(&run_dir.join("data"))? + harnix_wasm::dir_bytes(&run_dir.join("kv"))?)
 }
 
 #[cfg(test)]

@@ -27,6 +27,7 @@ mod sync;
 mod tools;
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -272,7 +273,9 @@ impl Carrier for WasmCarrier {
         let mut disclosure = Value::Null;
         let mut placed_now = false;
         if parts.get("agent").is_none() {
-            let place = Place { app: id.clone(), app_dir: app.run_dir().clone(), version: app.version().to_string(), instances: None };
+            // The product's own instances, as its manifest names them.
+            let app_dir = app.pkg_dir().parent().map(PathBuf::from).unwrap_or_else(|| app.run_dir().clone());
+            let place = Place { app: id.clone(), app_dir, version: app.version().to_string(), instances: None };
             let placement = control.place(CallMeta::default(), place).await?;
             parts = placement.parts;
             disclosure = placement.disclosure;

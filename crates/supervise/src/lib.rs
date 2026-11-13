@@ -15,5 +15,5 @@ mod supervisor;
 
 pub use child::{Child, ChildSpec};
 pub use sandbox::SandboxSpec;
-pub use policy::{Decision, RestartPolicy, Restarts};
+pub use policy::{Decision, RestartPolicy, Restarts, EXIT_SETUP};
 pub use supervisor::{ChildEvent, Supervisor};

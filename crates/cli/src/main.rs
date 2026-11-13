@@ -67,7 +67,7 @@ pub fn extensions() -> harnix::ExtensionSet {
     let set = harnix::first_party::standard();
     #[cfg(feature = "flow")]
     let set = set.with(flow(), harnix::first_party::FLOW_GRANTS);
-    #[cfg(feature = "wasm")]
+    #[cfg(any(feature = "wasm", feature = "proc"))]
     let set = set.with(harnix::first_party::packages(), harnix::first_party::PACKAGES_GRANTS);
     set
 }

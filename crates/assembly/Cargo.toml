@@ -19,6 +19,8 @@ harnix-ext       = { workspace = true }
 harnix-host-api  = { workspace = true }
 harnix-hub       = { workspace = true }
 harnix-transport = { workspace = true }
+# An extension process, kept (`host/spawn.rs`).
+harnix-supervise = { workspace = true }
 tokio       = { workspace = true }
 # An extension's routes, served by the transport.
 axum           = { workspace = true }

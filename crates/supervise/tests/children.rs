@@ -126,6 +126,7 @@ fn quick_policy() -> RestartPolicy {
         reset_after: Duration::from_millis(400),
         quick: Duration::from_millis(250),
         give_up_after: 3,
+        fatal: vec![harnix_supervise::EXIT_SETUP],
     }
 }
 
@@ -209,4 +210,78 @@ async fn stopping_the_supervisor_ends_the_child() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     assert!(!alive(pid as i32));
+}
+
+/// With its environment cleared the child has only what it was given, and it starts in the
+/// directory it was given.
+#[tokio::test]
+async fn a_cleared_environment_and_a_directory_are_what_the_child_gets() {
+    let dir = tempfile::tempdir().unwrap();
+    let dir = dir.path().canonicalize().unwrap();
+    let (report, report_w) = pipe();
+    // SAFETY: set before any child is spawned by this test; read by none of the others.
+    unsafe { std::env::set_var("HARNIX_SUPERVISE_LEAK", "leaked") };
+    let mut child = ChildSpec::new("/bin/sh")
+        .args(["-c", "echo \"given=$GIVEN leak=$HARNIX_SUPERVISE_LEAK home=$HOME\" >&3; /bin/pwd -P >&3"])
+        .env_clear()
+        .envs([("GIVEN".into(), "yes".into())])
+        .current_dir(&dir)
+        .inherit_fd(3, report_w)
+        .spawn()
+        .unwrap();
+    let seen = read_all(report).await;
+    let _ = child.wait().await;
+    let mut lines = seen.lines();
+    assert_eq!(lines.next(), Some("given=yes leak= home="), "{seen:?}");
+    assert_eq!(lines.next().map(std::path::PathBuf::from), Some(dir), "{seen:?}");
+}
+
+/// A child that exits with a fatal code is given up on at once: no wait, no second start.
+#[tokio::test]
+async fn a_fatal_exit_code_is_not_started_again() {
+    let supervisor = Supervisor::start(|| Ok(sh("exit 78")), quick_policy());
+    let seen = events_until_done(supervisor).await;
+    let started = seen.iter().filter(|e| matches!(e, ChildEvent::Started { .. })).count();
+    assert_eq!(started, 1, "{seen:?}");
+    assert!(!seen.iter().any(|e| matches!(e, ChildEvent::Restarting { .. })), "{seen:?}");
+    assert!(matches!(seen.last(), Some(ChildEvent::GaveUp { reason }) if reason.contains("78")), "{seen:?}");
+}
+
+/// Killed, the child is started again like any child that exits; stopped, nothing starts again,
+/// whatever the child does after.
+#[tokio::test]
+async fn a_killed_child_starts_again_and_a_stopped_one_does_not() {
+    let starts = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let counter = starts.clone();
+    let mut policy = quick_policy();
+    policy.quick = Duration::ZERO;
+    let mut supervisor = Supervisor::start(
+        move || {
+            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(ChildSpec::new("/bin/cat"))
+        },
+        policy,
+    );
+    let first = loop {
+        if let Some(ChildEvent::Started { pid }) = supervisor.next_event().await {
+            break pid;
+        }
+    };
+    supervisor.kill();
+    let second = loop {
+        match tokio::time::timeout(Duration::from_secs(10), supervisor.next_event()).await.unwrap() {
+            Some(ChildEvent::Started { pid }) => break pid,
+            Some(ChildEvent::GaveUp { reason }) => panic!("gave up: {reason}"),
+            Some(_) => continue,
+            None => panic!("the supervisor finished"),
+        }
+    };
+    assert_ne!(first, second);
+    assert!(!alive(first as i32));
+    supervisor.stop().await;
+    let at_stop = starts.load(std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(at_stop, 2);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(starts.load(std::sync::atomic::Ordering::SeqCst), at_stop, "started again after the stop");
+    assert!(!alive(second as i32));
 }

@@ -1384,6 +1384,7 @@ dependencies = [
  "async-trait",
  "axum",
  "harnix-assembly",
+ "harnix-carrier-proc",
  "harnix-carrier-wasm",
  "harnix-contract",
  "harnix-engine",
@@ -1427,6 +1428,7 @@ dependencies = [
  "harnix-instance",
  "harnix-kernel",
  "harnix-router",
+ "harnix-supervise",
  "harnix-transport",
  "http-body-util",
  "libc",
@@ -1453,6 +1455,28 @@ dependencies = [
  "serde_json",
  "sha2",
  "tracing",
+]
+
+[[package]]
+name = "harnix-carrier-proc"
+version = "0.4.2-2026110901"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "harnix",
+ "harnix-ext",
+ "harnix-host-api",
+ "harnix-package",
+ "harnix-proc",
+ "harnix-wasm-port",
+ "http",
+ "http-body-util",
+ "libc",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

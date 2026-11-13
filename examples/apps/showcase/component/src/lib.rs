@@ -4,7 +4,7 @@
 //! # The backend
 //!
 //! One instance for the whole process, started with the application (`init`) and stopped with it
-//! (`stop`). Its methods are `app.example.showcase.<name>`, declared in `harnix-ext.toml`:
+//! (`stop`). Its methods are `example.showcase.<name>`, declared in `harnix-ext.toml`:
 //!
 //! | method | shows |
 //! |---|---|
@@ -16,6 +16,7 @@
 //! | `fetch {url}` | slow work started, then reported: a job at once; a timer makes the request (`host.http-request`, to a host in `net` only) and publishes it on `fetched` |
 //! | `session.start {message, space, …}` | driving the agent: `harnix.session.create` and `harnix.session.send` in its own space, as `ext:example.showcase` |
 //! | `overreach` | a call its `calls` does not list: refused, and on the record |
+//! | `recall` | a call back into its own backend while it answers: refused at once (`reentrant`) |
 //! | `spin`, `crash` | what a timeout and a trap do to the instance |
 //! | `card.post {session_id, space, …}` | an entry in the flow of a session of its own space (`harnix.session.entries.append`), which the shell draws as the manifest's card |
 //! | `complete {trigger, name, query}` | the candidates of its `/showcase` command and its `@notes` source |
@@ -281,6 +282,15 @@ impl Backend for Showcase {
                     Err(refusal) => json!({"refused": true, "message": refusal}),
                 }
             }
+            "recall" => {
+                // Back into its own backend, which is busy answering this very call: the product
+                // works out the chain from the call this one was made for, and the backend is
+                // refused at once (`reentrant`) instead of waiting for itself until the timeout.
+                match host::call(&format!("{ID}.state"), "{}") {
+                    Ok(answer) => json!({"refused": false, "answer": serde_json::from_str::<Value>(&answer).unwrap_or(Value::Null)}),
+                    Err(refusal) => json!({"refused": true, "message": refusal}),
+                }
+            }
             "spin" => loop {
                 std::hint::black_box(memory(|m| m.counter));
             },
@@ -522,7 +532,7 @@ impl Tools for Showcase {
             ),
             "crash" => panic!("the showcase's crash tool crashes"),
             // This instance is not the backend's: what the backend holds, it has to ask for.
-            "board" => match host::call(&format!("app.{ID}.state"), "{}") {
+            "board" => match host::call(&format!("{ID}.state"), "{}") {
                 Ok(state) => {
                     let state: Value = serde_json::from_str(&state).unwrap_or(Value::Null);
                     answer(

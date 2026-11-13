@@ -29,9 +29,11 @@ first-party = [
 # Packages in this process (mode 2): `harnix::first_party::packages()`, the component that installs
 # packages and registers each as an extension, on the WebAssembly carrier, whose engine it links.
 wasm = ["first-party", "dep:harnix-ext-packages", "dep:harnix-carrier-wasm"]
-# Extension processes (mode 3): `App::builder()` registers `ext-proc`, the subcommand this binary is
-# re-executed as. Only a product that runs packages in their own process needs it.
-proc = ["dep:harnix-proc"]
+# Packages in processes of their own (mode 3): `harnix::first_party::packages()` can also run each
+# package in an extension process (`[ext.packages] carrier = "process"`), and `App::builder()`
+# registers `ext-proc`, the subcommand this binary is re-executed as for one. With `wasm` too,
+# both carriers are linked and the profile picks; unset, `wasm`.
+proc = ["first-party", "dep:harnix-ext-packages", "dep:harnix-carrier-proc", "dep:harnix-proc"]
 # `<product> ext-proc --probe`: what the process's sandbox lets it reach, for tests. Never in a
 # product's build.
 proc-probe = ["proc", "harnix-proc/probe"]
@@ -62,6 +64,8 @@ harnix-ext-devices       = { workspace = true, optional = true }
 # Packages (`wasm`): the host component, and the carrier that runs them in this process.
 harnix-ext-packages      = { workspace = true, optional = true }
 harnix-carrier-wasm      = { workspace = true, optional = true }
+# Packages in processes of their own (`proc`): the carrier, beside the process's code below.
+harnix-carrier-proc      = { workspace = true, optional = true }
 # The extension process's code (`proc`).
 harnix-proc       = { workspace = true, optional = true }
 # Only for `harnix::agix`.

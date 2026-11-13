@@ -163,22 +163,85 @@ impl ChildRequest {
     pub fn has_engine(&self) -> bool {
         self.with_engine
     }
+
+    pub fn pkg(&self) -> Option<&PathBuf> {
+        self.pkg_dir.as_ref()
+    }
+
+    pub fn run(&self) -> Option<&PathBuf> {
+        self.run_dir.as_ref()
+    }
+
+    pub fn restart_policy(&self) -> RestartPolicy {
+        self.restart
+    }
 }
 
-/// A started extension process, on the product's side: its wire, and its subject. Dropped, the
-/// subject is revoked.
+/// An extension process, on the product's side, kept for one run of it: the host's supervisor
+/// starts it again after an exit nobody asked for, and says so here, each start with the
+/// product's end of its wire. Its subject is bound to those ends; dropped, the process is ended and
+/// the subject revoked. A run ends with [`ChildHandle::stop`] (or once the host gives up on it); a
+/// process that is to come back after that is started with a new handle.
 pub struct ChildHandle {
     id: ExtId,
+    run: Box<dyn ChildRun>,
 }
 
 impl ChildHandle {
-    pub fn new(id: ExtId) -> Self {
-        Self { id }
+    pub fn new(id: ExtId, run: Box<dyn ChildRun>) -> Self {
+        Self { id, run }
     }
 
     pub fn id(&self) -> &ExtId {
         &self.id
     }
+
+    /// What happened to it next; `None` once the run is over.
+    pub async fn next(&mut self) -> Option<ChildEvent> {
+        self.run.next().await
+    }
+
+    /// Kill the process that runs now, outright: it counts as an exit like any other, and it is
+    /// started again. For one that is up and does not answer.
+    pub fn kill(&self) {
+        self.run.kill()
+    }
+
+    /// End the process — stdin closed, a grace, a kill — and start it no more.
+    pub async fn stop(self) {
+        self.run.stop().await
+    }
+}
+
+/// The host's side of a [`ChildHandle`].
+#[async_trait::async_trait]
+pub trait ChildRun: Send + Sync {
+    async fn next(&mut self) -> Option<ChildEvent>;
+    fn kill(&self);
+    async fn stop(self: Box<Self>);
+}
+
+/// What happened to an extension process, in order.
+#[non_exhaustive]
+#[derive(Debug)]
+pub enum ChildEvent {
+    /// It started: the product's end of its wire (fd 3 in the process), and of its engine's
+    /// (fd 4) when it was asked for one.
+    Started {
+        pid: u32,
+        wire: std::os::unix::net::UnixStream,
+        engine: Option<std::os::unix::net::UnixStream>,
+    },
+    /// It exited: with `code`, or killed by a signal (`None`).
+    Exited { code: Option<i32>, ran_for: std::time::Duration },
+    /// It is started again after this wait.
+    Restarting { after: std::time::Duration },
+    /// It could not be started.
+    SpawnFailed { error: String },
+    /// It is not started again: the run is over.
+    GaveUp { reason: String },
+    /// [`ChildHandle::stop`] ended it.
+    Stopped,
 }
 
 /// What wakes an idle extension process when a session of its engine is asked for.
@@ -475,6 +538,7 @@ pub struct CarrierSettings {
     store_keys: Option<Vec<String>>,
     trusted_publishers: BTreeMap<String, Vec<String>>,
     idle: Option<std::time::Duration>,
+    proc_program: Option<PathBuf>,
 }
 
 impl CarrierSettings {
@@ -507,8 +571,19 @@ impl CarrierSettings {
         self
     }
 
+    /// The program an extension process is started as (`[ext.packages] proc_program`), when not
+    /// this binary.
+    pub fn proc_program(mut self, program: Option<PathBuf>) -> Self {
+        self.proc_program = program;
+        self
+    }
+
     pub fn is_dev(&self) -> bool {
         self.dev
+    }
+
+    pub fn proc_program_path(&self) -> Option<&PathBuf> {
+        self.proc_program.as_ref()
     }
 
     pub fn store_key_list(&self) -> Option<&[String]> {

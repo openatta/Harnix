@@ -85,6 +85,10 @@ pub struct Config {
     /// Which carrier runs packages, by name (`wasm`, `process`). Unset: the one linked, or `wasm`
     /// when both are.
     pub carrier: Option<String>,
+    /// The program an extension process is started as, with the `process` carrier: another build
+    /// of this product, which must be the same build — it is refused otherwise. Unset: this
+    /// binary.
+    pub proc_program: Option<PathBuf>,
     /// `[ext.packages.trusted_publishers]`: a publisher's id (the first segment of its packages'
     /// ids) and the ed25519 public keys (hex) that sign as it. A package such a key signed in full
     /// is installed and run without the store's countersignature, as `trusted`.
@@ -150,7 +154,11 @@ impl Packages {
     }
 
     fn settings(&self, config: &Config) -> CarrierSettings {
-        let settings = CarrierSettings::new().dev(config.dev).trusted_publishers(config.trusted_publishers.clone()).idle(self.idle);
+        let settings = CarrierSettings::new()
+            .dev(config.dev)
+            .trusted_publishers(config.trusted_publishers.clone())
+            .idle(self.idle)
+            .proc_program(config.proc_program.clone());
         match &self.store_keys {
             Some(keys) => settings.store_keys(keys.clone()),
             None => settings,
@@ -182,6 +190,12 @@ pub(crate) struct State {
 impl State {
     fn app_dir(&self, id: &str) -> PathBuf {
         self.dir.join(id)
+    }
+
+    /// What its carrier writes for it: its data and key-value store, and more besides
+    /// (`records::RUN`).
+    fn run_dir(&self, id: &str) -> PathBuf {
+        self.app_dir(id).join(records::RUN)
     }
 }
 

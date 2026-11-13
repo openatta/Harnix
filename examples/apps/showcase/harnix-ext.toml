@@ -121,7 +121,7 @@ properties = {}
 [events]
 tools = "own"
 
-# The backend's methods: app.example.showcase.<name>. Callable by the page (a device) unless said
+# The backend's methods: example.showcase.<name>. Callable by the page (a device) unless said
 # otherwise; always by the application itself (the `board` tool asks `state`).
 [[method]]
 name = "notes.add"
@@ -176,6 +176,10 @@ properties.message = { type = "string" }
 [[method]]
 name = "overreach"
 description = "Try a call the application's `calls` do not list"
+
+[[method]]
+name = "recall"
+description = "Ask its own `state` while it answers this: refused at once, not left waiting for itself"
 
 [[method]]
 name = "spin"

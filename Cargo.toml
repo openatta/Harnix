@@ -8,6 +8,7 @@ members = [
     "crates/proc",
     "crates/wasm-port",
     "crates/carrier/wasm",
+    "crates/carrier/proc",
     "crates/instance",
     "crates/supervise",
     "crates/authz",
@@ -69,6 +70,9 @@ members = [
 #                                                     extension handle and context, their tools in
 #                                                     every session, /ext/<id>/…; only a build with
 #                                                     the `wasm` feature links any of these)
+#   carrier/proc ─→ wasm-port, host-api, ext          (packages in processes of their own: each one's
+#                                                     `ext-proc` started, kept and driven over the
+#                                                     extension wire; names no VM; feature `proc`)
 # ──────────────────────────────────────────────
 [workspace.dependencies]
 harnix           = { path = "crates/harnix" }
@@ -78,6 +82,7 @@ harnix-package   = { path = "crates/package" }
 harnix-proc      = { path = "crates/proc" }
 harnix-wasm-port = { path = "crates/wasm-port" }
 harnix-carrier-wasm = { path = "crates/carrier/wasm" }
+harnix-carrier-proc = { path = "crates/carrier/proc" }
 harnix-instance  = { path = "crates/instance" }
 harnix-supervise = { path = "crates/supervise" }
 harnix-authz     = { path = "crates/authz" }
