@@ -23,7 +23,7 @@ const TAGS = { tag: ["@feature:packages-inline", "@layer:api"] };
 
 const M = (name: string) => `${SHOWCASE_ID}.${name}`;
 
-const listed = async (api: TestClient) => (await api.call("packages.list")).apps.find((a: any) => a.id === SHOWCASE_ID);
+const listed = async (api: TestClient) => (await api.call("packages.list")).packages.find((a: any) => a.id === SHOWCASE_ID);
 
 /** A session with one replayed turn: its log exists, so an entry has somewhere to go. */
 async function oneTurn(api: TestClient, space?: string): Promise<{ instance: string; session_id: string }> {
@@ -86,7 +86,7 @@ test.describe("an application's inline points and its data", () => {
       expect(error?.code, name).toBe(REFUSED);
       expect(error?.message, name).toContain(says);
     }
-    expect((await api.call("packages.list")).apps).toEqual([]);
+    expect((await api.call("packages.list")).packages).toEqual([]);
   });
 
   test("installed, they are listed for the shell, and disclosed where they tell it something", TAGS, async () => {

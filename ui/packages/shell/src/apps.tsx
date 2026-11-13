@@ -40,7 +40,7 @@ interface Installed {
   source?: string;
   data_bytes?: number;
   runtime?: { state?: string; reason?: string };
-  app?: { publisher?: string; description?: string | null; lines?: Line[]; ui?: unknown[]; inline?: Inline | null } | null;
+  ext?: { publisher?: string; description?: string | null; lines?: Line[]; ui?: unknown[]; inline?: Inline | null } | null;
 }
 
 interface CatalogApp {
@@ -287,9 +287,9 @@ export function AppsSettings({ app }: { app: App }) {
       <SettingsRow label={t("apps.mark")} hint={t("apps.markHint")}>
         <input type="checkbox" data-testid="apps-mark-toggle" checked={watch.marked()} onChange={(e) => watch.setMarked(e.target.checked)} />
       </SettingsRow>
-      <SettingsSection title={t("apps.installed")} load={() => app.call<{ apps?: Installed[] }>("packages.list", {})}>
+      <SettingsSection title={t("apps.installed")} load={() => app.call<{ packages?: Installed[] }>("packages.list", {})}>
         {(data) => {
-          const apps = data.apps ?? [];
+          const apps = data.packages ?? [];
           if (!apps.length) return <div className="hint">{t("apps.none")}</div>;
           return (
             <>
@@ -364,8 +364,8 @@ export function AppsSettings({ app }: { app: App }) {
                     </SettingsRow>
                     <div className="apps-permissions" data-testid="app-permissions">
                       <div className="apps-sub">{t("apps.permissions")}</div>
-                      <Lines lines={a.app?.lines ?? []} empty={t("apps.asksNothing")} />
-                      <InlinePoints inline={a.app?.inline} />
+                      <Lines lines={a.ext?.lines ?? []} empty={t("apps.asksNothing")} />
+                      <InlinePoints inline={a.ext?.inline} />
                     </div>
                     <SettingsRow label={t("apps.data", { size: fileSize(a.data_bytes) })}>
                       <SettingsValue>

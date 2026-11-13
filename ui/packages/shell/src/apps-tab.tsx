@@ -81,7 +81,7 @@ interface AppRow {
 }
 
 interface AppsList {
-  apps: AppRow[];
+  packages: AppRow[];
   unreadable?: { dir: string; reason: string }[];
 }
 
@@ -103,7 +103,7 @@ export function AppsTab({ app }: { app: App }) {
   const [open, setOpen] = useState<string | null>(null);
   useEffect(() => topicsOf(app.conn).subscribe(APPS_TOPIC, {}, (value) => setList((value as AppsList | null) ?? undefined)), [app]);
   if (!list) return <div className="system-pane" data-testid="system-apps">{tr("system.apps.loading")}</div>;
-  if (!list.apps.length) {
+  if (!list.packages.length) {
     return (
       <div className="system-pane" data-testid="system-apps">
         <div className="muted" data-testid="system-apps-empty">{tr("system.apps.none")}</div>
@@ -128,7 +128,7 @@ export function AppsTab({ app }: { app: App }) {
             </tr>
           </thead>
           <tbody data-rows="">
-            {list.apps.map((row) => {
+            {list.packages.map((row) => {
               const state = appState(row);
               const rt = row.runtime;
               const h = rt?.health ?? undefined;

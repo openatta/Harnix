@@ -219,7 +219,7 @@ function register(app: App, iface: AppInterface): void {
 }
 
 interface Listed {
-  apps?: { id: string; enabled?: boolean; runtime?: { state?: string; ui_rev?: string | null } }[];
+  packages?: { id: string; enabled?: boolean; runtime?: { state?: string; ui_rev?: string | null } }[];
 }
 
 /** Follow the applications' state: frames go with a stopped application, reload with a changed `ui/`. */
@@ -227,7 +227,7 @@ function follow(app: App, ids: Set<string>): void {
   if (!app.snapshot.reachable.includes("packages.list")) return;
   const revs = new Map<string, string>();
   topicsOf(app.conn).subscribe("packages.list", {}, (value) => {
-    for (const row of (value as Listed | null)?.apps ?? []) {
+    for (const row of (value as Listed | null)?.packages ?? []) {
       if (!ids.has(row.id)) continue;
       const running = Boolean(row.enabled) && row.runtime?.state === "running";
       surfaces.setStopped(row.id, !running);

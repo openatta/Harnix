@@ -82,7 +82,7 @@ test.describe("the store, trusted", () => {
     expect(app.versions[0].engines).toEqual([fingerprint]);
     expect(app.capabilities.env).toEqual(["SHOWCASE_TOKEN", "SHOWCASE_EXTRA"]);
     // Nothing is installed by looking.
-    expect((await api.call("packages.list")).apps).toEqual([]);
+    expect((await api.call("packages.list")).packages).toEqual([]);
   });
 
   test("a catalog the store did not sign, or that has expired, is not believed", TAGS, async () => {
@@ -97,7 +97,7 @@ test.describe("the store, trusted", () => {
         expect(error?.code, method).toBe(REFUSED);
         expect(error?.message, method).toContain(says);
       }
-      expect((await api.call("packages.list")).apps).toEqual([]);
+      expect((await api.call("packages.list")).packages).toEqual([]);
     };
     store.write(store.index, { sign: false });
     await refused("the store's catalog is not signed");
@@ -172,7 +172,7 @@ test.describe("the store, trusted", () => {
         expect(error?.message).toContain(OTHER_ENGINE);
         expect(error?.message).toContain("upgrade Harnix");
       }
-      expect((await api.call("packages.list")).apps, name).toEqual([]);
+      expect((await api.call("packages.list")).packages, name).toEqual([]);
       expect(existsSync(join(backend.state, "apps", SHOWCASE_ID)), name).toBe(false);
     }
     expect((await api.refused("packages.install", { id: "example.nobody" }))?.message).toContain("no application `example.nobody`");
@@ -229,16 +229,16 @@ test.describe("the store, trusted", () => {
       "agent",
     ]);
     // Disclosed, and nothing done.
-    expect((await api.call("packages.list")).apps).toEqual([]);
+    expect((await api.call("packages.list")).packages).toEqual([]);
 
     // A consent to something else is no consent: disclosed again.
     const again = await api.call("packages.install", { id: SHOWCASE_ID, version: "0.1.0", consent: "0".repeat(64) });
     expect(again).toMatchObject({ consent: "required", changed: true, digest: disclosed.digest });
-    expect((await api.call("packages.list")).apps).toEqual([]);
+    expect((await api.call("packages.list")).packages).toEqual([]);
 
     const installed = await api.call("packages.install", { id: SHOWCASE_ID, version: "0.1.0", consent: disclosed.digest });
     expect(installed).toMatchObject({ id: SHOWCASE_ID, version: "0.1.0", enabled: true, trust: "store", source: "store" });
-    const listed = (await api.call("packages.list")).apps;
+    const listed = (await api.call("packages.list")).packages;
     expect(listed).toHaveLength(1);
     expect(listed[0]).toMatchObject({
       id: SHOWCASE_ID,
@@ -265,7 +265,7 @@ test.describe("the store, trusted", () => {
     const count = await session(api, "app-count");
     await runTurn(api, count, "count");
     expect(results(api, count)).toContain("count = 1");
-    expect((await api.call("packages.list")).apps[0].data_bytes, "the count is kept").toBeGreaterThan(0);
+    expect((await api.call("packages.list")).packages[0].data_bytes, "the count is kept").toBeGreaterThan(0);
   });
 
   test("an update that asks for more lists only that, and waits for consent", TAGS, async () => {
@@ -278,14 +278,14 @@ test.describe("the store, trusted", () => {
       { capability: "storage_mb", value: 2, from: 1 },
     ]);
     // Not yet.
-    expect((await api.call("packages.list")).apps[0].version).toBe("0.1.0");
+    expect((await api.call("packages.list")).packages[0].version).toBe("0.1.0");
     // Consent to installing it is not consent to this update.
     const fresh = await api.refused("packages.install", { id: SHOWCASE_ID, consent: asked.digest });
     expect(fresh?.message).toContain("installed already");
 
     const updated = await api.call("packages.update", { id: SHOWCASE_ID, consent: asked.digest });
     expect(updated).toMatchObject({ id: SHOWCASE_ID, version: "0.2.0", from: "0.1.0", trust: "store", enabled: true });
-    const listed = (await api.call("packages.list")).apps[0];
+    const listed = (await api.call("packages.list")).packages[0];
     expect(listed).toMatchObject({ version: "0.2.0", trust: "store", runtime: { state: "running" } });
     expect(listed.app.capabilities.env).toEqual(["SHOWCASE_TOKEN", "SHOWCASE_EXTRA"]);
     expect(existsSync(join(backend.state, "apps", SHOWCASE_ID, "0.1.0")), "the old version's files").toBe(false);
@@ -300,7 +300,7 @@ test.describe("the store, trusted", () => {
   test("uninstalled by name: everything it brought goes, its data with it", TAGS, async () => {
     const removed = await api.call("packages.uninstall", { id: SHOWCASE_ID });
     expect(removed).toMatchObject({ id: SHOWCASE_ID, uninstalled: true, removed: { agent: { package: "example-showcase" }, skills: { main: ["showcase-tour"] } } });
-    expect((await api.call("packages.list")).apps).toEqual([]);
+    expect((await api.call("packages.list")).packages).toEqual([]);
     expect((await api.call("engine.plugin.list")).plugins.map((p: any) => p.name)).not.toContain("example-showcase");
     expect(JSON.stringify(await api.call("engine.commands.list", { instance: "main" }))).not.toContain("showcase-tour");
     expect(existsSync(join(backend.state, "apps", SHOWCASE_ID)), "its directory, kv and data").toBe(false);
@@ -323,7 +323,7 @@ test.describe("the store, trusted", () => {
     expect(catalog.apps[0]).toMatchObject({ installed: "0.1.0", installed_revoked: "the store revoked it: it leaks the token", latest: "0.2.0" });
     expect(catalog.apps[0].versions.find((v: any) => v.version === "0.1.0")).toMatchObject({ installable: false, revoked: "the store revoked it: it leaks the token" });
     // Flagged, not stopped: the list says so without asking the store again.
-    expect((await api.call("packages.list")).apps[0]).toMatchObject({ version: "0.1.0", revoked: "the store revoked it: it leaks the token", runtime: { state: "running" } });
+    expect((await api.call("packages.list")).packages[0]).toMatchObject({ version: "0.1.0", revoked: "the store revoked it: it leaks the token", runtime: { state: "running" } });
     await api.call("packages.uninstall", { id: SHOWCASE_ID });
     const error = await api.refused("packages.install", { id: SHOWCASE_ID, version: "0.1.0" });
     expect(error?.code).toBe(REFUSED);
@@ -334,7 +334,7 @@ test.describe("the store, trusted", () => {
       "the store supports `example.showcase` from 0.2.0 on",
     );
     expect((await api.call("packages.catalog")).apps[0]).toMatchObject({ min_version: "0.2.0", latest: "0.2.0" });
-    expect((await api.call("packages.list")).apps).toEqual([]);
+    expect((await api.call("packages.list")).packages).toEqual([]);
   });
 
   test("a downgrade happens only when it is asked for, and is disclosed", TAGS, async () => {
@@ -344,14 +344,14 @@ test.describe("the store, trusted", () => {
     expect(error?.code).toBe(REFUSED);
     expect(error?.message).toContain("is older than the installed 0.2.0");
     expect(error?.message).toContain("allow_downgrade: true");
-    expect((await api.call("packages.list")).apps[0].version).toBe("0.2.0");
+    expect((await api.call("packages.list")).packages[0].version).toBe("0.2.0");
     // Allowed: it asks for less, and is consented to all the same.
     const asked = await api.call("packages.update", { id: SHOWCASE_ID, version: "0.1.0", allow_downgrade: true });
     expect(asked).toMatchObject({ consent: "required", version: "0.1.0" });
     expect(asked.disclosure.update).toMatchObject({ from: "0.2.0", downgrade: true, needs_consent: true, added: [] });
     const done = await api.call("packages.update", { id: SHOWCASE_ID, version: "0.1.0", allow_downgrade: true, consent: asked.digest });
     expect(done).toMatchObject({ version: "0.1.0", from: "0.2.0", downgrade: true });
-    expect((await api.call("packages.list")).apps[0]).toMatchObject({ version: "0.1.0", runtime: { state: "running" } });
+    expect((await api.call("packages.list")).packages[0]).toMatchObject({ version: "0.1.0", runtime: { state: "running" } });
     // Forward again, as any update.
     expect(await api.call("packages.update", { id: SHOWCASE_ID })).toMatchObject({ consent: "required", version: "0.2.0" });
     await api.call("packages.uninstall", { id: SHOWCASE_ID });
@@ -402,14 +402,14 @@ test.describe("the store, on a Harnix with only the store's own key", () => {
     expect((await api.refused("packages.installFile", { path: store.publisherOnly }))?.message).toContain("not one the profile trusts");
     // And unsigned, without dev mode, as before.
     expect((await api.refused("packages.installFile", { path: showcasePackage().path }))?.message).toContain("[ext.packages] dev = true");
-    expect((await api.call("packages.list")).apps).toEqual([]);
+    expect((await api.call("packages.list")).packages).toEqual([]);
   });
 
   test("a publisher the profile trusts installs and runs without the store or dev mode", TAGS, async () => {
     api = await connect(trusting, { topology: topology() });
     const installed = await api.call("packages.installFile", { path: store.publisherOnly });
     expect(installed).toMatchObject({ id: SHOWCASE_ID, trust: "trusted", source: "file" });
-    expect((await api.call("packages.list")).apps[0]).toMatchObject({ trust: "trusted", runtime: { state: "running" } });
+    expect((await api.call("packages.list")).packages[0]).toMatchObject({ trust: "trusted", runtime: { state: "running" } });
     const echo = await session(api, "app-echo");
     await runTurn(api, echo, "Use the showcase's echo tool");
     expect(results(api, echo)).toContain("showcase-echo-42");
@@ -420,7 +420,7 @@ test.describe("the store, on a Harnix with only the store's own key", () => {
     writeFileSync(module, `${readFileSync(module, "utf8")}\n// changed on disk\n`);
     const error = await api.refused("packages.enable", { id: SHOWCASE_ID });
     expect(error?.message).toContain("`ui/showcase.js` is not the file that was signed");
-    expect((await api.call("packages.list")).apps[0]).toMatchObject({ enabled: false, runtime: { state: "failed" } });
+    expect((await api.call("packages.list")).packages[0]).toMatchObject({ enabled: false, runtime: { state: "failed" } });
     await api.call("packages.uninstall", { id: SHOWCASE_ID });
   });
 });

@@ -28,7 +28,7 @@ const M = (name: string) => `${SHOWCASE_ID}.${name}`;
 /** What the test application idles an on-demand backend for. */
 const IDLE_MS = 1500;
 
-const listed = async (api: TestClient) => (await api.call("packages.list")).apps.find((a: any) => a.id === SHOWCASE_ID);
+const listed = async (api: TestClient) => (await api.call("packages.list")).packages.find((a: any) => a.id === SHOWCASE_ID);
 const stateOf = async (api: TestClient) => (await listed(api))?.runtime?.state;
 
 /** The showcase as an on-demand backend; `watch` keeps its subscription in `init`. */
@@ -71,7 +71,7 @@ test.describe("an application whose backend idles", () => {
     api = await connect(backend, { topology: topology() });
   });
   test.afterEach(async () => {
-    if ((await api.call("packages.list")).apps.some((a: any) => a.id === SHOWCASE_ID)) {
+    if ((await api.call("packages.list")).packages.some((a: any) => a.id === SHOWCASE_ID)) {
       await api.call("packages.uninstall", { id: SHOWCASE_ID });
     }
     api?.close();
@@ -92,7 +92,7 @@ test.describe("an application whose backend idles", () => {
       expect(error?.code, name).toBe(REFUSED);
       expect(error?.message, name).toContain(says);
     }
-    expect((await api.call("packages.list")).apps).toEqual([]);
+    expect((await api.call("packages.list")).packages).toEqual([]);
   });
 
   test("idle, it hibernates; a call starts it again, its store kept and its memory not", TAGS, async () => {
@@ -109,8 +109,8 @@ test.describe("an application whose backend idles", () => {
     expect(app.runtime.health).toMatchObject({ hibernating: true, recycles: 0, faults: 0 });
     // Told on the topic too.
     await api.waitFor(
-      (f) => f.method === "harnix.topic" && f.params.topic === "packages.list" && f.params.value?.apps?.some((a: any) => a.id === SHOWCASE_ID && a.runtime?.state === "hibernating"),
-      { describe: "harnix.apps saying it hibernates" },
+      (f) => f.method === "harnix.topic" && f.params.topic === "packages.list" && f.params.value?.packages?.some((a: any) => a.id === SHOWCASE_ID && a.runtime?.state === "hibernating"),
+      { describe: "packages.list saying it hibernates" },
     );
 
     // A call wakes it: `init` again, the notes from the store, the counter from nothing.

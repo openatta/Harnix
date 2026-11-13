@@ -92,7 +92,7 @@ export class AppsWatch {
 
   /** A value of `packages.list`. */
   take(value: unknown): void {
-    const listed = ((value as { apps?: Listed[] } | null)?.apps ?? []).filter((a) => a && typeof a.id === "string");
+    const listed = ((value as { packages?: Listed[] } | null)?.packages ?? []).filter((a) => a && typeof a.id === "string");
     this.apps = new Map(
       listed.map((a) => [
         a.id,

@@ -80,7 +80,7 @@ test.describe("unsigned, under [ext.packages] dev", () => {
     });
     // The second space has no page: its centre is the conversation, its left column the shell's list.
     expect(listed.at(-1)).toMatchObject({ frame: null, surface: { space: SHOWCASE_CHATS, sessions: SHOWCASE_CHATS, center: "chat" } });
-    const runtime = (await api.call("packages.list")).apps[0].runtime;
+    const runtime = (await api.call("packages.list")).packages[0].runtime;
     expect(runtime.frames).toBe(true);
     expect(runtime.surfaces).toContain("space.tab:heartbeat");
     expect(runtime.ui_rev).toMatch(/^[0-9a-f]{16}$/);
@@ -116,15 +116,15 @@ test.describe("unsigned, under [ext.packages] dev", () => {
 
   test("a change to its files moves its ui_rev, which the page reloads its frames on", TAGS, async () => {
     await api.call("harnix.topics.subscribe", { topic: "packages.list" });
-    const before = (await api.call("packages.list")).apps[0].runtime.ui_rev;
+    const before = (await api.call("packages.list")).packages[0].runtime.ui_rev;
     const dir = (await api.call("packages.list")).dir;
     appendFileSync(join(dir, SHOWCASE_ID, "0.1.0", "ui", "frame", "showcase.css"), "\n/* a change */\n");
-    await expect.poll(async () => (await api.call("packages.list")).apps[0].runtime.ui_rev, { timeout: 10_000 }).not.toBe(before);
+    await expect.poll(async () => (await api.call("packages.list")).packages[0].runtime.ui_rev, { timeout: 10_000 }).not.toBe(before);
     // Pushed on the topic too: the page needs no polling of its own.
     const pushed = () =>
       api.events
         .filter((e) => e.method === "harnix.topic" && e.params.topic === "packages.list")
-        .map((e) => e.params.value?.apps?.[0]?.runtime?.ui_rev)
+        .map((e) => e.params.value?.packages?.[0]?.runtime?.ui_rev)
         .at(-1);
     await expect.poll(pushed, { timeout: 10_000 }).not.toBe(before);
     await api.call("packages.uninstall", { id: SHOWCASE_ID });
@@ -140,7 +140,7 @@ test.describe("unsigned, under [ext.packages] dev", () => {
     expect((await api.refused("packages.installFile", { path: missing }))?.message).toContain("frame/missing.html");
     const unknown = edited("point", (m) => m.replace('point = "modal"', 'point = "flow.block"'));
     expect((await api.refused("packages.installFile", { path: unknown }))?.message).toContain("point");
-    expect((await api.call("packages.list")).apps).toEqual([]);
+    expect((await api.call("packages.list")).packages).toEqual([]);
   });
 });
 
@@ -165,7 +165,7 @@ test.describe("signed by a publisher this Harnix trusts", () => {
     const hello = await api.call("harnix.ui");
     expect(modules(hello).map((c: any) => c.module)).toEqual([`/ext/${SHOWCASE_ID}/ui/showcase.js`, `/ext/${SHOWCASE_ID}/ui/showcase.js`]);
     expect(surfaces(hello)).toEqual([]);
-    const runtime = (await api.call("packages.list")).apps[0].runtime;
+    const runtime = (await api.call("packages.list")).packages[0].runtime;
     expect(runtime.frames).toBe(false);
     // Signed, its files are not watched: nothing changes under a verified package.
     expect(runtime.ui_rev ?? null).toBeNull();

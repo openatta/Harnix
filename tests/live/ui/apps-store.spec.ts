@@ -43,7 +43,7 @@ async function applications(page: Page): Promise<void> {
 const listed = async () => {
   const api = await connect(backend, { topology: topology() });
   try {
-    return (await api.call("packages.list")).apps as any[];
+    return (await api.call("packages.list")).packages as any[];
   } finally {
     api.close();
   }

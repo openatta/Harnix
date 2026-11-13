@@ -47,7 +47,7 @@ describe("the applications the shell draws for", () => {
     let seen = 0;
     watch.subscribe(() => (seen += 1));
     watch.take({
-      apps: [
+      packages: [
         { id: "acme.notes", title: "Notes", enabled: true, trust: "store", runtime: { state: "running", inline: { command: [{ trigger: "/", name: "notes" }] } } },
         { id: "acme.off", enabled: false, runtime: { state: "stopped" } },
       ],
