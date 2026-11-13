@@ -2,7 +2,8 @@
 //! this process's life by their stdin, ended with everything they left behind, and started again
 //! on a schedule until it is plain that they will not stay up.
 //!
-//! A child can be started inside an operating-system sandbox ([`sandbox`]), or not at all.
+//! A child can be started inside an operating-system sandbox ([`sandbox`]), or not at all; the
+//! last lines of its stderr can be kept ([`Tail`]).
 //!
 //! The crate knows nothing of what the child is. `harnix-instance` keeps an Agix daemon with it,
 //! and the extension host keeps extension processes with it.
@@ -12,8 +13,10 @@ mod policy;
 pub mod reap;
 pub mod sandbox;
 mod supervisor;
+mod tail;
 
-pub use child::{Child, ChildSpec};
+pub use child::{Child, ChildSpec, TERM_GRACE};
 pub use sandbox::SandboxSpec;
 pub use policy::{Decision, RestartPolicy, Restarts, EXIT_SETUP};
 pub use supervisor::{ChildEvent, Supervisor};
+pub use tail::{Tail, LINE_BYTES, TAIL_BYTES, TAIL_LINES};

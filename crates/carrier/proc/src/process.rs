@@ -117,6 +117,8 @@ pub(crate) struct Phase {
     pub placed: Option<Value>,
     /// `proc.withdraw`s it sent, ignored.
     pub withdraws: u64,
+    /// The last lines its process wrote to its stderr, as of its last run that wrote any.
+    pub stderr: Vec<String>,
 }
 
 impl Default for Phase {
@@ -130,6 +132,7 @@ impl Default for Phase {
             restarting_in_ms: None,
             placed: None,
             withdraws: 0,
+            stderr: Vec::new(),
         }
     }
 }
@@ -142,6 +145,7 @@ impl Phase {
             "last_exit": self.last_exit,
             "restarting_in_ms": self.restarting_in_ms,
             "withdraws_ignored": self.withdraws,
+            "stderr": self.stderr,
         })
     }
 }
@@ -153,6 +157,19 @@ impl Package {
 
     fn set(&self, f: impl FnOnce(&mut Phase)) {
         f(&mut lock(&self.phase));
+    }
+
+    /// Its process's last lines of stderr, as its run keeps them now; true when they changed. A run
+    /// that wrote none yet leaves the last run's.
+    fn tail(&self, child: &Option<ChildHandle>) -> bool {
+        let Some(child) = child else { return false };
+        let lines = child.stderr();
+        let mut phase = lock(&self.phase);
+        if lines.is_empty() || lines == phase.stderr {
+            return false;
+        }
+        phase.stderr = lines;
+        true
     }
 
     /// What its record's `parts` say from now on.
@@ -264,6 +281,7 @@ pub(crate) async fn keep(
                 }
             },
             why = violated(&mut up) => {
+                package.tail(&child);
                 // Past its consent after it was ready: the same as before.
                 if let Some(up) = up.take() {
                     up.connection.end().await;
@@ -277,6 +295,9 @@ pub(crate) async fn keep(
                 return;
             }
             _ = ping.tick(), if up.is_some() => {
+                if package.tail(&child) {
+                    me.moved();
+                }
                 let Some(now) = up.as_mut() else { continue };
                 match asked(&now.control, &id).await {
                     Ok(_) => now.misses = 0,
@@ -315,6 +336,8 @@ pub(crate) async fn keep(
                 me.moved();
             }
             event = next(&mut child) => {
+                // Read at each event: an exit's last lines are in by the time it is told.
+                package.tail(&child);
                 let Some(event) = event else {
                     fail(&me, &package, "its supervisor finished", &mut ready, "faulted");
                     answer(&mut waiting, Err(unavailable("faulted", "its supervisor finished")));
@@ -347,6 +370,7 @@ pub(crate) async fn keep(
                                 up = Some(now);
                             }
                             Err(NotUp::Refused(why)) => {
+                                package.tail(&child);
                                 fail(&me, &package, &why, &mut ready, "failed");
                                 answer(&mut waiting, Err(unavailable("failed", why)));
                                 if let Some(child) = child.take() {
@@ -358,6 +382,7 @@ pub(crate) async fn keep(
                                 tracing::warn!(package = %id, pid, %why, "its extension process did not come up");
                                 package.set(|p| p.reason = Some(why.clone()));
                                 if ready.is_some() {
+                                    package.tail(&child);
                                     fail(&me, &package, &why, &mut ready, "failed");
                                     answer(&mut waiting, Err(unavailable("failed", why)));
                                     if let Some(child) = child.take() {

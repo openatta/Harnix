@@ -230,9 +230,15 @@ impl ChildHandle {
         self.run.kill()
     }
 
-    /// End the process — stdin closed, a grace, a kill — and start it no more.
+    /// End the process — stdin closed, a grace, TERM, a shorter grace, KILL — and start it no more.
     pub async fn stop(self) {
         self.run.stop().await
+    }
+
+    /// The last lines its process wrote to its stderr, across the run's starts, oldest first: a few
+    /// dozen, a few KB at most. Each one went to the product's log as well.
+    pub fn stderr(&self) -> Vec<String> {
+        self.run.stderr()
     }
 }
 
@@ -242,6 +248,10 @@ pub trait ChildRun: Send + Sync {
     async fn next(&mut self) -> Option<ChildEvent>;
     fn kill(&self);
     async fn stop(self: Box<Self>);
+    /// The last lines of its stderr; none kept, none told.
+    fn stderr(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// What happened to an extension process, in order.
@@ -411,6 +421,7 @@ pub trait RegisteredExtension: Send + Sync {
     fn mark(&self, availability: Availability);
     fn frame(&self, calls: Option<BTreeSet<String>>) -> Rpc<()>;
     async fn withdraw(&self) -> Rpc<Withdrawn>;
+    fn refused(&self, what: &str, why: &'static str);
 }
 
 /// One extension registered while the process runs. Cheap to clone; once withdrawn, every call
@@ -460,6 +471,13 @@ impl ExtensionHandle {
 
     pub async fn withdraw(&self) -> Rpc<Withdrawn> {
         self.inner.withdraw().await
+    }
+
+    /// Put on the record that something the extension told its carrier failed the carrier's check:
+    /// `what` it said (`proc.register`, `proc.hello`, `proc.fetch`), refused for `why`. In the audit
+    /// as the extension's own refusal, with when; what is done about it is the carrier's.
+    pub fn refused(&self, what: &str, why: &'static str) {
+        self.inner.refused(what, why)
     }
 }
 

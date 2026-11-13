@@ -13,6 +13,9 @@ use crate::policy::{Decision, RestartPolicy};
 /// How long a child gets to finish on its own once its stdin is closed.
 const STOP_GRACE: Duration = Duration::from_secs(5);
 
+/// How long an exit waits for the child's stderr to be read to its end.
+const DRAIN_WITHIN: Duration = Duration::from_millis(500);
+
 /// What happened to the child, in order.
 #[derive(Debug, Clone)]
 pub enum ChildEvent {
@@ -78,6 +81,8 @@ impl Supervisor {
                     status = child.wait() => status,
                 };
                 child.reap().await;
+                // Its last lines in its tail before its exit is told.
+                child.drained(DRAIN_WITHIN).await;
                 let ran_for = started.elapsed();
                 let code = match status {
                     Ok(status) => {
@@ -108,7 +113,8 @@ impl Supervisor {
         self.kill.send_modify(|n| *n = n.wrapping_add(1));
     }
 
-    /// End the child — stdin closed, a grace, a kill, its session reaped — and stop starting it.
+    /// End the child — stdin closed, a grace, TERM, a shorter grace, KILL, its session reaped —
+    /// and stop starting it.
     pub async fn stop(mut self) {
         let _ = self.stop.send(true);
         let _ = (&mut self.task).await;

@@ -5,12 +5,17 @@
  * limits, the calls into its methods and their errors, and the calls it made as itself that were
  * refused. What this page's frames of it do is the shell's, in its diagnostics.
  *
+ * Extension processes that start unsandboxed, or not at all for want of a sandbox, are said in red
+ * above the table; a process's last lines of stderr are in its row opened.
+ *
  * Fed by the topic `packages.list` (the same value as `packages.list`, pushed when it changes), so
  * it stays current without asking.
  */
 
 import { Fragment, useEffect, useState } from "react";
 import { megabytes, rowKeys, useT, type HostApi } from "@harnix/react";
+
+import { SandboxAlert, type Sandbox } from "./sandbox.tsx";
 
 interface Health {
   world?: "tools" | "backend";
@@ -47,6 +52,8 @@ interface Runtime {
   topics?: string[];
   calls?: { calls: number; errors: number; hub_calls: number; refused: Refusal[]; recent_errors: { method: string; message: string }[] };
   health?: Health | null;
+  /** On the process carrier: its process, with the last lines it wrote to its stderr. */
+  process?: { pid?: number | null; starts?: number; stderr?: string[] } | null;
 }
 
 interface AppRow {
@@ -55,12 +62,14 @@ interface AppRow {
   title?: string | null;
   enabled: boolean;
   registered: boolean;
-  runtime?: Runtime;
+  runtime?: Runtime;  /** On the process carrier: the mode of the sandbox its process starts in. */
+  sandbox?: Sandbox["mode"];
 }
 
 interface PackagesList {
   packages: AppRow[];
   unreadable?: { dir: string; reason: string }[];
+  runtime?: { sandbox?: Sandbox | null };
 }
 
 /** What the row's dot says: running, idle with its backend stopped until the next call, set aside
@@ -79,6 +88,7 @@ export function PackagesTab({ host }: { host: HostApi }) {
   if (!list.packages.length) {
     return (
       <div className="system-pane" data-testid="system-packages">
+        <SandboxAlert sandbox={list.runtime?.sandbox} />
         <div className="muted" data-testid="system-packages-empty">{tr("system.packages.none")}</div>
       </div>
     );
@@ -88,6 +98,7 @@ export function PackagesTab({ host }: { host: HostApi }) {
   // (recycles, faults, memory, storage) are in the row opened, which has the room for them.
   return (
     <div className="system-pane system-packages" data-testid="system-packages">
+      <SandboxAlert sandbox={list.runtime?.sandbox} />
       <div className="table-wrap">
         <table className="frames packages">
           <thead>
@@ -106,6 +117,7 @@ export function PackagesTab({ host }: { host: HostApi }) {
               const h = rt?.health ?? undefined;
               const backend = h?.world === "backend" ? (h.hibernating ? "asleep" : h.state === "running" ? "up" : "down") : null;
               const refused = rt?.calls?.refused ?? [];
+              const stderr = rt?.process?.stderr ?? [];
               const shown = open === row.id;
               const flip = () => setOpen(shown ? null : row.id);
               return (
@@ -115,6 +127,7 @@ export function PackagesTab({ host }: { host: HostApi }) {
                     data-testid="system-package"
                     data-package={row.id}
                     data-state={state}
+                    data-sandbox={row.sandbox}
                     data-row=""
                     tabIndex={0}
                     aria-expanded={shown}
@@ -123,6 +136,7 @@ export function PackagesTab({ host }: { host: HostApi }) {
                   >
                     <td className="package-name">
                       <span className={`dot ${dot[state]}`} /> <span className="tt">{row.title ?? row.id}</span>
+                      {row.sandbox && row.sandbox !== "on" ? <span className="packages-sandbox-tag">{tr("packages.sandbox.tag")}</span> : null}
                       <div className="muted">{row.id} {row.version}</div>
                     </td>
                     <td data-field="state">{tr(`system.packages.state.${state}`)}</td>
@@ -145,6 +159,12 @@ export function PackagesTab({ host }: { host: HostApi }) {
                         {h?.last_error ? <div className="muted">{tr("system.packages.lastError", { error: h.last_error })}</div> : null}
                         {rt?.methods?.length ? <div className="muted">{tr("system.packages.methods", { methods: rt.methods.join(", ") })}</div> : null}
                         {rt?.topics?.length ? <div className="muted">{tr("system.packages.topics", { topics: rt.topics.join(", ") })}</div> : null}
+                        {stderr.length ? (
+                          <>
+                            <div className="turnh">{tr("system.packages.stderr")}</div>
+                            <pre className="packages-stderr" data-testid="system-package-stderr">{stderr.join("\n")}</pre>
+                          </>
+                        ) : null}
                         <div className="turnh">{tr("system.packages.refusedCalls")}</div>
                         {refused.length ? (
                           <ul>

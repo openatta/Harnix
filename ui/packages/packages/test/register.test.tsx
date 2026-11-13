@@ -78,4 +78,25 @@ describe("@harnix/packages", () => {
     unmount();
     expect(topics.has("packages.list")).toBe(false);
   });
+
+  it("says in red that extension processes are unsandboxed, and shows a process's last lines of stderr", () => {
+    const { host, topics } = fakeHost();
+    const r = new Registry();
+    r.activate("system", () => r.definePoint("system.console.tab", { kind: "register" }));
+    r.activate(extension, () => register(r, host));
+    const tab = r.list<{ render(): React.ReactNode }>("system.console.tab")[0]!;
+    render(<HarnixUiProvider client={client} strings={en}>{tab.render()}</HarnixUiProvider>);
+    const push = topics.get("packages.list")!;
+    const row = { id: "acme.notes", version: "0.1.0", enabled: true, registered: true, runtime: { state: "faulted", process: { stderr: ["one", "two"] } } };
+    act(() => push({ packages: [{ ...row, sandbox: "off" }], runtime: { sandbox: { mode: "off" } } }));
+    expect(screen.getByTestId("packages-sandbox").dataset.mode).toBe("off");
+    expect(screen.getByTestId("system-package").dataset.sandbox).toBe("off");
+    act(() => screen.getByTestId("system-package").click());
+    expect(screen.getByTestId("system-package-stderr").textContent).toBe("one\ntwo");
+
+    act(() => push({ packages: [row], runtime: { sandbox: { mode: "unavailable", why: "no sandbox-exec" } } }));
+    expect(screen.getByTestId("packages-sandbox").textContent).toContain("no sandbox-exec");
+    act(() => push({ packages: [row], runtime: { sandbox: { mode: "on", mechanism: "sandbox-exec" } } }));
+    expect(screen.queryByTestId("packages-sandbox")).toBeNull();
+  });
 });

@@ -98,6 +98,28 @@ async fn a_child_that_ignores_stdin_is_killed_after_the_grace() {
     assert!(!status.success());
 }
 
+/// A child that does not leave when its stdin closes is sent TERM before it is killed: one that
+/// finishes on TERM finishes its own way.
+#[tokio::test]
+async fn a_child_is_asked_with_term_before_it_is_killed() {
+    let child = sh("trap 'exit 7' TERM; while :; do sleep 0.05; done").spawn().unwrap();
+    // Its trap is set before it is asked to go.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let status = child.stop(Duration::from_millis(100)).await.unwrap();
+    assert_eq!(status.code(), Some(7), "{status:?}");
+}
+
+/// One that ignores TERM too is killed once the grace after it is over.
+#[tokio::test]
+async fn a_child_that_ignores_term_is_killed_after_its_grace() {
+    let child = sh("trap '' TERM; while :; do sleep 0.05; done").spawn().unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let started = Instant::now();
+    let status = child.stop(Duration::from_millis(100)).await.unwrap();
+    assert_eq!(status.code(), None, "{status:?}: killed by a signal");
+    assert!(started.elapsed() >= harnix_supervise::TERM_GRACE, "{:?}", started.elapsed());
+}
+
 /// What a child leaves running in its session is ended with it, even once it has been killed.
 #[tokio::test]
 async fn what_the_child_leaves_in_its_session_is_ended_with_it() {
@@ -284,4 +306,27 @@ async fn a_killed_child_starts_again_and_a_stopped_one_does_not() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(starts.load(std::sync::atomic::Ordering::SeqCst), at_stop, "started again after the stop");
     assert!(!alive(second as i32));
+}
+
+/// What a child writes to its stderr is in its tail by the time its exit is told, across its
+/// starts.
+#[tokio::test]
+async fn the_last_lines_of_stderr_are_kept_by_the_time_an_exit_is_told() {
+    let tail = harnix_supervise::Tail::new("test");
+    let given = tail.clone();
+    let mut supervisor = Supervisor::start(
+        move || Ok(sh("echo one >&2; echo two >&2; exit 3").stderr_to(given.clone())),
+        quick_policy(),
+    );
+    let exited = loop {
+        match tokio::time::timeout(Duration::from_secs(10), supervisor.next_event()).await.unwrap() {
+            Some(ChildEvent::Exited { .. }) => break tail.lines(),
+            Some(_) => continue,
+            None => panic!("the supervisor finished"),
+        }
+    };
+    assert_eq!(exited, ["one", "two"]);
+    let seen = events_until_done(supervisor).await;
+    assert!(matches!(seen.last(), Some(ChildEvent::GaveUp { .. })), "{seen:?}");
+    assert_eq!(tail.lines().len(), 6, "{:?}", tail.lines());
 }

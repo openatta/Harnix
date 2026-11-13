@@ -308,12 +308,17 @@ impl Extension for Packages {
         if let Some(task) = lock(&state.watcher).take() {
             task.abort();
         }
+        // All at once: each one's process may take its graces to go, and the process's shutdown
+        // has one bound for everything.
         let (records, _) = records::read_all(&state.dir);
+        let mut stopping = tokio::task::JoinSet::new();
         for record in records.into_iter().filter(|r| r.enabled) {
             if let Ok(id) = harnix_ext::ExtId::package(&record.id) {
-                state.carrier.stop(&id, StopReason::ShuttingDown).await;
+                let carrier = state.carrier.clone();
+                stopping.spawn(async move { carrier.stop(&id, StopReason::ShuttingDown).await });
             }
         }
+        while stopping.join_next().await.is_some() {}
     }
 }
 

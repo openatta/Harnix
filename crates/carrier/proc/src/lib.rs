@@ -19,7 +19,8 @@
 //!   exits within 60 s of starting — across runs, which the carrier counts, not its supervisor —
 //!   and it is set aside (`faulted`: its rows stay and answer `EXTENSION_UNAVAILABLE {faulted}`)
 //!   until it is switched off and on. An on-demand backend's process is let go once idle, and
-//!   started again by what needs it (`process.rs`).
+//!   started again by what needs it (`process.rs`). Its stderr goes to the product's log, and the
+//!   last lines of it are in its status (`process.stderr`), a start that failed included.
 //! - **Its engine is its own.** A package with `agent/` or a `[[space]]` runs an Agix of its own in
 //!   its process, which the product adopts as the instance `proc.<id>` (`HostApi::adopt`): an
 //!   extension's engine, held by the hub to what the product's are not. Its spaces' sessions are
@@ -86,8 +87,9 @@ pub(crate) struct Inner {
     cx: RwLock<Option<ExtensionContext>>,
     /// The packages started, whether their processes are up or not.
     packages: Mutex<BTreeMap<String, Arc<Package>>>,
-    /// Why a package that is not started did not start.
-    failed: Mutex<BTreeMap<String, String>>,
+    /// Why a package that is not started did not start, and the last lines of its process's
+    /// stderr when it had one.
+    failed: Mutex<BTreeMap<String, (String, Vec<String>)>>,
     /// Each package's crashes in a row, across runs: what sets it aside.
     crashes: Mutex<BTreeMap<String, Vec<Instant>>>,
     changes: watch::Sender<u64>,
@@ -214,7 +216,9 @@ impl Inner {
         let package = lock(&self.packages).get(id).cloned();
         let Some(package) = package else {
             return match lock(&self.failed).get(id) {
-                Some(reason) => json!({"state": "failed", "reason": reason, "carrier": "process"}),
+                Some((reason, stderr)) => {
+                    json!({"state": "failed", "reason": reason, "carrier": "process", "process": {"stderr": stderr}})
+                }
                 None => json!({"state": "stopped", "carrier": "process"}),
             };
         };
@@ -314,7 +318,7 @@ impl Carrier for ProcCarrier {
             let (handle, name) = (handle.clone(), id.to_string());
             async move {
                 let _ = handle.withdraw().await;
-                lock(&me.failed).insert(name, e.message.clone());
+                lock(&me.failed).insert(name, (e.message.clone(), Vec::new()));
                 e
             }
         };
@@ -404,7 +408,7 @@ impl Carrier for ProcCarrier {
                 me.release(Some(host), &id).await;
             }
             let _ = handle.withdraw().await;
-            lock(&me.failed).insert(id.to_string(), e.message.clone());
+            lock(&me.failed).insert(id.to_string(), (e.message.clone(), package.phase().stderr));
             me.moved();
             return Err(e);
         }

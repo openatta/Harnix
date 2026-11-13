@@ -106,7 +106,8 @@ impl Inner {
         if let Some(host) = self.host.get() {
             return Ok(host.clone());
         }
-        let options = HostOptions { http: Some(Arc::new(Fetcher { registry: self.registry.clone(), egress: Egress::new() })) };
+        let fetcher = Fetcher { registry: self.registry.clone(), kernel: self.kernel.clone(), egress: Egress::new() };
+        let options = HostOptions { http: Some(Arc::new(fetcher)) };
         let host = Host::new(options, self.kernel.clone(), self.kernel.clone()).map_err(|e| internal(format!("{e:#}")))?;
         let control: Arc<dyn Control> = host.clone();
         self.kernel.lend_to(Arc::downgrade(&control));
@@ -382,6 +383,7 @@ impl Carrier for WasmCarrier {
 /// on the VM's word alone.
 struct Fetcher {
     registry: Arc<Registry>,
+    kernel: Arc<CarrierKernel>,
     egress: Egress,
 }
 
@@ -391,8 +393,9 @@ impl HttpFetcher for Fetcher {
         let Some(net) = self.registry.net(app) else {
             return Err(format!("`{app}` is not running"));
         };
+        self.kernel.allowed(app, &net, &request.url)?;
         let request = Request { method: request.method, url: request.url, headers: request.headers, body: request.body };
-        let response = self.egress.send_for(&net, request).await?;
+        let response = self.egress.send(request).await?;
         Ok(HttpResponse { status: response.status, headers: response.headers, body: response.body })
     }
 }
