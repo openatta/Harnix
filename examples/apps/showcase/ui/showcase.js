@@ -10,14 +10,14 @@
 // audited like any other call this page makes.
 import { useEffect, useState } from "react";
 import { jsx, jsxs } from "react/jsx-runtime";
-import { useNest } from "@harnix/react";
+import { useHost } from "@harnix/react";
 
 const ID = "example.showcase";
 const method = (name) => `${ID}.${name}`;
 const topic = (name) => `${ID}.${name}`;
 
 function Card() {
-  const host = useNest();
+  const host = useHost();
   return jsxs("div", {
     "data-testid": "showcase-card",
     children: [
@@ -35,7 +35,7 @@ function useTopic(host, name) {
 }
 
 function Board() {
-  const host = useNest();
+  const host = useHost();
   const pushed = useTopic(host, "notes");
   const heartbeat = useTopic(host, "heartbeat");
   const [listed, setListed] = useState(null);

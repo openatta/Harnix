@@ -45,7 +45,7 @@ pub trait AppHost: Send + Sync {
         let _ = (app, serving);
     }
 
-    /// `host.publish`: publish on `app.<app>.<topic>`.
+    /// `host.publish`: publish on `<id>.<topic>`.
     fn publish(&self, app: &str, topic: &str, value: Value) -> Result<(), String>;
 
     /// `host.subscribe` from the backend. Values are delivered back with

@@ -466,7 +466,7 @@ impl AppVm {
             .into())
     }
 
-    /// Answer the method `app.<id>.<method>` with the resident backend.
+    /// Answer the method `<id>.<method>` with the resident backend.
     /// `caller` describes who called; the hub has already admitted the call.
     ///
     /// The outer `Result` is whether the backend answered; the inner one is

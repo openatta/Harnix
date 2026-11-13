@@ -581,7 +581,7 @@ export interface Notifications {
   "harnix.host_event": { kind: string; instance?: string; [key: string]: unknown };
   /** 宿主主题的整值快照。 */
   "harnix.topic": { topic: string; params: Record<string, unknown>; value: unknown };
-  /** 订阅的主题没有了（运行期应用撤下了）：每个参数组发一次，之后不再推；要再订，得等它重新登记。 */
+  /** 订阅的主题没有了（扩展包撤下了）：每个参数组发一次，之后不再推；要再订，得等它重新登记。 */
   "harnix.topic_ended": { topic: string; params: Record<string, unknown>; reason: string };
 }
 

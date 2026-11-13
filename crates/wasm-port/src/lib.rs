@@ -32,7 +32,7 @@
 //!   product's Agix; in a process of its own, the application's own, beside the host — never over
 //!   the link.
 //!
-//! So the same host runs embedded in the product's process (`harnix-apps` implements both over
+//! So the same host runs embedded in the product's process (the packages extension implements both over
 //! the kernel and this process's Agix, and calls `Control` in place) or in a process of its own,
 //! with `Kernel` and `Control` carried over a link. [`rpc`] is the shape of that: each method a
 //! name and a JSON value; under the `loopback` feature, [`rpc::Loopback`] puts every call through
@@ -69,9 +69,9 @@ pub const EXT_WIRE_VERSION: u32 = 1;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Registration {
     pub app: String,
-    /// `[[method]]`: `app.<id>.<name>`, each answered by [`Control::call_method`].
+    /// `[[method]]`: `<id>.<name>`, each answered by [`Control::call_method`].
     pub methods: Vec<MethodDecl>,
-    /// `[[topic]]`: `app.<id>.<name>`, published by [`Kernel::publish`].
+    /// `[[topic]]`: `<id>.<name>`, published by [`Kernel::publish`].
     pub topics: Vec<String>,
     /// `[[space]]`.
     pub spaces: Vec<SpaceDecl>,
@@ -412,7 +412,7 @@ pub struct Stop {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MethodCall {
     pub app: String,
-    /// Its own name, without `app.<id>.`.
+    /// Its own name, without `<id>.`.
     pub method: String,
     pub caller: Subject,
     pub params: Value,
