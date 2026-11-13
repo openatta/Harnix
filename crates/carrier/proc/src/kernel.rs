@@ -495,7 +495,7 @@ impl Kernel for Connection {
 
 /// What a start says over the wire, from what was installed: the package and run directories are
 /// the process's own, from its command line, and never go over it.
-pub(crate) fn start_of(installed: &Installed, parts: Value) -> harnix_wasm_port::Start {
+pub(crate) fn start_of(installed: &Installed, parts: Value, limits: harnix_wasm_port::Limits) -> harnix_wasm_port::Start {
     harnix_wasm_port::Start {
         app: installed.id().to_string(),
         version: installed.version().to_string(),
@@ -504,6 +504,7 @@ pub(crate) fn start_of(installed: &Installed, parts: Value) -> harnix_wasm_port:
         config: installed.config_value().clone(),
         secrets: installed.secret_values().clone(),
         parts,
+        limits,
         pkg: None,
         run: None,
     }

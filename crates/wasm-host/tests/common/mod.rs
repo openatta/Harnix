@@ -245,6 +245,8 @@ pub struct Rig {
     pub secrets: Mutex<std::collections::BTreeMap<String, String>>,
     /// The sha256 of the component the last `unpack` packed: what the product verified.
     pub cwasm_sha256: Mutex<Option<String>>,
+    /// How long an on-demand backend idles, in place of its `idle_secs`: what a product may say.
+    pub idle: Mutex<Option<std::time::Duration>>,
 }
 
 impl Rig {
@@ -264,7 +266,15 @@ impl Rig {
             config: Mutex::new(Value::Null),
             secrets: Mutex::default(),
             cwasm_sha256: Mutex::default(),
+            idle: Mutex::default(),
         }
+    }
+
+    /// A rig whose starts let an on-demand backend idle `idle`.
+    pub fn idling(idle: std::time::Duration) -> Self {
+        let rig = Self::new(|_| {});
+        *lock(&rig.idle) = Some(idle);
+        rig
     }
 
     /// A rig whose starts give the application `config`.
@@ -274,8 +284,21 @@ impl Rig {
         rig
     }
 
-    /// What the product starts `version` with: its record, and what it verified of it.
+    /// What the product starts `version` with: its record, what it verified of it, and the
+    /// limits of its manifest.
     pub fn start_of(&self, version: &str, parts: Value) -> Start {
+        let manifest = harnix_package::acquire::manifest_in(&self.app_dir().join(version)).ok();
+        let limits = manifest.map_or_else(Limits::default, |m| {
+            let component = m.component.as_ref();
+            let idle = lock(&self.idle).unwrap_or(std::time::Duration::from_secs(m.backend.idle_secs));
+            Limits {
+                memory_mb: component.map_or(64, |c| c.memory_mb),
+                timeout_ms: component.map_or(30_000, |c| c.timeout_ms),
+                storage_mb: m.capabilities.storage_mb,
+                resident: m.backend.resident.clone(),
+                idle_ms: idle.as_millis() as u64,
+            }
+        });
         Start {
             app: ID.into(),
             version: version.into(),
@@ -284,6 +307,7 @@ impl Rig {
             config: lock(&self.config).clone(),
             secrets: lock(&self.secrets).clone(),
             parts,
+            limits,
             pkg: Some(self.app_dir().join(version)),
             run: Some(self.app_dir()),
         }

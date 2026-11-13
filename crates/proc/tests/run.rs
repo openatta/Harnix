@@ -122,6 +122,7 @@ fn start(app: &str) -> Start {
         config: json!(null),
         secrets: Default::default(),
         parts: json!({}),
+        limits: Default::default(),
         pkg: None,
         run: None,
     }
