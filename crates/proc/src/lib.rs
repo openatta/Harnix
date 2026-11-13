@@ -8,8 +8,9 @@
 //!
 //! What [`entry`] does, in order:
 //!
-//! 1. Takes the stream it inherited at `--wire-fd` (3) — before anything else could open a
-//!    descriptor that takes the number — and keeps it from its own children.
+//! 1. Takes the streams it inherited at `--wire-fd` (3) and, with an engine of its own,
+//!    `--engine-fd` (4) — before anything else could open a descriptor that takes the number —
+//!    checks each is a socket, and keeps them from its own children.
 //! 2. On Linux, sandboxes itself as the product asked (`sandbox`), before it reads anything of
 //!    its package; on macOS it was started inside its sandbox.
 //! 3. Builds the host (`harnix-wasm-host`): one VM engine, deserializing only. The host's
@@ -77,10 +78,13 @@ pub struct Options {
 /// the product's doing, and is not an error.
 pub fn entry(args: Vec<OsString>) -> anyhow::Result<()> {
     let args = Args::parse(args).unwrap_or_else(|e| setup_failed(&e));
+    // Step 0: before anything opens a descriptor that could take the number, and before the sandbox.
     let stream = take_stream(args.wire_fd).unwrap_or_else(|e| setup_failed(&e));
-    if args.engine_fd.is_some() {
-        setup_failed(&anyhow!("`--engine-fd`: this extension process serves no engine of its own yet"));
-    }
+    let engine = args
+        .engine_fd
+        .map(|fd| take_stream(fd).context("the engine's stream"))
+        .transpose()
+        .unwrap_or_else(|e| setup_failed(&e));
     sandbox::apply().context("its sandbox").unwrap_or_else(|e| setup_failed(&e));
     if let Some(run) = &args.run {
         std::env::set_current_dir(run)
@@ -90,6 +94,9 @@ pub fn entry(args: Vec<OsString>) -> anyhow::Result<()> {
     #[cfg(feature = "probe")]
     if let Some(targets) = &args.probe {
         return probe::run(targets, &args, stream);
+    }
+    if engine.is_some() {
+        setup_failed(&anyhow!("`--engine-fd`: this extension process serves no engine of its own yet"));
     }
     let _ = tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
@@ -124,7 +131,7 @@ pub async fn run<S>(options: Options, stream: S, until: impl Future<Output = ()>
 where
     S: AsyncRead + AsyncWrite + Send + 'static,
 {
-    let answering = Arc::new(Answering::new(options.pkg.clone(), options.run.clone()));
+    let answering = Arc::new(Answering::new(options.ext.clone(), options.pkg.clone(), options.run.clone()));
     let wire = SocketWire::client(stream, answering.clone(), WireOptions::default());
     let kernel: Arc<dyn Kernel> = Arc::new(KernelClient(wire.clone() as Arc<dyn Wire>));
     let host = match Host::new(HostOptions::default(), kernel, Arc::new(NoEngine)) {
@@ -140,8 +147,7 @@ where
         wire: EXT_WIRE_VERSION,
         ext: options.ext.clone(),
         version: HARNIX_VERSION.to_string(),
-        // This process serves no engine of its own yet, so it links no Agix it could name.
-        agix_version: None,
+        agix_version: harnix_engine::identity().version,
         engine: host.engine().fingerprint().to_string(),
         harnix_api: harnix_package::manifest::HARNIX_API,
         pid: std::process::id(),
@@ -156,6 +162,16 @@ where
 
     tokio::pin!(until);
     let (why, shut_down) = tokio::select! {
+        why = answering.fatal() => {
+            // The refusal of the start is written first; the product then ends this process
+            // itself or the wire closes.
+            tokio::select! {
+                _ = wire.closed() => {}
+                _ = tokio::time::sleep(SHUTDOWN_LINGER) => {}
+            }
+            wire.close(&why).await;
+            return Err(anyhow!(why).context(Setup));
+        }
         why = wire.closed() => (format!("the product's wire closed: {why}"), false),
         _ = &mut until => ("stdin closed: the product is gone".to_string(), false),
         _ = answering.shutdown.notified() => {

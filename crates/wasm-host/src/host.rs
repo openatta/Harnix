@@ -357,9 +357,14 @@ impl Host {
             ))
         })?;
         match (&start.cwasm_sha256, trust_of(&start.trust)?) {
-            (Some(expected), _) if *expected != sha256(&bytes) => Err(refused(format!(
-                "`{id}`: its component is not the one that was verified (its sha256 differs)"
-            ))),
+            (Some(expected), _) if *expected != sha256(&bytes) => {
+                let mut e = refused(format!(
+                    "`{id}`: its component is not the one that was verified (its sha256 differs)"
+                ));
+                // Marks it for a process that ends on it rather than waiting to be told what to do.
+                e.data = Some(serde_json::json!({"setup": "cwasm_sha256"}));
+                Err(e)
+            }
             (Some(_), _) | (None, Trust::Unsigned) => Ok(Some(bytes)),
             (None, trust) => Err(refused(format!(
                 "`{id}` is {} and its component was given no sha256 to be checked against",

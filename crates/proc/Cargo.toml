@@ -12,6 +12,7 @@ description  = "An extension process: the product re-executed as `ext-proc`, its
 # (`harnix-wasm-host`) and reaches the product only over the extension wire (`harnix-wasm-port`'s
 # `socket`); of the product's skeleton it names nothing (`crates/harnix/tests/layering.rs`).
 [dependencies]
+harnix-engine    = { workspace = true }
 harnix-package   = { workspace = true }
 harnix-wasm-host = { workspace = true }
 harnix-wasm-port = { workspace = true, features = ["socket"] }

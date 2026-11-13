@@ -1770,6 +1770,7 @@ version = "0.4.2-2026110901"
 dependencies = [
  "anyhow",
  "async-trait",
+ "harnix-engine",
  "harnix-package",
  "harnix-supervise",
  "harnix-wasm-host",

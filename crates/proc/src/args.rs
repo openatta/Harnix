@@ -1,7 +1,7 @@
 //! The command line an extension process is started with:
 //!
 //! ```text
-//! <program> ext-proc --ext <id> [--pkg <dir>] [--run <dir>] [--wire-fd 3] [--engine-fd 4] [--dev]
+//! <program> ext-proc --ext <id> [--pkg <dir>] [--run <dir>] [--wire-fd 3] [--engine-fd 4]
 //! ```
 //!
 //! A build with the `probe` feature also takes `--probe <targets>` (`crate::probe`).
@@ -28,9 +28,6 @@ pub struct Args {
     pub wire_fd: RawFd,
     /// The wire its own engine is served on, when it has one.
     pub engine_fd: Option<RawFd>,
-    /// No longer read: how far a package is trusted comes with its start. Taken until the flag
-    /// goes.
-    pub dev: bool,
     /// Probe the sandbox instead of serving: what to try (feature `probe`).
     pub probe: Option<String>,
 }
@@ -42,7 +39,6 @@ impl Args {
         let mut run = None;
         let mut wire_fd = WIRE_FD;
         let mut engine_fd = None;
-        let mut dev = false;
         let mut probe = None;
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
@@ -54,7 +50,6 @@ impl Args {
                 "--run" => run = Some(PathBuf::from(value()?)),
                 "--wire-fd" => wire_fd = fd(&arg, value()?)?,
                 "--engine-fd" => engine_fd = Some(fd(&arg, value()?)?),
-                "--dev" => dev = true,
                 "--probe" if cfg!(feature = "probe") => {
                     probe = Some(value()?.into_string().map_err(|a| anyhow!("--probe {a:?} is not UTF-8"))?)
                 }
@@ -71,7 +66,6 @@ impl Args {
             run,
             wire_fd,
             engine_fd,
-            dev,
             probe,
         })
     }
@@ -108,7 +102,6 @@ mod tests {
                 run: Some("/r".into()),
                 wire_fd: 3,
                 engine_fd: Some(4),
-                dev: false,
                 probe: None,
             }
         );
