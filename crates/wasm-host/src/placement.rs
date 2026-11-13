@@ -127,7 +127,13 @@ pub(crate) async fn place(
     if let Some(agent) = inspected.agent.as_ref().filter(|_| !targets.is_empty()) {
         // In the temporary directory, not beside the package: an extension process may write only
         // its run directory, where its `TMPDIR` is.
-        let zip = std::env::temp_dir().join(format!("{id}-{}-agent.zip", std::process::id()));
+        // Unique per placement: two in one process, of the same package, run side by side.
+        let zip = tempfile::Builder::new()
+            .prefix(&format!("{id}-"))
+            .suffix("-agent.zip")
+            .tempfile()
+            .and_then(|f| f.into_temp_path().keep().map_err(|e| e.error))
+            .map_err(|e| internal(e.to_string()))?;
         package::zip_dir(&root.join("agent"), &zip).map_err(internal)?;
         let mut instances = Vec::new();
         let mut failure = None;
