@@ -77,6 +77,7 @@ export {
   type ActionPlace,
   type ActionTarget,
   type Badge,
+  type Dispose,
   type PointSpec,
   type RegisterOptions,
   type SessionAction,

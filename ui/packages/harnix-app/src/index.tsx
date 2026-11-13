@@ -10,7 +10,7 @@
  * rows open that menu.
  */
 
-import { t, type ActionTarget, type CommandCandidate, type HostApi, type Registry } from "@harnix/react";
+import { t, type ActionTarget, type CommandCandidate, type Dispose, type HostApi, type Registry } from "@harnix/react";
 
 import { exportDialog } from "./dialogs.tsx";
 import { ProjectsSidebar } from "./projects.tsx";
@@ -23,7 +23,7 @@ export { byTime } from "./sessions.tsx";
 /** The backend extension this is the interface of. */
 export const extension = "harnix-app";
 
-export function register(r: Registry, host: HostApi): void {
+export function register(r: Registry, host: HostApi): Dispose {
   const store = new AppStore(host);
   store.start();
   const followed = { subscribe: store.subscribe, getSnapshot: store.getSnapshot };
@@ -126,4 +126,6 @@ export function register(r: Registry, host: HostApi): void {
     },
     extension,
   );
+  // Disabled: the store stops following the hub with everything it fed.
+  return () => store.stop();
 }

@@ -17,7 +17,7 @@
  *
  * 扩展还可以定义自己的点（`definePoint("<扩展 id>.<名>")`），别的包往里注册；注册进还没定义的点先挂着，全部注册完
  * （`settle`）还没人定义就丢掉并记进诊断，给了 `orElse` 的调它。一个扩展激活时注册的（`activate`）记在它名下，
- * 它停用时整批撤下（`withdraw`）。
+ * 它停用时整批撤下（`withdraw`）；它的 `register` 返回的函数（订阅、计时器的收尾）这时一起调。
  *
  * 不是贡献点、但同样按 owner 记的还有三样：令牌覆盖（`tokens`）、语言包（`strings`）与图标（`icons`）。
  *
@@ -262,11 +262,15 @@ export interface PointSpec {
   kind: "register" | "render" | "fold";
 }
 
+/** What a package's `register` (or an `orElse`) may answer: called when its batch is withdrawn —
+ *  the topics it follows, its timers, stopped with what it registered. */
+export type Dispose = () => void;
+
 /** `register`'s options. */
 export interface RegisterOptions {
   /** Called, in place of registering, when no one has defined the point by the time every
    *  registration is done: fill a place of your own instead. */
-  orElse?: () => void;
+  orElse?: () => unknown;
 }
 
 const SHAPE: { [P in Point]: string[] } = {
@@ -316,7 +320,7 @@ type Entry<P extends Point> = Contributions[P] & { owner: string };
 interface Meta {
   /** The extension whose activation made it: what `withdraw` takes back. */
   batch: string | null;
-  orElse?: () => void;
+  orElse?: () => unknown;
   /** `settle` has decided it: kept, or dropped into the diagnostics. */
   settled: boolean;
 }
@@ -335,6 +339,8 @@ export class Registry {
   private readonly defined = new Map<string, Defined>();
   /** The extension being activated (`activate`): what its registrations are kept under. */
   private batch: string | null = null;
+  /** What each batch's `register` answered to be called when it is withdrawn. */
+  private readonly disposers = new Map<string, Dispose[]>();
   private readonly overrides = new Map<string, { value: string; owner: string }>();
   private readonly glyphs = new Map<string, string>();
   private readonly refused: Refusal[] = [];
@@ -414,14 +420,20 @@ export class Registry {
 
   /**
    * Run one extension's `register`: everything registered and defined in it is kept under `ext`,
-   * and goes with it at `withdraw(ext)`. Synchronous: what it registers later, after an `await`,
-   * is under the owner it names only.
+   * and goes with it at `withdraw(ext)`, and so does the function it answers, if any (a `Dispose`)
+   * — called then. Synchronous: what it registers later, after an `await`, is under the owner it
+   * names only.
    */
-  activate(ext: string, register: () => void): void {
+  activate(ext: string, register: () => unknown): void {
     const outer = this.batch;
     this.batch = ext;
     try {
-      register();
+      const dispose = register();
+      if (typeof dispose === "function") {
+        let list = this.disposers.get(ext);
+        if (!list) this.disposers.set(ext, (list = []));
+        list.push(dispose as Dispose);
+      }
     } finally {
       this.batch = outer;
     }
@@ -458,9 +470,18 @@ export class Registry {
   /**
    * Take back everything one extension's activation registered, and every registration owned by
    * it: its points' definitions with them (what others registered into those stays, unseen, until
-   * they are defined again), its icons, its token overrides. Answers how many went.
+   * they are defined again), its icons, its token overrides; and call what its `register` answered.
+   * Answers how many went.
    */
   withdraw(ext: string): number {
+    for (const dispose of this.disposers.get(ext) ?? []) {
+      try {
+        dispose();
+      } catch (e) {
+        this.fail("module", { id: "dispose", owner: ext }, e);
+      }
+    }
+    this.disposers.delete(ext);
     let gone = 0;
     for (const list of this.entries.values()) {
       for (let i = list.length - 1; i >= 0; i -= 1) {

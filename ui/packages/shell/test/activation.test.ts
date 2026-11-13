@@ -108,6 +108,24 @@ describe("following harnix.ui", () => {
     expect(app.registry.at("space").filter((c) => c.id === "notes")).toHaveLength(1);
   });
 
+  it("stops what a package's register started when its extension goes down", () => {
+    const { app, host } = setup();
+    let following = 0;
+    const pkg: UiPackage = {
+      extension: "w",
+      register(r) {
+        r.register("space", space("w"), "w");
+        following += 1;
+        return () => (following -= 1);
+      },
+    };
+    activate(app, host, [pkg], [ext("w", true)]);
+    expect(following).toBe(1);
+    activate(app, host, [pkg], [ext("w", false)]);
+    expect(following).toBe(0);
+    expect(app.registry.at("space")).toEqual([]);
+  });
+
   it("puts an application's frames on the page as harnix.ui lists them, and takes them all back when it goes", async () => {
     const { app } = setup();
     const entry = {

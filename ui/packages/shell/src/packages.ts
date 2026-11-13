@@ -80,7 +80,7 @@ export async function followModules(app: App, view: UiView): Promise<void> {
     if (mine.has(module)) continue;
     mine.set(module, owner);
     try {
-      const imported = (await import(/* @vite-ignore */ app.credentialed(module))) as { register?: (r: Registry, host: HostApi) => void };
+      const imported = (await import(/* @vite-ignore */ app.credentialed(module))) as { register?: (r: Registry, host: HostApi) => unknown };
       if (typeof imported.register !== "function") throw new Error(t("contrib.noRegister"));
       const register = imported.register;
       app.registry.activate(owner, () => register(signed(app.registry, owner), hostFor(app, owner)));

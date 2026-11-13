@@ -247,4 +247,33 @@ describe("contribution API 3", () => {
     r.activate("system", () => r.definePoint("system.inspector.tab", { kind: "render" }));
     expect(r.list("system.inspector.tab").map((c) => c.id)).toEqual(["from-flow"]);
   });
+
+  it("calls what a batch's register answered when the batch is withdrawn, once", () => {
+    const r = new Registry();
+    let stopped = 0;
+    r.activate("packages", () => {
+      r.register("space", { id: "p", icon: "cpu", title: () => "P" }, "packages");
+      return () => (stopped += 1);
+    });
+    // Another batch's withdrawal leaves it running.
+    r.withdraw("system");
+    expect(stopped).toBe(0);
+    r.withdraw("packages");
+    expect(stopped).toBe(1);
+    r.withdraw("packages");
+    expect(stopped).toBe(1);
+  });
+
+  it("keeps withdrawing when a dispose throws, and says so", () => {
+    const r = new Registry();
+    r.activate("w", () => {
+      r.register("space", { id: "w", icon: "cpu", title: () => "W" }, "w");
+      return () => {
+        throw new Error("already gone");
+      };
+    });
+    expect(r.withdraw("w")).toBe(1);
+    expect(r.at("space")).toEqual([]);
+    expect(r.refusals()).toEqual([{ point: "module", owner: "w", id: "dispose", reason: "already gone" }]);
+  });
 });
