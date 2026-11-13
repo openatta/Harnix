@@ -621,7 +621,7 @@ impl Control for Host {
     async fn place(&self, _meta: CallMeta, place: Place) -> Result<Placement, RpcError> {
         let root = place.app_dir.join(&place.version);
         let mut placed = Placed::default();
-        match placement::place(&self.agent, &root, &place.app_dir, place.instances.as_deref(), &mut placed).await {
+        match placement::place(&self.agent, &root, place.instances.as_deref(), &mut placed).await {
             Ok(()) => Ok(Placement {
                 parts: placed.parts(),
                 disclosure: placed.disclosure,
