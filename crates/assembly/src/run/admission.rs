@@ -60,6 +60,8 @@ pub(super) struct Parts {
     pub runtime_modules: bool,
     /// The profile's `[ext."<package id>"]` sections.
     pub package_sections: std::collections::BTreeMap<String, serde_json::Value>,
+    /// The components whose section turns their processes' sandbox off.
+    pub unsandboxed: std::collections::BTreeSet<String>,
     pub engines: Arc<harnix_authz::EngineCredentials>,
 }
 
@@ -132,6 +134,7 @@ pub(super) fn admit(
                 ui: parts.ui.clone(),
                 runtime_modules: parts.runtime_modules,
                 sections: parts.package_sections,
+                unsandboxed: parts.unsandboxed,
             },
         );
         services.set(&host);

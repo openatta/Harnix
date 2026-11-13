@@ -44,6 +44,10 @@ pub trait HostApi: Send + Sync {
     /// sandbox is the host's to apply; a carrier cannot leave it out.
     fn spawn_child(&self, id: &ExtId, req: ChildRequest) -> Rpc<ChildHandle>;
 
+    /// The sandbox the extension processes this component starts are in, as the host applies it:
+    /// what its list says of them.
+    fn child_sandbox(&self) -> ChildSandbox;
+
     /// The tool endpoints every daemon this process spawns is configured with: replaces what this
     /// component shared before.
     fn share_tools(&self, entries: Vec<ToolEndpoint>) -> Rpc<()>;
@@ -84,6 +88,20 @@ impl ToolEndpoint {
     pub fn url(&self) -> &str {
         &self.url
     }
+}
+
+/// The operating-system sandbox an extension process is started in. The component's own section
+/// says whether there is one (`sandbox = "off"` turns it off, for development); the host says how,
+/// or why there cannot be one here.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChildSandbox {
+    /// Applied, by this mechanism (`sandbox-exec`, `landlock`).
+    On(String),
+    /// Turned off: processes start unconfined.
+    Off,
+    /// Required, and not to be had here: no process starts, for this reason.
+    Unavailable(String),
 }
 
 /// When an extension process is started again after it exits.
