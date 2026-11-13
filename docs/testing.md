@@ -27,18 +27,18 @@ scripts/prune.sh                 # 清构建缓存：增量缓存全删，超过
 
 | 层 | 跑什么 | 要什么 |
 |---|---|---|
-| `build` | `pnpm install --frozen-lockfile`、外壳构建；`harnix-cli` 与 `harnix-testapp` 的发布构建；带 `apps` 的 `harnix`、打包工具 `harnix-app`、带 `apps` 的 `harnix-testapp`，都编在 `target/apps`；`examples/hello-app` 照应用的方式构建 | — |
+| `build` | `pnpm install --frozen-lockfile`、外壳构建；`harnix-cli`（缺省带两种载体 `wasm`、`proc`）与 `harnix-testapp` 的发布构建；打包工具 `harnix-pack`、带 `wasm,proc` 的 `harnix-testapp`，编在 `target/apps`；`examples/hello-app` 照应用的方式构建 | — |
 | `rust` | Harnix 各 crate 的 `cargo test`；`harnix-wasm`、`harnix-wasm-host`、`harnix-apps` 各带 `compile` 再跑一遍；`harnix-app` 带 `apps` 再跑一遍 | — |
 | `clippy` | 同样的 crate 与 feature，`-D warnings`、`--no-deps` | — |
 | `offline` | `tests/crate-metadata.mjs`（版本、许可、Agix 钉，以及 SDK 文档写的版本）、`app-scripts`、`style-lint`、`readme-pairing`、`recordings`（录像名两头都对得上，§6）；桌面壳的 `check-no-ipc`、`check-rename` | — |
 | `frontend` | 各包的 typecheck（含 `tests/live`，与各包一样 `strict`）与 Vitest；协议类型对着 Rust 重新生成再比；覆盖表 `--check`；插件 APP 带的 SDK 与 ui-kit 是否最新（`tests/app-ui-vendored.mjs`） | — |
-| `api` | LIVE 的 `api` project，回放，两种拓扑；`HARNIX_COVERAGE_GATE=1`（§7）；真录的录像在其中严格回放（`strict-replay.spec.ts`，§3） | — |
+| `api` | LIVE 的 `api` project，回放，两种拓扑；`HARNIX_COVERAGE_GATE=1`（§7）；真录的录像在其中严格回放（`strict-replay.spec.ts`，§3）；扩展包的套件在 `--carrier process` 下再跑一遍（`single_duplex`，§3） | — |
 | `template` | 把 `templates/app` 拷出去，当一个新应用离线构建（`target/template`） | — |
 | `live` | `api` project 连真模型，两种拓扑 | `.env` 里有模型凭据 |
-| `browser` | LIVE 的 `ui` project，两种拓扑（后端只给这一种，页面得自己走过去） | chromium（`pnpm install:browser`） |
+| `browser` | LIVE 的 `ui` project，两种拓扑（后端只给这一种，页面得自己走过去）；扩展包的套件在 `--carrier process` 下再跑一遍（`single_duplex`） | chromium（`pnpm install:browser`） |
 | `interface` | 起一个同时给两种拓扑的后端，`tests/topology-parity.mjs` 逐条比两边的答 | 模型 |
 | `remote` | 绑非回环、带 TLS，`tests/remote-smoke.mjs` 走配对 | `--with-remote` 与模型 |
-| `budget` | `tests/budget.mjs`：二进制体积（默认构建 ≤ 48 MB，`target/apps` 的带 `apps` 构建另有 ≤ 52 MB）、界面产物、冷启动、内存、延迟；最后一个、单独跑 | 发布构建 |
+| `budget` | `tests/budget.mjs`：二进制体积（缺省构建带两种载体 ≤ 52 MB）、界面产物、冷启动、内存、延迟；扩展进程（带它自己的引擎，开着沙箱）的常驻、拉起到 `proc.hello`、`ctl.start` 到应答、启用与按需唤醒的冷启动；最后一个、单独跑 | 发布构建 |
 
 **跳过的层要说，不能当作通过。** 缺模型、缺 chromium、没给 `--with-remote` 的层报 `skipped` 和原因，汇总里看得到；一层没跑不是一层过了。
 层的输出写进临时文件，只有失败时才显示最后 30 行。
@@ -63,6 +63,7 @@ pnpm -r run test                       # 前端各包的 Vitest（会话状态�
 pnpm live --live                       # 连 .env 里的真模型
 pnpm live --no-model                   # 不碰模型：要模型的套件跳过（只给没有录像的机器用）
 pnpm live --strict                     # 严格回放：请求与录像不一致的那次调用失败
+pnpm live --carrier process            # 只跑扩展包的套件，每个包在自己的进程里（模式 3，开着沙箱）
 pnpm live api/hub.spec.ts              # 一个文件；其余参数原样交给 playwright test
 scripts/check.sh                       # 所有层，从便宜到贵
 scripts/prune.sh                       # 清构建缓存：增量缓存全删，超过 25G 的 target 整个清掉
@@ -76,6 +77,12 @@ scripts/prune.sh                       # 清构建缓存：增量缓存全删，
 
 **拓扑**：`--topology` 决定 API 套件说哪一种（缺省 `single_duplex`）；`ui` project 的后端只给这一种，页面得自己握手回退过去。
 `scripts/check.sh` 两种各跑一遍，所以新写的功能两种拓扑都要过。
+
+**载体**：`--carrier` 决定扩展包跑在哪（缺省 `wasm`，产品进程里；`process`，每个包一个扩展进程）。`process` 下只跑
+`features.mjs` 的 `CARRIER_SUITES`（两种载体都该成立的扩展包套件），把载体钉在自己 profile 里的套件（`CARRIER_PINNED`，
+如 `packages-process.spec.ts`）不再跑一遍；只在一种载体成立的断言用 `test.skip(carrier() !== …)` 写明。`scripts/check.sh`
+在 `api`、`browser` 两层各多跑一遍 `single_duplex × 扩展包套件 × process`：多出的是扩展包套件在一种拓扑下的一遍（API 7 个文件、
+界面 5 个文件），每个包多一个扩展进程，拉起到能答约 50 ms，不改变套件的时长量级。
 
 ### 三种模型模式
 
@@ -293,13 +300,13 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
 
 ## 8. 插件 APP 的测试
 
-插件 APP 的套件要带 `apps` feature 的二进制：它连着应用运行时和 WebAssembly 引擎，缺省的构建里没有。
+扩展包的套件跑缺省构建的 `harnix`：它带着两种载体（`wasm`、`proc`）。
 
 | 东西 | 在哪 |
 |---|---|
-| 带 `apps` 的 `harnix` | `cargo build --release -p harnix-cli --features apps --target-dir target/apps`；`scripts/check.sh` 编好后经 `HARNIX_APPS_BIN` 告诉套件，单跑时套件自己编（`tests/live/api/apps-host.ts`） |
-| 打包工具 `harnix-app` | 同一个目录，`-p harnix-package --features compile --bin harnix-pack` |
-| 带 `apps` 的 `harnix-testapp` | 同一个目录；信 mock 商店、能缩短休眠的只有它（见下面的隐藏钩子） |
+| `harnix` | 缺省构建（`target/release`），同 `pnpm live`；载体由 `--carrier` 定（`tests/live/api/packages-host.ts`） |
+| 打包工具 `harnix-pack` | `cargo build --release -p harnix-package --features compile --bin harnix-pack --target-dir target/apps`；`scripts/check.sh` 编好（设了 `HARNIX_BIN` 时套件不再问 cargo），单跑时套件自己编 |
+| 带 `wasm,proc` 的 `harnix-testapp` | 同一个目录；信 mock 商店、能缩短休眠的只有它（见下面的隐藏钩子） |
 | 示例应用 | `examples/apps/showcase`：测试开始时编组件（`wasm32-wasip2`）、为这个引擎编译、打成 `.hxext`，按源码哈希缓存在 `target/apps/showcase/` |
 | mock 商店 | `tests/live/api/packages-store.ts` 在临时目录里用 `harnix-pack sign` / `countersign` / `index` 把 showcase 做成两个版本（0.2.0 多要几项能力）、写出 `index.json`，经 `[apps] store = "file://…"` 给后端；mock 的发布者与商店密钥在 `tests/live/fixtures/store/`，只是测试钥 |
 
