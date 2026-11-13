@@ -199,7 +199,7 @@ pub struct Bridge {
     kernel: Arc<dyn Kernel>,
     /// `[[topic]]`: all `host.publish` may reach.
     topics: BTreeSet<String>,
-    /// `[apps.secrets."<id>"]`: what `host.secret` reads, for a name `env` declares.
+    /// `[ext.packages.secrets."<id>"]`: what `host.secret` reads, for a name `env` declares.
     secrets: BTreeMap<String, String>,
     /// Publishes, in the order the backend made them, to one task that hands them to the kernel.
     publish: mpsc::Sender<(String, Value)>,

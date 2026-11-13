@@ -862,7 +862,7 @@ pub fn toml_to_json(v: &toml::Value) -> Value {
     }
 }
 
-/// The overrides for one application from the profile's `[apps.config]`.
+/// The overrides for one application from the profile's `[ext."<package id>"]`.
 pub fn overrides_for(config: &BTreeMap<String, toml::Value>, id: &str) -> Option<Value> {
     config.get(id).map(toml_to_json)
 }

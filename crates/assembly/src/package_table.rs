@@ -707,7 +707,7 @@ mod tests {
     }
 
     struct World {
-        apps: Arc<PackageTable>,
+        table: Arc<PackageTable>,
         az: Arc<Router>,
         below: Arc<Below>,
         stub: Arc<Stub>,
@@ -750,8 +750,8 @@ mod tests {
         }
         let az = Arc::new(Router::new(table, grants.clone(), Arc::new(Audit::default())));
         let stub = Arc::new(Stub::default());
-        let apps = Arc::new(PackageTable::new(az.clone(), stub.clone(), grants));
-        World { apps, az, below, stub }
+        let table = Arc::new(PackageTable::new(az.clone(), stub.clone(), grants));
+        World { table, az, below, stub }
     }
 
     struct Fixed(Value);
@@ -776,7 +776,7 @@ mod tests {
     #[tokio::test]
     async fn a_registered_method_is_admitted_routed_and_audited_then_withdrawn() {
         let w = world();
-        let summary = w.apps.register("host", fake("acme.fake")).await.unwrap();
+        let summary = w.table.register("host", fake("acme.fake")).await.unwrap();
         assert_eq!(summary.methods, vec!["acme.fake.echo", "acme.fake.internal"]);
         assert_eq!(summary.topics, vec!["acme.fake.ticks"]);
         assert_eq!(summary.spaces, vec!["acme.fake"]);
@@ -799,7 +799,7 @@ mod tests {
         assert_eq!(called.unwrap().subject, "device:d1");
 
         lock(&w.stub.subscribers).insert("acme.fake.ticks".into(), 2);
-        let withdrawn = w.apps.withdraw("host", "acme.fake").await.unwrap();
+        let withdrawn = w.table.withdraw("host", "acme.fake").await.unwrap();
         assert_eq!(withdrawn.subscriptions_ended, 2);
         assert_eq!(
             lock(&w.stub.ended).as_slice(),
@@ -814,9 +814,9 @@ mod tests {
         assert_eq!(w.below.calls.load(Ordering::SeqCst), 0);
         let withdrew: Vec<_> = w.az.audit().recent(80).into_iter().filter(|e| e.decision == "withdraw").collect();
         assert_eq!(withdrew.len(), 4);
-        assert!(w.apps.registered().is_empty());
+        assert!(w.table.registered().is_empty());
         // And the id is free again.
-        w.apps.register("host", fake("acme.fake")).await.unwrap();
+        w.table.register("host", fake("acme.fake")).await.unwrap();
     }
 
     /// What a sink is handed.
@@ -843,12 +843,12 @@ mod tests {
         let spec = fake("acme.notes")
             .calls(["harnix.session.create", "settings.write", "topic:harnix.sessions.status"])
             .topic_sink(heard.clone());
-        w.apps.register("host", spec).await.unwrap();
+        w.table.register("host", spec).await.unwrap();
 
         // Listed, and open to every module anyway: through the router, as `module:acme.notes`,
         // and never on a connection.
         assert_eq!(
-            w.apps.call_as("host", "acme.notes", "harnix.session.create", json!({"x": 1})).await.unwrap(),
+            w.table.call_as("host", "acme.notes", "harnix.session.create", json!({"x": 1})).await.unwrap(),
             json!({"below": "harnix.session.create"})
         );
         let (subject, _, params, client) = lock(&w.below.seen).last().cloned().unwrap();
@@ -856,16 +856,16 @@ mod tests {
         assert_eq!((params, client), (json!({"x": 1}), None));
         // Listed, and refused to devices: a package holds none of the kernel's capabilities, so
         // listing it opens nothing.
-        let e = w.apps.call_as("host", "acme.notes", "settings.write", json!({})).await.unwrap_err();
+        let e = w.table.call_as("host", "acme.notes", "settings.write", json!({})).await.unwrap_err();
         assert_eq!(e.code, codes::REFUSED);
         assert_eq!(call(&w.az, &me("other"), "settings.write", json!({})).await.unwrap_err().code, codes::REFUSED);
         // Its own methods, unlisted and declared for devices only.
         assert_eq!(
-            w.apps.call_as("host", "acme.notes", "acme.notes.echo", json!({"y": 2})).await.unwrap()["caller"],
+            w.table.call_as("host", "acme.notes", "acme.notes.echo", json!({"y": 2})).await.unwrap()["caller"],
             json!({"kind": "extension", "id": "acme.notes"})
         );
         // Not listed, though open to every module: refused by the table, and on the record.
-        let refused = w.apps.call_as("host", "acme.notes", "harnix.hello", json!({})).await.unwrap_err();
+        let refused = w.table.call_as("host", "acme.notes", "harnix.hello", json!({})).await.unwrap_err();
         assert_eq!(refused.code, codes::REFUSED);
         assert!(refused.message.contains("`calls` capability"), "{}", refused.message);
         let entry = w.az.audit().recent(100).into_iter().find(|e| e.method == "harnix.hello").unwrap();
@@ -874,23 +874,23 @@ mod tests {
         // The same answer through the router directly: there is no other door to go around.
         assert_eq!(call(&w.az, &me("acme.notes"), "harnix.hello", json!({})).await.unwrap_err().code, codes::REFUSED);
         // And what it is told it reaches is exactly that.
-        let reach = w.apps.call_as("host", "acme.notes", harnix_router::REACHABLE, json!({})).await.unwrap();
+        let reach = w.table.call_as("host", "acme.notes", harnix_router::REACHABLE, json!({})).await.unwrap();
         assert_eq!(
             reach["methods"],
             json!(["acme.notes.echo", "acme.notes.internal", "harnix.session.create", "harnix.topics.subscribe", "harnix.topics.unsubscribe"])
         );
         assert_eq!(reach["topics"], json!(["acme.notes.ticks", "harnix.sessions.status"]));
         // Only the component that registered it speaks for it.
-        assert!(w.apps.call_as("other", "acme.notes", "harnix.session.create", json!({})).await.is_err());
+        assert!(w.table.call_as("other", "acme.notes", "harnix.session.create", json!({})).await.is_err());
 
         // Subscribing: a listed topic, through its own client of the hub; an unlisted one refused.
-        w.apps.subscribe_as("host", "acme.notes", "harnix.sessions.status", json!({})).await.unwrap();
+        w.table.subscribe_as("host", "acme.notes", "harnix.sessions.status", json!({})).await.unwrap();
         let (subject, method, params, client) = lock(&w.below.seen).last().cloned().unwrap();
         assert_eq!((subject.as_str(), method.as_str()), ("ext:acme.notes", "harnix.topics.subscribe"));
         assert_eq!(params, json!({"topic": "harnix.sessions.status", "params": {}}));
         assert_eq!(client, Some(ClientId(101)), "as its own client of the hub");
         assert_eq!(
-            w.apps.subscribe_as("host", "acme.notes", "system.process", json!({})).await.unwrap_err().code,
+            w.table.subscribe_as("host", "acme.notes", "system.process", json!({})).await.unwrap_err().code,
             codes::REFUSED
         );
         assert!(w
@@ -900,7 +900,7 @@ mod tests {
             .iter()
             .any(|e| e.subject == "ext:acme.notes" && e.method == "harnix.topics.subscribe" && e.reason == Some(OUTSIDE_HUB)));
         // Its own topic needs no listing.
-        w.apps.subscribe_as("host", "acme.notes", "acme.notes.ticks", json!({"job": 1})).await.unwrap();
+        w.table.subscribe_as("host", "acme.notes", "acme.notes.ticks", json!({"job": 1})).await.unwrap();
         // What the hub pushes its client reaches the sink, topic values and endings both.
         let client = lock(&w.stub.clients)[0].clone();
         let push = |method: &str, params: Value| Frame::host(json!({"jsonrpc": "2.0", "method": method, "params": params}).to_string());
@@ -911,11 +911,11 @@ mod tests {
         assert!(!client.wants(Channel::SessionEvents));
 
         // Withdrawn: its consent is gone, the client removed, and nothing more is called as it.
-        w.apps.withdraw("host", "acme.notes").await.unwrap();
+        w.table.withdraw("host", "acme.notes").await.unwrap();
         assert_eq!(lock(&w.stub.removed).as_slice(), [101]);
         let e = call(&w.az, &me("acme.notes"), "harnix.session.create", json!({})).await.unwrap_err();
         assert_eq!((e.code, e.message.as_str()), (codes::REFUSED, harnix_router::UNREGISTERED));
-        assert_eq!(w.apps.call_as("host", "acme.notes", "harnix.session.create", json!({})).await.unwrap_err().code, codes::INVALID_PARAMS);
+        assert_eq!(w.table.call_as("host", "acme.notes", "harnix.session.create", json!({})).await.unwrap_err().code, codes::INVALID_PARAMS);
     }
 
     /// The extensions waiting on a call a package makes as itself reach the package method it
@@ -931,27 +931,27 @@ mod tests {
         }
         let w = world();
         let todo = Spec::new("acme.todo").method_handler("list", Access::extensions(), Arc::new(Chained));
-        w.apps.register("host", todo).await.unwrap();
-        w.apps.register("host", fake("acme.notes").calls(["acme.todo.list"])).await.unwrap();
+        w.table.register("host", todo).await.unwrap();
+        w.table.register("host", fake("acme.notes").calls(["acme.todo.list"])).await.unwrap();
         let waiting = Chain::from(vec![harnix_kernel::ChainLink::new("acme.notes", "1")]);
-        let answer = w.apps.call_chained("host", "acme.notes", "acme.todo.list", json!({}), waiting, None).await.unwrap();
+        let answer = w.table.call_chained("host", "acme.notes", "acme.todo.list", json!({}), waiting, None).await.unwrap();
         assert_eq!(answer, json!(["acme.notes"]));
         // A call nobody waits on carries none.
-        assert_eq!(w.apps.call_as("host", "acme.notes", "acme.todo.list", json!({})).await.unwrap(), json!([]));
+        assert_eq!(w.table.call_as("host", "acme.notes", "acme.todo.list", json!({})).await.unwrap(), json!([]));
     }
 
     #[tokio::test]
     async fn a_hub_capability_that_cannot_be_granted_refuses_the_registration() {
         let w = world();
         for name in ["harnix.turn", "nothing.here", "topic:nowhere"] {
-            let e = w.apps.register("host", fake("acme.notes").calls([name])).await.unwrap_err();
+            let e = w.table.register("host", fake("acme.notes").calls([name])).await.unwrap_err();
             assert_eq!(e.code, codes::REFUSED, "{name}");
             assert!(e.message.contains(name), "{name}: {}", e.message);
         }
-        assert!(w.apps.registered().is_empty());
+        assert!(w.table.registered().is_empty());
         assert!(lock(&w.stub.topics).is_empty());
         // Another application's names are that application's to admit, so they are not checked here.
-        w.apps.register("host", fake("acme.notes").calls(["acme.todo.list"])).await.unwrap();
+        w.table.register("host", fake("acme.notes").calls(["acme.todo.list"])).await.unwrap();
     }
 
     #[tokio::test]
@@ -959,21 +959,21 @@ mod tests {
         let w = world();
         // A compiled-in module's id, with names in the table or not, or nested under one.
         for (id, by) in [("probe.sub", "probe"), ("quiet.x", "quiet")] {
-            let e = w.apps.register("host", fake(id)).await.unwrap_err();
+            let e = w.table.register("host", fake(id)).await.unwrap_err();
             assert_eq!(e.code, codes::REFUSED, "{id}");
             assert_eq!(e.data, Some(json!({"failure": "namespace_taken", "by": by})), "{id}: {}", e.message);
         }
         // The same id as one is not a package's at all, nor is one under a reserved word.
         for id in ["probe", "quiet", "engine.notes"] {
-            assert_eq!(w.apps.register("host", fake(id)).await.unwrap_err().code, codes::REFUSED, "{id}");
+            assert_eq!(w.table.register("host", fake(id)).await.unwrap_err().code, codes::REFUSED, "{id}");
         }
         // The compiled-in method is still the compiled-in one.
         assert_eq!(call(&w.az, &device(), "probe.echo", json!({})).await.unwrap(), json!("the compiled-in probe"));
 
         // Twice, or nested in a registered one.
-        w.apps.register("host", fake("acme.notes")).await.unwrap();
+        w.table.register("host", fake("acme.notes")).await.unwrap();
         for id in ["acme.notes", "acme", "acme.notes.pro"] {
-            assert_eq!(w.apps.register("host", fake(id)).await.unwrap_err().code, codes::REFUSED, "{id}");
+            assert_eq!(w.table.register("host", fake(id)).await.unwrap_err().code, codes::REFUSED, "{id}");
         }
         // A bad id, a bad method name, a duplicate name, a space outside the namespace, a space
         // that is taken: refused, and nothing of them was left declared, bound or listed.
@@ -991,7 +991,7 @@ mod tests {
         ];
         for spec in bad {
             let id = spec.id.clone();
-            assert_eq!(w.apps.register("host", spec).await.unwrap_err().code, codes::REFUSED, "{id}");
+            assert_eq!(w.table.register("host", spec).await.unwrap_err().code, codes::REFUSED, "{id}");
         }
         assert_eq!(lock(&w.stub.topics).keys().collect::<Vec<_>>(), ["acme.notes.ticks"]);
         assert_eq!(lock(&w.stub.spaces).iter().collect::<Vec<_>>(), ["acme.notes"]);
@@ -999,7 +999,7 @@ mod tests {
             call(&w.az, &device(), "acme.taken.m", json!({})).await.unwrap_err().code,
             codes::METHOD_NOT_FOUND
         );
-        assert_eq!(w.apps.registered().len(), 1);
+        assert_eq!(w.table.registered().len(), 1);
         let refusals = w.az.audit().recent(100).into_iter().filter(|e| e.decision == "refuse").count();
         assert_eq!(refusals, 13);
     }
@@ -1007,24 +1007,24 @@ mod tests {
     #[tokio::test]
     async fn only_the_registering_module_withdraws_or_publishes() {
         let w = world();
-        w.apps.register("host", fake("acme.fake")).await.unwrap();
-        assert_eq!(w.apps.withdraw("other", "acme.fake").await.unwrap_err().code, codes::REFUSED);
-        assert!(w.apps.publish("other", "acme.fake", "ticks", json!({"job": 1}), json!(1)).await.is_err());
-        assert_eq!(w.apps.withdraw("host", "nobody").await.unwrap_err().code, codes::INVALID_PARAMS);
+        w.table.register("host", fake("acme.fake")).await.unwrap();
+        assert_eq!(w.table.withdraw("other", "acme.fake").await.unwrap_err().code, codes::REFUSED);
+        assert!(w.table.publish("other", "acme.fake", "ticks", json!({"job": 1}), json!(1)).await.is_err());
+        assert_eq!(w.table.withdraw("host", "nobody").await.unwrap_err().code, codes::INVALID_PARAMS);
 
         // Its own topics only, with their parameters, normalized.
-        assert!(w.apps.publish("host", "acme.fake", "nope", json!({}), json!(1)).await.is_err());
+        assert!(w.table.publish("host", "acme.fake", "nope", json!({}), json!(1)).await.is_err());
         assert_eq!(
-            w.apps.publish("host", "acme.fake", "ticks", json!({}), json!(1)).await.unwrap_err().code,
+            w.table.publish("host", "acme.fake", "ticks", json!({}), json!(1)).await.unwrap_err().code,
             codes::INVALID_PARAMS
         );
-        w.apps.publish("host", "acme.fake", "ticks", json!({"job": "a", "extra": 1}), json!({"n": 1})).await.unwrap();
+        w.table.publish("host", "acme.fake", "ticks", json!({"job": "a", "extra": 1}), json!({"n": 1})).await.unwrap();
         assert_eq!(
             lock(&w.stub.published).as_slice(),
             [("acme.fake.ticks".to_string(), json!({"job": "a"}), json!({"n": 1}))]
         );
-        w.apps.withdraw("host", "acme.fake").await.unwrap();
-        assert!(w.apps.publish("host", "acme.fake", "ticks", json!({"job": "a"}), json!(2)).await.is_err());
+        w.table.withdraw("host", "acme.fake").await.unwrap();
+        assert!(w.table.publish("host", "acme.fake", "ticks", json!({"job": "a"}), json!(2)).await.is_err());
     }
 
     #[tokio::test]
@@ -1047,11 +1047,11 @@ mod tests {
                 }
             })
         };
-        w.apps.register("host", spec).await.unwrap();
+        w.table.register("host", spec).await.unwrap();
         let az = w.az.clone();
         let in_flight = tokio::spawn(async move { call(&az, &device(), "acme.slow.wait", json!({})).await });
         started.await.unwrap();
-        w.apps.withdraw("host", "acme.slow").await.unwrap();
+        w.table.withdraw("host", "acme.slow").await.unwrap();
         assert_eq!(
             call(&w.az, &device(), "acme.slow.wait", json!({})).await.unwrap_err().code,
             codes::METHOD_NOT_FOUND
@@ -1069,15 +1069,15 @@ mod tests {
         let rows_before = w.az.table().len();
         let mut tasks = Vec::new();
         for n in 0..4 {
-            let apps = w.apps.clone();
+            let table = w.table.clone();
             tasks.push(tokio::spawn(async move {
                 // Two hosts contend for each id; whichever registers, only it withdraws.
                 let id = format!("acme.race{}", n % 2);
                 let host = format!("host{n}");
                 for _ in 0..200 {
-                    if apps.register(&host, fake(&id)).await.is_ok() {
+                    if table.register(&host, fake(&id)).await.is_ok() {
                         tokio::task::yield_now().await;
-                        apps.withdraw(&host, &id).await.unwrap();
+                        table.withdraw(&host, &id).await.unwrap();
                     }
                 }
             }));
@@ -1101,7 +1101,7 @@ mod tests {
         }
         assert_eq!(w.below.calls.load(Ordering::SeqCst), 0);
         assert_eq!(w.az.table().len(), rows_before);
-        assert!(w.apps.registered().is_empty());
+        assert!(w.table.registered().is_empty());
         assert!(lock(&w.stub.topics).is_empty());
         assert!(lock(&w.stub.spaces).is_empty());
     }

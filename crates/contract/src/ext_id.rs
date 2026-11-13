@@ -1,8 +1,8 @@
-//! What a runtime application's id is: the one rule the install records (`harnix-builtin`) and the
-//! packages (`harnix-package`) both hold an id to, kept here because both depend on this crate
+//! What an extension package's id is: the one rule the install records and the packages
+//! (`harnix-package`) both hold an id to, kept here because both depend on this crate
 //! and on nothing else in common.
 
-/// Whether `id` can be an application's id: dot-separated segments of lowercase letters, digits
+/// Whether `id` can be a package's id: dot-separated segments of lowercase letters, digits
 /// and `-`, each starting with a letter, 64 bytes at most. A directory name under the install
 /// records' directory is one exactly when this holds, so an id is never a path out of it.
 pub fn valid_id(id: &str) -> bool {

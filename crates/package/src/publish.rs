@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use crate::manifest::{Manifest, MANIFEST};
 use crate::signature::{self, sha256, SecretKey, Signatures};
 use crate::store::{
-    compare_versions, format_utc, sign_catalog, Artifact, CatalogApp, CatalogVersion, Index,
+    compare_versions, format_utc, sign_catalog, Artifact, CatalogPackage, CatalogVersion, Index,
     ANY_ENGINE, INDEX_FORMAT,
 };
 
@@ -168,7 +168,7 @@ pub fn index(
         .filter(|p| p.extension().is_some_and(|e| e == "hxext"))
         .collect();
     files.sort();
-    let mut apps: BTreeMap<String, CatalogApp> = BTreeMap::new();
+    let mut packages: BTreeMap<String, CatalogPackage> = BTreeMap::new();
     for path in files {
         let file_name = path.file_name().unwrap().to_string_lossy().to_string();
         let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -182,9 +182,9 @@ pub fn index(
             .map_err(|e| format!("{file_name}: {e}"))?
             .map(|s| json!({"publisher": s.publisher.key, "store": s.store.map(|s| s.key)}))
             .unwrap_or(Value::Null);
-        let app = apps
+        let app = packages
             .entry(manifest.app.id.clone())
-            .or_insert_with(|| CatalogApp {
+            .or_insert_with(|| CatalogPackage {
                 id: manifest.app.id.clone(),
                 title: None,
                 publisher: manifest.app.publisher.clone(),
@@ -233,8 +233,8 @@ pub fn index(
             );
         }
     }
-    let mut apps: Vec<CatalogApp> = apps.into_values().collect();
-    for app in &mut apps {
+    let mut packages: Vec<CatalogPackage> = packages.into_values().collect();
+    for app in &mut packages {
         app.versions
             .sort_by(|a, b| compare_versions(&a.version, &b.version));
     }
@@ -242,7 +242,7 @@ pub fn index(
         format: INDEX_FORMAT.into(),
         name: name.map(str::to_string),
         expires: String::new(),
-        packages: apps,
+        packages,
         signature: None,
     };
     let out = store.join("index.json");

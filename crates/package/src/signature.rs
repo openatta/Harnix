@@ -21,7 +21,7 @@
 //! countersignature verifies under a store key this Harnix carries; `trusted` when the publisher's
 //! signature covers every file and its key is one the profile names for that publisher; and
 //! nothing else is signed. A package with no `SIGNATURES` is `unsigned`, which only a process with
-//! `[apps] dev = true` runs. Every file is checked against its sha256 — one too many, one missing
+//! `[ext.packages] dev = true` runs. Every file is checked against its sha256 — one too many, one missing
 //! or one changed is refused, naming it — and the compiled artifact's bytes are checked once more
 //! as they are read to be loaded, so what is deserialized is what was signed.
 
@@ -45,7 +45,7 @@ pub enum Trust {
     Store,
     /// Signed, in full, by a publisher the profile trusts.
     Trusted,
-    /// No signatures at all: only with `[apps] dev = true`.
+    /// No signatures at all: only with `[ext.packages] dev = true`.
     Unsigned,
 }
 
@@ -147,7 +147,7 @@ impl SecretKey {
 pub struct Keys {
     /// The stores whose countersignature makes a package `store`.
     pub store: Vec<PublicKey>,
-    /// `[apps.trusted_publishers]`: a publisher's id, and the keys that sign as it.
+    /// `[ext.packages.trusted_publishers]`: a publisher's id, and the keys that sign as it.
     pub trusted: BTreeMap<String, Vec<PublicKey>>,
 }
 
@@ -429,7 +429,7 @@ pub fn verify(
         }
         return Err(format!(
             "the package is countersigned by a store this Harnix does not trust (key {}), and its \
-             publisher `{publisher}` is not one the profile trusts ([apps.trusted_publishers])",
+             publisher `{publisher}` is not one the profile trusts ([ext.packages.trusted_publishers])",
             store.key
         ));
     }
@@ -443,7 +443,7 @@ pub fn verify(
     }
     Err(format!(
         "the package is signed by the publisher `{publisher}` (key {}), which is not one the profile \
-         trusts ([apps.trusted_publishers]), and no store countersigned it",
+         trusts ([ext.packages.trusted_publishers]), and no store countersigned it",
         s.publisher.key
     ))
 }

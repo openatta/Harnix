@@ -63,7 +63,7 @@ pub type Listener = Arc<dyn Fn(&str) + Send + Sync>;
 /// The running packages, and who hears a tool call's progress.
 #[derive(Default)]
 pub struct Roster {
-    apps: RwLock<BTreeMap<String, Arc<Loaded>>>,
+    loaded: RwLock<BTreeMap<String, Arc<Loaded>>>,
     progress: RwLock<Option<OnProgress>>,
     listeners: Mutex<HashMap<String, Listener>>,
 }
@@ -82,19 +82,19 @@ impl Roster {
     }
 
     pub fn loaded(&self) -> Vec<Arc<Loaded>> {
-        read(&self.apps).values().cloned().collect()
+        read(&self.loaded).values().cloned().collect()
     }
 
     pub fn get(&self, id: &str) -> Option<Arc<Loaded>> {
-        read(&self.apps).get(id).cloned()
+        read(&self.loaded).get(id).cloned()
     }
 
     pub fn insert(&self, loaded: Arc<Loaded>) {
-        write(&self.apps).insert(loaded.id.clone(), loaded);
+        write(&self.loaded).insert(loaded.id.clone(), loaded);
     }
 
     pub fn remove(&self, id: &str) -> Option<Arc<Loaded>> {
-        write(&self.apps).remove(id)
+        write(&self.loaded).remove(id)
     }
 
     /// Hear one tool call's progress, until [`Self::unlisten`].

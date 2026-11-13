@@ -725,7 +725,7 @@ mod tests {
         let mut t = assembled();
         for name in [
             "harnix.hello",
-            "harnix.apps.list",
+            "packages.list",
             "harnix.session.create",
             "engine.config.setProvider",
             "other.echo",

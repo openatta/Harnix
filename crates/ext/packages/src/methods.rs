@@ -76,7 +76,7 @@ async fn catalog(state: &State) -> Rpc<Value> {
     // What the store says of a version installed here stays with its record: the list shows it
     // without asking the store.
     let _serial = state.serial.lock().await;
-    for app in catalog["apps"].as_array().into_iter().flatten() {
+    for app in catalog["packages"].as_array().into_iter().flatten() {
         let (Some(id), Some(version)) = (app["id"].as_str(), app["installed"].as_str()) else {
             continue;
         };

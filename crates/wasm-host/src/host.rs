@@ -94,7 +94,7 @@ pub struct Host {
     kernel: Arc<dyn Kernel>,
     agent: Arc<dyn Agent>,
     http: Arc<dyn HttpFetcher>,
-    apps: RwLock<BTreeMap<String, Arc<Running>>>,
+    running: RwLock<BTreeMap<String, Arc<Running>>>,
     /// The bridges of applications starting or running: where their subscriptions' values go,
     /// `init`'s included.
     bridges: Mutex<BTreeMap<String, Arc<Bridge>>>,
@@ -201,7 +201,7 @@ impl Host {
             kernel,
             agent,
             http: options.http.unwrap_or_else(|| Arc::new(crate::http::Http::new())),
-            apps: RwLock::new(BTreeMap::new()),
+            running: RwLock::new(BTreeMap::new()),
             bridges: Mutex::new(BTreeMap::new()),
             failed: Mutex::new(BTreeMap::new()),
             calls: Mutex::new(HashMap::new()),
@@ -237,7 +237,7 @@ impl Host {
     }
 
     fn running(&self, id: &str) -> Option<Arc<Running>> {
-        read(&self.apps).get(id).cloned()
+        read(&self.running).get(id).cloned()
     }
 
     /// The registration of `manifest`'s names (read from `root`), and its methods' schemas
@@ -545,7 +545,7 @@ impl Host {
             component: running.vm.is_some(),
             tools: booted.tools.clone(),
         };
-        write(&self.apps).insert(id.clone(), running);
+        write(&self.running).insert(id.clone(), running);
         if let Err(e) = self.agent.expose_tools(offer).await {
             tracing::warn!(app = %id, error = %e.message, "its tools were not offered");
         }
@@ -671,7 +671,7 @@ impl Control for Host {
         let id = &stop.app;
         lock(&self.failed).remove(id);
         self.moved();
-        let Some(app) = write(&self.apps).remove(id) else {
+        let Some(app) = write(&self.running).remove(id) else {
             return Ok(());
         };
         app.watch.cancel();
@@ -871,9 +871,9 @@ impl Control for Host {
     }
 
     async fn shutdown(&self, _meta: CallMeta, reason: String) -> Result<(), RpcError> {
-        let apps: Vec<(String, Arc<Running>)> = std::mem::take(&mut *write(&self.apps)).into_iter().collect();
+        let running: Vec<(String, Arc<Running>)> = std::mem::take(&mut *write(&self.running)).into_iter().collect();
         lock(&self.bridges).clear();
-        for (id, app) in apps {
+        for (id, app) in running {
             app.watch.cancel();
             if let Some(vm) = &app.vm {
                 vm.stop().await;

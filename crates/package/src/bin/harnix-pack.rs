@@ -25,15 +25,15 @@
 //!
 //! `keygen` makes an ed25519 key (the file holds its secret; the public key is printed). `sign`
 //! signs every file of a package as its publisher; a Harnix whose profile trusts that key for that
-//! publisher (`[apps.trusted_publishers]`) installs it without dev mode. `countersign` is the
+//! publisher (`[ext.packages.trusted_publishers]`) installs it without dev mode. `countersign` is the
 //! store's: it checks the publisher's signature, adds the components it compiled, and signs the
 //! lot; `index` lists `<store dir>/packages/*.hxext` as `<store dir>/index.json`, the catalog a
-//! Harnix reads (`[apps] store`), signed with the store's key and believed for `--days` (14
+//! Harnix reads (`[ext.packages] store`), signed with the store's key and believed for `--days` (14
 //! unless said). `sign-index` signs a catalog again after the store edited it — a version
 //! `revoked`, an application's `min_version` raised — or to republish it before it expires;
 //! `--expires` (`YYYY-MM-DDTHH:MM:SSZ`) says when instead.
 //!
-//! An unsigned package installs only with `[apps] dev = true`.
+//! An unsigned package installs only with `[ext.packages] dev = true`.
 
 use std::path::{Path, PathBuf};
 

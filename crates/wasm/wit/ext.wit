@@ -126,7 +126,7 @@ interface host {
   ) -> result<http-response, string>;
   /// Subject to the manifest's `env` capability: a secret the person running
   /// the application gave it under this name (Harnix: the profile's
-  /// `[apps.secrets."<id>"]`) — never the host process's own environment. An
+  /// `[ext.packages.secrets."<id>"]`) — never the host process's own environment. An
   /// undeclared name reads as absent, the same as a declared one that is not
   /// set; the host's log says which it was.
   secret: func(key: string) -> option<string>;

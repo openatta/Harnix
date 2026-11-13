@@ -8,7 +8,7 @@
 //! (`downgrade`) always asks: an older version may be one with the hole the newer one closed.
 //!
 //! Consent is a digest: of the package's bytes, the trust its signatures give it, and the version
-//! it replaces. The first `harnix.apps.install` answers the disclosure and the digest; the second
+//! it replaces. The first `packages.install` answers the disclosure and the digest; the second
 //! passes the digest back. A package that changed in between — another download, another
 //! signature, another installed version — has another digest, and is disclosed again rather than
 //! installed on a consent given to something else.
@@ -31,7 +31,7 @@ fn line(capability: &str, value: impl Into<Value>) -> Value {
 ///
 /// A `net` host on this machine or its network is `net_local`, not `net`: "it can reach the
 /// services on this machine" is what that line means, and it reads nothing like "it can reach
-/// api.example.com". `env` names secrets the profile gives it (`[apps.secrets."<id>"]`), never
+/// api.example.com". `env` names secrets the profile gives it (`[ext.packages.secrets."<id>"]`), never
 /// the process's environment. `events` is there when it is offered every tool call, not only its
 /// own tools'; `frames` when it has pages of its own, which run isolated: no network, and a page
 /// that navigates itself is kept to this origin (the shell's `frame-src 'self'`) and taken down.

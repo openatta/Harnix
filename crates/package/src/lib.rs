@@ -27,7 +27,7 @@ pub mod surface;
 
 /// Whether `id` can be an application's id: the install records' rule too, which is why it is the
 /// contract's.
-pub use harnix_contract::apps::valid_id;
+pub use harnix_contract::ext_id::valid_id;
 
 /// Every application tool's name in a session matches this: what each scene of an instance that
 /// offers them has to admit besides its own tool list.
