@@ -133,6 +133,21 @@ pub fn entry(args: Vec<OsString>) -> anyhow::Result<()> {
     }
 }
 
+/// This build, as an extension process of it says `proc.hello` — but for who the process is
+/// (`ext`, `pid`): its wire, Harnix's version, the Agix it links and its VM engine's fingerprint.
+/// What a product of this build compares each of its processes' hellos with.
+pub fn this_build() -> Hello {
+    Hello {
+        wire: EXT_WIRE_VERSION,
+        ext: String::new(),
+        version: HARNIX_VERSION.to_string(),
+        agix_version: harnix_engine::identity().version,
+        engine: harnix_wasm_host::WasmEngine::this_build(),
+        harnix_api: harnix_package::manifest::HARNIX_API,
+        pid: 0,
+    }
+}
+
 /// Serve the product over `stream` until `until` resolves (stdin closed, in a process), the wire
 /// closes, or the product says `ctl.shutdown`. What [`entry`] runs once it has its wire; a test
 /// runs it on one end of a socket pair.
@@ -141,8 +156,18 @@ where
     S: AsyncRead + AsyncWrite + Send + 'static,
 {
     let answering = Arc::new(Answering::new(options.ext.clone(), options.pkg.clone(), options.run.clone()));
-    let wire = SocketWire::client(stream, answering.clone(), WireOptions::default());
-    let kernel: Arc<dyn Kernel> = Arc::new(KernelClient(wire.clone() as Arc<dyn Wire>));
+    // The host answers the wire and its kernel sends over it: the kernel holds the wire weakly, so
+    // the two do not hold each other.
+    let mut weak = None;
+    let wire = SocketWire::client_with(
+        stream,
+        |w| {
+            weak = Some(w);
+            answering.clone()
+        },
+        WireOptions::default(),
+    );
+    let kernel: Arc<dyn Kernel> = Arc::new(KernelClient(Arc::new(weak.expect("made with the wire")) as Arc<dyn Wire>));
     // With an engine of its own, its tool calls' progress and turn chains stay here.
     let local = match (&options.engine, &options.run) {
         (Some(_), Some(run)) => Some(Local::new(&options.ext, &run.join("engine"), kernel.clone())),
@@ -180,15 +205,8 @@ where
         _ => None,
     };
 
-    let hello = Hello {
-        wire: EXT_WIRE_VERSION,
-        ext: options.ext.clone(),
-        version: HARNIX_VERSION.to_string(),
-        agix_version: harnix_engine::identity().version,
-        engine: host.engine().fingerprint().to_string(),
-        harnix_api: harnix_package::manifest::HARNIX_API,
-        pid: std::process::id(),
-    };
+    let hello = Hello { ext: options.ext.clone(), pid: std::process::id(), ..this_build() };
+    debug_assert_eq!(hello.engine, host.engine().fingerprint());
     let hello = serde_json::to_value(&hello)?;
     let meta = CallMeta::default().deadline_ms(now_ms() + HELLO_WITHIN.as_millis() as u64);
     if let Err(e) = wire.call(HELLO, hello, meta, &CancellationToken::new()).await {

@@ -105,6 +105,12 @@ impl WasmEngine {
         })
     }
 
+    /// What [`WasmEngine::fingerprint`] says for an engine of this build, without making one: what
+    /// a product compares with the engine of an extension process it started.
+    pub fn this_build() -> String {
+        fingerprint_of(&Self::config())
+    }
+
     /// What an artifact must have been compiled for to load here:
     /// `wasmtime-<version>+<target triple>+<configuration digest>`, the digest
     /// covering the configuration and the [`CPU`] it compiles for. Stable

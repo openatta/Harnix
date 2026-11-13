@@ -425,6 +425,24 @@ impl Wire for SocketWire {
     }
 }
 
+/// A wire held weakly, for what an answerer of that wire sends back over it
+/// ([`SocketWire::client_with`]): once the wire is gone, every call is answered that it closed.
+#[async_trait]
+impl Wire for Weak<SocketWire> {
+    async fn send(&self, method: &'static str, meta: CallMeta, params: Value) -> Result<Value, RpcError> {
+        match self.upgrade() {
+            Some(wire) => Wire::send(&*wire, method, meta, params).await,
+            None => Err(RpcError::new(codes::INTERNAL_ERROR, "the extension wire is gone")),
+        }
+    }
+
+    fn notify(&self, method: &'static str, params: Value) {
+        if let Some(wire) = self.upgrade() {
+            Wire::notify(&*wire, method, params);
+        }
+    }
+}
+
 /// Takes a call back when its future ends without an answer: off the queue if it was not written,
 /// with a `$/cancel` if it was. After an answer there is nothing to take back.
 struct Withdraw<'a> {
