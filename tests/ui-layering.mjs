@@ -43,8 +43,12 @@ function code(text) {
   return text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/[^\n]*/g, "$1");
 }
 
+// `import … from "x"`, `export … from "x"`, `import "x"` and `import("x")`: not any `from` or
+// `import(` that happens to sit before a string (`t("packages.from", …`).
+const IMPORT = /\b(?:(?:import|export)\b[^;"'`]*?\bfrom\s*|import\s*\(?\s*)["']([^"']+)["']/g;
+
 const imports = (text) =>
-  [...text.matchAll(/(?:from|import\()\s*["']([^"']+)["']/g)].map((m) => m[1]).filter((spec) => !spec.startsWith("."));
+  [...text.matchAll(IMPORT)].map((m) => m[1]).filter((spec) => !spec.startsWith("."));
 
 const packageDirs = readdirSync(packages).filter((n) => statSync(join(packages, n)).isDirectory());
 
