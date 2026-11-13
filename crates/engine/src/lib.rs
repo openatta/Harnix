@@ -15,6 +15,7 @@ mod adapt;
 pub mod assemble;
 mod daemon_link;
 pub mod engine;
+mod gate;
 mod hooks;
 mod inproc;
 pub mod readers;
@@ -29,6 +30,7 @@ mod translate;
 pub mod agix;
 
 pub use daemon_link::{Connection, DaemonLink, Endpoint, Refusal, Taken};
+pub use gate::WakeGate;
 pub use engine::{active_scenes, build, Chains, Engine, EngineConfig};
 pub use hooks::RawHook;
 pub use inproc::InProcessLink;

@@ -1,7 +1,6 @@
 use std::sync::{Mutex, OnceLock, Weak};
 
 use harnix_contract::Subject;
-use harnix_engine_api::ops::EngineOps;
 use harnix_kernel::TopicChanged;
 
 use super::*;
@@ -234,7 +233,8 @@ async fn an_adopted_engine_is_the_extensions_and_sleeps_until_it_is_needed() {
     // Let go while idle: listed hibernating; its list answered from before, waking nothing.
     adoption.hibernate().await;
     assert_eq!(row(&registry, "proc.acme.board")["status"]["state"], "hibernating");
-    let link = adopt::AdoptedLink(adoption.clone());
+    let link = adoption.link();
+    let link = link.ops();
     let rows = link.list().await.unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(waking.woken.load(std::sync::atomic::Ordering::Relaxed), 0);

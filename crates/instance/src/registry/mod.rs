@@ -432,8 +432,8 @@ impl InstanceRegistry {
         }
         let adoption = Adoption::new(id.clone(), &spec, self.observer().clone(), self.factory.turns.clone());
         self.factory.turns.watch(&id, adoption.clone());
-        let link = Arc::new(adopt::AdoptedLink(adoption.clone()));
-        let built = Built { link: link.clone(), control: link, facts };
+        // Handed to the hub as any daemon's link is: the hub alone takes its events.
+        let built = Built { link: adoption.link(), control: Arc::new(adopt::AdoptedControl(adoption.clone())), facts };
         let providers = self.state().providers;
         let record = Record::fixed(Owner::Module(spec.ext.to_string()));
         let trust = InstanceTrust::Extension(spec.ext.clone());

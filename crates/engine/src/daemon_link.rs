@@ -31,6 +31,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 use tokio::sync::{mpsc, oneshot, watch, Mutex};
 use tokio_util::sync::CancellationToken;
 
+use crate::gate::{GatedOps, WakeGate};
 use crate::translate::{self, AgixOps, Rpc};
 
 /// Where a daemon listens.
@@ -133,7 +134,7 @@ type Pending = HashMap<u64, oneshot::Sender<Result<Value, RpcError>>>;
 
 pub struct DaemonLink {
     wire: Arc<Wire>,
-    ops: AgixOps,
+    ops: GatedOps,
     events_rx: StdMutex<Option<EventReceiver>>,
 }
 
@@ -164,11 +165,21 @@ impl DaemonLink {
     /// [`DaemonLink::new`], waiting `call_timeout` for a reply before calling the instance
     /// unavailable.
     pub fn with_call_timeout(carrier: InstanceCarrier, label: impl Into<String>, call_timeout: Duration) -> Arc<Self> {
+        Self::build(carrier, label.into(), call_timeout, None)
+    }
+
+    /// [`DaemonLink::new`] for a daemon that may be let go while idle: `gate` wakes it before a
+    /// call that needs it, and keeps its session list for while it sleeps.
+    pub fn gated(carrier: InstanceCarrier, label: impl Into<String>, gate: Arc<dyn WakeGate>) -> Arc<Self> {
+        Self::build(carrier, label.into(), CALL_TIMEOUT, Some(gate))
+    }
+
+    fn build(carrier: InstanceCarrier, label: String, call_timeout: Duration, gate: Option<Arc<dyn WakeGate>>) -> Arc<Self> {
         let (events_tx, events_rx) = mpsc::channel(EVENT_CAPACITY);
         let (status, _) = watch::channel(LinkStatus::Starting);
         let wire = Arc::new(Wire {
             carrier,
-            label: label.into(),
+            label,
             writer: Mutex::new(None),
             pending: StdMutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
@@ -179,7 +190,8 @@ impl DaemonLink {
             call_timeout,
             connected_before: AtomicBool::new(false),
         });
-        Arc::new(Self { ops: AgixOps(wire.clone()), wire, events_rx: StdMutex::new(Some(events_rx)) })
+        let ops = GatedOps { agix: AgixOps(wire.clone()), gate };
+        Arc::new(Self { ops, wire, events_rx: StdMutex::new(Some(events_rx)) })
     }
 
 
