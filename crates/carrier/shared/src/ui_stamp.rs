@@ -1,12 +1,12 @@
 //! The watcher of a package's interface files; what the page is told of the interface itself is
-//! the carriers' shared `harnix_carrier_shared::frames`.
+//! [`crate::frames`].
 
 use std::path::Path;
 
 /// A stamp of everything under a package's `ui/`: each file's path, size and modification time.
 /// Read on every tick for a package whose files change under it (unsigned, in developer mode), so
 /// it is a watcher that needs no thread: a file saved there changes it.
-pub(crate) fn ui_stamp(dir: &Path) -> u64 {
+pub fn ui_stamp(dir: &Path) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     let mut stack = vec![dir.to_path_buf()];
