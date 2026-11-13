@@ -4,10 +4,10 @@
  *
  * The greeter's tab also shows the channels for what a call and a topic do not fit: a long job and
  * its progress topic, whose result lands in the conversation as a card (an entry, drawn by the
- * `flow.block` below), and the module's own link — an HTTP route and a WebSocket.
+ * `flow.block` below), and the extension's own link — an HTTP route and a WebSocket.
  *
  * And an approval card (docs/harnix-sdk.md §10.1): the ticket is an entry in the conversation, its
- * state comes from the `app.greeter.approvals` topic, and the buttons call `app.greeter.approve`,
+ * state comes from the `greeter.approvals` topic, and the buttons call `greeter.approve`,
  * which only a person may.
  *
  * Its look is its own without a fork of `ui/` (docs/harnix-sdk.md §8.6): the profile's `[brand]` names the
@@ -107,14 +107,14 @@ function ApprovalCard({ entry }: { entry: GreeterEntry }) {
   const [refused, setRefused] = useState<string | null>(null);
   useEffect(
     () =>
-      nest.subscribe("app.greeter.approvals", { instance: written.instance, session_id: written.session_id }, (v) => {
+      nest.subscribe("greeter.approvals", { instance: written.instance, session_id: written.session_id }, (v) => {
         const now = (v as { tickets?: Ticket[] } | null)?.tickets?.find((t) => t.id === written.id);
         if (now) setTicket(now);
       }),
     [nest, written.id, written.instance, written.session_id],
   );
   const answer = (decision: "approve" | "reject") =>
-    nest.call("app.greeter.approve", { ticket: written.id, decision }).catch((e: Error) => setRefused(e.message));
+    nest.call("greeter.approve", { ticket: written.id, decision }).catch((e: Error) => setRefused(e.message));
   return (
     <div className="hx-blk" data-testid="approval-card" data-ticket={written.id} data-state={ticket.state}>
       <div>Approval: {ticket.title}</div>
@@ -158,7 +158,7 @@ function GreetTab() {
         data-testid="greet"
         onClick={() =>
           nest
-            .call<{ greeting: string; count: number }>("app.greeter.greet", { name })
+            .call<{ greeting: string; count: number }>("greeter.greet", { name })
             .then((r) => setAnswer(`${r.greeting} (${r.count})`))
             .catch((e: Error) => setAnswer(e.message))
         }
@@ -176,15 +176,15 @@ function GreetTab() {
   );
 }
 
-/** A long job: the call answers with an id at once, the progress arrives on `app.greeter.job`. */
+/** A long job: the call answers with an id at once, the progress arrives on `greeter.job`. */
 function Job() {
   const nest = useHost();
   const [job, setJob] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number; finished: boolean } | null>(null);
-  useEffect(() => (job ? nest.subscribe("app.greeter.job", { job_id: job }, (v) => setProgress(v as typeof progress)) : undefined), [nest, job]);
+  useEffect(() => (job ? nest.subscribe("greeter.job", { job_id: job }, (v) => setProgress(v as typeof progress)) : undefined), [nest, job]);
   const start = async () => {
     const session = nest.session.current();
-    const started = await nest.call<{ job_id: string }>("app.greeter.count_to", {
+    const started = await nest.call<{ job_id: string }>("greeter.count_to", {
       to: 20,
       ...(session ? { instance: session.instance, session_id: session.sessionId } : {}),
     });
@@ -211,7 +211,7 @@ function RequestApproval() {
   const ask = () => {
     const session = nest.session.current();
     if (!session) return;
-    void nest.call("app.greeter.request_approval", {
+    void nest.call("greeter.request_approval", {
       instance: session.instance,
       session_id: session.sessionId,
       title: "Greet everyone at once",
@@ -224,7 +224,7 @@ function RequestApproval() {
   );
 }
 
-/** The module's own link: a route and a WebSocket under `/ext/greeter/`, the credential the host's. */
+/** The extension's own link: a route and a WebSocket under `/ext/greeter/`, the credential the host's. */
 function OwnLink() {
   const nest = useHost();
   const [said, setSaid] = useState<string | null>(null);
@@ -261,6 +261,6 @@ function OwnLink() {
 function GreetedCard() {
   const nest = useHost();
   const [count, setCount] = useState<number | null>(null);
-  useEffect(() => nest.subscribe("app.greeter.greeted", undefined, (v) => setCount((v as { count?: number } | null)?.count ?? 0)), [nest]);
+  useEffect(() => nest.subscribe("greeter.greeted", undefined, (v) => setCount((v as { count?: number } | null)?.count ?? 0)), [nest]);
   return <div data-testid="greeted-count">{count === null ? "…" : `${count} greeted`}</div>;
 }
