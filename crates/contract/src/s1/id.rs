@@ -2,9 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 
-/// First segments no extension package may have: the kernel's, the engine's, and the words the
-/// wire and the table build names with.
-pub const RESERVED: &[&str] = &["harnix", "engine", "ext", "topic", "route", "proc", "ctl"];
+/// First segments no extension package may have: the kernel's, the engine's, Agix's own (it
+/// refuses entry namespaces under `agix.`), and the words the wire and the table build names with.
+pub const RESERVED: &[&str] = &["harnix", "engine", "agix", "ext", "topic", "route", "proc", "ctl"];
 
 /// An extension's id. A native extension's is one segment (`system`, `fleet`); a package's is
 /// `<publisher>.<name>` (`example.showcase`). Each segment is lowercase letters, digits and `-`,
