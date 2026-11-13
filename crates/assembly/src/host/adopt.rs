@@ -21,6 +21,7 @@ pub(crate) async fn adopt(registry: &InstanceRegistry, id: &ExtId, spec: AdoptSp
         data_root: spec.data_root().clone(),
         inherit_providers: spec.inherits_providers(),
         wake: Arc::new(ByWaker(spec.waker().clone())),
+        spaces: spec.declared_spaces().to_vec(),
     };
     let adoption = registry.adopt(adopting).await?;
     Ok(Arc::new(Adopted(adoption)))

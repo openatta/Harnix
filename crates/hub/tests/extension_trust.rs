@@ -137,16 +137,23 @@ impl EngineOps for FakeLink {
     }
 }
 
-/// The registry's side: two instances, and what it was told of floods.
+/// The registry's side: two instances — `ext` the extension `acme`'s own engine, for the spaces it
+/// declared — and what it was told of floods.
 #[derive(Default)]
 struct Book {
     floods: Mutex<Vec<(String, u32)>>,
+    acme_spaces: Vec<String>,
 }
 
 #[async_trait::async_trait]
 impl InstanceBook for Book {
     fn listed(&self, id: &str) -> Option<Listed> {
-        ["ext", "own"].contains(&id).then(|| Listed { id: id.to_string(), space: None })
+        let id = id.to_string();
+        match id.as_str() {
+            "ext" => Some(Listed { id, spaces: self.acme_spaces.clone(), extension: Some(ExtId::native("acme").unwrap()) }),
+            "own" => Some(Listed { id, spaces: Vec::new(), extension: None }),
+            _ => None,
+        }
     }
     fn all(&self) -> Vec<Listed> {
         ["ext", "own"].iter().filter_map(|id| self.listed(id)).collect()
@@ -192,8 +199,13 @@ impl Rig {
     }
 
     async fn with_spaces(declared: Vec<SpaceDecl>) -> Self {
+        Self::build(declared, &[]).await
+    }
+
+    /// With `declared` spaces, `acme`'s engine for `acme_spaces` of them.
+    async fn build(declared: Vec<SpaceDecl>, acme_spaces: &[&str]) -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let book = Arc::new(Book::default());
+        let book = Arc::new(Book { acme_spaces: acme_spaces.iter().map(|s| s.to_string()).collect(), ..Book::default() });
         let spaces = Spaces::load(dir.path().join("spaces.json"), declared, Default::default()).unwrap();
         let hub = Hub::new(HubConfig { instances: book.clone(), spaces, turns: Default::default() });
         let cell = HubCell::default();
@@ -380,4 +392,57 @@ async fn a_caller_that_claims_a_space_is_told_of_that_spaces_sessions_only() {
         told.push((sessions(on["value"].clone()), sink));
     }
     assert_eq!(told.iter().map(|(n, _)| *n).collect::<Vec<_>>(), [1, 0, 1]);
+}
+
+/// Who calls, claiming `space` (none: `None`), naming `acme`'s engine.
+fn naming(space: Option<&str>) -> Value {
+    let mut params = json!({"instance": "ext"});
+    if let Some(space) = space {
+        params["space"] = json!(space);
+    }
+    params
+}
+
+#[tokio::test]
+async fn an_extensions_engine_is_used_by_it_from_its_spaces_and_across_spaces_only() {
+    let declared = || vec![SpaceDecl::new("acme"), SpaceDecl::new("other"), SpaceDecl::new("system").cross_space()];
+    let rig = Rig::build(declared(), &["acme"]).await;
+    let device = || CallContext::root(Subject::device("d"), None);
+    let as_ext = |id: &str| CallContext::root(Subject::extension(ExtId::native(id).unwrap()), None);
+    let refused = |r: Rpc<Value>| r.map(|_| ()).unwrap_err().code;
+
+    // Another space naming it, or a call claiming none: refused, and its engine never asked.
+    for space in [Some("other"), None] {
+        assert_eq!(refused(rig.call(device(), "harnix.session.create", naming(space)).await), codes::SPACE_MISMATCH);
+        assert_eq!(refused(rig.call(device(), "engine.scene.list", naming(space)).await), codes::SPACE_MISMATCH);
+    }
+    assert_eq!(refused(rig.call(as_ext("other"), "engine.scene.list", naming(Some("other"))).await), codes::SPACE_MISMATCH);
+    assert!(rig.ext.0.passed().is_empty(), "{:?}", rig.ext.0.passed());
+    // The product's own engine is any space's, as before.
+    rig.call(device(), "engine.scene.list", json!({"instance": "own", "space": "other"})).await.unwrap();
+
+    // From its own space: a session there, and its engine reached.
+    let created = rig.call(device(), "harnix.session.create", naming(Some("acme"))).await.unwrap();
+    assert_eq!((created["instance"].as_str(), created["space"].as_str()), (Some("ext"), Some("acme")), "{created}");
+    rig.call(device(), "engine.scene.list", naming(Some("acme"))).await.unwrap();
+    // The extension itself, and a page of it in a frame, whatever they claim.
+    rig.call(as_ext("acme"), "engine.scene.list", naming(None)).await.unwrap();
+    let mut framed = device();
+    framed.on_behalf_of = Some(ExtId::native("acme").unwrap());
+    rig.call(framed, "engine.scene.list", naming(Some("other"))).await.unwrap();
+    // The system space reaches across spaces.
+    rig.call(device(), "engine.scene.list", naming(Some("system"))).await.unwrap();
+    assert_eq!(rig.ext.0.passed().len(), 4, "{:?}", rig.ext.0.passed());
+
+    // A session of it is not moved into another extension's space.
+    let moved = rig.call(as_ext("other"), "harnix.session.move", json!({"instance": "ext", "session_id": "s1", "space": "other"})).await;
+    assert_eq!(refused(moved), codes::SPACE_MISMATCH);
+
+    // An extension that declared no space: its engine is no space's but its own and the system
+    // space's.
+    let rig = Rig::build(declared(), &[]).await;
+    assert_eq!(refused(rig.call(device(), "harnix.session.create", naming(Some("acme"))).await), codes::SPACE_MISMATCH);
+    assert_eq!(refused(rig.call(device(), "engine.scene.list", naming(Some("other"))).await), codes::SPACE_MISMATCH);
+    rig.call(as_ext("acme"), "harnix.session.create", naming(Some("acme"))).await.unwrap();
+    rig.call(device(), "engine.scene.list", naming(Some("system"))).await.unwrap();
 }

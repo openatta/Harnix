@@ -58,6 +58,9 @@ pub struct Adopting {
     /// change.
     pub inherit_providers: bool,
     pub wake: Arc<dyn Wake>,
+    /// The spaces it declared, whose sessions are on this engine: who may use it besides itself.
+    /// None, and it is no space's.
+    pub spaces: Vec<String>,
 }
 
 /// What the carrier of an adopted engine is told.
@@ -75,6 +78,9 @@ pub enum EngineNote {
 /// One extension's adopted engine: what the carrier keeps, and what the registry lists.
 pub struct Adoption {
     instance: String,
+    ext: harnix_contract::ExtId,
+    /// Its extension's spaces ([`Adopting::spaces`]).
+    spaces: Vec<String>,
     link: Arc<DaemonLink>,
     pub(super) inherits: bool,
     wake: Arc<dyn Wake>,
@@ -106,6 +112,8 @@ impl Adoption {
         Arc::new(Self {
             link: DaemonLink::new(InstanceCarrier::Adopted, instance.clone()),
             instance,
+            ext: spec.ext.clone(),
+            spaces: spec.spaces.clone(),
             inherits: spec.inherit_providers,
             wake: spec.wake.clone(),
             observer,
@@ -122,6 +130,11 @@ impl Adoption {
 
     pub fn instance(&self) -> &str {
         &self.instance
+    }
+
+    /// Whose engine it is, and the spaces its sessions are.
+    pub(super) fn whose(&self) -> (&harnix_contract::ExtId, &[String]) {
+        (&self.ext, &self.spaces)
     }
 
     /// What it tells its carrier; the first caller gets it.

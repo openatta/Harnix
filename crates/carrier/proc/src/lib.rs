@@ -321,7 +321,10 @@ impl Carrier for ProcCarrier {
         // Adopted before its process first starts: `main`'s providers are in its settings by then.
         let engine = match &instance {
             Some(_) => {
-                let spec = AdoptSpec::new(app.run_dir().join("engine"), Arc::new(Wakes(commands.clone()))).inherit_providers();
+                // Its spaces' sessions are on it, and nobody else's: what the hub holds a call naming it to.
+                let spec = AdoptSpec::new(app.run_dir().join("engine"), Arc::new(Wakes(commands.clone())))
+                    .inherit_providers()
+                    .spaces(manifest.spaces.iter().map(|s| s.id.clone()));
                 match host.adopt(&id, spec).await {
                     Ok(engine) => Some(engine),
                     Err(e) => return Err(given_up(e).await),

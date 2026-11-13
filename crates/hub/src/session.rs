@@ -346,10 +346,11 @@ impl Hub {
     /// session does, by the link.
     pub(crate) async fn create(
         self: &std::sync::Arc<Self>,
-        subject: &harnix_contract::Subject,
+        cx: &harnix_kernel::CallContext,
         mut params: Value,
     ) -> Result<Value, RpcError> {
-        let space = self.place(&mut params).await?;
+        let subject = &cx.subject;
+        let space = self.place(cx, &mut params).await?;
         let instance = self.instance_of(&params)?;
         let created = self.engine(&instance)?.ops().create(without_instance(params)).await?;
         if let Some(sid) = &created.session_id {
