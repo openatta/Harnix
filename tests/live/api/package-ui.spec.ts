@@ -3,10 +3,11 @@
  *
  *   demo-rows     its `[[ui]]` is contribution API 1: the entry does not take, with the reason,
  *                 and nothing of it is offered to the page
- *   demo-rows-v2  API 2: offered at hello with its version, served same-origin, nothing else of
- *                 the package reachable
+ *   demo-rows-v2  API 3: offered in `harnix.ui` with its version, served same-origin by the
+ *                 `plugins` extension (`/ext/plugins/ui/<package>/<file>`) to a caller with a
+ *                 credential, nothing else of the package reachable
  *
- * With `[ui] runtime_modules = false` neither is offered or served — the packages are the
+ * With `[ext.plugins] ui_modules = false` neither is offered or served — the packages are the
  * engine's alone. And the page itself: its one inline script, the import map, is allowed by its
  * hash and nothing is loosened.
  */
@@ -22,6 +23,11 @@ const PACKAGES = join(ROOT, "tests", "fixtures", "packages");
 test.describe.configure({ mode: "serial" });
 
 /** Upload a fixture package and have the engine install it. */
+/** A package's file as the page fetches it: its own token on the address (an `import()` takes no header). */
+function served(backend: Backend, file: string): Promise<Response> {
+  return fetch(new URL(`ext/plugins/ui/demo-rows-v2/${file}?token=${backend.token}`, backend.url));
+}
+
 export async function install(api: TestClient, backend: Backend, name: string): Promise<void> {
   const zip = readFileSync(join(PACKAGES, `${name}.zip`));
   const grant = await api.call("plugins.upload", { name: `${name}.zip` });
@@ -59,16 +65,17 @@ test.describe("runtime modules on", () => {
       const hello = await fresh.call("harnix.hello");
       expect(hello.contrib_api_version).toBe(3);
       expect(hello.shell.runtime_modules).toBe(true);
-      expect((await fresh.call("harnix.ui")).contributions).toEqual([{ plugin: "demo-rows-v2", point: "tool.row", api_version: 3, module: "/plugins/demo-rows-v2/ui/rows.js" }]);
+      expect((await fresh.call("harnix.ui")).contributions).toEqual([{ plugin: "demo-rows-v2", point: "tool.row", api_version: 3, module: "/ext/plugins/ui/demo-rows-v2/rows.js" }]);
     } finally {
       fresh.close();
     }
 
-    const module = await fetch(`${backend.url}plugins/demo-rows-v2/ui/rows.js`);
+    const module = await served(backend, "rows.js");
     expect(module.status).toBe(200);
     expect(await module.text()).toContain('from "@harnix/react"');
-    const manifest = await fetch(`${backend.url}plugins/demo-rows-v2/ui/plugin.toml`);
-    expect(manifest.status).not.toBe(200);
+    // Only the package's `ui/`: its manifest beside it is not served, and nothing is without a credential.
+    expect((await served(backend, "plugin.toml")).status).not.toBe(200);
+    expect((await fetch(new URL("ext/plugins/ui/demo-rows-v2/rows.js", backend.url))).status).toBe(401);
   });
 
   test("the page's import map is allowed by its hash, and nothing else inline", TAGS, async () => {
@@ -104,8 +111,7 @@ test.describe("a package's lifecycle", () => {
     const fresh = await connect(backend);
     try {
       const { contributions } = await fresh.call("harnix.ui");
-      const served = (await fetch(new URL("plugins/demo-rows-v2/ui/rows.js", backend.url))).status;
-      return { contributions, served };
+      return { contributions, served: (await served(backend, "rows.js")).status };
     } finally {
       fresh.close();
     }
@@ -154,8 +160,7 @@ test.describe("runtime modules off", () => {
     } finally {
       fresh.close();
     }
-    const module = await fetch(`${backend.url}plugins/demo-rows-v2/ui/rows.js`);
-    expect(module.status).not.toBe(200);
+    expect((await served(backend, "rows.js")).status).not.toBe(200);
     // The package itself is installed and the engine's: only its interface is off.
     const listed = await api.call("plugins.list");
     expect(listed.plugins.map((p: any) => p.name)).toContain("demo-rows-v2");

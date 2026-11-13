@@ -191,11 +191,16 @@ test.describe("on loopback", () => {
       await api.call("plugins.install", {
         path: grant.path, name, version: "1.0.0", checksum: createHash("sha256").update(zip).digest("hex"),
       });
-      const at = (path: string) => fetch(`http://127.0.0.1:${backend.port}${path}`);
-      expect((await at(`/plugins/${name}/ui/rows.js`)).status).toBe(200);
-      // An absolute path after `/ui/` used to replace the package's directory: any file the
-      // process could read, with no token.
-      for (const path of [`/plugins/${name}/ui//etc/hosts`, `/plugins/${name}/ui//etc/passwd`, `/plugins/${name}/ui/%2e%2e/%2e%2e/manifest.json`]) {
+      // The `plugins` extension serves a package's `ui/` under its own route, to a caller with a
+      // credential: the page puts its own on the module's address.
+      const at = (path: string) =>
+        fetch(`http://127.0.0.1:${backend.port}${path}`, { headers: { authorization: `Bearer ${backend.token}` } });
+      const base = `/ext/plugins/ui/${name}`;
+      expect((await at(`${base}/rows.js`)).status).toBe(200);
+      expect((await fetch(`http://127.0.0.1:${backend.port}${base}/rows.js`)).status, "without a credential").toBe(401);
+      // An absolute path after the package's name used to replace the package's directory: any
+      // file the process could read.
+      for (const path of [`${base}//etc/hosts`, `${base}//etc/passwd`, `${base}/%2e%2e/%2e%2e/manifest.json`]) {
         const response = await at(path);
         expect(response.status, path).toBe(404);
         expect(await response.text(), path).not.toContain("localhost");
