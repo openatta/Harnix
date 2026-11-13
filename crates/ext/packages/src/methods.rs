@@ -189,6 +189,11 @@ async fn switch(state: &State, params: Value, enabled: bool) -> Rpc<Value> {
     let ext = harnix_ext::ExtId::package(&id).map_err(|e| RpcError::invalid_params(e.to_string()))?;
     let mut started = Value::Null;
     if enabled {
+        // One set aside, or whose start failed, starts again from nothing: what was running of it
+        // goes first, or its carrier would answer with it as it is.
+        if matches!(state.carrier.status(&ext).await["state"].as_str(), Some("faulted" | "failed")) {
+            state.carrier.stop(&ext, StopReason::Disabled).await;
+        }
         match starting::start(state, &record).await {
             Ok(summary) => started = summary,
             Err(e) => {
