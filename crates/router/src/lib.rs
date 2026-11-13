@@ -208,7 +208,7 @@ fn subscribed_topic<'a>(method: &str, params: &'a Value) -> Option<&'a str> {
 fn change_refusal(e: &TableError) -> &'static str {
     match e {
         TableError::Taken(_) => "the name is already in the authorization table",
-        TableError::Namespace(_) => "outside the application's own namespace",
+        TableError::Namespace(_) => "outside the package's own namespace",
         TableError::NamespaceTaken { .. } => "namespace_taken",
         TableError::NotOwner { .. } => "the name is in another extension's namespace",
         TableError::HubOwned(_) | TableError::Unknown(_) => "not a name that may be declared or listed",

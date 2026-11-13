@@ -157,7 +157,7 @@ pub struct RouteTable {
 }
 
 /// Why a package, acting as itself, is refused a name its consent does not list.
-pub const OUTSIDE_HUB: &str = "not in the application's `calls` capability";
+pub const OUTSIDE_HUB: &str = "not in the package's `calls` capability";
 
 /// Why a package's page in a frame is refused another package's names.
 pub const ANOTHER_PACKAGES: &str = "another package's names are that package's own";

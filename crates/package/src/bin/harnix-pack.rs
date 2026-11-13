@@ -147,7 +147,7 @@ fn new(args: &[String]) -> Result<()> {
     let dir = args.positional("directory")?;
     let id = args
         .one(&["--id"])
-        .context("--id <publisher.name> names the application")?;
+        .context("--id <publisher.name> names the package")?;
     let (publisher, name) = id
         .split_once('.')
         .context("an application id is <publisher>.<name>")?;

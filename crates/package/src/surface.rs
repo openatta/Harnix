@@ -176,7 +176,7 @@ pub fn check(id: &str, interface: &Interface, surfaces: &[Surface]) -> Result<()
         if !valid_dotted(name) || name.starts_with(&format!("{id}.")) {
             return Err(format!(
                 "{MANIFEST}: `{entry}` in `[interface] calls` is a method name, or `topic:` and a \
-                 topic's, that is not the application's own (its own `{id}.*` needs no entry; \
+                 topic's, that is not the package's own (its own `{id}.*` needs no entry; \
                  another application's is never given, which the server holds it to)"
             ));
         }

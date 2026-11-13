@@ -74,10 +74,10 @@ pub enum CallFailure {
 impl std::fmt::Display for CallFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::TimedOut => write!(f, "the application's call exceeded its timeout"),
-            Self::Cancelled => write!(f, "the application's call was cancelled"),
-            Self::Faulted(e) => write!(f, "the application failed: {e}"),
-            Self::Unavailable(e) | Self::Reentrant(e) => write!(f, "the application cannot take this call: {e}"),
+            Self::TimedOut => write!(f, "the package's call exceeded its timeout"),
+            Self::Cancelled => write!(f, "the package's call was cancelled"),
+            Self::Faulted(e) => write!(f, "the package failed: {e}"),
+            Self::Unavailable(e) | Self::Reentrant(e) => write!(f, "the package cannot take this call: {e}"),
         }
     }
 }

@@ -39,6 +39,7 @@ proc = ["harnix/proc"]
 probe = ["harnix/proc-probe"]
 
 [dev-dependencies]
+harnix-carrier-shared = { workspace = true }
 harnix-package   = { workspace = true }
 harnix-supervise = { workspace = true }
 harnix-wasm-port = { workspace = true, features = ["socket"] }

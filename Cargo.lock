@@ -1853,6 +1853,7 @@ dependencies = [
  "async-trait",
  "futures",
  "harnix",
+ "harnix-carrier-shared",
  "harnix-ext-flow",
  "harnix-host-api",
  "harnix-package",

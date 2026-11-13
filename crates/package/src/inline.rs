@@ -244,7 +244,7 @@ impl Inline {
         }
         if !self.flow_block.is_empty() && !manifest.capabilities.calls.iter().any(|h| h == APPEND) {
             return refuse(format!(
-                "a `flow_block` is drawn from the entries the application appends, and its `calls` does not list `{APPEND}`"
+                "a `flow_block` is drawn from the entries the package appends, and its `calls` does not list `{APPEND}`"
             ));
         }
         for block in &self.flow_block {
@@ -276,7 +276,7 @@ impl Inline {
                 )?;
                 if !Self::device_method(manifest, &button.method) {
                     return refuse(format!(
-                        "{at}: its button calls `{}`, which is not one of the application's `[[method]]`s a device may call",
+                        "{at}: its button calls `{}`, which is not one of the package's `[[method]]`s a device may call",
                         button.method
                     ));
                 }
@@ -328,7 +328,7 @@ impl Inline {
             let at = format!("the grouping of `{space}`");
             let declared = space == id.as_str() || manifest.spaces.iter().any(|s| s.id == space);
             if !declared || !seen.insert(format!("grouping {space}")) {
-                return refuse(format!("{at}: `space` is one of the application's `[[space]]`s (or its id), grouped once"));
+                return refuse(format!("{at}: `space` is one of the package's `[[space]]`s (or its id), grouped once"));
             }
             // A space's left column is the shell's session list (which this groups) or the
             // application's own `space.sidebar` frame in its place: never both.
@@ -354,7 +354,7 @@ impl Inline {
                 ("method", None, Some(method)) => {
                     if !Self::device_method(manifest, method) {
                         return refuse(format!(
-                            "{at}: its groups come from `{method}`, which is not one of the application's `[[method]]`s a device may call"
+                            "{at}: its groups come from `{method}`, which is not one of the package's `[[method]]`s a device may call"
                         ));
                     }
                 }

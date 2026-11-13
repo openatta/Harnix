@@ -571,7 +571,7 @@ impl Manifest {
         for path in &caps.fs {
             if !(path.starts_with("${data}") || path.starts_with("${project}")) {
                 return Err(format!(
-                    "{MANIFEST}: `{path}` in `fs` must start with ${{data}} (the application's own \
+                    "{MANIFEST}: `{path}` in `fs` must start with ${{data}} (the package's own \
                      directory) or ${{project}} (the calling session's, read-only)"
                 ));
             }
