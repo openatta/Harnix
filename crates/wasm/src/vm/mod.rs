@@ -434,7 +434,7 @@ impl AppVm {
     }
 
     /// [`AppVm::on_event`], serving the host's call `serving`: what a `host.call` made from
-    /// inside names as the call it was made for ([`crate::AppHost::call_within`]).
+    /// inside names as the call it was made for ([`crate::VmHost::call_within`]).
     pub async fn on_event_as(
         &self,
         serving: Option<&str>,
@@ -484,7 +484,7 @@ impl AppVm {
     }
 
     /// [`AppVm::handle`], serving the host's call `serving`: what a `host.call` the backend makes
-    /// while it answers names as the call it was made for ([`crate::AppHost::call_within`]).
+    /// while it answers names as the call it was made for ([`crate::VmHost::call_within`]).
     pub async fn handle_as(
         &self,
         serving: Option<&str>,

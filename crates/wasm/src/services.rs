@@ -1,7 +1,7 @@
 //! The services a host lends its applications.
 //!
 //! These traits are the seam between this crate and the rest of Harnix: the
-//! hub's admission point behind [`AppHost::call`], its topics behind
+//! hub's admission point behind [`VmHost::call`], its topics behind
 //! `publish` and `subscribe`, an HTTP client behind [`HttpFetcher`], storage
 //! behind [`crate::KvStore`]. The VM checks a request against the
 //! application's capabilities *before* handing it to one of these, so an
@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 /// Harnix, as an application's component sees it.
 #[async_trait]
-pub trait AppHost: Send + Sync {
+pub trait VmHost: Send + Sync {
     /// `host.call`: call a hub method as `module:<app>`. Admission (the
     /// manifest's `calls` capability) and audit are the implementation's.
     ///
@@ -38,7 +38,7 @@ pub trait AppHost: Send + Sync {
 
     /// The backend answers something of its own — a timer firing, a topic value — as `serving`,
     /// an id the VM made for it, until it is told `None`. What it calls meanwhile is made within
-    /// `serving` ([`AppHost::call_within`]) and waits on the backend as a method call's would: a
+    /// `serving` ([`VmHost::call_within`]) and waits on the backend as a method call's would: a
     /// host that sees the call come back into this backend, on another task or from another
     /// process, refuses it by that id instead of letting it wait for itself.
     fn delivering(&self, app: &str, serving: Option<&str>) {
@@ -50,7 +50,7 @@ pub trait AppHost: Send + Sync {
 
     /// `host.subscribe` from the backend. Values are delivered back with
     /// [`crate::AppVm::deliver_topic`]. The VM records the subscription and
-    /// undoes it with [`AppHost::unsubscribe`] when the instance that made it
+    /// undoes it with [`VmHost::unsubscribe`] when the instance that made it
     /// ends, so the implementation never has to track instance lifetimes.
     async fn subscribe(&self, app: &str, topic: &str, params: &Value) -> Result<(), String>;
 
@@ -113,7 +113,7 @@ pub trait ProgressSink: Send + Sync {
 /// The services one application's VM uses.
 #[derive(Clone)]
 pub struct Services {
-    pub host: Arc<dyn AppHost>,
+    pub host: Arc<dyn VmHost>,
     /// This application's own namespace; nothing else should share it.
     pub kv: Arc<dyn crate::KvStore>,
     pub http: Arc<dyn HttpFetcher>,

@@ -8,7 +8,7 @@ publish      = false
 description  = "The WebAssembly runtime for Harnix applications: one wasmtime engine, one VM per application"
 
 # Depends on no other Harnix crate and on nothing of Agix: it defines the
-# traits through which the host lends it services (`AppHost`, `KvStore`,
+# traits through which the host lends it services (`VmHost`, `KvStore`,
 # `HttpFetcher`), and the host implements them. That keeps wasmtime's names
 # inside this crate, which `crates/harnix/tests/layering.rs` asserts.
 [dependencies]

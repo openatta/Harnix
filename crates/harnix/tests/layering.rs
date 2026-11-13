@@ -463,7 +463,7 @@ fn harnix_constructs_no_interpreter_and_runs_wasm_only_in_harnix_wasm() {
 }
 
 /// `harnix-wasm` is the boundary between wasmtime and Harnix, and it is a
-/// leaf: it defines the traits the host implements (`AppHost`, `KvStore`,
+/// leaf: it defines the traits the host implements (`VmHost`, `KvStore`,
 /// `HttpFetcher`) instead of depending on the crates that will implement
 /// them, and it knows nothing of the engine. Anything else would let a
 /// component's runtime reach a layer through a type.

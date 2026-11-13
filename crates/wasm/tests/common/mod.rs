@@ -136,7 +136,7 @@ impl MockHost {
 }
 
 #[async_trait]
-impl AppHost for MockHost {
+impl VmHost for MockHost {
     async fn call(&self, app: &str, method: &str, params: Value) -> Result<Value, String> {
         self.calls
             .lock()

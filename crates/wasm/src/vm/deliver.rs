@@ -23,7 +23,7 @@ fn serving_id() -> String {
     format!("delivery-{since:x}-{}", NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
-/// While held, the host knows the backend answers a delivery ([`crate::AppHost::delivering`]).
+/// While held, the host knows the backend answers a delivery ([`crate::VmHost::delivering`]).
 struct Delivering<'a>(&'a Shared);
 
 impl Drop for Delivering<'_> {

@@ -359,13 +359,13 @@ fn pack(args: &[String]) -> Result<()> {
 /// what the installer shows and the host registers, so a component that lists anything else is a
 /// package that would be refused when it starts; this says so while its author can still fix it.
 fn check_tools(engine: &harnix_wasm::WasmEngine, wasm: &[u8], manifest: &Manifest) -> Result<()> {
-    use harnix_wasm::{AppHost, MemoryKv, NoNetwork, Services};
+    use harnix_wasm::{VmHost, MemoryKv, NoNetwork, Services};
 
     /// Listing tools asks nothing of the host: whatever the component asks for is refused.
     struct Nothing;
 
     #[async_trait::async_trait]
-    impl AppHost for Nothing {
+    impl VmHost for Nothing {
         async fn call(&self, _: &str, _: &str, _: serde_json::Value) -> Result<serde_json::Value, String> {
             Err("not while listing tools".into())
         }
