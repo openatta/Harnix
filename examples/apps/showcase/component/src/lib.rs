@@ -4,7 +4,7 @@
 //! # The backend
 //!
 //! One instance for the whole process, started with the application (`init`) and stopped with it
-//! (`stop`). Its methods are `app.example.showcase.<name>`, declared in `harnix-ext.toml`:
+//! (`stop`). Its methods are `example.showcase.<name>`, declared in `harnix-ext.toml`:
 //!
 //! | method | shows |
 //! |---|---|
@@ -522,7 +522,7 @@ impl Tools for Showcase {
             ),
             "crash" => panic!("the showcase's crash tool crashes"),
             // This instance is not the backend's: what the backend holds, it has to ask for.
-            "board" => match host::call(&format!("app.{ID}.state"), "{}") {
+            "board" => match host::call(&format!("{ID}.state"), "{}") {
                 Ok(state) => {
                     let state: Value = serde_json::from_str(&state).unwrap_or(Value::Null);
                     answer(
