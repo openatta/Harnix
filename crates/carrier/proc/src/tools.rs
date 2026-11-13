@@ -23,49 +23,26 @@
 //!   package does not get to write into the result of every tool the model calls. It cannot change
 //!   the call. A hook that fails lets the call through: a package's fault is not the user's.
 
-use std::future::Future;
 use std::sync::Arc;
 
-use harnix_ext::codes;
+use harnix_carrier_shared::tools::{cancellable, hook_decision, permission, tool_output, tool_spec};
+use harnix_carrier_shared::Loaded;
 use harnix_ext::engine::{
-    Cancel, HookDecision, Permission, SessionFacts, Tool, ToolCallFacts, ToolCx, ToolError, ToolHook, ToolOutput,
-    ToolProvider, ToolSpec,
+    HookDecision, Permission, SessionFacts, Tool, ToolCallFacts, ToolCx, ToolError, ToolHook, ToolOutput, ToolProvider,
+    ToolSpec,
 };
 use harnix_wasm_port::socket::now_ms;
-use harnix_wasm_port::{CallMeta, Control, Failure, HookCall, HookReply, ToolDef, ToolReply};
+use harnix_wasm_port::{CallMeta, HookCall, HookReply, ToolDef};
 use serde_json::{json, Value};
 
-use crate::registry::{Loaded, Registry};
+use crate::registry::Registry;
 
-/// The provider's name in every session.
-pub const NAME: &str = "harnix-packages";
-
-/// The longest note an application's hook may add to a tool's result, in characters.
-pub const MAX_NOTE: usize = 2000;
+pub use harnix_carrier_shared::tools::{MAX_NOTE, NAME};
 
 /// The running packages' tools and hooks, for an instance's sessions: a provider of the
 /// instance's engine.
 pub struct ProcTools {
     registry: Arc<Registry>,
-}
-
-/// Run `call` (a tool call or a hook named `call_id`), and cancel it in the host if `cancel` fires
-/// first. The call is polled first, so the host has its cancellation before it can be asked to.
-pub(crate) async fn cancellable<T>(
-    control: &Arc<dyn Control>,
-    call_id: &str,
-    cancel: &Cancel,
-    call: impl Future<Output = T>,
-) -> T {
-    tokio::pin!(call);
-    tokio::select! {
-        biased;
-        out = &mut call => out,
-        _ = cancel.cancelled() => {
-            let _ = control.cancel(CallMeta::default(), call_id.to_string()).await;
-            call.await
-        }
-    }
 }
 
 impl ProcTools {
@@ -81,18 +58,7 @@ impl ProcTools {
                 continue;
             }
             for def in &app.tools {
-                let name = app.tool_name(&def.name);
-                let schema = serde_json::from_str(&def.input_schema).unwrap_or_else(|_| json!({"type": "object"}));
-                let mut spec = ToolSpec::new(&name, &def.description, schema).source(&format!("app:{}", app.id));
-                if let Some(doc) = &def.doc {
-                    spec = spec.doc(doc);
-                }
-                if def.read_only {
-                    spec = spec.read_only();
-                }
-                if def.concurrency_safe {
-                    spec = spec.concurrency_safe();
-                }
+                let spec = tool_spec(&app, def);
                 tools.push(Arc::new(AppTool {
                     spec,
                     def: def.clone(),
@@ -151,11 +117,7 @@ impl Tool for AppTool {
     }
 
     fn permission(&self, _: &Value) -> Permission {
-        Permission::Ask(format!(
-            "The package `{}` wants to run its tool `{}`",
-            self.app.title.as_deref().unwrap_or(&self.app.id),
-            self.def.name
-        ))
+        permission(&self.app, &self.def.name)
     }
 
     /// A tool wakes a process let go while idle.
@@ -205,16 +167,7 @@ impl Tool for AppTool {
             .with_deadline(Some(now_ms() + self.app.timeout.as_millis() as u64));
         let reply = cancellable(&control, &call_id, cx.cancel(), control.call_tool(meta, call)).await;
         self.registry.unlisten(&call_id);
-        match reply {
-            Ok(ToolReply::Output { content, structured, is_error }) => {
-                let out = if is_error { ToolOutput::error(content) } else { ToolOutput::text(content) };
-                Ok(out.with_structured(structured))
-            }
-            Ok(ToolReply::Failed { failure: Failure::Cancelled, .. }) => Err(ToolError::Cancelled),
-            Ok(ToolReply::Failed { message, .. }) => Ok(ToolOutput::error(format!("{}: {message}", self.app.id))),
-            Err(e) if e.code == codes::METHOD_NOT_FOUND => Err(ToolError::NotFound(e.message)),
-            Err(e) => Ok(ToolOutput::error(format!("{}: {}", self.app.id, e.message))),
-        }
+        tool_output(&self.app.id, reply)
     }
 }
 
@@ -224,20 +177,6 @@ struct AppEvents {
     registry: Arc<Registry>,
     session_id: String,
     depth: u32,
-}
-
-/// What a note of the package `app` adds to the result of `tool`: nothing for a tool not its own,
-/// and at most [`MAX_NOTE`] characters, under its name.
-fn note_for(app: &str, tool: &str, note: &str) -> Option<String> {
-    if !tool.starts_with(&crate::registry::tool_name(app, "")) {
-        return None;
-    }
-    let cut = note.chars().count() > MAX_NOTE;
-    let mut note: String = note.chars().take(MAX_NOTE).collect();
-    if cut {
-        note.push('…');
-    }
-    Some(format!("\n\n[{app}] {note}"))
 }
 
 #[async_trait::async_trait]
@@ -264,43 +203,6 @@ impl ToolHook for AppEvents {
         let decision = cancellable(&control, &call_id, call.cancel(), control.hook(CallMeta::default(), hook))
             .await
             .unwrap_or_else(|e| HookReply::Failed(e.message));
-        match decision {
-            HookReply::Proceed => HookDecision::Proceed,
-            HookReply::Block(reason) => {
-                tracing::info!(package = %self.app.id, tool = %call.name(), %reason, "a package refused a tool call");
-                HookDecision::Block(format!("refused by the package `{}`: {reason}", self.app.id))
-            }
-            HookReply::AddContext(note) => match note_for(&self.app.id, call.name(), &note) {
-                Some(note) => HookDecision::AddContext(note),
-                None => {
-                    tracing::debug!(package = %self.app.id, tool = %call.name(), "a note for another's tool; left out");
-                    HookDecision::Proceed
-                }
-            },
-            HookReply::Failed(failure) => {
-                tracing::warn!(package = %self.app.id, tool = %call.name(), %failure, "a package's event hook failed; the call goes on");
-                HookDecision::Proceed
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_note_goes_on_its_own_tools_results_only_and_only_so_long() {
-        assert_eq!(
-            note_for("acme.notes", "ext__acme_notes__search", "seen").as_deref(),
-            Some("\n\n[acme.notes] seen")
-        );
-        for tool in ["Bash", "ext__acme_other__search", "ext__acme_notesx__search"] {
-            assert_eq!(note_for("acme.notes", tool, "seen"), None, "{tool}");
-        }
-        let long = "x".repeat(MAX_NOTE + 10);
-        let note = note_for("acme.notes", "ext__acme_notes__search", &long).unwrap();
-        assert_eq!(note.chars().filter(|c| *c == 'x').count(), MAX_NOTE);
-        assert!(note.ends_with('…'));
+        hook_decision(&self.app.id, call.name(), decision)
     }
 }

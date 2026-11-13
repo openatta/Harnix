@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 
 use async_trait::async_trait;
-use crate::sync::{lock, read, write};
+use harnix_carrier_shared::sync::{lock, read, write};
 use base64::Engine as _;
 use harnix_ext::{codes, RpcError};
 use harnix_ext::engine::ToolSpec;
@@ -32,7 +32,7 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 use crate::registry::Registry;
-use crate::routes::{McpEndpoint, UiFiles};
+use harnix_carrier_shared::{McpEndpoint, UiFiles};
 
 pub(crate) struct CarrierKernel {
     /// The component's context, from the first package it started.

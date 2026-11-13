@@ -37,8 +37,9 @@ use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::kernel::{start_of, Connection, Parts};
-use crate::registry::{Loaded, Registry};
-use crate::sync::lock;
+use crate::registry::Registry;
+use harnix_carrier_shared::Loaded;
+use harnix_carrier_shared::sync::lock;
 use crate::{unavailable, Inner, CRASHES, CRASH_WINDOW, READY_WITHIN};
 
 /// How often a ready process is asked how it is.

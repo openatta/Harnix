@@ -7,6 +7,7 @@ members = [
     "crates/package",
     "crates/proc",
     "crates/wasm-port",
+    "crates/carrier/shared",
     "crates/carrier/wasm",
     "crates/carrier/proc",
     "crates/instance",
@@ -66,11 +67,14 @@ members = [
 #                                                     product links and re-executes itself as)
 #   ext/packages ─→ ext, host-api, package           (the host component that installs packages and
 #                                                     registers each as an extension)
-#   carrier/wasm ─→ wasm-host, host-api, ext          (packages in this process: the port over an
+#   carrier/shared ─→ wasm-port, package, ext        (what both carriers do alike: the roster of running
+#                                                     packages, their interface entries, their tools as a
+#                                                     session sees them, /ext/<id>/ routes; no VM, no carrier)
+#   carrier/wasm ─→ shared, wasm-host, host-api, ext          (packages in this process: the port over an
 #                                                     extension handle and context, their tools in
 #                                                     every session, /ext/<id>/…; only a build with
 #                                                     the `wasm` feature links any of these)
-#   carrier/proc ─→ wasm-port, host-api, ext          (packages in processes of their own: each one's
+#   carrier/proc ─→ shared, wasm-port, host-api, ext          (packages in processes of their own: each one's
 #                                                     `ext-proc` started, kept and driven over the
 #                                                     extension wire; names no VM; feature `proc`)
 # ──────────────────────────────────────────────
@@ -81,6 +85,7 @@ harnix-wasm-host = { path = "crates/wasm-host" }
 harnix-package   = { path = "crates/package" }
 harnix-proc      = { path = "crates/proc" }
 harnix-wasm-port = { path = "crates/wasm-port" }
+harnix-carrier-shared = { path = "crates/carrier/shared" }
 harnix-carrier-wasm = { path = "crates/carrier/wasm" }
 harnix-carrier-proc = { path = "crates/carrier/proc" }
 harnix-instance  = { path = "crates/instance" }
