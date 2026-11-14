@@ -311,7 +311,8 @@ mod scope {
         let r = registered(Modules::default()).unwrap();
         let consent = ["engine.session.get", "harnix.sessions.list", "harnix.session.create"].map(String::from);
         r.grants.set(id("acme.notes"), [], Trust::consent(consent, PackageCarrier::Wasm));
-        let own = Row::method("acme.notes.list", Access::device(), Arc::new(Answer));
+        // As a package's own are installed: open to it as well.
+        let own = Row::method("acme.notes.list", Access::device().with_extension(id("acme.notes")), Arc::new(Answer));
         r.router.install_package(&Subject::Kernel, "acme.notes", vec![own]).unwrap();
         if let Some(calls) = frame {
             r.grants.set_frame(&id("acme.notes"), Some(calls.iter().map(|c| c.to_string()).collect()));
@@ -363,7 +364,8 @@ mod scope {
             "topic:harnix.instances.sessions",
         ];
         let r = registered(first_party("")).unwrap();
-        let own = Row::method("acme.notes.list", Access::device(), Arc::new(Answer));
+        // As a package's own are installed: open to it as well.
+        let own = Row::method("acme.notes.list", Access::device().with_extension(id("acme.notes")), Arc::new(Answer));
         r.router.install_package(&Subject::Kernel, "acme.notes", vec![own]).unwrap();
         r.grants.set(id("acme.notes"), [], Trust::consent([], PackageCarrier::Wasm));
         r.grants.set_frame(&id("acme.notes"), Some(listed.iter().map(|c| c.to_string()).collect()));

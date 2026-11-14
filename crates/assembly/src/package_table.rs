@@ -750,13 +750,13 @@ mod tests {
             .install(
                 &Owner::Kernel(KernelPart::Hub),
                 vec![
-                    row("harnix.hello", Access::device()),
-                    row("harnix.topics.subscribe", Access::device()),
-                    row("harnix.topics.unsubscribe", Access::device()),
-                    row("harnix.session.create", Access::device()),
+                    row("harnix.hello", Access::device().with_extensions()),
+                    row("harnix.topics.subscribe", Access::device().with_extensions()),
+                    row("harnix.topics.unsubscribe", Access::device().with_extensions()),
+                    row("harnix.session.create", Access::device().with_extensions()),
                     row("settings.write", Access::refused("not for devices")),
                     Row::closed("harnix.turn", Access::hub_owned("the hub's")),
-                    Row::topic("harnix.sessions.status", Access::device().scoped(RowScope::Space)),
+                    Row::topic("harnix.sessions.status", Access::device().with_extensions().scoped(RowScope::Space)),
                     Row::topic("system.process", Access::kernel()),
                 ],
             )

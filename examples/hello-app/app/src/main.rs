@@ -152,8 +152,8 @@ impl Extension for Greeter {
                 }
             });
 
-        // A person's answer: `Device` only, so neither the Agent nor an extension — this one included —
-        // can give it for them.
+        // A person's answer: a device's only, so neither the Agent nor an extension — this one
+        // included — can give it for them.
         let approvals = self.approvals.clone();
         m.method("approve").access(Access::device())
             .describe("a person's answer to an approval; the first answer stands")

@@ -347,26 +347,30 @@ mod tests {
             .install(
                 &Owner::Kernel(KernelPart::Hub),
                 vec![
-                    Row::method("harnix.hello", Access::device(), seen.clone()),
-                    Row::method("harnix.topics.subscribe", Access::device(), seen.clone()),
+                    Row::method("harnix.hello", Access::device().with_extensions(), seen.clone()),
+                    Row::method("harnix.topics.subscribe", Access::device().with_extensions(), seen.clone()),
                     Row::method("engine.config.set", Access::refused("not for devices"), seen.clone()),
                     Row::method("session.inspect", Access::capability(caps::ENGINE_INSPECT), seen.clone()),
-                    Row::method("engine.session.get", Access::device().scoped(RowScope::Session), seen.clone()),
-                    Row::method("sessions.list", Access::device().scoped(RowScope::Space), seen.clone()),
+                    Row::method("engine.session.get", Access::device().with_extensions().scoped(RowScope::Session), seen.clone()),
+                    Row::method("sessions.list", Access::device().with_extensions().scoped(RowScope::Space), seen.clone()),
                     Row::closed("engine.session.run_turn", Access::hub_owned("the hub's")),
-                    Row::topic("harnix.instances", Access::device()),
+                    Row::topic("harnix.instances", Access::device().with_extensions()),
                     Row::topic("harnix.secret", Access::kernel()),
                 ],
             )
             .unwrap();
         table
-            .install(&Owner::Kernel(KernelPart::Router), vec![Row::closed(REACHABLE, Access::device())])
+            .install(&Owner::Kernel(KernelPart::Router), vec![Row::closed(REACHABLE, Access::device().with_extensions())])
             .unwrap();
         table.install(&Owner::extension(id("w")), vec![Row::route("w", Access::kernel())]).unwrap();
         table
             .install_package(
                 "acme.notes",
-                vec![Row::method("acme.notes.list", Access::device(), seen.clone()), Row::topic("acme.notes.ticks", Access::device())],
+                vec![
+                    // As a package's own are installed: open to it as well.
+                    Row::method("acme.notes.list", Access::device().with_extension(id("acme.notes")), seen.clone()),
+                    Row::topic("acme.notes.ticks", Access::device()),
+                ],
             )
             .unwrap();
         // A first-party power, open to devices alone; and another package's method.

@@ -79,7 +79,7 @@ pub(super) fn register(entries: Vec<Entry>, profile: &Profile, roots: &Roots) ->
         .map(|(id, section)| (id.clone(), section.clone()))
         .collect();
     // The spaces are every extension's: a client learns them from this topic, whoever is linked.
-    let spaces = Row::topic(harnix_hub::SPACES_TOPIC, Access::device());
+    let spaces = Row::topic(harnix_hub::SPACES_TOPIC, Access::device().with_extensions());
     table.install(&Owner::Kernel(KernelPart::Hub), vec![spaces]).map_err(|e| anyhow::anyhow!("{e}"))?;
     Ok(Registered {
         records,

@@ -32,7 +32,7 @@ enum After {
     Sessions,
 }
 
-/// Passed through for any device, with what each acts on, and whether it reaches the engine's
+/// Passed through for any device and any extension, with what each acts on, and whether it reaches the engine's
 /// settings or plugins — which nobody reaches on an extension's engine: its carrier wrote them.
 const DEVICE: &[(&str, RowScope, After, bool)] = &[
     ("engine.session.list", RowScope::Space, After::Sessions, false),
@@ -171,25 +171,25 @@ pub(crate) fn rows(hub: &HubCell) -> Vec<HubRow> {
         HubRow::Method {
             name: "harnix.session.create",
             owner: Owner::Kernel(harnix_kernel::KernelPart::Hub),
-            access: Access::device().scoped(RowScope::Space),
+            access: Access::device().with_extensions().scoped(RowScope::Space),
             handler: Some(answer(hub, "harnix.session.create", false, |h, cx, p| async move { h.create(&cx, p).await })),
         },
         HubRow::Method {
             name: "harnix.session.fork",
             owner: Owner::Kernel(harnix_kernel::KernelPart::Hub),
-            access: Access::device().scoped(RowScope::Session),
+            access: Access::device().with_extensions().scoped(RowScope::Session),
             handler: Some(answer(hub, "harnix.session.fork", true, |h, cx, p| async move { h.fork(&cx.subject, p).await })),
         },
         HubRow::Method {
             name: "harnix.session.respond",
             owner: Owner::Kernel(harnix_kernel::KernelPart::Hub),
-            access: Access::device().scoped(RowScope::Session),
+            access: Access::device().with_extensions().scoped(RowScope::Session),
             handler: Some(answer(hub, "harnix.session.respond", true, |h, cx, p| async move { h.respond(&cx.subject, p).await })),
         },
     ];
     rows.extend(DEVICE.iter().map(|(name, scope, after, settings)| {
         let through = Through { after: *after, checked: *scope == RowScope::Session, settings: *settings };
-        engine(hub, name, Access::device().scoped(*scope), through)
+        engine(hub, name, Access::device().with_extensions().scoped(*scope), through)
     }));
     rows.extend(BY_CAPABILITY.iter().map(|(name, cap, after)| {
         // A session's inside, read, changed or exported: one session each.
