@@ -10,7 +10,9 @@
 //! - its sessions are marked `trust: "extension"` wherever they are shown.
 //!
 //! Who may name it — its extension, its spaces, a call across spaces — is what an instance a
-//! template built for a space is held to as well, without the extension.
+//! template built for a space is held to as well, without the extension. A session such an
+//! instance's engine made itself is that space's too, unless it is the child of a session of
+//! another.
 //!
 //! The links here are fakes: the hub reaches an engine through `EngineLink` and nothing else.
 
@@ -564,4 +566,52 @@ async fn an_instance_built_for_a_space_is_used_from_it_and_across_spaces_only() 
     rig.call(device(), "engine.scene.list", board(None)).await.unwrap();
     let rig = Rig::with_spaces(vec![SpaceDecl::new("acme"), SpaceDecl::new("other").default_space()]).await;
     assert_eq!(refused(rig.call(device(), "engine.scene.list", board(None)).await), codes::SPACE_MISMATCH);
+}
+
+/// That `s1` started a sub-agent whose own session is `child`, as the engine says it.
+fn sub_agent(child: &str) -> EngineEvent {
+    EngineEvent::Session {
+        session: "s1".into(),
+        turn_id: "t".into(),
+        kind: SessionEventKind::Task { task_id: "k".into(), started: true, session: Some(child.into()) },
+        event: json!({"kind": "task_started", "task": {"task_id": "k", "detail": {"agent_session_id": child}}}),
+    }
+}
+
+#[tokio::test]
+async fn a_session_the_engine_made_is_its_parents_space_else_its_instances_else_the_default() {
+    let declared = vec![SpaceDecl::new("acme"), SpaceDecl::new("other").default_space(), SpaceDecl::new("system").cross_space()];
+    let rig = Rig::build(declared, &["acme"]).await;
+    let device = || CallContext::root(Subject::device("d"), None);
+    let read = |instance: &str, session: &str, space: &str| {
+        let params = json!({"instance": instance, "session_id": session, "space": space});
+        rig.call(device(), "engine.session.history", params)
+    };
+    let refused = |r: Rpc<Value>| r.map(|_| ()).unwrap_err().code;
+
+    // A sub-agent of a session of `acme`, on an instance that is no space's: `acme`'s, once the
+    // hub hears whose child it is, and still not another space's.
+    let created = rig.call(device(), "harnix.session.create", json!({"instance": "own", "space": "acme"})).await.unwrap();
+    assert_eq!(created["space"], "acme");
+    assert_eq!(refused(read("own", "sub", "acme").await), codes::SPACE_MISMATCH, "the default space's before");
+    rig.own.1.send(sub_agent("sub")).await.unwrap();
+    let heard = tokio::time::timeout(Duration::from_secs(10), async {
+        while read("own", "sub", "acme").await.is_err() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await;
+    assert!(heard.is_ok(), "the sub-agent's session never became its parent's space's");
+    assert_eq!(refused(read("own", "sub", "other").await), codes::SPACE_MISMATCH);
+    read("own", "sub", "system").await.unwrap();
+
+    // With no parent heard of, a session on an instance that is a space's is that space's: an
+    // extension's own engine, and one a template built.
+    for instance in ["ext", "board"] {
+        read(instance, "made", "acme").await.unwrap_or_else(|e| panic!("{instance}: {}", e.message));
+        assert_eq!(refused(read(instance, "made", "other").await), codes::SPACE_MISMATCH, "{instance}");
+    }
+    // And on one that is no space's, the default space's.
+    read("own", "loose", "other").await.unwrap();
+    assert_eq!(refused(read("own", "loose", "acme").await), codes::SPACE_MISMATCH);
 }

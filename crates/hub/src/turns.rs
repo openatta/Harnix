@@ -406,6 +406,7 @@ impl Hub {
             .ok_or_else(|| RpcError::invalid_params("missing model"))?
             .to_string();
         let provider = params.get("provider").and_then(Value::as_str).map(str::to_string);
+        self.home_of(&key.0);
         let (claimed, crosses, bound) = {
             let spaces = harnix_contract::sync::lock(&self.spaces);
             let claimed = spaces.claimed_space(&params);
@@ -444,6 +445,10 @@ impl Hub {
         self.inner.lock().await.sessions.remove(&key);
         if delete {
             self.unbind_space(&key);
+            // Its sub-agents' sessions went with it, and what was kept of their space with them.
+            for child in result.get("sidechain_ids").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
+                self.unbind_space(&(key.0.clone(), child.to_string()));
+            }
         }
         // The engine's own events about it came while it was still being taken down: a view
         // computed for them may have listed it still. Now that the engine has answered, and what

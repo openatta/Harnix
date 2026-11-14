@@ -3,7 +3,10 @@
 //! A session is bound to one space when it is created and never moves. The binding is Harnix's own
 //! record — the engine knows nothing of spaces — kept in `kernel/spaces.json` in the state
 //! directory, beside the instance ledger, with the instance a space's template built for it. A
-//! session with no record belongs to the default space — the one an extension declared
+//! session the engine made itself — a sub-agent's — has no record until the hub hears whose child
+//! it is, and then takes its parent's space. A session with no record belongs to the space of the
+//! instance it is on, when that instance is a space's (built for it, or an extension's own engine
+//! for its spaces); otherwise to the default space — the one an extension declared
 //! `default_space()`, when one did: every one a caller created without saying.
 //!
 //! A space needs no declaration here: one with only an interface and an Agent takes the defaults
@@ -57,6 +60,10 @@ pub struct Spaces {
     withheld: BTreeSet<String>,
     /// Where a call that claims no space is checked, and where an unrecorded session belongs.
     default: Option<String>,
+    /// instance → the space it is, for the instances that are a space's, as the registry last
+    /// said: where an unrecorded session on it belongs. An instance's spaces are fixed while it is
+    /// listed; this is kept so that a lookup under the hub's lock need not ask the registry.
+    homes: BTreeMap<String, String>,
     path: PathBuf,
     ledger: Ledger,
 }
@@ -88,6 +95,7 @@ impl Spaces {
             runtime: BTreeSet::new(),
             withheld,
             default,
+            homes: BTreeMap::new(),
             path,
             ledger,
         })
@@ -161,27 +169,62 @@ impl Spaces {
             .to_string()
     }
 
-    /// The space a session belongs to: its record, or the default space; empty when there is
-    /// neither.
+    /// The space a session belongs to: its record, else its instance's space, else the default
+    /// space; empty when there is none of them.
     pub(crate) fn bound(&self, key: &SessionKey) -> &str {
         self.ledger
             .bindings
             .get(&slot(key))
             .map(String::as_str)
-            .or(self.default.as_deref())
-            .unwrap_or_default()
+            .unwrap_or_else(|| self.unrecorded(&key.0))
+    }
+
+    /// Where a session with no record on `instance` belongs.
+    fn unrecorded(&self, instance: &str) -> &str {
+        self.homes.get(instance).map(String::as_str).or(self.default.as_deref()).unwrap_or_default()
+    }
+
+    /// What the registry says of an instance's space; `None` when it is no space's, or gone.
+    fn note_home(&mut self, instance: &str, home: Option<String>) {
+        match home {
+            Some(space) => {
+                self.homes.insert(instance.to_string(), space);
+            }
+            None => {
+                self.homes.remove(instance);
+            }
+        }
     }
 
     fn bind(&mut self, key: &SessionKey, space: &str) {
-        if space.is_empty() || self.default.as_deref() == Some(space) {
-            // The default needs no record, and keeping none keeps the ledger to what differs.
+        // The default on an instance that is no space's needs no record, and keeping none keeps
+        // the ledger to what differs. On one that is a space's, an unrecorded session is that
+        // space's, so the default is written down.
+        let home = self.homes.contains_key(&key.0);
+        if space.is_empty() || (!home && self.default.as_deref() == Some(space)) {
             if self.ledger.bindings.remove(&slot(key)).is_some() {
                 self.save();
             }
             return;
         }
+        if self.ledger.bindings.get(&slot(key)).map(String::as_str) == Some(space) {
+            return;
+        }
         self.ledger.bindings.insert(slot(key), space.to_string());
         self.save();
+    }
+
+    /// A session the engine made as `parent`'s child takes its parent's space, once: one that has
+    /// a record keeps it. Nothing is written when the child would belong there unrecorded.
+    fn adopt_child(&mut self, parent: &SessionKey, child: &SessionKey) {
+        if self.ledger.bindings.contains_key(&slot(child)) {
+            return;
+        }
+        let space = self.bound(parent).to_string();
+        if space != self.unrecorded(&child.0) {
+            self.ledger.bindings.insert(slot(child), space);
+            self.save();
+        }
     }
 
     fn unbind(&mut self, key: &SessionKey) {
@@ -328,6 +371,10 @@ impl Hub {
         let Some(claimed) = params.get("space").and_then(Value::as_str) else {
             return Ok(());
         };
+        let key = self.key_of(params).ok();
+        if let Some(key) = &key {
+            self.home_of(&key.0);
+        }
         let spaces = lock(&self.spaces);
         if !spaces.exists(claimed) {
             return Err(RpcError::new(
@@ -335,7 +382,7 @@ impl Hub {
                 format!("there is no space `{claimed}` in this application"),
             ));
         }
-        let Ok(key) = self.key_of(params) else {
+        let Some(key) = key else {
             return Ok(());
         };
         let bound = spaces.bound(&key).to_string();
@@ -462,7 +509,33 @@ impl Hub {
 
     /// What the system space creates is its own.
     pub(crate) fn bind_space(&self, key: &SessionKey, space: &str) {
+        self.home_of(&key.0);
         lock(&self.spaces).bind(key, space);
+    }
+
+    /// A session the engine made as `parent`'s child — a sub-agent's — takes its parent's space,
+    /// unless it already has one.
+    pub(crate) fn child_session(&self, parent: &SessionKey, child: &str) {
+        // An id as the engine makes them; anything else is not taken down.
+        if child.is_empty() || child.len() > 128 || !child.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_')) {
+            return;
+        }
+        self.home_of(&parent.0);
+        lock(&self.spaces).adopt_child(parent, &(parent.0.clone(), child.to_string()));
+    }
+
+    /// The space `instance` is, when it is a space's — the one it was built for, or the first an
+    /// extension declared for its own engine — as the registry says now. Kept for lookups under
+    /// the hub's lock, which do not ask the registry.
+    pub(crate) fn home_of(&self, instance: &str) -> Option<String> {
+        let home = self.slot(instance).and_then(|s| s.spaces.into_iter().next());
+        lock(&self.spaces).note_home(instance, home.clone());
+        home
+    }
+
+    /// An instance is gone: what it was is forgotten with it.
+    pub(crate) fn forget_home(&self, instance: &str) {
+        lock(&self.spaces).note_home(instance, None);
     }
 
     /// Who started a new session: a device is a person; a module or the kernel is Harnix itself.
@@ -485,7 +558,15 @@ impl Hub {
         lock(&self.spaces).unbind(key);
     }
 
+    /// The space a session belongs to. Asks the registry what its instance is: not under the
+    /// hub's lock, where [`Self::space_known`] is.
     pub(crate) fn space_of(&self, key: &SessionKey) -> String {
+        self.home_of(&key.0);
+        self.space_known(key)
+    }
+
+    /// [`Self::space_of`], from what is kept of its instance.
+    pub(crate) fn space_known(&self, key: &SessionKey) -> String {
         lock(&self.spaces).bound(key).to_string()
     }
 
@@ -619,5 +700,67 @@ mod tests {
 
         let two = vec![SpaceDecl::new("a").default_space(), SpaceDecl::new("b").default_space()];
         assert!(Spaces::load(dir.path().join("two.json"), two, Default::default()).is_err());
+    }
+
+    fn key(instance: &str, session: &str) -> SessionKey {
+        (instance.into(), session.into())
+    }
+
+    /// A sub-agent's session takes its parent's space, is written down once, and keeps it.
+    #[test]
+    fn a_session_the_engine_made_as_a_child_is_its_parents_spaces() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = spaces(dir.path());
+        let (parent, child) = (key("main", "p"), key("main", "c"));
+        s.bind(&parent, "fleet");
+        assert_eq!(s.bound(&child), "home", "unrecorded, before its parent is known");
+        s.adopt_child(&parent, &child);
+        assert_eq!(s.bound(&child), "fleet");
+        // Kept: a later word about it, or its parent moving, does not move it.
+        s.bind(&parent, "debug");
+        s.adopt_child(&parent, &child);
+        assert_eq!(s.bound(&child), "fleet");
+        assert_eq!(Spaces::load(dir.path().join("spaces.json"), Vec::new(), Default::default()).unwrap().bound(&child), "fleet");
+        // One the hub put somewhere is not anyone's child.
+        let made = key("main", "made");
+        s.bind(&made, "fleet");
+        s.adopt_child(&key("main", "elsewhere"), &made);
+        assert_eq!(s.bound(&made), "fleet");
+        // A child of a session of the default space needs no record to be there.
+        let (plain, sub) = (key("main", "plain"), key("main", "sub"));
+        s.adopt_child(&plain, &sub);
+        assert_eq!(s.bound(&sub), "home");
+        assert!(!s.ledger.bindings.contains_key(&slot(&sub)));
+        // On an instance that is a space's, a child of a default-space session is written down,
+        // and one of that space's own sessions needs nothing.
+        s.note_home("proc.x", Some("x".into()));
+        let (outside, sub) = (key("proc.x", "outside"), key("proc.x", "sub"));
+        s.bind(&outside, "home");
+        assert_eq!(s.bound(&outside), "home", "the default, written down where it is not what an unrecorded one gets");
+        s.adopt_child(&outside, &sub);
+        assert_eq!(s.bound(&sub), "home");
+        let (inside, own) = (key("proc.x", "inside"), key("proc.x", "own"));
+        s.adopt_child(&inside, &own);
+        assert_eq!(s.bound(&own), "x");
+        assert!(!s.ledger.bindings.contains_key(&slot(&own)));
+    }
+
+    /// With no parent known, a session on an instance that is a space's is that space's; one on
+    /// an instance that is no space's is the default's, or no space's when there is no default.
+    #[test]
+    fn an_unrecorded_session_is_its_instances_space_else_the_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = spaces(dir.path());
+        s.note_home("space-fleet", Some("fleet".into()));
+        assert_eq!(s.bound(&key("space-fleet", "made")), "fleet");
+        assert_eq!(s.bound(&key("main", "made")), "home");
+        // What the registry says no more is forgotten.
+        s.note_home("space-fleet", None);
+        assert_eq!(s.bound(&key("space-fleet", "made")), "home");
+
+        let mut none = Spaces::load(dir.path().join("none.json"), vec![SpaceDecl::new("fleet")], Default::default()).unwrap();
+        none.note_home("space-fleet", Some("fleet".into()));
+        assert_eq!(none.bound(&key("space-fleet", "made")), "fleet");
+        assert_eq!(none.bound(&key("main", "made")), "");
     }
 }

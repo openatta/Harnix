@@ -243,9 +243,10 @@ impl Hub {
             harden(&mut answer, through.after);
         }
         if let (Some(space), Some(Value::Array(rows))) = (held, answer.get_mut("sessions")) {
+            self.home_of(&instance);
             rows.retain(|row| {
                 let sid = row.get("session_id").and_then(Value::as_str).unwrap_or_default();
-                self.space_of(&(instance.clone(), sid.to_string())) == space
+                self.space_known(&(instance.clone(), sid.to_string())) == space
             });
         }
         match through.after {
