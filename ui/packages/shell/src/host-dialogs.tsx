@@ -71,7 +71,11 @@ function Prompt({ label, value, validate, close }: { label: string; value: strin
             aria-invalid={problem !== null || undefined}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") commit();
+              if (e.key !== "Enter") return;
+              // The key is the prompt's: closing hands the focus back to the button that opened it,
+              // which would take the same Enter and open it again.
+              e.preventDefault();
+              commit();
             }}
           />
           {problem ? <div className="hint err">{problem}</div> : null}
