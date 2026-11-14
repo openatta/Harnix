@@ -1285,9 +1285,9 @@ Documents 是用户的，不该藏着程序的东西；项目里只有一个属�
 
 `templates/desktop` 是一个 Tauri 2 壳，任何 Harnix 应用都能套上，只换品牌。**webview 直接加载服务端发的 HTTP
 页面**，所有业务走页面自己的 HTTP/WS，和在浏览器标签页里一模一样——在桌面窗口里和在浏览器里是同一个产品：同一份
-界面、同一条准入路径、同一套测试。
+界面、同一条准入路径、同一套测试。桌面壳与模式无关：模式 1、2、3 的产品都能套上它，它不是一种模式。壳连服务端有两种连法：
 
-| 模式 | 壳做什么 |
+| 连法 | 壳做什么 |
 |---|---|
 | **本地** | 以子进程启动应用二进制：回环、`--launch-link`、`--exit-with-stdin`（壳退出，应用跟着退）；读状态目录里的令牌文件，`POST /auth/link` 换一条一次性链接，让窗口打开它，链接种下 `HttpOnly`、`SameSite=Strict` 的 cookie |
 | **远程** | 打开配置好的 `https://` 地址，走 TLS 与设备配对 |
@@ -1376,7 +1376,7 @@ Documents 是用户的，不该藏着程序的东西；项目里只有一个属�
 - **准入只给一个答案。** 未知或已吊销的设备、过期或用过的挑战、对不上的签名，拒绝的理由是同一句；令牌按恒定时间比较；
   `/challenge` 同时最多 1024 个未答的挑战，超了回 429。
 - **非回环绑定必须同时有 TLS 与已配对设备。** 没有裸 HTTP 的远程——不是默认关闭，是没有这条路径。
-- **启动链接**：本机打开页面时令牌可以不进页面，浏览器凭一次性链接换一个 `HttpOnly` cookie（桌面壳的本地模式就
+- **启动链接**：本机打开页面时令牌可以不进页面，浏览器凭一次性链接换一个 `HttpOnly` cookie（桌面壳本地的连法就
   走这条，§5.11）。
 - 回环绑定同时监听 IPv4 与 IPv6：`localhost` 在多数系统上先解析到 `::1`，只绑一边会出现「curl 通了但页面打不开」。
 - Origin 校验按部署形态取值：本地放行本地来源，远程只放行配置里写明的来源，**不提供通配**。
@@ -1609,7 +1609,7 @@ Harnix 依赖 Agix 提供的、并且已经由它提供的：
 | 中枢知道每一轮 | 会话与轮的生命周期进 `daemon.event`（带 `initiator`）；订阅冷会话 |
 | 会话列表、改名、换模型 | 列表条目带场景与项目根；`engine.session.rename`、`engine.session.setModel` |
 | 系统 space | 会话的任务可列、可停、可发话；上下文可查看、去掉或改写消息；目标；录像 |
-| 扩展条目 | `engine.session.appendEntry` / `engine.session.entries` / `extension_entry` 帧；分叉带上条目 |
+| 扩展条目 | 引擎的 `appendEntry` 与 `entries`（Harnix 这边是 `harnix.session.entries.append` 与 `engine.session.entries`）、`extension_entry` 帧；分叉带上条目 |
 | Agix 插件 | 包方案与载体解耦；`engine.plugin.list` 带包的 `root`、`script_faults`；装不上的包不会假装装上；manifest 里不认识的段只告警 |
 | 工具与场景进会话 | Rust 插件接口：会话建起时登记工具、工具调用的中间件，子 Agent 带着父会话的插件构建；场景 trait；提示的中间件 |
 
