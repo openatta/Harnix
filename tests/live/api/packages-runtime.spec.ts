@@ -15,9 +15,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { REFUSED } from "@harnix/core/protocol";
-import { type Backend, type TestClient, connect, expect, modelMode, runTurn, sleep, test, topology } from "@harnix/testkit";
+import { type Backend, type TestClient, carrier, connect, expect, modelMode, runTurn, sleep, test, topology } from "@harnix/testkit";
 
-import { SHOWCASE_ID, showcasePackage, startApps, variant } from "./packages-host";
+import { SHOWCASE_ID, provideModel, showcasePackage, startApps, variant } from "./packages-host";
 
 const TAGS = { tag: ["@feature:packages", "@layer:api"] };
 
@@ -25,6 +25,15 @@ const TOOL = (name: string) => `ext__example_showcase__${name}`;
 const TOOLS = ["echo", "count", "config", "read_project", "slow", "vetoed", "crash", "board"].map(TOOL);
 const MCP_SERVER = "ext-example_showcase";
 const BLOCK_MARKER = "showcase-block-7d21";
+/**
+ * Where its agent package and skill go: the in-process carrier puts them in `main`, the process
+ * carrier in the package's own engine, where a session of its space runs; `main` then has only its
+ * tools, over the wire.
+ */
+const ON_PROCESS = carrier() === "process";
+const AGENT_IN = ON_PROCESS ? `proc.${SHOWCASE_ID}` : "main";
+/** That engine, as a call names it: its own engine is reached from its space. */
+const AGENT_AT = ON_PROCESS ? { instance: AGENT_IN, space: SHOWCASE_ID } : { instance: AGENT_IN };
 
 type Session = { instance: string; session_id: string };
 
@@ -48,6 +57,13 @@ async function context(api: TestClient, instance = "main"): Promise<{ text: stri
   const text = JSON.stringify(context);
   const tools: string[] = (context.tools ?? context.context?.tools ?? []).map((t: any) => t.name ?? t);
   return { text, tools, s };
+}
+
+/** What a new session where its agent package is would send the model, as text. */
+async function agentContext(api: TestClient): Promise<string> {
+  if (!ON_PROCESS) return (await context(api)).text;
+  const created = await api.call("harnix.session.create", { space: SHOWCASE_ID });
+  return JSON.stringify(await api.call("system.context", { ...AGENT_AT, session_id: created.session_id }));
 }
 
 test.describe("an application, installed from a file", () => {
@@ -100,10 +116,14 @@ carrier = "spawn"
         e.delete(cwasm);
       }],
       ["escape", "leaves the package", (e) => e.set("../escape.txt", Buffer.from("x"))],
-      ["no-instance", "no such instance", (e) => {
-        e.set("harnix-ext.toml", Buffer.from(e.get("harnix-ext.toml")!.toString().replace('install_into = ["main"]', 'install_into = ["nowhere"]')));
-      }],
     ];
+    // The in-process carrier puts its agent package in each instance `install_into` names; the
+    // process carrier puts it in its own engine and does not look at them.
+    if (!ON_PROCESS) {
+      cases.push(["no-instance", "no such instance", (e) => {
+        e.set("harnix-ext.toml", Buffer.from(e.get("harnix-ext.toml")!.toString().replace('install_into = ["main"]', 'install_into = ["nowhere"]')));
+      }]);
+    }
     for (const [name, says, edit] of cases) {
       const path = variant(join(scratch, `${name}.hxext`), edit);
       const error = await api.refused("packages.installFile", { path });
@@ -127,8 +147,8 @@ carrier = "spawn"
     expect(installed).toMatchObject({ id: SHOWCASE_ID, version: "0.1.0", title: "Showcase", enabled: true });
     expect(installed.installed).toMatchObject({
       fingerprint,
-      agent: { package: "example-showcase", instances: ["main"] },
-      skills: { main: ["showcase-tour"] },
+      agent: { package: "example-showcase", instances: [AGENT_IN] },
+      skills: { [AGENT_IN]: ["showcase-tour"] },
     });
     const listed = (await api.call("packages.list")).packages;
     expect(listed).toHaveLength(1);
@@ -136,13 +156,18 @@ carrier = "spawn"
     expect(listed[0].runtime.tools.map((t: any) => t.name).sort()).toEqual([...TOOLS].sort());
     expect(listed[0].runtime.health).toMatchObject({ world: "backend", state: "running" });
 
-    // What the engine says the agent package puts in front of the model, as the installer shows it.
-    const disclosure = JSON.stringify(installed.installed.agent.disclosure);
-    expect(disclosure).toContain("prompt.block");
-    expect(disclosure).toContain("showcase-guide");
     const plugin = (await api.call("engine.plugin.list")).plugins.find((p: any) => p.name === "example-showcase");
-    expect(plugin, "the agent package is installed in system").toBeTruthy();
-    expect(plugin.enabled).not.toBe(false);
+    if (ON_PROCESS) {
+      expect(plugin, "the agent package is its own engine's").toBeUndefined();
+    } else {
+      // What the engine says the agent package puts in front of the model, as the installer shows
+      // it. The process carrier's own engine does not say it yet.
+      const disclosure = JSON.stringify(installed.installed.agent.disclosure);
+      expect(disclosure).toContain("prompt.block");
+      expect(disclosure).toContain("showcase-guide");
+      expect(plugin, "the agent package is installed in system").toBeTruthy();
+      expect(plugin.enabled).not.toBe(false);
+    }
     expect((await api.refused("packages.installFile", { path }))?.message).toContain("installed already");
 
     // The interface module is served beside the page. Unsigned, the application's interface is
@@ -162,9 +187,13 @@ carrier = "spawn"
   test("a new session has its tools, its QuickJS block and its skill", TAGS, async () => {
     const { text, tools } = await context(api);
     for (const tool of TOOLS) expect(tools.length ? tools : text, tool).toContain(tool);
-    expect(text, "the QuickJS prompt.block").toContain(BLOCK_MARKER);
-    const commands = JSON.stringify(await api.call("engine.commands.list", { instance: "main" }));
+    expect(await agentContext(api), "the QuickJS prompt.block").toContain(BLOCK_MARKER);
+    const commands = JSON.stringify(await api.call("engine.commands.list", AGENT_AT));
     expect(commands, "the skill").toContain("showcase-tour");
+    if (ON_PROCESS) {
+      expect(text, "the QuickJS prompt.block is its own engine's").not.toContain(BLOCK_MARKER);
+      expect(JSON.stringify(await api.call("engine.commands.list", { instance: "main" })), "its skill too").not.toContain("showcase-tour");
+    }
   });
 
   test("each tool asks first, and answers once permitted", TAGS, async () => {
@@ -172,7 +201,8 @@ carrier = "spawn"
       ["app-echo", "echo", "showcase-echo-42"],
       ["app-count", "count", "count = 1"],
       ["app-config", "config", "hello from the profile"],
-      ["app-read-project", "read_project", "A project for the tests to run in."],
+      // In its own process the project is out of its reach: it has no `/project` there.
+      ["app-read-project", "read_project", ON_PROCESS ? "cannot read `README.md` in the project" : "A project for the tests to run in."],
     ];
     for (const [recording, tool, answer] of cases) {
       const s = await session(api, recording);
@@ -365,7 +395,7 @@ carrier = "spawn"
     expect(JSON.stringify(await api.call("engine.commands.list", { instance: "main" }))).not.toContain("showcase-tour");
     expect((await fetch(`${backend.url.replace(/\/$/, "")}/ext/${SHOWCASE_ID}/ui/showcase.js`)).status).toBe(404);
     const plugin = (await api.call("engine.plugin.list")).plugins.find((p: any) => p.name === "example-showcase");
-    expect(plugin?.enabled).toBe(false);
+    expect(plugin?.enabled).toBe(ON_PROCESS ? undefined : false);
     await expect
       .poll(async () => JSON.stringify(await api.call("engine.mcp.status", { instance: "far" }).catch(() => "")), { timeout: 60_000, intervals: [500] })
       .not.toContain(MCP_SERVER);
@@ -374,7 +404,7 @@ carrier = "spawn"
     expect(on).toMatchObject({ enabled: true, runtime: { state: "running" } });
     const back = await context(api);
     expect(back.tools.length ? back.tools : back.text).toContain(TOOL("echo"));
-    expect(back.text).toContain(BLOCK_MARKER);
+    expect(await agentContext(api)).toContain(BLOCK_MARKER);
     expect((await fetch(`${backend.url.replace(/\/$/, "")}/ext/${SHOWCASE_ID}/ui/showcase.js`)).status).toBe(200);
   });
 
@@ -419,15 +449,29 @@ test.describe("an application, against the model", () => {
   test("the QuickJS block and the tools are in the request envelope", TAGS, async () => {
     test.skip(modelMode() !== "live", "a replayed turn writes no envelope; the context check above covers replay");
     api = await connect(backend, { topology: topology() });
+    /** What a turn of `s` sent the model. */
+    const envelope = async (s: Session & { space?: string }) => {
+      await api.call("harnix.session.attach", s);
+      const { settled } = await runTurn(api, s, "Say exactly: ready");
+      expect(settled.params.error, JSON.stringify(settled.params.error)).toBeUndefined();
+      return JSON.stringify((await api.call("observability.calls", s)).headers);
+    };
     try {
       const created = await api.call("harnix.session.create", { project_root: api.project });
-      const s = { instance: "main", session_id: created.session_id };
-      await api.call("harnix.session.attach", s);
-      await runTurn(api, s, "Say exactly: ready");
-      const { headers } = await api.call("observability.calls", s);
-      const envelope = JSON.stringify(headers);
-      expect(envelope).toContain(BLOCK_MARKER);
-      expect(envelope).toContain(TOOL("echo"));
+      const main = await envelope({ instance: "main", session_id: created.session_id });
+      expect(main).toContain(TOOL("echo"));
+      if (carrier() === "wasm") {
+        expect(main).toContain(BLOCK_MARKER);
+        return;
+      }
+      // On the process carrier its agent package is in its own engine, where a session of its
+      // space runs; `main` has only its tools, over the wire.
+      expect(main, "the QuickJS block is its own engine's").not.toContain(BLOCK_MARKER);
+      await provideModel(api);
+      const own = await api.call("harnix.session.create", { space: SHOWCASE_ID });
+      const ownEnvelope = await envelope({ instance: `proc.${SHOWCASE_ID}`, session_id: own.session_id, space: SHOWCASE_ID });
+      expect(ownEnvelope).toContain(BLOCK_MARKER);
+      expect(ownEnvelope).toContain(TOOL("echo"));
     } finally {
       api.close();
     }

@@ -94,9 +94,11 @@ export function showcasePackage(): { path: string; fingerprint: string } {
 }
 
 /** The `[ext.packages]` line that puts packages on the run's carrier, unless `own` (the rest of
- *  the section) names one. */
+ *  the section, and the profile's other tables after it) names one in that section: an
+ *  instance's `carrier` under its own table is another key. */
 export function onCarrier(own = ""): string {
-  return /^\s*carrier\s*=/m.test(own) ? "" : `carrier = "${carrier()}"\n`;
+  const section = own.split(/^\s*\[/m)[0];
+  return /^\s*carrier\s*=/m.test(section) ? "" : `carrier = "${carrier()}"\n`;
 }
 
 /** A backend of `harnix` (or `bin`) running packages, `dev` unless said otherwise, on the run's
