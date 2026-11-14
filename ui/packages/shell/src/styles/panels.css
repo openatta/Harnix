@@ -139,6 +139,12 @@
   padding: 0 18px 4px;
 }
 
+/* What a UI package draws in the shell's dialog (`host.dialogs`) is wrapped only to tell when it
+   leaves: no box of its own, so its body scrolls and its buttons stay in view. */
+:is(#modal, .hx-modal) > .hx-host-dialog {
+  display: contents;
+}
+
 :is(#modal, .hx-modal) .foot {
   flex: none;
   display: flex;
