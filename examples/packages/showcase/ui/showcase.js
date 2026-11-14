@@ -1,4 +1,4 @@
-// The showcase's interface module: contribution API 2, like an installed package's [[ui]].
+// The showcase's interface module: contribution API 3, like an installed package's [[ui]].
 //
 // Served from `/ext/example.showcase/ui/showcase.js` and imported by the page; `react` and
 // `@harnix/react` resolve through the page's import map to the shell's own copies. Everything it
@@ -139,7 +139,6 @@ export function register(registry, host) {
     icon: "file",
     order: 60,
     title: () => host.t("example.showcase.space"),
-    center: "hidden",
-    overview: () => jsx(Board, {}),
+    center: { mode: "hidden", overview: () => jsx(Board, {}) },
   });
 }
