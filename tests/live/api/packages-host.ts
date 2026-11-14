@@ -21,7 +21,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { dirname, join, relative } from "node:path";
 import { crc32, inflateRawSync } from "node:zlib";
 
-import { type Backend, type LaunchOptions, type ModelMode, type TestClient, ROOT, binary, carrier, launchFor, sleep, startHarnix } from "@harnix/testkit";
+import { type Backend, type LaunchOptions, type ModelMode, type TestClient, ROOT, binary, carrier, expect, hasModel, launchFor, loadEnv, sleep, startHarnix, test } from "@harnix/testkit";
 
 export const TARGET = join(ROOT, "target", "packages");
 export const SHOWCASE = join(ROOT, "examples", "packages", "showcase");
@@ -126,6 +126,21 @@ dev = ${options.dev ?? true}
 ${onCarrier(own)}${own}`,
     }),
   );
+}
+
+/**
+ * The live run's model as a provider on the settings page, for an extension's own engine: that
+ * engine has the product's providers and nothing of its environment, and the run hands `main` its
+ * model by environment alone. A provider that changes is pushed to the engine at once.
+ */
+export async function provideModel(api: TestClient): Promise<void> {
+  const env = loadEnv();
+  test.skip(!hasModel(env), "no model in .env");
+  const config: Record<string, string> = { api_type: "anthropic", api_key: env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || "" };
+  if (env.ANTHROPIC_BASE_URL) config.base_url = env.ANTHROPIC_BASE_URL;
+  if (env.ANTHROPIC_MODEL) config.default_model = env.ANTHROPIC_MODEL;
+  const set = await api.call("settings.setProvider", { provider_id: "live-run", config, default_provider: "live-run" });
+  expect(set.reloaded_instances, "the extension's engine was not given the provider").toContain(`proc.${SHOWCASE_ID}`);
 }
 
 /** What the showcase's last `recall {later}` timer came to (its `state.recalled`), once it fired. */

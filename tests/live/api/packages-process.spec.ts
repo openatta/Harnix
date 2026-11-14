@@ -31,9 +31,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { EXTENSION_UNAVAILABLE, REFUSED } from "@harnix/core/protocol";
-import { type Backend, type TestClient, connect, expect, hasModel, loadEnv, modelMode, sleep, test, topology } from "@harnix/testkit";
+import { type Backend, type TestClient, connect, expect, modelMode, sleep, test, topology } from "@harnix/testkit";
 
-import { SHOWCASE_CHATS, SHOWCASE_ID, appsTools, readZip, recalledOf, showcasePackage, startApps, variant } from "./packages-host";
+import { SHOWCASE_CHATS, SHOWCASE_ID, appsTools, provideModel, readZip, recalledOf, showcasePackage, startApps, variant } from "./packages-host";
 import { appsTestApp } from "./packages-store";
 
 const TAGS = { tag: ["@feature:packages", "@layer:api"] };
@@ -66,21 +66,6 @@ const alive = (pid: number) => {
     return false;
   }
 };
-
-/**
- * The live run's model as a provider on the settings page, for an extension's own engine: that
- * engine has the product's providers and nothing of its environment, and the run hands `main` its
- * model by environment alone. A provider that changes is pushed to the engine at once.
- */
-async function provideModel(api: TestClient): Promise<void> {
-  const env = loadEnv();
-  test.skip(!hasModel(env), "no model in .env");
-  const config: Record<string, string> = { api_type: "anthropic", api_key: env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || "" };
-  if (env.ANTHROPIC_BASE_URL) config.base_url = env.ANTHROPIC_BASE_URL;
-  if (env.ANTHROPIC_MODEL) config.default_model = env.ANTHROPIC_MODEL;
-  const set = await api.call("settings.setProvider", { provider_id: "live-run", config, default_provider: "live-run" });
-  expect(set.reloaded_instances, "the extension's engine was not given the provider").toContain(`proc.${SHOWCASE_ID}`);
-}
 
 /** The showcase renamed `id` throughout its manifest. */
 function renamed(dir: string, id: string, more = ""): string {
