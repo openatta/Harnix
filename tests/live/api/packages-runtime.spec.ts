@@ -35,7 +35,7 @@ const AGENT_IN = ON_PROCESS ? `proc.${SHOWCASE_ID}` : "main";
 /** That engine, as a call names it: its own engine is reached from its space. */
 const AGENT_AT = ON_PROCESS ? { instance: AGENT_IN, space: SHOWCASE_ID } : { instance: AGENT_IN };
 
-type Session = { instance: string; session_id: string };
+type Session = { instance: string; session_id: string; space?: string };
 
 async function session(api: TestClient, recording: string, instance = "main"): Promise<Session> {
   const created = await api.call("harnix.session.create", {
@@ -57,6 +57,15 @@ async function context(api: TestClient, instance = "main"): Promise<{ text: stri
   const text = JSON.stringify(context);
   const tools: string[] = (context.tools ?? context.context?.tools ?? []).map((t: any) => t.name ?? t);
   return { text, tools, s };
+}
+
+/** A session where its agent package is, playing `recording`: in its space on the process carrier. */
+async function agentSession(api: TestClient, recording: string): Promise<Session> {
+  if (!ON_PROCESS) return session(api, recording);
+  const created = await api.call("harnix.session.create", { space: SHOWCASE_ID, options: { recorder: { name: recording } } });
+  const s = { ...AGENT_AT, session_id: created.session_id };
+  await api.call("harnix.session.attach", s);
+  return s;
 }
 
 /** What a new session where its agent package is would send the model, as text. */
@@ -117,13 +126,11 @@ carrier = "spawn"
       }],
       ["escape", "leaves the package", (e) => e.set("../escape.txt", Buffer.from("x"))],
     ];
-    // The in-process carrier puts its agent package in each instance `install_into` names; the
-    // process carrier puts it in its own engine and does not look at them.
-    if (!ON_PROCESS) {
-      cases.push(["no-instance", "no such instance", (e) => {
-        e.set("harnix-ext.toml", Buffer.from(e.get("harnix-ext.toml")!.toString().replace('install_into = ["main"]', 'install_into = ["nowhere"]')));
-      }]);
-    }
+    // An instance `install_into` names that is not there: refused on both carriers, though the
+    // process carrier puts the agent package in the package's own engine.
+    cases.push(["no-instance", "`nowhere`, and there is no such instance", (e) => {
+      e.set("harnix-ext.toml", Buffer.from(e.get("harnix-ext.toml")!.toString().replace('install_into = ["main"]', 'install_into = ["nowhere"]')));
+    }]);
     for (const [name, says, edit] of cases) {
       const path = variant(join(scratch, `${name}.hxext`), edit);
       const error = await api.refused("packages.installFile", { path });
@@ -156,15 +163,15 @@ carrier = "spawn"
     expect(listed[0].runtime.tools.map((t: any) => t.name).sort()).toEqual([...TOOLS].sort());
     expect(listed[0].runtime.health).toMatchObject({ world: "backend", state: "running" });
 
+    // What the engine it went into says the agent package puts in front of the model, as the
+    // installer shows it.
+    const disclosure = JSON.stringify(installed.installed.agent.disclosure);
+    expect(disclosure).toContain("prompt.block");
+    expect(disclosure).toContain("showcase-guide");
     const plugin = (await api.call("engine.plugin.list")).plugins.find((p: any) => p.name === "example-showcase");
     if (ON_PROCESS) {
       expect(plugin, "the agent package is its own engine's").toBeUndefined();
     } else {
-      // What the engine says the agent package puts in front of the model, as the installer shows
-      // it. The process carrier's own engine does not say it yet.
-      const disclosure = JSON.stringify(installed.installed.agent.disclosure);
-      expect(disclosure).toContain("prompt.block");
-      expect(disclosure).toContain("showcase-guide");
       expect(plugin, "the agent package is installed in system").toBeTruthy();
       expect(plugin.enabled).not.toBe(false);
     }
@@ -306,14 +313,45 @@ carrier = "spawn"
     expect(JSON.stringify((await api.call("harnix.ui")).contributions ?? [])).toContain(`/ext/${SHOWCASE_ID}/ui/frame/index.html`);
   });
 
-  test("a sub-agent of the application's own agent type uses its tool", TAGS, async () => {
-    const s = await session(api, "app-subagent");
+  test("a sub-agent of the package's own agent type uses its tool", TAGS, async () => {
+    // Where its agent package is: `main` on the in-process carrier, its own engine on the process
+    // carrier, where `main` has no such agent type. Replayed there, `app-subagent` sends more
+    // frames a second than an extension's engine may, and the hub drops what is over.
+    test.skip(ON_PROCESS, "no fixture of a sub-agent on the extension's own engine within its frame bounds: `app-subagent` is recorded on `main`");
+    const s = await agentSession(api, "app-subagent");
     const { settled, asks } = await runTurn(api, s, "Have a sub-agent call the showcase's echo tool");
     expect(settled.params.error, JSON.stringify(settled.params.error)).toBeUndefined();
     expect(JSON.stringify(asks), "the sub-agent's call asked").toContain(TOOL("echo"));
     expect(api.text(s.session_id)).toContain("The sub-agent used the showcase's tool.");
     const subagents = JSON.stringify(api.events.filter((f) => f.method === "harnix.event" && f.params.session_id === s.session_id));
     expect(subagents).toContain("showcase-sub-7");
+    // Of its type: the sub-agent was briefed with the type's prompt, which an engine without the
+    // agent type would not have.
+    const task = api.eventsOfKind("task_started", s.session_id).find((e: any) => e.task?.detail?.agent_type === "showcase-guide");
+    expect(task, "the sub-agent's task").toBeTruthy();
+    const briefed = await api.call("engine.session.history", { ...s, session_id: task.task.detail.agent_session_id });
+    expect(JSON.stringify(briefed.messages), "the agent type's prompt").toContain("You are the showcase guide.");
+  });
+
+  test("a turn where its agent package is is told to every client as host events", TAGS, async () => {
+    // A client that attached to nothing: host events are a broadcast.
+    const other = await connect(backend, { topology: topology() });
+    try {
+      const s = await agentSession(api, "says-ready");
+      const { settled } = await runTurn(api, s, "Say exactly: fixture ready");
+      expect(settled.params.error, JSON.stringify(settled.params.error)).toBeUndefined();
+      const told = (kind: string) => other.waitFor(
+        (f) => f.method === "harnix.host_event" && f.params.kind === kind
+          && f.params.instance === s.instance && f.params.session_id === s.session_id,
+        { timeout: 15_000, describe: `${kind} of the turn on ${s.instance}` },
+      );
+      const [started, completed] = [await told("turn_started"), await told("turn_completed")];
+      expect(started.params.turn_id).toBe(completed.params.turn_id);
+      // An extension's engine is not taken at its word: what is told is what the hub read.
+      if (ON_PROCESS) expect(completed.params.trust).toBe("extension");
+    } finally {
+      other.close();
+    }
   });
 
   test("a spawned instance reaches the tools over the application's MCP endpoint", TAGS, async () => {
