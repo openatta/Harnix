@@ -403,7 +403,7 @@ impl Manifest {
         for key in table.keys() {
             if !SECTIONS.contains(&key.as_str()) {
                 return Err(format!(
-                    "{MANIFEST}: unknown section `{key}` (an application has: {})",
+                    "{MANIFEST}: unknown section `{key}` (a package has: {})",
                     SECTIONS.join(", ")
                 ));
             }
@@ -415,7 +415,7 @@ impl Manifest {
             for key in caps.keys() {
                 if !CAPABILITIES.contains(&key.as_str()) {
                     return Err(format!(
-                        "{MANIFEST}: unknown capability `{key}` — an application may ask for {} and nothing else",
+                        "{MANIFEST}: unknown capability `{key}` — a package may ask for {} and nothing else",
                         CAPABILITIES.join(", ")
                     ));
                 }
@@ -437,7 +437,7 @@ impl Manifest {
         };
         if components.len() > 1 {
             return Err(format!(
-                "{MANIFEST}: an application has one component; this one declares {}",
+                "{MANIFEST}: a package has one component; this one declares {}",
                 components.len()
             ));
         }
@@ -515,7 +515,7 @@ impl Manifest {
         let app = &self.app;
         if !crate::valid_id(&app.id) || !app.id.contains('.') {
             return Err(format!(
-                "{MANIFEST}: `{}` is not an application id: `<publisher>.<name>`, dot-separated \
+                "{MANIFEST}: `{}` is not a package id: `<publisher>.<name>`, dot-separated \
                  segments of lowercase letters, digits and `-`, each starting with a letter",
                 app.id
             ));
@@ -1016,8 +1016,8 @@ install_into = ["main"]
             (GOOD.replace("title = \"Showcase\"", "title = \"S\"\ncolour = \"red\""), "unknown field `colour`"),
             (GOOD.replace("timeout_ms = 5000", "timeout_ms = 5000\nthreads = 4"), "unknown field `threads`"),
             (GOOD.replace("harnix_api = 2", "harnix_api = 3"), "implements 2"),
-            (GOOD.replace("acme.showcase", "Acme.Showcase"), "not an application id"),
-            (GOOD.replace("\"acme.showcase\"", "\"showcase\""), "not an application id"),
+            (GOOD.replace("acme.showcase", "Acme.Showcase"), "not a package id"),
+            (GOOD.replace("\"acme.showcase\"", "\"showcase\""), "not a package id"),
             (GOOD.replace("publisher = \"acme\"", "publisher = \"other\""), "first segment"),
             (GOOD.replace("0.1.0", "one"), "not a version"),
             (GOOD.replace("tools-ext@1.0.0", "tools@0.1.0"), "world is one of"),

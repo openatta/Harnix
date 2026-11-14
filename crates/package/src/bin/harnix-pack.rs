@@ -150,7 +150,7 @@ fn new(args: &[String]) -> Result<()> {
         .context("--id <publisher.name> names the package")?;
     let (publisher, name) = id
         .split_once('.')
-        .context("an application id is <publisher>.<name>")?;
+        .context("a package id is <publisher>.<name>")?;
     let title = args.one(&["--title"]).unwrap_or(name);
     if dir.exists() && std::fs::read_dir(dir)?.next().is_some() {
         bail!("{} exists and is not empty", dir.display());
@@ -298,7 +298,7 @@ fn build_and_compile(dir: &Path, out: &Path) -> Result<(PathBuf, PathBuf, String
 
 fn build(args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["-o", "--out"], &[])?;
-    let dir = args.positional("application directory")?;
+    let dir = args.positional("package directory")?;
     let out = args
         .one(&["-o", "--out"])
         .map(PathBuf::from)
@@ -312,7 +312,7 @@ fn build(args: &[String]) -> Result<()> {
 
 fn pack(args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["--wasm", "-o", "--out"], &["--build"])?;
-    let dir = args.positional("application directory")?;
+    let dir = args.positional("package directory")?;
     let manifest = read_manifest(dir)?;
     let mut wasm = args.one(&["--wasm"]).map(PathBuf::from);
     if args.switches.iter().any(|s| s == "--build") && wasm.is_none() {

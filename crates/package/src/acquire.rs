@@ -107,7 +107,7 @@ impl Admission {
     fn admit(&self, verified: Verified, manifest: &Manifest) -> Result<Verified, RpcError> {
         if !verified.trust.signed() && !self.dev {
             return Err(refused(format!(
-                "`{}` is unsigned, and an unsigned application is installed and started only with \
+                "`{}` is unsigned, and an unsigned package is installed and started only with \
                  `[ext.packages] dev = true`",
                 manifest.app.id
             )));

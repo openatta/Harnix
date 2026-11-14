@@ -1,6 +1,6 @@
 # Showcase
 
-One of everything a runtime application can bring to this Harnix, in one package — the sample
+One of everything a runtime package can bring to this Harnix, in one package — the sample
 the LIVE suites install (`tests/live/api/packages-runtime.spec.ts`, `tests/live/api/packages-backend.spec.ts`,
 `tests/live/ui/packages.spec.ts`, `tests/live/api/packages-inline.spec.ts`, `tests/live/ui/packages-inline.spec.ts`, and for its
 isolated interface `tests/live/api/packages-frames.spec.ts`, `tests/live/ui/packages-frames.spec.ts`), and the one the store
@@ -10,7 +10,7 @@ by name (`tests/live/api/packages-store.spec.ts`, `tests/live/ui/packages-store.
 | Part | Where | What it shows |
 |---|---|---|
 | Manifest | `harnix-ext.toml` | the id; the capabilities it asks for (`storage_mb`, `fs`, `net`, `env`, `calls`); one `backend-ext` component; its `[[method]]`s (with a params schema), `[[topic]]`s and two `[[space]]`s (its board, and its chats); `[config]`; its interface module; its isolated interface (`[interface]`, `[[surface]]`); where its agent package goes; and what the shell draws for it inline (`[inline]`, below) |
-| Backend | `component/` (Rust, `wasm32-wasip2`), `backend` | one resident instance: a board of notes in the key-value store (`notes.add` / `list` / `clear`, published on the `notes` topic), a counter in its own memory (`counter.bump`), a timer that publishes `heartbeat` (`timer.start`), `fetch` (slow work started, then reported: it answers with a job at once, and a timer makes the request — `host.http-request`, to the one host in `net` — and publishes it on `fetched`), `session.start` (creates a session in its space and sends it a prompt, as `module:example.showcase`), `overreach` (a call its `calls` does not list), `state`, `card.post` (a card in a session's flow), `complete` (its commands' candidates), `sessions.group` (its space's groups), and `spin` / `crash` (a timeout recycles the instance; a crash rebuilds it once, a second sets the application aside). `init` subscribes to `harnix.sessions.status` |
+| Backend | `component/` (Rust, `wasm32-wasip2`), `backend` | one resident instance: a board of notes in the key-value store (`notes.add` / `list` / `clear`, published on the `notes` topic), a counter in its own memory (`counter.bump`), a timer that publishes `heartbeat` (`timer.start`), `fetch` (slow work started, then reported: it answers with a job at once, and a timer makes the request — `host.http-request`, to the one host in `net` — and publishes it on `fetched`), `session.start` (creates a session in its space and sends it a prompt, as `module:example.showcase`), `overreach` (a call its `calls` does not list), `state`, `card.post` (a card in a session's flow), `complete` (its commands' candidates), `sessions.group` (its space's groups), and `spin` / `crash` (a timeout recycles the instance; a crash rebuilds it once, a second sets the package aside). `init` subscribes to `harnix.sessions.status` |
 | Tools | `component/`, `tools` | `echo`, `count` (key-value storage), `config` (`host.config()`), `read_project` (the session's project, read-only), `slow` (progress, cancellation), `vetoed`, `crash` (a trap: three in a row set that tool aside, and only it), `board` (the backend's state, asked for with `host.call`: a tool's instance cannot see the backend's memory) |
 | Event hook | `component/` (`events`, `[events]`) | refuses the tool its configuration names (`blocked_tool`); offered the calls of its own tools only, as `[events] tools = "own"` says |
 | Agent package | `agent/plugin.toml` | a QuickJS `prompt.block` (`scripts/block.js`) and an agent type, `showcase-guide` |
@@ -20,11 +20,11 @@ by name (`tests/live/api/packages-store.spec.ts`, `tests/live/ui/packages-store.
 
 A session sees the tools as `ext__example_showcase__<tool>`; each one asks before it runs. A
 daemon this Harnix spawned sees them as `mcp__ext-example_showcase__<tool>`, over the
-application's MCP endpoint: it runs no WebAssembly of its own, and the call runs in this process.
+package's MCP endpoint: it runs no WebAssembly of its own, and the call runs in this process.
 
 ## Drawn by the shell: `[inline]`
 
-What a store application's interface cannot do in the page — it runs isolated — the shell does for
+What a store package's interface cannot do in the page — it runs isolated — the shell does for
 it, from the manifest alone; no code of the showcase's runs for any of this:
 
 | Point | In the manifest | What the shell draws |
@@ -38,8 +38,8 @@ Every text is a string or one per locale (`{ en = "…", zh-CN = "…" }`). A po
 together is refused at install, by name: a placeholder of a root the point does not have, a button
 calling a method that is not its own or not a device's to call, a command without `complete`, a card
 without `harnix.session.entries.append` in its `calls`, a row for a tool its component does not list, a
-grouping for a space whose left column is the application's own `space.sidebar` frame (a space's
-left column is the shell's session list or the application's frame, never both: that is why the
+grouping for a space whose left column is the package's own `space.sidebar` frame (a space's
+left column is the shell's session list or the package's frame, never both: that is why the
 showcase has a second space, `example.showcase.chats`, a conversation space the shell draws). The
 installer says what the showcase is told through them — what is typed for its commands, its space's
 sessions — a line each.
@@ -50,7 +50,7 @@ session>"}` puts a card in that session's flow.
 ## The backend's methods
 
 `example.showcase.<method>`, in the authorization table like any method: the page calls them
-under its token (they are declared for `device`), and the application itself always may (its
+under its token (they are declared for `device`), and the package itself always may (its
 `board` tool asks `state`). `state` is also open to modules. The params of `notes.add`,
 `timer.start`, `fetch` and `session.start` are checked against the schema in the manifest before
 the backend sees them. A client subscribes to `example.showcase.notes`,
@@ -65,12 +65,12 @@ request and publishes `{job, url, status, body}`, or `{job, url, error}`, on `fe
 What the backend does as itself is admitted against its `calls`: `harnix.session.create`, `harnix.session.send`, and
 the topic `harnix.sessions.status`. Anything else — `overreach` tries `packages.uninstall` — is
 refused, on the record (`harnix.audit`, subject `module:example.showcase`), and listed in the
-system space's Apps tab with the application's VM health.
+system space's Extensions tab with the package's VM health.
 
 ## Resident, or idle
 
 The showcase's backend stays up while it runs: its manifest has no `[backend]`, which is
-`resident = "always"`, and it subscribes in `init` anyway. An application whose backend need not
+`resident = "always"`, and it subscribes in `init` anyway. A package whose backend need not
 stay up says
 
 ```toml
@@ -80,7 +80,7 @@ idle_secs = 600   # the default; 60 at the least
 ```
 
 and its backend is stopped (its `stop` runs) once it has held no subscription, no timer and no call
-— a method, a tool call or its hook — for `idle_secs`. The system space's Apps tab and
+— a method, a tool call or its hook — for `idle_secs`. The system space's Extensions tab and
 `packages.list` say `hibernating`, which is neither a fault nor a recycle. The next method call
 starts it again: `init` runs, what it kept in its key-value store is there (the board), and what it
 held in memory is not (the counter). Two calls at once start one instance. Its tools run in an
@@ -107,7 +107,7 @@ origin, no storage, no cookies, the page's token out of reach) and served under 
 | Pin it / Compose… | `example.showcase.notes.add`; Compose opens its `compose` modal (`openModal`), which answers the note |
 | a note | its second panel (`secondary.open`), with the note as params |
 | Count one more / Start the heartbeat | `counter.bump`, `timer.start`; the `heartbeat` topic, here and in the right column's tab |
-| Reach too far | `packages.list`, which its `[interface] hub` does not list: refused, and listed in the system space's Apps tab and in Diagnostics |
+| Reach too far | `packages.list`, which its `[interface] hub` does not list: refused, and listed in the system space's Extensions tab and in Diagnostics |
 | Clear the board | the shell's own confirmation (`confirm`), then `notes.clear` |
 | Say hello | a notice under the showcase's name (`notify`) |
 | Crash | the page goes away; the shell's frame says so and offers a reload. Three in a row set it aside |
@@ -121,8 +121,8 @@ shell's (`HarnixKit.follow`).
 origin is opaque, and a module script would need CORS). `node tests/app-ui-vendored.mjs --write`
 builds them again; the front-end check fails when they are stale.
 
-Under `[apps] dev = true`, an unsigned application's frames reload when a file under its
-installed `ui/` changes (`<apps dir>/example.showcase/0.1.0/ui/`, `packages.list` → `dir`): edit
+Under `[ext.packages] dev = true`, an unsigned package's frames reload when a file under its
+installed `ui/` changes (`<state dir>/ext/example.showcase/0.1.0/ui/`, `packages.list` → `dir`): edit
 there, and the page follows.
 
 ## Build and pack
@@ -139,7 +139,7 @@ target/packages/release/harnix-pack pack examples/packages/showcase --build -o s
 built component with `--wasm <file>`); `pack` compiles it for this machine's engine and zips the
 manifest, `ui/`, `agent/` and both forms of the component. It prints the package's path and the
 engine fingerprint: the package installs on a Harnix whose engine reports the same one
-(`packages.list` → `runtime.fingerprint`; `harnix.hello` → `apps_engine`).
+(`packages.list` → `runtime.fingerprint`; `harnix-pack fingerprint` prints it too).
 
 `harnix-pack build examples/packages/showcase` does the first half alone: the component, and its
 artifact compiled for this engine, in `build/`. Artifacts are compiled for the target's baseline
@@ -147,25 +147,24 @@ CPU, so one built here loads on any machine of the same target triple.
 
 ## Install, unsigned
 
-A Harnix built with the `apps` feature, and a profile that hosts applications and runs unsigned
-ones (`dev = true`, for developing an application):
+A Harnix built with the `wasm` feature (on by default), and a profile that runs unsigned packages
+(`dev = true`, for developing a package):
 
 ```sh
 cargo build --release -p harnix-cli --target-dir target/packages
-cat > /tmp/apps.toml <<'EOF'
-[apps]
-enabled = true
+cat > /tmp/ext.toml <<'EOF'
+[ext.packages]
 dev = true
 
-# Optional: set over the application's own [config].
-[apps.config."example.showcase"]
+# Optional: set over the package's own [config].
+[ext."example.showcase"]
 greeting = "hello from my profile"
 
 # Optional: the secret its `env` declares. Only here — never this process's environment.
-[apps.secrets."example.showcase"]
+[ext.packages.secrets."example.showcase"]
 SHOWCASE_TOKEN = "anything"
 EOF
-target/packages/release/harnix --profile /tmp/apps.toml
+target/packages/release/harnix --profile /tmp/ext.toml
 ```
 
 Then, from any client: `packages.installFile {"path": "/abs/path/showcase.hxext"}`. New
@@ -176,9 +175,9 @@ host on this machine would do as well, but the installer warns about one and the
 countersign it. `state` reports `secret_set: true` when the profile sets `SHOWCASE_TOKEN` for it.
 `packages.disable` / `enable {"id": "example.showcase"}` switch it, `packages.clearData`
 deletes its stored counts, notes and cards and starts it again from nothing, `packages.uninstall`
-takes it out, its stored counts and notes with it. Settings → Applications does each of these, and
-shows its permissions; its space in the left column carries the application mark (the same page
-turns it off). After a second crash the application is set
+takes it out, its stored counts and notes with it. Settings → Extension packages does each of these, and
+shows its permissions; its space in the left column carries the package mark (the same page
+turns it off). After a second crash the package is set
 aside (`packages.list` → `runtime.state: "faulted"`); `packages.enable` starts it again.
 
 ## Sign, publish, install by name
@@ -200,17 +199,16 @@ A Harnix installs a package countersigned with the store key it carries built in
 publisher it trusts signed in full:
 
 ```toml
-[apps]
-enabled = true
+[ext.packages]
 store = "https://store.example.com/index.json"   # or file:///…/store/index.json
 
-[apps.trusted_publishers]
+[ext.packages.trusted_publishers]
 example = ["<the publisher's public key>"]
 ```
 
 `packages.catalog` lists what the store has for this Harnix's engine.
 `packages.install {"id": "example.showcase"}` downloads the newest version, checks it against
-the sha256 the index lists and against its signatures, and answers what the application asks for
+the sha256 the index lists and against its signatures, and answers what the package asks for
 and a `digest`; the same call with `"consent": "<digest>"` installs it. `packages.update` lists
 only what a newer version asks for beyond the installed one, and asks again only then. Settings →
-Applications does the same in the page.
+Extension packages does the same in the page.

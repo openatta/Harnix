@@ -109,7 +109,7 @@ pub fn inspect(path: &Path, fingerprint: &str) -> Result<Inspected, String> {
         };
         if !known {
             return Err(format!(
-                "the package's entry `{name}` is not part of an application package (it has \
+                "the package's entry `{name}` is not part of an extension package (it has \
                  {MANIFEST}, ui/, agent/, wasm/)"
             ));
         }
@@ -581,7 +581,7 @@ api_version = 3
             (
                 "stray",
                 good(&[("bin/tool", b"x")]),
-                "not part of an application package".into(),
+                "not part of an extension package".into(),
             ),
             (
                 "other-engine",

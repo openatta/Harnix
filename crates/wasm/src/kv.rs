@@ -36,7 +36,7 @@ impl std::fmt::Display for KvError {
             Self::QuotaExceeded { quota, needed } => write!(
                 f,
                 "storage quota exceeded: this write needs {needed} bytes in total and the \
-                 application's `storage_mb` allows {quota}"
+                 package's `storage_mb` allows {quota}"
             ),
             Self::InvalidKey(why) => write!(f, "invalid key: {why}"),
             Self::Io(e) => write!(f, "storage error: {e}"),

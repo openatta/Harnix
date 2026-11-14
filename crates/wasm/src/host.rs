@@ -113,7 +113,7 @@ impl Host for AppState {
     async fn secret(&mut self, key: String) -> Option<String> {
         if !self.shared.caps.allows_env(&key) {
             tracing::warn!(app = %self.shared.app, key = %key,
-                "an application asked for an environment variable it did not declare");
+                "a package asked for an environment variable it did not declare");
             return None;
         }
         self.shared.services.host.secret(&self.shared.app, &key)

@@ -177,7 +177,7 @@ pub fn check(id: &str, interface: &Interface, surfaces: &[Surface]) -> Result<()
             return Err(format!(
                 "{MANIFEST}: `{entry}` in `[interface] calls` is a method name, or `topic:` and a \
                  topic's, that is not the package's own (its own `{id}.*` needs no entry; \
-                 another application's is never given, which the server holds it to)"
+                 another package's is never given, which the server holds it to)"
             ));
         }
         if let Some(never) = NEVER
@@ -186,7 +186,7 @@ pub fn check(id: &str, interface: &Interface, surfaces: &[Surface]) -> Result<()
         {
             return Err(format!(
                 "{MANIFEST}: `{entry}` in `[interface] calls` is the shell's own (`{never}…`): an \
-                 application's frame is never given it"
+                 package's frame is never given it"
             ));
         }
     }
@@ -293,7 +293,7 @@ pub fn check(id: &str, interface: &Interface, surfaces: &[Surface]) -> Result<()
                     .is_some_and(valid_dotted)
                 {
                     return Err(format!(
-                        "{MANIFEST}: {at}: the kind `{kind}` is `{id}.<name>`: an application draws its own items"
+                        "{MANIFEST}: {at}: the kind `{kind}` is `{id}.<name>`: a package draws its own items"
                     ));
                 }
             }

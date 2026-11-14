@@ -185,7 +185,7 @@ impl Inline {
         for key in table.keys() {
             if !POINTS.contains(&key.as_str()) {
                 return Err(format!(
-                    "{MANIFEST}: unknown inline point `{key}` (an application may declare: {})",
+                    "{MANIFEST}: unknown inline point `{key}` (a package may declare: {})",
                     POINTS.join(", ")
                 ));
             }
