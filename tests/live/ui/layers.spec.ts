@@ -259,7 +259,7 @@ test("a right click opens the session's menu where it was clicked, not a dialog 
   const at = (await menu.boundingBox())!;
   expect(Math.abs(at.x - point.x), "opened at the pointer").toBeLessThan(2);
   expect(Math.abs(at.y - point.y), "opened at the pointer").toBeLessThan(2);
-  for (const item of ["open", "rename", "archive", "fork", "export", "close", "delete"]) {
+  for (const item of ["open", "rename", "action:harnix-app.archive", "fork", "action:harnix-app.export", "close", "delete"]) {
     await expect(menu.locator(`[role="menuitem"][data-item="${item}"]`)).toBeVisible();
   }
   // A click elsewhere closes it.

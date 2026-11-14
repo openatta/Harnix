@@ -100,7 +100,7 @@ export async function openSettings(page: Page): Promise<void> {
 export async function toFlows(page: Page): Promise<void> {
   await spaceEntry(page, "system").click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", "system");
-  await tab(page.getByTestId("system-console"), "flows").click();
+  await tab(page.getByTestId("system-console"), "flow.flows").click();
   await expect(page.getByTestId("system-flows")).toBeVisible();
 }
 

@@ -57,13 +57,15 @@ test("package-ui: a v2 module draws its row on the shell's React, and the CSP ha
   expect(errors).toEqual([]);
 });
 
-test("package-ui: the diagnostics list each entry, the import map and the CSP that admits it", TAGS, async ({ page }) => {
+test("package-ui: the diagnostics show the import map and the CSP that admits it, the plugins section each entry", TAGS, async ({ page }) => {
   await open(page, backend.url);
   await page.getByTestId("avatar").click();
   await page.getByTestId("open-settings").click();
   await page.getByTestId("settings-nav").getByRole("button", { name: /Diagnostics|诊断/ }).click();
   await expect(page.getByTestId("import-map")).toContainText("@harnix/react");
   await expect(page.getByTestId("csp")).toContainText("'sha256-");
+  // What each package's entry became is the plugins section's.
+  await page.getByTestId("settings-nav").locator('[data-section="plugins"]').click();
   const page_ = page.getByTestId("settings-page");
   await expect(page_).toContainText("demo-rows-v2");
   await expect(page_).toContainText("这一条不生效");

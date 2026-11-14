@@ -97,11 +97,11 @@ test("a paired device is listed in Settings · Devices and revoked from there", 
   await expect(page.getByTestId("settings-page")).toContainText("the test laptop");
   const revoke = page.locator(`[data-testid="device-revoke"][data-device="${device}"]`);
   // It asks first: dismissed, nothing happens.
-  page.once("dialog", (d) => void d.dismiss());
   await revoke.click();
+  await page.getByTestId("confirm-cancel").click();
   await expect(revoke).toBeVisible();
-  page.once("dialog", (d) => void d.accept());
   await revoke.click();
+  await page.getByTestId("confirm").click();
   await expect(revoke).toHaveCount(0);
   const listed = await page.evaluate(async () => (await (window as any).harnix.app.call("devices.list", {})).devices);
   expect(listed.some((d: any) => d.id === device)).toBe(false);

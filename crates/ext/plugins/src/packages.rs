@@ -117,11 +117,11 @@ pub fn read(root: &Path, name: &str, version: &str, enabled: bool) -> Option<Con
                 if declared != CONTRIB_API_VERSION {
                     inert.push(format!(
                         "{} → ui/{}：这一条不生效。它是照贡献点 API v{declared} 写的{}，这个构建是 v{CONTRIB_API_VERSION}；\
-                         {} 的那一边旧了",
+                         {}那一边旧了",
                         entry.point,
                         entry.module,
                         if entry.api_version.is_none() { "（没有声明 api_version）" } else { "" },
-                        if declared < CONTRIB_API_VERSION { "包" } else { "Harnix" },
+                        if declared < CONTRIB_API_VERSION { "包的" } else { "Harnix 的" },
                     ));
                     return false;
                 }

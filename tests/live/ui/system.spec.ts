@@ -1,6 +1,6 @@
 /**
  * The system space in the browser (concept §5.5): the instances on the left, the console in
- * the centre — the process at a glance, what is running, the diagnostics — and whatever is picked
+ * the centre — the process at a glance, what is running, the flows — and whatever is picked
  * there inspected on the right: an instance, or a session's facts and operations, every model call
  * with its input and output, its context, its tasks, its frames. The operations on a session (system-space.md §8.2) take effect
  * where the session belongs and are seen by whoever else is watching it.
@@ -70,7 +70,9 @@ async function pick(page: Page, instance: string, sessionId: string): Promise<vo
 }
 
 async function tab(page: Page, id: string): Promise<void> {
-  await page.locator(`#details [role="tab"][data-tab="system.${id}"]`).click();
+  // The session pane's own tabs are `system.*`; the ones an extension adds carry its prefix.
+  const full = id.includes(".") ? id : `system.${id}`;
+  await page.locator(`#details [role="tab"][data-tab="${full}"]`).click();
 }
 
 test("system-tree: every instance, its sessions of every space, and their tasks; no conversation here", TREE, async ({ page }) => {
@@ -328,7 +330,7 @@ test("system-calls: every model call with what went in and what came out, and it
   cpSync(join(RECORDINGS, "spawns-agent"), join(backend.scratch, "agix", "recordings", sid), { recursive: true });
   await toSystem(page);
   await pick(page, "main", sid);
-  await tab(page, "calls");
+  await tab(page, "observability.calls");
   const calls = page.getByTestId("system-call");
   await expect(calls.first()).toBeVisible();
   await expect(calls.first().locator(".l2 .in")).toContainText(/system \d+/);
@@ -367,7 +369,7 @@ test("system-ops: operations take effect, and another viewer sees them", TREE, a
   // Rename: the facts and the other viewer's list follow.
   await page.getByTestId("op-rename").click();
   await page.locator("#modal input").fill("watched from system");
-  await page.getByTestId("rename-save").click();
+  await page.getByTestId("host-prompt-ok").click();
   await expect(page.getByTestId("system-session")).toContainText("watched from system");
   await other.evaluate(() => (window as any).harnix.app.refreshSessions());
   await expect(sessionRow(other, sid)).toContainText("watched from system");
@@ -375,7 +377,7 @@ test("system-ops: operations take effect, and another viewer sees them", TREE, a
   // Model: the context the next call will carry says so.
   await page.getByTestId("op-model").click();
   await page.locator("#modal input").fill("replayed-model-x");
-  await page.getByTestId("rename-save").click();
+  await page.getByTestId("host-prompt-ok").click();
   await tab(page, "context");
   await expect(page.getByTestId("system-context")).toContainText("replayed-model-x");
   await expect(page.locator('[data-testid="system-block"]').first()).toBeVisible();
@@ -464,7 +466,7 @@ test("system-context: a message of the context is edited and removed from the pa
   await user.getByTestId("message-edit").click();
   const input = page.locator("#modal input");
   await input.fill("Say exactly: edited from the page");
-  await input.press("Enter");
+  await page.getByTestId("host-prompt-ok").click();
   await expect(messages.locator('[data-testid="system-message"][data-origin="user"]').first()).toContainText("edited from the page");
 
   await messages.locator('[data-testid="system-message"][data-origin="user"]').first().getByTestId("message-drop").click();
@@ -560,7 +562,7 @@ test("system-timeline: calls on a time line, searched and narrowed by a stretch 
   cpSync(join(RECORDINGS, "spawns-agent"), join(backend.scratch, "agix", "recordings", sid), { recursive: true });
   await toSystem(page);
   await pick(page, "main", sid);
-  await tab(page, "calls");
+  await tab(page, "observability.calls");
   const calls = page.getByTestId("system-call");
   await expect(calls.first()).toBeVisible();
   const all = await calls.count();
@@ -591,7 +593,7 @@ test("system-timeline: calls on a time line, searched and narrowed by a stretch 
   await expect(calls).toHaveCount(all);
 
   // Per turn: one row for the turn, opened into its calls; the context as a change or a total.
-  await tab(page, "turns");
+  await tab(page, "observability.turns");
   const rows = page.getByTestId("turn-row");
   await expect(rows).toHaveCount(1);
   await rows.first().click();
@@ -620,7 +622,7 @@ test("system-calls: a failed call is one click away, and listed alone on asking"
 
   await toSystem(page);
   await pick(page, "main", sid);
-  await tab(page, "calls");
+  await tab(page, "observability.calls");
   const calls = page.getByTestId("system-call");
   await expect(calls).toHaveCount(all);
   await expect(calls.nth(1)).toHaveAttribute("data-state", "failed");
@@ -646,7 +648,7 @@ test("system-turns: a turn's cache hits are said as a share, or not at all", TRE
   cpSync(join(RECORDINGS, "calls-a-tool"), join(backend.scratch, "agix", "recordings", sid), { recursive: true });
   await toSystem(page);
   await pick(page, "main", sid);
-  await tab(page, "turns");
+  await tab(page, "observability.turns");
   await expect(page.getByTestId("system-turns")).toBeVisible();
   await expect(page.getByTestId("turn-cache").first()).toHaveText(/^(\d+%|—)$/);
 });
@@ -775,14 +777,14 @@ test("system-keys: an Agent row is reached by Tab and picked by Enter, the right
   await expect(agents).toHaveAttribute("data-scope", "all");
   await expect(page.locator("#system-tabpanel")).toHaveAttribute("aria-labelledby", "system-tab-all");
   await page.keyboard.press("End");
-  await expect(tabs.locator('[data-tab="diagnostics"]')).toHaveAttribute("aria-selected", "true");
+  await expect(tabs.getByRole("tab").last()).toHaveAttribute("aria-selected", "true");
   // So is the right column's.
   const details = page.locator("#details").getByRole("tablist").first();
   await details.locator('[role="tab"][aria-selected="true"]').focus();
   await expect(details.locator('[role="tab"][tabindex="0"]')).toHaveCount(1);
 });
 
-test("system-about: the flows, apps and diagnostics tabs let go of what was picked, the right column says what the tab is; a tab left keeps its search", TREE, async ({ page }) => {
+test("system-about: the flows and packages tabs let go of what was picked, the right column says what the tab is; a tab left keeps its search", TREE, async ({ page }) => {
   await open(page, backend.url);
   const id = await sessionWithTurn(page, "main");
   await toSystem(page);
@@ -792,11 +794,11 @@ test("system-about: the flows, apps and diagnostics tabs let go of what was pick
   await page.getByTestId("system-agents-search").fill(id);
   await expect(agents.locator('[data-testid="system-agent-group"]')).toHaveCount(1);
 
-  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="diagnostics"]').click();
+  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="flow.flows"]').click();
   await expect(page.getByTestId("system-session")).toHaveCount(0);
   const about = page.locator('#details [data-testid="system-about"]');
-  await expect(about).toHaveAttribute("data-tab", "diagnostics");
-  await expect(about).toContainText(/settings|设置/);
+  await expect(about).toHaveAttribute("data-tab", "flow.flows");
+  await expect(about).toContainText(/flows|流程/);
   // Not the conversation's words: there is no tool call here to open.
   await expect(page.locator("#details")).not.toContainText(/tool call|工具调用/);
 
