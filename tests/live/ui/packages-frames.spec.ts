@@ -127,9 +127,13 @@ test.describe("an application in isolated frames", () => {
     // One in its second space (its board's left column counts the first), and one elsewhere.
     const api = await connect(backend);
     let own = "";
+    let ownInstance = "";
     let other = "";
     try {
-      own = (await api.call("harnix.session.create", { space: SHOWCASE_CHATS, project_root: api.project })).session_id;
+      const created = await api.call("harnix.session.create", { space: SHOWCASE_CHATS, project_root: api.project });
+      own = created.session_id;
+      // On the process carrier its space's sessions are on the package's own engine, not `main`.
+      ownInstance = created.instance ?? "main";
       other = (await api.call("harnix.session.create", { project_root: api.project })).session_id;
     } finally {
       api.close();
@@ -155,7 +159,7 @@ test.describe("an application in isolated frames", () => {
     expect(JSON.stringify(await ask("harnix.sessions.list", {}))).not.toContain(other);
     expect(await ask("harnix.sessions.list", { space: "example.elsewhere" })).toMatchObject({ code: "refused" });
     // A session of its own space it may read; one elsewhere it is refused, though the page could.
-    expect((await ask("engine.session.get", { instance: "main", session_id: own })).ok).toBeTruthy();
+    expect((await ask("engine.session.get", { instance: ownInstance, session_id: own, space: SHOWCASE_CHATS })).ok).toBeTruthy();
     expect(await ask("engine.session.get", { instance: "main", session_id: other })).toMatchObject({ code: "refused" });
     const noted = await page.evaluate(() => (window as any).harnix.app.registry.refusals().filter((r: any) => r.point === "bridge"));
     expect(noted.map((r: any) => r.id)).toEqual(expect.arrayContaining(["harnix.sessions.list", "engine.session.get"]));
