@@ -79,11 +79,13 @@ test("a tool's row is drawn as its manifest says", TAGS, async ({ page }) => {
 test("a card the backend appends is drawn, and its buttons call the backend", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, backend.url);
+  // A package reaches only its own space's sessions: the conversation is started in the showcase's.
+  await page.locator(`#side [data-space="${SHOWCASE_CHATS}"]`).click();
   await newSession(page, "says-ready");
   await say(page, "Say exactly: fixture ready");
   await expect(reply(page)).toContainText(/fixture ready/i, { timeout: 30_000 });
   const s = await current(page);
-  await withApi((api) => api.call(M("card.post"), { ...s, title: "A card for the browser", body: "Some **bold** words" }));
+  await withApi((api) => api.call(M("card.post"), { ...s, space: SHOWCASE_CHATS, title: "A card for the browser", body: "Some **bold** words" }));
 
   const card = page.locator(`[data-testid="package-card"][data-package="${SHOWCASE_ID}"][data-kind="card"]`);
   await expect(card).toBeVisible({ timeout: 15_000 });
@@ -147,12 +149,12 @@ test("its chats space's sessions are grouped as its backend answers", TAGS, asyn
     for (let i = 0; i < 2; i += 1) {
       const created = await api.call("harnix.session.create", { space: SHOWCASE_CHATS, options: { recorder: { name: "says-ready" } } });
       const s = { instance: created.instance, session_id: created.session_id };
-      await api.call("harnix.session.attach", s);
+      await api.call("harnix.session.attach", { ...s, space: SHOWCASE_CHATS });
       await api.call("harnix.session.send", { ...s, message: "Say exactly: fixture ready" });
       await api.waitFor((f) => f.method === "harnix.turn_settled" && f.params.session_id === s.session_id, { timeout: 60_000, describe: "the turn" });
       made.push(s);
     }
-    await api.call(M("card.post"), { ...made[0]!, title: "grouped" });
+    await api.call(M("card.post"), { ...made[0]!, space: SHOWCASE_CHATS, title: "grouped" });
     return made;
   });
   await open(page, backend.url);

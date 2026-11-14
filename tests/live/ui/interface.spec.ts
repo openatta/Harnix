@@ -325,7 +325,7 @@ test("at a phone's width nothing scrolls sideways: a conversation, the system sp
   }
   // A flow entered, its details beside the conversation.
   await page.evaluate(() => (window as any).harnix.app.switchSpace("system"));
-  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="flows"]').click();
+  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="flow.flows"]').click();
   await expect.poll(sideways, { message: "the Flows tab" }).toBeLessThanOrEqual(0);
   await page.getByTestId("flow-def-example-review").click();
   await expect(page.getByTestId("flow-context")).toHaveAttribute("data-flow", "example-review");
@@ -361,7 +361,7 @@ test("in Chinese the flows have no string left untranslated or showing its key",
   await page.getByTestId("settings-language").selectOption("zh-CN");
   await page.keyboard.press("Escape");
   await toFlows(page);
-  await expect(page.locator('[data-testid="system-console"] [role="tab"][data-tab="flows"]')).toHaveText("流程");
+  await expect(page.locator('[data-testid="system-console"] [role="tab"][data-tab="flow.flows"]')).toHaveText("流程");
   const leaked = () =>
     page.evaluate(() => {
       const text = document.body.innerText;

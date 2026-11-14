@@ -419,7 +419,7 @@ test("a profile that switches the flows off does not get them", TAGS, async ({ p
     await expect(page.locator('#side [data-space="flow"]')).toHaveCount(0);
     await page.locator('#side button[data-space="system"]').click();
     await expect(page.getByTestId("system-console")).toBeVisible();
-    await expect(page.locator('[data-testid="system-console"] [role="tab"][data-tab="flows"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="system-console"] [role="tab"][data-tab="flow.flows"]')).toHaveCount(0);
     // Switched off, its methods go with its interface.
     expect(await page.evaluate(() => (window as any).harnix.app.snapshot.reachable.includes("flow.defs"))).toBe(false);
     expect(errors).toEqual([]);

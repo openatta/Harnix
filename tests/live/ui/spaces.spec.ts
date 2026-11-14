@@ -83,7 +83,7 @@ test("each space keeps its own session and draft; coming back restores them", TA
 
   await inSpace(page, "notes");
   const notes = await startReplaying(page);
-  expect(notes.instance).toBe("system");
+  expect(notes.instance).toBe("main");
   await say(page, "Say exactly: fixture ready");
   await expect(reply(page)).toContainText(/fixture ready/i, { timeout: 30_000 });
 
