@@ -209,6 +209,7 @@ impl InstanceObserver<dyn EngineLink> for Hub {
         if let Some(linked) = write(&self.links).remove(id) {
             linked.stop();
         }
+        self.forget_home(id);
         self.inner.lock().await.sessions.retain(|key, _| key.0 != id);
         let hub = self.arc();
         hub.refresh("harnix.sessions.status", json!({}));

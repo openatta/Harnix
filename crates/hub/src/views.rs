@@ -179,6 +179,7 @@ impl Hub {
         let linked = self.engine(instance)?;
         let extension = linked.is_extension();
         let listed = linked.ops().list().await?;
+        self.home_of(instance);
         let guard = self.inner.lock().await;
         let rows: Vec<Value> = listed
             .into_iter()
@@ -194,7 +195,7 @@ impl Hub {
                 let tasks = state.map(|s| s.live_tasks.len()).unwrap_or(0);
                 let waiting = state.and_then(|s| s.pending_prompts.first()).map(|p| p.waiting.as_str());
                 let key = (instance.to_string(), sid.clone());
-                let space = self.space_of(&key);
+                let space = self.space_known(&key);
                 if let Some(obj) = row.as_object_mut() {
                     if extension {
                         obj.insert("trust".into(), json!("extension"));

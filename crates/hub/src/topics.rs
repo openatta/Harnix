@@ -267,7 +267,7 @@ impl crate::Hub {
                 let field = |k: &str| row.get(k).and_then(Value::as_str).map(str::to_string);
                 field("instance")
                     .zip(field("session_id"))
-                    .is_some_and(|key| self.space_of(&key) == space)
+                    .is_some_and(|key| self.space_known(&key) == space)
             }
         };
         if matches!(topic, "harnix.instances.sessions" | "harnix.sessions.status") {

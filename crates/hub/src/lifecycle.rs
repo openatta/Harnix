@@ -68,7 +68,13 @@ impl Hub {
                 | SessionEventKind::GoalChanged { .. }
         );
         let task = match &kind {
-            SessionEventKind::Task { task_id, started } => Some((task_id.clone(), *started)),
+            SessionEventKind::Task { task_id, started, session } => {
+                // A sub-agent's session is the engine's making: it is its parent's space's.
+                if let (true, Some(child)) = (*started, session) {
+                    self.child_session(&key, child);
+                }
+                Some((task_id.clone(), *started))
+            }
             _ => None,
         };
         let teams = matches!(kind, SessionEventKind::TeamProgress { .. });
