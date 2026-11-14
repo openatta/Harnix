@@ -31,7 +31,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { EXTENSION_UNAVAILABLE, REFUSED } from "@harnix/core/protocol";
-import { type Backend, type TestClient, connect, expect, modelMode, sleep, test, topology } from "@harnix/testkit";
+import { type Backend, type TestClient, connect, expect, hasModel, loadEnv, modelMode, sleep, test, topology } from "@harnix/testkit";
 
 import { SHOWCASE_CHATS, SHOWCASE_ID, appsTools, readZip, recalledOf, showcasePackage, startApps, variant } from "./packages-host";
 import { appsTestApp } from "./packages-store";
@@ -66,6 +66,21 @@ const alive = (pid: number) => {
     return false;
   }
 };
+
+/**
+ * The live run's model as a provider on the settings page, for an extension's own engine: that
+ * engine has the product's providers and nothing of its environment, and the run hands `main` its
+ * model by environment alone. A provider that changes is pushed to the engine at once.
+ */
+async function provideModel(api: TestClient): Promise<void> {
+  const env = loadEnv();
+  test.skip(!hasModel(env), "no model in .env");
+  const config: Record<string, string> = { api_type: "anthropic", api_key: env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || "" };
+  if (env.ANTHROPIC_BASE_URL) config.base_url = env.ANTHROPIC_BASE_URL;
+  if (env.ANTHROPIC_MODEL) config.default_model = env.ANTHROPIC_MODEL;
+  const set = await api.call("settings.setProvider", { provider_id: "live-run", config, default_provider: "live-run" });
+  expect(set.reloaded_instances, "the extension's engine was not given the provider").toContain(`proc.${SHOWCASE_ID}`);
+}
 
 /** The showcase renamed `id` throughout its manifest. */
 function renamed(dir: string, id: string, more = ""): string {
@@ -317,6 +332,7 @@ test.describe("packages in processes of their own, in their sandbox", () => {
   test("its engine's shell tool runs in its sandbox", TAGS, async () => {
     test.skip(modelMode() !== "live", "a turn on the extension's own engine calls the model: it records and replays nothing");
     test.skip(!sandboxed, "no sandbox on this machine");
+    await provideModel(api);
     const created = await api.call("harnix.session.create", { space: SHOWCASE_ID });
     const key = { instance: ENGINE, session_id: created.session_id, space: SHOWCASE_ID };
     await api.call("harnix.session.attach", key);
@@ -324,10 +340,13 @@ test.describe("packages in processes of their own, in their sandbox", () => {
       ...key,
       message: "Use the Bash tool once to run exactly `git --version && ls /bin/sh && pwd`, then reply with its output and nothing else.",
     });
-    const result = await api.waitFor(
-      (f) => f.method === "harnix.event" && f.params.event?.kind === "tool_result" && f.params.session_id === created.session_id,
-      { describe: "its shell tool's result", timeout: 180_000 },
-    );
+    const ofIt = (kind: string) => (f: any) => f.method === "harnix.event" && f.params.event?.kind === kind && f.params.session_id === created.session_id;
+    // Its engine asks before it runs a shell command, as any engine does; permitted here.
+    const first = await api.waitFor((f) => ofIt("prompt")(f) || ofIt("tool_result")(f), { describe: "its shell tool asked for or run", timeout: 180_000 });
+    if (first.params.event.kind === "prompt") {
+      await api.call("harnix.session.respond", { ...key, prompt_id: first.params.event.prompt_id, decision: { type: "permit" } });
+    }
+    const result = await api.waitFor(ofIt("tool_result"), { describe: "its shell tool's result", timeout: 60_000 });
     const text = JSON.stringify(result.params.event);
     expect(text).toContain("git version");
     expect(text).toContain("/bin/sh");
@@ -399,6 +418,7 @@ test.describe("an extension process's own engine", () => {
 
   test("a refresh catches up on a turn without losing a frame", TAGS, async () => {
     test.skip(modelMode() !== "live", "a turn on the extension's own engine calls the model: it records and replays nothing");
+    await provideModel(api);
     const created = await api.call("harnix.session.create", { space: SHOWCASE_ID });
     const key = { instance: ENGINE, session_id: created.session_id, space: SHOWCASE_ID };
     await api.call("harnix.session.attach", key);
