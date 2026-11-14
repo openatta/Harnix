@@ -477,7 +477,7 @@ fn the_wasm_runtime_depends_on_no_harnix_crate_and_nothing_of_agix() {
         assert!(
             !["daemon", "base", "model", "history", "scene", "telemetry", "runtime", "plugin"]
                 .contains(&name.as_str()),
-            "`wasm` depends on `{name}`; an application's VM knows nothing of the engine"
+            "`wasm` depends on `{name}`; a package's VM knows nothing of the engine"
         );
     }
 }

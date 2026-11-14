@@ -159,7 +159,7 @@ impl VmHost for MockHost {
         let _ = app;
         if topic == "undeclared" {
             return Err(format!(
-                "`{topic}` is not a topic this application declared"
+                "`{topic}` is not a topic this package declared"
             ));
         }
         self.published.lock().unwrap().push((topic.into(), value));

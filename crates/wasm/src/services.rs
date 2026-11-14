@@ -101,7 +101,7 @@ pub struct NoNetwork;
 #[async_trait]
 impl HttpFetcher for NoNetwork {
     async fn fetch(&self, _app: &str, _request: HttpRequest) -> Result<HttpResponse, String> {
-        Err("this host offers applications no network".into())
+        Err("this host offers packages no network".into())
     }
 }
 
