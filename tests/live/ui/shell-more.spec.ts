@@ -67,7 +67,7 @@ test("a project added by name is listed; renamed from its menu it says so; remov
   await page.locator('[data-testid="host-menu"] [data-item="rename"]').click();
   const renamed = `${name}-renamed`;
   await page.locator("#modal input").fill(renamed);
-  await page.getByTestId("rename-save").click();
+  await page.getByTestId("host-prompt-ok").click();
   const after = page.getByTestId("projects").locator("[data-project]", { hasText: renamed });
   await expect(after).toBeVisible();
 
@@ -121,7 +121,7 @@ test("the title opens the session's menu", SHELL, async ({ page }) => {
   await page.getByTestId("head-title").click();
   const menu = page.getByTestId("session-menu");
   await expect(menu).toBeVisible();
-  for (const item of ["rename", "fork", "harnix-app.archive", "harnix-app.export", "delete"]) await expect(menu.locator(`button[data-item="${item}"]`)).toBeVisible();
+  for (const item of ["rename", "fork", "action:harnix-app.archive", "action:harnix-app.export", "delete"]) await expect(menu.locator(`button[data-item="${item}"]`)).toBeVisible();
 });
 
 test("the system entry counts the running sessions while they run", SHELL, async ({ page }) => {

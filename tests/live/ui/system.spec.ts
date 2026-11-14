@@ -369,7 +369,7 @@ test("system-ops: operations take effect, and another viewer sees them", TREE, a
   // Rename: the facts and the other viewer's list follow.
   await page.getByTestId("op-rename").click();
   await page.locator("#modal input").fill("watched from system");
-  await page.getByTestId("rename-save").click();
+  await page.getByTestId("host-prompt-ok").click();
   await expect(page.getByTestId("system-session")).toContainText("watched from system");
   await other.evaluate(() => (window as any).harnix.app.refreshSessions());
   await expect(sessionRow(other, sid)).toContainText("watched from system");
@@ -377,7 +377,7 @@ test("system-ops: operations take effect, and another viewer sees them", TREE, a
   // Model: the context the next call will carry says so.
   await page.getByTestId("op-model").click();
   await page.locator("#modal input").fill("replayed-model-x");
-  await page.getByTestId("rename-save").click();
+  await page.getByTestId("host-prompt-ok").click();
   await tab(page, "context");
   await expect(page.getByTestId("system-context")).toContainText("replayed-model-x");
   await expect(page.locator('[data-testid="system-block"]').first()).toBeVisible();
@@ -466,7 +466,7 @@ test("system-context: a message of the context is edited and removed from the pa
   await user.getByTestId("message-edit").click();
   const input = page.locator("#modal input");
   await input.fill("Say exactly: edited from the page");
-  await input.press("Enter");
+  await page.getByTestId("host-prompt-ok").click();
   await expect(messages.locator('[data-testid="system-message"][data-origin="user"]').first()).toContainText("edited from the page");
 
   await messages.locator('[data-testid="system-message"][data-origin="user"]').first().getByTestId("message-drop").click();
