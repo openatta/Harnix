@@ -140,43 +140,62 @@ export function SessionOverview({ view, session }: { view: View; session: Sessio
         {tr("system.spaceSessions", { space })}
       </button>
       <div className="label">{tr("system.ops")}</div>
-      <Operations view={view} session={session} name={row?.name ?? null} space={space} model={model} />
+      <Operations view={view} session={session} name={row?.name ?? null} space={space} model={model} changed={() => setRound((n) => n + 1)} />
     </div>
   );
 }
 
-function Operations({ view, session, name, space, model }: { view: View; session: SessionKey; name: string | null; space: string; model: string }) {
+function Operations({
+  view,
+  session,
+  name,
+  space,
+  model,
+  changed,
+}: {
+  view: View;
+  session: SessionKey;
+  name: string | null;
+  space: string;
+  model: string;
+  changed: () => void;
+}) {
   const tr = useT();
   const host = view.host;
   const registry = useRegistry(view.registry);
   const target = { instance: session.instance, session_id: session.sessionId };
   const system = (method: string, extra: Record<string, unknown> = {}) => host.call(`system.${method}`, { ...target, ...extra });
   const claimed = (method: string, extra: Record<string, unknown> = {}) => host.call(method, { ...target, ...extra, space: SYSTEM });
+  // Done, the facts above are read again: a pushed row does not say the model changed.
+  const apply = (run: () => Promise<unknown>) =>
+    void act(host, run).then((ok) => {
+      if (ok) changed();
+    });
   const confirmed = (text: string, run: () => Promise<unknown>) =>
     void host.dialogs.confirm(text, { danger: true }).then((yes) => {
-      if (yes) void act(host, run);
+      if (yes) apply(run);
     });
   const prompted = (title: string, value: string, run: (value: string) => Promise<unknown>) =>
     void host.dialogs.prompt({ title, label: title, value }).then((text) => {
-      if (text !== null) void act(host, () => run(text));
+      if (text !== null) apply(() => run(text));
     });
   const ops: { id: string; icon: string; label: string; run: () => void; danger?: boolean }[] = [
-    { id: "compact", icon: "archive", label: tr("system.op.compact"), run: () => void act(host, () => system("compact")) },
+    { id: "compact", icon: "archive", label: tr("system.op.compact"), run: () => apply(() => system("compact")) },
     { id: "clear", icon: "refresh", label: tr("system.op.clear"), run: () => confirmed(tr("system.confirmClear"), () => system("clear")) },
     {
       id: "fork",
       icon: "fork",
       label: tr("system.op.fork"),
       run: () =>
-        void act(host, async () => {
+        apply(async () => {
           const forked = await host.call<{ session_id: string; instance?: string }>("harnix.session.fork", { ...target, space: SYSTEM });
           view.select({ kind: "session", instance: forked.instance ?? session.instance, sessionId: forked.session_id });
         }),
     },
     { id: "model", icon: "agent", label: tr("system.op.model"), run: () => prompted(tr("system.op.model"), model, (value) => system("model", { model: value.trim() })) },
-    { id: "interrupt", icon: "stop", label: tr("system.op.interrupt"), run: () => void act(host, () => claimed("harnix.session.interrupt")) },
+    { id: "interrupt", icon: "stop", label: tr("system.op.interrupt"), run: () => apply(() => claimed("harnix.session.interrupt")) },
     { id: "rename", icon: "edit", label: tr("system.op.rename"), run: () => prompted(tr("system.op.rename"), name ?? "", (value) => system("rename", { name: value.trim() })) },
-    { id: "close", icon: "close", label: tr("system.op.close"), run: () => void act(host, () => claimed("harnix.session.close")) },
+    { id: "close", icon: "close", label: tr("system.op.close"), run: () => apply(() => claimed("harnix.session.close")) },
     {
       id: "delete",
       icon: "trash",

@@ -374,10 +374,12 @@ test("system-ops: operations take effect, and another viewer sees them", TREE, a
   await other.evaluate(() => (window as any).harnix.app.refreshSessions());
   await expect(sessionRow(other, sid)).toContainText("watched from system");
 
-  // Model: the context the next call will carry says so.
+  // Model: the context the next call will carry says so. The change is made once the overview,
+  // read again after it, names the model; the context tab reads it as it opens.
   await page.getByTestId("op-model").click();
   await page.locator("#modal input").fill("replayed-model-x");
   await page.getByTestId("host-prompt-ok").click();
+  await expect(page.getByTestId("system-session")).toContainText("replayed-model-x");
   await tab(page, "context");
   await expect(page.getByTestId("system-context")).toContainText("replayed-model-x");
   await expect(page.locator('[data-testid="system-block"]').first()).toBeVisible();
