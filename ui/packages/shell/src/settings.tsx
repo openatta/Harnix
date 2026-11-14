@@ -189,7 +189,7 @@ function Extensions({ app }: { app: App }) {
   );
 }
 
-/** The `health` block of `daemon.doctor`: a status per check, `ok`, `degraded` or `failing`. */
+/** The `health` block of `engine.daemon.doctor`: a status per check, `ok`, `degraded` or `failing`. */
 export type DoctorHealth = { status?: string; checks?: { name: string; status?: string; summary?: string }[] };
 
 /** A degraded check is a warning, not a failure; a status this build does not know reads as a failure. */
