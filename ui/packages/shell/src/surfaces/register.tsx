@@ -1,16 +1,16 @@
 /**
- * The applications whose interface runs in isolated frames, put on the page: each surface its
- * application declares becomes the contribution the shell already knows how to place — a space
+ * The packages whose interface runs in isolated frames, put on the page: each surface its
+ * package declares becomes the contribution the shell already knows how to place — a space
  * (its entry, centre, left column, tabs, second panel), a `home.card`, a `settings.section`, a
- * `details.panel` — whose drawing is a frame (`frame.tsx`), registered under the application's id
+ * `details.panel` — whose drawing is a frame (`frame.tsx`), registered under the package's id
  * like an installed module's. Modals open through the shell's dialog when a frame asks.
  *
- * When each is made and gone (harnix-plugin.md §6.2): a space's centre and left column when the space
+ * When each is made and gone (harnix-ext-package.md §6.2): a space's centre and left column when the space
  * is first entered, its tabs when first selected — kept, hidden, while away (`keeper.tsx`) — and
- * gone when the application stops; a second panel, a settings section, a card, a modal for as long
+ * gone when the package stops; a second panel, a settings section, a card, a modal for as long
  * as they are shown.
  *
- * The application's state follows `packages.list`: one that stops loses its frames, and an unsigned
+ * The package's state follows `packages.list`: one that stops loses its frames, and an unsigned
  * one under `[ext.packages] dev = true` whose `ui/` changed (`runtime.ui_rev`) has its frames reloaded.
  */
 
@@ -30,7 +30,7 @@ import { surfaces } from "./store.ts";
 
 /** Each space's second panel, while it is open: what its frame was opened with. */
 const secondaries = new Map<string, { params: unknown; title?: string }>();
-/** Each application space's badge. */
+/** Each package space's badge. */
 const badges = new Map<string, string | number>();
 
 let layer = false;
@@ -70,7 +70,7 @@ function actionsFor(app: App, iface: PackageInterface, space: string | null): Su
   };
 }
 
-/** One of the application's modals, in the shell's dialog; what it closed with (null: dismissed). */
+/** One of the package's modals, in the shell's dialog; what it closed with (null: dismissed). */
 function openModal(app: App, iface: PackageInterface, id: string, params: unknown): Promise<unknown> {
   const decl = iface.surfaces.find((s) => s.point === "modal" && s.id === id);
   if (!decl) return Promise.resolve(null);
@@ -124,7 +124,7 @@ function firstSpace(iface: PackageInterface): string | null {
   return iface.surfaces.find((s) => s.point === "space")?.space ?? null;
 }
 
-/** Register one application's surfaces. */
+/** Register one package's surfaces. */
 function register(app: App, iface: PackageInterface): void {
   const owner = iface.id;
   const reg = app.registry;
@@ -222,7 +222,7 @@ interface Listed {
   packages?: { id: string; enabled?: boolean; runtime?: { state?: string; ui_rev?: string | null } }[];
 }
 
-/** Follow the applications' state: frames go with a stopped application, reload with a changed `ui/`. */
+/** Follow the packages' state: frames go with a stopped package, reload with a changed `ui/`. */
 function follow(app: App, ids: Set<string>): void {
   if (!app.snapshot.reachable.includes("packages.list")) return;
   const revs = new Map<string, string>();
@@ -242,11 +242,11 @@ function follow(app: App, ids: Set<string>): void {
   });
 }
 
-/** The applications whose frames are on this page, and the record of the state they follow. */
+/** The packages whose frames are on this page, and the record of the state they follow. */
 const placed = new WeakMap<App, { ids: Set<string>; declared: Map<string, string> }>();
 
 /**
- * Put the isolated applications `harnix.ui` lists on the page, as it changes: one that appears is
+ * Put the isolated packages `harnix.ui` lists on the page, as it changes: one that appears is
  * registered, one that goes takes its frames and everything registered for it, one whose
  * declaration changed is registered again.
  */

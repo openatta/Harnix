@@ -498,7 +498,7 @@ export class App {
         // instance: the front space's list is read again.
         topicsOf(this.conn).subscribe("harnix.instances.sessions", { instance: this.defaultInstance() }, () => void this.refreshSessions());
         // Before the stored front space is looked for: the spaces are the UI packages'. Bounded
-        // (`within`): an application's start that awaits the backend and never hears back does not
+        // (`within`): an extension's start that awaits the backend and never hears back does not
         // stop the shell's.
         const registering = Promise.resolve(this.builtins?.(this)).catch((e: unknown) => this.notice(errorText(e), "error"));
         await within(registering, BOOT_WAIT_MS);
@@ -537,7 +537,7 @@ export class App {
     return () => this.extensionListeners.delete(fn);
   }
 
-  /** Ask `harnix.reachable` again: a runtime application registered since the start adds methods. */
+  /** Ask `harnix.reachable` again: an extension package registered since the start adds methods. */
   async refreshReachable(): Promise<void> {
     try {
       const r = (await this.conn.call("harnix.reachable", {})) as { methods?: string[] };

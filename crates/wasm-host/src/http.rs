@@ -1,7 +1,7 @@
-//! The network an application's VM is lent by this process when its product lends none of its
+//! The network a package's VM is lent by this process when its product lends none of its
 //! own: `harnix_wasm::HttpFetcher` over [`harnix_package::egress::Egress`].
 //!
-//! The VM has already checked every request against the application's declared `net` before it
+//! The VM has already checked every request against the package's declared `net` before it
 //! gets here. A product that decides `net` on its side as well hands the host a fetcher of its
 //! own ([`crate::HostOptions::http`]). (`host.call`, `publish` and `subscribe` go through the
 //! kernel: `bridge.rs`.)
@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use harnix_package::egress::{Egress, Request};
 use harnix_wasm::{HttpFetcher, HttpRequest, HttpResponse};
 
-/// The network, for the hosts an application's `net` lists.
+/// The network, for the hosts a package's `net` lists.
 #[derive(Default)]
 pub struct Http(Egress);
 

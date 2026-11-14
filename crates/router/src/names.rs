@@ -107,7 +107,7 @@ pub(crate) fn package_part(name: &str) -> Option<&str> {
     valid_package_id(id).then_some(id)
 }
 
-/// A method or topic name inside an application's namespace: dot-separated segments of ASCII
+/// A method or topic name inside an extension's namespace: dot-separated segments of ASCII
 /// letters, digits, `_` and `-`; at most 128 characters.
 fn valid_short_name(name: &str) -> bool {
     !name.is_empty()

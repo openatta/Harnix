@@ -6,11 +6,11 @@
  * its progress topic, whose result lands in the conversation as a card (an entry, drawn by the
  * `flow.block` below), and the extension's own link — an HTTP route and a WebSocket.
  *
- * And an approval card (docs/harnix-sdk.md §10.1): the ticket is an entry in the conversation, its
+ * And an approval card (docs/harnix-ext.md §10.1): the ticket is an entry in the conversation, its
  * state comes from the `greeter.approvals` topic, and the buttons call `greeter.approve`,
  * which only a person may.
  *
- * Its look is its own without a fork of `ui/` (docs/harnix-sdk.md §8.6): the profile's `[brand]` names the
+ * Its look is its own without a fork of `ui/` (docs/harnix-ext.md §8.6): the profile's `[brand]` names the
  * product, and here the module overrides the accent tokens and brings its words as a language pack
  * whose keys carry its name.
  */

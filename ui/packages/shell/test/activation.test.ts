@@ -27,7 +27,7 @@ function setup() {
 }
 
 /** The first-party shape: a system package defining a point, a flow package filling it or else
- *  a space of its own, and the application's own package. */
+ *  a space of its own, and the package's own package. */
 function packages(): UiPackage[] {
   return [
     {
@@ -64,7 +64,7 @@ describe("activation by hello.extensions", () => {
     const { app, host } = setup();
     activate(app, host, packages(), [ext("system", false), ext("flow", true)]);
     app.registry.settle();
-    // orElse runs once every registration is in: after the application's own.
+    // orElse runs once every registration is in: after the package's own.
     expect(app.registry.at("space").map((c) => c.id)).toEqual(["notes", "flow"]);
     expect(app.registry.at("session.action")).toEqual([]);
   });
@@ -103,7 +103,7 @@ describe("following harnix.ui", () => {
     expect(app.registry.at("space").map((c) => c.id)).toEqual(["notes", "flow"]);
     expect(app.registry.at("session.action")).toEqual([]);
     expect(app.registry.isDefined("system.console.tab")).toBe(false);
-    // The same again changes nothing, and the application's own package registered once.
+    // The same again changes nothing, and the package's own package registered once.
     expect(activate(app, host, all, [ext("system", false), ext("flow", true)])).toBe(false);
     expect(app.registry.at("space").filter((c) => c.id === "notes")).toHaveLength(1);
   });

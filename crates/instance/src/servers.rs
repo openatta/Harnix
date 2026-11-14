@@ -4,7 +4,7 @@
 //! directly; a daemon this process spawned is another process, and reaches them over MCP instead —
 //! an endpoint per package, served by this process. What goes into the daemon is a
 //! set of `mcp_servers` entries in its global tier: written before it is spawned, and again (with
-//! a `config.reload`) whenever the set changes — an application enabled, disabled, installed or
+//! a `config.reload`) whenever the set changes — a package enabled, disabled, installed or
 //! removed — or this process learns where it listens.
 //!
 //! This is the spawned carrier's own hook, and so the instance layer's: which files a daemon's

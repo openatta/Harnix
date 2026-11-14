@@ -15,4 +15,4 @@ is a Harnix issue, whatever layer it turns out to live in.
 
 Rename `myapp` (in `app/Cargo.toml`, `app/src/main.rs`, `profiles/`,
 `scripts/build.sh`), then add your first module: see
-`harnix/docs/harnix-sdk.md`.
+`harnix/docs/harnix-ext.md`.

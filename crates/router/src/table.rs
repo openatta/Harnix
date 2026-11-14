@@ -781,8 +781,8 @@ mod tests {
         }
         // The compiled-in method is still the compiled-in one.
         assert_eq!(t.decide(&device(), &natives(), "probe.echo"), Decision::Allow);
-        // And withdrawing a compiled-in module, which only assembly does, never takes an
-        // application's names, nor frees the module's id.
+        // And withdrawing a native extension, which only assembly does, never takes a
+        // package's names, nor frees the extension's id.
         t.install_package("acme.fake", rows(&["acme.fake.echo"])).unwrap();
         t.withdraw(&ext("probe"));
         assert_eq!(t.decide(&device(), &natives(), "acme.fake.echo"), Decision::Allow);
@@ -881,7 +881,7 @@ mod tests {
         assert_eq!(t.decide(&me, &g, "acme.notes.echo"), Decision::Allow);
         assert_eq!(t.decide(&me, &g, "acme.notes.nope"), Decision::Unknown);
         assert_eq!(t.decide(&me, &g, &topic("acme.notes.ticks")), Decision::Allow);
-        // Another application's, listed, as that one declared it.
+        // Another package's, listed, as that one declared it.
         assert_eq!(t.decide(&me, &g, "acme.todo.list"), Decision::Allow);
         // Topics: subscribing is decided by the topic.
         assert_eq!(t.decide(&me, &g, "harnix.topics.subscribe"), Decision::Allow);

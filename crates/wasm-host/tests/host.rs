@@ -69,7 +69,7 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
     assert_eq!(rig.status().await["calls"]["refused"][0]["method"], json!("packages.uninstall"));
 
     // Tools: an instance each; progress in order, all of it before the answer; a cancellation;
-    // and one that asks the backend, as the application, through the platform and back.
+    // and one that asks the backend, as the package, through the platform and back.
     let tool = |name: &str, input: serde_json::Value, call_id: &str| ToolCall {
         app: ID.into(),
         tool: name.into(),
@@ -206,7 +206,7 @@ fn blocked_bash() -> Rig {
     Rig::configured(json!({"blocked_tool": "Bash"}))
 }
 
-/// Another application's tool, by the name a session knows it by.
+/// Another package's tool, by the name a session knows it by.
 const OTHERS_TOOL: &str = "ext__example_other__echo";
 
 fn blocked_others_tool() -> Rig {
@@ -236,7 +236,7 @@ async fn its_hook_sees_every_tool_call_only_when_its_manifest_asks() {
     assert!(matches!(hook_for(&all, "Bash").await, HookReply::Block(_)));
     assert_eq!(hook_for(&all, "Read").await, HookReply::Proceed);
 
-    // Another application's tool is not its own either: the same as a built-in one.
+    // Another package's tool is not its own either: the same as a built-in one.
     let own = blocked_others_tool();
     own.install(refusing_bash("own")).await;
     let calls = own.status().await["health"]["calls"].clone();
@@ -249,7 +249,7 @@ async fn its_hook_sees_every_tool_call_only_when_its_manifest_asks() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn its_secret_is_the_profiles_never_the_processs() {
-    // This process has one by that name; the application is not given it.
+    // This process has one by that name; the package is not given it.
     std::env::set_var("SHOWCASE_TOKEN", "the-process-own");
     let without = Rig::new(|_| {});
     without.install(|m| m).await;

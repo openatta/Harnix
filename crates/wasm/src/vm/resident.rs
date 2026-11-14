@@ -55,7 +55,7 @@ impl Inner {
     }
 
     /// A hibernating backend, started again for the call holding `guard`: `init` runs. One that
-    /// will not start sets the application aside. Calls waiting behind this one find it started.
+    /// will not start sets the package aside. Calls waiting behind this one find it started.
     pub(super) async fn wake(
         &self,
         guard: &mut tokio::sync::MutexGuard<'_, Option<Resident>>,
@@ -152,7 +152,7 @@ impl Inner {
     }
 
     /// Whether the resident instance's `/data` no longer matches the quota: writable while the
-    /// application is over it, or read-only while it has room again.
+    /// package is over it, or read-only while it has room again.
     fn storage_moved(&self, guard: &tokio::sync::MutexGuard<'_, Option<Resident>>) -> bool {
         let full = self.shared.storage_full();
         guard
@@ -163,7 +163,7 @@ impl Inner {
 
     /// Drop the resident instance and start a fresh one. `why` decides
     /// which counter it goes on; a fresh instance that will not start
-    /// disables the application.
+    /// disables the package.
     async fn replace_resident(
         &self,
         guard: &mut tokio::sync::MutexGuard<'_, Option<Resident>>,

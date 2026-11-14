@@ -1,5 +1,5 @@
 /**
- * `@harnix/ext-kit`: the shell's look in an application's isolated frame.
+ * `@harnix/ext-kit`: the shell's look in a package's isolated frame.
  *
  * Its stylesheet (`kit.css`) is the shell's design tokens — the same file the shell's theme is —
  * and a handful of components drawn with them (`hk-*` classes). This module follows the shell

@@ -1,10 +1,10 @@
-//! One application's VM: its linked component, its resident backend, and the
+//! One package's VM: its linked component, its resident backend, and the
 //! short-lived instances its tool calls and events run in.
 //!
 //! # Two kinds of instance
 //!
 //! The **resident** backend is one `Store` that lives as long as the VM. The
-//! application's state is in it, so calls into it are serialized (a store is
+//! package's state is in it, so calls into it are serialized (a store is
 //! not re-entrant) behind an async mutex: methods from [`AppVm::handle`], and
 //! topic values and timer firings from a queue drained by one worker task, in
 //! order. Every **tool call and event** gets a store of its own, built from the
@@ -22,7 +22,7 @@
 //! unusable in any case), so a fresh instance is started and `init` runs again.
 //! Its in-memory state is lost and the health snapshot says so (`recycles`).
 //! A backend call takes no cancellation for the same reason: a client that
-//! goes away must not be able to wipe an application's state.
+//! goes away must not be able to wipe a package's state.
 //!
 //! # What an instance holds on the host
 //!
@@ -74,13 +74,13 @@ use wasmtime::Store;
 const INTERNAL_ERROR: i32 = -32603;
 /// How long a backend has to run without crashing for a crash before it to stop counting: past
 /// this, the next crash is a first one again and is rebuilt, rather than disabling the
-/// application. A backend that crashes once a week is unlucky; one that crashes twice in a minute
+/// package. A backend that crashes once a week is unlucky; one that crashes twice in a minute
 /// is broken. [`AppVm::set_healthy_period`] changes it.
 pub const HEALTHY_PERIOD: Duration = Duration::from_secs(10 * 60);
 
 static NEXT_VM: AtomicU64 = AtomicU64::new(1);
 
-/// One application's VM. Cheap to clone; every clone is the same VM.
+/// One package's VM. Cheap to clone; every clone is the same VM.
 ///
 /// Must be started, used and dropped inside a tokio runtime: the backend's
 /// delivery worker and its timers are tasks.
@@ -118,7 +118,7 @@ struct Inner {
 }
 
 
-/// The parts every store of the application reaches: what host functions
+/// The parts every store of the package reaches: what host functions
 /// need, and what outlives any one instance.
 pub(crate) struct Shared {
     vm_id: u64,
@@ -135,7 +135,7 @@ pub(crate) struct Shared {
     timers: Mutex<HashMap<String, (u64, AbortHandle)>>,
     timer_generation: AtomicU64,
     deliveries: mpsc::Sender<Delivery>,
-    /// `${data}`, when the application was granted it: measured into its storage.
+    /// `${data}`, when the package was granted it: measured into its storage.
     data_dir: Option<PathBuf>,
     /// What the files under it took when last measured.
     data_bytes: AtomicU64,
@@ -213,7 +213,7 @@ async fn with_deadline<T>(
 }
 
 impl AppVm {
-    /// Link `component` for the application `spec` describes and, for a
+    /// Link `component` for the package `spec` describes and, for a
     /// backend, start its resident instance (`init` with `spec.config`).
     ///
     /// Fails when a capability cannot be resolved, the component imports
@@ -560,7 +560,7 @@ impl AppVm {
         }
     }
 
-    /// Stop the application: the backend's `stop`, bounded by the timeout;
+    /// Stop the package: the backend's `stop`, bounded by the timeout;
     /// then its instance, subscriptions and timers are released. Every later
     /// call is refused.
     pub async fn stop(&self) {
@@ -722,7 +722,7 @@ impl Inner {
         let shared = &self.shared;
         shared.measure().await;
         let what = call.what();
-        // Could not even be instantiated because the application's other
+        // Could not even be instantiated because the package's other
         // instances hold its memory: the component did nothing wrong.
         if let (Err(Abort::Failed(_)), false, true) = (&outcome, started, refused) {
             return Err(CallFailure::Unavailable(format!(
@@ -781,7 +781,7 @@ impl Shared {
         }
     }
 
-    /// Bytes the application keeps: its key-value store, and its files under `${data}` as last
+    /// Bytes the package keeps: its key-value store, and its files under `${data}` as last
     /// measured.
     pub(crate) fn storage_used(&self) -> u64 {
         self.services
@@ -830,7 +830,7 @@ impl Shared {
         self.data_dir.is_some() && self.storage_used() >= self.caps.storage_bytes
     }
 
-    /// Set the application aside. A VM already stopped stays stopped: what failed while it was
+    /// Set the package aside. A VM already stopped stays stopped: what failed while it was
     /// stopping is not a reason to report it broken.
     fn disable(&self, reason: String) {
         let mut state = lock(&self.state);

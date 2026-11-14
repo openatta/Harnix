@@ -1,28 +1,28 @@
-//! The services a host lends its applications.
+//! The services a host lends its packages.
 //!
 //! These traits are the seam between this crate and the rest of Harnix: the
 //! hub's admission point behind [`VmHost::call`], its topics behind
 //! `publish` and `subscribe`, an HTTP client behind [`HttpFetcher`], storage
 //! behind [`crate::KvStore`]. The VM checks a request against the
-//! application's capabilities *before* handing it to one of these, so an
+//! package's capabilities *before* handing it to one of these, so an
 //! implementation sees only requests that were allowed — and need not, and
 //! must not, re-implement those checks with a second answer.
 //!
-//! Every method names the application asking (`app`, its id), because one
-//! implementation serves every application in the process.
+//! Every method names the package asking (`app`, its id), because one
+//! implementation serves every package in the process.
 
 use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
 
-/// Harnix, as an application's component sees it.
+/// Harnix, as a package's component sees it.
 #[async_trait]
 pub trait VmHost: Send + Sync {
-    /// `host.call`: call a hub method as `module:<app>`. Admission (the
+    /// `host.call`: call a hub method as `ext:<app>`. Admission (the
     /// manifest's `calls` capability) and audit are the implementation's.
     ///
     /// When the backend makes this call it holds its own instance, so a call
-    /// that routes back into the same application's backend cannot be
+    /// that routes back into the same package's backend cannot be
     /// answered; the VM refuses that one itself rather than deadlock, as long
     /// as the implementation awaits the routed call on the same task.
     async fn call(&self, app: &str, method: &str, params: Value) -> Result<Value, String>;
@@ -56,11 +56,11 @@ pub trait VmHost: Send + Sync {
 
     async fn unsubscribe(&self, app: &str, topic: &str, params: &Value);
 
-    /// `host.secret`, for a name the application declared in `env`: what the
+    /// `host.secret`, for a name the package declared in `env`: what the
     /// person running it gave *it* under that name. Never the process's own
     /// environment — a name is not a grant of whatever this process happens
     /// to hold under it (its model key, say). A host that keeps no secrets
-    /// for its applications gives none.
+    /// for its packages gives none.
     fn secret(&self, app: &str, key: &str) -> Option<String> {
         let _ = (app, key);
         None
@@ -83,7 +83,7 @@ pub struct HttpResponse {
     pub body: Vec<u8>,
 }
 
-/// Where an application's HTTP goes out.
+/// Where a package's HTTP goes out.
 ///
 /// An implementation **must not follow redirects**: the `net` check was made
 /// against the URL the component asked for, and a redirect is a second URL
@@ -110,11 +110,11 @@ pub trait ProgressSink: Send + Sync {
     fn on_progress(&self, call_id: &str, text: &str);
 }
 
-/// The services one application's VM uses.
+/// The services one package's VM uses.
 #[derive(Clone)]
 pub struct Services {
     pub host: Arc<dyn VmHost>,
-    /// This application's own namespace; nothing else should share it.
+    /// This package's own namespace; nothing else should share it.
     pub kv: Arc<dyn crate::KvStore>,
     pub http: Arc<dyn HttpFetcher>,
 }

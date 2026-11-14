@@ -183,7 +183,7 @@ impl FrameSink for TopicFrames {
 pub(crate) struct PackageTable {
     router: Arc<Router>,
     surfaces: Arc<dyn Surfaces>,
-    /// Where an application's consent is written, and its interface's.
+    /// Where a package's consent is written, and its interface's.
     grants: Arc<GrantTable>,
     live: Mutex<BTreeMap<String, Live>>,
     serial: tokio::sync::Mutex<()>,
@@ -685,7 +685,7 @@ mod tests {
         ended: Mutex<Vec<(String, String)>>,
         published: Mutex<Vec<(String, Value, Value)>>,
         spaces: Mutex<BTreeSet<String>>,
-        /// Clients made for applications' subscriptions, and the ones removed.
+        /// Clients made for packages' subscriptions, and the ones removed.
         clients: Mutex<Vec<Arc<dyn FrameSink>>>,
         removed: Mutex<Vec<u64>>,
     }
@@ -977,7 +977,7 @@ mod tests {
         }
         assert!(w.table.registered().is_empty());
         assert!(lock(&w.stub.topics).is_empty());
-        // Another application's names are that application's to admit, so they are not checked here.
+        // Another package's names are that package's to admit, so they are not checked here.
         w.table.register("host", fake("acme.notes").calls(["acme.todo.list"])).await.unwrap();
     }
 
@@ -1087,7 +1087,7 @@ mod tests {
         assert_eq!(in_flight.await.unwrap().unwrap(), json!("finished"));
     }
 
-    /// Registering, withdrawing and calling at once: every call is answered by the application
+    /// Registering, withdrawing and calling at once: every call is answered by the package
     /// or is not found — never refused for the wrong reason, never handed to another row — and
     /// when it is over the table holds exactly what assembly put in.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

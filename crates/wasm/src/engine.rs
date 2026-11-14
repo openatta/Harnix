@@ -1,7 +1,7 @@
 //! The process-wide wasmtime engine: its configuration, its fingerprint, and
 //! loading components.
 //!
-//! One `Engine` per process, shared by every application. It owns the code
+//! One `Engine` per process, shared by every package. It owns the code
 //! of every loaded component and the epoch every deadline is measured in;
 //! isolation comes from the per-instance `Store`, not from the engine, so a
 //! second engine would buy nothing.
@@ -10,7 +10,7 @@
 //!
 //! A precompiled artifact (`.cwasm`) is machine code for one wasmtime
 //! version, one target and one engine configuration. The store compiles each
-//! application once per fingerprint and the installer picks the artifact by
+//! package once per fingerprint and the installer picks the artifact by
 //! it, so the fingerprint has to be identical in the build that compiles
 //! (with Cranelift) and the build that loads (without). It is therefore
 //! derived from what both builds share — the wasmtime version, the target

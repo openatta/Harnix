@@ -88,13 +88,13 @@ pub struct Factory {
     pub credential: Resolve,
     /// Tool providers every engine built in this process gets — the in-process
     /// carrier's alone: a daemon is another process, and what it should have
-    /// of this one's reaches it another way (an application's tools, over MCP).
+    /// of this one's reaches it another way (a package's tools, over MCP).
     pub providers: Vec<Arc<dyn harnix_engine_api::ToolProvider>>,
     /// The tools those providers give, which every scene of such an engine admits
     /// (`EngineContribution::admit_everywhere`).
     pub admitted: Vec<String>,
-    /// The MCP servers every daemon this process spawns is configured with — a runtime
-    /// application's tools — written into each one's data root as it is built, and kept in line
+    /// The MCP servers every daemon this process spawns is configured with — an extension
+    /// package's tools — written into each one's data root as it is built, and kept in line
     /// with the set after (`servers.rs`). Shared with whoever sets them.
     pub servers: Arc<SharedServers>,
     /// The data root of the instance a template's `inherit_providers` inherits from: the
@@ -227,7 +227,7 @@ impl Factory {
                     SpawnOptions::default()
                 };
                 // Before the daemon reads its settings: the servers it reaches this process's
-                // applications by, with a credential of its own.
+                // packages by, with a credential of its own.
                 options.servers = Some(self.servers.configure(id, &data_root));
                 // Where a daemon writes its recordings is its own: a deleted session's stays.
                 options.recorder = Some(self.recording.of(id, None));
@@ -294,8 +294,8 @@ impl Factory {
     }
 }
 
-/// A daemon this process spawns reaches this process back over loopback (a runtime
-/// application's MCP endpoint). A proxy configured in the environment (`HTTP_PROXY`) would carry
+/// A daemon this process spawns reaches this process back over loopback (an extension
+/// package's MCP endpoint). A proxy configured in the environment (`HTTP_PROXY`) would carry
 /// that to somewhere that is not this machine, so loopback is added to whatever `NO_PROXY` says.
 fn loopback_without_proxy() -> Vec<(String, String)> {
     const LOOPBACK: &str = "127.0.0.1,localhost,::1";

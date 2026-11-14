@@ -17,7 +17,7 @@ pub enum Owner {
     Kernel(KernelPart),
     /// What passes through to the engine under its own name.
     Engine,
-    /// An extension, by id: a compiled-in module, or a runtime application.
+    /// An extension, by id: a native extension, or an extension package.
     Extension(ExtId),
 }
 

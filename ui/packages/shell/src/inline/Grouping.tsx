@@ -1,11 +1,11 @@
 /**
- * `sidebar.group`, declared: how one of an application's spaces groups its sessions in the left
+ * `sidebar.group`, declared: how one of a package's spaces groups its sessions in the left
  * column, as its manifest's `[[inline.sidebar_group]]` says — by scene, by a field of the session's
- * row (an array puts it in a group per element), or as the application's own method answers
+ * row (an array puts it in a group per element), or as the package's own method answers
  * (`{space, sessions}` → `{groups: [{key, title, sessions: [id]}]}`). What no rule places is in the
  * `other` group, last.
  *
- * Only the application's own space: what it declares never regroups the product's lists. A method
+ * Only the package's own space: what it declares never regroups the product's lists. A method
  * that fails leaves the list ungrouped, and is noted in the diagnostics.
  */
 
@@ -23,7 +23,7 @@ export interface Rule {
   decl: GroupDecl;
 }
 
-/** The grouping a running application declares for `space`, if any. */
+/** The grouping a running package declares for `space`, if any. */
 export function groupingOf(app: App, space: string): Rule | null {
   for (const owner of packagesOf(app).running()) {
     const decl = (owner.inline.sidebar_group ?? []).find((g) => (g.space ?? owner.id) === space);
@@ -59,7 +59,7 @@ function byValue(rows: ShellSession[], value: (row: ShellSession) => unknown, ot
   return out;
 }
 
-/** What the application's method answered, as groups over these rows. */
+/** What the package's method answered, as groups over these rows. */
 function fromAnswer(rows: ShellSession[], answer: unknown, other: string): Group[] {
   const listed = (answer as { groups?: { key?: unknown; title?: Text; sessions?: unknown[] }[] } | null)?.groups;
   const byId = new Map(rows.map((r) => [r.session_id, r]));

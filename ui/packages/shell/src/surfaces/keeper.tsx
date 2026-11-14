@@ -11,7 +11,7 @@
  * lying over the conversation on a narrow window, its dialogs — is drawn above the frame too. It
  * is clipped to what of the slot its scrolling ancestors show.
  *
- * Gone with the application: when it stops, or the page goes.
+ * Gone with the package: when it stops, or the page goes.
  */
 
 import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
@@ -62,7 +62,7 @@ class Keeper {
     this.changed();
   }
 
-  /** The application stopped: its kept surfaces go. */
+  /** The package stopped: its kept surfaces go. */
   drop(app: string): void {
     let any = false;
     for (const [key, kept] of this.kept) {

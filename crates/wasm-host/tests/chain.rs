@@ -25,7 +25,7 @@ const AT_ONCE: Duration = Duration::from_millis(100);
 async fn a_backend_that_calls_back_into_itself_is_refused_at_once() {
     let rig = Rig::new(|_| {});
     rig.install(|m| m).await;
-    // `overreach` calls out; the product routes that call into the application's own `state`,
+    // `overreach` calls out; the product routes that call into the package's own `state`,
     // from another task, as a link between processes carries it: nothing of the calling task
     // comes along, only the call's metadata.
     rig.platform.reroute.set("state".into()).unwrap();
@@ -38,7 +38,7 @@ async fn a_backend_that_calls_back_into_itself_is_refused_at_once() {
     assert_eq!(refused.data.unwrap()["failure"], json!("reentrant"));
     assert!(took < AT_ONCE, "refused after {took:?}");
 
-    // The call the backend made named the device's call as its parent, and held the application
+    // The call the backend made named the device's call as its parent, and held the package
     // on it.
     let made = lock(&rig.platform.metas)[0].clone();
     assert_eq!(made.parent_id(), Some(device.call_id()));
@@ -73,7 +73,7 @@ async fn a_timer_that_calls_back_into_its_own_backend_is_refused_at_once() {
     assert!(took < AT_ONCE, "refused after {took:?}");
 
     // No call of the product's waits on the firing: the call it made names the firing as its
-    // parent, and holds the application on it alone.
+    // parent, and holds the package on it alone.
     let made = lock(&rig.platform.metas)[0].clone();
     let firing = made.parent_id().expect("made within the firing").to_string();
     assert_eq!(made.links().len(), 1, "{made:?}");
@@ -89,7 +89,7 @@ async fn a_timer_that_calls_back_into_its_own_backend_is_refused_at_once() {
 async fn what_a_tool_calls_carries_its_turns_chain_and_is_let_through_when_nothing_waits() {
     let rig = Rig::new(|_| {});
     rig.install(|m| m).await;
-    // The tool's turn was started by a call of the application's own that has long returned.
+    // The tool's turn was started by a call of the package's own that has long returned.
     let turn = CallMeta::new(next_id()).chain([ChainLink::new(ID, "p-answered"), ChainLink::new("acme.other", "9")]);
     let board = ToolCall {
         app: ID.into(),

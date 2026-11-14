@@ -180,7 +180,7 @@ pub struct StoreSignature {
     pub signature: String,
 }
 
-/// What a signature is over: the application, the signer, and each file's sha256, in path order.
+/// What a signature is over: the package, the signer, and each file's sha256, in path order.
 /// Text, so that what was signed can be read.
 fn payload<'a>(
     role: &str,
@@ -348,7 +348,7 @@ impl Verified {
 }
 
 /// Check `signatures` (the package's `SIGNATURES`, if it has one) against the files it has now
-/// (`present`: path → sha256, `SIGNATURES` not among them), for the application the manifest says
+/// (`present`: path → sha256, `SIGNATURES` not among them), for the package the manifest says
 /// it is (`app`: id and version; `publisher`: its `[app] publisher`).
 pub fn verify(
     signatures: Option<&Signatures>,
@@ -699,7 +699,7 @@ mod tests {
             "the publisher's signature does not verify",
         );
 
-        // Signed as another application, or as another publisher than the manifest says.
+        // Signed as another package, or as another publisher than the manifest says.
         assert!(verify(
             Some(&countersigned),
             &files(true),

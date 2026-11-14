@@ -93,7 +93,7 @@ pub struct Config {
     pub extra_origins: Vec<String>,
 }
 
-/// What the application serves beyond the kernel's own surface: module
+/// What the application serves beyond the kernel's own surface: extension
 /// routes, and who decides who reaches them.
 #[derive(Default)]
 pub struct Extensions {
@@ -522,8 +522,8 @@ pub async fn serve_with(
                 let until = stopped(stopping.clone());
                 let addr = *addr;
                 servers.spawn(async move {
-                    // Who each connection is from, for what is served to this machine only (a
-                    // runtime application's MCP endpoint).
+                    // Who each connection is from, for what is served to this machine only (an
+                    // extension package's MCP endpoint).
                     axum::serve(listener, router.into_make_service_with_connect_info::<SocketAddr>())
                         .with_graceful_shutdown(until)
                         .into_future()

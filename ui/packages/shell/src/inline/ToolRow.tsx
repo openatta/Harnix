@@ -1,5 +1,5 @@
 /**
- * `tool.row`, declared: a call of an application's tool drawn with the shell's own row, as its
+ * `tool.row`, declared: a call of a package's tool drawn with the shell's own row, as its
  * manifest's `[[inline.tool_row]]` says — the glyph, the title (from the call's input), what
  * follows it (the result, or a field of the input), and whether the result shows unfolded.
  */

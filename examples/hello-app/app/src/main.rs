@@ -6,11 +6,11 @@
 //! | `notes` | a space (`ui/`) | — | the `system` instance |
 //!
 //! The greeter also shows the two channels for what a call and a topic do not fit
-//! (docs/harnix-sdk.md §9, §10.2): a long job whose progress is a topic with a parameter
+//! (docs/harnix-ext.md §9, §10.2): a long job whose progress is a topic with a parameter
 //! (`count_to`, `greeter.job { job_id }`), and the extension's own link under
 //! `/ext/greeter/` — an HTTP route and a WebSocket.
 //!
-//! And an approval (docs/harnix-sdk.md §10.1), built on the public contract alone: a ticket
+//! And an approval (docs/harnix-ext.md §10.1), built on the public contract alone: a ticket
 //! written into the conversation as an entry, the session's pending tickets on a topic, an answer
 //! only a person can give (`approve` is for `Device`), the first answer winning, silence past the
 //! deadline counting as no, and every decision written down as another entry.

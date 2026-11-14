@@ -45,7 +45,7 @@ pub enum HookDecision {
     AddContext(String),
 }
 
-/// A method's failure as the application reports it, for its caller.
+/// A method's failure as the package reports it, for its caller.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct AppError {
     pub code: i32,
@@ -56,18 +56,18 @@ pub struct AppError {
 /// Why a call produced no answer from the component.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CallFailure {
-    /// The call outlived the application's `timeout_ms`.
+    /// The call outlived the package's `timeout_ms`.
     TimedOut,
     /// The caller withdrew (a cancelled turn, a closing session).
     Cancelled,
     /// The component trapped, ran out of memory, or could not be run.
     Faulted(String),
-    /// The call was not made: the application is stopped or disabled, or its
+    /// The call was not made: the package is stopped or disabled, or its
     /// component does not export what was asked for. Never counted against
-    /// the application.
+    /// the package.
     Unavailable(String),
     /// The call was not made: it came back into a backend that is waiting on
-    /// it, and would have deadlocked. Never counted against the application.
+    /// it, and would have deadlocked. Never counted against the package.
     Reentrant(String),
 }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// An application's pin (harnix-sdk.md §11).
+// An application's pin (harnix-ext.md §11).
 //
 //   node harnix/scripts/check-pins.mjs [app-root] [--release]
 //

@@ -1,6 +1,6 @@
-//! An application's isolated interface: `[interface]` and its `[[surface]]`s.
+//! A package's isolated interface: `[interface]` and its `[[surface]]`s.
 //!
-//! A surface is a region of the shell an application's page fills, in a sandboxed frame of its
+//! A surface is a region of the shell a package's page fills, in a sandboxed frame of its
 //! own (`/ext/<id>/ui/<page>`): an opaque origin, no network (`connect-src 'none'`), and only the
 //! shell's bridge to talk through (`harnix-ui-bridge@2`, `@harnix/ext-sdk`). The shell owns the
 //! frame around it — its title, loading, failure and reload — and everything the page asks for is
@@ -26,7 +26,7 @@
 //!
 //! # How the interface runs
 //!
-//! A store-signed or unsigned application's interface runs in its frames, and its `[[ui]]` modules
+//! A store-signed or unsigned package's interface runs in its frames, and its `[[ui]]` modules
 //! (which would run in the page, with the page's rights) do not run at all. A trusted publisher's
 //! runs in the page, as its `[[ui]]` modules, unless `[interface] isolate = true` or it has no
 //! `[[ui]]` module: then in frames too. [`runs_in_frames`] is that rule, in one place.
@@ -88,9 +88,9 @@ pub struct Interface {
     /// A trusted publisher's interface in frames rather than in the page.
     #[serde(default)]
     pub isolate: bool,
-    /// What a frame may call and subscribe to (`topic:<name>`) beyond the application's own
-    /// `<id>.*`. The page's calls through it carry the application's id, and the router takes
-    /// what a device may do, what this lists, and the row's scope: the application's own spaces
+    /// What a frame may call and subscribe to (`topic:<name>`) beyond the package's own
+    /// `<id>.*`. The page's calls through it carry the package's id, and the router takes
+    /// what a device may do, what this lists, and the row's scope: the package's own spaces
     /// and their sessions.
     #[serde(default)]
     pub calls: Vec<String>,
@@ -112,7 +112,7 @@ pub enum Title {
 #[serde(deny_unknown_fields)]
 pub struct Surface {
     pub point: String,
-    /// Unique among the application's surfaces of the same point (and space). A tab's, a
+    /// Unique among the package's surfaces of the same point (and space). A tab's, a
     /// settings section's and a modal's are required; the others default to the point.
     #[serde(default)]
     pub id: Option<String>,
@@ -149,13 +149,13 @@ impl Surface {
     }
 }
 
-/// Whether an application's interface runs in frames (true) or in the page as its `[[ui]]`
+/// Whether a package's interface runs in frames (true) or in the page as its `[[ui]]`
 /// modules (false), by how far its package is trusted.
 pub fn runs_in_frames(trust: Trust, interface: &Interface, has_modules: bool) -> bool {
     trust != Trust::Trusted || interface.isolate || !has_modules
 }
 
-/// Whether a frame of an application may call `method` (or, with `topic`, subscribe to it): its
+/// Whether a frame of a package may call `method` (or, with `topic`, subscribe to it): its
 /// own `<id>.*`, or a name its `[interface] calls` lists.
 pub fn admits(id: &str, interface: &Interface, name: &str, topic: bool) -> bool {
     if name.starts_with(&format!("{id}.")) {
@@ -169,7 +169,7 @@ pub fn admits(id: &str, interface: &Interface, name: &str, topic: bool) -> bool 
     interface.calls.contains(&wanted)
 }
 
-/// Check `[interface]` and the `[[surface]]`s of the application `id`.
+/// Check `[interface]` and the `[[surface]]`s of the package `id`.
 pub fn check(id: &str, interface: &Interface, surfaces: &[Surface]) -> Result<(), Error> {
     for entry in &interface.calls {
         let name = entry.strip_prefix("topic:").unwrap_or(entry);
@@ -351,7 +351,7 @@ mod tests {
         assert!(runs_in_frames(Trust::Unsigned, &plain, true));
         assert!(!runs_in_frames(Trust::Trusted, &plain, true));
         assert!(runs_in_frames(Trust::Trusted, &isolated, true));
-        // A trusted application with nothing to run in the page has only its frames.
+        // A trusted package with nothing to run in the page has only its frames.
         assert!(runs_in_frames(Trust::Trusted, &plain, false));
     }
 

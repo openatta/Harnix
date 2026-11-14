@@ -25,7 +25,7 @@ export function hostFor(app: App, owner = "page"): HostApi {
     return !reachable.length || reachable.includes(method) || method.startsWith("harnix.topics.subscribe") || method.startsWith("harnix.topics.unsubscribe");
   };
   const call = async <T,>(method: string, params?: unknown): Promise<T> => {
-    // A runtime application's methods come and go while the page is open (installed, enabled):
+    // An extension package's methods come and go while the page is open (installed, enabled):
     // one not listed yet is asked about once more before it is refused here.
     if (!listed(method) && method.startsWith("app.")) await app.refreshReachable();
     if (!listed(method)) throw new Error(t("contrib.methodNotDeclared", { owner, method }));

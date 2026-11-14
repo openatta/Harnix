@@ -390,7 +390,7 @@ pub fn walk(
     Ok(())
 }
 
-/// What goes into a package beside the application's directory: the component, compiled.
+/// What goes into a package beside the package's directory: the component, compiled.
 pub struct Artifact<'a> {
     pub fingerprint: &'a str,
     pub cwasm: &'a [u8],
@@ -398,7 +398,7 @@ pub struct Artifact<'a> {
     pub wasm: Option<&'a [u8]>,
 }
 
-/// Pack an application directory — its `harnix-ext.toml`, `ui/`, `agent/` — and its compiled
+/// Pack a package directory — its `harnix-ext.toml`, `ui/`, `agent/` — and its compiled
 /// component into a `.hxext` at `out`. Anything else in the directory (the component's sources) is
 /// left out. The manifest is checked first.
 pub fn pack(

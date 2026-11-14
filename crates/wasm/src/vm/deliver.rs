@@ -14,7 +14,7 @@ use tokio::sync::mpsc;
 pub(super) const DELIVERY_QUEUE: usize = 256;
 
 /// The id the backend answers one delivery under: never made twice, in this process or in another
-/// process of the same application, since a chain that holds the backend on it can outlive both
+/// process of the same package, since a chain that holds the backend on it can outlive both
 /// (a turn the delivery queued).
 fn serving_id() -> String {
     static NEXT: AtomicU64 = AtomicU64::new(1);

@@ -1,5 +1,5 @@
 /**
- * `@harnix/ext-sdk`: an application's page in the shell's isolated frame, talking to the shell.
+ * `@harnix/ext-sdk`: a package's page in the shell's isolated frame, talking to the shell.
  *
  * ```js
  * const app = await HarnixExt.connect();          // or: import { connect } from "@harnix/ext-sdk"
@@ -135,11 +135,11 @@ export async function connect(options: ConnectOptions = {}): Promise<HarnixExt> 
   return app;
 }
 
-/* ── the application's side of the bridge ─────────────────────────────── */
+/* ── the package's side of the bridge ─────────────────────────────── */
 
 type Listener<T> = (value: T) => void;
 
-/** An application page's handle on the shell. Made by `connect()`. */
+/** A package page's handle on the shell. Made by `connect()`. */
 export class HarnixExt {
   private next = 1;
   private readonly pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: unknown) => void }>();
@@ -183,7 +183,7 @@ export class HarnixExt {
 
   /* ── data ── */
 
-  /** A method: the application's own `<id>.*`, or one its `[interface] calls` lists. */
+  /** A method: the package's own `<id>.*`, or one its `[interface] calls` lists. */
   call<T = unknown>(method: string, params?: unknown): Promise<T> {
     return this.request("call", { method, params }) as Promise<T>;
   }
@@ -207,7 +207,7 @@ export class HarnixExt {
     return off;
   }
 
-  /** The application's space's sessions, as the shell has them open. */
+  /** The package's space's sessions, as the shell has them open. */
   readonly session = {
     current: (): SessionRef | null => this.currentSession,
     open: (ref: SessionRef): Promise<void> => this.request("session.open", ref).then(() => undefined),
@@ -242,7 +242,7 @@ export class HarnixExt {
     insert: (text: string): Promise<void> => this.request("composer.insert", { text }).then(() => undefined),
   };
 
-  /** A badge on the application's space entry; null, 0 or "" clears it. */
+  /** A badge on the package's space entry; null, 0 or "" clears it. */
   badge(value: string | number | null): Promise<void> {
     return this.request("badge", { value }).then(() => undefined);
   }
@@ -256,7 +256,7 @@ export class HarnixExt {
     return this.request("copy", { text }).then(() => undefined);
   }
 
-  /** One of the application's modals; resolves with what it closed with, null if it was dismissed. */
+  /** One of the package's modals; resolves with what it closed with, null if it was dismissed. */
   openModal<T = unknown>(id: string, params?: unknown): Promise<T | null> {
     return this.request("openModal", { id, params }) as Promise<T | null>;
   }

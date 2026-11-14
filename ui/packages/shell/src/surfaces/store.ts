@@ -1,6 +1,6 @@
 /**
  * How this page's frames are doing: each surface's state, the failures counted against it, the
- * bridge requests refused to each application. Page-local by choice — the backend cannot see a
+ * bridge requests refused to each package. Page-local by choice — the backend cannot see a
  * frame, and each window has frames of its own — so Settings → Diagnostics reads it from here
  * (`status.tsx`) beside each extension, and refusals go there through the registry as well.
  *
@@ -107,7 +107,7 @@ class SurfaceStore {
     this.changed();
   }
 
-  /** The application stopped (disabled, uninstalled, set aside by its VM): its frames go. */
+  /** The package stopped (disabled, uninstalled, set aside by its VM): its frames go. */
   setStopped(app: string, stopped: boolean): void {
     if (stopped === this.stopped.has(app)) return;
     if (stopped) this.stopped.add(app);
@@ -115,7 +115,7 @@ class SurfaceStore {
     this.changed();
   }
 
-  /** How many times an application's frames were made again from its files (dev's hot reload). */
+  /** How many times a package's frames were made again from its files (dev's hot reload). */
   rev(app: string): number {
     return this.revs.get(app) ?? 0;
   }
@@ -129,7 +129,7 @@ class SurfaceStore {
     return this.stopped.has(app);
   }
 
-  /** What the Apps tab shows of one application. */
+  /** What the Apps tab shows of one package. */
   summary(app: string): { live: number; crashes: number; surfaces: SurfaceStatus[]; refused: BridgeRefusal[] } {
     const surfaces = [...this.status.values()].filter((s) => s.app === app);
     return {

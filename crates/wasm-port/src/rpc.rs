@@ -5,7 +5,7 @@
 //! [`serve_kernel`], [`serve_agent`] and [`serve_control`] answer a call so named on whatever
 //! implements the trait, [`told_kernel`] and [`told_control`] take a notification;
 //! [`KernelClient`], [`AgentClient`] and [`ControlClient`] implement the trait by sending each call
-//! to a [`Wire`]. (An edition with a process per application carries
+//! to a [`Wire`]. (In mode 3, a process per package carries
 //! `Kernel` and `Control` over its link; its `Agent` is beside the host, and needs no wire. The
 //! wire for it is here so a test can prove its values survive one too.) A link between two processes is a `Wire`; under the `loopback` feature [`Loopback`] is
 //! one that goes nowhere — each call is encoded to text, decoded, answered by the target, and its

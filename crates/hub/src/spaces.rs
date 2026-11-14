@@ -54,7 +54,7 @@ struct Ledger {
 
 pub struct Spaces {
     decls: BTreeMap<String, SpaceDecl>,
-    /// The ids in `decls` a runtime application added, which only it removes.
+    /// The ids in `decls` an extension package added, which only it removes.
     runtime: BTreeSet<String>,
     /// Ids no call may claim: spaces this product turned off.
     withheld: BTreeSet<String>,
@@ -103,8 +103,8 @@ impl Spaces {
 
     /// Add a space declared at runtime. Refused for an id already declared
     /// (assembly's keep precedence), an id a call could not claim, one reaching across spaces or
-    /// saying it is the default, and a default instance built from a template — a runtime
-    /// application's space lands on an instance that exists.
+    /// saying it is the default, and a default instance built from a template — an extension
+    /// package's space lands on an instance that exists.
     pub fn add_runtime(&mut self, decl: SpaceDecl) -> Result<(), String> {
         let id = decl.id.clone();
         if decl.default_space {

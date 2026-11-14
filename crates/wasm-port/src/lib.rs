@@ -1,6 +1,6 @@
-//! The boundary between a runtime application's host and the product around it.
+//! The boundary between an extension package's host and the product around it.
 //!
-//! The host (`harnix-wasm-host`) runs applications: their VMs, their lifecycle, their methods,
+//! The host (`harnix-wasm-host`) runs packages: their VMs, their lifecycle, their methods,
 //! tools and topics. What it needs from outside is two things, [`Kernel`] and [`Agent`]; what the
 //! product asks of it is [`Control`]. Nothing else crosses:
 //!
@@ -8,7 +8,7 @@
 //!   (or an [`RpcError`]); a notification ([`Kernel::progress`], [`Control::turn_started`]) takes
 //!   the value alone, answers nothing and does not wait;
 //! - no reference, closure or handle crosses. What would be a callback is a call the other way:
-//!   a value on a topic the application subscribed to is [`Control::deliver`], a tool call's
+//!   a value on a topic the package subscribed to is [`Control::deliver`], a tool call's
 //!   progress is [`Kernel::progress`], cancelling one is [`Control::cancel`] with the call's id.
 //!
 //! # A call's metadata
@@ -16,20 +16,20 @@
 //! [`CallMeta`] says which call this is, the call it was made while handling, the extensions
 //! waiting on it, each with the call it is held on, and its deadline. A host gives every call it
 //! makes while serving one of the product's the served call as its `parent`, and — when the served
-//! call holds the application's backend — the served call's chain with the application held on it.
+//! call holds the package's backend — the served call's chain with the package held on it.
 //! So a backend whose call comes back into itself, by however many hops over whatever carried it,
 //! finds itself in the chain on a call it is still serving, and refuses at once
 //! (`EXTENSION_UNAVAILABLE`, `failure: "reentrant"`); one that answered long ago is not refused.
 //!
-//! The two traits the host needs are two because they are two sides in an edition where each
-//! application runs in a process of its own:
+//! The two traits the host needs are two because they are two sides in mode 3, where each
+//! package runs in a process of its own:
 //!
-//! - [`Kernel`] is the product's: registering the application's names, what it does as itself
+//! - [`Kernel`] is the product's: registering the package's names, what it does as itself
 //!   (`host.call`, `publish`, `subscribe`), a tool call's progress. Carried over the link to the
 //!   product, wherever the host runs.
-//! - [`Agent`] is the agent engine the application's agent package, skills and tools go to:
+//! - [`Agent`] is the agent engine the package's agent package, skills and tools go to:
 //!   installing them, switching them, offering its tools to sessions. Embedded, that is the
-//!   product's Agix; in a process of its own, the application's own, beside the host — never over
+//!   product's Agix; in a process of its own, the package's own, beside the host — never over
 //!   the link.
 //!
 //! So the same host runs embedded in the product's process (the packages extension implements both over
@@ -42,7 +42,7 @@
 //! wire between a product and an extension process of its own, at [`EXT_WIRE_VERSION`].
 //!
 //! **One machine, in this first version.** Paths cross as paths: what a path names (an unpacked
-//! package, an application's directory, an agent package's archive) is the host's to read, and
+//! package, a package's directory, an agent package's archive) is the host's to read, and
 //! the host and the product are on the same machine. A link between machines would carry those
 //! files rather than their names, and is not part of this version of the port.
 
@@ -65,7 +65,7 @@ pub const EXT_WIRE_VERSION: u32 = 1;
 
 /* ── what the host asks of the kernel and the agent engine ───────────── */
 
-/// An application's names in the product: what [`Kernel::register`] declares.
+/// A package's names in the product: what [`Kernel::register`] declares.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Registration {
     pub app: String,
@@ -75,7 +75,7 @@ pub struct Registration {
     pub topics: Vec<String>,
     /// `[[space]]`.
     pub spaces: Vec<SpaceDecl>,
-    /// What the application may reach as itself (`[capabilities] calls`).
+    /// What the package may reach as itself (`[capabilities] calls`).
     pub calls: Vec<String>,
     /// `[[tool]]`: every tool it offers sessions, as its manifest declares them.
     #[serde(default)]
@@ -90,11 +90,11 @@ pub struct Registration {
 pub struct MethodDecl {
     pub name: String,
     pub description: String,
-    /// Who may call it: `device`, `module`, `kernel`. The application itself always may.
+    /// Who may call it: `device`, `module`, `kernel`. The package itself always may.
     pub subjects: Vec<String>,
 }
 
-/// A call the application makes as itself: `host.call`.
+/// A call the package makes as itself: `host.call`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CallAs {
     pub app: String,
@@ -102,7 +102,7 @@ pub struct CallAs {
     pub params: Value,
 }
 
-/// `host.publish`, on one of the application's `[[topic]]`s.
+/// `host.publish`, on one of the package's `[[topic]]`s.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Publish {
     pub app: String,
@@ -118,7 +118,7 @@ pub struct Subscription {
     pub params: Value,
 }
 
-/// An application's agent package, into one instance.
+/// A package's agent package, into one instance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentInstall {
     pub app: String,
@@ -129,7 +129,7 @@ pub struct AgentInstall {
     pub instance: String,
 }
 
-/// An application's agent package in one instance, by name.
+/// A package's agent package in one instance, by name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentRef {
     pub app: String,
@@ -146,7 +146,7 @@ pub struct AgentSwitch {
     pub on: bool,
 }
 
-/// An application's skills in one instance: placed from `source` (its `agent/skills/`), or taken
+/// A package's skills in one instance: placed from `source` (its `agent/skills/`), or taken
 /// out (`source` unused).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Skills {
@@ -156,7 +156,7 @@ pub struct Skills {
     pub names: Vec<String>,
 }
 
-/// One tool an application's component lists.
+/// One tool a package's component lists.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolDef {
     pub name: String,
@@ -168,7 +168,7 @@ pub struct ToolDef {
     pub concurrency_safe: bool,
 }
 
-/// What a running application offers sessions: its tools, by their own names, and whether it has
+/// What a running package offers sessions: its tools, by their own names, and whether it has
 /// an `events` hook to offer every tool call. Offered again with nothing when it stops.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Offer {
@@ -180,7 +180,7 @@ pub struct Offer {
     pub tools: Vec<ToolDef>,
 }
 
-/// `host.http-request`, already checked against the application's `net` by the host: the
+/// `host.http-request`, already checked against the package's `net` by the host: the
 /// product checks it again against what it granted, and makes it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Fetch {
@@ -229,20 +229,20 @@ pub struct Progress {
 
 /// What the host needs from the product it runs in: the kernel.
 ///
-/// The product admits, grants and audits what an application does as itself (`module:<id>`); the
-/// host has already checked the application's own declarations (its `[[topic]]`s, its `net`)
+/// The product admits, grants and audits what a package does as itself (`ext:<id>`); the
+/// host has already checked the package's own declarations (its `[[topic]]`s, its `net`)
 /// before it asks. Every call carries its [`CallMeta`]: a host's own calls name the call they were
 /// made serving as their parent.
 #[async_trait]
 pub trait Kernel: Send + Sync {
-    /// Declare the application's methods, topics and spaces, and its `calls` capability. A product
-    /// that hosts no applications' names accepts this and declares nothing; what the application
+    /// Declare the package's methods, topics and spaces, and its `calls` capability. A product
+    /// that hosts no packages' names accepts this and declares nothing; what the package
     /// then does as itself is refused.
     async fn register(&self, meta: CallMeta, registration: Registration) -> Result<(), RpcError>;
-    /// Take them back. Calls queued for them are answered that the application stopped.
+    /// Take them back. Calls queued for them are answered that the package stopped.
     async fn withdraw(&self, meta: CallMeta, app: String) -> Result<(), RpcError>;
 
-    /// `host.call`, as `module:<app>`. Routed into an application's method, it reaches
+    /// `host.call`, as `ext:<app>`. Routed into a package's method, it reaches
     /// [`Control::call_method`] with the chain `meta` says and the product holds to: a backend
     /// still serving a call the chain holds it on — however many hops back, over whatever carried
     /// it — refuses it rather than deadlock.
@@ -265,24 +265,24 @@ pub trait Kernel: Send + Sync {
     fn progress(&self, progress: Progress);
 }
 
-/// What the host needs from the agent engine its applications' agent side goes to.
+/// What the host needs from the agent engine its packages' agent side goes to.
 #[async_trait]
 pub trait Agent: Send + Sync {
     /// Whether the agent engine has this instance, for `[agent] install_into`.
     async fn has_instance(&self, instance: String) -> Result<bool, RpcError>;
-    /// Install the application's agent package: answers what the engine discloses of it.
+    /// Install the package's agent package: answers what the engine discloses of it.
     async fn install_agent(&self, install: AgentInstall) -> Result<Value, RpcError>;
     async fn uninstall_agent(&self, agent: AgentRef) -> Result<(), RpcError>;
-    /// Switch an installed agent package on or off with the application.
+    /// Switch an installed agent package on or off with the package.
     async fn switch_agent(&self, switch: AgentSwitch) -> Result<(), RpcError>;
-    /// Put the skills in the instance's skills directory, marked as the application's. A skill of
-    /// that name that is not the application's is refused, by name.
+    /// Put the skills in the instance's skills directory, marked as the package's. A skill of
+    /// that name that is not the package's is refused, by name.
     async fn place_skills(&self, skills: Skills) -> Result<(), RpcError>;
-    /// Take out the skills marked as the application's, and nothing else.
+    /// Take out the skills marked as the package's, and nothing else.
     async fn remove_skills(&self, skills: Skills) -> Result<(), RpcError>;
     /// The instance re-reads its configuration, its skills included.
     async fn reload_instance(&self, instance: String) -> Result<(), RpcError>;
-    /// Offer the application's tools to sessions built from now on (or withdraw them: no tools).
+    /// Offer the package's tools to sessions built from now on (or withdraw them: no tools).
     async fn expose_tools(&self, offer: Offer) -> Result<(), RpcError>;
 }
 
@@ -293,7 +293,7 @@ pub trait Agent: Send + Sync {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Place {
     pub app: String,
-    /// `<apps>/<id>/`: the application's directory.
+    /// `<apps>/<id>/`: the package's directory.
     pub app_dir: PathBuf,
     /// The version unpacked under it, at `<app_dir>/<version>/`.
     pub version: String,
@@ -319,7 +319,7 @@ pub struct Unplace {
     pub parts: Value,
 }
 
-/// Start an installed application from its record.
+/// Start an installed package from its record.
 ///
 /// What the product verified — the package's signatures over its files as they are now, the
 /// manifest against the record — it says here, and the host takes its word: the host checks only
@@ -347,22 +347,22 @@ pub struct Start {
     /// What it is held to: the consented manifest's, with what the product shortens.
     pub limits: Limits,
     /// The unpacked package (`<ext>/<id>/<version>/`). Given by the carrier that runs several
-    /// applications in one host; an extension process has its own from its command line, and is
+    /// packages in one host; an extension process has its own from its command line, and is
     /// never sent one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pkg: Option<PathBuf>,
-    /// Where the application keeps what it writes: its `data/` and its store `kv/`. As `pkg`.
+    /// Where the package keeps what it writes: its `data/` and its store `kv/`. As `pkg`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run: Option<PathBuf>,
 }
 
-/// What an application is held to as it runs. The product's to say, from the manifest consented
+/// What a package is held to as it runs. The product's to say, from the manifest consented
 /// to — and its own settings, which may only shorten how long a backend idles — so that the host
 /// runs it as the product keeps it: an extension process hibernates its backend when the product
 /// expects it to.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Limits {
-    /// Linear memory for the whole application (`[component] memory_mb`).
+    /// Linear memory for the whole package (`[component] memory_mb`).
     pub memory_mb: u32,
     /// How long one call may take (`[component] timeout_ms`).
     pub timeout_ms: u64,
@@ -408,7 +408,7 @@ pub struct Stop {
     pub parts: Value,
 }
 
-/// A call of one of the application's `[[method]]`s, already admitted by the product.
+/// A call of one of the package's `[[method]]`s, already admitted by the product.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MethodCall {
     pub app: String,
@@ -418,7 +418,7 @@ pub struct MethodCall {
     pub params: Value,
 }
 
-/// A value on a topic the application subscribed to.
+/// A value on a topic the package subscribed to.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TopicValue {
     pub app: String,
@@ -426,7 +426,7 @@ pub struct TopicValue {
     pub value: Value,
 }
 
-/// One of the application's tools, called by a session (or a spawned daemon's, over MCP).
+/// One of the package's tools, called by a session (or a spawned daemon's, over MCP).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolCall {
     pub app: String,
@@ -474,7 +474,7 @@ pub enum ToolReply {
     Failed { failure: Failure, message: String },
 }
 
-/// A lifecycle event offered to the application's `events` hook: `tool.before`, around a
+/// A lifecycle event offered to the package's `events` hook: `tool.before`, around a
 /// session's tool call.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HookCall {
@@ -504,7 +504,7 @@ pub trait Control: Send + Sync {
     /// Take back what [`Control::place`] put in place; answers what was taken.
     async fn unplace(&self, meta: CallMeta, unplace: Unplace) -> Result<Value, RpcError>;
 
-    /// Start an installed application: its component checked to be the one the product verified,
+    /// Start an installed package: its component checked to be the one the product verified,
     /// its agent package and skills switched on, its names registered ([`Kernel::register`]), its
     /// VM started, its tools listed and offered. A step that fails undoes the ones before it, and
     /// the reason is kept for [`Control::status`].
@@ -512,13 +512,13 @@ pub trait Control: Send + Sync {
     /// Stop it: its tools withdrawn, its names withdrawn, its VM stopped, its agent package and
     /// skills switched off. A call already running holds its own instance.
     async fn stop(&self, meta: CallMeta, stop: Stop) -> Result<(), RpcError>;
-    /// Forget why an application that is not running did not start.
+    /// Forget why a package that is not running did not start.
     async fn forget(&self, meta: CallMeta, app: String) -> Result<(), RpcError>;
     /// What is running of it, or why it is not: `{state, reason, world, methods, …, health}`.
     async fn status(&self, meta: CallMeta, app: String) -> Result<Value, RpcError>;
 
     /// Answer one of its methods with its backend: params checked against the declared schema,
-    /// then queued for `handle`. Refused at once when `meta`'s chain holds the application on a
+    /// then queued for `handle`. Refused at once when `meta`'s chain holds the package on a
     /// call its backend is still serving: that backend is waiting on this very call. Refused
     /// before the backend is asked when `meta`'s deadline has passed.
     async fn call_method(&self, meta: CallMeta, call: MethodCall) -> Result<Value, RpcError>;
@@ -531,7 +531,7 @@ pub trait Control: Send + Sync {
     /// Cancel a tool call or hook still running, by its id. Nothing happens to one that ended.
     async fn cancel(&self, meta: CallMeta, call_id: String) -> Result<(), RpcError>;
 
-    /// The process is going: stop every application.
+    /// The process is going: stop every package.
     async fn shutdown(&self, meta: CallMeta, reason: String) -> Result<(), RpcError>;
 
     /// A turn started on an engine of the host's own, on behalf of these calls: its tools carry

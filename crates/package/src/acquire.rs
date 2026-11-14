@@ -1,4 +1,4 @@
-//! Getting an application: verifying a package (or an unpacked one) against the keys a process
+//! Getting a package: verifying a package (or an unpacked one) against the keys a process
 //! trusts, disclosing it to the person about to install it, the store's catalog and downloads,
 //! and describing an installed one from its own manifest.
 //!
@@ -129,7 +129,7 @@ impl Admission {
     }
 
     /// Read, verify and describe a package file for an engine whose fingerprint is `fingerprint`;
-    /// `installed`, the version it would replace and the application's directory.
+    /// `installed`, the version it would replace and the package's directory.
     pub fn disclose(
         &self,
         path: &Path,
@@ -219,7 +219,7 @@ pub fn manifest_in(root: &Path) -> Result<Manifest, RpcError> {
     Manifest::parse(&text).map_err(refused)
 }
 
-/// What an installed application is and asks for, from the manifest unpacked at `root`; null when
+/// What an installed package is and asks for, from the manifest unpacked at `root`; null when
 /// it does not read.
 pub fn describe(root: &Path) -> Value {
     let Ok(inspected) = package::inspect_dir(root) else {

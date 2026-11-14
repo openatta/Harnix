@@ -152,7 +152,7 @@ async fn a_tool_that_allocates_past_the_memory_limit_fails_and_frees_it() {
     assert!(health.last_error.unwrap().contains("memory limit"));
 }
 
-/// The limit is the application's, not each instance's: concurrent calls
+/// The limit is the package's, not each instance's: concurrent calls
 /// share it, and a call that cannot even start for lack of it is not the
 /// component's fault.
 #[tokio::test(flavor = "multi_thread")]
@@ -267,7 +267,7 @@ async fn the_network_is_reached_only_for_a_declared_host() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn only_a_declared_secret_is_readable_and_never_the_process_environment() {
-    // In the process's environment, declared: still not the application's.
+    // In the process's environment, declared: still not the package's.
     std::env::set_var("HARNIX_WASM_TEST_IN_THE_ENVIRONMENT", "the-process-own");
     let caps = Capabilities {
         env: vec![

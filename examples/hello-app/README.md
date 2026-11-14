@@ -1,6 +1,6 @@
 # hello-app
 
-An application on Harnix, laid out and built the way one is (docs/harnix-sdk.md §3): `harnix/` beside it
+An application on Harnix, laid out and built the way one is (docs/harnix-ext.md §3): `harnix/` beside it
 (here, a link to this checkout), its own Cargo workspace, its own interface modules.
 
 | space | interface (`ui/`) | backend (`app/`) | Agent |
@@ -15,7 +15,7 @@ scripts/build.sh            # checks, the interface with ui/ compiled in, then t
 target/release/hello-app --profile profiles/hello.toml
 ```
 
-The build sets three variables (harnix-sdk.md §22.5): `HARNIX_UI_MODULES` names `ui/src/index.tsx` for the
+The build sets three variables (harnix-ext.md §22.5): `HARNIX_UI_MODULES` names `ui/src/index.tsx` for the
 shell build, `HARNIX_UI_OUT` puts that build in `target/ui`, and `HARNIX_UI_DIST` makes the binary
 embed it instead of Harnix's own interface.
 

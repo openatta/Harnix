@@ -1,7 +1,7 @@
 /**
  * Interface modules that come with what is installed (concept §5.8, contribution API 3): an engine
  * package's `[[ui]]` modules, which the `plugins` extension serves at `/ext/plugins/ui/<package>/
- * <file>`, and a runtime application's at `/ext/<id>/ui/<file>`. `harnix.ui` lists them, and
+ * <file>`, and an extension package's at `/ext/<id>/ui/<file>`. `harnix.ui` lists them, and
  * this follows it: a module that appears is imported and registers; one whose package goes takes
  * everything it registered with it, as one batch.
  *

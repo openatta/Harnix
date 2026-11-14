@@ -40,7 +40,7 @@ function resolveInitial(): Locale {
 }
 
 /**
- * A module's language pack (harnix-sdk.md §22.4.1): keys it brings for its own text, merged into the
+ * An extension's language pack (harnix-ext.md §22.4.1): keys it brings for its own text, merged into the
  * dictionaries. Every key carries the module's namespace — `<owner>.` — so a pack can neither
  * rewrite the shell's text nor another module's; keys outside it are returned, not added.
  */

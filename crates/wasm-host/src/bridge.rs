@@ -1,35 +1,35 @@
-//! What an application's VM is lent (`harnix_wasm::VmHost`), what answers its methods, and what
+//! What a package's VM is lent (`harnix_wasm::VmHost`), what answers its methods, and what
 //! it is counted by.
 //!
-//! An application reaches the product, and the product reaches it, through the registration the
-//! host makes for it ([`Kernel::register`]). That registration is everything the application is
+//! A package reaches the product, and the product reaches it, through the registration the
+//! host makes for it ([`Kernel::register`]). That registration is everything the package is
 //! to the rest of the product:
 //!
 //! - **Its methods** (`[[method]]`, `<id>.<name>`) are declared with the principals the
-//!   manifest names, so a call from the page, a module or another application is admitted and
+//!   manifest names, so a call from the page, an extension or another package is admitted and
 //!   audited before [`Method::answer`] sees it. Its params are checked against the declared schema
 //!   here, then the call queues for the resident backend's `handle`.
 //! - **Its topics** (`[[topic]]`) are the only ones `host.publish` reaches, in the order the
 //!   backend published them.
 //! - **Its `calls` capability** is what `host.call` and `host.subscribe` may reach as
-//!   `module:<id>`; the kernel decides, grants and audits. Whatever it refuses is kept here too,
+//!   `ext:<id>`; the kernel decides, grants and audits. Whatever it refuses is kept here too,
 //!   for the system space.
 //! - **Its spaces** (`[[space]]`) are listed with every other.
 //!
 //! **A call's chain.** Every call the host serves for the product comes with its [`CallMeta`], and
-//! is kept here while it runs ([`Bridge::serve`]): a `host.call` the application makes while serving
+//! is kept here while it runs ([`Bridge::serve`]): a `host.call` the package makes while serving
 //! it names it as its parent, and — when it holds the backend (a method call, `init`) — carries its
-//! chain with the application held on it. A call that comes back into this backend while the
+//! chain with the package held on it. A call that comes back into this backend while the
 //! backend still serves the call the chain holds it on is refused at once, however it travelled
 //! ([`Bridge::holds_backend`]); one whose call was answered long ago is not. What the backend does
 //! on its own — a timer firing, a topic value — is served the same way, under an id the VM made
-//! for it ([`VmHost::delivering`]): a call it makes then holds the application on that id.
+//! for it ([`VmHost::delivering`]): a call it makes then holds the package on that id.
 //!
-//! Who may call an application's methods, then: whoever its manifest names — `device` (the
+//! Who may call a package's methods, then: whoever its manifest names — `device` (the
 //! default) is every paired device and so the page, under its token, `module` every module (a
-//! compiled-in module, or another application whose `calls` list the method), `kernel` the product
-//! itself — and always the application itself, whose tools reach their backend that way. A session
-//! does not call methods: the agent uses the application's tools, and a tool that needs the
+//! compiled-in module, or another package whose `calls` list the method), `kernel` the product
+//! itself — and always the package itself, whose tools reach their backend that way. A session
+//! does not call methods: the agent uses the package's tools, and a tool that needs the
 //! backend's state asks for it with `host.call`.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
@@ -45,13 +45,13 @@ use tokio::sync::{mpsc, oneshot};
 use harnix_wasm_port::codes;
 use harnix_contract::sync::lock;
 
-/// Refused calls kept per application for the system space.
+/// Refused calls kept per package for the system space.
 const REFUSALS_KEPT: usize = 20;
 /// Publishes waiting for the kernel, and topic values waiting for the backend's VM to start.
-/// Past this the application (or the hub, for what it subscribed to) is outrunning what takes them,
+/// Past this the package (or the hub, for what it subscribed to) is outrunning what takes them,
 /// and dropping — counted — beats growing without bound.
 pub(crate) const QUEUE: usize = 256;
-/// Method errors kept per application.
+/// Method errors kept per package.
 const ERRORS_KEPT: usize = 20;
 
 pub(crate) fn now_ms() -> u64 {
@@ -61,7 +61,7 @@ pub(crate) fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// A call of the product's the host is serving for one application.
+/// A call of the product's the host is serving for one package.
 struct Served {
     meta: CallMeta,
     /// It holds the resident backend: a call made while serving it waits on it.
@@ -107,8 +107,8 @@ fn leave(served: &mut HashMap<String, Served>, id: &str) {
     }
 }
 
-/// What one application did, as the system space shows it. Every count it makes bumps the host's
-/// generation (`Host::generation`): what the application does on its own — a timer's work, what
+/// What one package did, as the system space shows it. Every count it makes bumps the host's
+/// generation (`Host::generation`): what the package does on its own — a timer's work, what
 /// it publishes — moves it as much as a call does.
 #[derive(Default)]
 pub struct Stats {
@@ -151,7 +151,7 @@ impl Stats {
         }
     }
 
-    /// A call the application made as itself (`host.call`, `host.subscribe`) and how it ended.
+    /// A call the package made as itself (`host.call`, `host.subscribe`) and how it ended.
     fn hub(&self, what: &str, outcome: &Result<Value, RpcError>) {
         let mut c = self.counted();
         c.hub_calls += 1;
@@ -191,7 +191,7 @@ impl Stats {
     }
 }
 
-/// What the application's VM is lent: the kernel behind `call`, `publish` and `subscribe`, the
+/// What the package's VM is lent: the kernel behind `call`, `publish` and `subscribe`, the
 /// secrets the profile gives it, and the queue its subscriptions' values wait in until the VM has
 /// started.
 pub struct Bridge {
@@ -207,7 +207,7 @@ pub struct Bridge {
     topic_values: mpsc::Sender<(String, Value)>,
     started: Mutex<Option<oneshot::Sender<WeakAppVm>>>,
     pub stats: Arc<Stats>,
-    /// The product's calls being served for the application, by the id each was served under.
+    /// The product's calls being served for the package, by the id each was served under.
     served: Mutex<HashMap<String, Served>>,
     /// While its VM starts: the start it serves, which `init`'s calls are made for.
     booting: Mutex<Option<String>>,
@@ -293,14 +293,14 @@ impl Bridge {
     }
 
     /// Whether the backend is still serving the call `call`: a call whose chain holds the
-    /// application on it would wait for itself.
+    /// package on it would wait for itself.
     pub fn holds_backend(&self, call: &str) -> bool {
         lock(&self.served).get(call).is_some_and(|s| s.holds)
     }
 
-    /// The metadata of a call the application makes while serving `serving` (or `init`'s call,
+    /// The metadata of a call the package makes while serving `serving` (or `init`'s call,
     /// while it starts): that call its parent, its chain the served call's — with the
-    /// application held on it when it holds the backend — and its deadline the same.
+    /// package held on it when it holds the backend — and its deadline the same.
     fn made_within(&self, serving: Option<&str>) -> CallMeta {
         let booting = lock(&self.booting).clone();
         let Some(id) = serving.map(str::to_string).or(booting) else {
@@ -459,7 +459,7 @@ impl Method {
         format!("{}.{}", self.app, self.name)
     }
 
-    /// Checked against its schema, then answered by `vm` (none: the application is not running),
+    /// Checked against its schema, then answered by `vm` (none: the package is not running),
     /// serving the product's call `serving`.
     pub async fn answer(
         &self,
@@ -502,7 +502,7 @@ impl Method {
 }
 
 /// The backend gave no answer, in the codes a caller tells the reasons apart by: its timeout
-/// passed (`DEADLINE_EXCEEDED`), the call was cancelled (`CANCELLED`), or the application could
+/// passed (`DEADLINE_EXCEEDED`), the call was cancelled (`CANCELLED`), or the package could
 /// not take it (`EXTENSION_UNAVAILABLE`, `data.failure` saying why: it crashed or was set aside —
 /// `faulted` —, it is stopped, the call would have re-entered it).
 pub(crate) fn no_answer(app: &str, method: &str, failure: &CallFailure, vm: &AppVm) -> RpcError {
@@ -522,7 +522,7 @@ pub(crate) fn no_answer(app: &str, method: &str, failure: &CallFailure, vm: &App
     e
 }
 
-/// The application cannot take the call (`EXTENSION_UNAVAILABLE`); `failure` says why:
+/// The package cannot take the call (`EXTENSION_UNAVAILABLE`); `failure` says why:
 /// `stopped`, `reentrant`.
 pub(crate) fn unavailable(app: &str, method: &str, why: &str, failure: &str) -> RpcError {
     let mut e = RpcError::new(codes::EXTENSION_UNAVAILABLE, format!("`{method}`: {why}"));
@@ -534,7 +534,7 @@ pub(crate) fn unavailable(app: &str, method: &str, why: &str, failure: &str) -> 
 mod tests {
     use super::*;
 
-    /// A kernel that never takes a publish: one the application outruns.
+    /// A kernel that never takes a publish: one the package outruns.
     struct Stuck;
 
     #[async_trait]

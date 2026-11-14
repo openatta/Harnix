@@ -167,7 +167,7 @@ test.describe("an application with a backend", () => {
 
   test("it reaches the network at the hosts its net lists, and nowhere else", TAGS, async () => {
     // A request is slow work: the method starts it and answers with a job at once, and what came of
-    // it is published on `fetched` (harnix-plugin.md §4, `handle` is quick).
+    // it is published on `fetched` (harnix-ext-package.md §4, `handle` is quick).
     await api.call("harnix.topics.subscribe", { topic: M("fetched") });
     const outcome = async (url: string) => {
       const started = await api.call(M("fetch"), { url });
