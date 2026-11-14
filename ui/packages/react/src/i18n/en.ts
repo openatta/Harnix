@@ -287,7 +287,7 @@ const en: Record<string, string> = {
   "hero.greeting": "{greeting}. What shall we work on?",
   "home.continue": "Back to the conversation",
   "space.sessions.subtitle": "Every session, by time",
-  "contrib.v1Inert": "Not loaded: written for contribution API v1; this shell loads v2 modules only",
+  "contrib.v1Inert": "Not loaded: written for contribution API v1; this shell loads v3 modules only",
   "contrib.refusedAt": "refused at {point}",
   "contrib.noneRefused": "no contribution was refused",
   "details.noPanel": "nothing claims this item",

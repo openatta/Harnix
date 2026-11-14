@@ -285,7 +285,7 @@ const zhCN: Record<string, string> = {
   "hero.greeting": "{greeting}，今天想做什么？",
   "home.continue": "回到对话",
   "space.sessions.subtitle": "全部会话，按时间",
-  "contrib.v1Inert": "这一条不生效：照贡献点 API v1 写的，这个外壳只加载 v2 的模块",
+  "contrib.v1Inert": "这一条不生效：照贡献点 API v1 写的，这个外壳只加载 v3 的模块",
   "contrib.refusedAt": "在 {point} 上被拒绝",
   "contrib.noneRefused": "没有被拒绝的贡献",
   "details.noPanel": "没有贡献认领这一项",
