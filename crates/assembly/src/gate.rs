@@ -147,7 +147,7 @@ mod tests {
             }
         }
         let rows = vec![
-            Row::method(format!("{id}.echo"), Access::kernel().with_device().with_extension(ext.clone()), Arc::new(Nothing)),
+            Row::method(format!("{id}.echo"), Access::device().with_extension(ext.clone()), Arc::new(Nothing)),
             Row::method(format!("{id}.internal"), Access::only(ext.clone()), Arc::new(Nothing)),
             Row::topic(&format!("{id}.ticks"), Access::only(ext.clone())),
         ];

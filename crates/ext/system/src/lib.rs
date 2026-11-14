@@ -75,7 +75,7 @@ impl Extension for System {
         r.space(SpaceDecl::new(SPACE).cross_space());
         // A person's, not an extension's: a package never borrows these powers, as itself or
         // through its frames.
-        let session = || Access::kernel().with_device().scoped(RowScope::Session);
+        let session = || Access::device().scoped(RowScope::Session);
         for &(name, method, keys) in ENGINE {
             r.method(name).access(session()).raw(move |call, params| async move {
                 call.call(method, engine_params(&params, keys)?).await
@@ -84,11 +84,11 @@ impl Extension for System {
         r.method("context").access(session()).raw(inspect_context);
         for &(name, method) in INSTANCES {
             r.method(name)
-                .access(Access::kernel().with_device())
+                .access(Access::device())
                 .raw(move |call, params| async move { call.call(method, params).await });
         }
         r.method("process")
-            .access(Access::kernel().with_device())
+            .access(Access::device())
             .describe("this process's versions, uptime, memory, threads and who is connected")
             .raw(|call: Call, _| async move { Ok(call.ext().process()?.to_json()) });
         r.topic("process").computed(Some(PROCESS_EVERY), Process);

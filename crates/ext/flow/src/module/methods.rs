@@ -210,7 +210,7 @@ fn method<C, P, F, Fut>(
     let sh = sh.clone();
     let packs = packs.clone();
     m.method(name)
-        .access(Access::kernel().with_device())
+        .access(Access::device())
         .describe(describe)
         .handler(move |cx: Call, p: P| f(sh.clone(), packs.clone(), cx, p));
 }

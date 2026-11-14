@@ -640,7 +640,7 @@ mod tests {
         t.install(
             &ext("w"),
             vec![
-                method("w.list", Access::kernel().with_device().with_extension(id("trade"))),
+                method("w.list", Access::device().with_extension(id("trade"))),
                 method("w.internal", Access::kernel()),
             ],
         )
@@ -662,8 +662,8 @@ mod tests {
         t.install(
             &ext("w"),
             vec![
-                Row::route("w", Access::kernel().with_device()),
-                Row::topic("w.groups", Access::kernel().with_device()),
+                Row::route("w", Access::device()),
+                Row::topic("w.groups", Access::device()),
             ],
         )
         .unwrap();
@@ -679,8 +679,8 @@ mod tests {
         names
             .iter()
             .map(|n| match n.strip_prefix("topic:") {
-                Some(t) => Row::topic(t, Access::kernel().with_device()),
-                None => method(n, Access::kernel().with_device()),
+                Some(t) => Row::topic(t, Access::device()),
+                None => method(n, Access::device()),
             })
             .collect()
     }
@@ -691,12 +691,12 @@ mod tests {
         t.install(
             &ext("probe"),
             vec![
-                method("probe.echo", Access::kernel().with_device()),
-                Row::topic("probe.counter", Access::kernel().with_device()),
+                method("probe.echo", Access::device()),
+                Row::topic("probe.counter", Access::device()),
             ],
         )
         .unwrap();
-        t.install(&ext("routed"), vec![Row::route("routed", Access::kernel().with_device())]).unwrap();
+        t.install(&ext("routed"), vec![Row::route("routed", Access::device())]).unwrap();
         t
     }
 
@@ -858,7 +858,7 @@ mod tests {
             ],
         )
         .unwrap();
-        let own = Access::kernel().with_device().with_extension(id("acme.notes"));
+        let own = Access::device().with_extension(id("acme.notes"));
         t.install_package(
             "acme.notes",
             vec![method("acme.notes.echo", own.clone()), Row::topic("acme.notes.ticks", own)],

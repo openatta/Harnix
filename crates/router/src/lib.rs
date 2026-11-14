@@ -375,7 +375,7 @@ mod tests {
             .unwrap();
         // A first-party power, open to devices alone; and another package's method.
         table.register(&id("system"), crate::IdKind::Native).unwrap();
-        table.install(&Owner::extension(id("system")), vec![Row::method("system.compact", Access::kernel().with_device(), seen.clone())]).unwrap();
+        table.install(&Owner::extension(id("system")), vec![Row::method("system.compact", Access::device(), seen.clone())]).unwrap();
         table.install_package("acme.todo", vec![Row::method("acme.todo.list", Access::device(), seen.clone())]).unwrap();
         let grants = Arc::new(GrantTable::new());
         grants.set(id("system"), [caps::ENGINE_INSPECT], Trust::Origin);
