@@ -18,8 +18,8 @@
  * Its own engine (the showcase has `agent/` and two `[[space]]`s) is adopted as `proc.<id>`: an
  * extension's engine, its spaces' sessions there, its content marked untrusted; the product only
  * routes. That describe also lets an on-demand variant's process go while idle and wakes it.
- * Turns there need a model: the process's own engine records and replays nothing, so the tests
- * that run one skip without a live model.
+ * Turns there need a model: the recorder makes no fixture for a session on the process's own
+ * engine, so the tests that run one skip without a live model.
  *
  * A product of another build (another Harnix, Agix or VM engine) is refused too; that takes
  * another build, and `crates/carrier/proc/tests/process.rs` makes one by telling the carrier
@@ -330,7 +330,7 @@ test.describe("packages in processes of their own, in their sandbox", () => {
   });
 
   test("its engine's shell tool runs in its sandbox", TAGS, async () => {
-    test.skip(modelMode() !== "live", "a turn on the extension's own engine calls the model: it records and replays nothing");
+    test.skip(modelMode() !== "live", "a turn on the extension's own engine calls the model: no fixture is recorded for it");
     test.skip(!sandboxed, "no sandbox on this machine");
     await provideModel(api);
     const created = await api.call("harnix.session.create", { space: SHOWCASE_ID });
@@ -417,7 +417,7 @@ test.describe("an extension process's own engine", () => {
   });
 
   test("a refresh catches up on a turn without losing a frame", TAGS, async () => {
-    test.skip(modelMode() !== "live", "a turn on the extension's own engine calls the model: it records and replays nothing");
+    test.skip(modelMode() !== "live", "a turn on the extension's own engine calls the model: no fixture is recorded for it");
     await provideModel(api);
     const created = await api.call("harnix.session.create", { space: SHOWCASE_ID });
     const key = { instance: ENGINE, session_id: created.session_id, space: SHOWCASE_ID };

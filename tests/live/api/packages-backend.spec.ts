@@ -217,9 +217,9 @@ test.describe("an application with a backend", () => {
     await api.call("harnix.topics.subscribe", { topic: "packages.list" });
     const answer = await api.call(M("overreach"));
     expect(answer.refused).toBe(true);
-    expect(answer.message).toContain("not in the application's `calls` capability");
+    expect(answer.message).toContain("not in the package's `calls` capability");
     const entry = (await audit(api)).find((e) => e.subject === ME && e.method === "packages.uninstall");
-    expect(entry).toMatchObject({ decision: "refuse", reason: "not in the application's `calls` capability" });
+    expect(entry).toMatchObject({ decision: "refuse", reason: "not in the package's `calls` capability" });
     // Nothing happened, and the system space has it among the refusals.
     const rt = await runtime(api);
     expect(rt.state).toBe("running");
