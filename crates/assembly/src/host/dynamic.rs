@@ -183,7 +183,7 @@ impl HostApi for HostFor {
     /// other component's.
     fn spawn_child(&self, id: &ExtId, req: ChildRequest) -> Rpc<ChildHandle> {
         self.registered(id)?;
-        super::spawn::spawn(&self.host.children, id, req, self.unsandboxed())
+        super::spawn::spawn(&self.host.children, id, req, self.unsandboxed(), self.host.instances.replay_from())
     }
 
     fn child_sandbox(&self) -> ChildSandbox {
