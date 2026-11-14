@@ -379,9 +379,10 @@ impl Hub {
 /// A turn of an extension's engine starting or ending, as the hub tells every client of it: only
 /// what the hub reads off the event, never the event itself. `None` for anything else it says.
 fn extension_turn(kind: &DaemonEventKind, event: &Value) -> Option<(String, Value)> {
-    let (name, session, turn_id) = match kind {
-        DaemonEventKind::TurnStarted { session, turn_id } => ("turn_started", session, turn_id),
-        DaemonEventKind::TurnCompleted { session, turn_id, .. } => ("turn_completed", session, turn_id),
+    let name = kind.told_as()?;
+    let (session, turn_id) = match kind {
+        DaemonEventKind::TurnStarted { session, turn_id } => (session, turn_id),
+        DaemonEventKind::TurnCompleted { session, turn_id, .. } => (session, turn_id),
         _ => return None,
     };
     // Who started it, when it is one of the engine's own words for that.

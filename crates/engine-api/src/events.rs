@@ -170,3 +170,15 @@ pub enum DaemonEventKind {
     Lagged,
     Other,
 }
+
+impl DaemonEventKind {
+    /// The `kind` a client is told of a turn starting or ending on an engine whose own events are
+    /// not passed on: the host event's word, whatever engine is under it. `None` for the rest.
+    pub fn told_as(&self) -> Option<&'static str> {
+        match self {
+            DaemonEventKind::TurnStarted { .. } => Some("turn_started"),
+            DaemonEventKind::TurnCompleted { .. } => Some("turn_completed"),
+            _ => None,
+        }
+    }
+}
