@@ -1,6 +1,7 @@
 //! A package on a real process (`harnix::testing::Kernel`), carried in this process: installed
 //! from a file, registered as an extension by the component's registrar, switched off and on,
-//! taken out — and one whose consent lists a first-party power, refused with nothing left behind.
+//! taken out — and one whose consent lists a first-party power, or whose agent side names an
+//! instance there is none of, refused with nothing left behind.
 //!
 //! The packages here have no component (nothing to compile): what is exercised is the
 //! component's records and methods and the host path a package takes, not its VM.
@@ -10,8 +11,9 @@ use std::path::{Path, PathBuf};
 use harnix::{caps, codes, Subject};
 use serde_json::{json, Value};
 
-/// An unsigned package `id`, its consent listing `calls`, with a space and an interface file.
-fn package(dir: &Path, id: &str, calls: &[&str]) -> PathBuf {
+/// An unsigned package `id`, its consent listing `calls`, with a space and an interface file, and
+/// `more` at the end of its manifest.
+fn package(dir: &Path, id: &str, calls: &[&str], more: &str) -> PathBuf {
     let src = dir.join(format!("src-{id}"));
     std::fs::create_dir_all(src.join("ui")).unwrap();
     let calls = calls.iter().map(|c| format!("{c:?}")).collect::<Vec<_>>().join(", ");
@@ -19,7 +21,7 @@ fn package(dir: &Path, id: &str, calls: &[&str]) -> PathBuf {
         src.join("harnix-ext.toml"),
         format!(
             "[app]\nid = \"{id}\"\nversion = \"1.0.0\"\nharnix_api = 2\npublisher = \"acme\"\ntitle = \"Board\"\n\n\
-             [capabilities]\ncalls = [{calls}]\n\n[[space]]\nid = \"{id}\"\n"
+             [capabilities]\ncalls = [{calls}]\n\n[[space]]\nid = \"{id}\"\n{more}"
         ),
     )
     .unwrap();
@@ -55,7 +57,7 @@ async fn a_package_is_installed_registered_switched_and_taken_out() {
     };
 
     // Installed from a file, unsigned (the profile's `dev`), and running: an extension like any.
-    let board = package(dir.path(), "acme.board", &["harnix.session.create"]);
+    let board = package(dir.path(), "acme.board", &["harnix.session.create"], "");
     let installed = call("packages.installFile", json!({"path": board})).await.unwrap();
     assert_eq!((installed["id"].as_str(), installed["trust"].as_str()), (Some("acme.board"), Some("unsigned")));
     let list = call("packages.list", json!({})).await.unwrap();
@@ -80,12 +82,20 @@ async fn a_package_is_installed_registered_switched_and_taken_out() {
 
     // A consent that lists the system space's power: refused at registration, and nothing of it
     // stays — no record, no directory, no extension.
-    let borrower = package(dir.path(), "acme.borrow", &["system.compact"]);
+    let borrower = package(dir.path(), "acme.borrow", &["system.compact"], "");
     let e = call("packages.installFile", json!({"path": borrower})).await.unwrap_err();
     assert_eq!(e.code, codes::REFUSED);
     assert!(e.message.contains("system.compact"), "{}", e.message);
     assert!(!dir.path().join("state/ext/acme.borrow").exists());
     assert!(listed(&call("packages.list", json!({})).await.unwrap(), "acme.borrow").is_none());
+
+    // Its agent side named for an instance there is none of: refused on install, on either
+    // carrier, before anything of it is unpacked.
+    let nowhere = package(dir.path(), "acme.nowhere", &[], "\n[agent]\ninstall_into = [\"nowhere\"]\n");
+    let e = call("packages.installFile", json!({"path": nowhere})).await.unwrap_err();
+    assert_eq!(e.code, codes::REFUSED);
+    assert!(e.message.contains("`nowhere`, and there is no such instance"), "{}", e.message);
+    assert!(!dir.path().join("state/ext/acme.nowhere").exists());
 
     // Taken out: its directory, its record, its registration.
     let gone = call("packages.uninstall", json!({"id": "acme.board"})).await.unwrap();

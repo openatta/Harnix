@@ -16,7 +16,7 @@ use std::path::Path;
 
 use harnix_ext::{caps, ExtId, Rpc, RpcError};
 use harnix_host_api::{Installed, StopReason};
-use harnix_package::acquire::{internal, refused, Disclosure};
+use harnix_package::acquire::{internal, no_such_instance, refused, Disclosure};
 use harnix_package::manifest::Manifest;
 use harnix_package::package;
 use harnix_package::signature::Verified;
@@ -37,6 +37,17 @@ fn grants(manifest: &Manifest) -> (Vec<harnix_ext::Capability>, BTreeSet<String>
         held.push(caps::EVENTS_ALL_TOOLS);
     }
     (held, manifest.capabilities.calls.iter().cloned().collect())
+}
+
+/// Each instance its `[agent] install_into` names is one of this product's: checked before its
+/// carrier is asked, so that a package is accepted or refused alike on both. The in-process
+/// carrier puts its agent package there; the process carrier puts it in the package's own engine,
+/// and the names have no further effect.
+fn instances_named(state: &State, manifest: &Manifest) -> Rpc<()> {
+    match manifest.agent.install_into.iter().find(|target| state.cx.engine(target).is_none()) {
+        Some(target) => Err(no_such_instance(&manifest.app.id, target)),
+        None => Ok(()),
+    }
 }
 
 /// The manifest unpacked at `root`, as JSON for the carrier.
@@ -164,6 +175,7 @@ pub(crate) async fn install(state: &State, path: &Path, disclosed: &Disclosure, 
     let inspected = package::inspect(path, &fingerprint).map_err(refused)?;
     // Before a byte of it is written.
     let verified = state.admission.admit_zip(path, &inspected.manifest)?;
+    instances_named(state, &inspected.manifest)?;
     let app = &inspected.manifest.app;
     let app_dir = state.package_dir(&app.id);
     std::fs::create_dir_all(&app_dir).map_err(|e| internal(format!("{}: {e}", app_dir.display())))?;
@@ -222,6 +234,8 @@ pub(crate) async fn update(state: &State, record: &InstallRecord, path: &Path, d
         return Err(refused(format!("the package is `{}`, not `{}`", inspected.manifest.app.id, record.id)));
     }
     let verified = state.admission.admit_zip(path, &inspected.manifest)?;
+    // Before the installed version is taken down.
+    instances_named(state, &inspected.manifest)?;
     let version = inspected.manifest.app.version.clone();
     if version == record.version {
         return Err(refused(format!("`{}` {version} is the version installed", record.id)));

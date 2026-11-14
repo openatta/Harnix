@@ -1,7 +1,8 @@
 //! An instance whose engine runs in an extension's own process is under third-party control, and
 //! the hub holds it to bounds the product's own engines are not held to:
 //!
-//! - its engine-wide events are not broadcast to every client;
+//! - its engine-wide events are not broadcast to every client, but that a turn of its started or
+//!   ended, which the hub tells as it reads it, not as it was said;
 //! - its frames are bounded in size and rate: what is over is dropped, and the registry told;
 //! - what it says of a session is held to what a session can say: a title of at most 200
 //!   characters, a turn state the hub knows;
@@ -284,6 +285,44 @@ async fn an_extensions_engine_wide_events_are_not_broadcast() {
     let told = sink.frames("harnix.host_event");
     assert_eq!(told.len(), 1, "{told:?}");
     assert_eq!(told[0]["params"]["instance"], "own");
+}
+
+#[tokio::test]
+async fn an_extensions_turns_are_told_to_every_client_as_the_hub_reads_them() {
+    let rig = Rig::new().await;
+    let sink = rig.watcher().await;
+    let turn = |kind: &str, initiator: Value| EngineEvent::Daemon {
+        kind: match kind {
+            "turn_started" => DaemonEventKind::TurnStarted { session: "s1".into(), turn_id: "t1".into() },
+            _ => DaemonEventKind::TurnCompleted { session: "s1".into(), turn_id: "t1".into(), initiator: initiator.clone() },
+        },
+        event: json!({"kind": kind, "session_id": "s1", "turn_id": "t1", "initiator": initiator, "html": "<img src=x>"}),
+    };
+    rig.ext.1.send(turn("turn_started", json!("client"))).await.unwrap();
+    rig.ext.1.send(turn("turn_completed", json!("<b>someone</b>"))).await.unwrap();
+    rig.ext.1.send(EngineEvent::Daemon { kind: DaemonEventKind::Other, event: json!({"kind": "note"}) }).await.unwrap();
+    rig.ext.1.send(text("after")).await.unwrap();
+    rig.own.1.send(turn("turn_started", json!("client"))).await.unwrap();
+    until(&sink, "harnix.event", 1).await;
+    until(&sink, "harnix.host_event", 3).await;
+    let told = sink.frames("harnix.host_event");
+    assert_eq!(told.len(), 3, "{told:?}");
+    // Each instance's events in order; the two instances' interleaved as their routers ran.
+    let of = |instance: &str| told.iter().map(|f| &f["params"]).filter(|p| p["instance"] == instance).collect::<Vec<_>>();
+    let (ext, own) = (of("ext"), of("own"));
+    assert_eq!((ext.len(), own.len()), (2, 1), "{told:?}");
+    assert_eq!(
+        *ext[0],
+        json!({"kind": "turn_started", "instance": "ext", "session_id": "s1", "turn_id": "t1", "initiator": "client", "trust": "extension"})
+    );
+    // What is not the engine's own word for who started it is not told.
+    assert_eq!(
+        *ext[1],
+        json!({"kind": "turn_completed", "instance": "ext", "session_id": "s1", "turn_id": "t1", "initiator": null, "trust": "extension"})
+    );
+    // The product's engines are told as they say it.
+    assert_eq!(own[0]["html"], "<img src=x>");
+    assert!(own[0].get("trust").is_none(), "{}", own[0]);
 }
 
 #[tokio::test]

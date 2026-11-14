@@ -94,6 +94,12 @@ impl Hub {
     }
 
     async fn daemon_event(self: &Arc<Self>, instance: &str, kind: DaemonEventKind, mut event: Value) {
+        // An extension's engine-wide events are the hub's own account of its turns, and nobody
+        // else's: what it says of itself is not broadcast to every client. That a turn of one of
+        // its sessions started or ended is, as for the product's engines — rebuilt by the hub,
+        // marked as an extension's, and within its engine's bounds.
+        let extension = self.is_extension(instance);
+        let told = if extension { extension_turn(&kind, &event) } else { None };
         match kind {
             DaemonEventKind::TurnStarted { session, turn_id } => {
                 self.turn_started_elsewhere(instance, &session, &turn_id).await;
@@ -117,10 +123,11 @@ impl Hub {
             }
             _ => {}
         }
-        // An extension's engine-wide events are the hub's own account of its turns, and nobody
-        // else's: what it says of itself is not broadcast to every client.
-        if self.is_extension(instance) {
-            return;
+        if extension {
+            match told {
+                Some((session, told)) if self.bounded(instance, &session, told.to_string().len()) => event = told,
+                _ => return,
+            }
         }
         // Which instance said it: a host event about a session is about
         // `(instance, session)` like every other frame.
@@ -359,4 +366,27 @@ impl Hub {
         }
         self.refresh("harnix.instances.sessions", json!({"instance": instance}));
     }
+}
+
+/// A turn of an extension's engine starting or ending, as the hub tells every client of it: only
+/// what the hub reads off the event, never the event itself. `None` for anything else it says.
+fn extension_turn(kind: &DaemonEventKind, event: &Value) -> Option<(String, Value)> {
+    let (name, session, turn_id) = match kind {
+        DaemonEventKind::TurnStarted { session, turn_id } => ("turn_started", session, turn_id),
+        DaemonEventKind::TurnCompleted { session, turn_id, .. } => ("turn_completed", session, turn_id),
+        _ => return None,
+    };
+    // Who started it, when it is one of the engine's own words for that.
+    let initiator = event
+        .get("initiator")
+        .and_then(Value::as_str)
+        .filter(|i| !i.is_empty() && i.len() <= 32 && i.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'));
+    let told = json!({
+        "kind": name,
+        "session_id": session,
+        "turn_id": turn_id,
+        "initiator": initiator,
+        "trust": "extension",
+    });
+    Some((session.clone(), told))
 }
