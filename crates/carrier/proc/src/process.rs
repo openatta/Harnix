@@ -115,6 +115,8 @@ pub(crate) struct Phase {
     pub restarting_in_ms: Option<u64>,
     /// What placing it put where, once it was.
     pub placed: Option<Value>,
+    /// What its engine disclosed of its agent package as it was placed: the installer is shown it.
+    pub disclosure: Value,
     /// `proc.withdraw`s it sent, ignored.
     pub withdraws: u64,
     /// The last lines its process wrote to its stderr, as of its last run that wrote any.
@@ -136,6 +138,7 @@ impl Default for Phase {
             last_exit: None,
             restarting_in_ms: None,
             placed: None,
+            disclosure: Value::Null,
             withdraws: 0,
             stderr: Vec::new(),
             asleep: None,
@@ -678,7 +681,10 @@ async fn connect(
         let instances = package.engine.iter().map(|e| e.instance().to_string()).collect();
         let place = Place { app: id.clone(), app_dir, version: package.installed.version().to_string(), instances: Some(instances) };
         match control.place(CallMeta::default().with_deadline(Some(deadline_ms)), place).await {
-            Ok(placement) => package.set(|p| p.placed = Some(placement.parts)),
+            Ok(placement) => package.set(|p| {
+                p.placed = Some(placement.parts);
+                p.disclosure = placement.disclosure;
+            }),
             Err(e) => return Err(failed(&wire, NotUp::Refused(format!("it was not put in place: {}", e.message))).await),
         }
     }

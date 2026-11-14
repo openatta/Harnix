@@ -296,12 +296,13 @@ fn placed_of(installed: &Installed) -> Value {
     placed
 }
 
-/// What starting it tells whoever asked.
-fn summary(fingerprint: &str, parts: &Value, started: Value) -> Value {
+/// What starting it tells whoever asked: as the in-process carrier says it, its agent package's
+/// disclosure included, from its own engine.
+fn summary(fingerprint: &str, parts: &Value, disclosure: &Value, started: Value) -> Value {
     json!({
         "fingerprint": fingerprint,
         "agent": parts.get("agent").filter(|a| !a.is_null()).map(|agent| json!({
-            "package": agent["package"], "instances": agent["instances"],
+            "package": agent["package"], "instances": agent["instances"], "disclosure": disclosure,
         })),
         "skills": parts.get("skills").cloned().unwrap_or(json!({})),
         "started": started,
@@ -341,8 +342,9 @@ impl Carrier for ProcCarrier {
         let id = app.id().clone();
         let running = lock(&me.packages).get(id.as_str()).cloned();
         if let Some(running) = running {
-            let parts = running.placed();
-            return Ok(Running::new(parts.clone(), summary(&me.ours.engine, &parts, me.status_of(id.as_str()).await)));
+            let (parts, disclosure) = (running.placed(), running.phase().disclosure);
+            let status = me.status_of(id.as_str()).await;
+            return Ok(Running::new(parts.clone(), summary(&me.ours.engine, &parts, &disclosure, status)));
         }
         let manifest = harnix_package::acquire::manifest_in(app.pkg_dir())?;
         let expected = kernel::declared(&manifest, &kernel::consented_digest(&app)?);
@@ -457,8 +459,8 @@ impl Carrier for ProcCarrier {
             tracing::warn!(package = %id, error = %e.message, "its interface in frames was refused");
         }
         me.refresh();
-        let parts = package.placed();
-        Ok(Running::new(parts.clone(), summary(&me.ours.engine, &parts, me.status_of(id.as_str()).await)))
+        let (parts, disclosure) = (package.placed(), package.phase().disclosure);
+        Ok(Running::new(parts.clone(), summary(&me.ours.engine, &parts, &disclosure, me.status_of(id.as_str()).await)))
     }
 
     async fn stop(&self, id: &ExtId, why: StopReason) {
