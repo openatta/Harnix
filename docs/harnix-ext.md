@@ -928,10 +928,10 @@ pub trait Extension: Send + Sync + 'static {
 | `instances.admin` | 停、重启任何非内核拥有的实例；按任何模板建实例、列出全部模板 | ✔ | | system |
 | `engine.inspect` | 读**任何**会话的内部：`inspectContext`、`tasks`、`taskOutput`、`goal`、`history` | ✔ | | system、flow |
 | `engine.control` | 改任何会话的内部：`stopTask`、`messageTask`、`dropMessages`、`editMessage`、`compact`、`clear`、`setModel`、`rename`、`setGoal`、`updateGoal` | ✔ | | system、flow |
-| `engine.config.read` / `engine.config.write` | 读 / 写引擎设置与 provider；后者含 `config.reload`、`harnix.instances.inheritProviders`、`EngineView::config_files` | ✔ | | settings、packages（写，可选） |
+| `engine.config.read` / `engine.config.write` | 读 / 写引擎设置与 provider；后者含 `engine.config.reload`、`harnix.instances.inheritProviders`、`EngineView::config_files` | ✔ | | settings、packages（写，可选） |
 | `engine.plugins` | Agix 插件的装、卸、启停、重读；往实例里放 skill | ✔ | | plugins、packages |
-| `engine.export` | `session.export` | ✔ | | harnix-app |
-| `engine.mcp` | `mcp.addServer` | ✔ | | — |
+| `engine.export` | `engine.session.export` | ✔ | | harnix-app |
+| `engine.mcp` | `engine.mcp.addServer` | ✔ | | — |
 | `recordings.read` · `transcripts.read` | 录像与用量的读者 · 转录的读者 | ✔ | | observability · harnix-app |
 | `process.observe` | 版本、运行时长、内存、线程、已连接的客户端 | ✔ | | system |
 | `devices.manage` | 配对码、列设备、撤销设备 | ✔ | | devices |
