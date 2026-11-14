@@ -66,7 +66,7 @@ fn main() -> anyhow::Result<()> {
 |---|---|---|
 | 打一个名字 | `harnix-app.projects.create {name}` | 在项目根（`--data-dir`，缺省 `~/Documents`）下建这个目录并登记成工作区；名字只能是一段路径 |
 | 选一个已有目录 | `harnix-app.workspaces.create {path}` | 目录要已经存在；同一个目录再加一次是幂等的 |
-| 浏览目录 | `harnix-app.listDirectory {path?}` | 只在 `$HOME` 或项目根之内 |
+| 浏览目录 | `harnix-app.listDirectory {path?}` | 不给 `path` 时从项目根起（还没有就建）；只在 `$HOME` 或项目根之内 |
 
 **项目菜单**：在这个项目里新建会话（打开新会话对话框，§4）、改名（`harnix-app.workspaces.update {id, title}`）、移除分组
 （`harnix-app.workspaces.remove`）。

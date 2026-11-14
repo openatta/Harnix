@@ -92,9 +92,10 @@ impl App {
         let home = home.canonicalize().unwrap_or(home);
         let target = match params.get("path").and_then(Value::as_str) {
             Some(p) if !p.is_empty() => PathBuf::from(p),
-            // The projects directory until it exists — nothing creates it before the first project
-            // does — and the home directory meanwhile.
-            _ if self.projects_root.is_dir() => self.projects_root.clone(),
+            // The projects directory, made here if no project has made it yet: a picker that
+            // opened on home before the first project would start somewhere projects are not.
+            // Home only when it cannot be made.
+            _ if std::fs::create_dir_all(&self.projects_root).is_ok() => self.projects_root.clone(),
             _ => home.clone(),
         };
         let target = target.canonicalize().unwrap_or(target);
