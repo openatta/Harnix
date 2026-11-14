@@ -484,17 +484,23 @@ function useBindComposer(app: App, session?: string): (api: ComposerApi | null) 
 }
 
 /**
- * Whether the composer changes a session's model: `harnix.session.setModel` is reachable when the
- * profile opens it (`[shell] model_switch`), for a session of the front space. Otherwise the menu
- * shows the model and cannot change it.
+ * The method a session's model is changed by: `harnix.session.setModel` when the profile opens it
+ * (`[shell] model_switch`), for a session of the front space; else the system space's
+ * (`system.model`), so only when that space is kept. `engine.session.setModel` itself is no device's
+ * to call. Null when neither is reachable: the menu shows the model and cannot change it.
  */
 function setModelMethod(app: App): string | null {
-  return app.snapshot.reachable.includes("harnix.session.setModel") ? "harnix.session.setModel" : null;
+  const reachable = app.snapshot.reachable;
+  if (reachable.includes("harnix.session.setModel")) return "harnix.session.setModel";
+  if (reachable.includes("system.model")) return "system.model";
+  return null;
 }
 
 async function setModel(app: App, target: { instance: string; session_id: string }, option: ModelOption): Promise<void> {
-  if (!setModelMethod(app)) return;
-  await app.call("harnix.session.setModel", { ...target, ...modelParams(option), space: app.claim() });
+  const method = setModelMethod(app);
+  if (!method) return;
+  const params = { ...target, ...modelParams(option) };
+  await app.call(method, method === "harnix.session.setModel" ? { ...params, space: app.claim() } : params);
 }
 
 /** The model each session was switched to here, by session key: the session's own record does not
