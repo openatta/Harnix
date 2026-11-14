@@ -301,9 +301,11 @@ async fn set_provider(call: &Call, params: Value) -> Rpc<Value> {
         params.get("config"),
         params.get("default_provider").and_then(Value::as_str),
     )?;
-    if let (false, Some(config)) = (delete, params.get("config")) {
+    // What the engine will read is the entry as patched, not the patch: a `null` in the patch
+    // removes a key, and is not a value the engine's provider takes.
+    if let (false, Some(entry)) = (delete, params.get("config").and(document["providers"].get(&provider_id))) {
         main_engine(call)?
-            .validate_provider(config)?
+            .validate_provider(entry)?
             .map_err(RpcError::invalid_params)?;
     }
     write_document(&path, &document)?;
