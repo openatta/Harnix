@@ -19,7 +19,8 @@
  * extension's engine, its spaces' sessions there, its content marked untrusted; the product only
  * routes. That describe also lets an on-demand variant's process go while idle and wakes it.
  * Turns there need a model: the recorder makes no fixture for a session on the process's own
- * engine, so the tests that run one skip without a live model.
+ * engine, so the tests that run one skip without a live model, and with one these describes start
+ * their backend live — replayed, that engine's turn ends at once in "recording not found".
  *
  * A product of another build (another Harnix, Agix or VM engine) is refused too; that takes
  * another build, and `crates/carrier/proc/tests/process.rs` makes one by telling the carrier
@@ -31,7 +32,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { EXTENSION_UNAVAILABLE, REFUSED } from "@harnix/core/protocol";
-import { type Backend, type TestClient, connect, expect, modelMode, sleep, test, topology } from "@harnix/testkit";
+import { type Backend, type Frame, type TestClient, connect, expect, modelMode, sleep, test, topology } from "@harnix/testkit";
 
 import { SHOWCASE_CHATS, SHOWCASE_ID, appsTools, provideModel, readZip, recalledOf, showcasePackage, startApps, variant } from "./packages-host";
 import { appsTestApp } from "./packages-store";
@@ -66,6 +67,28 @@ const alive = (pid: number) => {
     return false;
   }
 };
+
+/**
+ * The first frame `match` takes on `client`, waited for in the turn on `sessionId`: a turn that
+ * settles in an error first (as `client` or `watcher` saw it) fails at once with that error,
+ * rather than when the wait runs out.
+ */
+async function inTurn(
+  client: TestClient,
+  watcher: TestClient,
+  sessionId: string,
+  match: (f: Frame) => boolean,
+  { describe, timeout }: { describe: string; timeout: number },
+): Promise<Frame> {
+  const failed = (f: Frame) => f.method === "harnix.turn_settled" && f.params.session_id === sessionId && f.params.error;
+  for (const deadline = Date.now() + timeout; ; await sleep(50)) {
+    const hit = client.events.find(match);
+    if (hit) return hit;
+    const error = client.events.find(failed) ?? watcher.events.find(failed);
+    if (error) throw new Error(`the turn ended before ${describe}: ${error.params.error.message}`);
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${describe}`);
+  }
+}
 
 /** The showcase renamed `id` throughout its manifest. */
 function renamed(dir: string, id: string, more = ""): string {
@@ -243,7 +266,7 @@ test.describe("packages in processes of their own, in their sandbox", () => {
 
   test.beforeAll(async () => {
     test.setTimeout(600_000);
-    backend = await startApps({ profile: `carrier = "process"\n` });
+    backend = await startApps({ mode: modelMode(), profile: `carrier = "process"\n` });
   });
   test.afterAll(async () => {
     await backend?.dispose();
@@ -327,11 +350,11 @@ test.describe("packages in processes of their own, in their sandbox", () => {
     });
     const ofIt = (kind: string) => (f: any) => f.method === "harnix.event" && f.params.event?.kind === kind && f.params.session_id === created.session_id;
     // Its engine asks before it runs a shell command, as any engine does; permitted here.
-    const first = await api.waitFor((f) => ofIt("prompt")(f) || ofIt("tool_result")(f), { describe: "its shell tool asked for or run", timeout: 180_000 });
+    const first = await inTurn(api, api, created.session_id, (f) => ofIt("prompt")(f) || ofIt("tool_result")(f), { describe: "its shell tool asked for or run", timeout: 180_000 });
     if (first.params.event.kind === "prompt") {
       await api.call("harnix.session.respond", { ...key, prompt_id: first.params.event.prompt_id, decision: { type: "permit" } });
     }
-    const result = await api.waitFor(ofIt("tool_result"), { describe: "its shell tool's result", timeout: 60_000 });
+    const result = await inTurn(api, api, created.session_id, ofIt("tool_result"), { describe: "its shell tool's result", timeout: 60_000 });
     const text = JSON.stringify(result.params.event);
     expect(text).toContain("git version");
     expect(text).toContain("/bin/sh");
@@ -364,6 +387,7 @@ test.describe("an extension process's own engine", () => {
     });
     backend = await startApps({
       bin: appsTestApp(),
+      mode: modelMode(),
       env: { HARNIX_TESTAPP_APP_IDLE_MS: String(IDLE_MS) },
       profile: `carrier = "process"\nsandbox = "off"\n`,
     });
@@ -416,11 +440,16 @@ test.describe("an extension process's own engine", () => {
       expect(attached.trust).toBe("extension");
       const replayed = attached.replay.filter((f: any) => f.event?.kind === "user_message");
       expect(replayed.length > 0 !== attached.history_total > 0, "the turn exactly once").toBe(true);
-      await late.waitFor((f) => f.method === "harnix.event" && f.params.event?.kind === "turn_complete", {
+      await inTurn(late, api, created.session_id, (f) => f.method === "harnix.event" && f.params.event?.kind === "turn_complete", {
         describe: "the turn settling, seen by the client that came late",
         timeout: 120_000,
       });
     } finally {
+      // Both stop watching it: a client that only goes away watches until the backend sees its
+      // stream gone, and a watched session keeps its engine in use, its process with it — the
+      // idle tests below would wait on that.
+      await late.call("harnix.session.detach", key).catch(() => {});
+      await api.call("harnix.session.detach", key).catch(() => {});
       late.close();
     }
   });
