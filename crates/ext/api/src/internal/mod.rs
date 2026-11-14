@@ -173,8 +173,8 @@ impl Ports {
         self.seat.process.process()
     }
 
-    pub(crate) fn bulk(&self, ext: &ExtId, max_bytes: usize) -> Rpc<(String, PathBuf)> {
-        self.seat.bulk.issue(ext, max_bytes)
+    pub(crate) fn bulk(&self, ext: &ExtId, name: Option<&str>, max_bytes: usize) -> Rpc<(String, PathBuf)> {
+        self.seat.bulk.issue(ext, name, max_bytes)
     }
 
     pub(crate) fn ui(&self, ext: &ExtId, entries: Vec<Value>) {

@@ -19,7 +19,14 @@ impl<'a> Bulk<'a> {
 
     /// A grant for one upload of at most `max_bytes`.
     pub fn grant(&self, max_bytes: usize) -> Rpc<UploadGrant> {
-        let (token, path) = self.cx.ports().bulk(self.cx.id(), max_bytes)?;
+        let (token, path) = self.cx.ports().bulk(self.cx.id(), None, max_bytes)?;
+        Ok(UploadGrant { token, path, max_bytes })
+    }
+
+    /// [`grant`](Self::grant), the file named after what the client sends — `name`, made safe, at
+    /// the end — for whatever reads it by its name or its extension.
+    pub fn grant_named(&self, name: &str, max_bytes: usize) -> Rpc<UploadGrant> {
+        let (token, path) = self.cx.ports().bulk(self.cx.id(), Some(name), max_bytes)?;
         Ok(UploadGrant { token, path, max_bytes })
     }
 }

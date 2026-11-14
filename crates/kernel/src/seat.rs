@@ -69,8 +69,9 @@ pub trait ProcessInfo: Send + Sync {
 
 /// One-shot upload grants: a token the upload route takes once, and where the bytes land.
 pub trait BulkGrants: Send + Sync {
-    /// A grant for `ext`, for at most `max_bytes`: its token and the file the bytes will be in.
-    fn issue(&self, ext: &ExtId, max_bytes: usize) -> Rpc<(String, PathBuf)>;
+    /// A grant for `ext`, for at most `max_bytes`: its token and the file the bytes will be in —
+    /// ending in `name`, made safe, when one is given.
+    fn issue(&self, ext: &ExtId, name: Option<&str>, max_bytes: usize) -> Rpc<(String, PathBuf)>;
 }
 
 /// Interface entries an extension publishes while it runs, besides what it declared.

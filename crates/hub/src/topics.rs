@@ -249,11 +249,12 @@ impl crate::Hub {
     }
 
     /// The space a subscriber claimed in its topic's parameters, when that holds it to one: a
-    /// claim of a space that reaches across spaces holds it to none.
+    /// claim of a space that reaches across spaces holds it to none. A space that does not exist
+    /// (yet) holds it all the same, to no sessions: a package claims its own space whether or not
+    /// it declared one.
     pub(crate) fn held_space(&self, args: &Value) -> Option<String> {
         let space = args.get("space").and_then(Value::as_str)?;
-        let spaces = lock(&self.spaces);
-        (spaces.exists(space) && !spaces.crosses(space)).then(|| space.to_string())
+        (!lock(&self.spaces).crosses(space)).then(|| space.to_string())
     }
 
     /// `value` of `topic` as a subscriber held to `space` is told it: the sessions of that space.
