@@ -134,7 +134,7 @@ test("system-agents: the active tab lists the loaded Agents, the all tab every o
 
   const agents = page.getByTestId("system-agents");
   const row = agents.locator(`[data-testid="system-agent-group"][data-instance="main"][data-sid="${id}"]`);
-  await expect(row).toHaveAttribute("data-state", "idle", { timeout: 10_000 });
+  await expect(row).toHaveAttribute("data-state", /^(idle|done)$/, { timeout: 10_000 }); // settled; `done` when this page saw it still running first (unseen)
   await expect(row.locator('[data-stat="tokens"]')).toHaveText("1.2k", { timeout: 10_000 }); // 1034 + 200
   await expect(row.locator('[data-stat="time"]')).toHaveText("1.5s");
   await expect(row.locator('[data-stat="subagents"]')).toHaveText("1");

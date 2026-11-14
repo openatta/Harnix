@@ -81,8 +81,10 @@ test("a project added by name is listed; renamed from its menu it says so; remov
 test("a project added by picking its directory: walked into, used, listed by its path", PROJECTS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, URL);
-  // A directory of the test project's to pick: made where the picker starts.
-  const start = await page.evaluate(async () => (await (window as any).harnix.app.call("harnix-app.listDirectory", {})).path as string);
+  // A directory of the test project's to pick: made where the picker starts, the projects
+  // directory, even before any project has been made in it.
+  const { path: start, projects_root } = await page.evaluate(async () => (await (window as any).harnix.app.call("harnix-app.listDirectory", {})) as { path: string; projects_root: string });
+  expect(start, "the picker opens on the projects directory").toBe(projects_root);
   const made = await page.evaluate(async () => {
     const { app } = (window as any).harnix;
     return (await app.call("harnix-app.projects.create", { name: `picked-${Date.now()}` })).path as string;
