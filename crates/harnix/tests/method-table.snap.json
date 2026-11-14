@@ -1598,9 +1598,7 @@
       "access": {
         "device": true,
         "engine": false,
-        "extensions": [
-          "*"
-        ],
+        "extensions": [],
         "hub_owned": false,
         "refused": null,
         "requires": [],
