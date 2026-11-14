@@ -38,6 +38,7 @@ use serde_json::{json, Value};
 use tokio::sync::watch;
 
 use crate::daemon_link::DaemonLink;
+use crate::gate::{GatedOps, WakeGate};
 use crate::inproc::InProcessLink;
 use crate::translate::{self, AgixOps, Raw, Rpc};
 
@@ -68,6 +69,12 @@ impl Recording {
     /// started the process in replay — the same operator's decision as replay itself.
     pub fn set_strict(&self, strict: bool) {
         self.strict.store(strict, Ordering::Relaxed);
+    }
+
+    /// Where recordings are played back from, when this process was started in replay: an engine
+    /// in another process reads them there.
+    pub fn replay_from(&self) -> Option<&std::path::Path> {
+        self.replay_from.as_deref()
     }
 
     /// What one instance's link records with. `recordings` is where its engine writes them, when
@@ -174,21 +181,24 @@ impl Rpc for Recorded {
 /// of this crate's links, with its calls through a [`Recorder`].
 pub struct ReplayLink {
     inner: Arc<dyn Raw>,
-    ops: AgixOps,
+    ops: GatedOps,
 }
 
 impl ReplayLink {
     pub fn in_process(link: Arc<InProcessLink>, recorder: Recorder) -> Arc<Self> {
-        Self::new(link, recorder)
+        Self::new(link, recorder, None)
     }
 
+    /// A gated daemon's link keeps its gate: a call through the recorder wakes a daemon let go
+    /// while idle, as one straight to the link would.
     pub fn daemon(link: Arc<DaemonLink>, recorder: Recorder) -> Arc<Self> {
-        Self::new(link, recorder)
+        let gate = link.gate();
+        Self::new(link, recorder, gate)
     }
 
-    fn new(inner: Arc<dyn Raw>, recorder: Recorder) -> Arc<Self> {
+    fn new(inner: Arc<dyn Raw>, recorder: Recorder, gate: Option<Arc<dyn WakeGate>>) -> Arc<Self> {
         let rpc = inner.rpc();
-        Arc::new(Self { inner, ops: AgixOps(Arc::new(Recorded { rpc, recorder })) })
+        Arc::new(Self { inner, ops: GatedOps { agix: AgixOps(Arc::new(Recorded { rpc, recorder })), gate } })
     }
 }
 

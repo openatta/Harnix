@@ -468,6 +468,12 @@ test("system-context: a message of the context is edited and removed from the pa
   await input.fill("Say exactly: edited from the page");
   await page.getByTestId("host-prompt-ok").click();
   await expect(messages.locator('[data-testid="system-message"][data-origin="user"]').first()).toContainText("edited from the page");
+  // Enter answers the prompt too, once: the edit button the focus goes back to does not open it again.
+  await messages.locator('[data-testid="system-message"][data-origin="user"]').first().getByTestId("message-edit").click();
+  await input.fill("Say exactly: edited from the page, with Enter");
+  await input.press("Enter");
+  await expect(messages.locator('[data-testid="system-message"][data-origin="user"]').first()).toContainText("with Enter");
+  await expect(page.getByTestId("modal")).toHaveCount(0);
 
   await messages.locator('[data-testid="system-message"][data-origin="user"]').first().getByTestId("message-drop").click();
   await expect(messages).toContainText(/removed by the host/i);

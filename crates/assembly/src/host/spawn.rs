@@ -84,8 +84,8 @@ pub(crate) fn sandboxing(off: bool) -> ChildSandbox {
 }
 
 /// Start the extension process `req` asks for, as `id`, kept by a supervisor; in its sandbox
-/// unless `unsandboxed`.
-pub(crate) fn spawn(children: &Arc<ChildBindings>, id: &ExtId, req: ChildRequest, unsandboxed: bool) -> Rpc<ChildHandle> {
+/// unless `unsandboxed`. `replay`: where this process plays recordings back from, if it does.
+pub(crate) fn spawn(children: &Arc<ChildBindings>, id: &ExtId, req: ChildRequest, unsandboxed: bool, replay: Option<&Path>) -> Rpc<ChildHandle> {
     let refused = |why: String| RpcError::refused(format!("`{id}`'s extension process: {why}"));
     let program = match req.program_path() {
         Some(program) => program.clone(),
@@ -102,7 +102,8 @@ pub(crate) fn spawn(children: &Arc<ChildBindings>, id: &ExtId, req: ChildRequest
             tracing::warn!(extension = %id, "its extension process starts unsandboxed (`sandbox = \"off\"`)");
             None
         }
-        _ => Some(sandbox_spec(&pkg, &run)),
+        // Absolute, as a sandbox's paths are; a relative one is read from where this process runs.
+        _ => Some(sandbox_spec(&pkg, &run, replay.and_then(|dir| std::path::absolute(dir).ok()).as_deref())),
     };
     let env = environment(&run, |name| std::env::var(name).ok());
     let args = arguments(id, &pkg, &run, req.has_engine());
@@ -141,9 +142,14 @@ pub(crate) fn spawn(children: &Arc<ChildBindings>, id: &ExtId, req: ChildRequest
 
 /// What the process reaches of the state: its run directory, read and written (its data, kv, own
 /// engine, `HOME`, `TMPDIR`), and its package, read. Not the directory both are in, which holds
-/// its consent record. The program and what any program needs are the sandbox's to add.
-fn sandbox_spec(pkg: &Path, run: &Path) -> SandboxSpec {
-    SandboxSpec::new().read_write(run).read_only(pkg)
+/// its consent record. The program and what any program needs are the sandbox's to add. In replay,
+/// the recordings too, read: its own engine plays them back as every other engine of the product.
+fn sandbox_spec(pkg: &Path, run: &Path, replay: Option<&Path>) -> SandboxSpec {
+    let spec = SandboxSpec::new().read_write(run).read_only(pkg);
+    match replay {
+        Some(dir) => spec.read_only(dir),
+        None => spec,
+    }
 }
 
 /// `ext-proc --ext <id> --pkg <dir> --run <dir> --wire-fd 3 [--engine-fd 4]`.
@@ -271,9 +277,13 @@ mod tests {
 
     #[test]
     fn the_process_reaches_its_run_directory_and_reads_its_package() {
-        let spec = sandbox_spec(Path::new("/s/ext/acme.notes/1.0.0"), Path::new("/s/ext/acme.notes/run"));
+        let spec = sandbox_spec(Path::new("/s/ext/acme.notes/1.0.0"), Path::new("/s/ext/acme.notes/run"), None);
         assert_eq!(spec.read_write, [Path::new("/s/ext/acme.notes/run")]);
         assert_eq!(spec.read_only, [Path::new("/s/ext/acme.notes/1.0.0")]);
+        // In replay its engine reads the recordings, and writes nothing there.
+        let spec = sandbox_spec(Path::new("/s/ext/acme.notes/1.0.0"), Path::new("/s/ext/acme.notes/run"), Some(Path::new("/fixtures/recordings")));
+        assert_eq!(spec.read_write, [Path::new("/s/ext/acme.notes/run")]);
+        assert_eq!(spec.read_only, [Path::new("/s/ext/acme.notes/1.0.0"), Path::new("/fixtures/recordings")]);
     }
 
     #[test]

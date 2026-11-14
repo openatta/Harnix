@@ -26,6 +26,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use harnix_contract::sync::lock;
 use harnix_contract::{codes, RpcError};
 use harnix_kernel::instances::{holding, holds, Holding, Side};
+use harnix_engine::ReplayLink;
 use harnix_engine_api::link::{EngineControl, EngineLink, LinkStatus};
 use harnix_kernel::{GrantBook, InstanceBook, InstanceObserver, InstanceTrust, Listed, Rpc};
 use serde_json::{json, Value};
@@ -320,6 +321,11 @@ impl InstanceRegistry {
         self.state().slots.values().cloned().collect()
     }
 
+    /// Where this process plays recordings back from, when it was started in replay.
+    pub fn replay_from(&self) -> Option<&std::path::Path> {
+        self.factory.recording.replay_from()
+    }
+
     /// Facts about one listed instance. The hub asks this holding none of its locks.
     pub fn facts(&self, id: &str) -> Option<InstanceFacts> {
         debug_assert!(!holds(Side::Hub), "the hub calls the registry holding its own lock");
@@ -437,8 +443,10 @@ impl InstanceRegistry {
         }
         let adoption = Adoption::new(id.clone(), &spec, self.observer().clone(), self.factory.turns.clone());
         self.factory.turns.watch(&id, adoption.clone());
-        // Handed to the hub as any daemon's link is: the hub alone takes its events.
-        let built = Built { link: adoption.link(), control: Arc::new(adopt::AdoptedControl(adoption.clone())), facts };
+        // Handed to the hub as any daemon's link is: the hub alone takes its events, and its calls
+        // go through the process's recorder, so its sessions record — or, in replay, play back.
+        let link = ReplayLink::daemon(adoption.link(), self.factory.recording.of(&id, None));
+        let built = Built { link, control: Arc::new(adopt::AdoptedControl(adoption.clone())), facts };
         let providers = self.state().providers;
         let record = Record::fixed(Owner::Module(spec.ext.to_string()));
         let trust = InstanceTrust::Extension(spec.ext.clone());

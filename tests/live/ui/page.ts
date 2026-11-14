@@ -55,6 +55,14 @@ export const tab = (scope: Page | Locator, id: string): Locator => scope.locator
 /** Create a session replaying `fixture`, open it, and return its id. */
 /** Without a project root the session is in the engine's own working directory — the test project. */
 export async function newSession(page: Page, fixture: string, projectRoot?: string): Promise<string> {
+  // Connected is not started: until the shell has landed on a space whose contribution is in, a
+  // session would be made for the space it was in before (none, on a fresh page) and opened
+  // there, and the space it lands on has no current one.
+  await page.waitForFunction(() => {
+    const { app } = (window as unknown as { harnix: { app: any } }).harnix;
+    const space = app.snapshot.space as string;
+    return space !== "" && app.registry.at("space").some((c: { id: string }) => c.id === space);
+  }, undefined, { timeout: 15_000 });
   const id = await page.evaluate(
     async ({ name, root }) => {
       const { app } = (window as unknown as { harnix: { app: any } }).harnix;

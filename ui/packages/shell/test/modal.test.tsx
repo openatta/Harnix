@@ -146,6 +146,31 @@ describe("modal", () => {
     expect(document.activeElement).toBe(opener);
   });
 
+  it("Enter in a host prompt answers it once: the button the focus goes back to does not take the same key", async () => {
+    const app = mount();
+    const dialogs = hostFor(app).dialogs;
+    const answers: (string | null)[] = [];
+    const opener = document.createElement("button");
+    opener.addEventListener("click", () => void dialogs.prompt({ title: "Edit", label: "Text", value: "old" }).then((v) => answers.push(v)));
+    document.getElementById("side")!.append(opener);
+    opener.focus();
+    act(() => opener.click());
+    const input = document.querySelector<HTMLInputElement>('[data-testid="host-prompt-input"]')!;
+    expect(document.activeElement).toBe(input);
+    // As a browser does: an Enter whose keydown nobody prevented goes on to activate the button
+    // focused by then — and the dialog closing has just put the focus back on the one that opened it.
+    let taken = false;
+    act(() => {
+      taken = input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+    const focused = document.activeElement;
+    if (taken && focused instanceof HTMLButtonElement) act(() => focused.click());
+    await act(async () => {});
+    expect(answers).toEqual(["old"]);
+    expect(app.snapshot.modal).toBeNull();
+    expect(document.activeElement).toBe(opener);
+  });
+
   it("the shortcuts do nothing while a dialog is open", () => {
     const app = mount();
     const before = app.snapshot.sidebar;

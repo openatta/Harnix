@@ -12,6 +12,8 @@ struct Seen {
     log: Mutex<Vec<String>>,
     /// What it says when asked whether an instance's sessions are in use.
     engaged: std::sync::atomic::AtomicBool,
+    /// The link it was handed for each instance, last first.
+    links: Mutex<HashMap<String, Arc<dyn EngineLink>>>,
 }
 
 impl Seen {
@@ -34,8 +36,9 @@ impl TopicChanged for Seen {
 
 #[async_trait::async_trait]
 impl InstanceObserver<dyn EngineLink> for Seen {
-    async fn added(&self, id: &str, _link: Arc<dyn EngineLink>, trust: InstanceTrust) {
+    async fn added(&self, id: &str, link: Arc<dyn EngineLink>, trust: InstanceTrust) {
         assert_eq!(trust.is_extension(), id.starts_with("proc."), "{id}: {trust:?}");
+        lock(&self.links).insert(id.to_string(), link);
         self.note("added", id);
     }
     async fn removed(&self, id: &str) {
@@ -55,10 +58,17 @@ impl InstanceObserver<dyn EngineLink> for Seen {
 }
 
 fn registry(dir: &std::path::Path) -> (Arc<InstanceRegistry>, Arc<Seen>) {
+    registry_recording(dir, harnix_engine::Recording::new(None))
+}
+
+/// [`registry`], its links recording as `recording` says.
+fn registry_recording(dir: &std::path::Path, recording: Arc<harnix_engine::Recording>) -> (Arc<InstanceRegistry>, Arc<Seen>) {
+    let mut factory = Factory::new(Arc::new(|_: &str| None)).unwrap();
+    factory.recording = recording;
     let mut config = RegistryConfig {
         templates: BTreeMap::new(),
         ledger: Ledger::load(dir.join("instances.json")).unwrap(),
-        factory: Factory::new(Arc::new(|_: &str| None)).unwrap(),
+        factory,
         instances_dir: dir.join("instances"),
         disabled: HashSet::new(),
         fixed: BTreeMap::new(),
@@ -150,19 +160,19 @@ async fn a_claimed_space_is_one_the_hub_has() {
 }
 
 /// An engine at the other end of a stream, in this test: it answers every request with one value
-/// that is every answer the link reads — the protocol it speaks, and `sessions` — and counts them.
-fn engine(sessions: Value) -> (std::os::unix::net::UnixStream, Arc<std::sync::atomic::AtomicUsize>) {
+/// that is every answer the link reads — the protocol it speaks, and `sessions` — and keeps them.
+fn engine(sessions: Value) -> (std::os::unix::net::UnixStream, Arc<Mutex<Vec<Value>>>) {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
     let (ours, theirs) = std::os::unix::net::UnixStream::pair().unwrap();
     theirs.set_nonblocking(true).unwrap();
-    let asked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let count = asked.clone();
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let kept = asked.clone();
     tokio::spawn(async move {
         let (r, mut w) = tokio::net::UnixStream::from_std(theirs).unwrap().into_split();
         let mut lines = tokio::io::BufReader::new(r).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             let request: Value = serde_json::from_str(&line).unwrap();
-            count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            lock(&kept).push(request.clone());
             let result = json!({"protocol_version": harnix_engine::protocol_version(), "sessions": sessions, "session_id": "s1"});
             let reply = json!({"jsonrpc": "2.0", "id": request["id"], "result": result});
             if w.write_all(format!("{reply}\n").as_bytes()).await.is_err() {
@@ -281,6 +291,41 @@ async fn an_adopted_engine_is_the_extensions_and_sleeps_until_it_is_needed() {
     registry.release("acme.board").await;
     assert!(registry.facts("proc.acme.board").is_none());
     assert_eq!(seen.log().last().unwrap(), "removed proc.acme.board listed=false");
+}
+
+/// The hub's link to an extension's engine goes through the process's recorder, as every other
+/// link does — in replay a session created on it plays the recording it names — and still wakes it.
+#[tokio::test]
+async fn an_adopted_engine_records_and_replays_as_the_process_does() {
+    let dir = tempfile::tempdir().unwrap();
+    let replay = dir.path().join("recordings");
+    let (registry, seen) = registry_recording(dir.path(), harnix_engine::Recording::new(Some(replay.clone())));
+    let waking = Arc::new(Waking::default());
+    let spec = Adopting {
+        ext: harnix_contract::ExtId::package("acme.board").unwrap(),
+        data_root: dir.path().join("run/engine"),
+        inherit_providers: false,
+        sandboxed: false,
+        wake: waking.clone(),
+        spaces: vec!["acme.board".to_string()],
+    };
+    let adoption = registry.adopt(spec).await.unwrap();
+    let _ = waking.adoption.set(Arc::downgrade(&adoption));
+    let (stream, asked) = engine(json!([{"session_id": "s1", "status": "active"}]));
+    adoption.attach(stream).await.unwrap();
+    let link = lock(&seen.links).get("proc.acme.board").cloned().expect("the hub has its link");
+
+    link.ops().create(json!({"options": {"recorder": {"name": "says-ready"}}})).await.unwrap();
+    let created = lock(&asked).iter().find(|r| r["params"]["options"]["recorder"].is_object()).cloned().expect("a create");
+    let recorder = &created["params"]["options"]["recorder"];
+    assert_eq!((recorder["mode"].as_str(), recorder["name"].as_str()), (Some("replay"), Some("says-ready")), "{created}");
+    assert_eq!(recorder["dir"].as_str(), replay.to_str());
+
+    // Let go while idle, a call through the recorder wakes it, once.
+    adoption.hibernate().await;
+    link.ops().get("s1").await.unwrap();
+    assert_eq!(waking.woken.load(std::sync::atomic::Ordering::Relaxed), 1);
+    registry.release("acme.board").await;
 }
 
 /// In the host's sandbox an extension's engine runs its commands unwrapped, since macOS refuses a

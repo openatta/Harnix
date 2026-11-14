@@ -195,6 +195,11 @@ impl DaemonLink {
     }
 
 
+    /// What wakes it before a call, when it may be let go while idle ([`DaemonLink::gated`]).
+    pub(crate) fn gate(&self) -> Option<Arc<dyn WakeGate>> {
+        self.ops.gate.clone()
+    }
+
     /// Take a connection to the daemon: present `token` when there is one, check that it speaks
     /// this build's protocol, subscribe to its events, and start reading. The link is `Ready` once
     /// this returns `Ok`; a connection it refuses is closed again.
