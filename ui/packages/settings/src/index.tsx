@@ -459,13 +459,13 @@ function ProviderForm({
 function Mcp({ host }: { host: HostApi }) {
   const t = useT();
   return (
-    <SettingsSection title={t("settings.mcpServers")} load={() => host.call<{ servers?: { name: string; connected?: boolean; tools?: number; error?: string }[] }>("engine.mcp.status", {})}>
+    <SettingsSection title={t("settings.mcpServers")} load={() => host.call<{ servers?: { name: string; transport?: string; tool_count?: number }[] }>("engine.mcp.status", {})}>
       {(data) => (
         <>
           {!(data.servers ?? []).length ? <div className="hint">{t("settings.mcpNone")}</div> : null}
           {(data.servers ?? []).map((server) => (
-            <SettingsRow key={server.name} label={server.name} hint={`${t("settings.mcpTools", { count: server.tools ?? 0 })}${server.error ? ` · ${server.error}` : ""}`}>
-              <SettingsValue tone={server.connected ? "ok" : "err"}>{server.connected ? t("settings.mcpConnected") : t("settings.mcpDisconnected")}</SettingsValue>
+            <SettingsRow key={server.name} label={server.name} hint={`${t("settings.mcpTools", { count: server.tool_count ?? 0 })}${server.transport ? ` · ${server.transport}` : ""}`}>
+              <SettingsValue tone="ok">{t("settings.mcpConnected")}</SettingsValue>
             </SettingsRow>
           ))}
           <div className="hint">{t("settings.mcpAddHint")}</div>

@@ -34,4 +34,20 @@ describe("@harnix/settings", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(calls.length).toBeGreaterThan(0);
   });
+
+  it("shows each MCP server with the tool count and transport Agix reports", async () => {
+    const host = {
+      call: async () => ({ servers: [{ name: "files", transport: "stdio", tool_count: 3 }] }),
+      session: { current: () => null, context: () => null },
+      shell: { notice: () => undefined },
+      dialogs: { confirm: async () => false },
+    } as unknown as HostApi;
+    const r = new Registry();
+    r.activate(extension, () => register(r, host));
+    const mcp = r.at("settings.section").find((s) => s.id === "mcp")!;
+    const client = { status: "closed", detail: undefined, onStatus: () => () => undefined, call: async () => ({}) } as unknown as HarnixClient;
+    const { findByText } = render(<HarnixUiProvider client={client} strings={en}>{mcp.render()}</HarnixUiProvider>);
+    expect(await findByText("3 tools · stdio")).toBeTruthy();
+    expect(await findByText("connected")).toBeTruthy();
+  });
 });

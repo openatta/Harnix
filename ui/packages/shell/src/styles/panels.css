@@ -419,6 +419,10 @@
   color: var(--state-success);
 }
 
+.srow-setting .value.warn {
+  color: var(--state-warn-label);
+}
+
 .srow-setting .value.err {
   color: var(--state-error);
 }
