@@ -53,7 +53,8 @@ impl Hub {
         kind: SessionEventKind,
         event: Value,
     ) {
-        if !self.bounded(instance, &session_id, event.to_string().len()) {
+        let ends_turn = matches!(kind, SessionEventKind::TurnComplete(_));
+        if !self.bounded(instance, &session_id, event.to_string().len(), ends_turn) {
             return;
         }
         let key: SessionKey = (instance.to_string(), session_id.clone());
@@ -100,6 +101,7 @@ impl Hub {
         // marked as an extension's, and within its engine's bounds.
         let extension = self.is_extension(instance);
         let told = if extension { extension_turn(&kind, &event) } else { None };
+        let ends_turn = matches!(kind, DaemonEventKind::TurnCompleted { .. });
         match kind {
             DaemonEventKind::TurnStarted { session, turn_id } => {
                 self.turn_started_elsewhere(instance, &session, &turn_id).await;
@@ -125,7 +127,7 @@ impl Hub {
         }
         if extension {
             match told {
-                Some((session, told)) if self.bounded(instance, &session, told.to_string().len()) => event = told,
+                Some((session, told)) if self.bounded(instance, &session, told.to_string().len(), ends_turn) => event = told,
                 _ => return,
             }
         }

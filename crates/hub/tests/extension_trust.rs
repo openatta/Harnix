@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use harnix_contract::{codes, ExtId, Frame, FrameSink, RpcError, SpaceDecl, Subject};
-use harnix_engine_api::events::{DaemonEventKind, EngineEvent, Fragment, Joins, SessionEventKind};
+use harnix_engine_api::events::{Completion, DaemonEventKind, EngineEvent, Fragment, Joins, SessionEventKind};
 use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
 use harnix_engine_api::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, Subscribed, Tasks, TurnInput};
 use harnix_hub::{Hub, HubCell, HubConfig, HubRow, Spaces};
@@ -345,10 +345,19 @@ async fn an_extensions_session_events_are_marked_and_the_products_are_not() {
 async fn an_extensions_frames_over_the_rate_or_the_size_are_dropped_and_the_registry_told() {
     let rig = Rig::new().await;
     let sink = rig.watcher().await;
-    let sent = harnix_hub::FRAMES_PER_SECOND as usize + 50;
+    // More than the bucket holds and a second refills.
+    let sent = (harnix_hub::FRAMES_BURST + harnix_hub::FRAMES_PER_SECOND) as usize + 50;
     for n in 0..sent {
         rig.ext.1.send(text(&n.to_string())).await.unwrap();
     }
+    // How the turn ended is not dropped with the rest: clients settle on it.
+    let complete = EngineEvent::Session {
+        session: "s1".into(),
+        turn_id: "t".into(),
+        kind: SessionEventKind::TurnComplete(Completion::new(json!("end_turn"), json!({}))),
+        event: json!({"kind": "turn_complete", "stop_reason": "end_turn"}),
+    };
+    rig.ext.1.send(complete).await.unwrap();
     let huge = "x".repeat(harnix_hub::FRAME_MAX_BYTES + 1);
     rig.ext.1.send(text(&huge)).await.unwrap();
     // The product's engine is not counted: as many as it sends arrive.
@@ -369,7 +378,9 @@ async fn an_extensions_frames_over_the_rate_or_the_size_are_dropped_and_the_regi
     let from_ext = frames.iter().filter(|f| f["params"]["instance"] == "ext").count();
     let from_own = frames.len() - from_ext;
     assert_eq!(from_own, sent);
-    assert!(from_ext <= sent, "nothing of the extension's {} was dropped", sent + 1);
+    assert!(from_ext <= sent, "nothing of the extension's {} was dropped", sent + 2);
+    let ended = frames.iter().filter(|f| f["params"]["instance"] == "ext" && f["params"]["event"]["kind"] == "turn_complete");
+    assert_eq!(ended.count(), 1, "the turn's end was dropped");
     assert!(frames.iter().all(|f| f.to_string().len() < harnix_hub::FRAME_MAX_BYTES), "the oversized frame went out");
     let floods = rig.book.floods.lock().unwrap().clone();
     assert!(!floods.is_empty() && floods.iter().all(|(id, n)| id == "ext" && *n >= 1), "{floods:?}");

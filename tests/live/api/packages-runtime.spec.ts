@@ -315,9 +315,10 @@ carrier = "spawn"
 
   test("a sub-agent of the package's own agent type uses its tool", TAGS, async () => {
     // Where its agent package is: `main` on the in-process carrier, its own engine on the process
-    // carrier, where `main` has no such agent type. Replayed there, `app-subagent` sends more
-    // frames a second than an extension's engine may, and the hub drops what is over.
-    test.skip(ON_PROCESS, "no fixture of a sub-agent on the extension's own engine within its frame bounds: `app-subagent` is recorded on `main`");
+    // carrier, where `main` has no such agent type. There the sub-agent's own session, which the
+    // engine made, has no space of record and so belongs to the default one, while its instance
+    // is reached only from the package's space: its history is out of reach.
+    test.skip(ON_PROCESS, "the sub-agent's session on the extension's own engine belongs to the default space, and the call that reaches the engine claims the package's: SPACE_MISMATCH on its history");
     const s = await agentSession(api, "app-subagent");
     const { settled, asks } = await runTurn(api, s, "Have a sub-agent call the showcase's echo tool");
     expect(settled.params.error, JSON.stringify(settled.params.error)).toBeUndefined();
