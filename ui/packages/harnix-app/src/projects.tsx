@@ -9,7 +9,7 @@
  * (`newSessionDefaults`).
  */
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { Glyph, useRoving, useT, type HostApi } from "@harnix/react";
 
 import { addWorkspaceDialog, workspaceMenu } from "./dialogs.tsx";
@@ -27,6 +27,9 @@ const toggle = (item: HTMLElement) => item.click();
 export function ProjectsSidebar({ host, store }: { host: HostApi; store: AppStore }) {
   const t = useT();
   const s = useApp(store);
+  // Read again whenever the space comes to the front: nothing pushes a change to the workspaces, so
+  // a project made elsewhere (another client, a direct call) shows only after a read.
+  useEffect(() => void store.refresh(), [store]);
   const all = Boolean(s.expanded["projects:more"]);
   const shown = all ? s.workspaces : s.workspaces.slice(0, PROJECTS);
   // A tree, one Tab stop: Up and Down go along the projects and the open one's conversations, Right
