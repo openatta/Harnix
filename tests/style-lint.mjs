@@ -178,7 +178,7 @@ else ok(`${words} dictionary entries, none in a word the glossary retired (${BAN
 // The 0.4 design record, its roadmap and its review rounds left the repository (CLAUDE.md), and
 // so do the reports of a review; a comment that cites `design §7.3`, `review #4` or a review's
 // finding (`review G2`) sends the reader nowhere. A comment says its reason, or names a document
-// that is here: `concept §3.2`, `harnix-sdk.md §17.6`. And the words the glossary retired do not
+// that is here: `concept §3.2`, `harnix-ext.md §17.6`. And the words the glossary retired do not
 // come back in the code by another door.
 const tracked = execFileSync("git", ["ls-files", "-z", "--", "crates", "examples", "templates", "ui/packages", "tests", "scripts"], {
   cwd: root,

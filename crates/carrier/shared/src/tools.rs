@@ -22,7 +22,7 @@ use crate::registry::Loaded;
 /// The provider's name in every session.
 pub const NAME: &str = "harnix-packages";
 
-/// The longest note an application's hook may add to a tool's result, in characters.
+/// The longest note a package's hook may add to a tool's result, in characters.
 pub const MAX_NOTE: usize = 2000;
 
 /// Run `call` (a tool call or a hook named `call_id`), and cancel it in the host if `cancel` fires

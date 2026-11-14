@@ -4,7 +4,7 @@
 //! do itself, so every one is a place a capability is checked. The pattern is
 //! uniform on purpose: check the declaration, and on a miss give the
 //! component an error naming the capability that would have allowed it —
-//! silently returning nothing leaves an application author debugging the
+//! silently returning nothing leaves a package author debugging the
 //! wrong thing. Only what passes reaches the host's services.
 
 use crate::bindings::harnix::ext::host::Host;

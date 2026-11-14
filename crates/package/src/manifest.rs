@@ -1,6 +1,6 @@
 //! `harnix-ext.toml`: what an extension package is, and what it asks for.
 //!
-//! Read strictly. Everything an application may have is a section or a field below; anything else
+//! Read strictly. Everything a package may have is a section or a field below; anything else
 //! is refused with its name, because a manifest is also what the installer shows a person, and a
 //! line nothing reads is a line that person was shown for nothing — or a capability somebody
 //! believes was granted.
@@ -53,7 +53,7 @@
 //! name = "notes"
 //!
 //! [[space]]                     # a backend space: where its sessions land
-//! id = "acme.showcase"          # the application's id, or `<id>.<name>`
+//! id = "acme.showcase"          # the package's id, or `<id>.<name>`
 //! scene = "harnix"              # optional: the scene a new session starts in
 //! instance = "main"           # optional
 //!
@@ -143,7 +143,7 @@ pub struct Manifest {
     pub events: Events,
 }
 
-/// What `[events] tools` may say: the calls of the application's own tools only, or every tool
+/// What `[events] tools` may say: the calls of the package's own tools only, or every tool
 /// call of every session (by name, with its input) — which is a capability, disclosed.
 pub const EVENT_SCOPES: &[&str] = &["own", "all"];
 
@@ -183,7 +183,7 @@ fn default_event_scope() -> String {
 #[serde(deny_unknown_fields)]
 pub struct Method {
     pub name: String,
-    /// Who may call it: `device`, `module`, `kernel`, or several. The application itself always
+    /// Who may call it: `device`, `module`, `kernel`, or several. The package itself always
     /// may (its tools reach their backend that way).
     #[serde(default = "default_subject")]
     pub subject: Subjects,
@@ -232,7 +232,7 @@ pub struct Topic {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Space {
-    /// The application's id, or `<id>.<name>`.
+    /// The package's id, or `<id>.<name>`.
     pub id: String,
     #[serde(default)]
     pub scene: Option<String>,
@@ -312,7 +312,7 @@ impl Tool {
     }
 }
 
-/// How a backend is kept: `always` up while the application runs, or `on-demand` — stopped once
+/// How a backend is kept: `always` up while the package runs, or `on-demand` — stopped once
 /// idle for `idle_secs` with nothing holding it (no subscription, no timer, no call), and started
 /// again by the next call.
 pub const RESIDENT: &[&str] = &["always", "on-demand"];
@@ -375,7 +375,7 @@ pub struct UiEntry {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Agent {
-    /// `main`, or the id of an instance that exists when the application is installed.
+    /// `main`, or the id of an instance that exists when the package is installed.
     #[serde(default = "default_install_into")]
     pub install_into: Vec<String>,
 }
@@ -862,7 +862,7 @@ pub fn toml_to_json(v: &toml::Value) -> Value {
     }
 }
 
-/// The overrides for one application from the profile's `[ext."<package id>"]`.
+/// The overrides for one package from the profile's `[ext."<package id>"]`.
 pub fn overrides_for(config: &BTreeMap<String, toml::Value>, id: &str) -> Option<Value> {
     config.get(id).map(toml_to_json)
 }

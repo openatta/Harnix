@@ -48,7 +48,7 @@ export interface StationPanelProps {
   view?: RunView | null;
   /** From `def {name}`: the parts' texts, each station's permissions and, when given, the protocol layer. */
   info?: DefInfo | null;
-  /** The module id the application registered the flow module under. */
+  /** The extension id the application registered the flow extension under. */
   module?: string;
   initialTab?: "definition" | "run";
 }

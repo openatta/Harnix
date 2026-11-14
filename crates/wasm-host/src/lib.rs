@@ -1,12 +1,12 @@
-//! Runs runtime applications: the supervisor between a product and its applications' VMs.
+//! Runs extension packages: the supervisor between a product and its packages' VMs.
 //!
-//! [`Host`] keeps what is running — one VM per application (`harnix-wasm`), all on one engine —
-//! and answers [`harnix_wasm_port::Control`]: putting an application's agent side in place,
+//! [`Host`] keeps what is running — one VM per package (`harnix-wasm`), all on one engine —
+//! and answers [`harnix_wasm_port::Control`]: putting a package's agent side in place,
 //! starting and stopping it, its health and calls, its methods (checked against their schemas,
 //! then queued for the resident backend), its tools (an instance per call, cancellable, with
 //! progress), its event hook, and the values of what its backend subscribed to. An on-demand
 //! backend hibernates while idle, and the next call starts it again (`idle.rs`). Everything it
-//! needs from outside is two things: [`harnix_wasm_port::Kernel`] — registering the application's
+//! needs from outside is two things: [`harnix_wasm_port::Kernel`] — registering the package's
 //! names, what it does as itself (`host.call`, `publish`, `subscribe`), a tool call's progress —
 //! and [`harnix_wasm_port::Agent`], the agent engine its tools and agent package go to.
 //!
@@ -16,7 +16,7 @@
 //! own, with the kernel carried over a link and an agent engine of its own; its tests run it
 //! through `harnix_wasm_port::rpc::Loopback`.
 //!
-//! An application's own HTTP (`host.http-request`, already checked against its `net`) goes out
+//! A package's own HTTP (`host.http-request`, already checked against its `net`) goes out
 //! from wherever the host runs ([`http`]).
 
 mod bridge;
@@ -27,14 +27,14 @@ mod placement;
 
 pub use bridge::Stats;
 pub use host::{Host, HostOptions};
-/// What an application's HTTP is handed to, for a product that sends it itself.
+/// What a package's HTTP is handed to, for a product that sends it itself.
 pub use harnix_wasm::{HttpFetcher, HttpRequest, HttpResponse};
 /// The engine every VM of a host runs on (`Host::engine`).
 pub use harnix_wasm::WasmEngine;
 
-/// What an application keeps under its run directory — its files under `data/` and its key-value
+/// What a package keeps under its run directory — its files under `data/` and its key-value
 /// store under `kv/` — measured as its quota measures its files: symlinks not followed, and `None`
-/// past as many entries as no quota allows. For an application that is not running; one that is
+/// past as many entries as no quota allows. For a package that is not running; one that is
 /// reports it in its health (`storage_bytes`), counted as it writes.
 pub fn data_bytes(run_dir: &std::path::Path) -> Option<u64> {
     Some(harnix_wasm::dir_bytes(&run_dir.join("data"))? + harnix_wasm::dir_bytes(&run_dir.join("kv"))?)

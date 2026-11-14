@@ -337,7 +337,7 @@ async fn an_unknown_credential_is_unauthorized() {
     assert_eq!(stream.status(), 401);
 }
 
-/// The split topology reads the frame before the credential (`docs/harnix-sdk.md` §21.1): a frame
+/// The split topology reads the frame before the credential (`docs/harnix-ext.md` §21.1): a frame
 /// with no method, or that is not JSON, is refused whatever the credential, and a credential that is
 /// missing or unknown is a 401 whose body still answers under the request's id.
 #[tokio::test]

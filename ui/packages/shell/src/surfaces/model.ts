@@ -1,8 +1,8 @@
 /**
- * What the page is told of the applications whose interface runs in isolated frames: their
+ * What the page is told of the packages whose interface runs in isolated frames: their
  * surfaces (`[[surface]]`), what their frames may reach (`[interface]`), and the in-page modules
  * that will not run because of who signed them. Read off `harnix.ui`'s `contributions`, where the
- * backend lists each running application's interface — modules for a trusted publisher's, which
+ * backend lists each running package's interface — modules for a trusted publisher's, which
  * `packages.ts` imports; surfaces for everyone else's, which this directory draws.
  */
 
@@ -10,7 +10,7 @@ import type { UiView } from "@harnix/core";
 import { currentLocale } from "@harnix/react";
 import type { SurfacePoint } from "@harnix/ext-sdk/protocol";
 
-/** One application drawn in frames. */
+/** One package drawn in frames. */
 export interface PackageInterface {
   id: string;
   title: string | null;
@@ -41,7 +41,7 @@ export interface SurfaceDecl {
   wide: boolean;
 }
 
-/** A module that runs in the page, refused for an application that is not a trusted publisher's. */
+/** A module that runs in the page, refused for a package that is not a trusted publisher's. */
 export interface RefusedModule {
   app: string;
   point: string;
@@ -63,7 +63,7 @@ interface Entry {
 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
-/** The applications `harnix.ui` lists surfaces for, and the modules it says will not run. */
+/** The packages `harnix.ui` lists surfaces for, and the modules it says will not run. */
 export function interfacesOf(view: Pick<UiView, "contributions">): { packages: PackageInterface[]; refused: RefusedModule[] } {
   const entries = (Array.isArray(view.contributions) ? view.contributions : []) as Entry[];
   const packages = new Map<string, PackageInterface>();
@@ -83,7 +83,7 @@ export function interfacesOf(view: Pick<UiView, "contributions">): { packages: P
       app = { id, title: i.title ?? null, trust: i.trust ?? "store", calls: strings(i.calls), links: Boolean(i.links), spaces: strings(i.spaces), surfaces: [] };
       packages.set(id, app);
     }
-    // A frame is only ever this application's own files.
+    // A frame is only ever this package's own files.
     const frame = typeof entry.frame === "string" && entry.frame.startsWith(`/ext/${id}/ui/`) ? entry.frame : null;
     app.surfaces.push({
       app: id,

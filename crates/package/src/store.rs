@@ -1,4 +1,4 @@
-//! The store: a catalog (`index.json`) of applications, their versions, and a package per engine
+//! The store: a catalog (`index.json`) of packages, their versions, and a package per engine
 //! for each version — signed by the store, and fetching one of them.
 //!
 //! ```json
@@ -22,7 +22,7 @@
 //! }
 //! ```
 //!
-//! An artifact is a whole package, built for one engine (`"*"`: an application with no component,
+//! An artifact is a whole package, built for one engine (`"*"`: a package with no component,
 //! for every engine); its URL is relative to the index's, or absolute. What is downloaded is
 //! checked against the sha256 the index lists, and then against the package's own `SIGNATURES`
 //! (`signature.rs`): the capabilities and keys here are only what a catalog page shows before
@@ -32,7 +32,7 @@
 //! store keys this Harnix carries, over everything in it but the signature, and only until it
 //! `expires`. So whoever serves the catalog — a CDN, a mirror, someone in between — cannot serve
 //! an old copy in which a version the store has since revoked is still the newest, for longer
-//! than the store chose; nor drop a revocation (`revoked`, or an application's `min_version`: the
+//! than the store chose; nor drop a revocation (`revoked`, or a package's `min_version`: the
 //! store supports it from that version on), which a version installed here is flagged by.
 //!
 //! The store is `https://`, or `file://` (a directory on this machine: tests, a mirror). Over
@@ -62,7 +62,7 @@ pub const DEFAULT_STORE: &str = "https://store.harnix.dev/index.json";
 pub const STORE_KEYS: &[&str] =
     &["c7a9ed9597ad6f8b445e6303281a68ce4f8666de3f75cc2cc859899ef5ade505"];
 
-/// The artifact of an application with no component: the same package for every engine.
+/// The artifact of a package with no component: the same package for every engine.
 pub const ANY_ENGINE: &str = "*";
 
 /// What one index or package may weigh.
@@ -358,7 +358,7 @@ pub fn compare_versions(a: &str, b: &str) -> Ordering {
     })
 }
 
-/// One version of one application, chosen, and its artifact for this engine.
+/// One version of one package, chosen, and its artifact for this engine.
 #[derive(Debug, Clone)]
 pub struct Resolved {
     pub app: CatalogPackage,
@@ -493,7 +493,7 @@ impl Store {
     }
 }
 
-/// What the catalog is shown as: each application, its versions for this Harnix, whether this
+/// What the catalog is shown as: each package, its versions for this Harnix, whether this
 /// engine has a build of each, and the newest it could install; with `installed` (id → version,
 /// what is installed here), the version installed of each, and why the store withdrew it if it
 /// did (`installed_revoked`).
@@ -673,7 +673,7 @@ mod tests {
             .resolve(&index, "acme.notes", Some("1.2.0"), fp)
             .unwrap();
         assert_eq!(r.url.as_str(), "https://cdn.example.com/1.2.0.hxext");
-        // An application with no component has one package for every engine.
+        // A package with no component has one package for every engine.
         let r = store
             .resolve(&index, "acme.notes", Some("1.3.0-rc.1"), fp)
             .unwrap();

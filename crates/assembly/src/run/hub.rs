@@ -23,7 +23,7 @@ use crate::profile::Profile;
 pub(super) struct Assembled {
     pub hub: Arc<Hub>,
     pub instances: Arc<InstanceRegistry>,
-    /// The interface modules a client is told of at hello, as packages and applications change.
+    /// The interface modules a client is told of at hello, as packages come and go.
     pub ui: Arc<UiModules>,
     /// The main instance's history: where audit entries are filed.
     pub history: Option<Arc<dyn HistoryStore>>,

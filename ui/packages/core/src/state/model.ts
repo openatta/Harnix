@@ -215,7 +215,7 @@ export function addCustom(state: SessionState, type: string, data: unknown, at?:
 }
 
 /**
- * An entry the application wrote into the session's log (Agix `session.appendEntry`, concept §3.2.1): for
+ * An entry an extension wrote into the session's log (Agix `session.appendEntry`, concept §3.2.1): for
  * people, never for the model. `at` is how many messages come before it, in `engine.session.history`'s
  * coordinates. It becomes a `custom` block of type `entry`, which a `flow.block` contribution draws.
  */

@@ -177,7 +177,7 @@ impl crate::Hub {
         read(&self.sources).get(topic).cloned()
     }
 
-    /// Declare a topic after assembly — a runtime application's. Refused
+    /// Declare a topic after assembly — an extension package's. Refused
     /// (`false`) for a name already declared, the hub's own included.
     pub async fn declare_runtime_topic(&self, name: &str, params: Vec<String>) -> bool {
         self.inner.lock().await.topics.declare_new(name, params)

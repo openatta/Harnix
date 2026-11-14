@@ -5,7 +5,7 @@ edition      = "2021"
 rust-version = "1.87"
 license      = "Apache-2.0"
 publish      = false
-description  = "The boundary between a runtime application's host and the product around it: Platform and Control"
+description  = "The boundary between an extension package's host and the product around it: Platform and Control"
 
 # The boundary, and nothing else: two traits and the serde types they pass. It names no layer of
 # Harnix but the contract (`RpcError`, `Subject`, `SpaceDecl`), nothing of Agix, no VM and no HTTP

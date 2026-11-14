@@ -1,8 +1,8 @@
-//! An application's agent side, put in place and switched with it, through the agent engine: its
+//! A package's agent side, put in place and switched with it, through the agent engine: its
 //! agent package installed into each instance its manifest names (`[agent] install_into`), its
 //! skills placed in each one's skills directory, and both switched on and off with the
-//! application. Where those instances are is the [`Agent`]'s business: the product's own, for an
-//! application embedded in its process; the application's own process's, otherwise.
+//! package. Where those instances are is the [`Agent`]'s business: the product's own, for an
+//! package embedded in its process; the package's own process's, otherwise.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -190,7 +190,7 @@ pub(crate) async fn place(
 }
 
 /// The agent package and skills, in the instances the install put them in: switched on (or off)
-/// with the application.
+/// with the package.
 pub(crate) async fn switch(
     engine: &dyn Agent,
     id: &str,

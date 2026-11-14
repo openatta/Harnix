@@ -510,8 +510,8 @@ export class Registry {
 
   /**
    * Take back one registration: `owner`'s `id` at `point`. For what the shell registers on an
-   * application's behalf from its manifest (its declared inline points), which goes when the
-   * application stops or changes. Answers whether there was one.
+   * package's behalf from its manifest (its declared inline points), which goes when the
+   * package stops or changes. Answers whether there was one.
    */
   unregister(point: Point, id: string, owner: string): boolean {
     const list = this.entries.get(point);
@@ -523,7 +523,7 @@ export class Registry {
   }
 
   /**
-   * Token overrides (harnix-sdk.md §22.4.1): a module's colours for names the theme already has. A name the
+   * Token overrides (harnix-ext.md §22.4.1): an extension's colours for names the theme already has. A name the
    * theme does not declare is refused with the reason — a module adds no colours of its own — and
    * so is a value that reaches outside the page (`url(`). Not a contribution point: it draws
    * nothing. A later override of the same name wins, as a later registration does.
@@ -559,7 +559,7 @@ export class Registry {
     return Object.fromEntries([...this.overrides].map(([name, o]) => [name, o.value]));
   }
 
-  /** A module's language pack; keys outside `<owner>.` are refused (harnix-sdk.md §22.4.1). */
+  /** An extension's language pack; keys outside `<owner>.` are refused (harnix-ext.md §22.4.1). */
   strings(locale: Locale, dictionary: Record<string, string>, owner: string): void {
     for (const key of addStrings(locale, dictionary, owner)) {
       this.refuse({ point: "strings", owner, id: key, reason: `a key of ${owner}'s pack is \`${owner}.…\`` });
@@ -568,7 +568,7 @@ export class Registry {
   }
 
   /**
-   * An application's own icons: name → the inside of an SVG (no `<svg>`), drawn on the shell's
+   * An extension's own icons: name → the inside of an SVG (no `<svg>`), drawn on the shell's
    * 24 grid at its 1.7 stroke, in `currentColor`. Each is `<owner>.<name>`, which is what a space's
    * `icon` names; a name without a dot is still the shell's. Only shapes and their geometry and
    * stroke are taken — a script, an `on*` handler, a link, a style, a reference to anything else
@@ -592,7 +592,7 @@ export class Registry {
     this.changed();
   }
 
-  /** An application icon's inside, as `icons` took it; undefined for a name it does not have. */
+  /** An extension icon's inside, as `icons` took it; undefined for a name it does not have. */
   icon(name: string): string | undefined {
     return this.glyphs.get(name);
   }

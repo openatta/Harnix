@@ -3,7 +3,7 @@
 //!
 //! - it holds no subscription and has no timer armed (the VM's own count of them);
 //! - nothing is queued for it or being delivered to it (the VM checks that as it lets go);
-//! - no method call, tool call or hook of the application is in flight ([`Activity`]);
+//! - no method call, tool call or hook of the package is in flight ([`Activity`]);
 //! - the last of them ended `idle_secs` ago.
 //!
 //! Letting it go runs its `stop`; starting it again runs `init`, so what it keeps in its storage
@@ -19,7 +19,7 @@ use harnix_contract::sync::lock;
 use harnix_wasm::{AppVm, VmState};
 use tokio_util::sync::CancellationToken;
 
-/// What one application has in flight, and when the last of it ended.
+/// What one package has in flight, and when the last of it ended.
 pub(crate) struct Activity {
     busy: AtomicUsize,
     last: Mutex<Instant>,

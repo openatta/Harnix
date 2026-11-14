@@ -1,5 +1,5 @@
 /**
- * A host to test an application's page against, without Harnix: the shell's side of the bridge,
+ * A host to test a package's page against, without Harnix: the shell's side of the bridge,
  * in memory, over a real `MessageChannel`.
  *
  * ```ts
@@ -17,7 +17,7 @@
  * expect(host.requests.map((r) => r.method)).toContain("call");
  * ```
  *
- * It refuses what the shell would — a method or topic outside the application's own `<id>.*`
+ * It refuses what the shell would — a method or topic outside the package's own `<id>.*`
  * and the `calls` it is given — so a page's tests see the same refusals the shell gives it. Each
  * request is recorded (`requests`), and so is each event the page sent (`events`).
  */

@@ -12,7 +12,7 @@ pub(super) async fn start(records: &mut [Record], admission: &Admission) {
     let failed = lifecycle::start(records, seats).await;
     for record in records.iter().filter(|r| failed.iter().any(|f| f == r.manifest.id())) {
         let id = record.manifest.id();
-        // What it registered with the application host before failing goes with it: an extension
+        // What it registered with the extension host before failing goes with it: an extension
         // that is not running answers nothing, and what it registered would be names with nobody
         // behind them.
         if let Some(packages) = diagnostics.dynamic.get() {

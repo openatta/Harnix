@@ -1,4 +1,4 @@
-/* What the shell draws for runtime applications from their manifests (`src/inline/`), and the
+/* What the shell draws for extension packages from their manifests (`src/inline/`), and the
    applications' settings: tool rows, cards in the flow, the left column's mark, the modals over
    the settings. Tokens only. */
 
@@ -78,7 +78,7 @@
   font-size: 12px;
 }
 
-/* A space an installed application brought: a small ring beside its title. */
+/* A space an installed package brought: a small ring beside its title. */
 .package-mark {
   flex: none;
   width: 6px;

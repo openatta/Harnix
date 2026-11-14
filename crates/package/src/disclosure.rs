@@ -1,4 +1,4 @@
-//! What a person is shown before an application is installed or updated, and what consenting to
+//! What a person is shown before a package is installed or updated, and what consenting to
 //! it means.
 //!
 //! The disclosure is read from the package itself — its manifest, its parts, its signatures —
@@ -67,7 +67,7 @@ pub fn lines(manifest: &Manifest, agent: bool) -> Vec<Value> {
             .into_iter()
             .map(|v| line("inline", v)),
     );
-    // What the interface's frames may reach beyond the application's own names, through the shell.
+    // What the interface's frames may reach beyond the package's own names, through the shell.
     out.extend(
         manifest
             .interface
@@ -149,7 +149,7 @@ pub fn disclose(
         "ui_in_page": !manifest.ui.is_empty()
             && !crate::surface::runs_in_frames(verified.trust, &manifest.interface, true),
         "surfaces": manifest.surfaces.iter().map(|s| json!({"point": s.point, "id": s.id(), "page": s.page})).collect::<Vec<_>>(),
-        // Drawn by the shell from the manifest: no code of the application's runs for these.
+        // Drawn by the shell from the manifest: no code of the package's runs for these.
         "inline": manifest.inline,
         "agent": inspected.agent.as_ref().map(|a| json!({
             "package": a.name, "version": a.version, "install_into": manifest.agent.install_into,

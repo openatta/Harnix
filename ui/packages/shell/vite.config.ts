@@ -1,5 +1,5 @@
 /**
- * One build of the whole interface (harnix-sdk.md §22.5): Harnix's shell, its first-party UI
+ * One build of the whole interface (harnix-ext.md §22.5): Harnix's shell, its first-party UI
  * packages and, for an application, its spaces' interface modules, into the directory the binary
  * embeds.
  *

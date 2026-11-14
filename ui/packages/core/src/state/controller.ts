@@ -211,7 +211,7 @@ export class SessionController {
   private async loadHistory(state: SessionState, total: number, stale: () => boolean, replayed: Set<string>): Promise<SessionState> {
     let next = state;
     const start = Math.max(0, total - HISTORY_PAGE * HISTORY_PAGES_AT_OPEN);
-    // The application's entries go back between the messages they were written between; the
+    // The extension's entries go back between the messages they were written between; the
     // ones before the first message shown are as hidden as those messages.
     const entries = (await this.entries()).filter((e) => e.at >= start);
     if (stale()) return next;

@@ -1,4 +1,4 @@
-//! [`Host`]: the applications that are running, and the [`Control`] the product drives them by.
+//! [`Host`]: the packages that are running, and the [`Control`] the product drives them by.
 //!
 //! # Starting, in order, and backwards on a failure
 //!
@@ -41,17 +41,17 @@ use crate::bridge::{failure_of, Bridge, Method};
 use crate::idle::{self, Activity};
 use crate::placement::{self, Placed};
 
-/// What the product tells the host when it makes it: what holds for every application it will
-/// run. What is each application's own — its trust, configuration and secrets — comes with its
+/// What the product tells the host when it makes it: what holds for every package it will
+/// run. What is each package's own — its trust, configuration and secrets — comes with its
 /// [`Start`].
 #[derive(Default)]
 pub struct HostOptions {
-    /// Where applications' HTTP goes out, when the product decides their `net` on its side too;
+    /// Where packages' HTTP goes out, when the product decides their `net` on its side too;
     /// this process's network otherwise.
     pub http: Option<Arc<dyn HttpFetcher>>,
 }
 
-/// One application that is running.
+/// One package that is running.
 struct Running {
     version: String,
     /// The unpacked package.
@@ -81,13 +81,13 @@ struct Running {
     own_tools: std::collections::BTreeSet<String>,
 }
 
-/// What starting an application's VM made.
+/// What starting a package's VM made.
 struct Booted {
     vm: Option<AppVm>,
     tools: Vec<ToolDef>,
 }
 
-/// The applications of one product (or, in an edition with a process per application, of that
+/// The packages of one product (or, in mode 3, with a process per package, of that
 /// process): one VM each, every VM on one engine.
 pub struct Host {
     engine: WasmEngine,
@@ -95,10 +95,10 @@ pub struct Host {
     agent: Arc<dyn Agent>,
     http: Arc<dyn HttpFetcher>,
     running: RwLock<BTreeMap<String, Arc<Running>>>,
-    /// The bridges of applications starting or running: where their subscriptions' values go,
+    /// The bridges of packages starting or running: where their subscriptions' values go,
     /// `init`'s included.
     bridges: Mutex<BTreeMap<String, Arc<Bridge>>>,
-    /// Why an application that should be running is not.
+    /// Why a package that should be running is not.
     failed: Mutex<BTreeMap<String, String>>,
     /// Tool calls and hooks running, by their ids: what [`Control::cancel`] reaches.
     calls: Mutex<HashMap<String, CancellationToken>>,
@@ -193,7 +193,7 @@ impl ProgressSink for ProgressQueue {
 }
 
 impl Host {
-    /// A host whose applications reach the product through `kernel`, and whose agent side goes to
+    /// A host whose packages reach the product through `kernel`, and whose agent side goes to
     /// `agent`.
     pub fn new(options: HostOptions, kernel: Arc<dyn Kernel>, agent: Arc<dyn Agent>) -> anyhow::Result<Arc<Self>> {
         Ok(Arc::new(Self {
@@ -216,7 +216,7 @@ impl Host {
         lock(&self.turns).get(&(instance.to_string(), session.to_string())).cloned()
     }
 
-    /// A number that moves whenever what [`Control::status`] answers may have: an application
+    /// A number that moves whenever what [`Control::status`] answers may have: a package
     /// started, stopped or failed; a method call, tool call, hook or delivered value ended; a
     /// backend let go while idle; anything its bridge counts (what a backend does on its own,
     /// through its timers, included). A product that shows the status asks again only when this
@@ -295,7 +295,7 @@ impl Host {
         Ok((registration, methods))
     }
 
-    /// Register the application, then start its VM: so what `init` does already reaches the
+    /// Register the package, then start its VM: so what `init` does already reaches the
     /// product, and a method called before the VM is up is answered "not running". A VM that does
     /// not start takes the registration back with it.
     async fn boot(
@@ -595,7 +595,7 @@ impl Host {
         }
     }
 
-    /// Whether a lifecycle event is about a call of one of the application's own tools.
+    /// Whether a lifecycle event is about a call of one of the package's own tools.
     fn about_own_tool(app: &Running, call: &HookCall) -> bool {
         call.payload["tool"]
             .as_str()

@@ -97,7 +97,7 @@ pub fn countersign(
     let manifest = manifest_of(&entries)?;
     let app = (manifest.app.id.as_str(), manifest.app.version.as_str());
     // The store's policy: what it vouches for reaches the internet, not the machine it is
-    // installed on. An application that needs a service there is a trusted publisher's to ship.
+    // installed on. A package that needs a service there is a trusted publisher's to ship.
     if let Some(host) = manifest
         .capabilities
         .net
@@ -192,7 +192,7 @@ pub fn index(
                 min_version: None,
                 versions: Vec::new(),
             });
-        // The newest version's title and description are the application's.
+        // The newest version's title and description are the package's.
         let newest = app
             .versions
             .iter()

@@ -260,7 +260,7 @@ function SearchBox({ app, s }: { app: App; s: ShellState }) {
 /** A space with no column of its own: its sessions, newest first. */
 function SpaceSessions({ app, s, listed }: { app: App; s: ShellState; listed?: NonNullable<SpaceContribution["sidebar"]>["listSession"] }) {
   const t = useT();
-  // Drawn again when an application starts or stops: its grouping comes and goes with it.
+  // Drawn again when an extension package starts or stops: its grouping comes and goes with it.
   const watch = packagesOf(app);
   useSyncExternalStore(watch.subscribe, watch.getVersion);
   const rows = [...s.sessions].sort((a, b) => String(b.last_active ?? "").localeCompare(String(a.last_active ?? "")));

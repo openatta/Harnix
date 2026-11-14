@@ -1,7 +1,7 @@
 /**
- * One surface: the application's page in its sandboxed frame, and the frame the shell draws
+ * One surface: the package's page in its sandboxed frame, and the frame the shell draws
  * around it — its title while it loads, what went wrong and a reload when it fails, a note when it
- * has been set aside or its application has stopped. A failed page is "this part failed, reload",
+ * has been set aside or its package has stopped. A failed page is "this part failed, reload",
  * never half a white panel.
  *
  * The `<iframe>` is made here by hand, not by React, so its `sandbox` is set before it has a

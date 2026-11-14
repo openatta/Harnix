@@ -54,7 +54,7 @@ pub struct AuditEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session: Option<String>,
     /// When, in milliseconds since the epoch: on what changed the table at
-    /// runtime (an application's names declared or withdrawn), where "when"
+    /// runtime (a package's names declared or withdrawn), where "when"
     /// is half the question. A decision on a call is in order in the ring and
     /// carries none.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -80,10 +80,10 @@ pub enum Change {
     Withdraw,
     /// Putting a name in was refused, and nothing was written.
     Refuse,
-    /// An existing name was opened to a runtime application (its `calls`
-    /// capability, as a module's manifest grants).
+    /// An existing name was opened to an extension package (its `calls`
+    /// capability, as its manifest asks).
     Grant,
-    /// That grant was taken back, with the application.
+    /// That grant was taken back, with the package.
     Revoke,
 }
 
@@ -173,8 +173,8 @@ impl Audit {
         });
     }
 
-    /// A change to the table at runtime: `subject` (the module hosting the
-    /// application) declared or withdrew `name`, or was refused it. `reason`
+    /// A change to the table at runtime: `subject` (the host component carrying the
+    /// package) declared or withdrew `name`, or was refused it. `reason`
     /// says on whose behalf, or why not.
     pub fn record_change(&self, subject: &Subject, name: &str, change: Change, reason: Option<&'static str>) {
         let at_ms = std::time::SystemTime::now()

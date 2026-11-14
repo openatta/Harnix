@@ -1,7 +1,7 @@
 /**
  * The kit as one classic script and one stylesheet (`dist/harnix-ext-kit.js`, global `HarnixKit`;
- * `dist/harnix-ext-kit.css`: the shell's tokens and the components), for an application that ships
- * its page unbundled. A bundling application imports `@harnix/ext-kit` and `@harnix/ext-kit/kit.css`.
+ * `dist/harnix-ext-kit.css`: the shell's tokens and the components), for a package that ships
+ * its page unbundled. A bundling package imports `@harnix/ext-kit` and `@harnix/ext-kit/kit.css`.
  */
 
 import { fileURLToPath } from "node:url";

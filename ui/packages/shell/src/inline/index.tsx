@@ -1,8 +1,8 @@
 /**
- * The inline points runtime applications declare (`[inline]` in a manifest), drawn by the shell
- * (harnix-plugin.md §6.5): no code of the application's runs in the page for any of them. What the shell
- * registers for an application goes through the same points a module's registrations do, signed
- * with the application's id, so the diagnostics name it and a later registration still wins:
+ * The inline points extension packages declare (`[inline]` in a manifest), drawn by the shell
+ * (harnix-ext-package.md §6.5): no code of the package's runs in the page for any of them. What the shell
+ * registers for a package goes through the same points a native extension's registrations do, signed
+ * with the package's id, so the diagnostics name it and a later registration still wins:
  *
  * - `tool.row` — its tools' calls, with the row its manifest describes (`ToolRow.tsx`);
  * - `flow.block` — the entries it appends to a session whose event is a declared kind, as cards
@@ -13,7 +13,7 @@
  * - `sidebar.group` — not a registration: one of its spaces' left column, grouped as declared
  *   (`Grouping.tsx`). The product's own lists keep their grouping.
  *
- * Followed from `packages.list`: an application that starts has its points drawn, one that stops or
+ * Followed from `packages.list`: a package that starts has its points drawn, one that stops or
  * is updated has them taken back (and registered afresh), without the page being reloaded.
  */
 
@@ -32,7 +32,7 @@ import { InlineToolRow, inlineTitle } from "./ToolRow.tsx";
 export { GroupedSessions, groupingOf } from "./Grouping.tsx";
 export { packagesOf, type Inline } from "./packages.ts";
 
-/** Start following the applications, once this page can (`packages.list` is reachable). */
+/** Start following the packages, once this page can (`packages.list` is reachable). */
 export function startInline(app: App): void {
   let started = false;
   const start = () => {
@@ -156,7 +156,7 @@ function command(app: App, a: RuntimePackage, decl: CommandDecl): Contributions[
   };
 }
 
-/** The left column's mark on a space an installed application brought: `owner` is the space's. */
+/** The left column's mark on a space an installed package brought: `owner` is the space's. */
 export function AppMark({ app, owner }: { app: App; owner: string }) {
   const watch = packagesOf(app);
   useSyncExternalStore(watch.subscribe, watch.getVersion);

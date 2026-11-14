@@ -51,16 +51,16 @@ pub struct FakePlatform {
     pub offers: Mutex<Vec<Offer>>,
     /// The host, as the kernel reaches it: across the loopback too.
     pub control: OnceLock<Arc<dyn Control>>,
-    /// When set, a call the application makes that its `calls` lists is answered by this method of
+    /// When set, a call the package makes that its `calls` lists is answered by this method of
     /// its own instead, called from another task: a product that routes it back into the
-    /// application over a link, where nothing of the calling task comes along.
+    /// package over a link, where nothing of the calling task comes along.
     pub reroute: OnceLock<String>,
-    /// When set, a call the application makes into its own methods is answered from another task
+    /// When set, a call the package makes into its own methods is answered from another task
     /// too, as a product that routes it over a link does.
     pub across: std::sync::atomic::AtomicBool,
-    /// The metadata of every call the application made as itself, in order.
+    /// The metadata of every call the package made as itself, in order.
     pub metas: Mutex<Vec<CallMeta>>,
-    /// What a call routed back into the application answered when it failed, and how long it took.
+    /// What a call routed back into the package answered when it failed, and how long it took.
     pub routed_errors: Mutex<Vec<(RpcError, std::time::Duration)>>,
 }
 
@@ -89,7 +89,7 @@ impl FakePlatform {
             .unwrap_or_default()
     }
 
-    /// One of the application's methods, called as a device would.
+    /// One of the package's methods, called as a device would.
     pub async fn device_call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
         self.device_call_as(CallMeta::new(next_id()), method, params).await
     }
@@ -240,7 +240,7 @@ pub struct Rig {
     pub host: Arc<Host>,
     /// The host, as the product reaches it: across the loopback.
     pub control: Arc<dyn Control>,
-    /// What every start says of the application besides its record: its settings and secrets.
+    /// What every start says of the package besides its record: its settings and secrets.
     pub config: Mutex<Value>,
     pub secrets: Mutex<std::collections::BTreeMap<String, String>>,
     /// The sha256 of the component the last `unpack` packed: what the product verified.
@@ -277,7 +277,7 @@ impl Rig {
         rig
     }
 
-    /// A rig whose starts give the application `config`.
+    /// A rig whose starts give the package `config`.
     pub fn configured(config: Value) -> Self {
         let rig = Self::new(|_| {});
         *lock(&rig.config) = config;

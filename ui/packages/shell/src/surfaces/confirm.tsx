@@ -1,7 +1,7 @@
 /**
- * The shell's own question to the person, on an application's behalf: `confirm` and `openLink`
+ * The shell's own question to the person, on a package's behalf: `confirm` and `openLink`
  * over the bridge. Drawn by the page, over everything — every frame, and the shell's own dialog
- * if one is open (a settings section's frame may ask) — so no application can draw it, cover it
+ * if one is open (a settings section's frame may ask) — so no package can draw it, cover it
  * or answer it: its frames are inert while it is up, and it names who is asking.
  *
  * It is a layer (`@harnix/react`'s `layers.ts`) of the top rank: over every dialog whenever it came, the focus in
@@ -15,7 +15,7 @@ import { useLayer, useT } from "@harnix/react";
 
 
 export interface Question {
-  /** The application asking, by its title. */
+  /** The package asking, by its title. */
   app: string;
   kind: "confirm" | "link";
   text: string;

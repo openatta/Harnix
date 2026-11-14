@@ -15,7 +15,7 @@
 //!   configured with, told the host again after every change;
 //! - a generation number ([`Carrier::changed`]) that moves whenever what the status says may have.
 //!
-//! An application's HTTP is decided here too: its host lends it this process's network only for
+//! A package's HTTP is decided here too: its host lends it this process's network only for
 //! the hosts its `net` lists (`harnix_package::egress`).
 
 mod agent;

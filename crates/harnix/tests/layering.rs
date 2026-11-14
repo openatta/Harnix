@@ -418,7 +418,7 @@ fn neither_the_hub_nor_the_authorizer_names_a_topology() {
 /// script a package brought — that is where a second answer to "what may an
 /// extension do" would come from — so QuickJS is named nowhere here.
 ///
-/// An application's own backend and tools are Harnix's, and they run in
+/// A package's own backend and tools are Harnix's, and they run in
 /// WebAssembly, in `harnix-wasm` and nowhere else (crates/wasm/src/lib.rs).
 /// Everything outside that crate reaches a component through its API, which
 /// names no wasmtime type, so this is a check on the boundary rather than on
@@ -495,17 +495,17 @@ fn normal_dependencies(crate_dir: &str) -> std::collections::BTreeMap<String, bo
 /// Agix's crates, by the names Harnix's crates know them by.
 const AGIX: &[&str] = &["daemon", "base", "model", "history", "scene", "telemetry", "runtime", "plugin"];
 
-/// Runtime applications are four layers, and each knows only those below it:
+/// Extension packages are four layers, and each knows only those below it:
 ///
 /// | crate | holds | may not reach |
 /// |---|---|---|
-/// | `harnix-package` | manifest, package, signatures, store, disclosure, the `harnix-app` tool | a VM, the kernel, Agix, an HTTP framework |
+/// | `harnix-package` | manifest, package, signatures, store, disclosure, the `harnix-pack` tool | a VM, the kernel, Agix, an HTTP framework |
 /// | `harnix-wasm-port` | `Platform` and `Control`, and their serde types | anything but the contract |
 /// | `harnix-wasm-host` | lifecycle, registry, health, dispatch to the VM, idling | the kernel, the hub, Agix, an HTTP framework |
 /// | `harnix-carrier-wasm` | packages in this process: the port over an extension handle and context, their tools, `/ext/<id>/…` | — |
 ///
-/// So the package and the host are the same code in a product's process and in a process of an
-/// application's own, and the port between the host and whatever it runs in is all either side
+/// So the package and the host are the same code in a product's process and in a process of a
+/// package's own, and the port between the host and whatever it runs in is all either side
 /// sees of the other.
 #[test]
 fn the_application_layers_reach_only_down() {
@@ -594,7 +594,7 @@ fn harnix_reads_only_its_own_manifest_section() {
     }
 }
 
-/// The same rule's second reader. A plugin application's `agent/` is an Agix package, installed
+/// The same rule's second reader. An extension package's `agent/` is an Agix package, installed
 /// by `engine.plugin.install` under the name and version its `plugin.toml` gives; `harnix-package`
 /// reads those two keys of `[plugin]` and nothing else of the engine's manifest.
 #[test]

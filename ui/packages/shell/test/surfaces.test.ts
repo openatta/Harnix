@@ -1,9 +1,9 @@
 /**
  * The shell's end of a frame's bridge, against a frame played by the test over a real
  * `MessageChannel`: the port is handed once, at the first load; hello says what the frame is;
- * calls and topics outside the application's own names and its hub are refused and recorded; a
+ * calls and topics outside the package's own names and its hub are refused and recorded; a
  * second load, no hello, and a stopped heartbeat are failures; the shell's keys are acted on as
- * if pressed on the page; a notice is under the application's name. And the page-local record:
+ * if pressed on the page; a notice is under the package's name. And the page-local record:
  * three failures in a row set a surface aside.
  */
 

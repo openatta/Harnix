@@ -52,7 +52,7 @@ async fn a_method_reaches_the_backend_with_its_params_caller_and_configuration()
         json!({"greeting": "hi"})
     );
 
-    // The application's own error, passed through rather than judged.
+    // The package's own error, passed through rather than judged.
     let err = call(&rig.vm, "fail", json!({})).await.unwrap().unwrap_err();
     assert_eq!((err.code, err.message.as_str()), (42, "failing as asked"));
     assert_eq!(err.data, Some(json!({"why": "test"})));

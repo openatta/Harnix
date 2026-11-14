@@ -5,7 +5,7 @@ edition      = "2021"
 rust-version = "1.87"
 license      = "Apache-2.0"
 publish      = false
-description  = "A runtime application as it is distributed: the manifest, the .hxext package, its signatures, the store"
+description  = "An extension package as it is distributed: the manifest, the .hxext package, its signatures, the store"
 
 # Distribution and trust, and nothing that runs: what a package says (`manifest`), what it holds
 # (`package`), who signed it (`signature`), where it comes from (`store`), what a person is shown

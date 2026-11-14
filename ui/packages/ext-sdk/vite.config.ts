@@ -1,7 +1,7 @@
 /**
- * The SDK as a classic script (`dist/harnix-ext-sdk.js`, global `HarnixExt`), for an application
+ * The SDK as a classic script (`dist/harnix-ext-sdk.js`, global `HarnixExt`), for a package
  * that ships its page unbundled — the showcase does (`examples/packages/showcase/ui/frame/vendor/`).
- * A bundling application imports `@harnix/ext-sdk` instead.
+ * A bundling package imports `@harnix/ext-sdk` instead.
  */
 
 import { fileURLToPath } from "node:url";

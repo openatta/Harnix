@@ -1,4 +1,4 @@
-//! The application author's tool, and the store's.
+//! The package author's tool, and the store's.
 //!
 //!     harnix-pack new <dir> --id <publisher.name> [--title <title>]
 //!     harnix-pack build <app dir> [-o <dir>]
@@ -14,7 +14,7 @@
 //!     harnix-pack index <store dir> --key <store key file> [--name <name>] [--days <n>]
 //!     harnix-pack sign-index <index.json> --key <store key file> [--days <n> | --expires <time>]
 //!
-//! `new` lays out an application: its manifest, a component with one tool, the WIT it builds
+//! `new` lays out a package: its manifest, a component with one tool, the WIT it builds
 //! against. `build` builds the component (`cargo build --release --target wasm32-wasip2` in
 //! `<app dir>/component`) and compiles it for this engine — for the target's baseline CPU, so the
 //! artifact loads on any machine of this target — into `<app dir>/build/` (or `-o`). `pack` zips
@@ -30,7 +30,7 @@
 //! lot; `index` lists `<store dir>/packages/*.hxext` as `<store dir>/index.json`, the catalog a
 //! Harnix reads (`[ext.packages] store`), signed with the store's key and believed for `--days` (14
 //! unless said). `sign-index` signs a catalog again after the store edited it — a version
-//! `revoked`, an application's `min_version` raised — or to republish it before it expires;
+//! `revoked`, a package's `min_version` raised — or to republish it before it expires;
 //! `--expires` (`YYYY-MM-DDTHH:MM:SSZ`) says when instead.
 //!
 //! An unsigned package installs only with `[ext.packages] dev = true`.
@@ -140,7 +140,7 @@ fn read_key(path: &str) -> Result<SecretKey> {
     SecretKey::parse(&text).map_err(|e| anyhow::anyhow!("{path}: {e}"))
 }
 
-/* ── an application ───────────────────────────────────────────────────── */
+/* ── a package ───────────────────────────────────────────────────── */
 
 fn new(args: &[String]) -> Result<()> {
     let args = Args::parse(args, &["--id", "--title"], &[])?;
@@ -210,7 +210,7 @@ strip = true
 lto = true
 "#
     );
-    let lib = r#"//! The application's tools: a `tools-ext` component (`harnix:ext`, wit/ext.wit).
+    let lib = r#"//! The package's tools: a `tools-ext` component (`harnix:ext`, wit/ext.wit).
 //!
 //! To also see, and veto, the calls of these tools, build `tools-ext-events` instead and implement
 //! `exports::harnix::ext::events::Guest` (`on_event` answering `HookDecision::Proceed`,

@@ -11,11 +11,11 @@
  * `MISSES`) — which only a browser that runs sandboxed frames apart from the page can notice: where
  * the frame shares the page's thread, a page that hangs hangs the shell with it.
  *
- * Everything the frame asks is done by the shell, and only what its application's manifest lets
+ * Everything the frame asks is done by the shell, and only what its package's manifest lets
  * it ask for: methods and topics of its own (`<id>.*`) and in its `[interface] calls`, sessions
  * of its own space, items of its own kinds, its own modals and settings sections. Every call and
- * every subscription goes out carrying the application's id (`"$ext"`): the server takes what the
- * page may do, what the interface lists and the row's scope, and narrows it to the application's
+ * every subscription goes out carrying the package's id (`"$ext"`): the server takes what the
+ * page may do, what the interface lists and the row's scope, and narrows it to the package's
  * own spaces and their sessions. Here only what the page draws is narrowed — a call names one of
  * its own spaces when it names none, and a session it names must be in one. A refusal is
  * answered as one, recorded for the Apps tab (`store.ts`) and noted in the registry, which
@@ -63,22 +63,22 @@ export interface FrameHost {
   app: App;
   iface: PackageInterface;
   decl: SurfaceDecl;
-  /** The interface space the application's sessions are drawn in (its first, if it has one). */
+  /** The interface space the package's sessions are drawn in (its first, if it has one). */
   space: string | null;
   params: unknown;
   ready(): void;
   failed(reason: string): void;
   resize(height: number): void;
   close(result: unknown): void;
-  /** One of the application's modals; resolves with what it closed with. */
+  /** One of the package's modals; resolves with what it closed with. */
   openModal(id: string, params: unknown): Promise<unknown>;
-  /** The application's space's second panel, given these params (null closes it). */
+  /** The package's space's second panel, given these params (null closes it). */
   secondary(open: { params: unknown; title?: string } | null): void;
-  /** A badge on the application's space entry. */
+  /** A badge on the package's space entry. */
   badge(value: string | number | null): void;
 }
 
-/** A request the application may not make: answered `refused`, and recorded. */
+/** A request the package may not make: answered `refused`, and recorded. */
 class Refused extends Error {
   constructor(
     readonly what: string,
@@ -148,7 +148,7 @@ export class FrameBridge {
   private readonly loaded = (): void => {
     this.loads += 1;
     if (this.loads > 1) {
-      // Not the application's page any more: whatever it navigated to is not left running here.
+      // Not the package's page any more: whatever it navigated to is not left running here.
       this.iframe.removeEventListener("load", this.loaded);
       this.iframe.src = "about:blank";
       this.fail(t("surface.failed.navigated"));
@@ -210,7 +210,7 @@ export class FrameBridge {
 
   /**
    * A call or subscription through a name of `[interface] calls`, as the page draws it: it claims
-   * one of the application's own spaces (its first, when it names none) — what the server narrows
+   * one of the package's own spaces (its first, when it names none) — what the server narrows
    * by — and a session it names must be in one of them. The server decides; this keeps a frame
    * from reaching what the page would not show it.
    */
@@ -228,7 +228,7 @@ export class FrameBridge {
     return params;
   }
 
-  /** Whether the session is in one of the application's own spaces. */
+  /** Whether the session is in one of the package's own spaces. */
   private async ownsSession(instance: string, sessionId: string): Promise<boolean> {
     for (const space of this.host.iface.spaces) {
       const { sessions } = await this.host.app.call<{ sessions: { session_id: string }[] }>("harnix.sessions.list", { space, instance });
@@ -237,7 +237,7 @@ export class FrameBridge {
     return false;
   }
 
-  /** The application's own space must be in front for what acts on the front space. */
+  /** The package's own space must be in front for what acts on the front space. */
   private ownFront(name: string): string {
     const space = this.host.space;
     if (!space || this.host.app.snapshot.space !== space) this.refuse(name, t("surface.why.notFront"));
@@ -274,7 +274,7 @@ export class FrameBridge {
       case "call": {
         const name = text("method", 200);
         if (!admits(iface.id, iface.calls, name, false)) this.refuse(name, t("surface.why.notListed"));
-        // Tagged with the application: the server narrows the call to what its interface may do
+        // Tagged with the package: the server narrows the call to what its interface may do
         // too, whatever this side let through. Its own names are its own, wherever.
         const own = name.startsWith(`${iface.id}.`);
         const params = own ? ((p.params ?? {}) as Record<string, unknown>) : await this.narrow(name, p.params ?? {}, true);
@@ -287,7 +287,7 @@ export class FrameBridge {
         const params = await this.narrow(topic, p.params ?? {}, false);
         if (this.disposed) return null;
         const sub = this.nextSub++;
-        // Asked as the application, as its calls are: the server narrows it the same way.
+        // Asked as the package, as its calls are: the server narrows it the same way.
         const off = await topicsOf(app.conn).subscribeAs(iface.id, topic, params, (value) =>
           this.send({ kind: "event", name: "topic", data: { sub, value } satisfies ShellEvents["topic"] }),
         );
@@ -380,7 +380,7 @@ export class FrameBridge {
       }
       case "notify": {
         const level = p.level === "error" ? "error" : "info";
-        // Under the application's name: a line from a frame never reads as the shell's own.
+        // Under the package's name: a line from a frame never reads as the shell's own.
         app.notice(t("surface.notice", { app: titleOf(iface), text: text("text", 300) }), level);
         return null;
       }

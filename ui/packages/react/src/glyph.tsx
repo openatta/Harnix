@@ -1,7 +1,7 @@
 /**
  * The interface's 16px line icons, drawn on a 24 viewBox at 1.7 stroke — inline so the page needs
  * no icon font and no network — and `Glyph`, which draws one by name. The shell and every UI
- * package draw their icons through it, so an application's own (`r.icon`) resolve the same way.
+ * package draw their icons through it, so an extension's own (`r.icon`) resolve the same way.
  */
 
 const wrap = (body: string) =>
@@ -65,15 +65,15 @@ export function toolGlyph(name: unknown): string | undefined {
   return GLYPHS.terminal;
 }
 
-/** Where an application's own icons are looked up (`Registry.icons`): set once by the page. */
+/** Where an extension's own icons are looked up (`Registry.icons`): set once by the page. */
 let extra: ((name: string) => string | undefined) | null = null;
 
-/** Resolve names the shell does not have against the application's icons, in the same frame. */
+/** Resolve names the shell does not have against the extension's icons, in the same frame. */
 export function iconsFrom(lookup: (name: string) => string | undefined): void {
   extra = lookup;
 }
 
-/** One of the icons above — or an application's, by its `<owner>.<name>` — in a span the stylesheet
+/** One of the icons above — or an extension's, by its `<owner>.<name>` — in a span the stylesheet
  *  sizes by its class. A name nobody has draws nothing. */
 export function glyphHtml(name: string): { __html: string } {
   const own = GLYPHS[name];

@@ -1,5 +1,5 @@
 /**
- * The words of an application's declared inline points (`[inline]` in its manifest): a text is a
+ * The words of a package's declared inline points (`[inline]` in its manifest): a text is a
  * string or one per locale, and may hold `{root.path}` placeholders filled from what the point
  * draws — a tool call's `input` and `result`, a card's entry `payload`, a button's `result`.
  *

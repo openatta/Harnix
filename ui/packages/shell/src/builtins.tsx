@@ -20,7 +20,7 @@ const OWNER = "builtin";
 /**
  * The shell's own registrations: the "open in details" door on a tool row, the request envelope
  * and its pane, the engine's commands, and the settings sections every product has. No space:
- * every space is a UI package's or the application's. Then what runtime applications declare
+ * every space is a UI package's or the application's. Then what extension packages declare
  * inline, drawn by the shell.
  */
 export function registerBuiltins(app: App): void {
@@ -73,7 +73,7 @@ export function registerBuiltins(app: App): void {
     OWNER,
   );
 
-  // What runtime applications declare inline, drawn by the shell: registered as they start.
+  // What extension packages declare inline, drawn by the shell: registered as they start.
   startInline(app);
 }
 

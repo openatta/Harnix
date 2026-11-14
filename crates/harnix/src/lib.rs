@@ -35,7 +35,7 @@
 //! What is here is a re-export: the application builder (`harnix-assembly`), the extension
 //! interface ([`ext`]), Harnix's own extensions ([`first_party`]), and what an extension gives the
 //! engine — tools, tool providers, hooks, scene layers, prompt gates ([`engine`]).
-//! An application depends on this crate alone. See `docs/harnix-sdk.md`.
+//! An application depends on this crate alone. See `docs/harnix-ext.md`.
 
 /// What an extension gives the engine, in Harnix's words: a tool (`engine::Tool`), a provider of
 /// tools for every session (`engine::ToolProvider`), a hook before a call (`engine::ToolHook`), a

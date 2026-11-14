@@ -1,4 +1,4 @@
-# The example application (docs/harnix-sdk.md §3), laid out as an application is:
+# The example application (docs/harnix-ext.md §3), laid out as an application is:
 # `harnix/` beside it — here a link to this checkout.
 #
 # `harnix/` is the one submodule, and it brings the engine (`harnix/agix`).

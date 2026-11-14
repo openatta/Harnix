@@ -1,10 +1,10 @@
-# An application on Harnix (docs/harnix-sdk.md §3).
+# An application on Harnix (docs/harnix-ext.md §3).
 #
 # `harnix/` is the one submodule, and it brings the engine (`harnix/agix`).
 # Harnix's crates are members of *this* workspace, so they resolve their
 # dependencies against the table below; the engine's crates resolve against
 # its own Cargo.toml, which is why `harnix/agix` is excluded rather than a
-# member (harnix-sdk.md §3).
+# member (harnix-ext.md §3).
 [workspace]
 resolver = "2"
 members = ["app", "harnix/crates/*", "harnix/crates/ext/*", "harnix/crates/carrier/*"]

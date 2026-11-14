@@ -7,8 +7,8 @@
 //! What a caller holds is not in the table: [`Router`] decides every call by the row and by a
 //! [`harnix_kernel::GrantBook`] — capabilities, and how far an extension is trusted — and narrows
 //! a package's call, and a page's in a frame, to its own space. Every change to the table after
-//! assembly goes through [`Router`], which puts it on the record: an application's names
-//! installed and withdrawn, a failed module's rows withdrawn.
+//! assembly goes through [`Router`], which puts it on the record: a package's names
+//! installed and withdrawn, a failed extension's rows withdrawn.
 //!
 //! Only the assembly depends on this crate: it is the one that installs rows, and everything
 //! else is called through [`harnix_kernel::Dispatch`] and asks [`harnix_kernel::RouteDecider`].
@@ -44,7 +44,7 @@ pub const NO_FRAME: &str = "this extension has no interface in a frame";
 /// Decides every call by its row and what the caller holds, records the decision, and hands the
 /// call to the row's handler.
 pub struct Router {
-    /// Written when an application comes and goes, or a module fails to start; read on every
+    /// Written when a package comes and goes, or an extension fails to start; read on every
     /// call.
     table: RwLock<RouteTable>,
     grants: Arc<dyn GrantBook>,

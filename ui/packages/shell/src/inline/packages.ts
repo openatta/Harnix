@@ -1,5 +1,5 @@
 /**
- * The runtime applications this page knows of, from the `packages` extension's topic `packages.list` (the
+ * The extension packages this page knows of, from the `packages` extension's topic `packages.list` (the
  * value of `packages.list`, pushed when it changes): which are installed and how far each is
  * trusted — what the left column's mark says — and, for each one running, the inline points its
  * manifest declares (`runtime.inline`), which the shell draws for it.
@@ -62,7 +62,7 @@ export interface Inline {
   sidebar_group?: GroupDecl[];
 }
 
-/** One installed application, as the shell draws for it. */
+/** One installed package, as the shell draws for it. */
 export interface RuntimePackage {
   id: string;
   title: string;
@@ -116,7 +116,7 @@ export class PackagesWatch {
     return [...this.packages.values()].filter((a) => a.running);
   }
 
-  /** Whether the left column marks applications' spaces. */
+  /** Whether the left column marks packages' spaces. */
   marked(): boolean {
     return !this.hidden;
   }
@@ -165,7 +165,7 @@ export function packagesOf(app: App): PackagesWatch {
   return watch;
 }
 
-/** The names a session knows an application's tool by: in this process, and in a spawned daemon. */
+/** The names a session knows a package's tool by: in this process, and in a spawned daemon. */
 export function toolNames(id: string, tool: string): string[] {
   const flat = id.replace(/\./g, "_");
   return [`ext__${flat}__${tool}`, `mcp__ext-${flat}__${tool}`];

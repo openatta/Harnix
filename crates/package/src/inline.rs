@@ -1,6 +1,6 @@
-//! `[inline]`: what the shell draws for an application inside its own views, from the manifest
-//! alone. No code of the application's runs in the page for any of it: the shell has the
-//! components, the application fills in the words and says which of its methods a button calls.
+//! `[inline]`: what the shell draws for a package inside its own views, from the manifest
+//! alone. No code of the package's runs in the page for any of it: the shell has the
+//! components, the package fills in the words and says which of its methods a button calls.
 //!
 //! ```toml
 //! [[inline.tool_row]]           # how a call of one of its tools looks in the flow
@@ -31,7 +31,7 @@
 //! description = "The showcase's commands"
 //!
 //! [[inline.sidebar_group]]      # how one of its spaces groups its sessions in the left column
-//! space = "example.showcase"    # a `[[space]]` of its own (the application's id when absent)
+//! space = "example.showcase"    # a `[[space]]` of its own (the package's id when absent)
 //! by = "method"                 # `scene`, `field` (with `field = "<the session row's key>"`), or
 //! method = "sessions.group"     #   `method`: <id>.<method> {space, sessions} → {groups}
 //! other = "Everything else"     # the group for what no rule places
@@ -55,7 +55,7 @@ pub const POINTS: &[&str] = &["tool_row", "flow_block", "command", "sidebar_grou
 /// The locales a text may be given in: the shell's.
 pub const LOCALES: &[&str] = &["en", "zh-CN"];
 
-/// What a card is drawn from: the entry an application appends, through this method.
+/// What a card is drawn from: the entry a package appends, through this method.
 pub const APPEND: &str = "harnix.session.entries.append";
 
 /// What a command's candidates come from: `<id>.complete`.
@@ -138,7 +138,7 @@ pub struct Field {
 #[serde(deny_unknown_fields)]
 pub struct Button {
     pub label: Text,
-    /// One of the application's own `[[method]]`s, without the `<id>.` it is called by.
+    /// One of the package's own `[[method]]`s, without the `<id>.` it is called by.
     pub method: String,
     /// The params, as a table; its strings may be templates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -164,7 +164,7 @@ pub const GROUP_BY: &[&str] = &["scene", "field", "method"];
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SidebarGroup {
-    /// One of its `[[space]]`s; the application's id when absent.
+    /// One of its `[[space]]`s; the package's id when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub space: Option<String>,
     pub by: String,
@@ -331,7 +331,7 @@ impl Inline {
                 return refuse(format!("{at}: `space` is one of the package's `[[space]]`s (or its id), grouped once"));
             }
             // A space's left column is the shell's session list (which this groups) or the
-            // application's own `space.sidebar` frame in its place: never both.
+            // package's own `space.sidebar` frame in its place: never both.
             if manifest
                 .surfaces
                 .iter()
@@ -421,7 +421,7 @@ fn path(p: &str) -> bool {
     dotted(p)
 }
 
-/// A shell glyph: one of its names. An application's own icons need code of its own to register,
+/// A shell glyph: one of its names. A package's own icons need code of its own to register,
 /// which a manifest has none of.
 fn icon(name: Option<&str>, at: &str) -> Result<(), String> {
     match name {
