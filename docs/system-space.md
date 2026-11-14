@@ -49,12 +49,13 @@
 | 等你处理 | `waiting` 不为空的行 | `harnix.instances.sessions` |
 
 `system.process` 是 `system` 的主题（也是同名的方法），有人订阅时每 5 秒重算一次推出；数据是 `system` 凭 `process.observe` 从宿主拿的进程信息。
-值里还有产品名与版本、`started_ms`，带载体的构建另有虚拟机引擎的指纹。
+值里还有产品名与版本（`app`）、`started_ms`。
 
 ## 3. 左栏：实例
 
-每台实例一行（主题 `harnix.instances`）：状态点（`ready` / `degraded` / `down`，悬停是理由）、id、这台实例上正在跑的会话数。
-收养的实例（`proc.<扩展 id>`，模式 3 扩展进程里它自己的引擎）带一个「扩展」标记；它休眠时标 `hibernating`，列表由产品存下的缓存答，打开这里不会唤醒它。
+每台实例一行（主题 `harnix.instances`）：状态点（`starting` / `ready` / `degraded` / `down` / `hibernating`，悬停是理由，没有理由时是状态）、id、这台实例上正在跑的会话数。
+收养的实例（`proc.<扩展 id>`，模式 3 扩展进程里它自己的引擎）和别的实例一样列在这里，载体在它的概况里（§8.1）；它休眠时状态是 `hibernating`，
+会话列表由产品在回收前存下的那份答，打开这里不会唤醒它。
 点一行选中这台实例（§8.1）。
 
 ## 4. Agent：活动、全部
@@ -143,11 +144,13 @@ scene 为 `flow-author` 的那个后端 space（缺省 `flow`，由 `flow` 扩�
 数据只有一个：主题 `packages.list`（值同方法 `packages.list`；载体报告状态变了才推，另有至多 10 秒一次的兜底，见 [扩展包](harnix-ext-package.md)）。
 **这一页只看，不操作**：启停、同意、数据、卸载、更新在设置 → 扩展。
 
+表上方：模式 3 的扩展进程不在沙箱里时，一条红字写明原因——`[ext.packages] sandbox = "off"`（只给开发用），或者这个平台套不上沙箱（扩展进程因此不拉起）。
+
 表有五列；放不下时表在自己的框里横向滚动，不撑宽页面，表头不折字。
 
 | 列 | 是什么 |
 |---|---|
-| 扩展 | 状态点、标题或 id，下一行 id、版本与载体（`wasm` / `process`） |
+| 扩展 | 状态点、标题或 id（扩展进程没有沙箱时跟一个「无沙箱」标记），下一行 id 与版本 |
 | 状态 | 见下表 |
 | 后端 | 只对带后端的扩展包：休眠 / 运行中 / 未运行 |
 | 调用 · 出错 | `calls.calls` · `calls.errors` |
@@ -163,7 +166,7 @@ scene 为 `flow-author` 的那个后端 space（缺省 `flow`，由 `flow` 扩�
 
 点一行（或回车）展开：虚拟机的四个数——换新 / 重建（`recycles`，超时后换掉 Store / `rebuilds`，崩溃后重建）、
 故障 · 超时（`faults` · `timeouts`）、内存（`memory_bytes / memory_limit_bytes`）、存储（`storage_bytes / storage_limit_bytes`，
-kv 加 `/data`）；模式 3 另有进程的状态与沙箱（`sandbox: off` 时标红）、置于一旁的理由与 stderr 的最后几行；没起来的理由、最近一次错误、
+kv 加 `/data`）；模式 3 另有扩展进程 stderr 的最后几行（至多 40 行）；没起来或置于一旁的理由、最近一次错误、
 它的方法与主题、**最近被拒的调用**（方法 — 理由）。本页上它的界面面板是外壳的，在诊断里（§7）。
 
 ## 7. 诊断
@@ -191,7 +194,7 @@ kv 加 `/data`）；模式 3 另有进程的状态与沙箱（`sandbox: off` 时
 
 ### 8.1 选中一台实例
 
-**概况**：实例、状态与理由、实例载体（进程内 / spawn / attach / 收养）、实例的信任、模板、拥有者、版本与协议、场景、进程号、数据根；这台实例的会话
+**概况**：实例、状态与理由、实例载体（进程内 / spawn / attach / 收养）、模板、拥有者、版本与协议、场景、进程号、数据根；这台实例的会话
 （点了选中）；按模板新建实例（`system.instances.templates` 列全部模板、`system.instances.create`）。操作：重启（`system.instances.restart`，不是 `main` 时；
 重启 attach 的实例就是重连）、停止（`system.instances.stop`，拥有者不是内核时，先确认）。
 
@@ -238,7 +241,7 @@ kv 加 `/data`）；模式 3 另有进程的状态与沙箱（`sandbox: off` 时
 | `harnix.instances.sessions` | `instance` | 中枢 | Agent 页签、实例概况、指标条 |
 | `harnix.session.tasks` | `instance`、`session_id` | 中枢 | 展开的行、任务页签、子 Agent |
 | `harnix.sessions.status` | — | 中枢 | 运行中会话、左栏角标 |
-| `packages` | — | `packages` | 扩展页签 |
+| `packages.list` | — | `packages` | 扩展页签 |
 | `flow.defs`、`flow.runs`、`flow.run {run}`、`flow.dry_runs`、`flow.focus {instance, session_id}` | | `flow` | 流程 |
 
 | 方法 | 所有者 | 用在 |
@@ -258,14 +261,15 @@ kv 加 `/data`）；模式 3 另有进程的状态与沙箱（`sandbox: off` 时
 
 ## 10. 后端：扩展 `system`
 
-**它的权力就是四项能力。** `harnix::first_party::standard()` 授予 `system`：`instances.admin`、`engine.inspect`、`engine.control`、`process.observe`；它声明一个 space
-`system`（`cross_space()`、`center: hidden`、`place: bottom`）。骨架里没有一行认 `system` 这个 id：一个被授予同样四项能力、声明同样 space 的扩展能做系统 space 能做的每一件事，
+**它的权力就是四项能力。** `harnix::first_party::standard()` 授予 `system`：`instances.admin`、`engine.inspect`、`engine.control`、`process.observe`；它声明一个 `cross_space()` 的
+space `system`（界面一侧 `@harnix/system` 把它画成 `center: "hidden"`、`place: "bottom"`）。骨架里没有一行认 `system` 这个 id：一个被授予同样四项能力、声明同样 space 的扩展能做系统 space 能做的每一件事，
 不授予就每一样都被拒——这有测试盯着。
 
-**设备够不着的引擎方法包在 `system` 后面。** 设备自己永远没有能力：`engine.session.inspectContext`、`stopTask`、`messageTask`、`taskOutput`、`goal` 要 `engine.inspect`，
-`dropMessages`、`editMessage`、`compact`、`clear`、`setModel`、`rename`、`setGoal`、`updateGoal` 要 `engine.control`。`system` 把它们包成 13 个设备能调的方法：
+**设备够不着的引擎方法包在 `system` 后面。** 设备自己永远没有能力：`engine.session.inspectContext`、`taskOutput`、`goal` 要 `engine.inspect`，
+`stopTask`、`messageTask`、`dropMessages`、`editMessage`、`compact`、`clear`、`setModel`、`rename`、`setGoal`、`updateGoal` 要 `engine.control`。`system` 把它们包成 13 个设备能调的方法：
 `system.context`、`messages.drop`、`messages.edit`、`tasks.stop`、`tasks.message`、`tasks.output`、`compact`、`clear`、`model`、`rename`、`goal`、`goal.set`、`goal.update`。
-设备调它，它以自己的身份、凭自己的能力调那个 `engine.session.*`，两次判定都进审计，后者挂在前者下面。`instance` 不写是 `main`，`session_id` 必填。
+设备调它，它以自己的身份、凭自己的能力调那个 `engine.session.*`，两次判定都进审计，后者挂在前者下面。`instance` 不写是 `main`，`session_id` 必填；
+它转过去的调用总声称它自己的 space `system`，不管设备声称的是什么，所以替设备读别的 space 的会话，在审计环与日志里记一条「跨 space」，与设备直接调一致。
 其余会话方法（`engine.session.history`、`harnix.session.fork`、`interrupt`……）设备直接调，带上 `space: "system"`。
 
 另外几个：
