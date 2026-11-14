@@ -46,8 +46,10 @@ pub enum SessionEventKind {
     GoalChanged { goal: Value },
     /// Where one of the session's teams stands.
     TeamProgress { team_id: String },
-    /// One of the session's tasks started (or finished): work that outlives the turn.
-    Task { task_id: String, started: bool },
+    /// One of the session's tasks started (or finished): work that outlives the turn. `session`
+    /// is the sub-agent's own session, when the task runs one: a session the engine made, whose
+    /// parent this session is.
+    Task { task_id: String, started: bool, session: Option<String> },
     /// The turn compacted the transcript, which is shorter for it.
     Compacted,
     /// The turn ended, as the engine says.

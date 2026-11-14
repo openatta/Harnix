@@ -265,10 +265,20 @@ fn session_event(mut params: Value) -> Option<EngineEvent> {
             Some(team) => SessionEventKind::TeamProgress { team_id: team.to_string() },
             None => SessionEventKind::Other,
         },
-        TASK_STARTED | TASK_FINISHED => match event.get("task").and_then(|t| t.get("task_id")).and_then(Value::as_str) {
-            Some(task) => SessionEventKind::Task { task_id: task.to_string(), started: kind_name == TASK_STARTED },
-            None => SessionEventKind::Other,
-        },
+        TASK_STARTED | TASK_FINISHED => {
+            let task = event.get("task");
+            match task.and_then(|t| t.get("task_id")).and_then(Value::as_str) {
+                Some(id) => SessionEventKind::Task {
+                    task_id: id.to_string(),
+                    started: kind_name == TASK_STARTED,
+                    session: task
+                        .and_then(|t| t.pointer("/detail/agent_session_id"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                },
+                None => SessionEventKind::Other,
+            }
+        }
         COMPACT => SessionEventKind::Compacted,
         TURN_COMPLETE => SessionEventKind::TurnComplete(completion(&event)),
         _ => SessionEventKind::Other,
@@ -370,7 +380,11 @@ mod tests {
         assert_eq!(args, SessionEventKind::Fragment(Fragment::new(Joins::ToolArgs("c".into()), "partial_json", "{")));
         assert_eq!(
             kind_of(json!({"kind": "task_finished", "task": {"task_id": "k"}})),
-            SessionEventKind::Task { task_id: "k".into(), started: false }
+            SessionEventKind::Task { task_id: "k".into(), started: false, session: None }
+        );
+        assert_eq!(
+            kind_of(json!({"kind": "task_started", "task": {"task_id": "k", "detail": {"agent_session_id": "sub"}}})),
+            SessionEventKind::Task { task_id: "k".into(), started: true, session: Some("sub".into()) }
         );
         assert_eq!(kind_of(json!({"kind": "assistant_message"})), SessionEventKind::Other);
     }

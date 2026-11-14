@@ -68,7 +68,7 @@ impl Hub {
                 | SessionEventKind::GoalChanged { .. }
         );
         let task = match &kind {
-            SessionEventKind::Task { task_id, started } => Some((task_id.clone(), *started)),
+            SessionEventKind::Task { task_id, started, .. } => Some((task_id.clone(), *started)),
             _ => None,
         };
         let teams = matches!(kind, SessionEventKind::TeamProgress { .. });
