@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use harnix_package::acquire::{internal, refused};
+use harnix_package::acquire::{internal, no_such_instance, refused};
 use harnix_package::package;
 use harnix_wasm_port::{AgentInstall, AgentRef, AgentSwitch, Agent, RpcError, Skills};
 use serde_json::{json, Value};
@@ -114,9 +114,7 @@ pub(crate) async fn place(
         None => {
             for target in &manifest.agent.install_into {
                 if !engine.has_instance(target.clone()).await? {
-                    return Err(refused(format!(
-                        "`{id}` installs its agent package into `{target}`, and there is no such instance"
-                    )));
+                    return Err(no_such_instance(&id, target));
                 }
             }
             &manifest.agent.install_into

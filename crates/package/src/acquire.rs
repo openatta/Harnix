@@ -27,6 +27,12 @@ pub fn internal(message: impl Into<String>) -> RpcError {
     RpcError::new(codes::INTERNAL_ERROR, message)
 }
 
+/// `[agent] install_into` names an instance there is none of: the same refusal whichever carrier
+/// the package is installed on.
+pub fn no_such_instance(id: &str, instance: &str) -> RpcError {
+    refused(format!("`{id}` installs its agent package into `{instance}`, and there is no such instance"))
+}
+
 impl Trust {
     /// As a record keeps it; anything else is unsigned.
     pub fn parse(text: &str) -> Self {

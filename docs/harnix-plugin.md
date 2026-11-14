@@ -248,6 +248,7 @@ api_version = 2
 ```toml
 [agent]
 install_into = ["main"]        # agent/ 装进哪些实例：system，或安装时已经存在的实例的 id；缺省 ["main"]
+                               # 模式 3 里 agent/ 装进它自己的引擎：这里列的实例照样在安装时核对，此外不起作用
 ```
 
 ## 4. 后端：WIT `harnix:ext@1.0.0`
@@ -658,7 +659,7 @@ Harnix 自己怎么测插件 APP（宿主核心的回环、商店的 mock 钥、
 | `[[inline.command]]` | `trigger`（`/` 或 `@`）、`name`、`description?` | | 要有 `[[method]] name = "complete"` |
 | `[[inline.sidebar_group]]` | `space?`、`by`（`scene` / `field` / `method`）、`field?`、`method?`、`other?` | | `space` 是自己的 `[[space]]`（缺省应用的 id），每个 space 一次；不能和那个 space 的 `space.sidebar` 并存 |
 | `[[ui]]` | `point`、`module`、`api_version` | | `module` 是 `ui/` 下的 `.js`；`api_version` 等于贡献点 API（2） |
-| `[agent] install_into` | [string] | `["main"]` | `main`，或安装时已有的实例的 id |
+| `[agent] install_into` | [string] | `["main"]` | `main`，或安装时已有的实例的 id；两种载体都在安装时核对，同一句拒绝 |
 
 ## 15. WIT
 
@@ -719,7 +720,8 @@ interface host {
 | `uninstall` | `id` | `{id, uninstalled: true, removed: {agent: {package, instances} \| null, skills}}` | |
 | `clearData` | `id` | `{id, cleared_bytes, data_bytes, restarted, started}` | 记进审计 |
 
-`installed` / `updated` 是 `{fingerprint, trust, agent: {package, instances, disclosure} | null, skills, started}`。没装的 id 答 `INVALID_PARAMS`。
+`installed` / `updated` 是 `{fingerprint, trust, agent: {package, instances, disclosure} | null, skills, started}`。`instances` 是 agent 包装进的实例：
+模式 2 是 `install_into` 列的产品实例，模式 3 是它自己的引擎 `proc.<id>`；`disclosure` 是那台引擎说这个 agent 包放到模型面前的东西，两种载体一样给。没装的 id 答 `INVALID_PARAMS`。
 
 **快照**（`list` 的答，也是主题 `harnix.apps` 的值）：
 
