@@ -107,4 +107,40 @@ describe("the system space's points", () => {
     });
     expect(ran).toEqual([{ kind: "session", session: { instance: "main", sessionId: "s1" }, space: "sessions" }]);
   });
+
+  it("reads a session's facts again once an operation is done: the model it was switched to is named", async () => {
+    const { fake, r, space } = registered();
+    let model = "model-a";
+    fake.answer = (method, params) => {
+      if (method === "harnix.sessions.list") return { sessions: [{ session_id: "s1", instance: "main", space: "sessions", name: "one" }] };
+      if (method === "system.model") model = (params as { model: string }).model;
+      if (method === "system.context") return { model };
+      return null;
+    };
+    fake.host.dialogs.prompt = async () => "model-b";
+    await act(async () => {
+      await r.at("session.action").find((a) => a.id === "system.open")!.run({ kind: "session", session: { instance: "main", sessionId: "s1" }, space: "sessions" });
+    });
+    render(<RegistryProvider registry={r}>{tabsOf(space())[0]!.render()}</RegistryProvider>);
+    await act(async () => {
+      await tick();
+    });
+    await act(async () => {
+      screen.getByTestId("space-session").click();
+      await tick();
+    });
+    cleanup();
+    render(<RegistryProvider registry={r}>{tabsOf(space())[0]!.render()}</RegistryProvider>);
+    await act(async () => {
+      fake.push("harnix.instances.sessions", { sessions: [{ session_id: "s1", space: "sessions", name: "one" }] });
+      await tick();
+    });
+    expect(screen.getByTestId("system-session").textContent).toContain("model-a");
+    await act(async () => {
+      screen.getByTestId("op-model").click();
+      await tick();
+      await tick();
+    });
+    expect(screen.getByTestId("system-session").textContent).toContain("model-b");
+  });
 });
