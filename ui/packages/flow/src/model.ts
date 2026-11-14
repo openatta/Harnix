@@ -34,7 +34,7 @@ import type {
 
 /* ── names on the wire ───────────────────────────────────────────────── */
 
-/** `<module>.<name>`: the module id is the one the application registered it under. */
+/** `<extension>.<name>`: the extension id is the one the application registered it under. */
 export function methodName(module: string, name: FlowMethod): string {
   return `${module}.${name}`;
 }

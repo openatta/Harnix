@@ -37,7 +37,7 @@ import { toolTarget } from "./model";
 export interface FlowSpaceOptions {
   /** The space's id — the backend space whose conversations run `flow-author`; "flow" by default. */
   space?: string;
-  /** The id the application registered the flow module under; "flow" by default (`flow.*`). */
+  /** The id the application registered the flow extension under; "flow" by default (`flow.*`). */
   module?: string;
   /** The space's title; the `flowui.space` string by default. */
   title?: string;

@@ -1,5 +1,5 @@
 /**
- * What the shell draws for a runtime application from its manifest alone, in the browser: the
+ * What the shell draws for an extension package from its manifest alone, in the browser: the
  * showcase (`examples/packages/showcase`) installed from a file. Its tool's row is drawn as its
  * `[[inline.tool_row]]` says; a card its backend appends to a session is drawn as its
  * `[[inline.flow_block]]` says, and its buttons call the backend (asking first where it says so),
