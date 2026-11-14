@@ -12,7 +12,7 @@
 | 术语 | 代码 | 意思 |
 |---|---|---|
 | **Agix** | `agix/` | Agent 引擎。会话怎么跑、工具怎么派发、上下文怎么压缩，都是它的事。Harnix 带着它；应用只经 `harnix::engine`（Harnix 自己的引擎词汇）用到它，问题与需求提给 Harnix |
-| **Harnix** | `harnix` | Agix 应用的公共底座：**框架 + 第一方扩展**。Harnix 自己发布的二进制 `harnix` 是框架加上全部第一方扩展、`packages` 与 WASM 同进程载体 |
+| **Harnix** | `harnix` | Agix 应用的公共底座：**框架 + 第一方扩展**。Harnix 自己发布的二进制 `harnix` 是框架加上全部第一方扩展、`packages` 与两个载体，缺省跑模式 2 |
 | **框架** | `harnix` crate、`@harnix/core`、`@harnix/react`、`@harnix/shell` | 骨架、实例层、扩展接口与扩展宿主、载体、外壳核心。应用在它上面做 |
 | **骨架** | — | 传输、路由与准入、中枢、装配四件事。写死，不可插拔 |
 | **应用** | `App::builder()` | 在 Harnix 上做出来的产品，例如 Helm、IPDrun。一个应用 = 一个二进制 + 一份界面产物 |
@@ -80,7 +80,7 @@
 | **resync** | `harnix.session_resync` | 中枢重建一个会话的缓冲后，通知客户端照刷新那条路重新 attach |
 | **结算** | settle，`harnix.turn_settled` | 中枢认定一轮结束，清掉这一轮的状态 |
 | **引擎链接** | `EngineLink`、`EngineOps`、`EngineEvent` | 中枢与一台实例之间有类型的接口：一样操作一个方法，事件带中枢要用的类型。每种实例载体都实现它；只交给中枢，扩展拿不到 |
-| **降级** | `Degraded` | 实例的链接断了或在刷屏：那边的轮照跑，Harnix 在重连或在丢帧 |
+| **降级** | `Degraded` | 实例的链接断了或在刷屏：那边的轮照跑，Harnix 在重连或在丢帧。收养的实例在它的扩展进程没了时也是降级，等下一次运行 |
 | **通道语义** | — | 五种：unary、宿主事件流、会话事件流、带外应答、大负载旁路。写死 |
 | **拓扑** | topology | 用几条连接承载通道语义：单双向流、分离流、纯请求。可选 |
 | **主题** | topic | 宿主事件流上的一个主题，推**整值快照**，可带订阅参数。内核的在 `harnix.*` 下，扩展的在 `<扩展 id>.*` 下 |
@@ -98,11 +98,11 @@
 | **宿主组件** | `packages`、`harnix-carrier-wasm`、`harnix-carrier-proc` | 写成扩展的形状、但要碰宿主管道的那几个，凭能力 `extensions.manage` 拿 `harnix-host-api` 的服务 |
 | **`packages`** | `harnix-ext-packages` | 管扩展包的宿主组件：安装记录、商店、披露与同意、升级与回滚、启停、卸载，按名字选载体，把每个启用的包登记成扩展 |
 | **扩展宿主** | `harnix-assembly` 的 `host` | 骨架里登记、迁移、启动、停用扩展，查授予，把描述装进路由表、中枢、传输层与界面板的那部分 |
-| **模式 1 / 2 / 3** | 模式 2：feature `wasm`；模式 3：feature `proc` + `[ext.packages] carrier = "process"` | 在 Harnix 上做应用的三种做法：1 原生扩展；2 扩展包在产品进程里，每个包一台 WASM 虚拟机；3 每个扩展包一个扩展进程。**缺省是原生 + 模式 2**，模式 3 是选用的。见 [应用开发](app-development.md) |
+| **模式 1 / 2 / 3** | 模式 2：feature `wasm`；模式 3：feature `proc` + `[ext.packages] carrier = "process"` | 在 Harnix 上做应用的三种模式，产品都是 Rust 写的：**模式 1** 纯 Rust 应用，不装扩展包；**模式 2** Rust 加同进程的扩展，扩展包在产品进程里、每个包一台 WASM 虚拟机，**是缺省**；**模式 3** Rust 加每个扩展一个进程，每个扩展包一个关在操作系统沙箱里的扩展进程，给安全要求高的场景，**不是缺省**。见 [应用开发](app-development.md) |
 | **扩展包** | `.hxext` | WASM 扩展的分发单位：清单 `harnix-ext.toml`、预编译的 `.cwasm`、`agent/`（一个 Agix 插件）、`ui/`、`SIGNATURES`。对载体中立：同一个包在模式 2、3 里都能装 |
 | **清单** | `harnix-ext.toml` | 扩展包是什么、要什么能力、能调什么、有哪些方法、主题、space、工具（`[[tool]]`）、面与行内点。严格读，未知的节与字段按名拒；也是装前给人看的披露 |
 | **扩展进程** | `<产品> ext-proc` | 模式 3 里一个扩展包的进程：产品二进制以子命令重新执行自己。它自己的 Agix 与 WASM 在里面是完整的，宿主只路由；关在沙箱里 |
-| **沙箱** | `[ext.packages] sandbox` | 扩展进程所在的操作系统沙箱（macOS `sandbox-exec`、Linux Landlock）：只看得见自己的运行目录与包。**不挡网络** |
+| **沙箱** | `[ext.packages] sandbox` | 扩展进程所在的操作系统沙箱（macOS `sandbox-exec`、Linux Landlock），由产品在 exec 之前套上：只看得见自己的运行目录与包。**不挡网络**。是唯一的边界：沙箱开着时 Agix 自己的命令沙箱在里面关掉 |
 | **扩展线** | `harnix-ext-wire@1` | 扩展进程与产品之间、继承的 socketpair 上的 JSON-RPC。进程发的方法是 `proc.*`，产品发的是 `ctl.*` |
 | **监护器** | `harnix-supervise` | 产品侧拉起、看护、退避、回收子进程（daemon 与扩展进程）的那部分 |
 | **虚拟机** | `harnix-wasm` | 一个扩展包的那一台 WASM「虚拟机」：一个边界，不是一个进程。里面是常驻 Store 与每次工具调用、每次事件的调用 Store |
@@ -147,6 +147,7 @@
 - 「Harnix app」是一个第一方扩展；它和 Harnix 自己发布的二进制 `harnix` 不是一回事，和装配（`harnix-assembly`）也不是一回事。
 - space 的三个组成叫「部分」，Agix 插件里的界面段叫「界面模块」，编进外壳的扩展界面叫「UI 包」。
 - 「功能模块」是 LIVE 覆盖表的一行（`tests/live/features.mjs`），不是代码里的东西。
+- 产品的形状只按**模式 1 / 2 / 3** 说，不另起「某某版」这类产品版本的名字。桌面壳（`templates/desktop`）只是装界面的窗口，和浏览器里是同一个产品，不是一种模式。
 
 ## 5. 调用、能力与安全
 
@@ -154,11 +155,11 @@
 |---|---|---|
 | **主体** | `Subject` | 一次调用的调用方，四种：`kernel`（本二进制）、`device:<id>`（一个人）、`ext:<id>`（一个扩展以自己的身份）、`engine:<实例>`（一台 spawn 的 daemon 回连工具端点）。审计照这个写法记 |
 | **设备** | `Device` | 一个配对过的客户端，或本机带令牌的页面。代表一个人。**设备永远不持有能力** |
-| **准入** | `Admission` | 唯一的准入点：设备、本机令牌、启动链接、引擎凭据、扩展进程的绑定都在这里发、撤、审计 |
+| **准入** | `harnix-authz`（`Devices`、`EngineCredentials`、`ChildBindings`） | 唯一的准入点：设备、本机令牌、启动链接、引擎凭据、扩展进程的绑定，状态都在这里，一处发、撤、审计 |
 | **路由表** | `harnix-router` | 方法、主题（`topic:<名>`）、路由（`route:<扩展 id>`）都是表里的一行：所有者、处理者、谁能用、要什么能力、范围。一次调用判定一次 |
 | **所有者**（名字的） | `Owner` | 已登记的、与一个名字整段前缀匹配的最长 id：内核（`harnix`）、引擎（`engine`）或某个扩展。只有所有者能登记它名下的名字 |
-| **访问** | `Access` | 一行对谁开放：设备、任何扩展、某一个扩展、持有某项能力的扩展、引擎主体；或谁都不行（中枢独占） |
-| **范围** | `RowScope` | 一行作用在什么上：`Open`（与 space、会话无关）、`Space`、`Session`。扩展包只在自己的 space 与会话上 |
+| **访问** | `Access` | 一行对谁开放：只对设备（`Access::device()`，人经界面做的决定）；设备与扩展（`.with_extensions()`）；只对扩展；某一个扩展；持有某项能力的扩展；引擎主体；或谁都不行（中枢独占） |
+| **范围** | `RowScope` | 一行作用在什么上：`Open`（与 space、会话无关）、`Space`、`Session`。扩展包只在自己的 space 与会话上（它引擎自己建的子会话随父会话的 space） |
 | **调用上下文** | `CallContext`；线上是 `CallMeta` | 一次调用随身带的：主体、客户端、调用 id、父调用、调用链、取消、截止时间 |
 | **调用链** | `chain` | 正等着这次调用的扩展与它们被占着的那次调用。宿主核心据此当场拒绝重入，而不是等到超时 |
 | **能力** | `Capability` | 一项有名字的特权。**内核目录**一份（`instances.admin`、`engine.inspect`……），原生扩展可以声明自己的（`<id>.<名>`） |
