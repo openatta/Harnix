@@ -202,7 +202,7 @@ async fn an_adopted_engine_is_the_extensions_and_sleeps_until_it_is_needed() {
     let waking = Arc::new(Waking::default());
     let ext = harnix_contract::ExtId::package("acme.board").unwrap();
     let spaces = vec!["acme.board".to_string()];
-    let spec = Adopting { ext, data_root: dir.path().join("run/engine"), inherit_providers: false, wake: waking.clone(), spaces };
+    let spec = Adopting { ext, data_root: dir.path().join("run/engine"), inherit_providers: false, sandboxed: false, wake: waking.clone(), spaces };
     let adoption = registry.adopt(spec).await.unwrap();
     let _ = waking.adoption.set(Arc::downgrade(&adoption));
     let mut notes = adoption.notes().expect("the first caller has its notes");
@@ -272,6 +272,7 @@ async fn an_adopted_engine_is_the_extensions_and_sleeps_until_it_is_needed() {
         ext: harnix_contract::ExtId::package("acme.board").unwrap(),
         data_root: dir.path().join("run/engine"),
         inherit_providers: false,
+        sandboxed: false,
         wake: waking.clone(),
         spaces: Vec::new(),
     };
@@ -280,4 +281,47 @@ async fn an_adopted_engine_is_the_extensions_and_sleeps_until_it_is_needed() {
     registry.release("acme.board").await;
     assert!(registry.facts("proc.acme.board").is_none());
     assert_eq!(seen.log().last().unwrap(), "removed proc.acme.board listed=false");
+}
+
+/// In the host's sandbox an extension's engine runs its commands unwrapped, since macOS refuses a
+/// sandbox nested in that one; out of it, the engine keeps its own. As the engine itself reads its
+/// settings, and through a merge of `main`'s providers.
+#[tokio::test]
+async fn an_engine_in_the_hosts_sandbox_has_its_own_command_sandbox_off() {
+    use harnix_engine::agix::base::settings::Settings;
+    let disabled = |root: &std::path::Path| {
+        Settings::load(root.to_path_buf(), root.join("scenes/code"), root.join("work/.agix"), "code", "m").sandbox.dangerously_disable_sandbox
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let (registry, _) = registry(dir.path());
+    let root = dir.path().join("run/engine");
+    let adopting = |sandboxed| Adopting {
+        ext: harnix_contract::ExtId::package("acme.board").unwrap(),
+        data_root: root.clone(),
+        inherit_providers: false,
+        sandboxed,
+        wake: Arc::new(Waking::default()),
+        spaces: Vec::new(),
+    };
+
+    registry.adopt(adopting(true)).await.unwrap();
+    assert!(disabled(&root), "its engine wraps its commands in a sandbox of its own");
+    let system = dir.path().join("system");
+    std::fs::create_dir_all(&system).unwrap();
+    std::fs::write(system.join("settings.json"), json!({"providers": {"a": {"api_type": "anthropic"}}}).to_string()).unwrap();
+    assert!(crate::inherit::merge(&system, &root).unwrap());
+    assert!(disabled(&root), "a merge of providers turned its own sandbox back on");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = std::fs::metadata(root.join("settings.json")).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    // Started again with the host's sandbox off: its own is on again, the rest of its settings kept.
+    registry.release("acme.board").await;
+    registry.adopt(adopting(false)).await.unwrap();
+    assert!(!disabled(&root), "out of the host's sandbox, its engine has none of its own");
+    let written: Value = serde_json::from_slice(&std::fs::read(root.join("settings.json")).unwrap()).unwrap();
+    assert!(written["providers"].get("a").is_some(), "{written}");
 }

@@ -204,10 +204,12 @@ impl HostApi for HostFor {
         Ok(())
     }
 
-    /// Only for an extension this component registered: the engine is that extension's.
+    /// Only for an extension this component registered: the engine is that extension's. In the
+    /// sandbox its process starts in, that sandbox is its commands' one boundary.
     async fn adopt(&self, id: &ExtId, spec: AdoptSpec) -> Rpc<Arc<dyn AdoptedEngine>> {
         self.registered(id)?;
-        super::adopt::adopt(&self.host.instances, id, spec).await
+        let sandboxed = matches!(self.child_sandbox(), ChildSandbox::On(_));
+        super::adopt::adopt(&self.host.instances, id, spec, sandboxed).await
     }
 
     async fn release(&self, id: &ExtId) {

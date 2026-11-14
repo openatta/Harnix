@@ -17,7 +17,7 @@
 //! What the carrier is told back ([`EngineNote`]): each turn the hub starts and settles on the
 //! engine, with the chain it runs on behalf of, and an engine that kept flooding.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
@@ -28,6 +28,7 @@ use harnix_engine::{Connection, DaemonLink, Refusal, Taken, WakeGate};
 use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, InstanceCarrier, LinkStatus};
 use harnix_engine_api::ops::{Answer, SessionInfo};
 use harnix_kernel::{Chain, InstanceObserver, Rpc, TurnChains, TurnWatch};
+use serde_json::{json, Value};
 use tokio::sync::{mpsc, watch};
 
 use crate::link::now_ms;
@@ -56,10 +57,44 @@ pub struct Adopting {
     /// `main`'s providers are written into its settings before it starts, and again when they
     /// change.
     pub inherit_providers: bool,
+    /// Its process runs in the host's sandbox. That is then the one boundary of the commands its
+    /// engine runs, and the engine's own command sandbox is turned off: macOS refuses one nested
+    /// in it. Not in it, the engine keeps its own.
+    pub sandboxed: bool,
     pub wake: Arc<dyn Wake>,
     /// The spaces it declared, whose sessions are on this engine: who may use it besides itself.
     /// None, and it is no space's.
     pub spaces: Vec<String>,
+}
+
+/// The engine's own setting for its command sandbox. Written to its global tier: a project's
+/// settings may not widen the sandbox.
+const DISABLE: (&str, &str) = ("sandbox", "dangerously_disable_sandbox");
+
+/// Turn the engine's own command sandbox off in the settings under `data_root` when its process
+/// is `sandboxed`, and back on when it is not. `Ok(true)` when they changed.
+pub(super) fn command_sandbox(data_root: &Path, sandboxed: bool) -> std::io::Result<bool> {
+    let path = data_root.join("settings.json");
+    let mut settings = crate::inherit::read(&path)?;
+    let (section, key) = DISABLE;
+    let now = settings.get(section).and_then(|s| s.get(key)).and_then(Value::as_bool).unwrap_or(false);
+    if now == sandboxed {
+        return Ok(false);
+    }
+    if !settings.is_object() {
+        settings = json!({});
+    }
+    if !settings.get(section).is_some_and(Value::is_object) {
+        settings[section] = json!({});
+    }
+    let table = settings[section].as_object_mut().expect("an object");
+    if sandboxed {
+        table.insert(key.into(), json!(true));
+    } else {
+        table.remove(key);
+    }
+    crate::inherit::write_private(&path, &settings)?;
+    Ok(true)
 }
 
 /// What the carrier of an adopted engine is told.

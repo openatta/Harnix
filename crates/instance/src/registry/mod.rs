@@ -412,10 +412,11 @@ impl InstanceRegistry {
         self.show(id, built, Record::fixed(owner), Handover::Added, providers).await;
     }
 
-    /// Adopt an extension's own engine as `proc.<id>`: its data root made, `main`'s providers
-    /// written into it when it inherits them, the hub handed its link and the instance listed —
-    /// starting until the first run of its process attaches. Not in the ledger: it is the
-    /// extension's for as long as the extension runs, and adopted again when it starts again.
+    /// Adopt an extension's own engine as `proc.<id>`: its data root made, its own command sandbox
+    /// off when its process is in the host's, `main`'s providers written into it when it inherits
+    /// them, the hub handed its link and the instance listed — starting until the first run of its
+    /// process attaches. Not in the ledger: it is the extension's for as long as the extension
+    /// runs, and adopted again when it starts again.
     pub async fn adopt(&self, spec: Adopting) -> Rpc<Arc<Adoption>> {
         let id = instance_of(spec.ext.as_str());
         let _claim = self.claim(&id).await;
@@ -424,6 +425,10 @@ impl InstanceRegistry {
         }
         std::fs::create_dir_all(&spec.data_root)
             .map_err(|e| RpcError::new(codes::INTERNAL_ERROR, format!("{}: {e}", spec.data_root.display())))?;
+        // Before its process first starts, and kept by every merge of providers after.
+        if let Err(e) = adopt::command_sandbox(&spec.data_root, spec.sandboxed) {
+            tracing::warn!(instance = %id, error = %e, "its engine's command sandbox was not set");
+        }
         let facts = Facts { data_root: spec.data_root.clone(), ..Facts::default() };
         if spec.inherit_providers {
             if let Err(e) = self.factory.inherit_into(&facts) {

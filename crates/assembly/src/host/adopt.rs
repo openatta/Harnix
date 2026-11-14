@@ -15,11 +15,13 @@ use harnix_kernel::Rpc;
 use tokio::sync::mpsc;
 
 /// Adopt `id`'s engine as `spec` says.
-pub(crate) async fn adopt(registry: &InstanceRegistry, id: &ExtId, spec: AdoptSpec) -> Rpc<Arc<dyn AdoptedEngine>> {
+/// `sandboxed`: its process starts in the host's sandbox.
+pub(crate) async fn adopt(registry: &InstanceRegistry, id: &ExtId, spec: AdoptSpec, sandboxed: bool) -> Rpc<Arc<dyn AdoptedEngine>> {
     let adopting = Adopting {
         ext: id.clone(),
         data_root: spec.data_root().clone(),
         inherit_providers: spec.inherits_providers(),
+        sandboxed,
         wake: Arc::new(ByWaker(spec.waker().clone())),
         spaces: spec.declared_spaces().to_vec(),
     };
