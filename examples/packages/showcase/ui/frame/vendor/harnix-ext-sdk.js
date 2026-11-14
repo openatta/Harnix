@@ -106,7 +106,7 @@ var HarnixExt = (function(exports) {
       return () => this.paramListeners.delete(fn);
     }
     /* ── data ── */
-    /** A method: the application's own `<id>.*`, or one its `[interface] calls` lists. */
+    /** A method: the package's own `<id>.*`, or one its `[interface] calls` lists. */
     call(method, params) {
       return this.request("call", { method, params });
     }
@@ -128,7 +128,7 @@ var HarnixExt = (function(exports) {
       off.ready = ready;
       return off;
     }
-    /** The application's space's sessions, as the shell has them open. */
+    /** The package's space's sessions, as the shell has them open. */
     session = {
       current: () => this.currentSession,
       open: (ref) => this.request("session.open", ref).then(() => void 0),
@@ -156,7 +156,7 @@ var HarnixExt = (function(exports) {
     composer = {
       insert: (text) => this.request("composer.insert", { text }).then(() => void 0)
     };
-    /** A badge on the application's space entry; null, 0 or "" clears it. */
+    /** A badge on the package's space entry; null, 0 or "" clears it. */
     badge(value) {
       return this.request("badge", { value }).then(() => void 0);
     }
@@ -167,7 +167,7 @@ var HarnixExt = (function(exports) {
     copy(text) {
       return this.request("copy", { text }).then(() => void 0);
     }
-    /** One of the application's modals; resolves with what it closed with, null if it was dismissed. */
+    /** One of the package's modals; resolves with what it closed with, null if it was dismissed. */
     openModal(id, params) {
       return this.request("openModal", { id, params });
     }

@@ -1,4 +1,4 @@
-/* The shell's look inside an application's frame: its tokens (the very file the shell's theme is,
+/* The shell's look inside a package's frame: its tokens (the very file the shell's theme is,
  * light and `data-theme="dark"`), and a few components drawn with them. `follow(app)` sets the
  * theme and the shell's current token values (a brand's included) on <html>, so the frame changes
  * with the shell the moment it does. Colours only from tokens. */
