@@ -146,7 +146,7 @@ fn upload(call: &Call, params: &Value) -> Rpc<Value> {
         .get("name")
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("missing name"))?;
-    let grant = call.ext().bulk().grant(MAX_PACKAGE_BYTES)?;
+    let grant = call.ext().bulk().grant_named(name, MAX_PACKAGE_BYTES)?;
     Ok(json!({
         "token": grant.token(),
         "url": format!("/upload?token={}", grant.token()),

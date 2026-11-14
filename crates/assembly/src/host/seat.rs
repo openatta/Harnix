@@ -155,21 +155,28 @@ impl HostUploads {
         std::fs::create_dir_all(&dir)
             .map_err(|e| RpcError::new(harnix_contract::codes::INTERNAL_ERROR, format!("{}: {e}", dir.display())))?;
         let token = format!("u-{}", uuid::Uuid::new_v4().simple());
-        let safe: String =
-            name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' }).collect();
-        let path = dir.join(format!("{token}-{safe}"));
+        let path = dir.join(format!("{token}-{}", safe_name(name)));
         lock(&self.grants).insert(token.clone(), (path.clone(), max_bytes));
         Ok((token, path))
     }
 }
 
+/// A client's name for what it uploads, as the end of a file name: nothing that leaves the
+/// directory or means anything to a shell.
+fn safe_name(name: &str) -> String {
+    name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' }).collect()
+}
+
 impl BulkGrants for HostUploads {
-    fn issue(&self, ext: &ExtId, max_bytes: usize) -> Rpc<(String, PathBuf)> {
+    fn issue(&self, ext: &ExtId, name: Option<&str>, max_bytes: usize) -> Rpc<(String, PathBuf)> {
         let dir = self.dir.join("ext").join(ext.as_str());
         std::fs::create_dir_all(&dir)
             .map_err(|e| RpcError::new(harnix_contract::codes::INTERNAL_ERROR, format!("{}: {e}", dir.display())))?;
         let token = uuid::Uuid::new_v4().simple().to_string();
-        let path = dir.join(&token);
+        let path = match name {
+            Some(name) => dir.join(format!("{token}-{}", safe_name(name))),
+            None => dir.join(&token),
+        };
         lock(&self.grants).insert(token.clone(), (path.clone(), max_bytes));
         Ok((token, path))
     }

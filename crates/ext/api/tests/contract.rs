@@ -263,6 +263,9 @@ async fn an_extension_reaches_the_process_through_the_interface_alone() {
     assert!(cx.process().unwrap().uptime_secs().is_some());
     let grant = cx.bulk().grant(1024).unwrap();
     assert!(!grant.token().is_empty() && grant.max_bytes() == 1024 && grant.path().parent().unwrap().is_dir());
+    let named = cx.bulk().grant_named("../a b.zip", 1024).unwrap();
+    assert!(named.path().file_name().unwrap().to_str().unwrap().ends_with("-.._a_b.zip"), "{}", named.path().display());
+    assert_eq!(named.path().parent(), grant.path().parent());
     cx.ui().publish(vec![UiEntry::new("home.card", "/ext/probe/files/card.js", harnix_ext::CONTRIB_API_VERSION)]);
     let devices = cx.devices().unwrap();
     assert!(devices.list()["devices"].is_array());
