@@ -34,7 +34,7 @@ export function SettingsRow({ label, hint, children }: { label: ReactNode; hint?
   );
 }
 
-export function SettingsValue({ tone, children }: { tone?: "ok" | "err"; children: ReactNode }) {
+export function SettingsValue({ tone, children }: { tone?: "ok" | "warn" | "err"; children: ReactNode }) {
   return <span className={`value${tone ? ` ${tone}` : ""}`}>{children}</span>;
 }
 

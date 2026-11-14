@@ -189,10 +189,21 @@ function Extensions({ app }: { app: App }) {
   );
 }
 
+/** The `health` block of `daemon.doctor`: a status per check, `ok`, `degraded` or `failing`. */
+export type DoctorHealth = { status?: string; checks?: { name: string; status?: string; summary?: string }[] };
+
+/** A degraded check is a warning, not a failure; a status this build does not know reads as a failure. */
+export function healthTone(status: string | undefined): "ok" | "warn" | "err" {
+  return status === "ok" ? "ok" : status === "degraded" ? "warn" : "err";
+}
+
+const OVERALL = { ok: "settings.doctorOk", warn: "settings.doctorDegraded", err: "settings.doctorFailed" } as const;
+const EACH = { ok: "settings.checkPass", warn: "settings.checkWarn", err: "settings.checkFail" } as const;
+
 export function Diagnostics({ app }: { app: App }) {
   const t = useT();
   const registry = useRegistry(app.registry);
-  const [report, setReport] = useState<{ running: true } | { error: string } | { ok?: boolean; checks?: { scope: string; name: string; ok: boolean; detail?: string }[] } | null>(null);
+  const [report, setReport] = useState<{ running: true } | { error: string } | { health?: DoctorHealth } | null>(null);
   const refused = registry.refusals();
   return (
     <>
@@ -233,7 +244,7 @@ export function Diagnostics({ app }: { app: App }) {
         onClick={() => {
           setReport({ running: true });
           app
-            .call<{ ok?: boolean; checks?: { scope: string; name: string; ok: boolean; detail?: string }[] }>("engine.daemon.doctor", {})
+            .call<{ health?: DoctorHealth }>("engine.daemon.doctor", {})
             .then(setReport)
             .catch((e: unknown) => setReport({ error: errorText(e) }));
         }}
@@ -243,12 +254,12 @@ export function Diagnostics({ app }: { app: App }) {
       </button>
       {report && "running" in report ? <div className="hint">{t("common.running")}</div> : null}
       {report && "error" in report ? <div className="hint err">{report.error}</div> : null}
-      {report && "checks" in report ? (
+      {report && "health" in report ? (
         <>
-          <div className="hint">{report.ok ? t("settings.doctorOk") : t("settings.doctorFailed")}</div>
-          {(report.checks ?? []).map((check) => (
-            <SettingsRow key={`${check.scope}-${check.name}`} label={`${check.scope} · ${check.name}`} hint={check.detail ?? ""}>
-              <SettingsValue tone={check.ok ? "ok" : "err"}>{check.ok ? t("settings.checkPass") : t("settings.checkFail")}</SettingsValue>
+          <div className="hint">{t(OVERALL[healthTone(report.health?.status)])}</div>
+          {(report.health?.checks ?? []).map((check) => (
+            <SettingsRow key={check.name} label={check.name} hint={check.summary ?? ""}>
+              <SettingsValue tone={healthTone(check.status)}>{t(EACH[healthTone(check.status)])}</SettingsValue>
             </SettingsRow>
           ))}
         </>
