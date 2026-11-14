@@ -12,9 +12,10 @@
 //!
 //! - its engine-wide events are not fanned out to every client: they serve the hub's own account
 //!   of turns, and nothing else;
-//! - its frames are bounded ([`FRAME_MAX_BYTES`], [`FRAMES_PER_SECOND`], and a session's buffer
-//!   [`EXTENSION_BUFFER_FRAMES`]): what is over is dropped and audited, and the registry is told,
-//!   which stops an engine that keeps at it;
+//! - its frames are bounded ([`FRAME_MAX_BYTES`], [`FRAMES_PER_SECOND`] with bursts of
+//!   [`FRAMES_BURST`], and a session's buffer [`EXTENSION_BUFFER_FRAMES`]): what is over is
+//!   dropped and audited — but never the frame that ends a turn — and the registry is told, which
+//!   stops an engine that keeps at it;
 //! - what it says of a session is held to what a session can say (`SessionInfo::harden`);
 //! - nobody reaches its settings or its plugins: its carrier wrote them before it started;
 //! - its sessions are marked `trust: "extension"` wherever they are shown, and a shell draws
@@ -34,8 +35,12 @@ use crate::Hub;
 
 /// The largest frame an extension's engine may send.
 pub const FRAME_MAX_BYTES: usize = 1024 * 1024;
-/// How many frames a second an extension's engine may send.
+/// How many frames a second an extension's engine may send, kept up.
 pub const FRAMES_PER_SECOND: u32 = 200;
+/// How many frames an extension's engine may send at once, above [`FRAMES_PER_SECOND`]: a turn's
+/// tail (a sub-agent's whole transcript, thinking streamed beside the answer) comes in one go, and
+/// a well-behaved engine is not to lose its end to a bound meant for a hostile one.
+pub const FRAMES_BURST: u32 = 2000;
 /// How many frames of one of an extension's engine's sessions are kept for catch-up.
 pub const EXTENSION_BUFFER_FRAMES: usize = 4096;
 
@@ -70,12 +75,16 @@ impl Drop for Linked {
     }
 }
 
-/// An extension's engine's frames, counted by the second.
+/// What one frame draws from the bucket, in thousandths so that it refills by the millisecond.
+const FRAME_COST: u64 = 1000;
+
+/// An extension's engine's frames: a bucket of [`FRAMES_BURST`] that refills at
+/// [`FRAMES_PER_SECOND`], and the seconds in which it was over.
 #[derive(Default)]
 struct Flood {
-    /// The second being counted, and how many frames came in it.
-    second: u64,
-    frames: u32,
+    /// How much of the bucket is drawn, in [`FRAME_COST`]s (`0`: full), as of `at_ms`.
+    drawn: u64,
+    at_ms: u64,
     /// The last second something was over, and how many seconds in a row were.
     over: Option<u64>,
     in_a_row: u32,
@@ -86,18 +95,25 @@ pub(crate) enum Bounded {
     Within,
     /// Over: dropped. The first time in a second, with how many seconds in a row it has been.
     Dropped(Option<u32>),
+    /// Over, but it ends a turn, which clients need to settle: routed, and otherwise counted as
+    /// [`Bounded::Dropped`] is.
+    Kept(Option<u32>),
     /// Within again, after being over: the registry is to hear it.
     Calmed,
 }
 
 impl Flood {
-    fn admit(&mut self, now_s: u64, bytes: usize) -> Bounded {
-        if now_s != self.second {
-            self.second = now_s;
-            self.frames = 0;
+    /// One frame, `bytes` long, at `now_ms`; `ends_turn`: it is how the engine says a turn ended.
+    fn admit(&mut self, now_ms: u64, bytes: usize, ends_turn: bool) -> Bounded {
+        let refilled = now_ms.saturating_sub(self.at_ms) * u64::from(FRAMES_PER_SECOND);
+        self.drawn = self.drawn.saturating_sub(refilled);
+        self.at_ms = self.at_ms.max(now_ms);
+        let empty = self.drawn + FRAME_COST > u64::from(FRAMES_BURST) * FRAME_COST;
+        if !empty {
+            self.drawn += FRAME_COST;
         }
-        self.frames += 1;
-        let over = bytes > FRAME_MAX_BYTES || self.frames > FRAMES_PER_SECOND;
+        let now_s = now_ms / 1000;
+        let over = bytes > FRAME_MAX_BYTES || empty;
         if !over {
             let calmed = self.over.is_some_and(|last| now_s > last + 1) && self.in_a_row > 0;
             if calmed {
@@ -106,15 +122,20 @@ impl Flood {
             }
             return Bounded::Within;
         }
-        if self.over == Some(now_s) {
-            return Bounded::Dropped(None);
+        let told = (self.over != Some(now_s)).then(|| {
+            self.in_a_row = match self.over {
+                Some(last) if last + 1 == now_s => self.in_a_row + 1,
+                _ => 1,
+            };
+            self.over = Some(now_s);
+            self.in_a_row
+        });
+        // Too large is dropped whatever it says.
+        if ends_turn && bytes <= FRAME_MAX_BYTES {
+            Bounded::Kept(told)
+        } else {
+            Bounded::Dropped(told)
         }
-        self.in_a_row = match self.over {
-            Some(last) if last + 1 == now_s => self.in_a_row + 1,
-            _ => 1,
-        };
-        self.over = Some(now_s);
-        Bounded::Dropped(Some(self.in_a_row))
     }
 }
 
@@ -145,34 +166,34 @@ impl Hub {
     }
 
     /// Whether to route one frame of `instance`'s, `bytes` long: always, for the product's own
-    /// engines; within bounds, for an extension's. What is dropped is audited, and the registry
-    /// told.
-    pub(crate) fn bounded(&self, instance: &str, session: &str, bytes: usize) -> bool {
+    /// engines; within bounds, for an extension's, or when it ends a turn (`ends_turn`) and is not
+    /// too large. What is over is audited, and the registry told.
+    pub(crate) fn bounded(&self, instance: &str, session: &str, bytes: usize, ends_turn: bool) -> bool {
         let Some(linked) = read(&self.links).get(instance).cloned() else {
             return true;
         };
         if !linked.is_extension() {
             return true;
         }
-        let now_s = crate::now_ms() / 1000;
-        let bounded = lock(&linked.flood).admit(now_s, bytes);
-        match bounded {
-            Bounded::Within => true,
+        let bounded = lock(&linked.flood).admit(crate::now_ms(), bytes, ends_turn);
+        let (routed, told) = match bounded {
+            Bounded::Within => return true,
             Bounded::Calmed => {
                 self.instances.flooding(instance, 0);
-                true
+                return true;
             }
-            Bounded::Dropped(None) => false,
-            Bounded::Dropped(Some(in_a_row)) => {
-                tracing::warn!(instance, session, bytes, in_a_row, "an extension's engine sent more than it may; dropped");
-                if let Some(hook) = read(&self.audit).as_ref() {
-                    let subject = Subject::Engine { instance: instance.to_string() };
-                    hook(&subject, "flooding", &format!("{instance}/{session}"), &format!("{in_a_row} in a row"));
-                }
-                self.instances.flooding(instance, in_a_row);
-                false
+            Bounded::Dropped(told) => (false, told),
+            Bounded::Kept(told) => (true, told),
+        };
+        if let Some(in_a_row) = told {
+            tracing::warn!(instance, session, bytes, in_a_row, routed, "an extension's engine sent more than it may");
+            if let Some(hook) = read(&self.audit).as_ref() {
+                let subject = Subject::Engine { instance: instance.to_string() };
+                hook(&subject, "flooding", &format!("{instance}/{session}"), &format!("{in_a_row} in a row"));
             }
+            self.instances.flooding(instance, in_a_row);
         }
+        routed
     }
 }
 
@@ -231,22 +252,70 @@ impl TopicChanged for Hub {
 mod tests {
     use super::*;
 
+    /// `per_second` frames a second for `seconds`, from `start_ms`, evenly spread; what became of
+    /// each.
+    fn steady(flood: &mut Flood, start_ms: u64, seconds: u64, per_second: u64) -> Vec<Bounded> {
+        (0..seconds * per_second).map(|n| flood.admit(start_ms + n * 1000 / per_second, 10, false)).collect()
+    }
+
     #[test]
-    fn frames_over_the_rate_are_dropped_and_counted_once_a_second() {
+    fn a_burst_within_the_bucket_is_admitted_whole() {
         let mut flood = Flood::default();
-        for _ in 0..FRAMES_PER_SECOND {
-            assert!(matches!(flood.admit(10, 10), Bounded::Within));
+        for _ in 0..1000 {
+            assert!(matches!(flood.admit(10_000, 10, false), Bounded::Within));
         }
-        assert!(matches!(flood.admit(10, 10), Bounded::Dropped(Some(1))));
-        assert!(matches!(flood.admit(10, 10), Bounded::Dropped(None)), "once a second");
-        // The next second starts counting again; over again, it is two in a row.
-        for _ in 0..FRAMES_PER_SECOND {
-            assert!(matches!(flood.admit(11, 10), Bounded::Within));
+        // What is left of the bucket, and nothing more till it refills.
+        for _ in 0..FRAMES_BURST - 1000 {
+            assert!(matches!(flood.admit(10_000, 10, false), Bounded::Within));
         }
-        assert!(matches!(flood.admit(11, 10), Bounded::Dropped(Some(2))));
+        assert!(matches!(flood.admit(10_000, 10, false), Bounded::Dropped(Some(1))));
+        assert!(matches!(flood.admit(10_000, 10, false), Bounded::Dropped(None)), "told once a second");
+        // It refills at the rate: half a second later, half a second's worth.
+        let refilled = (0..FRAMES_PER_SECOND).filter(|_| matches!(flood.admit(10_500, 10, false), Bounded::Within)).count();
+        assert_eq!(refilled, FRAMES_PER_SECOND as usize / 2);
+    }
+
+    #[test]
+    fn the_rate_kept_up_is_admitted_and_twice_it_is_dropped_and_escalates() {
+        let mut flood = Flood::default();
+        let kept_up = steady(&mut flood, 10_000, 30, u64::from(FRAMES_PER_SECOND));
+        assert!(kept_up.iter().all(|b| matches!(b, Bounded::Within)));
+
+        let mut flood = Flood::default();
+        let twice = steady(&mut flood, 10_000, 20, 2 * u64::from(FRAMES_PER_SECOND));
+        let told: Vec<u32> = twice.iter().filter_map(|b| if let Bounded::Dropped(Some(n)) = b { Some(*n) } else { None }).collect();
+        // The burst holds it off for a while, and then it is over every second, in a row.
+        assert!(told.len() >= 5, "{told:?}");
+        assert_eq!(told, (1..=told.len() as u32).collect::<Vec<_>>(), "seconds in a row");
+        let dropped = twice.iter().filter(|b| matches!(b, Bounded::Dropped(_))).count();
+        assert!(dropped > twice.len() / 5, "{dropped} of {}", twice.len());
         // A second with nothing over between: the count starts again, and calm is said once.
-        assert!(matches!(flood.admit(13, 10), Bounded::Calmed));
-        assert!(matches!(flood.admit(13, 10), Bounded::Within));
-        assert!(matches!(flood.admit(14, FRAME_MAX_BYTES + 1), Bounded::Dropped(Some(1))), "too large is over too");
+        assert!(matches!(flood.admit(40_000, 10, false), Bounded::Calmed));
+        assert!(matches!(flood.admit(40_000, 10, false), Bounded::Within));
+        assert!(matches!(flood.admit(41_000, FRAME_MAX_BYTES + 1, false), Bounded::Dropped(Some(1))), "too large is over too");
+    }
+
+    #[test]
+    fn the_frame_that_ends_a_turn_is_kept_when_the_bucket_is_empty() {
+        let mut flood = Flood::default();
+        for _ in 0..FRAMES_BURST {
+            assert!(matches!(flood.admit(10_000, 10, false), Bounded::Within));
+        }
+        assert!(matches!(flood.admit(10_000, 10, false), Bounded::Dropped(Some(1))));
+        // Kept, and still over: it is not told twice in the second, and the next is.
+        assert!(matches!(flood.admit(10_000, 10, true), Bounded::Kept(None)));
+        assert!(matches!(flood.admit(11_000, 10, true), Bounded::Within), "a second refilled the bucket");
+        for _ in 1..FRAMES_PER_SECOND {
+            assert!(matches!(flood.admit(11_000, 10, false), Bounded::Within));
+        }
+        assert!(matches!(flood.admit(11_000, 10, true), Bounded::Kept(Some(2))));
+        // It draws from the bucket like any other.
+        let mut flood = Flood::default();
+        for _ in 0..FRAMES_BURST {
+            assert!(matches!(flood.admit(10_000, 10, true), Bounded::Within));
+        }
+        assert!(matches!(flood.admit(10_000, 10, false), Bounded::Dropped(Some(1))));
+        // Too large is dropped, whatever it says.
+        assert!(matches!(flood.admit(20_000, FRAME_MAX_BYTES + 1, true), Bounded::Dropped(_)));
     }
 }
