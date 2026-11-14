@@ -86,15 +86,15 @@ impl Extension for Settings {
 
     fn register(&self, r: &mut Registrar<'_, ()>) {
         r.method("describe")
-            .access(Access::kernel().with_device())
+            .access(Access::device())
             .describe("every editable field, its effective value, and where each tier stands")
             .raw(|call, params| async move { describe(&call, params).await });
         r.method("set")
-            .access(Access::kernel().with_device())
+            .access(Access::device())
             .describe("write one whitelisted field into one tier, then make the engine re-read")
             .raw(|call, params| async move { set(&call, params).await });
         r.method("setProvider")
-            .access(Access::kernel().with_device())
+            .access(Access::device())
             .describe("add, edit or remove a provider, credentials included, in the global tier")
             .raw(|call, params| async move { set_provider(&call, params).await });
     }

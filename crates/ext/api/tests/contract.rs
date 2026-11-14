@@ -109,10 +109,11 @@ impl Extension for Probe {
                 let greeting = greeting.clone();
                 async move { Ok(format!("{greeting}, {}", p["name"].as_str().unwrap_or("you"))) }
             });
-        r.method("echo").access(Access::device()).with(Arc::new(Echo));
+        // `helpers` calls it as the extension itself.
+        r.method("echo").access(Access::device().with_extensions()).with(Arc::new(Echo));
         r.method("helpers").access(Access::device()).raw(helpers);
         r.topic("ticks").param("n").published();
-        r.topic("clock").access(Access::device()).computed(Some(Duration::from_secs(60)), Clock);
+        r.topic("clock").access(Access::device().with_extensions()).computed(Some(Duration::from_secs(60)), Clock);
         r.space(SpaceDecl::new(ID));
         r.tool(ToolSpec::new("noop", "does nothing", json!({"type": "object"})));
         r.route("api", Access::device(), Api);

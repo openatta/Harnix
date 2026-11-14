@@ -576,14 +576,17 @@ mod tests {
     }
 
     #[test]
-    fn a_device_method_reaches_devices_modules_and_the_kernel() {
-        let t = with(vec![method("m", Access::device())]);
+    fn a_device_method_reaches_devices_and_the_kernel_and_extensions_only_when_it_says() {
+        let t = with(vec![method("m", Access::device()), method("open", Access::device().with_extensions())]);
         let g = natives();
         assert_eq!(t.decide(&device(), &g, "m"), Decision::Allow);
-        assert_eq!(t.decide(&module("x"), &g, "m"), Decision::Allow);
         assert_eq!(t.decide(&Subject::Kernel, &g, "m"), Decision::Allow);
+        // What a person decides no extension decides for them.
+        assert!(matches!(t.decide(&module("x"), &g, "m"), Decision::Refuse(_)));
+        assert_eq!(t.decide(&device(), &g, "open"), Decision::Allow);
+        assert_eq!(t.decide(&module("x"), &g, "open"), Decision::Allow);
         // An extension nothing registered reaches nothing.
-        assert_eq!(t.decide(&module("stranger"), &g, "m"), Decision::Refuse(UNREGISTERED));
+        assert_eq!(t.decide(&module("stranger"), &g, "open"), Decision::Refuse(UNREGISTERED));
     }
 
     #[test]
@@ -637,7 +640,7 @@ mod tests {
         t.install(
             &ext("w"),
             vec![
-                method("w.list", Access::kernel().with_device().with_extension(id("trade"))),
+                method("w.list", Access::device().with_extension(id("trade"))),
                 method("w.internal", Access::kernel()),
             ],
         )
@@ -659,8 +662,8 @@ mod tests {
         t.install(
             &ext("w"),
             vec![
-                Row::route("w", Access::kernel().with_device()),
-                Row::topic("w.groups", Access::kernel().with_device()),
+                Row::route("w", Access::device()),
+                Row::topic("w.groups", Access::device()),
             ],
         )
         .unwrap();
@@ -676,24 +679,24 @@ mod tests {
         names
             .iter()
             .map(|n| match n.strip_prefix("topic:") {
-                Some(t) => Row::topic(t, Access::kernel().with_device()),
-                None => method(n, Access::kernel().with_device()),
+                Some(t) => Row::topic(t, Access::device()),
+                None => method(n, Access::device()),
             })
             .collect()
     }
 
     /// A compiled-in module, as assembly leaves it: one method, one topic, a route.
     fn assembled() -> RouteTable {
-        let mut t = with(vec![method("harnix.hello", Access::device())]);
+        let mut t = with(vec![method("harnix.hello", Access::device().with_extensions())]);
         t.install(
             &ext("probe"),
             vec![
-                method("probe.echo", Access::kernel().with_device()),
-                Row::topic("probe.counter", Access::kernel().with_device()),
+                method("probe.echo", Access::device()),
+                Row::topic("probe.counter", Access::device()),
             ],
         )
         .unwrap();
-        t.install(&ext("routed"), vec![Row::route("routed", Access::kernel().with_device())]).unwrap();
+        t.install(&ext("routed"), vec![Row::route("routed", Access::device())]).unwrap();
         t
     }
 
@@ -848,14 +851,14 @@ mod tests {
             &kernel(),
             vec![
                 method("settings.write", Access::capability(caps::ENGINE_CONFIG_WRITE)),
-                method("harnix.session.create", Access::device()),
-                method("harnix.topics.subscribe", Access::device()),
-                Row::topic("harnix.sessions.status", Access::device()),
-                Row::topic("system.process", Access::device()),
+                method("harnix.session.create", Access::device().with_extensions()),
+                method("harnix.topics.subscribe", Access::device().with_extensions()),
+                Row::topic("harnix.sessions.status", Access::device().with_extensions()),
+                Row::topic("system.process", Access::device().with_extensions()),
             ],
         )
         .unwrap();
-        let own = Access::kernel().with_device().with_extension(id("acme.notes"));
+        let own = Access::device().with_extension(id("acme.notes"));
         t.install_package(
             "acme.notes",
             vec![method("acme.notes.echo", own.clone()), Row::topic("acme.notes.ticks", own)],

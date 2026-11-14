@@ -110,7 +110,7 @@ mod tests {
     #[test]
     fn a_declaration_admits_exactly_who_it_names_and_the_kernel() {
         let grants = GrantTable::new();
-        let access = Access::kernel().with_device().with_extension(id("trade"));
+        let access = Access::device().with_extension(id("trade"));
         assert_eq!(decide(&device(), &grants, &access), Decision::Allow);
         assert_eq!(decide(&ext("trade"), &grants, &access), Decision::Allow);
         let only = Access::only(id("trade"));

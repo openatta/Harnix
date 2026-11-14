@@ -67,13 +67,13 @@ mod tests {
                 vec![
                     Row::method("engine.plugin.install", Access::capability(caps::ENGINE_PLUGINS), Arc::new(Nothing)),
                     Row::method("engine.config.set", Access::refused("no"), Arc::new(Nothing)),
-                    Row::method("engine.plugin.list", Access::device(), Arc::new(Nothing)),
-                    Row::method("engine.session.get", Access::device().scoped(RowScope::Session), Arc::new(Nothing)),
+                    Row::method("engine.plugin.list", Access::device().with_extensions(), Arc::new(Nothing)),
+                    Row::method("engine.session.get", Access::device().with_extensions().scoped(RowScope::Session), Arc::new(Nothing)),
                 ],
             )
             .unwrap();
         table
-            .install(&Owner::Kernel(KernelPart::Hub), vec![Row::topic("harnix.instances", Access::device())])
+            .install(&Owner::Kernel(KernelPart::Hub), vec![Row::topic("harnix.instances", Access::device().with_extensions())])
             .unwrap();
         let snap = of(&table);
         let rows = snap["rows"].as_array().unwrap();

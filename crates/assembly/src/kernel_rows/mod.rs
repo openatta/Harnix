@@ -132,21 +132,24 @@ pub fn table(behind: &Behind) -> RouteTable {
     let answer = |f: fn(&Diagnostics, Value) -> Value| -> Arc<dyn Handler> {
         Arc::new(Answer(behind.diagnostics.clone(), f))
     };
+    // What the kernel tells about itself is open to extensions as well as devices: reading it
+    // decides nothing.
     let assembly_rows = vec![
-        Row::method("harnix.hello", Access::device(), late(&behind.hello, |h: Arc<Hello>| async move { h.answer().await })),
+        Row::method("harnix.hello", Access::device().with_extensions(), late(&behind.hello, |h: Arc<Hello>| async move { h.answer().await })),
         // What the page draws for whom, and the modules it loads: a method, and a topic pushed on
         // every change.
-        Row::method(UI, Access::device(), late(&behind.hello, |h: Arc<Hello>| async move { Ok(h.ui.view()) })),
-        Row::topic(UI, Access::device()),
+        Row::method(UI, Access::device().with_extensions(), late(&behind.hello, |h: Arc<Hello>| async move { Ok(h.ui.view()) })),
+        Row::topic(UI, Access::device().with_extensions()),
+        // A client's grant to send a file over HTTP; an extension has uploads of its own.
         Row::method("harnix.bulk.upload", Access::device(), Arc::new(BulkUpload(behind.uploads.clone()))),
         // Every extension, and why one does nothing: what a person asks first.
-        Row::method("harnix.extensions", Access::device(), answer(|d, _| d.list())),
-        Row::method("harnix.diagnostics", Access::device(), answer(|d, _| d.report())),
+        Row::method("harnix.extensions", Access::device().with_extensions(), answer(|d, _| d.list())),
+        Row::method("harnix.diagnostics", Access::device().with_extensions(), answer(|d, _| d.report())),
         // The decisions the router recorded, newest first: what the system space shows as its
         // audit, and what a test reads instead of transcript files.
         Row::method(
             "harnix.audit",
-            Access::device(),
+            Access::device().with_extensions(),
             answer(|d, params| {
                 let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(200).min(2048) as usize;
                 let entries = d.router().map(|r| r.audit().recent(limit)).unwrap_or_default();
@@ -155,7 +158,7 @@ pub fn table(behind: &Behind) -> RouteTable {
         ),
     ];
     // Reachable by anyone that got this far: a subject may always ask what it may do.
-    let router_rows = vec![Row::closed(harnix_router::REACHABLE, Access::device())];
+    let router_rows = vec![Row::closed(harnix_router::REACHABLE, Access::device().with_extensions())];
 
     let mut table = RouteTable::new();
     for (owner, rows) in [

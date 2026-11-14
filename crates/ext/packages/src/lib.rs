@@ -236,7 +236,7 @@ impl Extension for Packages {
     }
 
     fn register(&self, r: &mut Registrar<'_, Config>) {
-        let person = || Access::kernel().with_device();
+        let person = || Access::device();
         for (name, describe) in methods::METHODS {
             r.method(name).access(person()).describe(describe).raw(move |call, params| methods::answer(name, call, params));
         }

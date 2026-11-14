@@ -750,13 +750,13 @@ mod tests {
             .install(
                 &Owner::Kernel(KernelPart::Hub),
                 vec![
-                    row("harnix.hello", Access::device()),
-                    row("harnix.topics.subscribe", Access::device()),
-                    row("harnix.topics.unsubscribe", Access::device()),
-                    row("harnix.session.create", Access::device()),
+                    row("harnix.hello", Access::device().with_extensions()),
+                    row("harnix.topics.subscribe", Access::device().with_extensions()),
+                    row("harnix.topics.unsubscribe", Access::device().with_extensions()),
+                    row("harnix.session.create", Access::device().with_extensions()),
                     row("settings.write", Access::refused("not for devices")),
                     Row::closed("harnix.turn", Access::hub_owned("the hub's")),
-                    Row::topic("harnix.sessions.status", Access::device().scoped(RowScope::Space)),
+                    Row::topic("harnix.sessions.status", Access::device().with_extensions().scoped(RowScope::Space)),
                     Row::topic("system.process", Access::kernel()),
                 ],
             )
@@ -788,7 +788,7 @@ mod tests {
 
     fn fake(id: &str) -> Spec {
         Spec::new(id)
-            .method("echo", Access::kernel().with_device(), |caller, params| async move {
+            .method("echo", Access::device(), |caller, params| async move {
                 Ok(json!({"params": params, "caller": caller}))
             })
             .method("internal", Access::kernel(), |_c, _p| async move { Ok(json!("kernel only")) })
@@ -1006,14 +1006,14 @@ mod tests {
         // that is taken: refused, and nothing of them was left declared, bound or listed.
         let bad = [
             Spec::new("Bad"),
-            Spec::new("acme.one").method("a b", Access::kernel().with_device(), |_c, p| async move { Ok(p) }),
+            Spec::new("acme.one").method("a b", Access::device(), |_c, p| async move { Ok(p) }),
             Spec::new("acme.two")
-                .method("x", Access::kernel().with_device(), |_c, p| async move { Ok(p) })
-                .method("x", Access::kernel().with_device(), |_c, p| async move { Ok(p) }),
+                .method("x", Access::device(), |_c, p| async move { Ok(p) })
+                .method("x", Access::device(), |_c, p| async move { Ok(p) }),
             Spec::new("acme.three").topic("t", &[]).space(SpaceDecl::new("elsewhere")),
             Spec::new("acme.taken")
                 .topic("t", &[])
-                .method("m", Access::kernel().with_device(), |_c, p| async move { Ok(p) })
+                .method("m", Access::device(), |_c, p| async move { Ok(p) })
                 .space(SpaceDecl::new("acme.taken")),
         ];
         for spec in bad {
@@ -1062,7 +1062,7 @@ mod tests {
         let release = Arc::new(tokio::sync::Notify::new());
         let spec = {
             let release = release.clone();
-            Spec::new("acme.slow").method("wait", Access::kernel().with_device(), move |_c, _p| {
+            Spec::new("acme.slow").method("wait", Access::device(), move |_c, _p| {
                 let release = release.clone();
                 let started = lock(&started_tx).take();
                 async move {

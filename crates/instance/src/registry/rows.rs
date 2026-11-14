@@ -85,31 +85,33 @@ impl InstanceRegistry {
     /// Every row the registry answers. `cell` holds the registry once it is built; until then
     /// each answers that it is not up.
     pub fn rows(cell: &RegistryCell) -> Vec<InstanceRow> {
-        let device = Access::device;
+        // An extension starts, waits on and stops instances of its own; who may manage which is
+        // the registry's to check.
+        let open = || Access::device().with_extensions();
         vec![
-            method(cell, "harnix.instances.list", device(), |r, _, _| async move { Ok(r.view()) }),
-            method(cell, "harnix.instances.templates", device(), |r, cx, p| async move {
+            method(cell, "harnix.instances.list", open(), |r, _, _| async move { Ok(r.view()) }),
+            method(cell, "harnix.instances.templates", open(), |r, cx, p| async move {
                 Ok(r.templates_view(&cx.subject, &p))
             }),
-            method(cell, "harnix.instances.create", device(), |r, cx, p| async move {
+            method(cell, "harnix.instances.create", open(), |r, cx, p| async move {
                 r.create_instance(&cx.subject, p, false).await
             }),
-            method(cell, "harnix.instances.ensure", device(), |r, cx, p| async move {
+            method(cell, "harnix.instances.ensure", open(), |r, cx, p| async move {
                 r.create_instance(&cx.subject, p, true).await
             }),
-            method(cell, "harnix.instances.stop", device(), |r, cx, p| async move {
+            method(cell, "harnix.instances.stop", open(), |r, cx, p| async move {
                 r.stop_instance(&cx.subject, p).await
             }),
-            method(cell, "harnix.instances.restart", device(), |r, cx, p| async move {
+            method(cell, "harnix.instances.restart", open(), |r, cx, p| async move {
                 r.restart_instance(&cx.subject, p).await
             }),
-            method(cell, "harnix.instances.wait", device(), |r, _, p| async move { r.wait_instance(p).await }),
+            method(cell, "harnix.instances.wait", open(), |r, _, p| async move { r.wait_instance(p).await }),
             // After a provider changes, the instances whose template inherits the system
             // instance's get it too (ipdrun-11): whoever may write the engine's providers.
             method(cell, "harnix.instances.inheritProviders", Access::capability(caps::ENGINE_CONFIG_WRITE), |r, _, _| async move {
                 r.inherit_providers().await
             }),
-            InstanceRow::Topic { name: INSTANCES_TOPIC, access: device() },
+            InstanceRow::Topic { name: INSTANCES_TOPIC, access: open() },
         ]
     }
 

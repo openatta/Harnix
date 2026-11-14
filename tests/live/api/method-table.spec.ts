@@ -18,6 +18,9 @@ const TAGS = { tag: ["@feature:authz", "@layer:api"] };
 
 const names = (list: string[]): string[] => [...list].sort();
 
+/** A row by which a person approves, grants or revokes, pairs a device or installs something. */
+const DECISION = /\.(approve|reject|deny|grant|revoke|install|installFile|uninstall|pair\.[a-z]+)$/;
+
 test("the authorization table is the snapshot's", TAGS, async ({ api }) => {
   const { table } = await api.call("harnix.diagnostics");
   matchSnapshot("method-table.snap.json", table);
@@ -35,6 +38,11 @@ test("every row says who owns it and how far it is open, and the device's reach 
     // Refused to everyone, grants included: nothing may reach what the hub owns.
     if (row.access.hub_owned) {
       expect(row.access.device, row.name).toBe(false);
+      expect(row.access.extensions, row.name).toEqual([]);
+    }
+    // What a person decides no extension decides for them, acting as itself: one that may holds
+    // a capability the row names.
+    if (DECISION.test(row.name) && row.access.requires.length === 0) {
       expect(row.access.extensions, row.name).toEqual([]);
     }
   }

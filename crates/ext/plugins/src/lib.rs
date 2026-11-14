@@ -93,11 +93,11 @@ impl Extension for Plugins {
 
     fn register(&self, r: &mut Registrar<'_, Config>) {
         r.method("upload")
-            .access(Access::kernel().with_device())
+            .access(Access::device())
             .describe("a one-shot URL to send a package's .zip to")
             .raw(|call, params| async move { upload(&call, &params) });
         r.method("install")
-            .access(Access::kernel().with_device())
+            .access(Access::device())
             .describe("hand the engine an uploaded package to install")
             .raw({
                 let served = self.served.clone();
@@ -114,7 +114,7 @@ impl Extension for Plugins {
         ] {
             let served = self.served.clone();
             r.method(name)
-                .access(Access::kernel().with_device())
+                .access(Access::device())
                 .describe("a lifecycle call for the engine, then a re-read of what is installed")
                 .raw(move |call, params| {
                     let served = served.clone();
@@ -126,10 +126,10 @@ impl Extension for Plugins {
                 });
         }
         r.method("list")
-            .access(Access::kernel().with_device())
+            .access(Access::device())
             .describe("what is installed, and what of it reaches the interface")
             .raw(|call, _| async move { Ok(list(&call).await) });
-        r.route("ui", Access::kernel().with_device(), PackageFiles { served: self.served.clone() });
+        r.route("ui", Access::device(), PackageFiles { served: self.served.clone() });
     }
 
     async fn start(&self, cx: ExtensionContext) -> anyhow::Result<()> {

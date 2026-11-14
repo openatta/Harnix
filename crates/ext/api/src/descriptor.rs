@@ -289,7 +289,7 @@ impl DescriptorBuilder {
         self.d.topics.push(TopicDecl {
             name: name.to_string(),
             params: Vec::new(),
-            access: Access::device(),
+            access: Access::device().with_extensions(),
             kind: TopicKind::Published,
             slot: self.d.slot.clone(),
         });

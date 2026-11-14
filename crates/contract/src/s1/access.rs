@@ -75,9 +75,10 @@ impl Access {
         Self::closed()
     }
 
-    /// Any device, any extension, and the kernel.
+    /// Any device, and the kernel: a person, through an interface. No extension, acting as
+    /// itself, is let in unless a `with_*` says so — what a person decides is theirs alone.
     pub fn device() -> Self {
-        Self::closed().with_device().with_extensions()
+        Self::closed().with_device()
     }
 
     /// Any extension, and the kernel.
@@ -212,6 +213,10 @@ mod tests {
         assert_eq!(row.requirement(), Some(&caps::ENGINE_INSPECT));
         assert!(!Access::device().requiring(caps::ENGINE_EXPORT).opens_devices());
         assert_eq!(Access::device().scope(), RowScope::Open);
+        // A device's row is no extension's unless it says so.
+        assert!(Access::device().opens_devices());
+        assert!(!Access::device().opens_every_extension());
+        assert!(Access::device().with_extensions().opens_every_extension());
         assert_eq!(Access::device().scoped(RowScope::Session).scope().as_str(), "session");
     }
 }

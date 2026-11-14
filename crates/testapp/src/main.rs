@@ -93,7 +93,7 @@ fn main() -> anyhow::Result<()> {
 
 /// Open to whoever the row names: a person, and every extension.
 fn device() -> Access {
-    Access::device()
+    Access::device().with_extensions()
 }
 
 /* ── probe ─────────────────────────────────────────────────────────────── */

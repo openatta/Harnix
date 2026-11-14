@@ -75,7 +75,8 @@ where
     }
 }
 
-/// One of the hub's own methods, open to devices, about no one session.
+/// One of the hub's own methods, open to devices and to extensions — what an extension drives
+/// its own sessions with — about no one session.
 fn own<F, Fut>(hub: &HubCell, name: &'static str, f: F) -> HubRow
 where
     F: Fn(Arc<Hub>, CallContext, Value) -> Fut + Send + Sync + 'static,
@@ -84,7 +85,7 @@ where
     HubRow::Method {
         name,
         owner: Owner::Kernel(KernelPart::Hub),
-        access: Access::device().scoped(RowScope::Open),
+        access: Access::device().with_extensions().scoped(RowScope::Open),
         handler: Some(answer(hub, name, false, f)),
     }
 }
@@ -98,7 +99,7 @@ where
     HubRow::Method {
         name,
         owner: Owner::Kernel(KernelPart::Hub),
-        access: Access::device().scoped(RowScope::Session),
+        access: Access::device().with_extensions().scoped(RowScope::Session),
         handler: Some(answer(hub, name, true, f)),
     }
 }
@@ -112,7 +113,7 @@ where
     HubRow::Method {
         name,
         owner: Owner::Kernel(KernelPart::Hub),
-        access: Access::device().scoped(RowScope::Space),
+        access: Access::device().with_extensions().scoped(RowScope::Space),
         handler: Some(answer(hub, name, false, f)),
     }
 }
@@ -138,8 +139,16 @@ impl Hub {
     /// `harnix.session.setModel`: a session's model changed from where it is shown, within its
     /// own space. Only where the product says (`[shell] model_switch`); without it the model is
     /// the settings' and the system space's.
+    /// A person's choice, so a device's alone: an extension changes a model with
+    /// `engine.session.setModel`, holding `engine.control`.
     pub fn model_switch_row(hub: &HubCell) -> HubRow {
-        own_session(hub, "harnix.session.setModel", |h, _, p| async move { h.set_model(p).await })
+        let name = "harnix.session.setModel";
+        HubRow::Method {
+            name,
+            owner: Owner::Kernel(KernelPart::Hub),
+            access: Access::device().scoped(RowScope::Session),
+            handler: Some(answer(hub, name, true, |h, _, p| async move { h.set_model(p).await })),
+        }
     }
 
     /// Every row the hub answers: its own methods and topics, and the engine's that pass through
@@ -171,7 +180,7 @@ impl Hub {
             HubRow::Method {
                 name: "harnix.session.move",
                 owner: Owner::Kernel(KernelPart::Hub),
-                access: Access::device().scoped(RowScope::Session),
+                access: Access::device().with_extensions().scoped(RowScope::Session),
                 handler: Some(answer(hub, "harnix.session.move", false, |h, cx, p| async move {
                     h.move_session(&cx, p).await
                 })),
@@ -186,7 +195,7 @@ impl Hub {
         rows.extend(
             HUB_TOPICS
                 .iter()
-                .map(|(name, _)| HubRow::Topic { name, access: Access::device().scoped(topic_scope(name)) }),
+                .map(|(name, _)| HubRow::Topic { name, access: Access::device().with_extensions().scoped(topic_scope(name)) }),
         );
         rows.extend(crate::engine_rows::rows(hub));
         rows
