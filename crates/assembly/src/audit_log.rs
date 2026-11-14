@@ -104,6 +104,19 @@ fn is_consequential(method: &str) -> bool {
             | "harnix.instances.create"
             | "harnix.instances.stop"
             | "harnix.instances.restart"
+            // Reloads every instance inheriting `main`'s providers with what was just written.
+            | "harnix.instances.inheritProviders"
+            // The engine's settings and plugins, written by an extension holding the capability
+            // (a device reaches none of these): where model traffic goes, what code is loaded.
+            | "engine.config.set"
+            | "engine.config.update"
+            | "engine.config.setProvider"
+            | "engine.config.reload"
+            | "engine.plugin.install"
+            | "engine.plugin.uninstall"
+            | "engine.plugin.enable"
+            | "engine.plugin.disable"
+            | "engine.plugin.reload"
         )
 }
 
@@ -121,12 +134,8 @@ mod tests {
         assert!(!is_consequential("engine.session.history"));
     }
 
-    /// Every extension lifecycle call is consequential, not just installing.
-    ///
-    /// This list had drifted the other way: it still named the engine's `plugin.*`, which
-    /// stopped being reachable when the lifecycle moved behind the `plugins` extension, and three
-    /// of the four replacements were missing — so disabling and uninstalling a package left no
-    /// trace.
+    /// Every extension lifecycle call is consequential, not just installing: disabling and
+    /// uninstalling a package must leave a trace too.
     #[test]
     fn the_whole_extension_lifecycle_is_audited() {
         // The lifecycle is exactly the calls that change what is installed; `upload` hands over a
@@ -144,18 +153,29 @@ mod tests {
             let method = format!("packages.{call}");
             assert!(is_consequential(&method), "{method} changes what is installed and is not audited");
         }
-        // And nothing in the list is a name a client can no longer reach:
-        // an audit rule for an unreachable method is a rule that never fires.
-        for stale in [
-            "engine.plugin.install",
-            "engine.plugin.uninstall",
-            "engine.plugin.enable",
-            "engine.plugin.disable",
-        ] {
-            assert!(
-                !is_consequential(stale),
-                "{stale} is audited but not reachable"
-            );
+        // The engine's own lifecycle, which only an extension holding `engine.plugins` reaches:
+        // the `plugins` extension's call is one entry, the engine's under it another.
+        for call in ["install", "uninstall", "enable", "disable", "reload"] {
+            let method = format!("engine.plugin.{call}");
+            assert!(is_consequential(&method), "{method} changes what is installed and is not audited");
         }
+        assert!(!is_consequential("engine.plugin.list"));
+    }
+
+    /// What an extension writes into the engine's settings with its capability, and the reload
+    /// that carries a provider to the instances inheriting it.
+    #[test]
+    fn writes_to_the_engines_settings_are_audited() {
+        for method in [
+            "engine.config.set",
+            "engine.config.update",
+            "engine.config.setProvider",
+            "engine.config.reload",
+            "harnix.instances.inheritProviders",
+        ] {
+            assert!(is_consequential(method), "{method}");
+        }
+        assert!(!is_consequential("engine.config.get"));
+        assert!(!is_consequential("engine.config.getProvider"));
     }
 }
