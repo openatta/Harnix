@@ -151,11 +151,11 @@ impl Router {
         let Some(calls) = self.grants.frame_calls(ext) else {
             return Decision::Refuse(NO_FRAME);
         };
-        let listed = |name: &str| calls.contains(name);
-        let (row, allowed) = match subscribed_topic(method, params) {
-            Some(name) => (topic(name), listed(&topic(name)) || table.owns(ext, name)),
-            None => (method.to_string(), listed(method) || table.owns(ext, method)),
+        let row = match subscribed_topic(method, params) {
+            Some(name) => topic(name),
+            None => method.to_string(),
         };
+        let allowed = calls.contains(&row) || table.owns(ext, &row);
         if !allowed {
             return Decision::Refuse(OUTSIDE_FRAME);
         }
@@ -363,7 +363,12 @@ mod tests {
             .install(&Owner::Kernel(KernelPart::Router), vec![Row::closed(REACHABLE, Access::device())])
             .unwrap();
         table.install(&Owner::extension(id("w")), vec![Row::route("w", Access::kernel())]).unwrap();
-        table.install_package("acme.notes", vec![Row::method("acme.notes.list", Access::device(), seen.clone())]).unwrap();
+        table
+            .install_package(
+                "acme.notes",
+                vec![Row::method("acme.notes.list", Access::device(), seen.clone()), Row::topic("acme.notes.ticks", Access::device())],
+            )
+            .unwrap();
         // A first-party power, open to devices alone; and another package's method.
         table.register(&id("system"), crate::IdKind::Native).unwrap();
         table.install(&Owner::extension(id("system")), vec![Row::method("system.compact", Access::kernel().with_device(), seen.clone())]).unwrap();
@@ -518,6 +523,8 @@ mod tests {
         grants.set_frame(&id("acme.notes"), Some(["harnix.topics.subscribe".to_string()].into()));
         let e = router.call(page(), "harnix.topics.subscribe", sub("harnix.instances")).await.unwrap_err();
         assert_eq!(e.message, OUTSIDE_FRAME);
+        // Its own topic needs no listing, as its own methods do not.
+        assert!(router.call(page(), "harnix.topics.subscribe", sub("acme.notes.ticks")).await.is_ok());
         grants.set_frame(&id("acme.notes"), Some(["topic:harnix.instances".to_string(), "topic:harnix.secret".to_string()].into()));
         assert!(router.call(page(), "harnix.topics.subscribe", sub("harnix.instances")).await.is_ok());
         // Listed, but not the device's to watch: the intersection.
@@ -535,7 +542,7 @@ mod tests {
             reach["methods"],
             json!(["acme.notes.list", "acme.todo.list", "engine.session.get", "harnix.hello", "harnix.reachable", "harnix.topics.subscribe", "sessions.list", "system.compact"])
         );
-        assert_eq!(reach["topics"], json!(["harnix.instances"]));
+        assert_eq!(reach["topics"], json!(["acme.notes.ticks", "harnix.instances"]));
     }
 
     #[test]
