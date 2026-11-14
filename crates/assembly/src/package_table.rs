@@ -513,8 +513,27 @@ impl PackageTable {
         let Some(client) = self.registered_by(by, id)? else {
             return Err(RpcError::refused(format!("`{id}` was registered without anywhere for topic values to go")));
         };
+        let params = self.claiming_own_space(id, name, params);
         let cx = CallContext::root(me, Some(ClientId(client)));
         self.router.call(cx, method, json!({"topic": name, "params": params})).await
+    }
+
+    /// A topic about a space or its sessions, subscribed claiming no space, claims the package's
+    /// own (`<id>`): what it is told is then cut down to that space's sessions, as for a page in a
+    /// frame. A space it does claim is the router's to decide.
+    fn claiming_own_space(&self, id: &str, name: &str, mut params: Value) -> Value {
+        let scoped = self
+            .router
+            .table()
+            .row(&topic(name))
+            .is_some_and(|row| row.access().scope() != harnix_contract::s1::RowScope::Open);
+        if params.is_null() {
+            params = json!({});
+        }
+        if let Some(object) = params.as_object_mut().filter(|o| scoped && !o.contains_key("space")) {
+            object.insert("space".into(), json!(id));
+        }
+        params
     }
 }
 
@@ -526,6 +545,7 @@ mod tests {
     use std::future::Future;
 
     use harnix_authz::Audit;
+    use harnix_contract::s1::RowScope;
     use harnix_contract::{codes, ExtId};
     use harnix_kernel::{Access, Handler, KernelPart, Rpc};
     use harnix_router::{RouteTable, OUTSIDE_HUB};
@@ -736,7 +756,7 @@ mod tests {
                     row("harnix.session.create", Access::device()),
                     row("settings.write", Access::refused("not for devices")),
                     Row::closed("harnix.turn", Access::hub_owned("the hub's")),
-                    Row::topic("harnix.sessions.status", Access::device()),
+                    Row::topic("harnix.sessions.status", Access::device().scoped(RowScope::Space)),
                     Row::topic("system.process", Access::kernel()),
                 ],
             )
@@ -887,10 +907,14 @@ mod tests {
         assert!(w.table.call_as("other", "acme.notes", "harnix.session.create", json!({})).await.is_err());
 
         // Subscribing: a listed topic, through its own client of the hub; an unlisted one refused.
+        // One about a space, claiming none, claims its own: it is told only its space's sessions.
         w.table.subscribe_as("host", "acme.notes", "harnix.sessions.status", json!({})).await.unwrap();
         let (subject, method, params, client) = lock(&w.below.seen).last().cloned().unwrap();
         assert_eq!((subject.as_str(), method.as_str()), ("ext:acme.notes", "harnix.topics.subscribe"));
-        assert_eq!(params, json!({"topic": "harnix.sessions.status", "params": {}}));
+        assert_eq!(params, json!({"topic": "harnix.sessions.status", "params": {"space": "acme.notes"}}));
+        // Another space it may not claim.
+        let e = w.table.subscribe_as("host", "acme.notes", "harnix.sessions.status", json!({"space": "sessions"})).await.unwrap_err();
+        assert_eq!((e.code, e.message.as_str()), (codes::REFUSED, harnix_authz::OUTSIDE_OWN_SPACE));
         assert_eq!(client, Some(ClientId(101)), "as its own client of the hub");
         assert_eq!(
             w.table.subscribe_as("host", "acme.notes", "system.process", json!({})).await.unwrap_err().code,

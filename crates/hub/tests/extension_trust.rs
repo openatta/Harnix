@@ -389,10 +389,12 @@ async fn a_caller_that_claims_a_space_is_told_of_that_spaces_sessions_only() {
     assert_eq!(sessions(rig.call(kernel(), "engine.session.list", listed(Some("acme"))).await.unwrap()), 1);
     assert_eq!(sessions(rig.call(kernel(), "engine.session.list", listed(Some("other"))).await.unwrap()), 0);
     assert_eq!(sessions(rig.call(kernel(), "engine.session.list", listed(None)).await.unwrap()), 1);
+    // A space nobody declared — a package's own, claimed for it — is held to all the same: nothing.
+    assert_eq!(sessions(rig.call(kernel(), "engine.session.list", listed(Some("undeclared"))).await.unwrap()), 0);
 
     // The same for the values of the topics that list sessions: each subscriber is told its own.
     let mut told = Vec::new();
-    for space in [Some("acme"), Some("other"), None] {
+    for space in [Some("acme"), Some("other"), Some("undeclared"), None] {
         let sink = Arc::new(Sink::default());
         let client = rig.hub.add_client(sink.clone()).await;
         let cx = CallContext::root(Subject::device("d"), Some(client));
@@ -406,7 +408,7 @@ async fn a_caller_that_claims_a_space_is_told_of_that_spaces_sessions_only() {
             .unwrap();
         told.push((sessions(on["value"].clone()), sink));
     }
-    assert_eq!(told.iter().map(|(n, _)| *n).collect::<Vec<_>>(), [1, 0, 1]);
+    assert_eq!(told.iter().map(|(n, _)| *n).collect::<Vec<_>>(), [1, 0, 0, 1]);
 }
 
 /// Who calls, claiming `space` (none: `None`), naming `acme`'s engine.
