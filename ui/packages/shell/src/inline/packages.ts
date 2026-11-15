@@ -168,5 +168,5 @@ export function packagesOf(app: App): PackagesWatch {
 /** The names a session knows a package's tool by: in this process, and in a spawned daemon. */
 export function toolNames(id: string, tool: string): string[] {
   const flat = id.replace(/\./g, "_");
-  return [`ext__${flat}__${tool}`, `mcp__ext-${flat}__${tool}`];
+  return [`ext__${id.replace(/[.-]/g, "_")}__${tool.replace(/-/g, "_")}`, `mcp__ext-${flat}__${tool}`];
 }

@@ -290,9 +290,10 @@ pub(crate) fn check(d: &ExtensionDescriptor, caps: &[Capability], router: &Route
     Ok(())
 }
 
-/// A package's tool, as a session names it: its id's dots made underscores.
+/// A package's tool, as a session names it (`harnix_package::tool_name`): the id's `.` and `-` and
+/// the tool's `-` made underscores.
 fn session_tool_name(id: &str, tool: &str) -> String {
-    format!("ext__{}__{tool}", id.replace('.', "_"))
+    format!("ext__{}__{}", id.replace(['.', '-'], "_"), tool.replace('-', "_"))
 }
 
 #[async_trait::async_trait]
