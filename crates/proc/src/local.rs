@@ -17,8 +17,8 @@ use base64::Engine as _;
 use harnix_engine::DaemonLink;
 use harnix_engine_api::ops::EngineOps;
 use harnix_engine_api::{
-    Cancel, ChainLink, ChainSource, EngineControl, EngineLink, HookDecision, Permission, SessionFacts, SessionRef, Tool, ToolCallFacts,
-    ToolCx, ToolError, ToolHook, ToolOutput, ToolProvider, ToolSpec,
+    Cancel, ChainLink, ChainSource, EngineControl, EngineLink, HookDecision, Permission, SessionRef, Tool, ToolCallFacts,
+    ToolCx, ToolError, ToolHook, ToolOutput, ToolProvider, ToolSpec, ToolsChanged,
 };
 use harnix_package::acquire::{internal, refused};
 use harnix_package::{package, tool_name};
@@ -54,6 +54,8 @@ pub(crate) struct Local {
     offers: Mutex<BTreeMap<String, Offer>>,
     listeners: Mutex<HashMap<String, Listener>>,
     hooks: AtomicU64,
+    /// Fired when an offer comes or goes: the tool provider answers another set then.
+    changed: ToolsChanged,
 }
 
 impl Local {
@@ -67,6 +69,7 @@ impl Local {
             offers: Mutex::new(BTreeMap::new()),
             listeners: Mutex::new(HashMap::new()),
             hooks: AtomicU64::new(0),
+            changed: ToolsChanged::new(),
         })
     }
 
@@ -252,6 +255,8 @@ impl Agent for Local {
             true => offers.remove(&offer.app),
             false => offers.insert(offer.app.clone(), offer),
         };
+        drop(offers);
+        self.changed.notify();
         Ok(())
     }
 }
@@ -264,7 +269,7 @@ impl ToolProvider for LocalTools {
         NAME
     }
 
-    fn tools(&self, session: &SessionFacts) -> Vec<Arc<dyn Tool>> {
+    fn tools(&self) -> Vec<Arc<dyn Tool>> {
         let mut tools: Vec<Arc<dyn Tool>> = Vec::new();
         for offer in self.0.offered().into_iter().filter(|o| o.component) {
             for def in &offer.tools {
@@ -286,27 +291,25 @@ impl ToolProvider for LocalTools {
                     app: offer.app.clone(),
                     title: offer.title.clone(),
                     local: self.0.clone(),
-                    project: session.project().to_path_buf(),
                 }));
             }
         }
         tools
     }
 
-    fn hooks(&self, session: &SessionFacts) -> Vec<Arc<dyn ToolHook>> {
+    fn hooks(&self) -> Vec<Arc<dyn ToolHook>> {
         self.0
             .offered()
             .into_iter()
             .filter(|o| o.component)
             .map(|offer| {
-                Arc::new(AppEvents {
-                    app: offer.app,
-                    local: self.0.clone(),
-                    session_id: session.session_id().to_string(),
-                    depth: session.depth(),
-                }) as Arc<dyn ToolHook>
+                Arc::new(AppEvents { app: offer.app, local: self.0.clone() }) as Arc<dyn ToolHook>
             })
             .collect()
+    }
+
+    fn changes(&self) -> Vec<ToolsChanged> {
+        vec![self.0.changed.clone()]
     }
 }
 
@@ -331,8 +334,6 @@ struct AppTool {
     app: String,
     title: Option<String>,
     local: Arc<Local>,
-    /// The session's project: `/project`, for a manifest that asks for `${project}`.
-    project: PathBuf,
 }
 
 #[async_trait]
@@ -364,7 +365,7 @@ impl Tool for AppTool {
             tool: self.def.name.clone(),
             input,
             call_id: call_id.clone(),
-            project: Some(self.project.clone()),
+            project: (!cx.project().as_os_str().is_empty()).then(|| cx.project().to_path_buf()),
             progress: true,
         };
         // On behalf of the session's turn: what the tool calls carries the turn's chain.
@@ -388,8 +389,6 @@ impl Tool for AppTool {
 struct AppEvents {
     app: String,
     local: Arc<Local>,
-    session_id: String,
-    depth: u32,
 }
 
 /// What a note of the package `app` adds to the result of `tool`: nothing for a tool not its own,
@@ -416,7 +415,7 @@ impl ToolHook for AppEvents {
         let hook = HookCall {
             app: self.app.clone(),
             event: "tool.before".into(),
-            payload: json!({"tool": call.name(), "input": call.input(), "session_id": self.session_id, "depth": self.depth}),
+            payload: json!({"tool": call.name(), "input": call.input(), "session_id": call.session_id(), "depth": call.depth()}),
             call_id: call_id.clone(),
         };
         let decision = cancellable(&control, &call_id, call.cancel(), control.hook(CallMeta::default(), hook))

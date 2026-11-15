@@ -305,7 +305,7 @@ Harnix 只管什么时候迁、失败了怎么办，不管用什么迁。数据�
 | 要写什么 | 类型 |
 |---|---|
 | 原生工具 | `harnix::engine::Tool`（`spec()`、`permission()`、`call(ToolCx, Value)`）、`ToolSpec`、`ToolOutput`、`ToolError`、`Permission` |
-| 给每个会话提供工具（按会话定） | `harnix::engine::ToolProvider`（`tools(&SessionFacts)`、可选 `hooks`） |
+| 给每个会话提供工具（按会话定） | `harnix::engine::ToolProvider`（`tools()`、可选 `hooks`、`changes`） |
 | 一次工具调用之前的拦截 | `harnix::engine::ToolHook`：`HookDecision::{Proceed, Block, AddContext}` |
 | 场景 | `harnix::engine::SceneLayer`（建在 `SceneBase::builtin("harnix")` 之类的底上：`.prompt(..)`、`.tool(..)`、`.admit(..)`） |
 | 拦截人的消息 | `harnix::engine::PromptGate`：`PromptDecision::{Proceed, Block}` |

@@ -35,7 +35,7 @@ pub use events::{Completion, DaemonEventKind, EngineEvent, Fragment, Joins, Prom
 pub use link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus, EVENT_CAPACITY};
 pub use ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, Subscribed, Tasks, TurnInput, HUB_OWNED_OPTIONS};
 pub use gate::{Delivery, PromptDecision, PromptFacts, PromptGate};
-pub use provider::{HookDecision, SessionFacts, ToolCallFacts, ToolHook, ToolProvider};
+pub use provider::{HookDecision, ToolCallFacts, ToolHook, ToolProvider, ToolsChanged, ToolsWatch};
 pub use scene::{BaseKind, BuiltinArgs, Interaction, LayerParts, PromptText, SceneBase, SceneFacts, SceneLayer};
 pub use template::{AttachTo, EngineProfile, InstanceTemplate, TemplateCarrier};
 pub use tool::{Cancel, CancelGuard, Permission, Progress, Tool, ToolCx, ToolError, ToolOutput, ToolSpec};

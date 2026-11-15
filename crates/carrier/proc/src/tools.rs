@@ -28,8 +28,8 @@ use std::sync::Arc;
 use harnix_carrier_shared::tools::{cancellable, hook_decision, permission, tool_output, tool_spec};
 use harnix_carrier_shared::Loaded;
 use harnix_ext::engine::{
-    HookDecision, Permission, SessionFacts, Tool, ToolCallFacts, ToolCx, ToolError, ToolHook, ToolOutput, ToolProvider,
-    ToolSpec,
+    HookDecision, Permission, Tool, ToolCallFacts, ToolCx, ToolError, ToolHook, ToolOutput, ToolProvider, ToolSpec,
+    ToolsChanged,
 };
 use harnix_wasm_port::socket::now_ms;
 use harnix_wasm_port::{CallMeta, HookCall, HookReply, ToolDef};
@@ -70,19 +70,14 @@ impl ProcTools {
         tools
     }
 
-    /// The hooks for one session: each running package's `events`.
-    pub fn hooks_for(&self, session_id: &str, depth: u32) -> Vec<Arc<dyn ToolHook>> {
+    /// The hooks before every session's tool calls: each running package's `events`.
+    pub fn hooks(&self) -> Vec<Arc<dyn ToolHook>> {
         self.registry
             .loaded()
             .into_iter()
             .filter(|app| app.component)
             .map(|app| {
-                Arc::new(AppEvents {
-                    app,
-                    registry: self.registry.clone(),
-                    session_id: session_id.to_string(),
-                    depth,
-                }) as Arc<dyn ToolHook>
+                Arc::new(AppEvents { app, registry: self.registry.clone() }) as Arc<dyn ToolHook>
             })
             .collect()
     }
@@ -93,12 +88,16 @@ impl ToolProvider for ProcTools {
         NAME
     }
 
-    fn tools(&self, _session: &SessionFacts) -> Vec<Arc<dyn Tool>> {
+    fn tools(&self) -> Vec<Arc<dyn Tool>> {
         ProcTools::tools(self)
     }
 
-    fn hooks(&self, session: &SessionFacts) -> Vec<Arc<dyn ToolHook>> {
-        self.hooks_for(session.session_id(), session.depth())
+    fn hooks(&self) -> Vec<Arc<dyn ToolHook>> {
+        ProcTools::hooks(self)
+    }
+
+    fn changes(&self) -> Vec<ToolsChanged> {
+        vec![self.registry.changed()]
     }
 }
 
@@ -175,8 +174,6 @@ impl Tool for AppTool {
 struct AppEvents {
     app: Arc<Loaded>,
     registry: Arc<Registry>,
-    session_id: String,
-    depth: u32,
 }
 
 #[async_trait::async_trait]
@@ -190,8 +187,8 @@ impl ToolHook for AppEvents {
         let payload = json!({
             "tool": call.name(),
             "input": call.input(),
-            "session_id": self.session_id,
-            "depth": self.depth,
+            "session_id": call.session_id(),
+            "depth": call.depth(),
         });
         let call_id = uuid::Uuid::new_v4().simple().to_string();
         let hook = HookCall {

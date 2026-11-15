@@ -86,8 +86,9 @@ pub mod engine {
     pub use harnix_engine_api::{
         AttachTo, BaseKind, BuiltinArgs, Cancel, CancelGuard, Delivery, EngineContribution,
         EngineProfile, HookDecision, InstanceTemplate, Interaction, Permission, Progress, PromptDecision,
-        PromptFacts, PromptGate, PromptText, SceneBase, SceneFacts, SceneLayer, Secret, SessionFacts,
+        PromptFacts, PromptGate, PromptText, SceneBase, SceneFacts, SceneLayer, Secret,
         TemplateCarrier, Tool, ToolCallFacts, ToolCx, ToolError, ToolHook, ToolOutput, ToolProvider, ToolSpec,
+        ToolsChanged, ToolsWatch,
     };
 }
 
