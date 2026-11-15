@@ -9,8 +9,6 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 use harnix_contract::s1::ExtId;
 use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
-use harnix_engine::readers::{RecordingsDir, TranscriptStore};
-use harnix_engine_api::readers::{Recordings, Transcripts};
 use harnix_ext::Service;
 use harnix_host_api::{HostApi, HostServices};
 use harnix_hub::Hub;
@@ -82,17 +80,14 @@ impl TopicPublisher for HubTopics {
 }
 
 /// Instances as facts: what the instance registry knows of each, and the readers of what its
-/// engine writes down.
+/// engine writes down — the instance's own, kept with it, so what a reader read is kept too.
 pub(crate) struct InstanceViews {
     instances: Arc<InstanceRegistry>,
-    /// One recordings reader per root, kept: what a reader folded (the usage figures) is kept
-    /// until a recording changes, and a reader made for every view would keep nothing.
-    readers: Mutex<HashMap<PathBuf, Arc<RecordingsDir>>>,
 }
 
 impl InstanceViews {
     pub fn new(instances: Arc<InstanceRegistry>) -> Self {
-        Self { instances, readers: Mutex::new(HashMap::new()) }
+        Self { instances }
     }
 }
 
@@ -100,20 +95,16 @@ impl InstanceService for InstanceViews {
     fn view(&self, id: &str) -> Option<InstanceView> {
         let listed = self.instances.facts(id)?;
         let (facts, trust) = (listed.engine, listed.trust);
-        let root = facts.recordings_root.clone().unwrap_or_else(|| facts.data_root.join("recordings"));
-        let recordings: Arc<dyn Recordings> =
-            lock(&self.readers).entry(root.clone()).or_insert_with(|| Arc::new(RecordingsDir::new(root))).clone();
-        let transcripts = facts
-            .history
-            .clone()
-            .map(|store| Arc::new(Arc::new(TranscriptStore::new(store)) as Arc<dyn Transcripts>) as Arc<dyn Any + Send + Sync>);
+        let readers = self.instances.readers(id);
+        let recordings = readers.as_ref().map(|r| Arc::new(r.recordings.clone()) as Arc<dyn Any + Send + Sync>);
+        let transcripts = readers.map(|r| Arc::new(r.transcripts) as Arc<dyn Any + Send + Sync>);
         Some(InstanceView {
             id: id.to_string(),
             active_scenes: facts.active_scenes.clone(),
             model: facts.model.clone().unwrap_or_default(),
             trust,
             settings_root: facts.data_root.clone(),
-            recordings: Some(Arc::new(recordings)),
+            recordings,
             transcripts,
         })
     }

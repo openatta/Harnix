@@ -16,7 +16,6 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use agix::embed::{EmbedConfig, Embedded};
-use agix::history::HistoryStore;
 use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
 use harnix_engine_api::link::{EngineControl, EngineIdentity, InstanceCarrier, LinkStatus};
@@ -103,13 +102,6 @@ pub struct Engine {
     embedded: Embedded,
     /// The root it was started on, for reporting.
     pub data_root: PathBuf,
-    /// Where a session's recording lands — one directory per session id. The engine has no
-    /// reader for it, so the hub goes to the files directly; this is the one place that says
-    /// which files.
-    pub recordings_root: PathBuf,
-    /// Its transcripts, opened again to read, for readers that would otherwise page the protocol
-    /// to get at text.
-    pub history: Option<Arc<dyn HistoryStore>>,
     /// The scenes it serves, sorted, once each.
     pub active_scenes: Vec<String>,
     /// The scene a session that names none is created in.
@@ -130,7 +122,7 @@ impl Engine {
 
         // What the engine does not report, read the way it reads it.
         let cwd = config.cwd.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-        let paths = agix::pool::StaticDaemonPaths::with_project(config.data_root.join("scenes").join(&base), cwd.clone())
+        let paths = agix::pool::StaticDaemonPaths::with_project(config.data_root.join("scenes").join(&base), cwd)
             .with_global(config.data_root.clone());
         let loaded = agix::pool::load_daemon_config(&config.model, config.max_tokens, None, &base, &paths).settings;
         let settings = &loaded.values;
@@ -143,33 +135,15 @@ impl Engine {
             .and_then(|id| settings.providers.get(id))
             .and_then(|provider| provider.default_model.clone())
             .unwrap_or_else(|| settings.model.model_name.clone());
-        // Where the engine writes a recording when a session names no directory, which is how
-        // the hub asks for one: the reader must look where the writer wrote.
-        let recordings_root = settings
-            .recorder
-            .as_ref()
-            .map(|recorder| recorder.root.clone())
-            .unwrap_or_else(|| agix::settings::ConfigPaths::from_settings(&loaded.paths).global_recordings_dir());
         // An empty variable is how a key is unset in a profile or a launcher: not a credential.
         let set = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
         let has_credentials = set("ANTHROPIC_AUTH_TOKEN").or_else(|| set("ANTHROPIC_API_KEY")).is_some();
         if !has_credentials && settings.providers.is_empty() {
             tracing::warn!("no model credentials yet: add a provider from the settings page");
         }
-        let roots = agix::history::HistoryRoots::under(&config.data_root);
-        let history: Option<Arc<dyn HistoryStore>> = match agix::history::JsonlHistoryStore::with_roots(&cwd, roots).await {
-            Ok(store) => Some(Arc::new(store)),
-            Err(e) => {
-                tracing::warn!(error = %e, "the transcripts cannot be read for search");
-                None
-            }
-        };
-
         Ok(Engine {
             embedded,
             data_root: config.data_root.clone(),
-            recordings_root,
-            history,
             active_scenes: active_scenes(&config.scene, &config.scenes),
             scene: config.scene.clone(),
             model,

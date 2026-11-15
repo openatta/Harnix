@@ -12,7 +12,9 @@
 //! daemon in another process or to an engine in this — and the [`ReplayLink`] that records or
 //! replays what it creates, and the translation between Agix's protocol and the engine
 //! interface's (`translate.rs`), the one place that names Agix's methods and events. The
-//! instance layer builds the links; the hub only ever holds them as `EngineLink`s.
+//! instance layer builds the links; the hub only ever holds them as `EngineLink`s. What an engine
+//! writes down — a session's recording and transcript — is read back through the same link
+//! ([`DaemonLink::readers`]), by the engine's own protocol.
 
 mod activity;
 mod daemon_link;
@@ -35,10 +37,6 @@ pub use host::{Chains, HostSide};
 pub use legacy::strip_package_skills;
 pub use replay_link::{Recorder, Recording, ReplayLink};
 pub use translate::REQUIRED_CAPABILITIES;
-
-/// Where an engine keeps its transcripts, for readers that would otherwise page the protocol to
-/// get at text.
-pub use agix::history::HistoryStore;
 
 /// The Agix this build links, as its manifest says (`build.rs`): for what asks before an engine
 /// is up. A running engine says it itself, in `daemon.ping`.

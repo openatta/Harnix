@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use harnix_contract::RpcError;
+use harnix_engine_api::readers::Readers;
 use harnix_engine::{Connection, DaemonLink, Endpoint, HostSide, Recorder, Refusal, ReplayLink};
 use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, InstanceCarrier, LinkStatus};
 use harnix_supervise::{Child, ChildSpec, RestartPolicy, Restarts};
@@ -76,6 +77,9 @@ pub struct Supervised {
     link: Arc<DaemonLink>,
     /// The link, recording: what the hub's calls go through.
     replay: Option<Arc<ReplayLink>>,
+    /// The readers of what its engine writes down: made once, so what they keep goes through
+    /// restarts of the daemon with the link (the engine's `generation` says when it was rewritten).
+    readers: Readers,
     child: Mutex<Option<Child>>,
     pid: AtomicU32,
     reap: bool,
@@ -100,16 +104,23 @@ impl Supervised {
     fn launch(spec: DaemonSpec, options: SpawnOptions, link: Arc<DaemonLink>) -> Arc<Self> {
         let reap = options.reap_on_stop && spec.spawn.is_some();
         let replay = options.recorder.map(|recorder| ReplayLink::daemon(link.clone(), recorder));
+        let readers = link.readers();
         let this = Arc::new(Self {
             spec,
             link,
             replay,
+            readers,
             child: Mutex::new(None),
             pid: AtomicU32::new(0),
             reap,
         });
         tokio::spawn(this.clone().supervise());
         this
+    }
+
+    /// The readers of its recordings and transcripts.
+    pub(crate) fn readers(&self) -> Readers {
+        self.readers.clone()
     }
 
     /// The link the hub is handed: through its recorder, when it has one.
