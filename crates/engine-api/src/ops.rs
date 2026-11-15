@@ -9,11 +9,13 @@
 //! goes by [`EngineOps::passthrough`], under the name the hub's row gives it.
 
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 
 use harnix_contract::RpcError;
 use serde_json::{json, Value};
 
 use crate::events::Prompt;
+use crate::scene::ExpandedScene;
 
 pub type Answer<T> = Result<T, RpcError>;
 
@@ -24,23 +26,26 @@ pub mod codes {
     pub const SESSION_NOT_FOUND: i32 = -32000;
     /// The session has a turn running.
     pub const SESSION_BUSY: i32 = -32015;
+    /// The scene needs a project, and the session was created with none.
+    pub const PROJECT_REQUIRED: i32 = -32012;
 }
 
 /// The longest session title an extension's engine may give: past it, the hub cuts it.
 pub const TITLE_MAX: usize = 200;
 
-/// The session options only the hub fills — from the session's space and preset — and a caller
-/// never gives: the tools and skills a session sees, whether someone answers its questions, its
-/// naming, and its prompt.
-pub const HUB_OWNED_OPTIONS: [&str; 5] = ["host_tools", "skill_dirs", "attended", "auto_name", "prompt"];
+/// The session options only the hub fills — from the session's space and its scene layer — and a
+/// caller never gives: the tools and skills a session sees, whether someone answers its
+/// questions and which questions it may put, its naming, and its prompt.
+pub const HUB_OWNED_OPTIONS: [&str; 6] = ["host_tools", "skill_dirs", "attended", "auto_name", "prompt", "prompt_types"];
 
 /// The turn states a session can be in.
 const TURN_STATES: &[&str] = &["idle", "running"];
 
 #[async_trait::async_trait]
 pub trait EngineOps: Send + Sync {
-    /// A new session. `params` are the engine's own, as the caller gave them.
-    async fn create(&self, params: Value) -> Answer<SessionCreated>;
+    /// A new session. `params` are the engine's own, as the caller gave them; `setup` is what the
+    /// hub sets it up with — the scene layer it is created in, the skills it sees.
+    async fn create(&self, params: Value, setup: SessionSetup) -> Answer<SessionCreated>;
 
     /// One session, live or only on disk.
     async fn get(&self, session: &str) -> Answer<SessionInfo>;
@@ -77,6 +82,11 @@ pub trait EngineOps: Send + Sync {
     /// Change the model the session's next turn calls, and its provider when named.
     async fn set_model(&self, session: &str, model: &str, provider: Option<&str>) -> Answer<Value>;
 
+    /// The session's own system-prompt text: `append` at the end of the prompt, `override` in place
+    /// of all of it. For each, `None` leaves it as it is, `Some(None)` clears it (back to the
+    /// settings'), `Some(Some(text))` sets it.
+    async fn set_prompt(&self, session: &str, append: Option<Option<String>>, override_text: Option<Option<String>>) -> Answer<Value>;
+
     /// Close the session, or `delete` it. `params` are the engine's own (a dry run, say).
     async fn close(&self, params: Value, delete: bool) -> Answer<Value>;
 
@@ -91,6 +101,32 @@ pub trait EngineOps: Send + Sync {
 
     /// Any other engine method, under the name the hub's row gives it; the answer as it is.
     async fn passthrough(&self, method: &str, params: Value) -> Answer<Value>;
+}
+
+/// What the hub sets a new session up with, beyond what its caller gave.
+#[non_exhaustive]
+#[derive(Debug, Clone, Default)]
+pub struct SessionSetup {
+    /// The scene layer it is created in, expanded; `None` for one of the engine's own scenes.
+    pub scene: Option<ExpandedScene>,
+    /// The skill directories it sees.
+    pub skill_dirs: Vec<PathBuf>,
+}
+
+impl SessionSetup {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn scene(mut self, scene: Option<ExpandedScene>) -> Self {
+        self.scene = scene;
+        self
+    }
+
+    pub fn skill_dirs(mut self, dirs: Vec<PathBuf>) -> Self {
+        self.skill_dirs = dirs;
+        self
+    }
 }
 
 /// A session just made.

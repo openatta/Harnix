@@ -78,7 +78,7 @@ test("the module says what it offers: flows, a definition with its parts, the ca
 
   const catalog = await api.call("flow.catalog");
   // The wrapped scene (flow_submit) and the application's own (structured output, xops-02 §2).
-  expect(catalog.scenes).toEqual(["flow-code", "flow-harnix", "flow-mini", "structured-harnix"]);
+  expect(catalog.scenes).toEqual(["flow-code", "flow-harnix", "flow-mini", "harnix"]);
   expect(info.protocol.analyze).toContain("Refused unless a permission allows them: Bash, PowerShell, REPL, Write, Edit, NotebookEdit, TodoWrite");
   expect(catalog.steps).toEqual(["collect", "self-check"]);
   expect(catalog).toMatchObject({ checks: ["lint"], tools: ["open_high"], command_gates: true });

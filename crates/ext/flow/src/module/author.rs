@@ -414,7 +414,6 @@ pub(crate) fn author_scene(base: SceneBase, sh: Arc<Shared>) -> SceneLayer {
         .requires_project(false)
         .interactive(true)
         .auto_name(false)
-        .name_prompt(None)
 }
 
 /// Parts about to be saved: (kind, name) → text.

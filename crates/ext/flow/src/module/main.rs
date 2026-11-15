@@ -120,9 +120,8 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
 /// ([`crate::kernel::protocol::DEFAULT_AGENT_TYPE`]), written into the run's workspace
 /// (`.agix/agents/`, where the engine reads a project's agent types).
 ///
-/// It runs on the wrapped scene's own scene (`flow-harnix` → `harnix`): a sub-agent on the wrapped
-/// one does not build — the engine registers the scene's tools again over the ones it inherited
-/// (Agix issue draft 10). The inner scene grants nothing the wrapped one does not.
+/// It runs on the wrapped scene's own scene (`flow-harnix` → `harnix`): a scene layer is not one of
+/// the engine's scenes, and a sub-agent does not have a layer's tools and added text anyway.
 fn write_agent_type(workspace: &std::path::Path, main_scene: &str) {
     let inner = main_scene.strip_prefix("flow-").unwrap_or(main_scene);
     let dir = workspace.join(".agix").join("agents");

@@ -1,6 +1,8 @@
 //! What a link offers on its connection: the tools its providers give every session, the hooks
 //! before each tool call, and the gates on each message — declared and registered with the daemon
-//! (`daemon.setHostTools`, `daemon.setHooks`), and answered here when the daemon calls them.
+//! (`daemon.setHostTools`, `daemon.setHooks`), and answered here when the daemon calls them. Its
+//! scene layers' tools are a session's own, declared as the session is created in one, and
+//! answered here too: by name, the session's own first, as the engine looks them up.
 //!
 //! What a connection registers goes with it, so a link registers everything again each time it
 //! takes one, before it says it is ready; and again whenever a provider says its set changed.
@@ -18,7 +20,7 @@ use std::time::Duration;
 
 use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
-use harnix_engine_api::{Cancel, ChainSource, EngineContribution, NoChains, PromptGate, Tool, ToolProvider};
+use harnix_engine_api::{Cancel, ChainSource, EngineContribution, NoChains, PromptGate, SceneLayers, Tool, ToolProvider};
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio::task::AbortHandle;
@@ -67,6 +69,8 @@ pub struct HostSide {
     chains: Arc<dyn ChainSource>,
     providers: Vec<Arc<dyn ToolProvider>>,
     gates: Vec<Arc<dyn PromptGate>>,
+    /// The scene layers its sessions may be created in, and their tools.
+    layers: SceneLayers,
     /// The tools the daemon took at the last registration, by name.
     declared: StdMutex<Arc<HashMap<String, Arc<dyn Tool>>>>,
     /// The hooks registered last: before tool calls, and on messages.
@@ -85,26 +89,38 @@ struct InFlight {
 }
 
 impl HostSide {
-    /// What `contrib`'s providers and gates offer the sessions of `instance`, whose turns' chains
-    /// `chains` says. Its scenes are not this one's.
-    pub fn new(instance: &str, chains: Chains, contrib: &EngineContribution) -> Arc<Self> {
-        Arc::new(Self {
+    /// What `contrib`'s providers, gates and scene layers offer the sessions of `instance`, whose
+    /// turns' chains `chains` says; refused when its scene layers do not expand.
+    pub fn new(instance: &str, chains: Chains, contrib: &EngineContribution) -> Result<Arc<Self>, String> {
+        Ok(Arc::new(Self {
             instance: instance.into(),
             chains: chains.0,
             providers: contrib.providers().to_vec(),
             gates: contrib.prompt_gates().to_vec(),
+            layers: SceneLayers::new(contrib.scenes())?,
             declared: StdMutex::default(),
             hooks_on: StdMutex::default(),
             calls: StdMutex::default(),
             projects: StdMutex::default(),
             registering: tokio::sync::Mutex::new(()),
             tasks: StdMutex::default(),
-        })
+        }))
     }
 
     /// Nothing offered: a link that registers nothing.
     pub fn none() -> Arc<Self> {
-        Self::new("", Chains::default(), &EngineContribution::new())
+        Self::new("", Chains::default(), &EngineContribution::new()).expect("no scene layers expand")
+    }
+
+    /// The scene layers its sessions may be created in.
+    pub fn layers(&self) -> &SceneLayers {
+        &self.layers
+    }
+
+    /// The tool a call by `name` reaches: a session's own, from a scene layer, before one the
+    /// connection declared.
+    pub(crate) fn tool(&self, name: &str) -> Option<Arc<dyn Tool>> {
+        self.layers.tool(name).cloned().or_else(|| lock(&self.declared).get(name).cloned())
     }
 
     pub(crate) fn instance(&self) -> &str {
@@ -207,7 +223,7 @@ impl HostSide {
     pub(crate) fn offer(self: &Arc<Self>, frame: HostFrame, wire: &Arc<dyn Wired>) -> bool {
         match frame {
             HostFrame::ToolCall(call) => {
-                let Some(tool) = lock(&self.declared).get(&call.name).cloned() else { return false };
+                let Some(tool) = self.tool(&call.name) else { return false };
                 let cancel = self.begin(&call.call_id);
                 let call_id = call.call_id.clone();
                 let task = tokio::spawn(crate::host_tools::run(self.clone(), wire.clone(), tool, call, cancel));

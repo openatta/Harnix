@@ -21,8 +21,8 @@
 //! are on here).
 //!
 //! The flow module has two templates of its own for those (`flow.local` in process, `flow.remote`
-//! spawned): their engines have `structured-harnix` — Agix's harnix scene with `StructuredOutput`
-//! allowed — as a native contribution, which the spawned daemon builds again in its process.
+//! spawned): their engines run Agix's harnix scene, and a session with an `output_schema` always
+//! has `StructuredOutput` there.
 //!
 //! Session stations replay `flow-<station>` (`tests/live/fixtures/recordings/flow-analyze`,
 //! `flow-report`, `flow-propose`): each calls `flow_submit` with a fixed output and ends its
@@ -33,8 +33,6 @@
 
 
 use harnix::prelude::*;
-use harnix::engine::SceneBase;
-use harnix_ext_flow::module::structured_scene;
 use harnix_ext_flow::{
     FileStore, Flow, GateResult, Gates, MemPacks, Programs, RunRecord, Tools, WorkItem,
 };
@@ -220,13 +218,13 @@ description: Two sessions on instances of the flow module's templates, handing i
 stations:
   - id: local
     title: In process, in the fleet space, on a model of its own
-    executor: {kind: session, scene: structured-harnix, template: flow.local, params: {name: "local-${run}"}, space: fleet, model: flow-demo-model}
+    executor: {kind: session, scene: harnix, template: flow.local, params: {name: "local-${run}"}, space: fleet, model: flow-demo-model}
     skill: analyze
     output: {type: object, required: [findings], properties: {findings: {type: array}}}
     exit: [{kind: output}]
   - id: remote
     title: On a spawned daemon
-    executor: {kind: session, scene: structured-harnix, template: flow.remote}
+    executor: {kind: session, scene: harnix, template: flow.remote}
     skill: analyze
     output: {type: object, required: [findings], properties: {findings: {type: array}}}
     exit: [{kind: output}]
@@ -240,7 +238,7 @@ title: "Demo: a write refused on a template instance"
 stations:
   - id: guarded
     title: Work without writing
-    executor: {kind: session, scene: structured-harnix, template: flow.local}
+    executor: {kind: session, scene: harnix, template: flow.local}
     skill: analyze
     output: {type: object, required: [done], properties: {done: {const: true}}}
     exit: [{kind: output}]
@@ -254,7 +252,7 @@ title: "Demo: a write refused on an instance that bypasses permissions"
 stations:
   - id: bypassed
     title: Work without writing
-    executor: {kind: session, scene: structured-harnix, template: flow.local, params: {name: bypass-box}}
+    executor: {kind: session, scene: harnix, template: flow.local, params: {name: bypass-box}}
     skill: analyze
     output: {type: object, required: [done], properties: {done: {const: true}}}
     exit: [{kind: output}]
@@ -264,7 +262,7 @@ pub const DEMO_MISPLACED: &str = r#"name: demo-misplaced
 title: "Demo: a station placed nowhere"
 stations:
   - id: nowhere
-    executor: {kind: session, scene: structured-harnix, template: flow.nowhere}
+    executor: {kind: session, scene: harnix, template: flow.nowhere}
     skill: analyze
     output: {type: object}
     exit: [{kind: output}]
@@ -288,14 +286,9 @@ Read the findings handed in at the `analyze` station (`flow_state` shows the run
 summary: how many findings of each severity, and the one that matters most.
 ";
 
-/// The scene a template's session hands in from: harnix, with `StructuredOutput` allowed.
-fn structured(e: &mut harnix::engine::EngineContribution) {
-    e.scene(structured_scene(SceneBase::builtin("harnix")));
-}
-
-/// The engine of the flow module's templates: `structured-harnix` active beside the default.
+/// The engine of the flow module's templates: Agix's harnix scene.
 fn template_engine() -> EngineProfile {
-    EngineProfile::new().scene("harnix").scenes(["structured-harnix"])
+    EngineProfile::new().scene("harnix")
 }
 
 /// What the flow module is registered with in `harnix-testapp`.
@@ -303,10 +296,10 @@ pub fn module() -> Flow {
     Flow::builder()
         .store_with(|dir| FileStore::new(dir.join("runs")))
         .template(
-            InstanceTemplate::in_process("local", template_engine()).contribute(structured),
+            InstanceTemplate::in_process("local", template_engine()),
         )
         .template(
-            InstanceTemplate::spawn("remote", template_engine()).contribute(structured),
+            InstanceTemplate::spawn("remote", template_engine()),
         )
         .packs_with(|dir| harnix_ext_flow::DirPacks::writable(dir.join("packs")).with_builtin(packs()))
         .programs(DemoPrograms)
@@ -361,7 +354,7 @@ fn parts(p: MemPacks) -> MemPacks {
         .gate_def(GATE_LINT)
         .gate_def(GATE_OPEN_HIGH)
         .gate_def(GATE_SELF_TEST)
-        .scene("structured-harnix")
+        .scene("harnix")
         .step("collect")
         .step("self-check")
         .check("lint")

@@ -1,6 +1,5 @@
 //! Recording, and replay: what a session is created and resumed with — the [`ReplayLink`] every
-//! link this process builds is wrapped in. Its scene layers' presets ([`Presets`]) are applied on
-//! the same way in, first: below the hub, which refuses a caller's say in what they fill.
+//! link this process builds is wrapped in.
 //!
 //! Recording is on by default, and it is this layer that turns it on, on the way into the
 //! engine, because every way a runnable session comes into being — `session.create`, and the
@@ -35,12 +34,12 @@ use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
 use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
 use harnix_engine_api::ops::EngineOps;
+use harnix_engine_api::SceneLayers;
 use serde_json::{json, Value};
 use tokio::sync::watch;
 
 use crate::daemon_link::DaemonLink;
 use crate::gate::{GatedOps, WakeGate};
-use crate::presets::Presets;
 use crate::translate::{self, AgixOps, Rpc};
 
 /// The process's recording: record, or play back from a directory. One for every instance.
@@ -161,18 +160,16 @@ impl Recorder {
     }
 }
 
-/// A link's calls, through its scene layers' presets and its recorder.
+/// A link's calls, through its recorder.
 struct Recorded {
     rpc: Arc<dyn Rpc>,
     recorder: Recorder,
-    presets: Arc<Presets>,
 }
 
 #[async_trait::async_trait]
 impl Rpc for Recorded {
     async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
         let deleting = (method == translate::SESSION_DELETE).then(|| params.clone());
-        let params = self.presets.prepare(method, params);
         let (params, named) = self.recorder.prepare(method, params);
         let answer = self.rpc.call(method, params).await;
         self.recorder.answered(named, &answer);
@@ -191,13 +188,12 @@ pub struct ReplayLink {
 }
 
 impl ReplayLink {
-    /// `link`, its sessions created as `presets` say and recorded by `recorder`. A gated daemon's
-    /// link keeps its gate: a call through the recorder wakes a daemon let go while idle, as one
-    /// straight to the link would.
-    pub fn daemon(link: Arc<DaemonLink>, recorder: Recorder, presets: Arc<Presets>) -> Arc<Self> {
+    /// `link`, its sessions recorded by `recorder`. A gated daemon's link keeps its gate: a call
+    /// through the recorder wakes a daemon let go while idle, as one straight to the link would.
+    pub fn daemon(link: Arc<DaemonLink>, recorder: Recorder) -> Arc<Self> {
         let gate: Option<Arc<dyn WakeGate>> = link.gate();
         let rpc = link.rpc();
-        Arc::new(Self { inner: link, ops: GatedOps { agix: AgixOps(Arc::new(Recorded { rpc, recorder, presets })), gate } })
+        Arc::new(Self { inner: link, ops: GatedOps { agix: AgixOps(Arc::new(Recorded { rpc, recorder })), gate } })
     }
 }
 
@@ -213,6 +209,10 @@ impl EngineControl for ReplayLink {
 
     fn carrier(&self) -> InstanceCarrier {
         self.inner.carrier()
+    }
+
+    fn scene_layers(&self) -> SceneLayers {
+        self.inner.scene_layers()
     }
 
     async fn reload_settings(&self) -> Result<(), RpcError> {
@@ -332,10 +332,10 @@ mod tests {
         assert!(lock(&recording.named).is_empty());
     }
 
-    /// A layer's presets go on before the recorder's options, and the recorder still decides its
-    /// own: a resumed session keeps both.
+    /// A resumed session's options are merged with the recorder's, not replaced: whatever else
+    /// they say goes in with it.
     #[tokio::test]
-    async fn presets_go_on_before_the_recorder_and_the_recorder_still_decides() {
+    async fn the_recorder_merges_into_a_resumed_sessions_options() {
         struct Echo;
         #[async_trait::async_trait]
         impl Rpc for Echo {
@@ -343,19 +343,14 @@ mod tests {
                 Ok(params)
             }
         }
-        let layer = harnix_engine_api::SceneLayer::new("probe", harnix_engine_api::SceneBase::builtin("harnix")).auto_name(false);
-        let rec = Recorded {
-            rpc: Arc::new(Echo),
-            recorder: Recording::new(Some(PathBuf::from("/rec"))).of("w", None),
-            presets: Presets::new(&[layer], "harnix").unwrap(),
-        };
-        let sent = rec.call(translate::SESSION_CREATE, json!({"scene": "probe", "options": {"recorder": {"mode": "record", "name": "f"}}})).await.unwrap();
-        assert_eq!(sent["scene"], "harnix");
-        assert_eq!((&sent["options"]["attended"], &sent["options"]["auto_name"]), (&json!(true), &json!(false)));
-        assert_eq!(sent["options"]["recorder"]["mode"], "replay");
-        let resumed = rec.call(translate::SESSION_RESUME, json!({"session_id": "f"})).await.unwrap();
+        let recording = Recording::new(Some(PathBuf::from("/rec")));
+        let rec = Recorded { rpc: Arc::new(Echo), recorder: recording.of("w", None) };
+        let created = rec.call(translate::SESSION_CREATE, json!({"options": {"attended": true, "recorder": {"name": "f"}}})).await.unwrap();
+        rec.recorder.answered(Some("f".into()), &Ok(json!({"session_id": "s1"})));
+        assert_eq!((&created["options"]["attended"], &created["options"]["recorder"]["mode"]), (&json!(true), &json!("replay")));
+        let resumed = rec.call(translate::SESSION_RESUME, json!({"session_id": "s1", "options": {"attended": true}})).await.unwrap();
         assert_eq!(resumed["options"]["attended"], true);
-        assert_eq!(resumed["options"]["recorder"]["mode"], "replay");
+        assert_eq!((&resumed["options"]["recorder"]["mode"], &resumed["options"]["recorder"]["name"]), (&json!("replay"), &json!("f")));
     }
 
     /// Deleting a session removes its recording; asking what a delete would remove, or closing
@@ -373,7 +368,6 @@ mod tests {
         let recorded = |root: &std::path::Path| Recorded {
             rpc: Arc::new(Answers),
             recorder: Recording::new(None).of("w", Some(root.to_path_buf())),
-            presets: Presets::none(),
         };
         let rec = recorded(dir.path());
         std::fs::create_dir_all(dir.path().join("s1")).unwrap();

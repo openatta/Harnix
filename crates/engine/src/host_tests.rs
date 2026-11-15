@@ -8,7 +8,7 @@ use std::time::Duration;
 use harnix_contract::sync::lock;
 use harnix_engine_api::link::{EngineControl, EngineLink, EventReceiver, InstanceCarrier};
 use harnix_engine_api::{
-    EngineContribution, EngineEvent, HookDecision, Permission, PromptDecision, PromptFacts, PromptGate, SessionEventKind,
+    EngineContribution, EngineEvent, HookDecision, Permission, PromptDecision, PromptFacts, PromptGate, SceneBase, SceneLayer, SessionEventKind,
     Tool, ToolCallFacts, ToolCx, ToolError, ToolHook, ToolOutput, ToolProvider, ToolSpec, ToolsChanged,
 };
 use serde_json::{json, Value};
@@ -181,7 +181,8 @@ fn provider(hooks: Vec<HookDecision>) -> Arc<Provider> {
 fn host(provider: &Arc<Provider>) -> Arc<HostSide> {
     let mut contrib = EngineContribution::new();
     contrib.provider(provider.clone()).prompt_gate(Arc::new(Words));
-    HostSide::new("main", Chains::default(), &contrib)
+    contrib.scene(SceneLayer::new("probe", SceneBase::builtin("harnix")).tool(echo("layer_echo")));
+    HostSide::new("main", Chains::default(), &contrib).unwrap()
 }
 
 /// A link that has taken a connection, its tools and hooks registered, and its hub's events.
@@ -246,6 +247,24 @@ async fn a_host_tool_call_is_answered_by_its_tool_and_not_handed_to_the_hub() {
         EngineEvent::Session { kind: SessionEventKind::Fragment(f), .. } => assert_eq!(f, harnix_engine_api::Fragment::new(harnix_engine_api::Joins::Answer, "text", "after")),
         other => panic!("the hub was handed {other:?} first"),
     }
+}
+
+/// A session's own tool, from the scene layer it was created in, is not declared on the connection
+/// and is answered on the link as the connection's are.
+#[tokio::test]
+async fn a_scene_layers_tool_is_answered_on_the_link() {
+    let provider = provider(vec![]);
+    let (link, mut fake, _taken, mut events) = ready(&provider).await;
+    assert!(link.scene_layers().get("probe").is_some());
+    let mut call = tool_call("c1", json!({"text": "own"}));
+    call["name"] = json!("layer_echo");
+    fake.push("s1", call).await;
+    fake.push("s1", json!({"kind": "text_delta", "text": "after"})).await;
+    let (id, _) = fake.expect(translate::SESSION_GET).await;
+    fake.answer(id, json!({"project_root": "/p"})).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
+    assert_eq!(answer["result"]["content"], "s1 /p 0 \"own\"");
+    assert!(matches!(first_event(&mut events).await, EngineEvent::Session { kind: SessionEventKind::Fragment(_), .. }), "the hub saw the call");
 }
 
 /// A delegate's call is the delegate's session's, one deep, and is answered for the root.

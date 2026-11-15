@@ -7,8 +7,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use harnix_engine::{Chains, Endpoint, Engine, EngineConfig, HostSide, InProcessEngine, Presets, Recording, ReplayLink};
-use harnix_engine_api::{EngineContribution, EngineControl, EngineLink};
+use harnix_engine::{Chains, Endpoint, Engine, EngineConfig, HostSide, InProcessEngine, Recording, ReplayLink};
+use harnix_engine_api::{EngineContribution, EngineControl, EngineLink, SceneLayers};
 
 use crate::daemon::{DaemonSpec, SpawnOptions, SpawnSpec, Supervised};
 use crate::profile::EngineProfile;
@@ -142,13 +142,13 @@ impl Factory {
         data_root: PathBuf,
         contrib: EngineContribution,
     ) -> anyhow::Result<Built> {
-        let presets = Presets::new(contrib.scenes(), &profile.scene).map_err(anyhow::Error::msg)?;
-        let engine = Engine::start(EngineConfig::from_profile(profile, &data_root), &presets).await?;
+        let host = HostSide::new(id, self.chains(), &contrib).map_err(anyhow::Error::msg)?;
+        let profile = engine_scenes(id, profile, host.layers())?;
+        let engine = Engine::start(EngineConfig::from_profile(&profile, &data_root)).await?;
         let facts = Facts::from(&engine);
-        let host = HostSide::new(id, self.chains(), &contrib);
         let here = InProcessEngine::start(engine, id, host).await?;
         let recorder = self.recording.of(id, facts.recordings_root.clone());
-        Ok(Built { link: ReplayLink::daemon(here.link().clone(), recorder, presets), control: here, facts })
+        Ok(Built { link: ReplayLink::daemon(here.link().clone(), recorder), control: here, facts })
     }
 
     pub async fn build(
@@ -203,12 +203,13 @@ impl Factory {
             } => {
                 let socket = self.socket_dir.join(format!("{}.sock", short_name(id)));
                 // The template's native contributions are offered by this process, on the link: a
-                // daemon has nowhere to build them. Its scenes are the engine's own on the command
-                // line, and what each adds is said as its sessions are created. Not the providers
+                // daemon has nowhere to build them. Its scene layers are the hub's to set a
+                // session up from, and their tools are answered on the link. Not the providers
                 // every engine in this process gets: the daemon reaches those over MCP.
                 let contrib = template.and_then(InstanceTemplate::contribution).unwrap_or_default();
-                let presets = Presets::new(contrib.scenes(), &engine.scene).map_err(anyhow::Error::msg)?;
-                let mut argv = daemon_args(engine, &data_root, &socket, &presets);
+                let host = HostSide::new(id, self.chains(), &contrib).map_err(anyhow::Error::msg)?;
+                let engine = &engine_scenes(id, engine, host.layers())?;
+                let mut argv = daemon_args(engine, &data_root, &socket);
                 // This binary's daemon holds the instance's lock on its data root (ipdrun-08); a
                 // program of somebody else's gets the arguments it always got.
                 let lock = program.is_none().then(|| {
@@ -227,8 +228,7 @@ impl Factory {
                 options.servers = Some(self.servers.configure(id, &data_root));
                 // Where a daemon writes its recordings is its own: a deleted session's stays.
                 options.recorder = Some(self.recording.of(id, None));
-                options.host = Some(HostSide::new(id, self.chains(), &contrib));
-                options.presets = presets;
+                options.host = Some(host);
                 let daemon = Supervised::start_with(DaemonSpec {
                     endpoint: Endpoint::Unix(socket),
                     spawn: Some(SpawnSpec {
@@ -309,10 +309,37 @@ fn loopback_without_proxy() -> Vec<(String, String)> {
         .collect()
 }
 
-/// The `harnix daemon` command line for these settings, a scene layer named by the engine's own
-/// scene it is served on. Read back by [`crate::DaemonArgs`] on the other side.
-fn daemon_args(engine: &EngineProfile, data_root: &Path, socket: &Path, presets: &Presets) -> Vec<String> {
-    let (scene, scenes) = presets.engine_scenes(&engine.scene, &engine.scenes);
+/// `profile` with the engine's own scenes alone: a scene layer of the instance's is none of the
+/// engine's, and is not activated in it. A default scene that is a layer is refused: the engine
+/// creates a session in its default without the hub, which sets one up from a layer.
+fn engine_scenes(id: &str, profile: &EngineProfile, layers: &SceneLayers) -> anyhow::Result<EngineProfile> {
+    if layers.get(&profile.scene).is_some() {
+        anyhow::bail!(
+            "instance `{id}`: `EngineProfile.scene` names one of the engine's own scenes; give a scene layer's id (`{}`) as the space's or the session's `scene`",
+            profile.scene
+        );
+    }
+    let mut profile = profile.clone();
+    profile.scenes.retain(|scene| {
+        let layer = layers.get(scene).is_some();
+        if layer {
+            tracing::debug!(instance = id, scene = %scene, "a scene layer, not one of the engine's: not activated in it");
+        }
+        !layer
+    });
+    Ok(profile)
+}
+
+/// The `harnix daemon` command line for these settings. Read back by [`crate::DaemonArgs`] on the
+/// other side.
+fn daemon_args(engine: &EngineProfile, data_root: &Path, socket: &Path) -> Vec<String> {
+    let scene = engine.scene.clone();
+    let mut scenes: Vec<String> = Vec::new();
+    for other in &engine.scenes {
+        if *other != scene && !scenes.contains(other) {
+            scenes.push(other.clone());
+        }
+    }
     let mut argv = vec![
         "daemon".to_string(),
         "--data-root".into(),
@@ -365,6 +392,17 @@ impl Drop for Factory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A scene layer is not activated in the engine, and is no engine's default.
+    #[test]
+    fn the_engine_is_started_with_its_own_scenes_alone() {
+        use harnix_engine_api::{SceneBase, SceneLayer};
+        let layers = SceneLayers::new(&[SceneLayer::new("probe", SceneBase::builtin("harnix"))]).unwrap();
+        let profile = EngineProfile::new().scene("harnix").scenes(["probe", "mini"]);
+        assert_eq!(engine_scenes("i", &profile, &layers).unwrap().scenes, ["mini"]);
+        let wrong = EngineProfile::new().scene("probe");
+        assert!(engine_scenes("i", &wrong, &layers).unwrap_err().to_string().contains("scene layer"));
+    }
 
     #[test]
     fn providers_go_only_where_there_is_a_data_root() {

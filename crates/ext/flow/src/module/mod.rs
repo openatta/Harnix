@@ -9,7 +9,7 @@
 //! session.rs   a session task: placing, opening and binding its session
 //! turns.rs     a session task's turns: sending, judging, correcting, nudging, interrupting
 //! gate.rs      a gate's work item; `command` gates
-//! tools.rs     the scene wrappers: flow-* (flow_state, flow_submit, flow_propose), structured-*
+//! tools.rs     the scene wrappers: flow-* (flow_state, flow_submit, flow_propose)
 //! author.rs    flow-author: writing flows in conversation (xops-02 §4)
 //! methods.rs   flow.* — the device methods
 //! ```
@@ -49,7 +49,7 @@ mod turns;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use harnix_ext::engine::{BuiltinArgs, InstanceTemplate, Interaction, SceneBase, SceneLayer};
+use harnix_ext::engine::{InstanceTemplate, SceneBase, SceneLayer};
 use harnix_ext::{caps, Extension, ExtensionContext, Manifest, Registrar, SpaceDecl};
 use serde_json::json;
 use tokio::sync::broadcast;
@@ -67,7 +67,7 @@ use crate::store::FileStore;
 pub use crate::kernel::protocol::matches_any;
 pub use author::{AUTHOR_PROMPT, AUTHOR_SCENE, AUTHOR_TOOLS, NO_FOCUS};
 pub use shared::{session_name, session_ref};
-pub use tools::{structured_id, structured_scene, TOOL_PROPOSE, TOOL_STATE, TOOL_SUBMIT};
+pub use tools::{TOOL_PROPOSE, TOOL_STATE, TOOL_SUBMIT};
 
 use shared::{Config, ConversationRecordingFn, MainRecordingFn, RecordingFn, Shared};
 
@@ -198,12 +198,13 @@ impl Default for FlowBuilder {
 
 /// The engine's own scenes, the ones a flow offers when the application gives none: `harnix` (the
 /// main scene), `code` and `mini`, each with whether its sessions need a project (`code`'s do).
-/// All unattended — a flow session has no one to put a question to; its permission asks are the
-/// module's to answer (the wrapper is attended for those).
+/// Attended, as the wrapper is: the module answers a flow session's asks in place of a person, so
+/// they must reach the host. A flow session lists no questions to put, so it has no
+/// `AskUserQuestion`.
 pub fn builtin_scenes() -> Vec<(SceneBase, bool)> {
     vec![
         (SceneBase::builtin("harnix"), false),
-        (SceneBase::builtin_with("code", BuiltinArgs::new().interaction(Interaction::Unattended)), true),
+        (SceneBase::builtin("code"), true),
         (SceneBase::builtin("mini"), false),
     ]
 }
@@ -430,10 +431,11 @@ impl FlowBuilder {
             },
             tx,
         ));
+        let tools = tools::FlowTools::new(sh.clone());
         let scenes: Vec<SceneLayer> = self
             .scenes
             .iter()
-            .map(|(base, project)| tools::flow_scene(base.clone(), sh.clone(), *project))
+            .map(|(base, project)| tools::flow_scene(base.clone(), &tools, *project))
             .collect();
         let base = self.author.unwrap_or_else(|| SceneBase::builtin("harnix"));
         let author = author::author_scene(base, sh.clone());
@@ -769,7 +771,7 @@ mod tests {
     fn the_catalog_has_the_applications_scenes_and_the_wrapped_ones() {
         let packs = catalog_packs(
             MemPacks::new()
-                .scene("structured-harnix")
+                .scene("harnix")
                 .skill("work", "Do it."),
             &["flow.local"],
         );
@@ -779,7 +781,7 @@ mod tests {
             )
         };
         assert!(crate::validate_yaml(&yaml("flow-harnix"), &packs).is_empty());
-        assert!(crate::validate_yaml(&yaml("structured-harnix"), &packs).is_empty());
+        assert!(crate::validate_yaml(&yaml("harnix"), &packs).is_empty());
         let problems = crate::validate_yaml(&yaml("nowhere"), &packs);
         assert!(
             problems.iter().any(|p| p.message.contains("scene nowhere")),
@@ -787,7 +789,7 @@ mod tests {
         );
         assert_eq!(
             packs.catalog().scenes.into_iter().collect::<Vec<_>>(),
-            ["flow-harnix", "structured-harnix"]
+            ["flow-harnix", "harnix"]
         );
         assert!(
             packs.catalog().templates.is_empty(),

@@ -4,8 +4,9 @@
 //! an in-memory stream ([`InProcessEngine`]), or as `harnix daemon` on a socket
 //! ([`serve_daemon`]). Nothing of Harnix's is built into it: what extensions give an engine —
 //! tools, hooks around a tool call, gates on a message, written in `harnix-engine-api`'s terms —
-//! is registered on the link to it and answered there ([`HostSide`]), and a scene layer is one of
-//! the engine's own scenes with what its sessions are created with ([`Presets`]).
+//! is registered on the link to it and answered there ([`HostSide`]); a scene layer is one of the
+//! engine's own scenes with what the hub creates its sessions with, its own tools answered on the
+//! link that created them.
 //!
 //! It also carries the link the hub reaches an engine through — [`DaemonLink`], on a stream to a
 //! daemon in another process or to an engine in this — and the [`ReplayLink`] that records or
@@ -21,16 +22,14 @@ mod host_hooks;
 #[cfg(test)]
 mod host_tests;
 mod host_tools;
-mod presets;
 pub mod readers;
 mod replay_link;
 mod translate;
 
 pub use daemon_link::{Connection, DaemonLink, Endpoint, Refusal, Taken};
-pub use embed::{serve_daemon, Engine, EngineConfig, InProcessEngine};
+pub use embed::{active_scenes, serve_daemon, Engine, EngineConfig, InProcessEngine};
 pub use gate::WakeGate;
 pub use host::{Chains, HostSide};
-pub use presets::{active_scenes, Presets};
 pub use replay_link::{Recorder, Recording, ReplayLink};
 pub use translate::REQUIRED_CAPABILITIES;
 

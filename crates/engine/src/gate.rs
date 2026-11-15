@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use harnix_contract::RpcError;
-use harnix_engine_api::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, Subscribed, Tasks, TurnInput};
+use harnix_engine_api::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
 use serde_json::Value;
 
 use crate::translate::AgixOps;
@@ -45,9 +45,9 @@ impl GatedOps {
 /// Every call wakes a sleeping daemon but the list.
 #[async_trait]
 impl EngineOps for GatedOps {
-    async fn create(&self, params: Value) -> Answer<SessionCreated> {
+    async fn create(&self, params: Value, setup: SessionSetup) -> Answer<SessionCreated> {
         self.awake().await?;
-        self.agix.create(params).await
+        self.agix.create(params, setup).await
     }
     async fn get(&self, session: &str) -> Answer<SessionInfo> {
         self.awake().await?;
@@ -97,6 +97,10 @@ impl EngineOps for GatedOps {
     async fn set_model(&self, session: &str, model: &str, provider: Option<&str>) -> Answer<Value> {
         self.awake().await?;
         self.agix.set_model(session, model, provider).await
+    }
+    async fn set_prompt(&self, session: &str, append: Option<Option<String>>, override_text: Option<Option<String>>) -> Answer<Value> {
+        self.awake().await?;
+        self.agix.set_prompt(session, append, override_text).await
     }
     async fn close(&self, params: Value, delete: bool) -> Answer<Value> {
         self.awake().await?;

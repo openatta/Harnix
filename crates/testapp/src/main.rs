@@ -675,9 +675,10 @@ fn native(e: &mut EngineContribution) {
     e.prompt_gate(Arc::new(Blocklist));
 }
 
-/// The engine of `fleet`'s native templates: their scene is active beside the default one.
+/// The engine of `fleet`'s native templates: the engine's own scenes; [`NATIVE_SCENE`] is a layer
+/// over one, which the hub sets a session up from.
 fn native_engine() -> EngineProfile {
-    EngineProfile::new().scenes([NATIVE_SCENE])
+    EngineProfile::new()
 }
 
 /// Answers [`NATIVE_ANSWER`], whatever it is asked.
