@@ -941,7 +941,7 @@ pub trait Extension: Send + Sync + 'static {
 | `engine.plugins` | Agix 插件的装、卸、启停、重读；往实例里放 skill | ✔ | | plugins、packages |
 | `engine.export` | `engine.session.export` | ✔ | | harnix-app |
 | `engine.mcp` | `engine.mcp.addServer` | ✔ | | — |
-| `recordings.read` · `transcripts.read` | 录像与用量的读者 · 转录的读者 | ✔ | | observability · harnix-app |
+| `recordings.read` · `transcripts.read` | 录像与用量的读者 · 转录的读者；都经引擎的协议读（`session.calls`、`call`、`callBlob`、`search`），每台实例各有一套，实例连不上读者返回 `Unavailable` | ✔ | | observability · harnix-app |
 | `process.observe` | 版本、运行时长、内存、线程、已连接的客户端 | ✔ | | system |
 | `devices.manage` | 配对码、列设备、撤销设备 | ✔ | | devices |
 | `extensions.manage` | 拿 `harnix-host-api` 的 `HostServices`：运行期登记扩展、拉起扩展进程、收养扩展进程的引擎 | ✔ | | packages |
@@ -966,7 +966,8 @@ pub trait Extension: Send + Sync + 'static {
 | `call(method, params)` | 以 `ext:<id>` 的身份调任何方法（根调用），和设备走同一个准入点、同样审计 |
 | `sessions()` | `Sessions`，见 §17.6 |
 | `instances()` | `Instances`：`create(template, name, params)`、`ensure(template, name, params)`（幂等，并发调同名也只建一台，`start` 里用）、`ensure_ready(template, name, params, timeout)`（同上，等到 `ready` 再返回；`down` 或超时报 `INSTANCE_UNAVAILABLE`）、`wait_ready(instance, timeout)`、`stop(instance)`（数据根留着） |
-| `engine(instance)` | `Option<EngineView>`，一台实例的只读视图：`instance()`、`active_scenes()`、`model()`、`trust()`；要能力的：`recordings()`（`recordings.read`）、`transcripts()`（`transcripts.read`）、`config_files()`（`engine.config.write`） |
+| `engine(instance)` | `Option<EngineView>`，一台实例的只读视图：`instance()`、`active_scenes()`、`model()`、`trust()`；要能力的：`recordings()`（`recordings.read`；`calls`、`call`、`turns`、`envelopes`、`usage`）、`transcripts()`（`transcripts.read`；`search`，返回 `Result`，实例连不上是 `ReadError::Unavailable`）、`config_files()`（`engine.config.write`）。每台实例都有读者：`main`、进程内的模板实例、spawn、attach 的实例与 `proc.<id>`。
+录像按根会话存：整棵会话树（侧链、子 Agent）的调用在根会话的一份录像里，`calls` 的 `index` 是它在这份录像里的位置，行上有 `session_id` 与 `parent_session_id`。录像只覆盖最近一次运行（daemon 重启后第一次调用会把它重写），`calls`、`turns`、`envelopes`、`usage` 的结果带 `run`，读者见过上一次运行消失时标 `earlier_run`，用量不是跨运行的合计。`calls` 的列表只有每次调用的概况与工具调用的名字、字数，工具的输入与结果在 `call` 的详情里。`usage` 不叫醒休眠的模式 3 进程，给读过的旧数并标 `stale`，其余读者的调用会叫醒它 |
 | `process()` | `process.observe`：版本、运行时长、内存、线程、已连接的客户端 |
 | `bulk()` | 一次性上传凭据：`grant(max_bytes)`、`grant_named(name, max_bytes)`（文件名以清理过的 `name` 结尾，给按名字或后缀读它的，如 `plugins.upload`） |
 | `ui()` | `UiPublisher`：运行期发布的界面条目（`plugins` 发 Agix 包的 `[[ui]]`） |
