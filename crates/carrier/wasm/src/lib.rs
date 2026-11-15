@@ -45,7 +45,7 @@ use harnix_wasm_port::{CallMeta, Control, Place, Start, Stop, Unplace};
 use serde_json::{json, Value};
 use tokio::sync::watch;
 
-pub use harnix_carrier_shared::{server_name, tool_name, Loaded, FRAME_CSP, TOOL_PATTERN};
+pub use harnix_carrier_shared::{server_name, tool_name, Loaded, FRAME_CSP};
 pub use registry::Registry;
 pub use tools::{WasmTools, MAX_NOTE, NAME as TOOLS_NAME};
 
@@ -254,7 +254,6 @@ impl Carrier for WasmCarrier {
     fn register(&self, r: &mut CarrierRegistrar<'_>) {
         let _ = self.0.settings.set(r.settings().clone());
         r.provider(Arc::new(WasmTools::new(self.0.registry.clone())));
-        r.admit(TOOL_PATTERN);
     }
 
     async fn start(&self, _host: &dyn HostApi, cx: &ExtensionContext, app: Installed) -> Rpc<Running> {

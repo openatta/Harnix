@@ -2,7 +2,7 @@
 name = "harnix-carrier-shared"
 version      = "0.4.3-2026111501"
 edition      = "2021"
-rust-version = "1.87"
+rust-version = "1.88"
 license      = "Apache-2.0"
 publish      = false
 description  = "What the two package carriers share: the roster of running packages, their interface entries, their tools' shape and the /ext/<id>/ routes"

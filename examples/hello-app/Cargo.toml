@@ -44,13 +44,7 @@ harnix-kernel    = { path = "harnix/crates/kernel" }
 harnix-router    = { path = "harnix/crates/router" }
 harnix-transport = { path = "harnix/crates/transport" }
 harnix-wasm      = { path = "harnix/crates/wasm" }
-daemon    = { path = "harnix/agix/daemon" }
-base      = { path = "harnix/agix/crates/core" }
-model     = { path = "harnix/agix/crates/model" }
-history   = { path = "harnix/agix/crates/history" }
-scene     = { path = "harnix/agix/crates/scene" }
-telemetry = { path = "harnix/agix/crates/telemetry" }
-runtime   = { path = "harnix/agix/crates/runtime" }
+agix = { path = "harnix/agix/crates/agix" }
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["full"] }
 tokio-stream = "0.1"

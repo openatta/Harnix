@@ -27,7 +27,7 @@ cargo build --release
 ./target/release/harnix                              # → http://127.0.0.1:4080/
 ```
 
-Rust 1.87 or newer, Node with pnpm. `--recurse-submodules` matters: Agix lives at `agix/`. What runs
+Rust 1.88 or newer, Node with pnpm. `--recurse-submodules` matters: Agix lives at `agix/`. What runs
 is the Harnix app and the system space: sessions, projects, and the system with the flows in it, and the
 host for extension packages (mode 2, in-process).
 

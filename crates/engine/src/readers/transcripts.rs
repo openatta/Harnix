@@ -10,10 +10,8 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use base::message::ContentBlock;
+use agix::history::{ContentBlock, HistoryStore, LogEntry};
 use harnix_engine_api::readers::{SearchHit, SearchLimits, SearchResult, Transcripts};
-use history::entry::LogEntry;
-use history::store::HistoryStore;
 
 /// An engine's transcripts, as its history store keeps them.
 pub struct TranscriptStore(Arc<dyn HistoryStore>);
@@ -53,7 +51,7 @@ async fn search(store: &dyn HistoryStore, sessions: &[String], query: &str, limi
             truncated = true;
             break;
         }
-        let Ok(id) = base::session::SessionId::parse(session_id) else {
+        let Ok(id) = agix::session::SessionId::parse(session_id) else {
             continue;
         };
         let Ok(entries) = store.load(id).await else {

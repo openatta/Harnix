@@ -2,7 +2,7 @@
 name = "harnix-engine"
 version      = "0.4.3-2026111501"
 edition      = "2021"
-rust-version = "1.87"
+rust-version = "1.88"
 license      = "Apache-2.0"
 publish      = false
 description  = "Agix, behind Harnix's engine interface: the one crate that links the engine"
@@ -10,19 +10,12 @@ description  = "Agix, behind Harnix's engine interface: the one crate that links
 [dependencies]
 harnix-contract = { workspace = true }
 harnix-engine-api = { workspace = true }
-daemon      = { workspace = true }
-base        = { workspace = true }
-model       = { workspace = true }
-scene       = { workspace = true }
-history     = { workspace = true }
-telemetry   = { workspace = true }
-runtime     = { workspace = true }
+agix        = { workspace = true }
 tokio       = { workspace = true }
 tokio-util  = { workspace = true }
 anyhow      = { workspace = true }
 async-trait = { workspace = true }
 tracing     = { workspace = true }
-reqwest     = { workspace = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }
 

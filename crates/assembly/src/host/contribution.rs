@@ -19,9 +19,6 @@ pub(crate) fn merge(into: &mut EngineContribution, from: &EngineContribution) {
     for gate in from.prompt_gates() {
         into.prompt_gate(gate.clone());
     }
-    for pattern in from.admitted() {
-        into.admit_everywhere(pattern);
-    }
 }
 
 /// The same contribution, with its providers, gates and hooks doing nothing while `enabled` is
@@ -37,9 +34,6 @@ pub(crate) fn gated(c: &EngineContribution, enabled: Arc<AtomicBool>, changed: T
     }
     for inner in c.prompt_gates() {
         out.prompt_gate(Arc::new(Gated { inner: inner.clone(), enabled: enabled.clone(), changed: changed.clone() }));
-    }
-    for pattern in c.admitted() {
-        out.admit_everywhere(pattern);
     }
     out
 }
@@ -148,13 +142,13 @@ mod tests {
     }
 
     #[test]
-    fn contributions_add_up_in_order_and_admit_a_name_once() {
+    fn contributions_add_up_in_order() {
         let mut a = EngineContribution::new();
-        a.scene(SceneLayer::new("a", SceneBase::builtin("harnix"))).admit_everywhere("ext__*");
+        a.scene(SceneLayer::new("a", SceneBase::builtin("harnix")));
         let mut b = EngineContribution::new();
-        b.scene(SceneLayer::new("b-{base}", SceneBase::named("a"))).admit_everywhere("ext__*").admit_everywhere("x");
+        b.scene(SceneLayer::new("b-{base}", SceneBase::named("a"))).provider(Arc::new(One));
         merge(&mut a, &b);
         assert_eq!(scene_ids(&a), ["a", "b-{base}"]);
-        assert_eq!(a.admitted(), ["ext__*", "x"]);
+        assert_eq!(a.providers().len(), 1);
     }
 }

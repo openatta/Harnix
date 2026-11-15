@@ -2,7 +2,7 @@
 //!
 //! What the model was sent and what came back: the assembled system blocks, the whole tool
 //! catalog, the call configuration, the messages. Agix does not send this over the wire — it
-//! writes every call to a recording (Agix's `telemetry::recorder`), and this reads that directory.
+//! writes every call to a recording (Agix's recorder), and this reads that directory.
 //!
 //! Reading files rather than receiving frames is what makes it survive a reload: the browser can
 //! ask at any point, including for a session whose turns ran in a previous process. The cost is a
@@ -18,16 +18,14 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::SystemTime;
 
-use base::interface::model::{ModelEvent, ToolDef};
-use base::interface::prompt::PromptBlock;
+use agix::contracts::model::{ModelEvent, ToolDef};
+use agix::contracts::prompt::PromptBlock;
+use agix::recordings::{reader, BlobId, BlobStore, CallRecord, RecordedParams};
 use harnix_engine_api::readers::{
     BlockSize, CallDetail, CallDetailInput, CallDetailOutput, CallInput, CallOutput, CallSummary, Envelope, Envelopes,
     ReadError, Recordings, SessionUsage, SystemBlock, Timing, ToolUseSummary, Trace, TurnSummary, Turns,
 };
 use serde_json::{json, Value};
-use telemetry::recorder::blob::{BlobId, BlobStore};
-use telemetry::recorder::format::{CallRecord, RecordedParams};
-use telemetry::recorder::reader;
 
 use super::off_the_runtime;
 use super::usage::UsageCache;
@@ -675,12 +673,10 @@ mod tests {
         assert_eq!(turns[1]["context_delta"], 110);
         assert_eq!(first["duration_ms"], 1350);
     }
-    use base::interface::model::ToolDef;
-    use base::interface::prompt::{BlockRole, CacheStrategy, PromptBlock};
-    use base::interface::settings::ThinkingMode;
-    use base::provider::ApiType;
-    use telemetry::recorder::format::{Header, Record, RecordedParams};
-    use telemetry::recorder::writer::RecordingWriter;
+    use agix::contracts::model::ToolDef;
+    use agix::contracts::prompt::{BlockOrigin, BlockRole, CacheStrategy, PromptBlock};
+    use agix::recordings::{Header, Record, RecordedParams, RecordingWriter, FORMAT_VERSION};
+    use agix::settings::{ApiType, ThinkingMode};
 
     fn block(content: &str, source: &str) -> PromptBlock {
         PromptBlock {
@@ -688,17 +684,12 @@ mod tests {
             content: content.to_string(),
             cache_strategy: Some(CacheStrategy::Ephemeral),
             name: Some(source.to_string()),
-            origin: base::prompt::BlockOrigin::Kernel,
+            origin: BlockOrigin::Kernel,
         }
     }
 
     fn tool(name: &str, source: &str) -> ToolDef {
-        ToolDef {
-            name: name.to_string(),
-            description: format!("does {name}"),
-            input_schema: json!({"type": "object"}),
-            source: Some(source.to_string()),
-        }
+        ToolDef::new(name, format!("does {name}"), json!({"type": "object"})).with_source(source)
     }
 
     struct Fixture {
@@ -712,7 +703,7 @@ mod tests {
             let writer = RecordingWriter::create(
                 root.path(),
                 Header {
-                    version: telemetry::recorder::format::FORMAT_VERSION,
+                    version: FORMAT_VERSION,
                     name: "S-1".into(),
                     session_id: "S-1".into(),
                     parent: None,
@@ -743,6 +734,7 @@ mod tests {
                 session_id: Some("S-1".into()),
                 parent_session_id: None,
                 agent_type: None,
+                turn_id: None,
                 turn,
                 step: 0,
                 purpose: purpose.map(str::to_string),

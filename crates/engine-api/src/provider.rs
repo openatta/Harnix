@@ -8,7 +8,8 @@ use serde_json::Value;
 use crate::tool::{Cancel, Tool};
 
 /// What hands each session of an instance its tools — sub-agents, team members and background
-/// tasks included. Asked each time a session is built, so what it gives is what is there then.
+/// tasks included. Asked as the instance's engine is connected to, and again whenever one of its
+/// [`ToolProvider::changes`] fires: a session built after has what it gave then.
 pub trait ToolProvider: Send + Sync + 'static {
     /// Unique among an instance's providers.
     fn name(&self) -> &str;
@@ -145,7 +146,8 @@ pub enum HookDecision {
     Proceed,
     /// It does not run; the model is told this instead, as a failed call.
     Block(String),
-    /// It runs, and this is appended to the text of its answer.
+    /// It runs; this text is handed to the model as a system reminder before its next step,
+    /// once the call is let through.
     AddContext(String),
 }
 

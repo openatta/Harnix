@@ -7,11 +7,13 @@
 //! reads them to check that the hub spells none of them.
 
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use harnix_contract::RpcError;
 use harnix_engine_api::events::{Completion, DaemonEventKind, EngineEvent, Fragment, Joins, Prompt, SessionEventKind, Waiting};
 use harnix_engine_api::ops::{codes, Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, Subscribed, Tasks, TurnInput};
+use harnix_engine_api::{Delivery, ToolError, ToolOutput, ToolSpec};
 use serde_json::{json, Value};
 
 pub const SESSION_CREATE: &str = "session.create";
@@ -34,6 +36,26 @@ pub const CONFIG_RELOAD: &str = "config.reload";
 pub const DAEMON_SUBSCRIBE_EVENTS: &str = "daemon.subscribeEvents";
 pub const DAEMON_PING: &str = "daemon.ping";
 pub const DAEMON_AUTH: &str = "daemon.auth";
+pub const DAEMON_SET_HOST_TOOLS: &str = "daemon.setHostTools";
+pub const DAEMON_SET_HOOKS: &str = "daemon.setHooks";
+pub const SESSION_RESPOND_TOOL_CALL: &str = "session.respondToolCall";
+pub const SESSION_REPORT_TOOL_PROGRESS: &str = "session.reportToolProgress";
+pub const SESSION_RESPOND_HOOK: &str = "session.respondHook";
+pub const SCENE_ACTIVATE: &str = "scene.activate";
+
+/// What a daemon must say it has (`daemon.ping`'s `capabilities`) for a link to take it: the
+/// tools and hooks a connection registers, a session's own `attended`, `skill_dirs`, its recorded
+/// calls and search, and the entries a host appends.
+pub const REQUIRED_CAPABILITIES: &[&str] = &[
+    "host_tool_provider",
+    "host_hooks",
+    "host_tool_progress",
+    "session_attended",
+    "session_skill_dirs",
+    "session_calls",
+    "session_search",
+    "extension_entries",
+];
 
 /// The two notifications an engine sends.
 pub const SESSION_EVENT: &str = "session.event";
@@ -53,6 +75,15 @@ const TASK_FINISHED: &str = "task_finished";
 const COMPACT: &str = "compact";
 const TURN_COMPLETE: &str = "turn_complete";
 const SUBSCRIPTION_DROPPED: &str = "subscription_dropped";
+const HOST_TOOL_CALL: &str = "host_tool_call";
+const HOST_TOOL_CALL_RESOLVED: &str = "host_tool_call_resolved";
+const HOOK_CALL: &str = "hook_call";
+const HOOK_CALL_RESOLVED: &str = "hook_call_resolved";
+/// The two hook events a connection registers for.
+const PRE_TOOL_USE: &str = "PreToolUse";
+const USER_PROMPT_SUBMIT: &str = "UserPromptSubmit";
+/// How a hook-call frame, or a host tool call's, says it was taken back.
+const WITHDRAWN: &str = "withdrawn";
 
 // What the engine's own events are called.
 const TURN_STARTED: &str = "turn_started";
@@ -334,6 +365,241 @@ fn message_text(message: &Value) -> String {
     }
 }
 
+/// The project a session's `session.get` says it works in; empty for one with none.
+pub(crate) fn project_root(answer: &Value) -> PathBuf {
+    answer.get("project_root").and_then(Value::as_str).map(PathBuf::from).unwrap_or_default()
+}
+
+/// One of the frames a connection's own tools and hooks are called by.
+#[derive(Debug)]
+pub(crate) enum HostFrame {
+    ToolCall(HostToolCall),
+    ToolCallResolved { call_id: String, withdrawn: bool },
+    HookCall(HostHookCall),
+    HookCallResolved { call_id: String },
+}
+
+/// A call of a tool a connection declared.
+#[derive(Debug)]
+pub(crate) struct HostToolCall {
+    /// The root session: what the answer names.
+    pub session: String,
+    pub call_id: String,
+    pub tool_use_id: String,
+    pub name: String,
+    pub input: Value,
+    /// The delegate's own session, when a delegate made the call.
+    pub agent_session: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum HookEvent {
+    PreToolUse,
+    UserPromptSubmit,
+    Other(String),
+}
+
+/// A hook a connection registered, called.
+#[derive(Debug)]
+pub(crate) struct HostHookCall {
+    /// The root session: what the answer names.
+    pub session: String,
+    pub turn_id: Option<String>,
+    pub call_id: String,
+    pub event: HookEvent,
+    pub input: Value,
+    pub agent_session: Option<String>,
+}
+
+/// The frame a host's tool or hook is called by, or taken back by; `None` for any other. Read,
+/// not taken: a frame that is not this link's goes on to [`event`] as it is.
+pub(crate) fn host_frame(frame: &Value) -> Option<HostFrame> {
+    if frame.get("method").and_then(Value::as_str) != Some(SESSION_EVENT) {
+        return None;
+    }
+    let params = frame.get("params")?;
+    let event = params.get("event")?;
+    let text = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
+    let call_id = text(event, "call_id")?;
+    let session = text(params, "session_id").unwrap_or_default();
+    let agent_session = text(event, "agent_session_id");
+    match event.get("kind").and_then(Value::as_str)? {
+        HOST_TOOL_CALL => Some(HostFrame::ToolCall(HostToolCall {
+            session,
+            call_id,
+            tool_use_id: text(event, "tool_use_id").unwrap_or_default(),
+            name: text(event, "name")?,
+            input: event.get("input").cloned().unwrap_or(Value::Null),
+            agent_session,
+        })),
+        HOST_TOOL_CALL_RESOLVED => Some(HostFrame::ToolCallResolved {
+            call_id,
+            withdrawn: event.get("resolution").and_then(Value::as_str) == Some(WITHDRAWN),
+        }),
+        HOOK_CALL => Some(HostFrame::HookCall(HostHookCall {
+            session,
+            turn_id: text(params, "turn_id"),
+            call_id,
+            event: match text(event, "hook_event").as_deref() {
+                Some(PRE_TOOL_USE) => HookEvent::PreToolUse,
+                Some(USER_PROMPT_SUBMIT) => HookEvent::UserPromptSubmit,
+                other => HookEvent::Other(other.unwrap_or_default().to_string()),
+            },
+            input: event.get("input").cloned().unwrap_or(Value::Null),
+            agent_session,
+        })),
+        HOOK_CALL_RESOLVED => Some(HostFrame::HookCallResolved { call_id }),
+        _ => None,
+    }
+}
+
+/// The longest description a declared tool may have, in bytes.
+const MAX_DESCRIPTION: usize = 8192;
+/// How long the engine waits for a declared tool: its longest. A native tool has no timeout of its
+/// own, and a package's has its call's.
+const HOST_TOOL_TIMEOUT_MS: u64 = 600_000;
+/// How long the engine waits for a registered hook: its longest. A package's hook is a call to
+/// another process.
+const HOST_HOOK_TIMEOUT_MS: u64 = 30_000;
+
+/// A tool, as a connection declares it: delegates have it too.
+pub(crate) fn host_tool_decl(spec: &ToolSpec) -> Value {
+    let mut description = match spec.documentation() {
+        Some(doc) => format!("{}\n\n{doc}", spec.description()),
+        None => spec.description().to_string(),
+    };
+    if description.len() > MAX_DESCRIPTION {
+        let mut end = MAX_DESCRIPTION;
+        while !description.is_char_boundary(end) {
+            end -= 1;
+        }
+        description.truncate(end);
+    }
+    json!({
+        "name": spec.name(),
+        "description": description,
+        "input_schema": spec.input_schema(),
+        "read_only": spec.is_read_only(),
+        "destructive": spec.is_destructive(),
+        "concurrency_safe": spec.is_concurrency_safe(),
+        "timeout_ms": HOST_TOOL_TIMEOUT_MS,
+        "subagents": true,
+    })
+}
+
+pub(crate) fn host_tools_params(decls: Vec<Value>) -> Value {
+    json!({"host_tools": decls})
+}
+
+/// The tool names a `daemon.setHostTools` answer took.
+pub(crate) fn adopted_tools(answer: &Value) -> Vec<String> {
+    answer
+        .get("host_tools")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|n| n.as_str().map(str::to_string))
+        .collect()
+}
+
+/// What a `daemon.setHostTools` or `daemon.setHooks` answer refused: the entry's name when it
+/// has one, and why.
+pub(crate) fn refused(answer: &Value) -> Vec<(Option<String>, String)> {
+    answer
+        .get("refused")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|r| {
+            let name = r.get("name").and_then(Value::as_str).map(str::to_string);
+            let error = r.get("error").and_then(Value::as_str).unwrap_or("refused").to_string();
+            (name, error)
+        })
+        .collect()
+}
+
+/// The hooks a connection registers: one before every tool call, which lets the call through
+/// when it fails, and one on every message, which stops the message when it fails — a gate that
+/// did not answer has not let anything through.
+pub(crate) fn hooks_params(tool_hooks: bool, gates: bool) -> Value {
+    let mut hooks = Vec::new();
+    if tool_hooks {
+        hooks.push(json!({"events": [PRE_TOOL_USE], "tools": ["*"], "timeout_ms": HOST_HOOK_TIMEOUT_MS, "on_error": "allow"}));
+    }
+    if gates {
+        hooks.push(json!({"events": [USER_PROMPT_SUBMIT], "timeout_ms": HOST_HOOK_TIMEOUT_MS, "on_error": "block"}));
+    }
+    json!({"hooks": hooks})
+}
+
+/// A tool's answer, as the engine reads it. A tool that failed, ran: only a call that could not
+/// be made is an `error`, which also stops the calls running beside it. Structured content has
+/// nowhere to go and is left out: a value's text is in the content already.
+pub(crate) fn tool_answer(session: &str, call_id: &str, out: Result<ToolOutput, ToolError>) -> Value {
+    let mut answer = json!({"session_id": session, "call_id": call_id});
+    let (key, value) = match out {
+        Ok(out) => ("result", json!({"content": out.content(), "is_error": out.is_error()})),
+        Err(ToolError::Failed(m)) => ("result", json!({"content": m, "is_error": true})),
+        Err(ToolError::Cancelled) => ("error", json!({"message": "cancelled"})),
+        Err(ToolError::NotFound(m)) => ("error", json!({"message": m})),
+        Err(other) => ("result", json!({"content": other.to_string(), "is_error": true})),
+    };
+    answer[key] = value;
+    answer
+}
+
+pub(crate) fn tool_progress(session: &str, call_id: &str, message: &str) -> Value {
+    json!({"session_id": session, "call_id": call_id, "message": message})
+}
+
+/// What a connection's hook decided.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum HookVerdict {
+    Proceed { context: Option<String> },
+    Block(String),
+}
+
+pub(crate) fn hook_answer(session: &str, call_id: &str, verdict: HookVerdict) -> Value {
+    let mut answer = json!({"session_id": session, "call_id": call_id});
+    match verdict {
+        HookVerdict::Block(message) => {
+            answer["decision"] = json!("block");
+            if !message.is_empty() {
+                answer["message"] = json!(message);
+            }
+        }
+        HookVerdict::Proceed { context } => {
+            answer["decision"] = json!("proceed");
+            if let Some(context) = context {
+                answer["additional_context"] = json!(context);
+            }
+        }
+    }
+    answer
+}
+
+/// A tool hook's input: the tool, its input, the session that called it and where it works.
+pub(crate) fn pre_tool_use(input: &Value) -> (String, Value, Option<String>, Option<PathBuf>) {
+    let text = |k: &str| input.get(k).and_then(Value::as_str).map(str::to_string);
+    (
+        text("tool_name").unwrap_or_default(),
+        input.get("tool_input").cloned().unwrap_or(Value::Null),
+        text("session_id"),
+        text("cwd").map(PathBuf::from),
+    )
+}
+
+/// A prompt hook's input: the message, how it is delivered, and the session it is for.
+pub(crate) fn user_prompt(input: &Value) -> (String, Delivery, Option<String>) {
+    let text = |k: &str| input.get(k).and_then(Value::as_str).map(str::to_string);
+    let delivery = match text("delivery").as_deref() {
+        // Spelled here, not as a constant: the hub has the word for its own steering.
+        Some("steer") => Delivery::Steer,
+        _ => Delivery::Turn,
+    };
+    (text("user_prompt").unwrap_or_default(), delivery, text("session_id"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -351,13 +617,6 @@ mod tests {
             EngineEvent::Session { kind, .. } => kind,
             other => panic!("not a session event: {other:?}"),
         }
-    }
-
-    /// The engine's error codes the hub tells apart are the engine's own numbers.
-    #[test]
-    fn the_codes_the_hub_tells_apart_are_the_engines() {
-        assert_eq!(codes::SESSION_NOT_FOUND, daemon::rpc::codes::SESSION_NOT_FOUND);
-        assert_eq!(codes::SESSION_BUSY, daemon::rpc::codes::SESSION_BUSY);
     }
 
     #[test]
@@ -430,5 +689,74 @@ mod tests {
         assert_eq!(c.stop_reason, json!("end_turn"));
         assert_eq!(c.structured_output, None, "null is not an output");
         assert_eq!(c.message, Some(json!("said")));
+    }
+
+    #[test]
+    fn a_host_frame_is_one_of_four_and_anything_else_is_not() {
+        let frame = |event: Value| json!({"jsonrpc": "2.0", "method": SESSION_EVENT, "params": {"session_id": "s", "turn_id": "t", "event": event}});
+        let Some(HostFrame::ToolCall(call)) = host_frame(&frame(json!({
+            "kind": "host_tool_call", "call_id": "c", "tool_use_id": "u", "name": "n", "input": {"a": 1}, "agent_session_id": "sub",
+        }))) else {
+            panic!()
+        };
+        assert_eq!((call.session.as_str(), call.call_id.as_str(), call.name.as_str()), ("s", "c", "n"));
+        assert_eq!((call.input.clone(), call.agent_session.as_deref()), (json!({"a": 1}), Some("sub")));
+        assert!(matches!(
+            host_frame(&frame(json!({"kind": "host_tool_call_resolved", "call_id": "c", "resolution": "withdrawn"}))),
+            Some(HostFrame::ToolCallResolved { withdrawn: true, .. })
+        ));
+        assert!(matches!(
+            host_frame(&frame(json!({"kind": "host_tool_call_resolved", "call_id": "c", "resolution": "answered"}))),
+            Some(HostFrame::ToolCallResolved { withdrawn: false, .. })
+        ));
+        let Some(HostFrame::HookCall(hook)) = host_frame(&frame(json!({"kind": "hook_call", "call_id": "h", "hook_event": "UserPromptSubmit", "input": {}}))) else {
+            panic!()
+        };
+        assert_eq!((hook.event, hook.turn_id.as_deref()), (HookEvent::UserPromptSubmit, Some("t")));
+        assert!(matches!(host_frame(&frame(json!({"kind": "hook_call_resolved", "call_id": "h"}))), Some(HostFrame::HookCallResolved { .. })));
+        assert!(host_frame(&frame(json!({"kind": "text_delta", "text": "x"}))).is_none());
+        assert!(host_frame(&json!({"jsonrpc": "2.0", "method": DAEMON_EVENT, "params": {"event": {"kind": "hook_call", "call_id": "h"}}})).is_none());
+    }
+
+    #[test]
+    fn a_tools_answer_is_a_result_unless_it_could_not_run() {
+        let answer = |out| tool_answer("s", "c", out);
+        let ok = answer(Ok(ToolOutput::json(json!({"a": 1}))));
+        assert_eq!(ok["result"]["is_error"], false);
+        assert!(ok["result"]["content"].as_str().unwrap().contains("\"a\""));
+        assert_eq!((&ok["session_id"], &ok["call_id"]), (&json!("s"), &json!("c")));
+        assert_eq!(answer(Ok(ToolOutput::error("no")))["result"], json!({"content": "no", "is_error": true}));
+        assert_eq!(answer(Err(ToolError::Failed("f".into())))["result"], json!({"content": "f", "is_error": true}));
+        assert_eq!(answer(Err(ToolError::Cancelled))["error"], json!({"message": "cancelled"}));
+        assert_eq!(answer(Err(ToolError::NotFound("gone".into())))["error"], json!({"message": "gone"}));
+    }
+
+    #[test]
+    fn a_declared_tool_carries_its_doc_cut_at_a_character() {
+        let spec = ToolSpec::new("t", "short", json!({"type": "object"})).doc("long").read_only();
+        let decl = host_tool_decl(&spec);
+        assert_eq!(decl["description"], "short\n\nlong");
+        assert_eq!((&decl["read_only"], &decl["concurrency_safe"], &decl["destructive"]), (&json!(true), &json!(false), &json!(false)));
+        let wide = ToolSpec::new("t", &"é".repeat(5000), json!({"type": "object"}));
+        let cut = host_tool_decl(&wide)["description"].as_str().unwrap().to_string();
+        assert!(cut.len() <= 8192 && cut.chars().all(|c| c == 'é'));
+    }
+
+    #[test]
+    fn the_hooks_are_one_before_tools_and_one_on_messages() {
+        assert_eq!(hooks_params(false, false), json!({"hooks": []}));
+        let both = hooks_params(true, true);
+        assert_eq!(both["hooks"][0]["on_error"], "allow");
+        assert_eq!(both["hooks"][1]["events"], json!(["UserPromptSubmit"]));
+        assert_eq!(hooks_params(false, true)["hooks"].as_array().unwrap().len(), 1);
+        assert_eq!(hook_answer("s", "h", HookVerdict::Block(String::new())), json!({"session_id": "s", "call_id": "h", "decision": "block"}));
+    }
+
+    #[test]
+    fn a_hooks_input_is_read_for_what_it_asks() {
+        let (tool, input, session, cwd) = pre_tool_use(&json!({"tool_name": "Bash", "tool_input": {"c": 1}, "session_id": "s", "cwd": "/w"}));
+        assert_eq!((tool.as_str(), input, session.as_deref(), cwd), ("Bash", json!({"c": 1}), Some("s"), Some(PathBuf::from("/w"))));
+        assert_eq!(user_prompt(&json!({"user_prompt": "hi", "delivery": "steer"})).1, Delivery::Steer);
+        assert_eq!(user_prompt(&json!({"user_prompt": "hi"})).1, Delivery::Turn);
     }
 }

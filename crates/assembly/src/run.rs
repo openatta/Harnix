@@ -137,7 +137,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         .try_init();
 
     let cli = cli::parse(&app.name, &app.version, app.args.clone());
-    if let Some(done) = subcommand(&cli, &app).await {
+    if let Some(done) = subcommand(&cli).await {
         return done;
     }
 
@@ -251,23 +251,14 @@ async fn shut_down(
 
 /// What a subcommand does instead of serving: `ui export`, and `daemon` (a spawned instance's
 /// process). `None` is no subcommand.
-async fn subcommand(cli: &Cli, app: &AppBuilder) -> Option<anyhow::Result<()>> {
+async fn subcommand(cli: &Cli) -> Option<anyhow::Result<()>> {
     match &cli.command {
         Some(Command::Ui(UiCommand::Export { dir })) => Some(
             harnix_transport::StaticFace::export(dir)
                 .map(|count| println!("\n  {count} files → {}\n", dir.display()))
                 .map_err(Into::into),
         ),
-        Some(Command::Daemon(daemon)) => {
-            let contrib = match &daemon.template {
-                None => harnix_engine_api::EngineContribution::default(),
-                Some(id) => match lifecycle::native_of(&app.entries.iter().map(|e| e.ext.as_ref()).collect::<Vec<_>>(), id) {
-                    Ok(contrib) => contrib,
-                    Err(reason) => harnix_instance::refuse_daemon(&daemon.socket, &reason),
-                },
-            };
-            Some(harnix_instance::serve_daemon_with(daemon.args(), contrib).await)
-        }
+        Some(Command::Daemon(daemon)) => Some(harnix_instance::serve_daemon(daemon.args()).await),
         None => None,
     }
 }

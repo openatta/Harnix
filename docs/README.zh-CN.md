@@ -22,7 +22,7 @@ cargo build --release
 ./target/release/harnix                              # → http://127.0.0.1:4080/
 ```
 
-需要 Rust 1.87 以上、Node 和 pnpm。`--recurse-submodules` 不能少：Agix 在 `agix/`。跑起来的是 Harnix app 与系统 space：
+需要 Rust 1.88 以上、Node 和 pnpm。`--recurse-submodules` 不能少：Agix 在 `agix/`。跑起来的是 Harnix app 与系统 space：
 会话、项目，以及带着流程的系统，还有扩展包的宿主（模式 2，进程内）。
 
 不需要任何环境变量。没配模型也能启动，页面会提示：**配置模型**（或头像 → **设置 → 模型与凭据**）添加 provider——

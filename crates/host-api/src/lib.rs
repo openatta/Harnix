@@ -707,7 +707,6 @@ impl CarrierSettings {
 pub struct CarrierRegistrar<'a> {
     settings: CarrierSettings,
     providers: Vec<Arc<dyn ToolProvider>>,
-    admitted: Vec<String>,
     routes: Vec<(String, Arc<dyn RouteHandler>)>,
     _carrier: std::marker::PhantomData<&'a ()>,
 }
@@ -728,12 +727,6 @@ impl CarrierRegistrar<'_> {
         self
     }
 
-    /// Tool names every scene of those engines lets in besides its own list (`prefix*`).
-    pub fn admit(&mut self, pattern: &str) -> &mut Self {
-        self.admitted.push(pattern.to_string());
-        self
-    }
-
     /// A route under the component's id: the packages' tool endpoints, for one.
     pub fn route(&mut self, prefix: &str, handler: Arc<dyn RouteHandler>) -> &mut Self {
         self.routes.push((prefix.to_string(), handler));
@@ -742,10 +735,6 @@ impl CarrierRegistrar<'_> {
 
     pub fn providers(&self) -> &[Arc<dyn ToolProvider>] {
         &self.providers
-    }
-
-    pub fn admitted(&self) -> &[String] {
-        &self.admitted
     }
 
     pub fn routes(&self) -> &[(String, Arc<dyn RouteHandler>)] {

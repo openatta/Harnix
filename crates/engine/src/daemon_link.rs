@@ -11,6 +11,11 @@
 //! knows every subscription it had is gone and resyncs. Turns on the far side keep running
 //! meanwhile (Agix §5.6).
 //!
+//! What the link offers the daemon — its tools, hooks and gates ([`HostSide`]) — is registered on
+//! each connection it takes before it says it is ready, so the hub hears of a reconnection only
+//! once they are back; the daemon's calls of them are answered by the link, never handed to the
+//! hub.
+//!
 //! The daemon trusts an authenticated connection completely and has no per-method authorization
 //! (Agix §5.1), so a daemon serves one Harnix: whoever hands this link a stream has made sure
 //! nobody else holds one.
@@ -32,6 +37,7 @@ use tokio::sync::{mpsc, oneshot, watch, Mutex};
 use tokio_util::sync::CancellationToken;
 
 use crate::gate::{GatedOps, WakeGate};
+use crate::host::{HostSide, Wired};
 use crate::translate::{self, AgixOps, Rpc};
 
 /// Where a daemon listens.
@@ -153,28 +159,41 @@ struct Wire {
     call_timeout: Duration,
     /// A connection was taken before: the next one is a reconnection.
     connected_before: AtomicBool,
+    /// What it offers on every connection it takes.
+    host: Arc<HostSide>,
 }
 
 impl DaemonLink {
     /// A link that is `Starting` until it is given its first connection ([`DaemonLink::take`]).
     /// `label` says where the daemon is, for the log.
     pub fn new(carrier: InstanceCarrier, label: impl Into<String>) -> Arc<Self> {
-        Self::with_call_timeout(carrier, label, CALL_TIMEOUT)
+        Self::with_host(carrier, label, HostSide::none())
+    }
+
+    /// [`DaemonLink::new`], offering what `host` offers on every connection it takes.
+    pub fn with_host(carrier: InstanceCarrier, label: impl Into<String>, host: Arc<HostSide>) -> Arc<Self> {
+        Self::build(carrier, label.into(), CALL_TIMEOUT, None, host)
     }
 
     /// [`DaemonLink::new`], waiting `call_timeout` for a reply before calling the instance
     /// unavailable.
     pub fn with_call_timeout(carrier: InstanceCarrier, label: impl Into<String>, call_timeout: Duration) -> Arc<Self> {
-        Self::build(carrier, label.into(), call_timeout, None)
+        Self::build(carrier, label.into(), call_timeout, None, HostSide::none())
     }
 
     /// [`DaemonLink::new`] for a daemon that may be let go while idle: `gate` wakes it before a
     /// call that needs it, and keeps its session list for while it sleeps.
     pub fn gated(carrier: InstanceCarrier, label: impl Into<String>, gate: Arc<dyn WakeGate>) -> Arc<Self> {
-        Self::build(carrier, label.into(), CALL_TIMEOUT, Some(gate))
+        Self::build(carrier, label.into(), CALL_TIMEOUT, Some(gate), HostSide::none())
     }
 
-    fn build(carrier: InstanceCarrier, label: String, call_timeout: Duration, gate: Option<Arc<dyn WakeGate>>) -> Arc<Self> {
+    fn build(
+        carrier: InstanceCarrier,
+        label: String,
+        call_timeout: Duration,
+        gate: Option<Arc<dyn WakeGate>>,
+        host: Arc<HostSide>,
+    ) -> Arc<Self> {
         let (events_tx, events_rx) = mpsc::channel(EVENT_CAPACITY);
         let (status, _) = watch::channel(LinkStatus::Starting);
         let wire = Arc::new(Wire {
@@ -189,7 +208,10 @@ impl DaemonLink {
             cancel: CancellationToken::new(),
             call_timeout,
             connected_before: AtomicBool::new(false),
+            host,
         });
+        let wired: Arc<dyn Wired> = wire.clone();
+        wire.host.watch(Arc::downgrade(&wired));
         let ops = GatedOps { agix: AgixOps(wire.clone()), gate };
         Arc::new(Self { ops, wire, events_rx: StdMutex::new(Some(events_rx)) })
     }
@@ -210,6 +232,10 @@ impl DaemonLink {
         let reading = tokio::spawn(self.wire.clone().read(reader, lost.clone()));
         let taken = Taken { lost, reading };
         if let Err(refusal) = self.wire.handshake(token).await {
+            self.disconnect().await;
+            return Err(refusal);
+        }
+        if let Err(refusal) = self.wire.host.register(&*self.wire, true).await {
             self.disconnect().await;
             return Err(refusal);
         }
@@ -291,10 +317,18 @@ impl Wire {
                  run a daemon built from the same Agix"
             )));
         }
+        let capabilities = identity.get("capabilities").cloned().unwrap_or(Value::Null);
+        let has: Vec<&str> = capabilities.as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+        let missing: Vec<&str> = translate::REQUIRED_CAPABILITIES.iter().copied().filter(|c| !has.contains(c)).collect();
+        if !missing.is_empty() {
+            return Err(Refusal::Fatal(format!(
+                "the daemon lacks {missing:?}; run a daemon built from the same Agix"
+            )));
+        }
         *lock(&self.identity) = EngineIdentity::new(
             identity.get("version").and_then(Value::as_str).map(str::to_string),
             Some(theirs),
-            identity.get("capabilities").cloned().unwrap_or(Value::Null),
+            capabilities,
         );
         self.call(translate::DAEMON_SUBSCRIBE_EVENTS, json!({}))
             .await
@@ -302,10 +336,12 @@ impl Wire {
         Ok(())
     }
 
-    /// Route every line: replies to their callers, everything else to the event stream, in the
-    /// order read. A reply is therefore never handed over before the events the daemon wrote
-    /// ahead of it.
+    /// Route every line: replies to their callers, the daemon's calls of what this link offers to
+    /// it, everything else to the event stream, in the order read. A reply is therefore never
+    /// handed over before the events the daemon wrote ahead of it, and a call of this link's never
+    /// waits behind the hub reading its events.
     async fn read(self: Arc<Self>, reader: Reader, lost: CancellationToken) {
+        let wired: Arc<dyn Wired> = self.clone();
         let mut lines = BufReader::new(reader).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             let Ok(frame) = serde_json::from_str::<Value>(&line) else {
@@ -319,6 +355,11 @@ impl Wire {
                     }
                 }
                 _ => {
+                    if let Some(host_frame) = translate::host_frame(&frame) {
+                        if self.host.offer(host_frame, &wired) {
+                            continue;
+                        }
+                    }
                     let Some(event) = translate::event(frame) else { continue };
                     if self.events_tx.send(event).await.is_err() {
                         break;
@@ -336,6 +377,7 @@ impl Wire {
         if let Some(mut writer) = writer {
             let _ = writer.shutdown().await;
         }
+        self.host.lost();
         let waiting: Vec<_> = lock(&self.pending).drain().collect();
         let status = self.status.borrow().clone();
         for (_, waiter) in waiting {
@@ -390,6 +432,17 @@ impl Rpc for Wire {
     }
 }
 
+#[async_trait::async_trait]
+impl Wired for Wire {
+    async fn send(&self, method: &str, params: Value) -> Result<Value, RpcError> {
+        Wire::call(self, method, params).await
+    }
+
+    fn is_ready(&self) -> bool {
+        self.status.borrow().is_ready()
+    }
+}
+
 fn reply(frame: Value) -> Result<Value, RpcError> {
     if let Some(error) = frame.get("error") {
         return Err(RpcError {
@@ -421,6 +474,7 @@ impl EngineControl for DaemonLink {
 
     async fn shutdown(&self) {
         self.wire.cancel.cancel();
+        self.wire.host.shutdown();
         self.wire.disconnect().await;
         self.wire.status.send_replace(LinkStatus::Down { reason: "stopped".into() });
     }
@@ -487,7 +541,7 @@ mod tests {
             for _ in 0..2 {
                 let (id, method) = self.request().await.unwrap();
                 let result = if method == translate::DAEMON_PING {
-                    json!({"version": "x", "protocol_version": crate::AGIX_PROTOCOL})
+                    json!({"version": "x", "protocol_version": crate::AGIX_PROTOCOL, "capabilities": crate::REQUIRED_CAPABILITIES})
                 } else {
                     json!({})
                 };

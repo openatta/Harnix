@@ -105,7 +105,8 @@ pub fn hook_decision(app: &str, tool: &str, reply: HookReply) -> HookDecision {
     }
 }
 
-/// What a note of the package `app` adds to the result of `tool`: nothing for a tool not its own,
+/// What a note of the package `app` tells the model about a call of `tool`, as a reminder before
+/// its next step: nothing for a tool not its own,
 /// and at most [`MAX_NOTE`] characters, under its name.
 fn note_for(app: &str, tool: &str, note: &str) -> Option<String> {
     if !tool.starts_with(&crate::registry::tool_name(app, "")) {
@@ -116,7 +117,7 @@ fn note_for(app: &str, tool: &str, note: &str) -> Option<String> {
     if cut {
         note.push('…');
     }
-    Some(format!("\n\n[{app}] {note}"))
+    Some(format!("[{app}] {note}"))
 }
 
 #[cfg(test)]
@@ -127,7 +128,7 @@ mod tests {
     fn a_note_goes_on_its_own_tools_results_only_and_only_so_long() {
         assert_eq!(
             note_for("acme.notes", "ext__acme_notes__search", "seen").as_deref(),
-            Some("\n\n[acme.notes] seen")
+            Some("[acme.notes] seen")
         );
         for tool in ["Bash", "ext__acme_other__search", "ext__acme_notesx__search"] {
             assert_eq!(note_for("acme.notes", tool, "seen"), None, "{tool}");

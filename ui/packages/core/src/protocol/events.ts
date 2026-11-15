@@ -9,7 +9,7 @@
 import type { EngineEvent, Hello } from "./frames.ts";
 
 /** 这一层读得懂的引擎协议版本（`hello.engine_protocol`）。 */
-export const ENGINE_PROTOCOLS: readonly number[] = [3];
+export const ENGINE_PROTOCOLS: readonly number[] = [4];
 
 /** 不认识的引擎协议：为什么拒绝；认识（或没说）时 null。 */
 export function engineProtocolRefusal(hello: Pick<Hello, "engine_protocol"> | null | undefined): string | null {

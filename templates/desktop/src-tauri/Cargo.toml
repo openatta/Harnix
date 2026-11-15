@@ -10,7 +10,7 @@
 name = "harnix-desktop"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.87"
+rust-version = "1.88"
 license = "Apache-2.0"
 publish = false
 description = "A Tauri 2 window around a Harnix app: local (child process) or remote"

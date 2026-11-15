@@ -1,10 +1,10 @@
 //! The engine, in Harnix's words.
 //!
 //! What an extension gives the engine — tools, the providers that hand a session its tools, hooks
-//! around a tool call, scenes as a layer over another scene, gates on a message, a source of
-//! provider keys — and the readers it reads the engine's records through. Nothing here names a
-//! type of Agix's: `harnix-engine` is the one crate that does, and it turns these into Agix's
-//! own (`crates/harnix/tests/layering.rs` says so of the dependency graph).
+//! around a tool call, scenes as a layer over another scene, gates on a message — and the readers
+//! it reads the engine's records through. Nothing here names a type of Agix's: `harnix-engine` is
+//! the one crate that does, and it offers these to the engine over its protocol
+//! (`crates/harnix/tests/layering.rs` says so of the dependency graph).
 //!
 //! Every public structure and enum is `#[non_exhaustive]` and built by constructors and builders,
 //! so a field or variant added later is an addition.

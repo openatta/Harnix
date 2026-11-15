@@ -2,7 +2,7 @@
 name = "harnix-package"
 version      = "0.4.3-2026111501"
 edition      = "2021"
-rust-version = "1.87"
+rust-version = "1.88"
 license      = "Apache-2.0"
 publish      = false
 description  = "An extension package as it is distributed: the manifest, the .hxext package, its signatures, the store"

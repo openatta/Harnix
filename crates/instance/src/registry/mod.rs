@@ -445,7 +445,7 @@ impl InstanceRegistry {
         self.factory.turns.watch(&id, adoption.clone());
         // Handed to the hub as any daemon's link is: the hub alone takes its events, and its calls
         // go through the process's recorder, so its sessions record — or, in replay, play back.
-        let link = ReplayLink::daemon(adoption.link(), self.factory.recording.of(&id, None));
+        let link = ReplayLink::daemon(adoption.link(), self.factory.recording.of(&id, None), harnix_engine::Presets::none());
         let built = Built { link, control: Arc::new(adopt::AdoptedControl(adoption.clone())), facts };
         let providers = self.state().providers;
         let record = Record::fixed(Owner::Module(spec.ext.to_string()));

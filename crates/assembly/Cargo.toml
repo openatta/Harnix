@@ -2,7 +2,7 @@
 name = "harnix-assembly"
 version      = "0.4.3-2026111501"
 edition      = "2021"
-rust-version = "1.87"
+rust-version = "1.88"
 license      = "Apache-2.0"
 publish      = false
 description  = "App::builder(): a Harnix process assembled from extensions, and the extension host"

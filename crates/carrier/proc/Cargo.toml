@@ -2,7 +2,7 @@
 name = "harnix-carrier-proc"
 version      = "0.4.3-2026111501"
 edition      = "2021"
-rust-version = "1.87"
+rust-version = "1.88"
 license      = "Apache-2.0"
 publish      = false
 description  = "Packages in processes of their own: each one's WebAssembly in an extension process, registered as an extension here, its tools in every session"

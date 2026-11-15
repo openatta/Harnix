@@ -250,9 +250,6 @@ impl Extension for Packages {
         for provider in c.providers() {
             everywhere.provider(provider.clone());
         }
-        for pattern in c.admitted() {
-            everywhere.admit_everywhere(pattern);
-        }
     }
 
     async fn start(&self, cx: ExtensionContext) -> anyhow::Result<()> {

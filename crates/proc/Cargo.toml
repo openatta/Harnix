@@ -2,7 +2,7 @@
 name = "harnix-proc"
 version      = "0.4.3-2026111501"
 edition      = "2021"
-rust-version = "1.87"
+rust-version = "1.88"
 license      = "Apache-2.0"
 publish      = false
 description  = "An extension process: the product re-executed as `ext-proc`, its host and VM behind the extension wire"

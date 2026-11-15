@@ -9,7 +9,6 @@
 //! An id, a name or a description may say `{base}`, which is replaced by the base's own:
 //! `structured-{base}`, `"{base} (flow)"`.
 
-use std::any::Any;
 use std::sync::Arc;
 
 use crate::tool::Tool;
@@ -181,7 +180,6 @@ pub struct SceneBase(Base);
 enum Base {
     Builtin { id: String, args: BuiltinArgs },
     Named(String),
-    Foreign { id: String, scene: Arc<dyn Any + Send + Sync> },
 }
 
 impl SceneBase {
@@ -201,16 +199,9 @@ impl SceneBase {
         Self(Base::Named(id.to_string()))
     }
 
-    /// A scene in the engine's own terms, which only the engine adapter can read: what
-    /// `harnix::agix`'s `SceneBase::raw` makes (not stable). A value the adapter does not
-    /// recognise stops the instance from starting.
-    pub fn foreign(id: &str, scene: Arc<dyn Any + Send + Sync>) -> Self {
-        Self(Base::Foreign { id: id.to_string(), scene })
-    }
-
     pub fn id(&self) -> &str {
         match &self.0 {
-            Base::Builtin { id, .. } | Base::Named(id) | Base::Foreign { id, .. } => id,
+            Base::Builtin { id, .. } | Base::Named(id) => id,
         }
     }
 
@@ -218,7 +209,6 @@ impl SceneBase {
         match &self.0 {
             Base::Builtin { id, args } => BaseKind::Builtin { id, args },
             Base::Named(id) => BaseKind::Named(id),
-            Base::Foreign { scene, .. } => BaseKind::Foreign(scene),
         }
     }
 }
@@ -228,7 +218,6 @@ impl SceneBase {
 pub enum BaseKind<'a> {
     Builtin { id: &'a str, args: &'a BuiltinArgs },
     Named(&'a str),
-    Foreign(&'a Arc<dyn Any + Send + Sync>),
 }
 
 /// How a built-in scene is made.

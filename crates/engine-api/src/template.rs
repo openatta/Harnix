@@ -227,13 +227,11 @@ impl InstanceTemplate {
         self
     }
 
-    /// Native contributions for this template's instances, whichever carrier runs them: scenes,
-    /// session customizers, a credential source. In process, they are added after the carrier's
-    /// own `contrib`. For a spawned daemon of this binary, the daemon builds them again in its own
-    /// process: it is started with `--template <id>`, calls every module's `templates()` (and
-    /// nothing else of the module — no `start`, no methods) to find this one, and calls `f` there.
-    /// They share no memory with the module; what they need of its state comes through Harnix's
-    /// methods or files. A template whose `program` is somebody else's gets no `--template`.
+    /// Native contributions for this template's instances, whichever carrier runs them: scene
+    /// layers, tool providers, prompt gates. In process, they are added after the carrier's own.
+    /// For a spawned daemon, they stay in this process: its tools, hooks and gates are offered on
+    /// the link to the daemon and answered here, and a scene layer's sessions are created on its
+    /// base with what the layer adds. An attached daemon gets none.
     pub fn contribute(mut self, f: impl Fn(&mut EngineContribution) + Send + Sync + 'static) -> Self {
         self.contribute = Some(Arc::new(f));
         self

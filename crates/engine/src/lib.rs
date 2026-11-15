@@ -1,38 +1,42 @@
 //! Agix, behind Harnix's engine interface: the one crate that links the engine.
 //!
-//! What extensions give an engine is written in `harnix-engine-api`'s terms — tools, providers,
-//! hooks, scene layers, prompt gates. This crate turns each into Agix's own
-//! (`adapt`), and stands the engine up in this process
-//! ([`build`]) or serves it as a daemon ([`serve_daemon`]).
+//! The engine is Agix's, started through its embedding entry ([`Engine`]): in this process behind
+//! an in-memory stream ([`InProcessEngine`]), or as `harnix daemon` on a socket
+//! ([`serve_daemon`]). Nothing of Harnix's is built into it: what extensions give an engine —
+//! tools, hooks around a tool call, gates on a message, written in `harnix-engine-api`'s terms —
+//! is registered on the link to it and answered there ([`HostSide`]), and a scene layer is one of
+//! the engine's own scenes with what its sessions are created with ([`Presets`]).
 //!
 //! It also carries the link the hub reaches an engine through — [`DaemonLink`], on a stream to a
-//! daemon in another process or on an in-memory one to an engine in this ([`InProcessEngine`]),
-//! and the [`ReplayLink`] that records or replays what it creates — and the translation between Agix's protocol and the
-//! engine interface's (`translate.rs`), the one place that names Agix's methods and events. The
+//! daemon in another process or to an engine in this — and the [`ReplayLink`] that records or
+//! replays what it creates, and the translation between Agix's protocol and the engine
+//! interface's (`translate.rs`), the one place that names Agix's methods and events. The
 //! instance layer builds the links; the hub only ever holds them as `EngineLink`s.
 
-mod adapt;
-pub mod assemble;
 mod daemon_link;
-pub mod engine;
+mod embed;
 mod gate;
-mod hooks;
+mod host;
+mod host_hooks;
+#[cfg(test)]
+mod host_tests;
+mod host_tools;
+mod presets;
 pub mod readers;
 mod replay_link;
-pub mod scenes;
-mod serve;
 mod translate;
 
 pub use daemon_link::{Connection, DaemonLink, Endpoint, Refusal, Taken};
+pub use embed::{serve_daemon, Engine, EngineConfig, InProcessEngine};
 pub use gate::WakeGate;
-pub use engine::{active_scenes, build, Chains, Engine, EngineConfig};
-pub use assemble::InProcessEngine;
+pub use host::{Chains, HostSide};
+pub use presets::{active_scenes, Presets};
 pub use replay_link::{Recorder, Recording, ReplayLink};
-pub use serve::serve_daemon;
+pub use translate::REQUIRED_CAPABILITIES;
 
 /// Where an engine keeps its transcripts, for readers that would otherwise page the protocol to
 /// get at text.
-pub use history::store::HistoryStore;
+pub use agix::history::HistoryStore;
 
 /// The Agix this build links, as its manifest says (`build.rs`): for what asks before an engine
 /// is up. A running engine says it itself, in `daemon.ping`.

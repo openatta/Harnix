@@ -7,9 +7,7 @@ use std::sync::Arc;
 
 use harnix_router::RouteTable;
 use harnix_engine_api::InstanceCarrier;
-use harnix_instance::{
-    Built, DownLink, EngineConfig, Factory, Facts, Ledger, Owner, Recording, RegistryConfig,
-};
+use harnix_instance::{Built, DownLink, Factory, Facts, Ledger, Owner, Recording, RegistryConfig};
 use harnix_ext::Credentials;
 
 use crate::host::{lifecycle, Record};
@@ -44,28 +42,15 @@ pub(super) async fn build(
 ) -> anyhow::Result<Instances> {
     let mut registry = registry(profile, roots, records, table, wiring)?;
 
-    let engine_profile = &profile.instances.engine;
-    let engine = harnix_instance::build_engine(EngineConfig {
-        scene: engine_profile.scene.clone(),
-        scenes: engine_profile.scenes.clone(),
-        model: engine_profile.model.clone(),
-        max_tokens: engine_profile.max_tokens,
-        session_cap: engine_profile.session_cap,
-        session_idle_timeout_secs: engine_profile.session_idle_timeout_secs,
-        permission_prompt_timeout_secs: engine_profile.permission_prompt_timeout_secs,
-        data_root: roots.engine.clone(),
-        cwd: None,
-        instance: harnix_contract::MAIN_INSTANCE.to_string(),
-        chains: registry.factory.chains(),
-        contrib: lifecycle::main_contribution(records),
-    })
-    .await?;
+    let main = registry
+        .factory
+        .in_process(harnix_hub::MAIN, &profile.instances.engine, roots.engine.clone(), lifecycle::main_contribution(records))
+        .await?;
     tracing::info!(
-        scenes = ?engine.active_scenes,
-        model = %engine.model,
+        scenes = ?main.facts.active_scenes,
+        model = main.facts.model.as_deref().unwrap_or_default(),
         "engine ready (in-process)"
     );
-    let main = registry.factory.in_process(harnix_hub::MAIN, engine).await?;
 
     let fixed = fixed(profile, &mut registry).await?;
     Ok(Instances {
@@ -95,9 +80,7 @@ fn registry(
     factory.providers_from = Some(roots.engine.clone());
     factory.recording = recording;
     // What the extensions give every engine built in this process.
-    let (providers, admitted) = lifecycle::everywhere(records);
-    factory.providers.extend(providers);
-    factory.admitted.extend(admitted);
+    factory.providers.extend(lifecycle::everywhere(records));
     // A daemon reaches the packages' tools over HTTP, presenting a credential of its own.
     factory.servers.issue_with(Arc::new(EngineTokens(engines.clone())));
     let mut registry = RegistryConfig {

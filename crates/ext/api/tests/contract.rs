@@ -124,7 +124,6 @@ impl Extension for Probe {
             .module(ModuleDecl::new("home.card", "files/card.js"))
             .point(PointDecl::new("probe.panel", PointKind::Render, Frequency::PerInteraction).what("a panel"));
         r.ui().inline().command(json!({"trigger": "/", "name": "probe"}));
-        r.engine().admit_everywhere("probe__*");
         r.engine_everywhere().provider(Arc::new(Nothing));
         r.template(InstanceTemplate::in_process("side", EngineProfile::new()).ui());
     }

@@ -29,10 +29,6 @@ pub mod surface;
 /// contract's.
 pub use harnix_contract::ext_id::valid_id;
 
-/// Every package tool's name in a session matches this: what each scene of an instance that
-/// offers them has to admit besides its own tool list.
-pub const TOOL_PATTERN: &str = "ext__*";
-
 /// The most tools one process's sessions are offered from packages.
 pub const MAX_TOOLS: usize = 64;
 

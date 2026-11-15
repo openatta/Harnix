@@ -3,7 +3,7 @@
 //! chains the product told of, and a tool call's progress to the session that made it.
 //!
 //! The engine is the process's own, served to the product on the stream it inherited
-//! (`harnix_engine::assemble::serve_stream`); it is built from an `EngineProfile` on `run/engine/`,
+//! (`harnix_engine::Engine::serve`); it is started from an `EngineProfile` on `run/engine/`,
 //! with provider settings the product wrote there beforehand. Nothing of the product's engine
 //! policy is in it.
 
@@ -391,7 +391,8 @@ struct AppEvents {
     local: Arc<Local>,
 }
 
-/// What a note of the package `app` adds to the result of `tool`: nothing for a tool not its own,
+/// What a note of the package `app` tells the model about a call of `tool`, as a reminder before
+/// its next step: nothing for a tool not its own,
 /// and at most [`MAX_NOTE`] characters, under its name.
 fn note_for(app: &str, tool: &str, note: &str) -> Option<String> {
     if !tool.starts_with(&tool_name(app, "")) {
@@ -402,7 +403,7 @@ fn note_for(app: &str, tool: &str, note: &str) -> Option<String> {
     if cut {
         note.push('…');
     }
-    Some(format!("\n\n[{app}] {note}"))
+    Some(format!("[{app}] {note}"))
 }
 
 #[async_trait]
@@ -445,7 +446,7 @@ mod tests {
 
     #[test]
     fn a_note_goes_on_its_own_tools_results_only_and_only_so_long() {
-        assert_eq!(note_for("acme.notes", "ext__acme_notes__search", "seen").as_deref(), Some("\n\n[acme.notes] seen"));
+        assert_eq!(note_for("acme.notes", "ext__acme_notes__search", "seen").as_deref(), Some("[acme.notes] seen"));
         for tool in ["Bash", "ext__acme_other__search", "ext__acme_notesx__search"] {
             assert_eq!(note_for("acme.notes", tool, "seen"), None, "{tool}");
         }

@@ -1,10 +1,11 @@
 //! `WasmTools`: the running packages' tools in every session an in-process instance builds.
 //!
 //! A tool provider (`harnix_ext::engine::ToolProvider`) the component gives every engine built in
-//! this process (`engine_everywhere`). The engine asks it each time it builds a session —
-//! sub-agents, team members and background tasks included — and it registers what is running
-//! *then*: a package enabled now is in the next session built, and one disabled now is not (a
-//! session already built keeps what it was built with until it is rebuilt). Per package:
+//! this process (`engine_everywhere`). Its tools are offered on the instance's link to the engine
+//! — sub-agents, team members and background tasks have them too — and offered again each time a
+//! package starts or stops: a package enabled now is in the next session built, and one disabled
+//! now is not (a session already built keeps what it was built with until it is rebuilt). Per
+//! package:
 //!
 //! - each tool the host offered for it, as `ext__<id>__<tool>`. A call runs in an instance of its
 //!   own (`Control::call_tool`), with the calling session's project as its read-only `/project`
@@ -15,10 +16,12 @@
 //! - its `events` export, as a hook before each of the session's tool calls: offered
 //!   `tool.before` with the tool's name and input — for its own tools' calls only, unless its
 //!   manifest asks for every one (`[events] tools = "all"`, which the installer is told; the host
-//!   decides) — it may let the call through, refuse it, or add a note to its result. A note goes
-//!   on the result of one of its own tools only, and only so long ([`MAX_NOTE`]): a downloaded
-//!   package does not get to write into the result of every tool the model calls. It cannot change
-//!   the call. A hook that fails lets the call through: a package's fault is not the user's.
+//!   decides) — it may let the call through, refuse it, or add a note, which the model is handed as
+//!   a reminder before its next step. A hook is asked before the engine checks the call or asks
+//!   about it. A note is about one of its own tools only, and only so long ([`MAX_NOTE`]): a
+//!   downloaded package does not get to write into what the model reads of every tool it calls. It
+//!   cannot change the call. A hook that fails lets the call through: a package's fault is not the
+//!   user's.
 
 use std::sync::Arc;
 

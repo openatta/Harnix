@@ -7,11 +7,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use harnix_engine::{Endpoint, InProcessEngine, Recording, ReplayLink};
-use harnix_engine_api::{EngineControl, EngineLink};
+use harnix_engine::{Chains, Endpoint, Engine, EngineConfig, HostSide, InProcessEngine, Presets, Recording, ReplayLink};
+use harnix_engine_api::{EngineContribution, EngineControl, EngineLink};
 
 use crate::daemon::{DaemonSpec, SpawnOptions, SpawnSpec, Supervised};
-use crate::engine::{self, EngineConfig};
 use crate::profile::EngineProfile;
 use crate::servers::SharedServers;
 use crate::templates::{InstanceTemplate, TemplateCarrier};
@@ -38,9 +37,9 @@ impl Facts {
     }
 }
 
-/// What an engine built in this process says about itself.
-impl From<&crate::Engine> for Facts {
-    fn from(engine: &crate::Engine) -> Self {
+/// What an engine started in this process says about itself.
+impl From<&Engine> for Facts {
+    fn from(engine: &Engine) -> Self {
         Self {
             data_root: engine.data_root.clone(),
             recordings_root: Some(engine.recordings_root.clone()),
@@ -87,12 +86,8 @@ pub struct Factory {
     /// What a credential reference resolves to (an attached daemon's token).
     pub credential: Resolve,
     /// Tool providers every engine built in this process gets — the in-process
-    /// carrier's alone: a daemon is another process, and what it should have
-    /// of this one's reaches it another way (a package's tools, over MCP).
+    /// carrier's alone: a spawned daemon reaches a package's tools another way, over MCP.
     pub providers: Vec<Arc<dyn harnix_engine_api::ToolProvider>>,
-    /// The tools those providers give, which every scene of such an engine admits
-    /// (`EngineContribution::admit_everywhere`).
-    pub admitted: Vec<String>,
     /// The MCP servers every daemon this process spawns is configured with — an extension
     /// package's tools — written into each one's data root as it is built, and kept in line
     /// with the set after (`servers.rs`). Shared with whoever sets them.
@@ -126,7 +121,6 @@ impl Factory {
             socket_dir,
             credential,
             providers: Vec::new(),
-            admitted: Vec::new(),
             servers: Arc::default(),
             providers_from: None,
             recording: Recording::new(None),
@@ -134,18 +128,27 @@ impl Factory {
         })
     }
 
-    /// Where the tool calls of an engine built in this process read their turn's chain.
-    pub fn chains(&self) -> engine::Chains {
-        engine::Chains(Arc::new(TurnSource(self.turns.clone())))
+    /// Where the tool calls of an engine this process links to read their turn's chain.
+    pub fn chains(&self) -> Chains {
+        Chains(Arc::new(TurnSource(self.turns.clone())))
     }
 
-    /// The link to an engine already built in this process: the main instance's. The registry
-    /// stops the engine with the link.
-    pub async fn in_process(&self, id: &str, engine: crate::Engine) -> anyhow::Result<Built> {
+    /// An engine started in this process from `profile` on `data_root`, `contrib` offered on its
+    /// link: the main instance's, or a template's. The registry stops the engine with the link.
+    pub async fn in_process(
+        &self,
+        id: &str,
+        profile: &EngineProfile,
+        data_root: PathBuf,
+        contrib: EngineContribution,
+    ) -> anyhow::Result<Built> {
+        let presets = Presets::new(contrib.scenes(), &profile.scene).map_err(anyhow::Error::msg)?;
+        let engine = Engine::start(EngineConfig::from_profile(profile, &data_root), &presets).await?;
         let facts = Facts::from(&engine);
-        let here = InProcessEngine::start(engine, id).await?;
+        let host = HostSide::new(id, self.chains(), &contrib);
+        let here = InProcessEngine::start(engine, id, host).await?;
         let recorder = self.recording.of(id, facts.recordings_root.clone());
-        Ok(Built { link: ReplayLink::daemon(here.link().clone(), recorder), control: here, facts })
+        Ok(Built { link: ReplayLink::daemon(here.link().clone(), recorder, presets), control: here, facts })
     }
 
     pub async fn build(
@@ -191,13 +194,7 @@ impl Factory {
                 for provider in &self.providers {
                     contrib.provider(provider.clone());
                 }
-                for pattern in &self.admitted {
-                    contrib.admit_everywhere(pattern);
-                }
-                let mut config = engine_config(id, engine, &data_root, contrib);
-                config.chains = self.chains();
-                let engine = engine::build(config).await?;
-                self.in_process(id, engine).await
+                self.in_process(id, engine, data_root, contrib).await
             }
             TemplateCarrier::Spawn {
                 engine,
@@ -205,7 +202,13 @@ impl Factory {
                 args,
             } => {
                 let socket = self.socket_dir.join(format!("{}.sock", short_name(id)));
-                let mut argv = daemon_args(engine, &data_root, &socket);
+                // The template's native contributions are offered by this process, on the link: a
+                // daemon has nowhere to build them. Its scenes are the engine's own on the command
+                // line, and what each adds is said as its sessions are created. Not the providers
+                // every engine in this process gets: the daemon reaches those over MCP.
+                let contrib = template.and_then(InstanceTemplate::contribution).unwrap_or_default();
+                let presets = Presets::new(contrib.scenes(), &engine.scene).map_err(anyhow::Error::msg)?;
+                let mut argv = daemon_args(engine, &data_root, &socket, &presets);
                 // This binary's daemon holds the instance's lock on its data root (ipdrun-08); a
                 // program of somebody else's gets the arguments it always got.
                 let lock = program.is_none().then(|| {
@@ -213,14 +216,6 @@ impl Factory {
                     argv.push(id.to_string());
                     crate::data_lock::lock_path(&data_root, id)
                 });
-                // Only this binary's daemon knows how to build the template's native contributions
-                // again (ipdrun-10).
-                if program.is_none() {
-                    if let Some(template) = template.filter(|t| t.contribute.is_some()) {
-                        argv.push("--template".into());
-                        argv.push(template.id.clone());
-                    }
-                }
                 argv.extend(args.iter().cloned());
                 let mut options = if reap_on_stop {
                     SpawnOptions::default().reap_on_stop()
@@ -232,6 +227,8 @@ impl Factory {
                 options.servers = Some(self.servers.configure(id, &data_root));
                 // Where a daemon writes its recordings is its own: a deleted session's stays.
                 options.recorder = Some(self.recording.of(id, None));
+                options.host = Some(HostSide::new(id, self.chains(), &contrib));
+                options.presets = presets;
                 let daemon = Supervised::start_with(DaemonSpec {
                     endpoint: Endpoint::Unix(socket),
                     spawn: Some(SpawnSpec {
@@ -243,7 +240,7 @@ impl Factory {
                 }, options);
                 let facts = Facts {
                     data_root,
-                    active_scenes: crate::engine::active_scenes(&engine.scene, &engine.scenes),
+                    active_scenes: harnix_engine::active_scenes(&engine.scene, &engine.scenes),
                     scene: Some(engine.scene.clone()),
                     model: Some(engine.model.clone()),
                     ..Facts::default()
@@ -312,18 +309,10 @@ fn loopback_without_proxy() -> Vec<(String, String)> {
         .collect()
 }
 
-pub fn engine_config(
-    instance: &str,
-    engine: &EngineProfile,
-    data_root: &Path,
-    contrib: harnix_engine_api::EngineContribution,
-) -> EngineConfig {
-    harnix_engine::assemble::engine_config(instance, engine, data_root, contrib)
-}
-
-/// The `harnix daemon` command line for these settings. Read back by
-/// [`crate::DaemonArgs`] on the other side.
-fn daemon_args(engine: &EngineProfile, data_root: &Path, socket: &Path) -> Vec<String> {
+/// The `harnix daemon` command line for these settings, a scene layer named by the engine's own
+/// scene it is served on. Read back by [`crate::DaemonArgs`] on the other side.
+fn daemon_args(engine: &EngineProfile, data_root: &Path, socket: &Path, presets: &Presets) -> Vec<String> {
+    let (scene, scenes) = presets.engine_scenes(&engine.scene, &engine.scenes);
     let mut argv = vec![
         "daemon".to_string(),
         "--data-root".into(),
@@ -331,7 +320,7 @@ fn daemon_args(engine: &EngineProfile, data_root: &Path, socket: &Path) -> Vec<S
         "--socket".into(),
         socket.display().to_string(),
         "--scene".into(),
-        engine.scene.clone(),
+        scene,
         "--model".into(),
         engine.model.clone(),
         "--max-tokens".into(),
@@ -344,9 +333,9 @@ fn daemon_args(engine: &EngineProfile, data_root: &Path, socket: &Path) -> Vec<S
         engine.permission_prompt_timeout_secs.to_string(),
         "--exit-with-stdin".into(),
     ];
-    if !engine.scenes.is_empty() {
+    if !scenes.is_empty() {
         argv.push("--scenes".into());
-        argv.push(engine.scenes.join(","));
+        argv.push(scenes.join(","));
     }
     argv
 }

@@ -42,17 +42,15 @@ mod serve;
 mod servers;
 pub mod templates;
 
-/// The engine itself, built in this process: `harnix-engine`'s, under the names this layer has
-/// always given it.
-pub use harnix_engine::engine;
 pub use daemon::{DaemonSpec, SpawnOptions, SpawnSpec, Supervised};
-pub use harnix_engine::{build as build_engine, Endpoint, Engine, EngineConfig, Recording};
-pub use factory::{engine_config, Built, Facts, Factory};
+/// The engine itself, started in this process: `harnix-engine`'s.
+pub use harnix_engine::{Endpoint, Engine, EngineConfig, HistoryStore, Recording};
+pub use factory::{Built, Facts, Factory};
 pub use link::DownLink;
 pub use profile::{EngineProfile, InstanceDecl, InstanceSections, TemplateDecl};
 pub use registry::{InstanceFacts, InstanceRegistry, InstanceRow, RegistryCell, RegistryConfig, INSTANCES_TOPIC};
 pub use servers::{ServerTokens, SharedServers};
-pub use serve::{refuse_daemon, refusal_path, serve_daemon, serve_daemon_with, DaemonArgs, REFUSED_EXIT};
+pub use serve::{refusal_path, serve_daemon, DaemonArgs, REFUSED_EXIT};
 pub use templates::{
     AttachTo, InstanceTemplate, InstanceTemplates, Ledger, LedgerEntry, Owner, TemplateCarrier,
 };

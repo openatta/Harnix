@@ -493,7 +493,7 @@ fn normal_dependencies(crate_dir: &str) -> std::collections::BTreeMap<String, bo
 }
 
 /// Agix's crates, by the names Harnix's crates know them by.
-const AGIX: &[&str] = &["daemon", "base", "model", "history", "scene", "telemetry", "runtime", "plugin"];
+const AGIX: &[&str] = &["agix", "daemon", "base", "model", "history", "scene", "telemetry", "runtime", "plugin"];
 
 /// Extension packages are four layers, and each knows only those below it:
 ///

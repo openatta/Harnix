@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use harnix_contract::RpcError;
-use harnix_engine::{Connection, DaemonLink, Endpoint, Recorder, Refusal, ReplayLink};
+use harnix_engine::{Connection, DaemonLink, Endpoint, HostSide, Presets, Recorder, Refusal, ReplayLink};
 use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, InstanceCarrier, LinkStatus};
 use harnix_supervise::{Child, ChildSpec, RestartPolicy, Restarts};
 use tokio::sync::{watch, Mutex};
@@ -56,6 +56,11 @@ pub struct SpawnOptions {
     pub(crate) servers: Option<Arc<crate::servers::Configured>>,
     /// What the sessions it creates and resumes are recorded with.
     pub(crate) recorder: Option<Recorder>,
+    /// What this process offers on the link — a template's native contributions — registered on
+    /// every connection it takes.
+    pub(crate) host: Option<Arc<HostSide>>,
+    /// The template's scene layers: what the sessions it creates in one are created with.
+    pub(crate) presets: Arc<Presets>,
 }
 
 impl SpawnOptions {
@@ -92,14 +97,16 @@ impl Supervised {
     /// ignores what is about spawning.
     pub fn start_with(spec: DaemonSpec, options: SpawnOptions) -> Arc<Self> {
         let carrier = if spec.spawn.is_some() { InstanceCarrier::Spawn } else { InstanceCarrier::Attach };
-        let link = DaemonLink::new(carrier, label(&spec.endpoint));
+        let host = options.host.clone().unwrap_or_else(HostSide::none);
+        let link = DaemonLink::with_host(carrier, label(&spec.endpoint), host);
         Self::launch(spec, options, link)
     }
 
     fn launch(spec: DaemonSpec, options: SpawnOptions, link: Arc<DaemonLink>) -> Arc<Self> {
         let reap = options.reap_on_stop && spec.spawn.is_some();
         let servers = options.servers.filter(|_| spec.spawn.is_some());
-        let replay = options.recorder.map(|recorder| ReplayLink::daemon(link.clone(), recorder));
+        let presets = options.presets;
+        let replay = options.recorder.map(|recorder| ReplayLink::daemon(link.clone(), recorder, presets));
         let this = Arc::new(Self {
             spec,
             link,
@@ -429,7 +436,11 @@ mod tests {
                 let (id, method) = fake.request().await.expect("the handshake");
                 let result = match method.as_str() {
                     "daemon.auth" | "daemon.subscribeEvents" => json!({}),
-                    "daemon.ping" => json!({"version": "test", "protocol_version": harnix_engine::AGIX_PROTOCOL}),
+                    "daemon.ping" => json!({
+                        "version": "test",
+                        "protocol_version": harnix_engine::AGIX_PROTOCOL,
+                        "capabilities": harnix_engine::REQUIRED_CAPABILITIES,
+                    }),
                     other => panic!("`{other}` before the handshake was over"),
                 };
                 fake.answer(id, result).await;
