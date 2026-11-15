@@ -634,7 +634,7 @@ pub struct SearchHit {
     pub snippet: String,
     /// RFC 3339.
     pub ts: String,
-    /// The message's place in `session.history`, when the engine says.
+    /// The message's place in the session's history, when the engine says.
     pub seq: Option<usize>,
 }
 

@@ -298,7 +298,7 @@ mod tests {
         std::fs::create_dir_all(&state).unwrap();
         let state = tempfile::tempdir_in(state).unwrap();
         let (pkg, run) = (state.path().join("1.0.0"), state.path().join("run"));
-        assert_eq!(sandbox_spec(&pkg, &run, None).read_only, [pkg.clone()]);
+        assert_eq!(sandbox_spec(&pkg, &run, None).read_only, std::slice::from_ref(&pkg));
         std::fs::create_dir_all(state.path().join("skills")).unwrap();
         assert_eq!(sandbox_spec(&pkg, &run, None).read_only, [pkg.clone(), state.path().join("skills")]);
     }

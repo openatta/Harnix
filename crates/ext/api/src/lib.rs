@@ -79,7 +79,7 @@ pub use harnix_contract::MAX_FRAME_BYTES;
 pub type Rpc<T> = Result<T, RpcError>;
 
 /// What an extension gives an engine, in Harnix's words: tools, tool providers, hooks, scene
-/// layers, prompt gates, a credential source, instance templates, and the readers of what an
+/// layers, prompt gates, instance templates, and the readers of what an
 /// engine writes down.
 pub mod engine {
     pub use harnix_engine_api::readers;

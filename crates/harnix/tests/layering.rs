@@ -1097,7 +1097,10 @@ mod rules {
 
     #[test]
     fn l09_engine() {
-        depends(ENGINE, &[CONTRACT, ENGINE_API], &["axum"], &[]);
+        // Of Agix's crates, the facade `agix` and no other.
+        let others: Vec<&str> = AGIX.iter().copied().filter(|c| *c != "agix").chain(["axum"]).collect();
+        depends(ENGINE, &[CONTRACT, ENGINE_API], &others, &[]);
+        assert!(normal(ENGINE).iter().any(|(dep, _)| dep == "agix"), "`{ENGINE}` does not depend on the `agix` facade");
     }
 
     #[test]
@@ -1226,6 +1229,28 @@ mod rules {
                 }
             }
         }
+    }
+
+    #[test]
+    fn l25_only_the_facade_is_named_and_only_the_embedding_file_writes_it() {
+        // Declared: the one dependency on Agix is the facade (`l09_engine` bars the rest).
+        let agix: Vec<String> = normal(ENGINE).into_iter().map(|(d, _)| d).filter(|d| AGIX.contains(&d.as_str())).collect();
+        assert_eq!(agix, ["agix"], "`{ENGINE}` names Agix's crates by the facade alone");
+        // Written: `agix::` is `embed.rs`'s alone.
+        let mut offenders = Vec::new();
+        for (path, text) in sources(ENGINE) {
+            if path.ends_with("src/embed.rs") || path.file_name().is_some_and(|n| n.to_string_lossy().ends_with("tests.rs")) {
+                continue;
+            }
+            if lex(&text, false).contains("agix::") {
+                offenders.push(rel(&path));
+            }
+        }
+        assert!(offenders.is_empty(), "only `embed.rs` writes `agix::`:\n{}", offenders.join("\n"));
+        assert!(
+            sources(ENGINE).iter().any(|(p, t)| p.ends_with("src/embed.rs") && lex(t, false).contains("agix::")),
+            "`embed.rs` is where the engine is embedded"
+        );
     }
 
     #[test]
@@ -1404,6 +1429,33 @@ mod rules {
         let quoted: Vec<String> = agix_names().into_iter().map(|n| format!("\"{n}\"")).collect();
         let needles: Vec<&str> = quoted.iter().map(String::as_str).collect();
         says_nothing_of(&[HUB], &needles, true, &nobody);
+    }
+
+    /// The names of Agix's methods and frames are `translate.rs`'s: the engine's other files
+    /// speak of them through its constants and functions. The list is the constants' own
+    /// literals, bar the ones that are plain words or a model API's block types.
+    #[test]
+    fn c04_agix_methods_and_frames_are_named_in_the_translation_table_alone() {
+        const PLAIN: &[&str] = &["prompt", "permission", "question", "compact", "withdrawn", "tool_use", "tool_result"];
+        let quoted: Vec<String> =
+            agix_names().into_iter().filter(|n| !PLAIN.contains(&n.as_str())).map(|n| format!("\"{n}\"")).collect();
+        let needles: Vec<&str> = quoted.iter().map(String::as_str).collect();
+        assert!(needles.len() > 40, "{} names to look for", needles.len());
+        let mut offenders = Vec::new();
+        for (path, text) in sources(ENGINE) {
+            // Test modules are declared `#[cfg(test)] mod tests;` from outside the file.
+            let is_tests = path.file_name().is_some_and(|n| n.to_string_lossy().ends_with("tests.rs"));
+            if path.ends_with("src/translate.rs") || is_tests {
+                continue;
+            }
+            let code = lex(&text, true);
+            for needle in &needles {
+                if code.contains(needle) {
+                    offenders.push(format!("{} says `{needle}`", rel(&path)));
+                }
+            }
+        }
+        assert!(offenders.is_empty(), "\n{}", offenders.join("\n"));
     }
 
     #[test]

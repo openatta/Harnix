@@ -21,7 +21,7 @@ impl EngineContribution {
         Self::default()
     }
 
-    /// A scene beyond the engine's own, for `session.create` to name.
+    /// A scene beyond the engine's own, for a session to be created on.
     pub fn scene(&mut self, layer: SceneLayer) -> &mut Self {
         self.scenes.push(layer);
         self
