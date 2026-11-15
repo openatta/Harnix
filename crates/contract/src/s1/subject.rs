@@ -24,7 +24,8 @@ pub enum Subject {
         #[cfg_attr(feature = "ts", ts(type = "string"))]
         id: ExtId,
     },
-    /// A daemon this process spawned, calling back to an extension's tool endpoint.
+    /// An instance's engine, as the audit names what it did — an extension's engine sending more
+    /// than it may. No row is open to it: no engine calls this process over HTTP.
     Engine { instance: String },
 }
 

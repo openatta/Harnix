@@ -903,10 +903,9 @@ pub trait Extension: Send + Sync + 'static {
 | `Access::extensions()` | 只有扩展（与内核） |
 | `Access::only(id)` | 只有某一个扩展 |
 | `Access::capability(cap)` | 只有内核与持有 cap 的扩展；设备永远不在里面 |
-| `Access::engine()` | 引擎主体（工具端点） |
 | `Access::refused(why)` | 只有内核，对别人说明理由 |
 | `Access::hub_owned(why)` | 谁都不行、不能授予：绕过中枢的方法 |
-| `.with_device()`、`.with_extensions()`、`.with_extension(id)`、`.with_engine()`、`.requiring(cap)`、`.refusing(why)`、`.scoped(RowScope)` | 在上面的基础上加 |
+| `.with_device()`、`.with_extensions()`、`.with_extension(id)`、`.requiring(cap)`、`.refusing(why)`、`.scoped(RowScope)` | 在上面的基础上加 |
 
 `RowScope`：`Open`（与 space、会话无关）、`Space`（作用在一个 space 上）、`Session`（作用在一个会话上）；扩展包的调用按它收窄到自己的 space 与会话。
 
