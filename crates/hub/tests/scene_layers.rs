@@ -29,13 +29,16 @@ impl Tool for Probe {
     }
 }
 
+/// A prompt's `(append, override)`, each present only when the call named it.
+type PromptAsked = (Option<Option<String>>, Option<Option<String>>);
+
 /// An engine that remembers what it was asked to create and to prompt, and has `harnix`'s scene.
 struct FakeLink {
     events: Mutex<Option<EventReceiver>>,
     status: watch::Sender<LinkStatus>,
     layers: SceneLayers,
     created: Mutex<Vec<(Value, SessionSetup)>>,
-    prompted: Mutex<Vec<(Option<Option<String>>, Option<Option<String>>)>>,
+    prompted: Mutex<Vec<PromptAsked>>,
     passed: Mutex<Vec<(String, Value)>>,
     busy: Mutex<bool>,
     _tx: mpsc::Sender<EngineEvent>,

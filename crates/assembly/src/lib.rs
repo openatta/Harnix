@@ -127,6 +127,12 @@ pub mod testing {
         }
     }
 
+    /// The name a session sees a package's tool by, as the host's check of a descriptor spells it:
+    /// a test holds it to `harnix_package::tool_name`.
+    pub fn session_tool_name(id: &str, tool: &str) -> String {
+        crate::host::dynamic::session_tool_name(id, tool)
+    }
+
     /// The route table a product would serve, without starting anything: every row, in the shape
     /// the method-table snapshot pins.
     pub fn describe(app: crate::AppBuilder) -> anyhow::Result<Value> {

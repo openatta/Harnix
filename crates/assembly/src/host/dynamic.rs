@@ -280,7 +280,7 @@ pub(crate) fn check(d: &ExtensionDescriptor, caps: &[Capability], router: &Route
 /// A package's tool, as a session names it: the id's `.` and `-` and the tool's `-` made
 /// underscores. The same rule as `harnix_package::tool_name`, which the carriers name tools by; a
 /// second copy because this layer does not depend on the packages' crates (`layering.rs`, l11).
-fn session_tool_name(id: &str, tool: &str) -> String {
+pub(crate) fn session_tool_name(id: &str, tool: &str) -> String {
     format!("ext__{}__{}", id.replace(['.', '-'], "_"), tool.replace('-', "_"))
 }
 

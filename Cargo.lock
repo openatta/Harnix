@@ -1436,6 +1436,7 @@ dependencies = [
  "harnix-ext-plugins",
  "harnix-ext-settings",
  "harnix-ext-system",
+ "harnix-package",
  "harnix-proc",
  "serde",
  "serde_json",

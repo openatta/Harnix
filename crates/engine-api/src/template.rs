@@ -15,7 +15,7 @@ use crate::contribution::EngineContribution;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct EngineProfile {
-    /// Default scene for `session.create`, and the scope its state lives under.
+    /// Default scene for a new session, and the scope its state lives under.
     pub scene: String,
     /// Scenes activated on top of the default.
     pub scenes: Vec<String>,

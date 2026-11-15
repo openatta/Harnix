@@ -28,11 +28,13 @@ const KEPT: usize = 512;
 
 /// A call and an ask by `(session, tool_use_id)`, the session the frame came on.
 type Key = (String, String);
+/// A host tool's call seen: its key, the tool, and its input.
+type Seen = (Key, Arc<dyn Tool>, Value);
 
 #[derive(Default)]
 pub(crate) struct Permits {
     /// The host tools' calls seen and not yet ended, with their input.
-    calls: StdMutex<VecDeque<(Key, Arc<dyn Tool>, Value)>>,
+    calls: StdMutex<VecDeque<Seen>>,
     /// Asks waiting for their call.
     held: StdMutex<HashMap<Key, Value>>,
     /// The asks answered here: the engine's word that they are resolved is not the hub's to hear.

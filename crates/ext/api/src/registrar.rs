@@ -73,8 +73,7 @@ impl<'a, C> Registrar<'a, C> {
         self.builder.ui()
     }
 
-    /// What it gives the `main` instance's engine: scenes, tool providers, prompt gates, a
-    /// credential source.
+    /// What it gives the `main` instance's engine: scenes, tool providers, prompt gates.
     pub fn engine(&mut self) -> &mut EngineContribution {
         self.builder.engine()
     }
