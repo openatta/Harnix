@@ -429,7 +429,7 @@ mod tests {
                 let (id, method) = fake.request().await.expect("the handshake");
                 let result = match method.as_str() {
                     "daemon.auth" | "daemon.subscribeEvents" => json!({}),
-                    "daemon.ping" => json!({"version": "test", "protocol_version": harnix_engine::protocol_version()}),
+                    "daemon.ping" => json!({"version": "test", "protocol_version": harnix_engine::AGIX_PROTOCOL}),
                     other => panic!("`{other}` before the handshake was over"),
                 };
                 fake.answer(id, result).await;

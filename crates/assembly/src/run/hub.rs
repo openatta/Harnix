@@ -95,7 +95,7 @@ pub(super) async fn assemble(
     let process = json!({
         "app": { "name": name, "version": version },
         "harnix": crate::HARNIX_VERSION,
-        "agix": harnix_engine::identity().version,
+        "agix": harnix_engine::AGIX_VERSION,
         "started_ms": now_ms(),
     });
     let process = Arc::new(Process::new(process, hub.clone()));

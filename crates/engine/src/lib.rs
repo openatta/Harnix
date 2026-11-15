@@ -22,7 +22,6 @@ pub mod readers;
 mod replay_link;
 pub mod scenes;
 mod serve;
-pub mod settings;
 mod translate;
 
 #[cfg(feature = "agix")]
@@ -40,26 +39,21 @@ pub use serve::serve_daemon;
 /// get at text.
 pub use history::store::HistoryStore;
 
-use harnix_engine_api::EngineIdentity;
+/// The Agix this build links, as its manifest says (`build.rs`): for what asks before an engine
+/// is up. A running engine says it itself, in `daemon.ping`.
+pub const AGIX_VERSION: &str = env!("HARNIX_AGIX_VERSION");
 
-/// What the engine this build links says it is: the version, and the protocol a daemon of it
-/// speaks — the one `hello.engine_protocol` reports.
-pub fn identity() -> EngineIdentity {
-    let about = about();
-    EngineIdentity::new(
-        about.get("version").and_then(serde_json::Value::as_str).map(str::to_string),
-        Some(protocol_version()),
-        about.get("capabilities").cloned().unwrap_or(serde_json::Value::Null),
-    )
-}
+/// The protocol that Agix's daemon speaks: what a daemon this links to must speak too, and what
+/// `hello.engine_protocol` reports.
+pub const AGIX_PROTOCOL: u64 = parse_u64(env!("HARNIX_AGIX_PROTOCOL"));
 
-/// The protocol a daemon of the engine this build links speaks: what a daemon this links to must
-/// speak too.
-pub fn protocol_version() -> u64 {
-    about().get("protocol_version").and_then(serde_json::Value::as_u64).unwrap_or(0)
-}
-
-/// Everything the engine says about itself, as it says it: for a diagnostics page.
-pub fn about() -> serde_json::Value {
-    daemon::discovery::identity()
+const fn parse_u64(s: &str) -> u64 {
+    let bytes = s.as_bytes();
+    let mut n = 0u64;
+    let mut i = 0;
+    while i < bytes.len() {
+        n = n * 10 + (bytes[i] - b'0') as u64;
+        i += 1;
+    }
+    n
 }

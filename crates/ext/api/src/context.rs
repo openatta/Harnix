@@ -215,13 +215,6 @@ impl EngineView {
         Ok(ConfigFiles { root: self.view.0.settings_root.clone() })
     }
 
-    /// Whether its engine can read `entry` as a provider: `Err` says why not, in the engine's own
-    /// words. Needs `engine.config.write`: it is the check before writing one.
-    pub fn validate_provider(&self, entry: &Value) -> Rpc<Result<(), String>> {
-        self.ext.require(&caps::ENGINE_CONFIG_WRITE)?;
-        Ok(self.ext.ports().validate_provider(entry))
-    }
-
     /// Where its engine looks for skills. Needs `engine.plugins`.
     pub fn skills(&self) -> Rpc<SkillsDir> {
         self.ext.require(&caps::ENGINE_PLUGINS)?;

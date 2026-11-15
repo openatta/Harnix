@@ -17,8 +17,9 @@
 //! Providers are written the same way, into the global tier. The engine's `engine.config.setProvider`
 //! writes the project tier of a working directory, which is wherever the process happened to be
 //! started — a provider added from the settings page would be gone the next time it was started
-//! from somewhere else — so the engine is asked only what it is good at here: whether it would
-//! read the entry (`EngineView::validate_provider`), and why not.
+//! from somewhere else — so the engine is asked only what it is good at here: whether it reads
+//! the entry. The file is written, the engine reloads, and `routing` in the answer says; a
+//! refusal puts the file back as it was.
 
 use std::path::PathBuf;
 
@@ -294,6 +295,7 @@ async fn set_provider(call: &Call, params: Value) -> Rpc<Value> {
         return Err(RpcError::new(codes::INTERNAL_ERROR, "no global tier"));
     };
     let mut document = read_document(&path)?;
+    let before = std::fs::read(&path).ok();
     patch_providers(
         &mut document,
         &provider_id,
@@ -301,16 +303,25 @@ async fn set_provider(call: &Call, params: Value) -> Rpc<Value> {
         params.get("config"),
         params.get("default_provider").and_then(Value::as_str),
     )?;
-    // What the engine will read is the entry as patched, not the patch: a `null` in the patch
-    // removes a key, and is not a value the engine's provider takes.
-    if let (false, Some(entry)) = (delete, params.get("config").and(document["providers"].get(&provider_id))) {
-        main_engine(call)?
-            .validate_provider(entry)?
-            .map_err(RpcError::invalid_params)?;
-    }
     write_document(&path, &document)?;
 
     let reloaded = call.call("engine.config.reload", json!({})).await;
+    // What the engine reads is the entry as patched, not the patch: it says whether it can. A
+    // router it could not rebuild (`router_rebuilt: false`) is not a refusal; the shape not
+    // parsing (`routing.ok: false`), or the reload failing, is.
+    if !delete {
+        let refusal = match &reloaded {
+            Ok(answer) => routing_refusal(answer),
+            Err(e) => Some(e.message.clone()),
+        };
+        if let Some(why) = refusal {
+            restore(&path, before.as_deref())?;
+            if let Err(e) = call.call("engine.config.reload", json!({})).await {
+                tracing::warn!(error = %e.message, "the engine did not reload after a provider was put back");
+            }
+            return Err(RpcError::invalid_params(why));
+        }
+    }
     let providers = call.call("engine.config.getProvider", json!({})).await.unwrap_or(json!({}));
     // And to every instance whose template inherits `main`'s providers.
     let inherited = match call.call("harnix.instances.inheritProviders", json!({})).await {
@@ -398,7 +409,7 @@ fn valid_provider_id(id: &str) -> bool {
 }
 
 /// Apply one provider change to a settings document, refusing what a settings page may not write.
-/// Whether the engine can read the entry is its own to say: see `EngineView::validate_provider`.
+/// Whether the engine can read the entry is its own to say: see `set_provider`.
 fn patch_providers(
     document: &mut Value,
     provider_id: &str,
@@ -506,6 +517,33 @@ fn read_document(path: &std::path::Path) -> Result<Value, RpcError> {
     }
 }
 
+/// Why the engine did not accept what `engine.config.reload` re-read, from its answer: `routing.ok` is
+/// whether the configuration parses. `None` when it did.
+fn routing_refusal(answer: &Value) -> Option<String> {
+    let routing = answer.get("routing")?;
+    if routing.get("ok").and_then(Value::as_bool) != Some(false) {
+        return None;
+    }
+    Some(
+        routing
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("the engine could not read the settings")
+            .to_string(),
+    )
+}
+
+/// Put a tier's settings.json back as it was: its bytes, or no file when there was none.
+fn restore(path: &std::path::Path, before: Option<&[u8]>) -> Result<(), RpcError> {
+    match before {
+        Some(bytes) => std::fs::write(path, bytes).map_err(io_error),
+        None => match std::fs::remove_file(path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(io_error(e)),
+            _ => Ok(()),
+        },
+    }
+}
+
 /// Replace a tier's settings.json atomically.
 fn write_document(path: &std::path::Path, document: &Value) -> Result<(), RpcError> {
     if let Some(parent) = path.parent() {
@@ -526,6 +564,14 @@ fn io_error(e: std::io::Error) -> RpcError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_routing_that_does_not_parse_is_a_refusal() {
+        let ok = json!({"routing": {"ok": true, "router_rebuilt": false, "router_error": "no client"}});
+        assert_eq!(routing_refusal(&ok), None);
+        let bad = json!({"routing": {"ok": false, "error": "providers.x: bad"}});
+        assert_eq!(routing_refusal(&bad).as_deref(), Some("providers.x: bad"));
+    }
 
     #[test]
     fn a_nested_write_creates_its_parents_and_keeps_siblings() {

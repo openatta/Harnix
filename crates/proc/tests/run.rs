@@ -72,7 +72,7 @@ async fn it_says_hello_answers_the_product_and_goes_when_asked() {
     assert_eq!(hello["version"], json!(harnix_proc::HARNIX_VERSION));
     assert_eq!(hello["pid"], json!(std::process::id()));
     // The Agix it links and the VM engine it builds, which the product holds against its own.
-    assert_eq!(hello["agix_version"], json!(harnix_engine::identity().version));
+    assert_eq!(hello["agix_version"], json!(harnix_engine::AGIX_VERSION));
     assert!(hello["engine"].as_str().is_some_and(|e| !e.is_empty()), "{hello}");
 
     let control = ControlClient(wire.clone());

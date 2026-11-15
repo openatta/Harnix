@@ -81,7 +81,7 @@ pub(super) fn admit(
         versions: json!({
             "app": {"name": identity.name, "version": short},
             "harnix": crate::HARNIX_VERSION,
-            "agix": harnix_engine::about(),
+            "agix": {"version": harnix_engine::AGIX_VERSION, "protocol_version": harnix_engine::AGIX_PROTOCOL},
             "ext_api": harnix_ext::EXT_API_VERSION,
             "contribution_api": harnix_contract::CONTRIB_API_VERSION,
             "protocol": harnix_contract::PROTOCOL_VERSION,

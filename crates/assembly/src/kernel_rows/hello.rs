@@ -49,7 +49,7 @@ impl Hello {
             "contrib_api_version": harnix_contract::CONTRIB_API_VERSION,
             // The two parts that change with the engine — a session event's payload, an `engine.*`
             // answer — are its shape, not this protocol's: which shape is this version.
-            "engine_protocol": harnix_engine::protocol_version(),
+            "engine_protocol": harnix_engine::AGIX_PROTOCOL,
             "engine": {
                 "model": facts.model,
                 "active_scenes": facts.active_scenes,
