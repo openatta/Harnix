@@ -26,9 +26,9 @@ const synced = rewrite(template, block());
 expect(synced.includes('harnix-hub       = { path = "harnix/crates/hub" }'),
   "sync-app-deps rebases Harnix's crates on the application root",
   "the generated block does not point at harnix/crates");
-expect(synced.includes('daemon    = { path = "harnix/agix/daemon" }'),
+expect(synced.includes('agix = { path = "harnix/agix/crates/agix" }'),
   "and finds the engine inside harnix/, which brings it", "the engine is not under harnix/agix");
-expect(block(undefined, { engine: "agix" }).includes('daemon    = { path = "agix/daemon" }'),
+expect(block(undefined, { engine: "agix" }).includes('agix = { path = "agix/crates/agix" }'),
   "an application still on the old layout keeps its own agix/ paths", "the old layout lost its paths");
 expect(rewrite(synced, block()) === synced, "and writing it twice changes nothing", "the block is not stable");
 const tampered = synced.replace('tokio = { version = "1"', 'tokio = { version = "0.2"');
