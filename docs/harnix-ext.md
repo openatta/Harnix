@@ -834,7 +834,7 @@ harnix::{App, AppBuilder, ExtensionSlot, ExtensionStatus, HARNIX_VERSION, SHUTDO
 | `.name(name, version)` | 应用名与版本：`--version`、`--help` 用它。界面上的产品名、图标、产品 id 由 profile 的 `[brand]` 给 |
 | `.extensions(set)` | 加一组扩展（`ExtensionSet`），各带自己的授予。`harnix::first_party::standard()`：`harnix-app`、`system`、`observability`、`settings`、`plugins`、`devices`，各自带 Harnix 给它们的授予；`standard_with(packages)`、`standard_with_flow(flow)` 再加 `packages`、`flow` |
 | `.extension(e)` | 加一个扩展，返回 `ExtensionSlot`：`.grant([caps::…])` 或 `.ungranted()`。**顺序就是注册、`migrate`、`start` 的顺序**，也是引擎贡献的组合顺序 |
-| `.credentials(source)` | 换掉凭据源（默认 `EnvCredentials`：`helm/quote-api` → `$HARNIX_CREDENTIAL_HELM_QUOTE_API`） |
+| `.credentials(source)` | 换掉 `Credentials` 的实现（默认 `EnvCredentials`：`helm/quote-api` → `$HARNIX_CREDENTIAL_HELM_QUOTE_API`） |
 | `.profile_from_args()` / `.args(iter)` | 命令行从哪来；测试里用 `.args` |
 | `.child_entry(name, entry)` | 登记一个子命令入口（`harnix::App::builder()` 在 feature `proc` 时已登记 `ext-proc`，产品不用写） |
 | `.run()` | 跑起来，`anyhow::Result<()>` |
@@ -944,7 +944,7 @@ pub trait Extension: Send + Sync + 'static {
 | `recordings.read` · `transcripts.read` | 录像与用量的读者 · 转录的读者 | ✔ | | observability · harnix-app |
 | `process.observe` | 版本、运行时长、内存、线程、已连接的客户端 | ✔ | | system |
 | `devices.manage` | 配对码、列设备、撤销设备 | ✔ | | devices |
-| `extensions.manage` | 拿 `harnix-host-api` 的 `HostServices`：运行期登记扩展、拉起扩展进程、给 daemon 配工具端点、收养扩展进程的引擎 | ✔ | | packages |
+| `extensions.manage` | 拿 `harnix-host-api` 的 `HostServices`：运行期登记扩展、拉起扩展进程、收养扩展进程的引擎 | ✔ | | packages |
 | `ui.page` | 进页面的 ES 模块 | ✔ | 只 `trusted` 发布者 | — |
 | `events.all_tools` | 看到每个会话的每一次工具调用 | | ✔ | — |
 | `net:<主机>` · `env:<名字>` · `storage:<MB>` · `fs:data` · `fs:project` | 扩展包的资源能力 | | ✔ | — |
@@ -1143,7 +1143,7 @@ quote_api_key = { credential = "helm/quote-api" }
 | `AGIX_CONFIG_HOME` | 引擎目录 |
 | `HARNIX_DATA_DIR` | 项目目录 |
 | `HARNIX_STATE_DIR` | 程序自己的目录，单独挪（§20） |
-| `HARNIX_CREDENTIAL_<名字>` | 默认凭据源读这里；名字是引用转大写、非字母数字转 `_` |
+| `HARNIX_CREDENTIAL_<名字>` | 默认的 `Credentials` 读这里；名字是引用转大写、非字母数字转 `_` |
 | `HARNIX_UI_MODULES`、`HARNIX_UI_FIRST_PARTY`、`HARNIX_UI_OUT` | 界面构建：应用的界面入口（逗号分隔绝对路径）、编进来的第一方 UI 包（不设是全部，空串是一个也不要）、输出目录（§22.5） |
 | `HARNIX_UI_DIST` | `cargo build` 时嵌进二进制的界面目录 |
 
@@ -1184,7 +1184,7 @@ quote_api_key = { credential = "helm/quote-api" }
 | `/pair`、`/challenge` | 设备配对 |
 | `/auth/link`、`/auth/{code}` | 启动链接 |
 | `/ext/plugins/ui/<包>/<模块>` | Agix 包的界面模块文件（要凭据；`[ext.plugins] ui_modules = false` 时不服务） |
-| `/ext/<包 id>/ui/…`、`/ext/<包 id>/mcp` | 扩展包的界面文件（公开：iframe 不带凭据）、工具端点（只给本进程 spawn 的引擎） |
+| `/ext/<包 id>/ui/…` | 扩展包的界面文件（公开：iframe 不带凭据） |
 | `/brand/icon.svg` | `[brand] icon` |
 | `/ext/<扩展 id>/…` | 扩展的自有路由与静态文件，同一个扩展的路由共用一种 `Access` |
 

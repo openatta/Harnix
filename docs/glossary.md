@@ -33,7 +33,7 @@
 | `harnix-ext`、`harnix-ext-<id>`、`harnix-host-api` | 扩展接口、第一方扩展、宿主组件接口这几个 crate |
 | `harnix-ext.toml`、`.hxext` | 扩展包的清单与包 |
 | `/ext/<id>/…` | 一个扩展的 HTTP 路由、静态文件 |
-| `ext__<id>__<工具>` | 扩展包的工具在会话里的名字（id 里的 `.` 换成 `_`） |
+| `ext__<id>__<工具>` | 扩展包的工具在会话里的名字（id 里的 `.`、`-` 与工具名里的 `-` 都换成 `_`） |
 | `ext-proc` | 产品二进制拉起扩展进程用的子命令 |
 | `harnix-pack` | 扩展包作者与商店用的打包工具 |
 
@@ -43,7 +43,7 @@
 |---|---|---|
 | **实例** | `instance` | 一台 Agix 引擎（一个会话池）。**隔离单位**：数据根、设置、provider、MCP、Agix 插件、场景都是它自己的 |
 | **`main` 实例** | `main` | profile 的 `[engine]` 建的缺省实例，内核拥有，谁都不能停 |
-| **实例载体** | `InstanceCarrier` | 一台实例怎么跑：**进程内**（作为库链接）、**spawn**（Harnix 起子进程并看护）、**attach**（连一台只给这个 Harnix 用的 daemon）、**收养**（扩展进程里的引擎） |
+| **实例载体** | `InstanceCarrier` | 一台实例怎么跑：**进程内**（经 `agix::embed` 起在本进程里，经内存双工连）、**spawn**（Harnix 起子进程并看护）、**attach**（连一台只给这个 Harnix 用的 daemon）、**收养**（扩展进程里的引擎） |
 | **实例登记表** | `harnix-instance` | 建、确保、停、重启实例，模板、账本、拥有者都在这里；中枢只经 `InstanceBook` 问它 |
 | **模板** | `InstanceTemplate` | 建实例的规格：实例载体、场景、数据根规则、允许填的参数、能不能由界面用。扩展与界面都只能按模板建实例 |
 | **拥有者**（实例的） | `owner` | 实例归谁：`kernel`、某个扩展、某个 space（界面建的）。跨拥有者停、重启要能力 `instances.admin` |
@@ -54,7 +54,7 @@
 | **轮** | turn | 一次「用户消息 → 模型若干步 → 结束」 |
 | **步** | step | 一轮里的一次模型调用及其工具执行 |
 | **场景** | scene | Agix 的概念：一套系统提示词与工具集。会话创建时选定 |
-| **场景层** | `SceneLayer` | 原生扩展包装一个场景的写法：只说要改的几样（追加的系统块、工具、放行的名字……），其余照底版 |
+| **场景层** | `SceneLayer` | 原生扩展包装一个场景的写法：只说要改的几样（追加的系统块、工具、交互方式、是否要项目、命名），其余照底版；由中枢在建会话时展开 |
 
 **别混**：
 
@@ -134,7 +134,7 @@
 | **宿主 API** | `HostApi`、`useHost()` | 前端代码拿到的全部能力。拿不到 Harnix 自己的连接 |
 | **令牌覆盖** | `r.tokens` | 扩展改主题已有令牌的值；不能新增令牌名 |
 | **语言包** | `r.strings` | 扩展带的文案；key 以它的 owner 开头 |
-| **引擎贡献** | `EngineContribution`，`Registrar::engine()` / `engine_everywhere()` | 原生扩展交给进程内实例的东西：场景层、原生工具（`Tool`、`ToolProvider`）、`PromptGate`、凭据源、`admit_everywhere`。扩展包没有 |
+| **引擎贡献** | `EngineContribution`，`Registrar::engine()` / `engine_everywhere()` | 原生扩展交给进程内实例的东西：场景层、原生工具（`Tool`、`ToolProvider`）、`PromptGate`。扩展包没有 |
 | **扩展的 HTTP 路由** | `Registrar::route`、`static_dir`，`/ext/<id>/` | 原生扩展自己的 HTTP 路由与静态文件。同源、同一个准入，但不享受 Harnix 通道的保证 |
 | **扩展条目** | extension entry | 扩展往会话时间线写的、只给人看的条目，由 `flow.block` 画出来；命名空间是写它的扩展的 id |
 
