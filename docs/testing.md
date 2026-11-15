@@ -147,8 +147,7 @@ testkit 的 `carrier()` 读它，套件的 profile 里用 `onCarrier()` 把 `[ex
 请求里带着工具当场编出来的 pid、任务 id 的三份写明 `varies`，只按位置回放）照录的那样起后端，在录的那个目录
 （`/tmp/harnix-fixture/<名字>`，testkit 的 `STRICT_ROOT` 与 `fixedScratch`；目录旁边有锁，另一个检出的运行会等）、
 用录的那句话、`SHELL=/bin/zsh` 重放，强制严格。它在 `api` 层里，两种拓扑都跑；提示词写着操作系统，所以只在 macOS 上跑，
-别处跳过。**两份已知失败**：`spawns-agent` 与 `app-subagent`（`KNOWN_FAILING`，`test.fail`）——子 Agent 不继承父会话的 Environment，提示词里是跑测试那天的日期而不是录像的
-（Agix#44，维护者 2026-11-13 定）。它们是「预期失败」：修好的 Agix 一进来，这两条反而变红，那时去掉 `KNOWN_FAILING` 里的项。其余都得全过。
+别处跳过。子 Agent 的会话（`spawns-agent`、`app-subagent`）也一样严格：它继承父会话的 Environment，提示词里的日期是录像的。都得全过。
 它红了，就是这个构建发给模型的东西变了（提示词、工具表、场景参数）：照 §6 重录，再看用它的用例断言的东西还在不在。
 
 `HARNIX_REPLAY_REPORT=1`：任何一次回放的调用和录像对不上，就让它所在的用例失败（照样放回去、跑完）。在固定目录之外
