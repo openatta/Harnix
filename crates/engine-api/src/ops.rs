@@ -29,6 +29,11 @@ pub mod codes {
 /// The longest session title an extension's engine may give: past it, the hub cuts it.
 pub const TITLE_MAX: usize = 200;
 
+/// The session options only the hub fills — from the session's space and preset — and a caller
+/// never gives: the tools and skills a session sees, whether someone answers its questions, its
+/// naming, and its prompt.
+pub const HUB_OWNED_OPTIONS: [&str; 5] = ["host_tools", "skill_dirs", "attended", "auto_name", "prompt"];
+
 /// The turn states a session can be in.
 const TURN_STATES: &[&str] = &["idle", "running"];
 

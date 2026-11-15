@@ -33,7 +33,7 @@ pub use contribution::EngineContribution;
 pub use credentials::Secret;
 pub use events::{Completion, DaemonEventKind, EngineEvent, Fragment, Joins, Prompt, SessionEventKind, Waiting};
 pub use link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus, EVENT_CAPACITY};
-pub use ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, Subscribed, Tasks, TurnInput};
+pub use ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, Subscribed, Tasks, TurnInput, HUB_OWNED_OPTIONS};
 pub use gate::{Delivery, PromptDecision, PromptFacts, PromptGate};
 pub use provider::{HookDecision, SessionFacts, ToolCallFacts, ToolHook, ToolProvider};
 pub use scene::{BaseKind, BuiltinArgs, Interaction, LayerParts, PromptText, SceneBase, SceneFacts, SceneLayer};

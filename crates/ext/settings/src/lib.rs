@@ -26,6 +26,8 @@ use std::path::PathBuf;
 use harnix_ext::{caps, codes, Access, Call, Extension, Manifest, Registrar, Rpc, RpcError, MAIN_INSTANCE};
 use serde_json::{json, Map, Value};
 
+mod dir_lock;
+
 /// What a field accepts. Anything else is refused before a file is touched.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Kind {
@@ -527,9 +529,9 @@ fn read_document(path: &std::path::Path) -> Result<Value, RpcError> {
 }
 
 /// The directory lock of the tier a settings file is in, the one Agix's writers take.
-fn lock_tier(path: &std::path::Path) -> Result<harnix_contract::dir_lock::DirLock, RpcError> {
+fn lock_tier(path: &std::path::Path) -> Result<dir_lock::DirLock, RpcError> {
     let dir = path.parent().unwrap_or(std::path::Path::new("."));
-    harnix_contract::dir_lock::DirLock::acquire(dir).map_err(io_error)
+    dir_lock::DirLock::acquire(dir).map_err(io_error)
 }
 
 /// Why the engine did not accept what `engine.config.reload` re-read, from its answer: `routing.ok` is
@@ -640,13 +642,12 @@ mod tests {
         assert!(!valid_provider_id("a b"));
     }
 
-    /// A tier that cannot be read is an error, and the file is left as it
-    /// was — not replaced by a document holding only the key being set.
+    /// A writer waits for whoever holds the tier's directory, the engine included.
     #[test]
     fn a_write_waits_while_the_tier_s_directory_is_held() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
-        let held = harnix_contract::dir_lock::DirLock::acquire(dir.path()).unwrap();
+        let held = dir_lock::DirLock::acquire(dir.path()).unwrap();
         let writer = {
             let path = path.clone();
             std::thread::spawn(move || set_in_file(&path, "model.max_tokens", json!(4000)).unwrap())
@@ -658,6 +659,8 @@ mod tests {
         assert_eq!(read_document(&path).unwrap(), json!({"model": {"max_tokens": 4000}}));
     }
 
+    /// A tier that cannot be read is an error, and the file is left as it
+    /// was — not replaced by a document holding only the key being set.
     #[test]
     fn an_unreadable_tier_is_not_overwritten() {
         let dir = tempfile::tempdir().unwrap();
