@@ -219,6 +219,7 @@ impl Hub {
     /// One engine method into the instance the call names (or the main instance), with the
     /// instance and space names taken off: the engine has no notion of either.
     async fn pass_through(self: &Arc<Self>, cx: &CallContext, method: &str, params: Value, through: Through) -> Rpc<Value> {
+        crate::refuse_hub_owned_options(&params)?;
         let instance = self.instance_of(&params)?;
         let linked = self.engine(&instance)?;
         let extension = linked.is_extension();
@@ -264,6 +265,7 @@ impl Hub {
     /// `harnix.session.fork`: the new session lands in the space the call claims, or its parent's, and
     /// is the caller's.
     async fn fork(self: &Arc<Self>, subject: &Subject, params: Value) -> Rpc<Value> {
+        crate::refuse_hub_owned_options(&params)?;
         let key = self.key_of(&params)?;
         let space = params
             .get("space")

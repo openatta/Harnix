@@ -349,6 +349,7 @@ impl Hub {
         cx: &harnix_kernel::CallContext,
         mut params: Value,
     ) -> Result<Value, RpcError> {
+        crate::refuse_hub_owned_options(&params)?;
         let subject = &cx.subject;
         let space = self.place(cx, &mut params).await?;
         let instance = self.instance_of(&params)?;
