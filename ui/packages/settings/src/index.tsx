@@ -2,10 +2,10 @@
  * @harnix/settings — the settings sections for the engine (the `settings` extension's interface):
  * its defaults, the scenes, the model providers and the MCP servers.
  *
- * Engine settings are written to a tier's settings.json through `settings.set`; the engine keeps a
- * per-(project, scene) cache that a reload does not clear, so a row says when the running engine
- * still has the old value rather than pretending. Providers go through `settings.setProvider`, the
- * only path credentials take from the interface.
+ * Engine settings are written to a tier's settings.json through `settings.set`; the value a row
+ * shows is the engine's own for the open (project, scene), and it says when the project tier wrote
+ * one the engine does not use (an untrusted project can only tighten). Providers go through
+ * `settings.setProvider`, the only path credentials take from the interface.
  */
 
 import { useState, type ReactNode } from "react";
@@ -47,7 +47,8 @@ interface Field {
   effective?: unknown;
   tiers: Record<string, unknown>;
   source?: string | null;
-  engine?: unknown;
+  /** The project tier wrote a value the engine does not use (an untrusted project may only tighten). */
+  withheld?: boolean;
 }
 
 interface Described {
@@ -114,9 +115,7 @@ function EngineSettings({ host, only }: { host: HostApi; only: string[] }) {
                 const inherited = own === null || own === undefined;
                 const notes = [inherited ? t("settings.inherited") : t("settings.setHere")];
                 if (field.source) notes.push(t("settings.sourceTier", { tier: t(`settings.tier.${field.source}`, { scene: request.scene }) }));
-                if (field.engine !== null && field.engine !== undefined && JSON.stringify(field.engine) !== JSON.stringify(field.effective)) {
-                  notes.push(t("settings.engineLags", { value: JSON.stringify(field.engine) }));
-                }
+                if (field.withheld) notes.push(t("settings.withheld"));
                 return (
                   <SettingsRow key={field.key} label={t(`settings.field.${field.key}`)} hint={notes.join(" · ")}>
                     <FieldControl field={field} write={(value) => void write(field.key, value)} />
@@ -268,10 +267,28 @@ type ProviderEntry = NonNullable<NonNullable<Described["providers"]>["providers"
 const API_TYPES = [
   { id: "anthropic", label: "settings.apiTypeAnthropic", url: "https://api.anthropic.com", model: "claude-sonnet-4-6" },
   { id: "openai_compatible", label: "settings.apiTypeOpenai", url: "https://api.openai.com/v1", model: "gpt-4.1" },
-] as const;
+  { id: "openai_responses", label: "settings.apiTypeOpenaiResponses", url: "https://api.openai.com/v1", model: "gpt-4.1" },
+];
 
-function apiTypeOf(provider: ProviderEntry) {
-  return API_TYPES.find((x) => x.id === provider.api_type) ?? API_TYPES[0];
+interface ApiType {
+  id: string;
+  label: string;
+  url: string;
+  model: string;
+}
+
+/** A type the table does not know (written by hand): kept as it is, never turned into another one. */
+function unknownType(id: string): ApiType {
+  return { id, label: "", url: "", model: "" };
+}
+
+export function apiTypeOf(provider: ProviderEntry): ApiType {
+  if (!provider.api_type) return API_TYPES[0]!;
+  return API_TYPES.find((x) => x.id === provider.api_type) ?? unknownType(provider.api_type);
+}
+
+function typeLabel(t: ReturnType<typeof useT>, type: ApiType): string {
+  return type.label ? t(type.label) : t("settings.apiTypeUnknown", { type: type.id });
 }
 
 function ProviderCard({
@@ -301,7 +318,7 @@ function ProviderCard({
     <div className={`provider-card${isDefault ? " default" : ""}`} data-provider={id} data-state={isDefault ? "default" : undefined}>
       <div className="pc-head">
         <span className="pc-name">{id}</span>
-        <span className="pill">{t(apiTypeOf(provider).label)}</span>
+        <span className="pill">{typeLabel(t, apiTypeOf(provider))}</span>
         {isDefault ? <span className="pill acc">{t("settings.providerDefault")}</span> : null}
         <span className="sp" />
         <SettingsValue tone={provider.api_key ? "ok" : "err"}>{provider.api_key ? t("settings.keySet") : t("settings.keyMissing")}</SettingsValue>
@@ -355,7 +372,7 @@ function ProviderForm({
   const t = useT();
   const [fields, setFields] = useState({
     provider_id: "",
-    api_type: apiTypeOf(provider).id as string,
+    api_type: apiTypeOf(provider).id,
     base_url: provider.base_url ?? "",
     api_key: "",
     default_model: provider.default_model ?? "",
@@ -363,7 +380,9 @@ function ProviderForm({
     make_default: isDefault,
   });
   const [saving, setSaving] = useState(false);
-  const type = API_TYPES.find((x) => x.id === fields.api_type) ?? API_TYPES[0];
+  const type = API_TYPES.find((x) => x.id === fields.api_type) ?? unknownType(fields.api_type);
+  // A type the table lacks stays selectable as it is, so the other fields can be saved without turning it into another.
+  const types = API_TYPES.some((x) => x.id === fields.api_type) ? API_TYPES : [...API_TYPES, type];
   const set = (key: keyof typeof fields, value: string | boolean) => setFields({ ...fields, [key]: value });
   const text = (key: "provider_id" | "base_url" | "api_key" | "default_model" | "models", label: string, placeholder?: string, hint?: string) => (
     <div className="field" key={key}>
@@ -421,7 +440,7 @@ function ProviderForm({
       <div className="field">
         <label>{t("settings.apiType")}</label>
         <div className="seg" role="radiogroup">
-          {API_TYPES.map((x) => (
+          {types.map((x) => (
             <button
               type="button"
               role="radio"
@@ -431,7 +450,7 @@ function ProviderForm({
               className={fields.api_type === x.id ? "on" : ""}
               onClick={() => set("api_type", x.id)}
             >
-              {t(x.label)}
+              {typeLabel(t, x)}
             </button>
           ))}
         </div>

@@ -19,11 +19,13 @@ const TAGS = { tag: ["@feature:system", "@layer:ui"] };
 let backend: Backend;
 
 test.beforeAll(async () => {
-  backend = await startHarnix(launchFor("replay", { profile: '\n[engine]\nscenes = ["code"]\n' }));
-  // Teams are the operator's switch too: on for this backend's project, before any session reads
-  // its settings.
-  mkdirSync(join(backend.project, ".agix"), { recursive: true });
-  writeFileSync(join(backend.project, ".agix", "settings.json"), JSON.stringify({ execution: { team_enabled: true } }));
+  // Teams are the operator's switch, in the global tier: a project's own tier cannot turn them
+  // on, so it is written before the engine reads its settings.
+  const seed = (scratch: string) => {
+    mkdirSync(join(scratch, "agix"), { recursive: true });
+    writeFileSync(join(scratch, "agix", "settings.json"), JSON.stringify({ team: { enabled: true } }));
+  };
+  backend = await startHarnix(launchFor("replay", { profile: '\n[engine]\nscenes = ["code"]\n', seed }));
 });
 test.afterAll(async () => {
   await backend?.dispose();

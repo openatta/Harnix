@@ -169,7 +169,8 @@ export interface SessionRow {
 
 /** `engine.session.get` 的结果（attach 原样带回）。 */
 export interface SessionInfo extends SessionRow {
-  turn_state?: "idle" | "running" | string;
+  /** `rebuilding`（原地重建）与 `operating`（对上下文的操作独占）时没有轮可打断。 */
+  turn_state?: "idle" | "running" | "rebuilding" | "operating" | string;
   usage?: Usage | null;
   /** 最近一次调过模型的那一轮的上下文占用；会话在内存里、且至少有一轮调过模型时才有。 */
   context?: ContextUsage;
@@ -291,7 +292,7 @@ export interface UserMessageEvent {
   item_id?: string;
   /**
    * "steer"：交给了正在跑的这一轮，还没进对话——它不开新的一轮；进了对话时来一帧
-   * user_message_delivered，本轮在那之前结束则来 user_messages_returned（中枢把它排到队首）。
+   * user_message_delivered，本轮在那之前结束则来 user_messages_returned（话不在对话里，中枢不重发）。
    */
   delivery?: "steer";
 }
@@ -302,7 +303,7 @@ export interface UserMessageDeliveredEvent {
   content?: string;
   item_id?: string;
 }
-/** 运行中送来、但本轮结束前没读到的消息：不在 transcript 里；中枢把它们排回队首。 */
+/** 运行中送来、但本轮结束前没读到的消息：不在 transcript 里，引擎交还给客户端；中枢不重发，要不要再说由人决定。 */
 export interface UserMessagesReturnedEvent {
   kind: "user_messages_returned";
   messages: { message_id: string; content?: string }[];
@@ -403,8 +404,26 @@ export interface TurnCompleteEvent {
 /** 本轮出错结束。只发给发起这一轮之外的订阅者；发起者（中枢）从 run_turn 的错误应答得知，经 harnix.turn_settled 转告。 */
 export interface ErrorEvent {
   kind: "error";
-  code?: number;
+  /** 引擎的失败种类（`rate_limited`、`model_unavailable`、`session_closed`……）；不认识的按 `retryable` 处理。 */
+  code?: string;
   message?: string;
+  retryable?: boolean;
+  retry_after_ms?: number | null;
+  /** false：这一轮没写进日志（会话中途关闭、引擎中途退出）。 */
+  persisted?: boolean;
+}
+/** 一个提问不再悬着：被答了（在这里或别处），或被撤回（超时、取消）。 */
+export interface PromptResolvedEvent {
+  kind: "prompt_resolved";
+  prompt_id: string;
+  resolution: "answered" | "withdrawn" | string;
+  reason?: "timed_out" | "cancelled" | string;
+}
+/** 引擎的提示：模型要用户回来看，或引擎自己的提醒（例如「总是允许」没能写盘）。 */
+export interface NotificationEvent {
+  kind: "notification";
+  message?: string;
+  status?: "proactive" | string | null;
 }
 export interface SubagentProgressEvent {
   kind: "subagent_progress";
@@ -434,6 +453,8 @@ export type EngineEvent =
   | ToolUseEvent
   | ToolResultEvent
   | PromptEvent
+  | PromptResolvedEvent
+  | NotificationEvent
   | TurnCompleteEvent
   | ErrorEvent
   | SubagentProgressEvent
@@ -474,8 +495,9 @@ export interface InstanceRow {
 /** 一件任务（Agix `engine.session.tasks`）。 */
 export interface TaskRow {
   task_id: string;
-  kind: "agent" | "teammate" | "shell" | "monitor" | "cron" | "code";
-  status: "running" | "done" | "failed" | "stopped" | "waiting";
+  kind: "agent" | "teammate" | "member" | "mcp_task" | "shell" | "monitor" | "cron" | "code";
+  /** `idle`：只有常驻成员（`member`）有，活着、在两条消息之间。 */
+  status: "running" | "done" | "failed" | "stopped" | "waiting" | "idle";
   started_ms: number;
   ended_ms: number | null;
   detail: Record<string, unknown>;

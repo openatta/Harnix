@@ -27,7 +27,7 @@ export interface Recorded {
   scene?: string | null;
   /** `harnix.session.create`'s options beside the recorder (a permission mode). */
   options?: Record<string, unknown>;
-  /** The project's `.agix/settings.json` (an operator's switch, such as teams). */
+  /** The global tier's settings.json (an operator's switch, such as teams): written before the engine starts, because a project's own tier cannot turn teams on. */
   settings?: Record<string, unknown>;
   /** On the binary that hosts applications, with the showcase installed. */
   apps?: boolean;
@@ -82,7 +82,7 @@ export const RECORDED: Recorded[] = [
     varies: "TeamCreate answers with the team's task ids",
     scene: "code",
     profile: CODE,
-    settings: { execution: { team_enabled: true } },
+    settings: { team: { enabled: true } },
     tasks: true,
     message:
       "Use the TeamCreate tool exactly once to run a team named ui-team with one member labelled alpha, whose prompt is 'Say exactly: alpha here'. When the team is done, reply with exactly: Team done.",
@@ -127,20 +127,25 @@ ${entry.profile ?? ""}`,
       }
     : own;
   if (entry.apps) showcasePackage();
-  return launch(options);
+  const seeded: LaunchOptions = entry.settings
+    ? {
+        ...options,
+        seed: (scratch: string) => {
+          options.seed?.(scratch);
+          mkdirSync(join(scratch, "agix"), { recursive: true });
+          writeFileSync(join(scratch, "agix", "settings.json"), JSON.stringify(entry.settings));
+        },
+      }
+    : options;
+  return launch(seeded);
 }
 
 /**
- * The recording's session, on `backend` through `api`: what the backend needs first (the showcase,
- * the project's settings), then the session, its turn with every ask permitted, and — for one that
+ * The recording's session, on `backend` through `api`: what the backend needs first (the showcase), then the session, its turn with every ask permitted, and — for one that
  * starts something lasting — that, until it is done. Answers the session and the settlement.
  */
 export async function play(api: TestClient, entry: Recorded, recorder?: string): Promise<{ session_id: string; settled: any }> {
   if (entry.apps) await api.call("packages.installFile", { path: showcasePackage().path });
-  if (entry.settings) {
-    mkdirSync(join(api.project, ".agix"), { recursive: true });
-    writeFileSync(join(api.project, ".agix", "settings.json"), JSON.stringify(entry.settings));
-  }
   const scene = entry.scene === undefined ? "harnix" : entry.scene;
   const created = await api.call("harnix.session.create", {
     ...(scene ? { scene } : {}),

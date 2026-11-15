@@ -18,7 +18,13 @@ const TAGS = { tag: ["@feature:instances", "@layer:api"] };
 let backend: Backend;
 test.beforeAll(async () => {
   // Teams are a `code`-scene tool: activated beside the default.
-  backend = await startHarnix(launchFor("replay", { profile: '\n[engine]\nscenes = ["code"]\n' }));
+  // Teams are the operator's switch, in the global tier: a project's own tier cannot turn them
+  // on, so it is written before the engine reads its settings.
+  const seed = (scratch: string) => {
+    mkdirSync(join(scratch, "agix"), { recursive: true });
+    writeFileSync(join(scratch, "agix", "settings.json"), JSON.stringify({ team: { enabled: true } }));
+  };
+  backend = await startHarnix(launchFor("replay", { profile: '\n[engine]\nscenes = ["code"]\n', seed }));
 });
 test.afterAll(async () => { await backend?.dispose(); });
 
@@ -92,9 +98,6 @@ function textOf(content: unknown): string {
 test("a team's run is on its session's tasks: each team's stage and members, as the hub last heard them", TAGS, async () => {
   const api = await connect(backend);
   try {
-    // Teams are the operator's switch too: on for this project.
-    mkdirSync(join(api.project, ".agix"), { recursive: true });
-    writeFileSync(join(api.project, ".agix", "settings.json"), JSON.stringify({ execution: { team_enabled: true } }));
     const created = await api.call("harnix.session.create", { scene: "code", project_root: api.project, options: { recorder: { name: "runs-a-team" } } });
     const s = { instance: "main", session_id: created.session_id };
     await api.call("harnix.topics.subscribe", { topic: "harnix.session.tasks", params: s });

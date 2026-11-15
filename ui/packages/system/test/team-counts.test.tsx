@@ -5,6 +5,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { setLocale } from "@harnix/react";
 
 import { TeamBoard } from "../src/pane/tasks";
+import { taskLabel } from "../src/format";
 
 afterEach(() => {
   cleanup();
@@ -22,5 +23,21 @@ describe("a team's counts", () => {
     setLocale("zh-CN");
     render(<TeamBoard teams={[team]} tasks={[]} />);
     expect(screen.getByTestId("team-board").querySelector(".team-h .note")!.textContent).toBe("2 个运行中 · 1 个失败");
+  });
+
+  it("a standing member between two messages is idle, and says so", () => {
+    setLocale("en");
+    const task = { task_id: "member-1", kind: "member", status: "idle", started_ms: 1, ended_ms: null, detail: { team: "review", member: "a" } };
+    render(<TeamBoard teams={[team]} tasks={[task]} />);
+    const row = screen.getByTestId("team-board").querySelector('.member[data-member="a"]')!;
+    expect(row.textContent).toContain("Idle");
+    expect(screen.getByTestId("team-board").querySelector(".team-h .note")!.textContent).toContain("Idle 1");
+  });
+});
+
+describe("a task's label", () => {
+  it("an MCP task is the server and the tool", () => {
+    const task = { task_id: "mcp-1", kind: "mcp_task", status: "running", started_ms: 1, ended_ms: null, detail: { server: "docs", tool: "search" } };
+    expect(taskLabel(task as never)).toBe("docs search");
   });
 });

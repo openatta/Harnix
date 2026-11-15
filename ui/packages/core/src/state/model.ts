@@ -15,8 +15,11 @@ import type {
   AttachResult,
   ContextUsage,
   EngineEvent,
+  ErrorEvent,
   HistoryMessage,
+  NotificationEvent,
   PromptEvent,
+  PromptResolvedEvent,
   QueueItem,
   SessionInfo,
   ToolResultEvent,
@@ -75,8 +78,10 @@ export interface CompactFacts {
   after?: number;
   saved?: number;
 }
-/** 权限卡的结局：允许、拒绝、超时（引擎超时即按拒绝处理）。 */
-export type AskAnswer = "allow" | "deny" | "timeout";
+/**
+ * 权限卡的结局：允许、拒绝、超时（引擎超时即按拒绝处理）；引擎撤回（取消）；别处已答（不知道是允许还是拒绝）。
+ */
+export type AskAnswer = "allow" | "deny" | "timeout" | "withdrawn" | "answered";
 export interface AgentLine {
   text: string;
   streaming?: boolean;
@@ -88,7 +93,7 @@ export type BlockOf<K extends Block["kind"]> = Extract<Block, { kind: K }>;
 /**
  * 交给正在跑的那一轮、还没进对话的话（on_busy: "steer"）：画在流的末尾"待送达"，
  * 进了对话（user_message_delivered）变成那个位置上的一条人的话；本轮在那之前结束（user_messages_returned）
- * 就从这里去掉——中枢把它排回队首，队列快照里会有它。
+ * 就从这里去掉并说出来——退回的话不在对话里，中枢也不重发，要不要再说由人决定。
  */
 export interface SteerItem {
   itemId: string;
@@ -380,6 +385,10 @@ export interface ApplyOptions {
    * （steer 时它不在流里，要说出来；开一轮时它已经是一条人的话，不给）。缺省只说理由。
    */
   refusedText?: (reason: string, text?: string) => string;
+  /** 被引擎退回的话（本轮在读到它之前结束）那一行的话；`text` 是原话。 */
+  returnedText?: (text: string) => string;
+  /** 别的连接发起的一轮没写进日志（会话中途关闭、引擎中途退出）那一行的话。 */
+  unrecordedText?: string;
 }
 
 /** 一个引擎事件。没见过的 kind 一律忽略（daemon_rpc_protocol §7）。 */
@@ -411,11 +420,17 @@ export function applyEvent(state: SessionState, event: EngineEvent, options: App
       return push(next, { kind: "user", text, itemId, at: now, steered: true })[0];
     }
 
-    // 本轮在读到它们之前结束：不在对话里；中枢把它们排回队首（队列快照另到）
+    // 本轮在读到它们之前结束：不在对话里，引擎把话交还；这里只从待送达里拿掉并说出来，要不要重发由人决定
     case "user_messages_returned": {
-      const returned = event as { messages?: { message_id?: string }[] };
-      const ids = (returned.messages ?? []).map((m) => m.message_id).filter((id): id is string => Boolean(id));
-      return dropSteering(state, ids);
+      const returned = event as { messages?: { message_id?: string; content?: string }[] };
+      const messages = returned.messages ?? [];
+      const ids = messages.map((m) => m.message_id).filter((id): id is string => Boolean(id));
+      let next = dropSteering(state, ids);
+      for (const m of messages) {
+        const text = m.content ?? state.steering.find((s) => s.itemId === m.message_id)?.text ?? "";
+        if (text.trim()) next = note(next, options.returnedText ? options.returnedText(text) : text, "stop");
+      }
+      return next;
     }
 
     // 运行中送来的话在步骤边界被拒收（ipdrun-13）：不进对话，也不排回队列——从待送达里拿掉，在流里说理由
@@ -508,13 +523,32 @@ export function applyEvent(state: SessionState, event: EngineEvent, options: App
       })[0];
     }
 
+    // 提问不再悬着：本地已答的不动；别处答的、被撤回的把卡片收起（超时与取消分开说）
+    case "prompt_resolved": {
+      const resolved = event as PromptResolvedEvent;
+      const block = state.blocks.find((b) => b.kind === "ask" && b.prompt.prompt_id === resolved.prompt_id);
+      if (!block || block.kind !== "ask" || block.answered) return state;
+      const how: AskAnswer =
+        resolved.resolution === "answered" ? "answered" : resolved.reason === "timed_out" ? "timeout" : "withdrawn";
+      return answerAsk(state, block.key, how);
+    }
+
+    // 引擎的提示（模型要人回来看，或引擎自己的提醒）：原文说出来
+    case "notification": {
+      const message = String((event as NotificationEvent).message ?? "");
+      return message ? note(endStream(state, now), message, "info") : state;
+    }
+
     // 一次模型调用结束：它的正文到此为止。下一次调用的正文另起一块——transcript 里那是另一条 assistant 消息。
     case "step_end":
       return endStream(state, now);
 
-    // 本轮出错结束。中枢是发起者，收不到这一帧；万一收到，只收尾，失败由 harnix.turn_settled 说。
-    case "error":
-      return endStream(state, now);
+    // 本轮出错结束。这一帧只发给发起者之外的连接（定时、别的页面发起的轮），失败由 harnix.turn_settled 说；
+    // 这里收尾，并在这一轮没写进日志时说一句。
+    case "error": {
+      const next = endStream(state, now);
+      return (event as ErrorEvent).persisted === false && options.unrecordedText ? note(next, options.unrecordedText, "error") : next;
+    }
 
     // turn_start / step_start 不成块；一轮的生命周期取自 harnix.turn_settled。
     case "turn_complete": {
@@ -539,12 +573,15 @@ export function applyEvent(state: SessionState, event: EngineEvent, options: App
     // 这里只说压了多少。
     case "compact": {
       const done = event as {
+        trim?: boolean;
         messages_before?: number;
         messages_after?: number;
         tokens_before?: number;
         tokens_after?: number;
         estimated_tokens_saved?: number | null;
       };
+      // 修剪只把旧工具结果换成占位，消息一条不少：不是压缩
+      if (done.trim === true) return state;
       const measured = done.tokens_before != null && done.tokens_after != null ? done.tokens_before - done.tokens_after : 0;
       const saved = done.estimated_tokens_saved || measured;
       const facts: CompactFacts = {
@@ -633,7 +670,7 @@ export function applySettled(
   texts: SettleTexts,
   now?: number,
 ): SessionState {
-  // 待送达的话不会再进这一轮了（退回的另有 user_messages_returned，它们在队列里）
+  // 待送达的话不会再进这一轮了（引擎退回的话另有 user_messages_returned，那里说出来；这里不留）
   let next: SessionState = { ...endStream(state, now), turn: null, steering: [] };
   if (next.blocks.some((b) => b.kind === "tool" && b.status === "running")) {
     next = {
