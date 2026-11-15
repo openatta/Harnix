@@ -10,12 +10,11 @@
  * Clearing its data deletes what it keeps and nothing else, and starts it again from nothing.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 
 import { INVALID_PARAMS, REFUSED } from "@harnix/core/protocol";
-import { type Backend, type TestClient, connect, expect, test, topology } from "@harnix/testkit";
+import { type Backend, type TestClient, connect, expect, scratchDir, test, topology } from "@harnix/testkit";
 
 import { SHOWCASE_CHATS, SHOWCASE_ID, showcasePackage, startApps, variant } from "./packages-host";
 
@@ -48,7 +47,7 @@ test.describe("an application's inline points and its data", () => {
   test.beforeAll(async () => {
     test.setTimeout(600_000);
     showcasePackage();
-    scratch = mkdtempSync(join(tmpdir(), "hx-inline-"));
+    scratch = scratchDir("hx-inline-");
     backend = await startApps();
   });
   test.afterAll(async () => {

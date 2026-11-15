@@ -13,6 +13,16 @@ export const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", ".
 export const RECORDINGS = join(ROOT, "tests", "live", "fixtures", "recordings");
 
 /**
+ * Where a backend's directory and a suite's own scratch go: `<checkout>/target/live/`, not the
+ * system's temporary directory. On macOS that is `/var/folders/…/T`, which the engine's sessions
+ * may write, and the engine leaves out a skill directory under a root its sessions write: every
+ * package's skills would be missing (harnix-ext-package.md §5). A backend under it runs with
+ * git's ceiling there (`GIT_CEILING_DIRECTORIES`), so the engine does not take the checkout for
+ * its project's repository.
+ */
+export const SCRATCH_ROOT = join(ROOT, "target", "live");
+
+/**
  * Where a backend runs whose model requests have to be byte for byte the recorded ones: the
  * prompt names the directories the engine works in (the project, the memory, the scratchpad),
  * so a recording made in a temporary directory matches nothing but itself. `record-fixture.mjs`

@@ -11,8 +11,7 @@
 
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, generateKeyPairSync, sign as nodeSign } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { CONTRIB_API_VERSION, PROTOCOL_VERSION } from "@harnix/core/protocol";
@@ -25,6 +24,7 @@ import {
   expect,
   freePort,
   launchFor,
+  scratchDir,
   sleep,
   startHarnix,
   test,
@@ -228,7 +228,7 @@ test.describe("on a reachable node", () => {
   test.beforeAll(async () => {
     // The certificate is self-signed; only this describe talks to it.
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-    scratch = realpathSync(mkdtempSync(join(tmpdir(), "harnix-live-reachable-")));
+    scratch = scratchDir("harnix-live-reachable-");
     const home = join(scratch, "home");
     mkdirSync(home, { recursive: true });
     execFileSync("openssl", [

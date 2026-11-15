@@ -14,12 +14,11 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { appendFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import type { Frame, FrameLocator, Page } from "@playwright/test";
-import { type Backend, connect, expect, test } from "@harnix/testkit";
+import { type Backend, connect, expect, scratchDir, test } from "@harnix/testkit";
 
 import { SHOWCASE_CHATS, SHOWCASE_ID, appsTools, showcasePackage, startApps, variant } from "../api/packages-host";
 import { MOCK_PUBLISHER, STORE_FIXTURE } from "../api/packages-store";
@@ -478,7 +477,7 @@ test.describe("who signed it decides where it runs", () => {
   test.beforeAll(async () => {
     test.setTimeout(600_000);
     showcasePackage();
-    scratch = mkdtempSync(join(tmpdir(), "hx-frames-"));
+    scratch = scratchDir("hx-frames-");
     backend = await startApps({ dev: false, profile: `\n[ext.packages.trusted_publishers]\nexample = ["${MOCK_PUBLISHER}"]\n` });
   });
   test.afterAll(async () => {

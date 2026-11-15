@@ -139,7 +139,7 @@ testkit 的 `carrier()` 读它，套件的 profile 里用 `onCarrier()` 把 `[ex
 回放缺省按位置、非严格：请求与录下的不一样照样放回去，只在后端日志里记一行 `diverges from recording`。严格回放
 （`harnix serve --replay-dir <目录> --replay-strict`、testkit 的 `replayStrict: true`、`pnpm live --strict` 即
 `HARNIX_REPLAY_STRICT=1`）让不一样的那次调用失败（ipdrun-45）。引擎给回放的会话按录像开录那天定日期（Agix ipdrun-06），
-日期不是问题；但拼出来的提示词写着工作目录、记忆与 scratchpad 的目录、操作系统和 shell，而每个后端都在自己的临时目录里，
+日期不是问题；但拼出来的提示词写着工作目录、记忆与 scratchpad 的目录、操作系统和 shell，而每个后端都在自己的临时目录里（`target/live/` 下；不用系统的临时目录，macOS 上那是会话可写的根，引擎会略去其下包的 skill 目录），
 所以对一般的用例，严格回放每一次调用都对不上。
 
 **真录的那几份照严格回放跑**：`api/strict-replay.spec.ts`（`@strict`）把 `record-fixture.mjs` 录的每一份
@@ -171,7 +171,7 @@ ui/packages/shell/           @harnix/shell：界面本身；Vitest，构建到 u
 ui/packages/ext-sdk/         @harnix/ext-sdk：扩展包界面在隔离 iframe 里的一侧（桥 harnix-ui-bridge@2、mock 宿主）；Vitest
 ui/packages/ext-kit/          @harnix/ext-kit：iframe 里的外壳令牌与基础组件；Vitest
 ui/packages/testkit/         @harnix/testkit
-  src/launcher.ts            startHarnix：独立的 HOME、数据根、引擎根、项目、端口、拓扑、回放目录
+  src/launcher.ts            startHarnix：独立的 HOME、数据根、引擎根、项目、端口、拓扑、回放目录；都在 target/live/ 下（scratchDir）
   src/api.ts                 connect：基于 @harnix/core/client 的测试客户端；finish、inconclusive；覆盖计数
   src/fixtures.ts            Playwright 夹具：harnix（每个 worker 一个）、api（每个用例一个）、mode
   src/suite.ts               defineSuite：0.3 套件形状的适配
@@ -354,7 +354,7 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
 | 打包工具 `harnix-pack` | `cargo build --release -p harnix-package --features compile --bin harnix-pack --target-dir target/packages`；`scripts/check.sh` 编好（设了 `HARNIX_BIN` 时套件不再问 cargo），单跑时套件自己编 |
 | 带 `wasm,proc` 的 `harnix-testapp` | 同一个目录；信 mock 商店、能缩短休眠的只有它（见下面的两个构建方法） |
 | 示例包 | `examples/packages/showcase`：测试开始时编组件（`wasm32-wasip2`）、为这个引擎编译、打成 `.hxext`，按源码哈希缓存在 `target/packages/showcase/` |
-| mock 商店 | `tests/live/api/packages-store.ts` 在临时目录里用 `harnix-pack sign` / `countersign` / `index` 把 showcase 做成两个版本（0.2.0 多要几项能力）、写出 `index.json`，经 `[ext.packages] store = "file://…"` 给后端；mock 的发布者与商店密钥在 `tests/live/fixtures/store/`，只是测试钥 |
+| mock 商店 | `tests/live/api/packages-store.ts` 在 `target/live/` 下的临时目录里用 `harnix-pack sign` / `countersign` / `index` 把 showcase 做成两个版本（0.2.0 多要几项能力）、写出 `index.json`，经 `[ext.packages] store = "file://…"` 给后端；mock 的发布者与商店密钥在 `tests/live/fixtures/store/`，只是测试钥 |
 
 **Rust 这边**（载体与沙箱的测试见 §2.1）：
 

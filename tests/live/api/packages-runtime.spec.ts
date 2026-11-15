@@ -10,12 +10,11 @@
  * them there, and the call runs here.
  */
 
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import { REFUSED } from "@harnix/core/protocol";
-import { type Backend, type TestClient, carrier, connect, expect, modelMode, runTurn, sleep, test, topology } from "@harnix/testkit";
+import { type Backend, type TestClient, carrier, connect, expect, modelMode, runTurn, scratchDir, sleep, test, topology } from "@harnix/testkit";
 
 import { SHOWCASE_ID, provideModel, showcasePackage, startApps, variant } from "./packages-host";
 
@@ -84,7 +83,7 @@ test.describe("an application, installed from a file", () => {
   test.beforeAll(async () => {
     // Before the backend: building and packing is the slow part, and has nothing to do with it.
     showcasePackage();
-    scratch = mkdtempSync(join(tmpdir(), "hx-apps-"));
+    scratch = scratchDir("hx-apps-");
     backend = await startApps({
       profile: `
 [ext."${SHOWCASE_ID}"]
@@ -517,7 +516,7 @@ test.describe("its event hook, as far as its manifest's [events]", () => {
 
   test.beforeAll(async () => {
     showcasePackage();
-    scratch = mkdtempSync(join(tmpdir(), "hx-apps-events-"));
+    scratch = scratchDir("hx-apps-events-");
     // Its hook told to refuse a built-in tool: what it may not see, it cannot refuse.
     backend = await startApps({ profile: `\n[ext."${SHOWCASE_ID}"]\nblocked_tool = "Bash"\n` });
   });

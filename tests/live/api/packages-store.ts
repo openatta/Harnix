@@ -16,12 +16,11 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { type Backend, type LaunchOptions, type ModelMode, ROOT, launchFor, startHarnix } from "@harnix/testkit";
+import { type Backend, type LaunchOptions, type ModelMode, ROOT, launchFor, scratchDir, startHarnix } from "@harnix/testkit";
 
 import { type Entries, SHOWCASE_ID, TARGET, appsTools, buildBeside, onCarrier, readZip, showcasePackage, writeZip } from "./packages-host";
 
@@ -70,7 +69,7 @@ function grown(manifest: string): string {
 
 /** A fresh mock store in a temporary directory. */
 export function mockStore(): MockStore {
-  const dir = mkdtempSync(join(tmpdir(), "hx-store-"));
+  const dir = scratchDir("hx-store-");
   const staging = join(dir, "staging");
   mkdirSync(join(dir, "packages"), { recursive: true });
   mkdirSync(staging, { recursive: true });

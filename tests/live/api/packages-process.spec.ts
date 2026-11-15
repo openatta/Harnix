@@ -27,12 +27,11 @@
  * another version.
  */
 
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { EXTENSION_UNAVAILABLE, REFUSED } from "@harnix/core/protocol";
-import { type Backend, type Frame, type TestClient, connect, expect, modelMode, sleep, test, topology } from "@harnix/testkit";
+import { type Backend, type Frame, type TestClient, connect, expect, modelMode, scratchDir, sleep, test, topology } from "@harnix/testkit";
 
 import { SHOWCASE_CHATS, SHOWCASE_ID, appsTools, provideModel, readZip, recalledOf, showcasePackage, startApps, variant } from "./packages-host";
 import { appsTestApp } from "./packages-store";
@@ -115,11 +114,11 @@ test.describe("packages in processes of their own", () => {
   let api: TestClient;
   /** The two packages whose processes lie. */
   let variants: { wrong: string; tampered: string };
+  let scratch: string;
 
   test.beforeAll(async () => {
     test.setTimeout(600_000);
-    const scratch = join(tmpdir(), `harnix-process-${process.pid}`);
-    mkdirSync(scratch, { recursive: true });
+    scratch = scratchDir("harnix-process-");
     const wrong = renamed(scratch, WRONG);
     const tampered = renamed(scratch, TAMPERED);
     const other = unpack(tampered, join(scratch, "other"), (m) => `${m}\n[[method]]\nname = "more"\ndescription = "Not installed"\n`);
@@ -151,6 +150,7 @@ test.describe("packages in processes of their own", () => {
   });
   test.afterAll(async () => {
     await backend?.dispose();
+    if (scratch) rmSync(scratch, { recursive: true, force: true });
   });
   test.beforeEach(async () => {
     api = await connect(backend, { topology: topology() });
@@ -378,7 +378,7 @@ test.describe("an extension process's own engine", () => {
 
   test.beforeAll(async () => {
     test.setTimeout(600_000);
-    scratch = mkdtempSync(join(tmpdir(), "hx-proc-engine-"));
+    scratch = scratchDir("hx-proc-engine-");
     // Idles in its process after a minute (a manifest's least), and the product lets the process
     // go once that has happened and its engine is unused.
     const onDemand = variant(join(scratch, "on-demand.hxext"), (e) => {

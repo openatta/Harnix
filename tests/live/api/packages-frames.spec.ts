@@ -12,11 +12,10 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { appendFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { type Backend, type TestClient, connect, expect, test } from "@harnix/testkit";
+import { type Backend, type TestClient, connect, expect, scratchDir, test } from "@harnix/testkit";
 
 import { SHOWCASE_CHATS, SHOWCASE_ID, appsTools, showcasePackage, startApps, variant } from "./packages-host";
 import { MOCK_PUBLISHER, STORE_FIXTURE } from "./packages-store";
@@ -29,7 +28,7 @@ const modules = (hello: any) => (hello.contributions ?? []).filter((c: any) => c
 
 let scratch: string;
 test.beforeAll(() => {
-  scratch = mkdtempSync(join(tmpdir(), "hx-frames-api-"));
+  scratch = scratchDir("hx-frames-api-");
 });
 test.afterAll(() => {
   if (scratch) rmSync(scratch, { recursive: true, force: true });
