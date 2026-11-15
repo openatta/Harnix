@@ -121,7 +121,7 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
 /// (`.agix/agents/`, where the engine reads a project's agent types).
 ///
 /// It runs on the wrapped scene's own scene (`flow-harnix` → `harnix`): a scene layer is not one of
-/// the engine's scenes, and a sub-agent does not have a layer's tools and added text anyway.
+/// the engine's scenes. A sub-agent has the session's own tools, not the layer's added text.
 fn write_agent_type(workspace: &std::path::Path, main_scene: &str) {
     let inner = main_scene.strip_prefix("flow-").unwrap_or(main_scene);
     let dir = workspace.join(".agix").join("agents");
