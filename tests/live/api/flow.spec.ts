@@ -77,7 +77,8 @@ test("the module says what it offers: flows, a definition with its parts, the ca
   expect(info.digest).toMatch(/^[0-9a-f]{64}$/);
 
   const catalog = await api.call("flow.catalog");
-  // The wrapped scene (flow_submit) and the application's own (structured output, xops-02 §2).
+  // The wrapped scenes (flow_submit) and the application's own, for its templates' sessions
+  // (structured output, xops-02 §2).
   expect(catalog.scenes).toEqual(["flow-code", "flow-harnix", "flow-mini", "harnix"]);
   expect(info.protocol.analyze).toContain("Refused unless a permission allows them: Bash, PowerShell, REPL, Write, Edit, NotebookEdit, TodoWrite");
   expect(catalog.steps).toEqual(["collect", "self-check"]);
@@ -97,9 +98,9 @@ test("the module says what it offers: flows, a definition with its parts, the ca
   expect(problems.length).toBeGreaterThan(0);
   expect(JSON.stringify(problems)).toContain("nowhere");
   const unwrapped = await api.call("flow.validate", {
-    yaml: "name: bare\nstations: [{id: a, executor: {kind: session, scene: harnix}, skill: analyze, output: {type: object}, exit: [{kind: output}]}]",
+    yaml: "name: bare\nstations: [{id: a, executor: {kind: session, scene: mini}, skill: analyze, output: {type: object}, exit: [{kind: output}]}]",
   });
-  expect(JSON.stringify(unwrapped)).toContain("scene harnix");
+  expect(JSON.stringify(unwrapped)).toContain("scene mini");
 });
 
 test("lease tokens stay with their claimants, and push tasks are the flow's to hand in", TAGS, async () => {
