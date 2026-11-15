@@ -39,15 +39,16 @@ crate 自己的 `Cargo.toml` 里，不从 workspace 继承（应用把这些 cra
 ## 开发
 
 - `docs/` 只放架构与二开的文档：架构与理由在 `docs/concept_and_architecture.md`，用词照 `docs/glossary.md`，
-  三种做法（模式 1 / 2 / 3）与产品形态的总览在 `docs/app-development.md`，模式 1 的指南与接口在 `docs/harnix-sdk.md`，
-  插件 APP（模式 2 / 3）在 `docs/harnix-plugin.md`，Harnix app 在 `docs/harnix-app.md`，系统 space 在 `docs/system-space.md`，
+  三种模式（模式 1 纯 Rust；模式 2 Rust + 进程内的扩展，缺省；模式 3 Rust + 每个扩展一个进程）的总览在 `docs/app-development.md`，
+  原生扩展的指南与接口在 `docs/harnix-ext.md`，扩展包（模式 2 / 3）在 `docs/harnix-ext-package.md`，
+  Harnix app 在 `docs/harnix-app.md`，系统 space 在 `docs/system-space.md`，
   贡献点 `docs/contribution_points.md`（表由代码生成），LIVE 测试框架 `docs/testing.md`。
-  `docs/harnix-sdk.md` 的版本表写着当前版本，`scripts/set-version.sh` 连它一起改；表里的五个数 `tests/crate-metadata.mjs` 对着代码查。
+  `docs/harnix-ext.md` 的版本表写着当前版本，`scripts/set-version.sh` 连它一起改；表里的五个数 `tests/crate-metadata.mjs` 对着代码查。
   版本迁移写在 `docs/migrations/<x.y.z>.md`（要应用动手的版本各写一份，登记在 `docs/migrations/README.md` 的表里）：只在本地，
   已在 `.gitignore`，不提交。
   过程（计划、进度、设计记录）不进 `docs/`。下游项目的需求在 GitHub issue 里记（每个项目一个标签），
   `docs/issues/README.md` 只是代码里的编号与 issue 的对照表。0.4 的设计记录与路线已从仓库移出，在 git 历史里；
-  代码注释不引用它们，也不引用审查的轮次：写一行理由，或指向这里的文档（`concept §3.2`、`harnix-sdk.md §17.6`），
+  代码注释不引用它们，也不引用审查的轮次：写一行理由，或指向这里的文档（`concept §3.2`、`harnix-ext.md §17.6`），
   `tests/style-lint.mjs` 拦「设计 §」「design §」「review #」「review G2」这类审查编号、「roadmap M」。
 - 改了 `README.md` 或 `docs/README.zh-CN.md`，两边一起改，再 `node tests/readme-pairing.mjs --write`。
 - 开始一个新的里程碑，要维护者明确说开始。
