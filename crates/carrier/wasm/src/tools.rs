@@ -20,14 +20,13 @@
 //!   package does not get to write into the result of every tool the model calls. It cannot change
 //!   the call. A hook that fails lets the call through: a package's fault is not the user's.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use harnix_carrier_shared::tools::{cancellable, hook_decision, permission, tool_output, tool_spec};
 use harnix_carrier_shared::Loaded;
 use harnix_ext::engine::{
-    HookDecision, Permission, SessionFacts, Tool, ToolCallFacts, ToolCx, ToolError, ToolHook, ToolOutput, ToolProvider,
-    ToolSpec,
+    HookDecision, Permission, Tool, ToolCallFacts, ToolCx, ToolError, ToolHook, ToolOutput, ToolProvider, ToolSpec,
+    ToolsChanged,
 };
 use harnix_wasm_port::{CallMeta, HookCall, HookReply, ToolDef};
 use serde_json::{json, Value};
@@ -47,8 +46,8 @@ impl WasmTools {
         Self { registry }
     }
 
-    /// The tools a session in `project` is given now: what the engine registers.
-    pub fn tools_for(&self, project: &std::path::Path) -> Vec<Arc<dyn Tool>> {
+    /// The tools the engine's sessions are given now.
+    pub fn tools(&self) -> Vec<Arc<dyn Tool>> {
         let mut tools: Vec<Arc<dyn Tool>> = Vec::new();
         for app in self.registry.loaded() {
             if !app.component {
@@ -61,26 +60,20 @@ impl WasmTools {
                     def: def.clone(),
                     app: app.clone(),
                     registry: self.registry.clone(),
-                    project: project.to_path_buf(),
                 }));
             }
         }
         tools
     }
 
-    /// The hooks for one session: each running package's `events`.
-    pub fn hooks_for(&self, session_id: &str, depth: u32) -> Vec<Arc<dyn ToolHook>> {
+    /// The hooks before every session's tool calls: each running package's `events`.
+    pub fn hooks(&self) -> Vec<Arc<dyn ToolHook>> {
         self.registry
             .loaded()
             .into_iter()
             .filter(|app| app.component)
             .map(|app| {
-                Arc::new(AppEvents {
-                    app,
-                    registry: self.registry.clone(),
-                    session_id: session_id.to_string(),
-                    depth,
-                }) as Arc<dyn ToolHook>
+                Arc::new(AppEvents { app, registry: self.registry.clone() }) as Arc<dyn ToolHook>
             })
             .collect()
     }
@@ -91,12 +84,16 @@ impl ToolProvider for WasmTools {
         NAME
     }
 
-    fn tools(&self, session: &SessionFacts) -> Vec<Arc<dyn Tool>> {
-        self.tools_for(session.project())
+    fn tools(&self) -> Vec<Arc<dyn Tool>> {
+        WasmTools::tools(self)
     }
 
-    fn hooks(&self, session: &SessionFacts) -> Vec<Arc<dyn ToolHook>> {
-        self.hooks_for(session.session_id(), session.depth())
+    fn hooks(&self) -> Vec<Arc<dyn ToolHook>> {
+        WasmTools::hooks(self)
+    }
+
+    fn changes(&self) -> Vec<ToolsChanged> {
+        vec![self.registry.changed()]
     }
 }
 
@@ -106,8 +103,6 @@ struct AppTool {
     def: ToolDef,
     app: Arc<Loaded>,
     registry: Arc<Registry>,
-    /// The session's project: `/project`, for a manifest that asks for `${project}`.
-    project: PathBuf,
 }
 
 #[async_trait::async_trait]
@@ -155,7 +150,7 @@ impl Tool for AppTool {
             tool: self.def.name.clone(),
             input,
             call_id: call_id.clone(),
-            project: Some(self.project.clone()),
+            project: (!cx.project().as_os_str().is_empty()).then(|| cx.project().to_path_buf()),
             progress: true,
         };
         // On behalf of the session's turn: what the tool calls carries the turn's chain.
@@ -170,8 +165,6 @@ impl Tool for AppTool {
 struct AppEvents {
     app: Arc<Loaded>,
     registry: Arc<Registry>,
-    session_id: String,
-    depth: u32,
 }
 
 #[async_trait::async_trait]
@@ -183,8 +176,8 @@ impl ToolHook for AppEvents {
         let payload = json!({
             "tool": call.name(),
             "input": call.input(),
-            "session_id": self.session_id,
-            "depth": self.depth,
+            "session_id": call.session_id(),
+            "depth": call.depth(),
         });
         let call_id = uuid::Uuid::new_v4().simple().to_string();
         let hook = HookCall {

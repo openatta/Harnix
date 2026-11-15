@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use harnix_ext::catalog::{Frequency, PointKind};
-use harnix_ext::engine::{EngineProfile, InstanceTemplate, SessionFacts, Tool, ToolProvider, ToolSpec};
+use harnix_ext::engine::{EngineProfile, InstanceTemplate, Tool, ToolProvider, ToolSpec};
 use harnix_ext::http::{full, Body, Request, Response, RouteContext, RouteHandler};
 use harnix_ext::ui::{ModuleDecl, PointDecl, SurfaceDecl, UiEntry};
 use harnix_ext::{
@@ -69,7 +69,7 @@ impl ToolProvider for Nothing {
         "probe"
     }
 
-    fn tools(&self, _: &SessionFacts) -> Vec<Arc<dyn Tool>> {
+    fn tools(&self) -> Vec<Arc<dyn Tool>> {
         Vec::new()
     }
 }

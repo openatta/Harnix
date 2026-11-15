@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use harnix_engine_api::{
-    EngineContribution, PromptDecision, PromptFacts, PromptGate, SessionFacts, Tool, ToolHook, ToolProvider,
+    EngineContribution, PromptDecision, PromptFacts, PromptGate, Tool, ToolHook, ToolProvider, ToolsChanged,
 };
 
 /// `from`'s, after what `into` has.
@@ -27,16 +27,16 @@ pub(crate) fn merge(into: &mut EngineContribution, from: &EngineContribution) {
 /// The same contribution, with its providers, gates and hooks doing nothing while `enabled` is
 /// false: an extension that fails after its instance was built cannot take its scenes back out of
 /// the engine, but it stops reaching sessions built after.
-pub(crate) fn gated(c: &EngineContribution, enabled: Arc<AtomicBool>) -> EngineContribution {
+pub(crate) fn gated(c: &EngineContribution, enabled: Arc<AtomicBool>, changed: ToolsChanged) -> EngineContribution {
     let mut out = EngineContribution::new();
     for layer in c.scenes() {
         out.scene(layer.clone());
     }
     for inner in c.providers() {
-        out.provider(Arc::new(Gated { inner: inner.clone(), enabled: enabled.clone() }));
+        out.provider(Arc::new(Gated { inner: inner.clone(), enabled: enabled.clone(), changed: changed.clone() }));
     }
     for inner in c.prompt_gates() {
-        out.prompt_gate(Arc::new(Gated { inner: inner.clone(), enabled: enabled.clone() }));
+        out.prompt_gate(Arc::new(Gated { inner: inner.clone(), enabled: enabled.clone(), changed: changed.clone() }));
     }
     for pattern in c.admitted() {
         out.admit_everywhere(pattern);
@@ -52,6 +52,8 @@ pub(crate) fn scene_ids(c: &EngineContribution) -> Vec<String> {
 struct Gated<T: ?Sized> {
     inner: Arc<T>,
     enabled: Arc<AtomicBool>,
+    /// Fired when the extension is switched off: what it gave is gone from the next registration.
+    changed: ToolsChanged,
 }
 
 impl<T: ?Sized> Gated<T> {
@@ -65,12 +67,18 @@ impl ToolProvider for Gated<dyn ToolProvider> {
         self.inner.name()
     }
 
-    fn tools(&self, session: &SessionFacts) -> Vec<Arc<dyn Tool>> {
-        if self.on() { self.inner.tools(session) } else { Vec::new() }
+    fn tools(&self) -> Vec<Arc<dyn Tool>> {
+        if self.on() { self.inner.tools() } else { Vec::new() }
     }
 
-    fn hooks(&self, session: &SessionFacts) -> Vec<Arc<dyn ToolHook>> {
-        if self.on() { self.inner.hooks(session) } else { Vec::new() }
+    fn hooks(&self) -> Vec<Arc<dyn ToolHook>> {
+        if self.on() { self.inner.hooks() } else { Vec::new() }
+    }
+
+    fn changes(&self) -> Vec<ToolsChanged> {
+        let mut all = self.inner.changes();
+        all.push(self.changed.clone());
+        all
     }
 }
 
@@ -93,10 +101,10 @@ mod tests {
         fn name(&self) -> &str {
             "one"
         }
-        fn tools(&self, _: &SessionFacts) -> Vec<Arc<dyn Tool>> {
+        fn tools(&self) -> Vec<Arc<dyn Tool>> {
             vec![]
         }
-        fn hooks(&self, _: &SessionFacts) -> Vec<Arc<dyn ToolHook>> {
+        fn hooks(&self) -> Vec<Arc<dyn ToolHook>> {
             vec![Arc::new(Never)]
         }
     }
@@ -124,13 +132,17 @@ mod tests {
         let mut c = EngineContribution::new();
         c.provider(Arc::new(One)).prompt_gate(Arc::new(Refuse));
         let enabled = Arc::new(AtomicBool::new(true));
-        let c = gated(&c, enabled.clone());
-        let facts = SessionFacts::new("s", "/p", "harnix", 0);
+        let changed = ToolsChanged::new();
+        let mut heard = changed.watch();
+        let c = gated(&c, enabled.clone(), changed.clone());
         let message = PromptFacts::new("s", "t", "hi", Delivery::Turn);
-        assert_eq!(c.providers()[0].hooks(&facts).len(), 1);
+        assert_eq!(c.providers()[0].hooks().len(), 1);
         assert_eq!(c.prompt_gates()[0].inspect(&message).await, PromptDecision::Block("no".into()));
         enabled.store(false, Ordering::Release);
-        assert!(c.providers()[0].hooks(&facts).is_empty());
+        assert!(c.providers()[0].hooks().is_empty());
+        changed.notify();
+        assert!(c.providers()[0].changes().len() == 1);
+        assert!(heard.changed().await);
         assert_eq!(c.prompt_gates()[0].inspect(&message).await, PromptDecision::Proceed);
         assert_eq!(c.providers()[0].name(), "one");
     }

@@ -50,6 +50,19 @@ fn instances_named(state: &State, manifest: &Manifest) -> Rpc<()> {
     }
 }
 
+/// What the installed packages' tools leave room for: no name another package's already has once
+/// mapped (`harnix_package::tool_name`), and at most 64 in all. A record whose files do not read
+/// is skipped. `manifest`'s own package, when installed, is replaced rather than counted.
+fn tools_named(state: &State, manifest: &Manifest) -> Rpc<()> {
+    let (records, _) = crate::records::read_all(&state.dir);
+    let others: Vec<Manifest> = records
+        .iter()
+        .filter(|r| r.id != manifest.app.id)
+        .filter_map(|r| harnix_package::acquire::manifest_in(&state.package_dir(&r.id).join(&r.version)).ok())
+        .collect();
+    harnix_package::check_tools_beside(manifest, &others).map_err(refused)
+}
+
 /// The manifest unpacked at `root`, as JSON for the carrier.
 fn manifest_value(root: &Path) -> Value {
     std::fs::read_to_string(root.join(harnix_package::manifest::MANIFEST))
@@ -176,6 +189,7 @@ pub(crate) async fn install(state: &State, path: &Path, disclosed: &Disclosure, 
     // Before a byte of it is written.
     let verified = state.admission.admit_zip(path, &inspected.manifest)?;
     instances_named(state, &inspected.manifest)?;
+    tools_named(state, &inspected.manifest)?;
     let app = &inspected.manifest.app;
     let app_dir = state.package_dir(&app.id);
     std::fs::create_dir_all(&app_dir).map_err(|e| internal(format!("{}: {e}", app_dir.display())))?;
@@ -236,6 +250,7 @@ pub(crate) async fn update(state: &State, record: &InstallRecord, path: &Path, d
     let verified = state.admission.admit_zip(path, &inspected.manifest)?;
     // Before the installed version is taken down.
     instances_named(state, &inspected.manifest)?;
+    tools_named(state, &inspected.manifest)?;
     let version = inspected.manifest.app.version.clone();
     if version == record.version {
         return Err(refused(format!("`{}` {version} is the version installed", record.id)));

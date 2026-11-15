@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
+use harnix_ext::engine::ToolsChanged;
 use harnix_package::manifest::{Interface, Surface, UiEntry};
 use harnix_package::signature::Trust;
 use harnix_wasm_port::ToolDef;
@@ -66,9 +67,15 @@ pub struct Roster {
     loaded: RwLock<BTreeMap<String, Arc<Loaded>>>,
     progress: RwLock<Option<OnProgress>>,
     listeners: Mutex<HashMap<String, Listener>>,
+    changed: ToolsChanged,
 }
 
 impl Roster {
+    /// Fired when a package is inserted or removed: what the tool provider answers is then another set.
+    pub fn changed(&self) -> ToolsChanged {
+        self.changed.clone()
+    }
+
     /// Tell whoever listens about a tool call's progress.
     pub fn progress(&self, value: Value) {
         let f = read(&self.progress).clone();
@@ -91,10 +98,13 @@ impl Roster {
 
     pub fn insert(&self, loaded: Arc<Loaded>) {
         write(&self.loaded).insert(loaded.id.clone(), loaded);
+        self.changed.notify();
     }
 
     pub fn remove(&self, id: &str) -> Option<Arc<Loaded>> {
-        write(&self.loaded).remove(id)
+        let removed = write(&self.loaded).remove(id);
+        self.changed.notify();
+        removed
     }
 
     /// Hear one tool call's progress, until [`Self::unlisten`].
@@ -112,5 +122,38 @@ impl Roster {
         if let Some(listener) = listener {
             listener(text);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn loaded(id: &str) -> Arc<Loaded> {
+        Arc::new(Loaded {
+            id: id.into(),
+            version: "1.0.0".into(),
+            title: None,
+            root: PathBuf::new(),
+            component: true,
+            tools: Vec::new(),
+            ui: Vec::new(),
+            interface: Interface::default(),
+            surfaces: Vec::new(),
+            trust: Trust::parse("unsigned"),
+            backend_spaces: Vec::new(),
+            inline: Value::Null,
+            timeout: DEFAULT_TIMEOUT,
+        })
+    }
+
+    #[tokio::test]
+    async fn the_roster_says_when_a_package_starts_and_stops() {
+        let roster = Roster::default();
+        let mut heard = roster.changed().watch();
+        roster.insert(loaded("acme.a"));
+        assert!(heard.changed().await);
+        roster.remove("acme.a");
+        assert!(heard.changed().await);
     }
 }

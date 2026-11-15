@@ -47,6 +47,8 @@ pub(crate) struct Record {
     pub config: Value,
     pub data_dir: PathBuf,
     pub enabled: Arc<AtomicBool>,
+    /// Fired when it is switched off, for the providers it gave.
+    pub changed: harnix_engine_api::ToolsChanged,
     /// Whether its rows went in the table. One refused before they did — a second extension with
     /// an id already taken — has nothing to withdraw, and the rows under that id are the other's.
     pub installed: bool,
@@ -73,6 +75,7 @@ impl Record {
     pub fn disabled(&mut self, phase: &'static str, reason: String) {
         tracing::error!(extension = %self.manifest.id(), phase, %reason, "extension disabled");
         self.enabled.store(false, Ordering::Release);
+        self.changed.notify();
         self.status.enabled = false;
         self.status.phase = Some(phase);
         self.status.reason = Some(reason);

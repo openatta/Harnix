@@ -1,9 +1,10 @@
 //! A [`ToolProvider`] as an Agix plugin, its [`ToolHook`]s as tool middleware.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use base::interface::tool_middleware::{NextDispatch, ToolAnswer, ToolCall, ToolExec, ToolMiddleware, ToolOutcome};
-use harnix_engine_api::{Cancel, HookDecision, SessionFacts, ToolCallFacts, ToolHook, ToolProvider};
+use harnix_engine_api::{Cancel, HookDecision, ToolCallFacts, ToolHook, ToolProvider};
 use runtime::plugin::{Plugin, PluginSession, Registrar};
 
 use super::tool::{AgixTool, Site};
@@ -25,24 +26,40 @@ impl Plugin for AgixPlugin {
     }
 
     fn register(&self, session: &PluginSession<'_>, r: &mut Registrar) {
-        let facts = SessionFacts::new(session.session_id, session.project_root, session.scene, session.depth);
-        for tool in self.0.tools(&facts) {
+        for tool in self.0.tools() {
             r.tool(Arc::new(AgixTool::new(tool, self.1.clone())));
         }
-        for hook in self.0.hooks(&facts) {
-            r.tool_middleware(Arc::new(AgixHook(hook)));
+        for hook in self.0.hooks() {
+            let at = Session { id: session.session_id.to_string(), depth: session.depth, cwd: session.project_root.to_path_buf() };
+            r.tool_middleware(Arc::new(AgixHook(hook, at)));
         }
     }
 }
 
 /// A hook around every tool call of a session: asked first, then the call runs, or does not.
-struct AgixHook(Arc<dyn ToolHook>);
+struct AgixHook(Arc<dyn ToolHook>, Session);
+
+/// The session a hook is registered for, which a call's facts say.
+struct Session {
+    id: String,
+    depth: u32,
+    cwd: PathBuf,
+}
+
+impl AgixHook {
+    /// What the hook is told of `call`: the session it was registered for, and where it works.
+    fn facts(&self, call: &ToolCall, cancel: Cancel) -> ToolCallFacts {
+        ToolCallFacts::new(&call.name, call.input.clone(), cancel)
+            .with_session(&self.1.id, self.1.depth)
+            .with_cwd(self.1.cwd.clone())
+    }
+}
 
 #[async_trait::async_trait]
 impl ToolMiddleware for AgixHook {
     async fn around(&self, call: &ToolCall, exec: &mut ToolExec, next: NextDispatch<'_>) -> ToolOutcome {
         let cancel = Cancel::new();
-        let facts = ToolCallFacts::new(&call.name, call.input.clone(), cancel.clone());
+        let facts = self.facts(call, cancel.clone());
         let decision = {
             let _dropped = cancel.guard();
             let turn = exec.cancel().clone();
@@ -71,6 +88,7 @@ impl ToolMiddleware for AgixHook {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::adapt::{agix_source, assert_covers, impl_methods, trait_methods};
 
     #[test]
@@ -86,5 +104,25 @@ mod tests {
         let agix = trait_methods(&agix_source("crates/core/src/interface/tool_middleware.rs"), "pub trait ToolMiddleware:");
         let ours = impl_methods(include_str!("provider.rs"), "impl ToolMiddleware for AgixHook");
         assert_covers(agix, ours, &["around"], &[]);
+    }
+
+    struct Quiet;
+
+    #[async_trait::async_trait]
+    impl ToolHook for Quiet {
+        async fn before(&self, _: &ToolCallFacts) -> HookDecision {
+            HookDecision::Proceed
+        }
+    }
+
+    #[test]
+    fn a_hooks_facts_carry_the_session_depth_and_cwd_it_was_registered_for() {
+        let at = Session { id: "s9".into(), depth: 1, cwd: PathBuf::from("/work") };
+        let hook = AgixHook(Arc::new(Quiet), at);
+        let call = ToolCall { name: "Bash".into(), input: serde_json::json!({"command": "ls"}) };
+        let facts = hook.facts(&call, Cancel::new());
+        assert_eq!((facts.name(), facts.session_id(), facts.depth()), ("Bash", "s9", 1));
+        assert_eq!(facts.cwd(), std::path::Path::new("/work"));
+        assert_eq!(facts.input()["command"], "ls");
     }
 }
