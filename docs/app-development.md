@@ -94,7 +94,7 @@ Harnix 本身是**框架 + 第一方扩展**：Harnix app（会话 space、项�
   - 构建时链哪个载体、profile 里选哪个；模式 3 的平台要能套上沙箱（macOS，或有 Landlock 的 Linux），套不上就拒绝拉起。
 - **写扩展包的**：
   - 只写一个扩展包，不用关心宿主是哪个产品、哪种载体，只有 §10 那张表例外。
-  - 要原生代码、引擎贡献（场景、提示的闸门、凭据源）、实例模板、任意 HTTP 处理者，就不是扩展包该做的事：找产品方做成原生扩展，或者给 Harnix 提 issue。
+  - 要原生代码、引擎贡献（场景、提示的闸门）、实例模板、任意 HTTP 处理者，就不是扩展包该做的事：找产品方做成原生扩展，或者给 Harnix 提 issue。
 - **原生代码只在产品自己的原生扩展里。** 扩展包在模式 2 和 3 里都只有 WASM 与 QuickJS。
   - 模式 3 有了进程，看起来可以放原生二进制，但不放：放了包就不能在模式 2 里跑，而且签名、审核与跨平台都要另起一套。
 
@@ -104,7 +104,7 @@ Harnix 本身是**框架 + 第一方扩展**：Harnix app（会话 space、项�
 
 - 应用仓库就是自己的 crate 加上 `harnix` 依赖，用 `App::builder()` 装配。能装配的有：
   - 原生扩展（trait `Extension`）：方法、主题、space、HTTP 路由、工具、界面的声明、数据迁移；
-  - 引擎贡献：给 `main` 实例与每台进程内实例的场景层、原生工具、`ToolProvider`、工具钩子、`PromptGate`、凭据源；
+  - 引擎贡献：给 `main` 实例与每台进程内实例的场景层、原生工具、`ToolProvider`、工具钩子、`PromptGate`；
   - 实例模板：给一个 space 一台独立的实例；
   - 自己定义的能力与贡献点；
   - 第一方扩展：`harnix::first_party::standard()` 整套，或挑几个；
@@ -126,7 +126,7 @@ Harnix 本身是**框架 + 第一方扩展**：Harnix app（会话 space、项�
 - **虚拟机**：每个扩展包一台 WASM 虚拟机，只在主进程里，共用一个引擎。
 - **扩展包的 Agent**：Agix 插件装进 `install_into` 列出的产品实例。子 Agent 与产品的其它会话共用那个实例的 Agix，只靠上下文隔离；
   它的会话受产品的引擎策略约束。
-- **工具**：载体的一个 `ToolProvider` 经每台进程内实例进每个会话；spawn 出来的 daemon 不起虚拟机，经 `/ext/<id>/mcp` 回到主进程执行。这样扩展包的状态只有一份。
+- **工具**：载体的一个 `ToolProvider` 经每台进程内实例进每个会话；spawn 出来的 daemon 不起虚拟机，主进程在它的 socket 上提供这些工具、在主进程执行。这样扩展包的状态只有一份。
 - **闲置休眠**：`[backend] resident = "on-demand"` 的扩展包同时满足下面几条，就卸下后端，下一次调用时冷启动（`init` 重跑，状态从 kv 回来）：
   - 没有订阅；
   - 没有定时器；
@@ -223,9 +223,9 @@ Harnix 本身是**框架 + 第一方扩展**：Harnix app（会话 space、项�
 | 进页面的 ES 模块 | ✔ | 只 `trusted`（`ui.page`） | 只 `trusted` |
 | 工具的实现 | `Tool`、`ToolProvider` | 组件的 `tools`，经载体的 `ToolProvider` | 同，在它自己的引擎里本地调；给产品实例的过线 |
 | 工具钩子 | ✔ | ✔（`events`：观察与否决） | ✔（在它自己的引擎里；产品实例上的过线） |
-| 场景层、`PromptGate`、凭据源、`admit_everywhere` | ✔ | ✗ | ✗（它自己的引擎用它自己的场景） |
+| 场景层、`PromptGate` | ✔ | ✗ | ✗（它自己的引擎用它自己的场景） |
 | 实例模板 | ✔ | ✗ | ✗（它的引擎是收养的，不是模板） |
-| 任意 HTTP 处理者 | ✔ | ✗（`static_dir` 与载体的工具端点） | ✗ |
+| 任意 HTTP 处理者 | ✔ | ✗（`static_dir`） | ✗ |
 | 定义贡献点、定义能力、`cross_space()` | ✔ | ✗ | ✗ |
 | 能力 | 内核目录与扩展声明的 native 项，装配时授予 | package 项，经同意 | 同，产品侧复核 |
 | 范围 | 照 `Access` | 只限自己的 space 与会话 | 同 |
@@ -237,10 +237,10 @@ Harnix 本身是**框架 + 第一方扩展**：Harnix app（会话 space、项�
 | 骨架 | `harnix-contract`、`harnix-kernel`、`harnix-authz`、`harnix-router`、`harnix-transport`、`harnix-hub`、`harnix-instance`、`harnix-engine-api`、`harnix-engine`、`harnix-supervise`、`harnix-assembly` | 协议、内部接口、准入、路由表、传输、中枢、实例登记表、Agix 接缝、子进程看护、装配与扩展宿主 | ✔ | ✔ | ✔（产品侧） |
 | 扩展接口 | `harnix-ext`；门面 `harnix` | 扩展接口（S1）；`harnix::ext`、`harnix::engine`、`App`、`first_party`、`carriers` | ✔ | ✔ | ✔ |
 | 第一方扩展 | `harnix-ext-{system,harnix-app,settings,plugins,observability,devices,flow}` | 各一个原生扩展，只依赖 `harnix-ext` | ✔ | ✔ | ✔ |
-| 宿主组件接口 | `harnix-host-api` | 运行期登记、拉起扩展进程、给 daemon 配工具端点、收养（S3，凭 `extensions.manage`） | | ✔ | ✔ |
+| 宿主组件接口 | `harnix-host-api` | 运行期登记、拉起扩展进程、收养（S3，凭 `extensions.manage`） | | ✔ | ✔ |
 | 扩展包的管理 | `harnix-ext-packages` | 安装记录与同意、商店、升级与回滚、按名字选载体、把包登记成扩展 | | ✔ | ✔ |
 | 载体 | `harnix-carrier-wasm` · `harnix-carrier-proc` | 模式 2 的载体 · 模式 3 载体的产品侧（拉起、复核、扩展线的产品一端、`proc.<id>` 的收养） | | ✔ · | · ✔ |
-| 载体共用 | `harnix-carrier-shared` | 两个载体共用的部分：运行中包的名册、界面条目、包的工具在会话里的样子、`/ext/<id>/` 的 `ui` 与 `mcp` 路由 | | ✔ | ✔ |
+| 载体共用 | `harnix-carrier-shared` | 两个载体共用的部分：运行中包的名册、界面条目、包的工具在会话里的样子、`/ext/<id>/` 的 `ui` 路由 | | ✔ | ✔ |
 | 分发与信任 | `harnix-package` | 清单 `harnix-ext.toml`、包 `.hxext`、签名、商店与下载、披露、出口策略；打包工具 `harnix-pack` | | ✔ | ✔ |
 | 端口与线 | `harnix-wasm-port` | 宿主核心要外面做的（`Kernel`：产品的；`Agent`：引擎的）与外面要它做的（`Control`），每个调用带 `CallMeta`；feature `socket` 是流上的扩展线 | | ✔ | ✔ |
 | 宿主核心 | `harnix-wasm-host` | 生命周期、注册表、健康、分派、进度、休眠 | | ✔ | ✔（扩展进程侧） |

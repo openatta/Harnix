@@ -294,8 +294,7 @@ Harnix 侧绕过。
 
 1. 拷一份结构相同的：一次工具调用加一句话的，从 `calls-a-native-tool` 或 `app-echo` 拷；两个会话的（子 Agent），从 `app-subagent` 拷。
 2. 改 `calls.jsonl` 里属于它自己的那几行：`tool_args_chunks` 的 `args`（工具输入的 JSON 文本）、`kind: "tool_use"` 那一块的 `name` 与 `input`、
-   `text_chunks` 的 `texts`（最后那句话）。扩展包的工具名是 `ext__<id 的 . 换成 _>__<工具>`，spawn 的实例里是
-   `mcp__ext-<id 的 . 换成 _>__<工具>`。
+   `text_chunks` 的 `texts`（最后那句话）。扩展包的工具名是 `ext__<id 与工具名里的 . 与 - 换成 _>__<工具>`，进程内与 spawn 的实例里一样。
 3. `blobs/` 里是请求的内容（按哈希存）。缺省回放按位置、不严格，请求和录下的不一样只记日志，所以 blob 可以原样留着。手做的录像
    严格回放过不了，也不进 `strict-replay.spec.ts`；要它也过，就得用 `record-fixture.mjs` 真录一份。
 4. 在 `recordings/README.md` 的表里加一行：它演示什么、从哪一份改出来、改了什么。
