@@ -13,7 +13,7 @@
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { REFUSED } from "@harnix/core/protocol";
+import { INSTANCE_UNAVAILABLE, REFUSED } from "@harnix/core/protocol";
 import { type Backend, type TestClient, carrier, connect, expect, modelMode, runTurn, scratchDir, sleep, test, topology } from "@harnix/testkit";
 
 import { SHOWCASE_ID, provideModel, showcasePackage, startApps, variant } from "./packages-host";
@@ -64,6 +64,22 @@ async function agentSession(api: TestClient, recording: string): Promise<Session
   const s = { ...AGENT_AT, session_id: created.session_id };
   await api.call("harnix.session.attach", s);
   return s;
+}
+
+/**
+ * The commands (skills among them) a new session of the showcase's space has, where its agent
+ * package is. The package declares spaces, so its skill is listed only to sessions of those
+ * (harnix-ext-package.md §5); a session elsewhere, `main`'s default space included, does not see it.
+ */
+async function spaceCommands(api: TestClient): Promise<string> {
+  const created = await api.call("harnix.session.create", { space: SHOWCASE_ID });
+  return JSON.stringify(await api.call("engine.commands.list", { ...AGENT_AT, session_id: created.session_id }));
+}
+
+/** The commands a new session of `main`'s default space has. */
+async function mainCommands(api: TestClient): Promise<string> {
+  const created = await api.call("harnix.session.create", { instance: "main", project_root: api.project });
+  return JSON.stringify(await api.call("engine.commands.list", { instance: "main", session_id: created.session_id }));
 }
 
 /** What a new session where its agent package is would send the model, as text. */
@@ -153,8 +169,10 @@ carrier = "spawn"
     expect(installed.installed).toMatchObject({
       fingerprint,
       agent: { package: "example-showcase", instances: [AGENT_IN] },
-      skills: { [AGENT_IN]: ["showcase-tour"] },
     });
+    // Its skills are not placed in an engine: they are its own directory, listed to sessions.
+    expect(installed.installed.skills).toBeUndefined();
+    expect(existsSync(join(backend.state, "ext", SHOWCASE_ID, "skills", "showcase-tour", "SKILL.md"))).toBe(true);
     const listed = (await api.call("packages.list")).packages;
     expect(listed).toHaveLength(1);
     expect(listed[0]).toMatchObject({ id: SHOWCASE_ID, enabled: true, runtime: { state: "running" } });
@@ -193,12 +211,9 @@ carrier = "spawn"
     const { text, tools } = await context(api);
     for (const tool of TOOLS) expect(tools.length ? tools : text, tool).toContain(tool);
     expect(await agentContext(api), "the QuickJS prompt.block").toContain(BLOCK_MARKER);
-    const commands = JSON.stringify(await api.call("engine.commands.list", AGENT_AT));
-    expect(commands, "the skill").toContain("showcase-tour");
-    if (ON_PROCESS) {
-      expect(text, "the QuickJS prompt.block is its own engine's").not.toContain(BLOCK_MARKER);
-      expect(JSON.stringify(await api.call("engine.commands.list", { instance: "main" })), "its skill too").not.toContain("showcase-tour");
-    }
+    expect(await spaceCommands(api), "the skill, in its space").toContain("showcase-tour");
+    expect(await mainCommands(api), "its skill is its spaces' only").not.toContain("showcase-tour");
+    if (ON_PROCESS) expect(text, "the QuickJS prompt.block is its own engine's").not.toContain(BLOCK_MARKER);
   });
 
   test("each tool asks first, and answers once permitted", TAGS, async () => {
@@ -373,7 +388,16 @@ carrier = "spawn"
   });
 
   test("a spawned daemon started again has the tools again", TAGS, async () => {
-    const has = async () => (await context(api, "far")).tools;
+    // Until its new process is up, a session there is refused as unavailable ("the instance is
+    // starting"): asked again, not a failure.
+    const has = async () =>
+      context(api, "far").then(
+        (c) => c.tools,
+        (e) => {
+          if (e?.code !== INSTANCE_UNAVAILABLE) throw e;
+          return [] as string[];
+        },
+      );
     // Restarted: a new link, which registers them before it is ready.
     await api.call("system.instances.restart", { instance: "far", space: "system" });
     await expect.poll(has, { timeout: 60_000, intervals: [500] }).toContain(TOOL("echo"));
@@ -394,7 +418,7 @@ carrier = "spawn"
     const { text, tools } = await context(api);
     for (const tool of TOOLS) expect(tools.length ? tools : [text], tool).not.toContain(tool);
     expect(text).not.toContain(BLOCK_MARKER);
-    expect(JSON.stringify(await api.call("engine.commands.list", { instance: "main" }))).not.toContain("showcase-tour");
+    if (!ON_PROCESS) expect(await spaceCommands(api), "its skill, off").not.toContain("showcase-tour");
     expect((await fetch(`${backend.url.replace(/\/$/, "")}/ext/${SHOWCASE_ID}/ui/showcase.js`)).status).toBe(404);
     const plugin = (await api.call("engine.plugin.list")).plugins.find((p: any) => p.name === "example-showcase");
     expect(plugin?.enabled).toBe(ON_PROCESS ? undefined : false);
@@ -411,6 +435,7 @@ carrier = "spawn"
       .poll(async () => (await context(api, "far")).tools, { timeout: 60_000, intervals: [500] })
       .toContain(TOOL("echo"));
     expect(await agentContext(api)).toContain(BLOCK_MARKER);
+    expect(await spaceCommands(api), "its skill, on again").toContain("showcase-tour");
     expect((await fetch(`${backend.url.replace(/\/$/, "")}/ext/${SHOWCASE_ID}/ui/showcase.js`)).status).toBe(200);
   });
 
@@ -419,7 +444,7 @@ carrier = "spawn"
     expect(removed).toMatchObject({ id: SHOWCASE_ID, uninstalled: true, removed: { agent: { package: "example-showcase" } } });
     expect((await api.call("packages.list")).packages).toEqual([]);
     expect((await api.call("engine.plugin.list")).plugins.map((p: any) => p.name)).not.toContain("example-showcase");
-    expect(JSON.stringify(await api.call("engine.commands.list", { instance: "main" }))).not.toContain("showcase-tour");
+    expect(await mainCommands(api)).not.toContain("showcase-tour");
     const { text, tools } = await context(api);
     expect(tools.length ? tools : [text]).not.toContain(TOOL("echo"));
     expect(text).not.toContain(BLOCK_MARKER);

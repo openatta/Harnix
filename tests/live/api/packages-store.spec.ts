@@ -13,7 +13,7 @@ import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "no
 import { join } from "node:path";
 
 import { INVALID_PARAMS, REFUSED } from "@harnix/core/protocol";
-import { type Backend, type TestClient, carrier, connect, expect, runTurn, test, topology } from "@harnix/testkit";
+import { type Backend, type TestClient, connect, expect, runTurn, test, topology } from "@harnix/testkit";
 
 import { SHOWCASE_ID, appsTools, showcasePackage } from "./packages-host";
 import { MOCK_PUBLISHER, STORE_FIXTURE, type MockStore, appsTestApp, mockStore, sha256, startStore, withArtifacts, withVersion } from "./packages-store";
@@ -299,17 +299,18 @@ test.describe("the store, trusted", () => {
 
   test("uninstalled by name: everything it brought goes, its data with it", TAGS, async () => {
     const removed = await api.call("packages.uninstall", { id: SHOWCASE_ID });
-    // Its skills are in the instance it was placed in: on the process carrier, its own engine.
-    const skillsIn = carrier() === "process" ? `proc.${SHOWCASE_ID}` : "main";
-    expect(removed).toMatchObject({ id: SHOWCASE_ID, uninstalled: true, removed: { agent: { package: "example-showcase" }, skills: { [skillsIn]: ["showcase-tour"] } } });
+    // Its skills were never placed in an engine (they go with its directory), so only its agent
+    // package is reported removed.
+    expect(removed).toMatchObject({ id: SHOWCASE_ID, uninstalled: true, removed: { agent: { package: "example-showcase" } } });
+    expect(removed.removed.skills).toBeUndefined();
     expect((await api.call("packages.list")).packages).toEqual([]);
     expect((await api.call("engine.plugin.list")).plugins.map((p: any) => p.name)).not.toContain("example-showcase");
-    expect(JSON.stringify(await api.call("engine.commands.list", { instance: "main" }))).not.toContain("showcase-tour");
-    expect(existsSync(join(backend.state, "ext", SHOWCASE_ID)), "its directory, kv and data").toBe(false);
+    expect(existsSync(join(backend.state, "ext", SHOWCASE_ID)), "its directory, kv, skills and data").toBe(false);
     expect((await fetch(`${backend.url.replace(/\/$/, "")}/ext/${SHOWCASE_ID}/ui/showcase.js`)).status).toBe(404);
     const s = await session(api, "says-ready");
     const context = JSON.stringify(await api.call("system.context", s));
     expect(context).not.toContain(TOOL("echo"));
+    expect(JSON.stringify(await api.call("engine.commands.list", s))).not.toContain("showcase-tour");
     // Installed again, it starts from nothing: the count with it.
     await installByName(api, "0.1.0");
     const count = await session(api, "app-count");
