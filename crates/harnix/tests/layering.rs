@@ -712,7 +712,7 @@ fn every_harnix_dependency_resolves() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// The layering rules of 0.5.0.
+// The layering rules of 0.4.3.
 //
 // Each rule is a test of its own: L (what a crate may depend on), C (what its source may say),
 // and the global ones. A rule the code does not meet yet carries an ignore naming the stage that

@@ -175,7 +175,7 @@ else if (words < 500) fail(`only ${words} dictionary entries read: has the dicti
 else ok(`${words} dictionary entries, none in a word the glossary retired (${BANNED.length} checked)`);
 
 /* ── comments cite what a reader can open ───────────────────────────────── */
-// The 0.4 design record, its roadmap and its review rounds left the repository (CLAUDE.md), and
+// The 0.4.2 design record, its roadmap and its review rounds left the repository (CLAUDE.md), and
 // so do the reports of a review; a comment that cites `design §7.3`, `review #4` or a review's
 // finding (`review G2`) sends the reader nowhere. A comment says its reason, or names a document
 // that is here: `concept §3.2`, `harnix-ext.md §17.6`. And the words the glossary retired do not
@@ -196,7 +196,7 @@ const RETIRED = [
   [new RegExp("[Ee]mpty " + "application"), "the empty application — the Harnix app"],
   [new RegExp("空" + "应用"), "空应用 — Harnix app"],
 ];
-// The 0.4 words (`crates/`, `examples/`, `ui/`), spelled so that this file does not say them.
+// The 0.4.2 words (`crates/`, `examples/`, `ui/`), spelled so that this file does not say them.
 const OLD_WORDS = [
   [new RegExp("插件 ?" + "APP"), "插件 APP — an extension package"],
   [new RegExp("运行期" + "应用"), "运行期应用 — an extension package"],
@@ -239,9 +239,9 @@ for (const file of tracked) {
 if (cited.length) fail(`citations a reader cannot follow, or retired words:\n  ${cited.join("\n  ")}`);
 else ok(`${read} source files, none citing the removed design record or using a retired word`);
 
-/* ── the 0.4 wire names are gone ────────────────────────────────────────── */
-// 0.5.0 names every method and topic once: the kernel's `harnix.<area>.<verb>`, the engine's
-// pass-throughs `engine.*`, an extension's under its id. A caller that still says a 0.4 name
+/* ── the 0.4.2 wire names are gone ────────────────────────────────────────── */
+// 0.4.3 names every method and topic once: the kernel's `harnix.<area>.<verb>`, the engine's
+// pass-throughs `engine.*`, an extension's under its id. A caller that still says a 0.4.2 name
 // calls nothing: there is no alias to answer it. The engine's own names (`session.list`, …) are
 // still the engine's in the crates that speak to Agix, so those are only refused where they are
 // quoted whole anywhere else.
@@ -278,7 +278,7 @@ const ENGINE_NAMES = [
   ...family("mcp.", "status addServer"),
   "commands.list",
 ];
-// The extension package's names (0.4: "application packages"). `harnix-app` alone is still a name:
+// The extension package's names (0.4.2: "application packages"). `harnix-app` alone is still a name:
 // the first-party extension of that id; only the packing tool's commands and the manifest are gone.
 const OLD_PACKAGE_NAMES = [
   /\bhxapp\b/,
@@ -319,8 +319,8 @@ for (const file of everything) {
     if (old) named.push(`${file}:${i + 1} says \`${old}\``);
   });
 }
-if (named.length) fail(`0.4 wire and package names, which nothing answers any more:\n  ${named.slice(0, 20).join("\n  ")}`);
-else ok(`${everything.length} tracked files, none saying a 0.4 wire or package name`);
+if (named.length) fail(`0.4.2 wire and package names, which nothing answers any more:\n  ${named.slice(0, 20).join("\n  ")}`);
+else ok(`${everything.length} tracked files, none saying a 0.4.2 wire or package name`);
 
 console.log(process.exitCode ? "\nSTYLE LINT FAILED" : "\nSTYLE LINT PASSED");
 process.exit(process.exitCode || 0);

@@ -134,7 +134,7 @@ off = ["flow"]            # 链进来了但关掉的扩展；不写是都开
 default_space = "sessions"  # 不声称 space 的调用按它检查，换掉扩展声明的缺省；必须是已启用扩展声明的 space
 ```
 
-两节都拒绝不认识的键；0.4 的 `[shell] spaces` 已删，写了启动就拒绝。哪些内建 space 在，现在是哪些扩展开着：
+两节都拒绝不认识的键；0.4.2 的 `[shell] spaces` 已删，写了启动就拒绝。哪些内建 space 在，现在是哪些扩展开着：
 
 | `[extensions] off` 里的名字 | 去掉之后 |
 |---|---|
@@ -179,5 +179,5 @@ Harnix app 是原生扩展最小的例子：一个后端扩展、一个界面包
 只从 `@harnix/react` 与 `@harnix/core` 的公开导出取东西，经 `HostApi` 调后端；两个左栏的组件在这个包里，不在外壳里。
 
 **要一个不同的 Harnix app**：不 fork 外壳，在自己的产品里把 `harnix-app` 写进 `[extensions] off`，用自己的扩展声明 space、用自己的 UI 包
-注册 space 顶替（[Harnix 扩展](harnix-ext.md)）。0.4 里后端随框架链进来、只能藏不能去；现在它是一个独立扩展，关掉就是整个不在，
+注册 space 顶替（[Harnix 扩展](harnix-ext.md)）。0.4.2 里后端随框架链进来、只能藏不能去；现在它是一个独立扩展，关掉就是整个不在，
 `harnix-app.*` 的方法也不再登记。

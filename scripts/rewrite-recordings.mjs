@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Rewrite the 0.4 wire names and tool names in recorded model calls, and give each blob it changed
+// Rewrite the 0.4.2 wire names and tool names in recorded model calls, and give each blob it changed
 // its new digest.
 //
 //   node scripts/rewrite-recordings.mjs [--check] [<recordings-dir>…]
@@ -23,7 +23,7 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
 const family = (prefix, names) => names.split(/\s+/).map((n) => prefix + n);
 
-/** The 0.4 names that moved, as `[old, new]` (design: 9.2, 9.3). */
+/** The 0.4.2 names that moved, as `[old, new]` (design: 9.2, 9.3). */
 const RENAMED = [
   ...family("harnix.settings.", "describe set setProvider").map((o) => [o, o.slice("harnix.".length)]),
   ...family("harnix.plugins.", "upload install uninstall enable disable reload list").map((o) => [o, o.slice("harnix.".length)]),
@@ -86,8 +86,8 @@ export function renamed(text) {
 }
 
 /**
- * A package's tools are `ext__<id>__<tool>` in a session (0.4: `app__`), and `mcp__ext-<id>__<tool>`
- * in a spawned daemon (0.4: `mcp__app-`). Whole names only: a `__` before it is another word's.
+ * A package's tools are `ext__<id>__<tool>` in a session (0.4.2: `app__`), and `mcp__ext-<id>__<tool>`
+ * in a spawned daemon (0.4.2: `mcp__app-`). Whole names only: a `__` before it is another word's.
  */
 export function renamedTools(text) {
   return text.replace(/(?<![\w])app__(?=[a-z][a-z0-9_]*__)/g, "ext__").replace(/(?<![\w])mcp__app-(?=[a-z][a-z0-9_]*__)/g, "mcp__ext-");

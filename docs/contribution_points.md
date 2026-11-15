@@ -1,6 +1,6 @@
 # 界面贡献点
 
-Harnix 的界面由九个具名的贡献点拼起来（贡献点 v3：在 0.4 的八个之上加了 `session.action`），外加第一方扩展自己定义、
+Harnix 的界面由九个具名的贡献点拼起来（贡献点 v3：在 0.4.2 的八个之上加了 `session.action`），外加第一方扩展自己定义、
 别的 UI 包往里注册的点（如 `system.console.tab`，见第二张表，不算进九个）。
 
 **这首先不是给第三方代码用的扩展面。** 扩展 agent 是 Agix 的事——脚本、manifest、能力门控、沙箱、披露，全在那边；
@@ -19,7 +19,7 @@ Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发
 **九个，加第十个是一个需要论证的决定。** 一个没人用的点不是接缝，只是这张表里的一行，所以每个点
 都要有人在用：第一方 UI 包（`@harnix/harnix-app`、`@harnix/system`、`@harnix/settings` 等）注册 `space`（会话、项目、系统）、`sidebar.group`、`command`、`settings.section`、`session.action`，
 外壳自己注册 `tool.row`、`flow.block`、`details.panel`。`home.card` 是例外：外壳在新对话的输入框下读它，`examples/hello-app` 注册了一张。
-第九个 `session.action` 的理由：0.4 的外壳里写死了三样只属于某个扩展的东西——标题栏的「在系统里打开」、工具行的「在系统里看」、
+第九个 `session.action` 的理由：0.4.2 的外壳里写死了三样只属于某个扩展的东西——标题栏的「在系统里打开」、工具行的「在系统里看」、
 会话菜单里的归档与导出——它们是同一种东西，没有现成的点能承载。
 
 **谁注册、什么时候撤。** 第一方 UI 包是编进外壳的，外壳按 `harnix.hello` 里启用的扩展激活它们：一个包只在它对应的扩展启用时才调自己的

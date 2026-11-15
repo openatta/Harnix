@@ -43,7 +43,7 @@
 pub use harnix_engine_api as engine;
 
 /// The extension interface: [`ext::Extension`], its registrar and descriptor, its context.
-/// Stable within 0.5.z: it only grows.
+/// Stable from 0.4.3 on: it only grows.
 pub use harnix_ext as ext;
 
 /// Harnix's own extensions, each granted what Harnix grants it: the source is Harnix's own grant
