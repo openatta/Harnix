@@ -152,7 +152,7 @@ defineSuite("sessions", { feature: "sessions" }, {
         // which option: the engine reads `options` strictly.
         const err = await client.call("harnix.session.create",
           { options: { permission_mode: "not-a-real-mode" } }).catch((e) => e);
-        assert(err?.code === -32602 && err.data?.invalid_options?.some((o) => o.field === "permission_mode"),
+        assert(err?.code === -32602 && err.data?.invalid_options?.some((o: { field: string }) => o.field === "permission_mode"),
           `an unknown permission mode was not refused by name: ${JSON.stringify(err)}`);
         await finish(client, created.session_id);
       },
