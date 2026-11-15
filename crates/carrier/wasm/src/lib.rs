@@ -232,7 +232,6 @@ fn summary(fingerprint: &str, parts: &Value, disclosure: &Value, started: Value)
         "agent": parts.get("agent").filter(|a| !a.is_null()).map(|agent| json!({
             "package": agent["package"], "instances": agent["instances"], "disclosure": disclosure,
         })),
-        "skills": parts.get("skills").cloned().unwrap_or(json!({})),
         "started": started,
     })
 }

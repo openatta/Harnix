@@ -8,7 +8,7 @@
 //! policy is in it.
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
@@ -17,15 +17,15 @@ use base64::Engine as _;
 use harnix_engine::DaemonLink;
 use harnix_engine_api::ops::EngineOps;
 use harnix_engine_api::{
-    Cancel, ChainLink, ChainSource, EngineControl, EngineLink, HookDecision, Permission, SessionRef, Tool, ToolCallFacts,
+    Cancel, ChainLink, ChainSource, EngineLink, HookDecision, Permission, SessionRef, Tool, ToolCallFacts,
     ToolCx, ToolError, ToolHook, ToolOutput, ToolProvider, ToolSpec, ToolsChanged,
 };
-use harnix_package::acquire::{internal, refused};
-use harnix_package::{package, tool_name};
+use harnix_package::acquire::refused;
+use harnix_package::tool_name;
 use harnix_wasm_host::{Host, HttpFetcher, HttpRequest, HttpResponse};
 use harnix_wasm_port::{
     codes, Agent, AgentInstall, AgentRef, AgentSwitch, CallAs, CallMeta, Control, Failure, Fetch, Fetched, HookCall,
-    HookReply, Kernel, Offer, Progress, Publish, Registration, RpcError, Skills, Subscription, ToolCall, ToolDef,
+    HookReply, Kernel, Offer, Progress, Publish, Registration, RpcError, Subscription, ToolCall, ToolDef,
     ToolReply, TurnChain, TurnRef,
 };
 use serde_json::{json, Value};
@@ -36,9 +36,6 @@ const NAME: &str = "harnix-extension";
 /// The longest note a package's hook may add to a tool's result, in characters.
 const MAX_NOTE: usize = 2000;
 
-/// What marks a skill directory as a package's, inside the skills directory.
-const SKILL_MARK: &str = ".harnix-app";
-
 /// Where one tool call's progress goes, by the call's id.
 type Listener = Arc<dyn Fn(&str) + Send + Sync>;
 
@@ -46,7 +43,6 @@ type Listener = Arc<dyn Fn(&str) + Send + Sync>;
 pub(crate) struct Local {
     /// The name its engine goes by: what a turn's chain is told under.
     instance: String,
-    skills: PathBuf,
     /// The wire's kernel, which what a package asks of the product goes to.
     wire: Arc<dyn Kernel>,
     host: OnceLock<Weak<Host>>,
@@ -60,9 +56,9 @@ pub(crate) struct Local {
 
 impl Local {
     pub(crate) fn new(ext: &str, data_root: &Path, wire: Arc<dyn Kernel>) -> Arc<Self> {
+        harnix_engine::strip_package_skills(data_root);
         Arc::new(Self {
             instance: format!("proc.{ext}"),
-            skills: data_root.join("skills"),
             wire,
             host: OnceLock::new(),
             link: OnceLock::new(),
@@ -203,50 +199,6 @@ impl Agent for Local {
     async fn switch_agent(&self, s: AgentSwitch) -> Result<(), RpcError> {
         let method = if s.on { "engine.plugin.enable" } else { "engine.plugin.disable" };
         self.ops()?.passthrough(method, json!({"name": s.name})).await.map(|_| ())
-    }
-
-    /// Copy `<source>/<name>/` into the skills directory, marked as the package's. A directory of
-    /// that name that is not the package's is somebody else's skill, and refuses it.
-    async fn place_skills(&self, s: Skills) -> Result<(), RpcError> {
-        for name in &s.names {
-            let target = self.skills.join(name);
-            if target.exists() && std::fs::read_to_string(target.join(SKILL_MARK)).ok().as_deref() != Some(s.app.as_str()) {
-                return Err(refused(format!("the engine has a skill `{name}` of its own; `{}` would replace it", s.app)));
-            }
-            let _ = std::fs::remove_dir_all(&target);
-            let source = s.source.join(name);
-            let mut files = Vec::new();
-            package::walk(&source, &source, &mut files).map_err(|e| internal(format!("{}: {e}", source.display())))?;
-            for (relative, path) in files {
-                let to = target.join(&relative);
-                if let Some(parent) = to.parent() {
-                    std::fs::create_dir_all(parent).map_err(|e| internal(format!("{}: {e}", parent.display())))?;
-                }
-                std::fs::copy(&path, &to).map_err(|e| internal(format!("{}: {e}", to.display())))?;
-            }
-            std::fs::write(target.join(SKILL_MARK), &s.app).map_err(|e| internal(e.to_string()))?;
-        }
-        Ok(())
-    }
-
-    /// Remove the skills marked as the package's, and nothing else.
-    async fn remove_skills(&self, s: Skills) -> Result<(), RpcError> {
-        for name in &s.names {
-            let target = self.skills.join(name);
-            if std::fs::read_to_string(target.join(SKILL_MARK)).ok().as_deref() == Some(s.app.as_str()) {
-                if let Err(e) = std::fs::remove_dir_all(&target) {
-                    tracing::warn!(package = %s.app, skill = %name, error = %e, "a skill was not removed");
-                }
-            }
-        }
-        Ok(())
-    }
-
-    async fn reload_instance(&self, _instance: String) -> Result<(), RpcError> {
-        match self.link.get() {
-            Some(link) => link.reload_settings().await,
-            None => Err(refused("this extension process's engine is not up")),
-        }
     }
 
     async fn expose_tools(&self, offer: Offer) -> Result<(), RpcError> {

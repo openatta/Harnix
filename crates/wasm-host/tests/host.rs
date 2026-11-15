@@ -15,7 +15,7 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
     let rig = Rig::new(|_| {});
     let parts = rig.install(|m| m).await;
     assert_eq!(parts["agent"]["instances"], json!(["main"]));
-    assert_eq!(parts["skills"]["main"], json!(["showcase-tour"]));
+    assert!(parts["skills"].is_null(), "skills are not placed in an instance any more: {parts}");
     // In order: the agent side put in place, switched on with it, then its names, then its tools.
     let said = lock(&rig.platform.said).clone();
     let at = |what: &str| said.iter().position(|s| s.starts_with(what)).unwrap_or_else(|| panic!("{what}: {said:?}"));
@@ -120,7 +120,6 @@ async fn the_showcase_runs_behind_a_port_that_carries_over_a_wire() {
     assert_eq!(rig.platform.said("withdraw"), ["withdraw example.showcase"]);
     assert_eq!(rig.platform.said("unsubscribe"), ["unsubscribe harnix.sessions.status"]);
     assert_eq!(rig.platform.said("switch_agent example-showcase off").len(), 1);
-    assert_eq!(rig.platform.said("remove_skills"), ["remove_skills showcase-tour"]);
     let gone = rig.platform.device_call("notes.list", json!({})).await.unwrap_err();
     assert_eq!(gone.code, codes::EXTENSION_UNAVAILABLE);
     assert_eq!(gone.data.unwrap()["failure"], json!("stopped"));

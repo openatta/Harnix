@@ -27,6 +27,7 @@ pub const SESSION_RUN_TURN: &str = "session.run_turn";
 pub const SESSION_INTERRUPT: &str = "session.interrupt";
 pub const SESSION_RENAME: &str = "session.rename";
 pub const SESSION_SET_MODEL: &str = "session.setModel";
+pub const SESSION_SET_SKILL_DIRS: &str = "session.setSkillDirs";
 pub const SESSION_CLOSE: &str = "session.close";
 pub const SESSION_DELETE: &str = "session.delete";
 pub const SESSION_FORK: &str = "session.fork";
@@ -223,6 +224,11 @@ impl EngineOps for AgixOps {
             params["provider"] = json!(provider);
         }
         self.call(SESSION_SET_MODEL, params).await
+    }
+
+    async fn set_skill_dirs(&self, session: &str, dirs: &[std::path::PathBuf]) -> Answer<Value> {
+        let listed: Vec<Value> = dirs.iter().map(|d| json!({"path": d})).collect();
+        self.call(SESSION_SET_SKILL_DIRS, json!({"session_id": session, "skill_dirs": listed})).await
     }
 
     async fn close(&self, params: Value, delete: bool) -> Answer<Value> {

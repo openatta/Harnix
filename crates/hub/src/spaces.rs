@@ -504,7 +504,14 @@ impl Hub {
         }
         self.bind_space(&key, &space);
         self.refresh("harnix.instances.sessions", json!({"instance": key.0}));
-        Ok(json!({"space": space, "from": from, "moved": true}))
+        let mut moved = json!({"space": space, "from": from, "moved": true});
+        // The skills it lists follow its space; a failure is said, and the next subscription
+        // makes it right.
+        if let Err(e) = self.list_skill_dirs(self.engine(&key.0)?.ops(), &key.1, &self.skill_dirs_for(&key.0, &space)).await {
+            tracing::warn!(instance = %key.0, session = %key.1, error = %e.message, "the moved session's skill directories were not updated");
+            moved["skill_dirs"] = json!(format!("not updated: {}", e.message));
+        }
+        Ok(moved)
     }
 
     /// What the system space creates is its own.

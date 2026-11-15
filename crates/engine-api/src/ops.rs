@@ -9,6 +9,7 @@
 //! goes by [`EngineOps::passthrough`], under the name the hub's row gives it.
 
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 
 use harnix_contract::RpcError;
 use serde_json::{json, Value};
@@ -77,6 +78,10 @@ pub trait EngineOps: Send + Sync {
 
     /// Change the model the session's next turn calls, and its provider when named.
     async fn set_model(&self, session: &str, model: &str, provider: Option<&str>) -> Answer<Value>;
+
+    /// Replace the host skill directories the session lists, as a whole (none: it lists none).
+    /// The next turn sees them; a session not in memory has them from when it is resumed.
+    async fn set_skill_dirs(&self, session: &str, dirs: &[PathBuf]) -> Answer<Value>;
 
     /// Close the session, or `delete` it. `params` are the engine's own (a dry run, say).
     async fn close(&self, params: Value, delete: bool) -> Answer<Value>;

@@ -112,7 +112,6 @@ impl InstanceService for InstanceViews {
             active_scenes: facts.active_scenes.clone(),
             model: facts.model.clone().unwrap_or_default(),
             trust,
-            skills_dir: facts.data_root.join("skills"),
             settings_root: facts.data_root.clone(),
             recordings: Some(Arc::new(recordings)),
             transcripts,

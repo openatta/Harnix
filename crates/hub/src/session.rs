@@ -314,6 +314,8 @@ impl Hub {
         // Replaced, not extended: after a resync these are the same asks
         // the hub already held.
         state.pending_prompts = subscribed.pending;
+        drop(guard);
+        self.reconcile_skill_dirs(key, info).await;
         Ok(subscribed.last_seq)
     }
 
@@ -356,7 +358,8 @@ impl Hub {
         let subject = &cx.subject;
         let space = self.place(cx, &mut params).await?;
         let instance = self.instance_of(&params)?;
-        let created = self.engine(&instance)?.ops().create(without_instance(params)).await?;
+        let dirs = self.skill_dirs_for(&instance, &space);
+        let created = self.create_listing(self.engine(&instance)?.ops(), without_instance(params), &dirs).await?;
         if let Some(sid) = &created.session_id {
             let key = (instance.clone(), sid.clone());
             self.bind_space(&key, &space);

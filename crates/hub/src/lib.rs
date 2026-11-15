@@ -42,6 +42,7 @@ mod links;
 mod replay;
 mod rows;
 mod session;
+mod skills;
 mod spaces;
 mod topics;
 mod turns;
@@ -158,6 +159,8 @@ pub struct Hub {
     /// is not listed.
     described: StdMutex<BTreeMap<ClientId, Value>>,
     spaces: StdMutex<Spaces>,
+    /// The skills directories the host components published, by component ([`Hub::set_skill_sources`]).
+    skills: StdRwLock<BTreeMap<String, Vec<harnix_contract::SkillSource>>>,
     audit: StdRwLock<Option<AuditHook>>,
     /// Which calls each running turn is on behalf of: written as turns start and settle, read by
     /// the tools their sessions call.
@@ -201,6 +204,7 @@ impl Hub {
                 answerers: StdMutex::new(VecDeque::new()),
                 described: StdMutex::new(BTreeMap::new()),
                 spaces: StdMutex::new(config.spaces),
+                skills: StdRwLock::new(BTreeMap::new()),
                 audit: StdRwLock::new(None),
                 turns: config.turns.clone(),
             }
