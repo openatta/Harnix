@@ -165,10 +165,6 @@ impl Ports {
         self.seat.instances.view(id).map(View)
     }
 
-    pub(crate) fn validate_provider(&self, entry: &Value) -> Result<(), String> {
-        self.seat.instances.validate_provider(entry)
-    }
-
     pub(crate) fn process(&self) -> Value {
         self.seat.process.process()
     }

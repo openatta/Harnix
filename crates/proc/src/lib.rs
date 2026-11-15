@@ -139,7 +139,7 @@ pub fn this_build() -> Hello {
         wire: EXT_WIRE_VERSION,
         ext: String::new(),
         version: HARNIX_VERSION.to_string(),
-        agix_version: harnix_engine::identity().version,
+        agix_version: Some(harnix_engine::AGIX_VERSION.to_string()),
         engine: harnix_wasm_host::WasmEngine::this_build(),
         harnix_api: harnix_package::manifest::HARNIX_API,
         pid: 0,

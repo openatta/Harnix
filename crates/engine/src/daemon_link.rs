@@ -282,7 +282,7 @@ impl Wire {
             .await
             .map_err(|e| Refusal::Retry(format!("daemon.ping failed: {}", e.message)))?;
         let theirs = identity.get("protocol_version").and_then(Value::as_u64).unwrap_or(0);
-        let ours = crate::protocol_version();
+        let ours = crate::AGIX_PROTOCOL;
         if theirs != ours {
             return Err(Refusal::Fatal(format!(
                 "the daemon speaks protocol version {theirs} and this Harnix speaks {ours}; \
@@ -480,7 +480,7 @@ mod tests {
             for _ in 0..2 {
                 let (id, method) = self.request().await.unwrap();
                 let result = if method == translate::DAEMON_PING {
-                    json!({"version": "x", "protocol_version": crate::protocol_version()})
+                    json!({"version": "x", "protocol_version": crate::AGIX_PROTOCOL})
                 } else {
                     json!({})
                 };
@@ -586,7 +586,7 @@ mod tests {
             async {
                 let mut fake = Fake::accept(&listener).await;
                 let (id, _) = fake.request().await.unwrap();
-                fake.answer(id, json!({"protocol_version": crate::protocol_version() + 1})).await;
+                fake.answer(id, json!({"protocol_version": crate::AGIX_PROTOCOL + 1})).await;
             }
         );
         assert!(matches!(taken, Err(Refusal::Fatal(_))));

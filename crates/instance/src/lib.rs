@@ -46,7 +46,7 @@ pub mod templates;
 /// always given it.
 pub use harnix_engine::engine;
 pub use daemon::{DaemonSpec, SpawnOptions, SpawnSpec, Supervised};
-pub use harnix_engine::{build as build_engine, Endpoint, Engine, EngineConfig, HistoryStore, Recording};
+pub use harnix_engine::{build as build_engine, Endpoint, Engine, EngineConfig, Recording};
 pub use factory::{engine_config, Built, Facts, Factory};
 pub use link::DownLink;
 pub use profile::{EngineProfile, InstanceDecl, InstanceSections, TemplateDecl};

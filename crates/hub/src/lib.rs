@@ -312,6 +312,19 @@ impl Hub {
         self.engine(instance)?.ops().passthrough(method, params).await
     }
 
+    /// File an entry under `ns` and `event` in the log of `session` on `instance`, through its
+    /// engine's link: for the assembly's own entries (the audit), which belong to no extension.
+    pub async fn append_entry_to(
+        &self,
+        instance: &str,
+        session: &str,
+        ns: &str,
+        event: &str,
+        payload: Value,
+    ) -> Result<Value, RpcError> {
+        self.engine(instance)?.ops().append_entry(session, Entry::new(ns, event, payload)).await
+    }
+
     /// Return once every frame the instance sent before this call has been
     /// routed — not merely received.
     ///

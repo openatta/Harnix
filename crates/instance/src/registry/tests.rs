@@ -173,7 +173,7 @@ fn engine(sessions: Value) -> (std::os::unix::net::UnixStream, Arc<Mutex<Vec<Val
         while let Ok(Some(line)) = lines.next_line().await {
             let request: Value = serde_json::from_str(&line).unwrap();
             lock(&kept).push(request.clone());
-            let result = json!({"protocol_version": harnix_engine::protocol_version(), "sessions": sessions, "session_id": "s1"});
+            let result = json!({"protocol_version": harnix_engine::AGIX_PROTOCOL, "sessions": sessions, "session_id": "s1"});
             let reply = json!({"jsonrpc": "2.0", "id": request["id"], "result": result});
             if w.write_all(format!("{reply}\n").as_bytes()).await.is_err() {
                 break;

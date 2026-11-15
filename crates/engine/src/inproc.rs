@@ -29,6 +29,8 @@ pub struct InProcessLink {
     ops: AgixOps,
     events: Mutex<Option<EventReceiver>>,
     status: watch::Sender<LinkStatus>,
+    /// What the engine said in `daemon.ping` when the link was made.
+    identity: EngineIdentity,
 }
 
 /// The engine's dispatch, as this link's connection.
@@ -45,12 +47,24 @@ impl InProcessLink {
         let client = engine.server.accept_connection(Arc::new(ChannelSink(tx)) as Sink);
         let (status, ready) = watch::channel(LinkStatus::Ready);
         let rpc = Arc::new(Dispatch { server: engine.server.clone(), client, status: ready });
+        let identity = match rpc.call(translate::DAEMON_PING, json!({})).await {
+            Ok(ping) => EngineIdentity::new(
+                ping.get("version").and_then(Value::as_str).map(str::to_string),
+                ping.get("protocol_version").and_then(Value::as_u64),
+                ping.get("capabilities").cloned().unwrap_or(Value::Null),
+            ),
+            Err(e) => {
+                tracing::warn!(error = %e.message, "the engine did not say what it is");
+                EngineIdentity::default()
+            }
+        };
         let this = Arc::new(Self {
             engine,
             ops: AgixOps(rpc.clone()),
             rpc,
             events: Mutex::new(Some(rx)),
             status,
+            identity,
         });
         if let Err(e) = this.rpc.call(translate::DAEMON_SUBSCRIBE_EVENTS, json!({})).await {
             tracing::warn!(error = %e.message, "host events not subscribed");
@@ -100,7 +114,7 @@ impl EngineControl for InProcessLink {
     }
 
     fn identity(&self) -> EngineIdentity {
-        crate::identity()
+        self.identity.clone()
     }
 
     fn carrier(&self) -> InstanceCarrier {
@@ -171,4 +185,37 @@ fn split(resp: RpcResponse) -> Result<Value, RpcError> {
         });
     }
     Ok(resp.result.unwrap_or(Value::Null))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What the build's constants say is what a running engine says in `daemon.ping`: the
+    /// manifest `build.rs` reads and the engine this links are the same Agix.
+    #[tokio::test]
+    async fn the_engine_says_what_the_build_constants_say() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = crate::build(crate::EngineConfig {
+            scene: "harnix".into(),
+            scenes: Vec::new(),
+            model: "test-model".into(),
+            max_tokens: 1000,
+            session_cap: 4,
+            session_idle_timeout_secs: 60,
+            permission_prompt_timeout_secs: 60,
+            data_root: dir.path().to_path_buf(),
+            cwd: Some(dir.path().to_path_buf()),
+            contrib: Default::default(),
+            instance: "main".into(),
+            chains: Default::default(),
+        })
+        .await
+        .unwrap();
+        let link = InProcessLink::start(engine).await;
+        let identity = link.identity();
+        assert_eq!(identity.version.as_deref(), Some(crate::AGIX_VERSION));
+        assert_eq!(identity.protocol_version, Some(crate::AGIX_PROTOCOL));
+        link.shutdown().await;
+    }
 }
