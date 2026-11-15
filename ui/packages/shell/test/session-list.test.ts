@@ -1,18 +1,10 @@
-/** The session list draws each session once, however often the backend lists it. */
+/** The session list: refresh ordering and which space it asks for. */
 
 import { describe, expect, it } from "vitest";
 
 import { scriptedApp } from "./scripted";
 
 describe("the session list", () => {
-  it("draws a session the engine listed twice once", async () => {
-    const { app, client } = scriptedApp();
-    const row = { instance: "main", session_id: "s1", last_active: "" };
-    client.answer = (method) => (method === "harnix.sessions.list" ? { sessions: [row, { ...row }, { ...row, session_id: "s2" }] } : {});
-    await app.refreshSessions();
-    expect(app.snapshot.sessions.map((s) => s.session_id)).toEqual(["s1", "s2"]);
-  });
-
   it("an earlier refresh that answers after a later one does not put the older list back", async () => {
     const { app, client } = scriptedApp();
     let release: () => void = () => undefined;

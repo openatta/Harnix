@@ -204,24 +204,6 @@ export function within<T>(promise: Promise<T>, ms: number): Promise<T | typeof T
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-/**
- * A session list with each session once — a defence, not the fix. Agix's `engine.session.list` lists a
- * session it has let go of (past `session_cap`) once per project it has served, and counts a folder
- * reached under two spellings (macOS's `/var/…` and `/private/var/…`) as two projects, so such a
- * session comes back twice (openatta/Agix#23).
- * Harnix's tests hand the engine real paths; a person may still give a linked one. Two rows with
- * one key would draw two entries for one session.
- */
-export function uniqueSessions<T extends { instance?: unknown; session_id: string }>(rows: T[]): T[] {
-  const seen = new Set<string>();
-  return rows.filter((row) => {
-    const key = keyOf(typeof row.instance === "string" ? row.instance : MAIN_INSTANCE, row.session_id);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
 function sameKey(a: SessionKey | null, b: SessionKey | null): boolean {
   return a === b || (a != null && b != null && a.instance === b.instance && a.sessionId === b.sessionId);
 }
@@ -653,7 +635,7 @@ export class App {
     if (!space) return;
     try {
       const listed = (await this.conn.call("harnix.sessions.list", { space: this.claim(space) })) as { sessions: SessionRow[] };
-      const sessions: ShellSession[] = uniqueSessions(listed.sessions ?? []).map((row) => ({
+      const sessions: ShellSession[] = (listed.sessions ?? []).map((row) => ({
         ...row,
         instance: (row.instance as string | undefined) ?? this.defaultInstance(),
       }));
