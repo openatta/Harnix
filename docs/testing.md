@@ -283,6 +283,11 @@ node tests/live/record-fixture.mjs --scene code <名字> "<提示词>"    # 别�
 方法或主题改名后，录像里说过旧名字的块（工具描述、`flow_guide` 返回的指南）要改写：`node scripts/rewrite-recordings.mjs`
 把块里的旧名字换成新名字，块按新内容重算摘要（文件名与 `calls.jsonl` 里的引用一起改）；`--check` 只查不写，有要改的就退出 1。
 
+**读录像的测试**（系统 space 的调用、轮、用量，对话里的请求信封）不能用回放的会话：回放的会话不录，读者经引擎的协议只读
+会话自己录下的那份。它们在一个录制的后端上（`launchFor("none")`：没有可回放的、也没有模型，所以不跑轮）建一个会话，把一份录像
+放到 `main` 录它的地方，录像里原来的会话 id 换成这个会话的（`ui/page.ts` 的 `recorded`）；会话的第一次调用才会重写录像，
+它一次也不调。手写的行要带引擎的读者要的字段（`recording` 行的 `name`，`call` 行的 `provider`、`params.thinking_mode`、`tools` 等）。
+
 录像按位置回放。每个后端都有自己的数据根、HOME 和项目，全局记忆与 telemetry 不会串进来（N-003）。
 隔离以后回放仍然错位（同一轮里可选的旁路调用时有时无），就向 Agix 提「按调用种类匹配」，不在
 Harnix 侧绕过。
