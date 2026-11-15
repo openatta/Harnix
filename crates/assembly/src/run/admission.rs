@@ -33,8 +33,6 @@ pub(crate) struct Admission {
     /// The host components' pipes, when anything may register extensions while the process runs.
     /// Held here for as long as the process runs: what hands them out holds them weakly.
     pub dynamic: Option<Arc<DynamicHost>>,
-    /// The credentials of the engines this process spawned, which the transport admits.
-    pub engines: Arc<harnix_authz::EngineCredentials>,
     /// What `harnix.ui` tells: pushed again once every extension has started.
     pub ui: Arc<UiModules>,
 }
@@ -50,7 +48,6 @@ pub(super) struct Parts {
     pub ui: Arc<UiModules>,
     pub devices: Arc<DeviceBook>,
     pub credentials: Arc<dyn harnix_ext::Credentials>,
-    pub servers: Arc<harnix_instance::SharedServers>,
     pub state_root: PathBuf,
     /// Where projects live (`--data-dir`).
     pub projects_root: PathBuf,
@@ -62,7 +59,6 @@ pub(super) struct Parts {
     pub package_sections: std::collections::BTreeMap<String, serde_json::Value>,
     /// The components whose section turns their processes' sandbox off.
     pub unsandboxed: std::collections::BTreeSet<String>,
-    pub engines: Arc<harnix_authz::EngineCredentials>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -131,7 +127,6 @@ pub(super) fn admit(
                 instances: instances.clone(),
                 hub: hub.clone(),
                 seats: seats.clone(),
-                servers: parts.servers,
                 state_root: parts.state_root,
                 ui: parts.ui.clone(),
                 runtime_modules: parts.runtime_modules,
@@ -150,7 +145,6 @@ pub(super) fn admit(
         seats,
         listen,
         dynamic,
-        engines: parts.engines,
         ui: parts.ui,
     }
 }

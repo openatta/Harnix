@@ -49,7 +49,6 @@ pub use factory::{Built, Facts, Factory};
 pub use link::DownLink;
 pub use profile::{EngineProfile, InstanceDecl, InstanceSections, TemplateDecl};
 pub use registry::{InstanceFacts, InstanceRegistry, InstanceRow, RegistryCell, RegistryConfig, INSTANCES_TOPIC};
-pub use servers::{ServerTokens, SharedServers};
 pub use serve::{refusal_path, serve_daemon, DaemonArgs, REFUSED_EXIT};
 pub use templates::{
     AttachTo, InstanceTemplate, InstanceTemplates, Ledger, LedgerEntry, Owner, TemplateCarrier,

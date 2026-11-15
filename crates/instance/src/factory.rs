@@ -12,7 +12,6 @@ use harnix_engine_api::{EngineContribution, EngineControl, EngineLink};
 
 use crate::daemon::{DaemonSpec, SpawnOptions, SpawnSpec, Supervised};
 use crate::profile::EngineProfile;
-use crate::servers::SharedServers;
 use crate::templates::{InstanceTemplate, TemplateCarrier};
 
 /// What is known about an instance without asking it. Only an in-process
@@ -85,20 +84,16 @@ pub struct Factory {
     pub socket_dir: PathBuf,
     /// What a credential reference resolves to (an attached daemon's token).
     pub credential: Resolve,
-    /// Tool providers every engine built in this process gets — the in-process
-    /// carrier's alone: a spawned daemon reaches a package's tools another way, over MCP.
+    /// Tool providers every engine this process builds or spawns gets: registered on each one's
+    /// link. An attached daemon is somebody else's and gets none.
     pub providers: Vec<Arc<dyn harnix_engine_api::ToolProvider>>,
-    /// The MCP servers every daemon this process spawns is configured with — an extension
-    /// package's tools — written into each one's data root as it is built, and kept in line
-    /// with the set after (`servers.rs`). Shared with whoever sets them.
-    pub servers: Arc<SharedServers>,
     /// The data root of the instance a template's `inherit_providers` inherits from: the
     /// main instance's. `None`, nothing is inherited.
     pub providers_from: Option<PathBuf>,
     /// What every link built here records with.
     pub recording: Arc<Recording>,
     /// Which calls each session's running turn is on behalf of, as the hub writes it: what the
-    /// tool calls of every engine built in this process carry.
+    /// tool calls of every engine this process builds or spawns carry.
     pub turns: Arc<harnix_kernel::TurnChains>,
 }
 
@@ -121,7 +116,6 @@ impl Factory {
             socket_dir,
             credential,
             providers: Vec::new(),
-            servers: Arc::default(),
             providers_from: None,
             recording: Recording::new(None),
             turns: Arc::default(),
@@ -131,6 +125,17 @@ impl Factory {
     /// Where the tool calls of an engine this process links to read their turn's chain.
     pub fn chains(&self) -> Chains {
         Chains(Arc::new(TurnSource(self.turns.clone())))
+    }
+
+    /// What an engine this process builds or spawns gets besides its carrier's own: the template's
+    /// native contributions, and what every extension gives every engine — the packages' tools.
+    /// Registered on the instance's link, so one built here and one spawned get the same.
+    fn contribution(&self, template: Option<&InstanceTemplate>) -> EngineContribution {
+        let mut contrib = template.and_then(InstanceTemplate::contribution).unwrap_or_default();
+        for provider in &self.providers {
+            contrib.provider(provider.clone());
+        }
+        contrib
     }
 
     /// An engine started in this process from `profile` on `data_root`, `contrib` offered on its
@@ -193,10 +198,7 @@ impl Factory {
         }
         match carrier {
             TemplateCarrier::InProcess { engine } => {
-                let mut contrib = template.and_then(InstanceTemplate::contribution).unwrap_or_default();
-                for provider in &self.providers {
-                    contrib.provider(provider.clone());
-                }
+                let contrib = self.contribution(template);
                 self.in_process(id, engine, data_root, contrib).await
             }
             TemplateCarrier::Spawn {
@@ -205,11 +207,12 @@ impl Factory {
                 args,
             } => {
                 let socket = self.socket_dir.join(format!("{}.sock", short_name(id)));
-                // The template's native contributions are offered by this process, on the link: a
-                // daemon has nowhere to build them. Its scenes are the engine's own on the command
-                // line, and what each adds is said as its sessions are created. Not the providers
-                // every engine in this process gets: the daemon reaches those over MCP.
-                let contrib = template.and_then(InstanceTemplate::contribution).unwrap_or_default();
+                // What this process offers is offered on the link — the template's native
+                // contributions and the packages' tools — and called here: a daemon has nowhere to
+                // build them, and whose binary it is does not matter to the protocol. Its scenes
+                // are the engine's own on the command line, and what each adds is said as its
+                // sessions are created.
+                let contrib = self.contribution(template);
                 let presets = Presets::new(contrib.scenes(), &engine.scene).map_err(anyhow::Error::msg)?;
                 let mut argv = daemon_args(engine, &data_root, &socket, &presets);
                 // This binary's daemon holds the instance's lock on its data root (ipdrun-08); a
@@ -225,9 +228,11 @@ impl Factory {
                 } else {
                     SpawnOptions::default()
                 };
-                // Before the daemon reads its settings: the servers it reaches this process's
-                // packages by, with a credential of its own.
-                options.servers = Some(self.servers.configure(id, &data_root));
+                // Before the daemon reads its settings: what 0.4.3 wrote there to reach the
+                // packages' tools over MCP goes.
+                if let Err(e) = crate::servers::forget(&data_root) {
+                    tracing::warn!(instance = id, error = %e, "the MCP servers 0.4.3 wrote were not taken out");
+                }
                 // Where a daemon writes its recordings is its own: a deleted session's stays.
                 options.recorder = Some(self.recording.of(id, None));
                 options.host = Some(HostSide::new(id, self.chains(), &contrib));
@@ -237,7 +242,7 @@ impl Factory {
                     spawn: Some(SpawnSpec {
                         program: program.clone().unwrap_or_else(|| self.program.clone()),
                         args: argv,
-                        env: loopback_without_proxy(),
+                        env: Vec::new(),
                         lock,
                     }),
                 }, options);
@@ -251,6 +256,13 @@ impl Factory {
                 Ok(Built::supervised(daemon, facts))
             }
             TemplateCarrier::Attach(to) => {
+                // An attached daemon is somebody else's: nothing is registered on it. A tool on the
+                // connection is every session's there, so another client's session would run this
+                // process's code with this product's grants; a name would be first come, first
+                // served; and a hook sees every tool call's input in that daemon.
+                if template.is_some_and(|t| t.contribute.is_some()) {
+                    tracing::warn!(instance = id, "an attached daemon is somebody else's: the template's native contributions do not reach it");
+                }
                 let endpoint = match (&to.socket, &to.tcp) {
                     (Some(socket), None) => Endpoint::Unix(socket.clone()),
                     (None, Some(addr)) => {
@@ -293,23 +305,6 @@ impl Factory {
             None => Ok(false),
         }
     }
-}
-
-/// A daemon this process spawns reaches this process back over loopback (an extension
-/// package's MCP endpoint). A proxy configured in the environment (`HTTP_PROXY`) would carry
-/// that to somewhere that is not this machine, so loopback is added to whatever `NO_PROXY` says.
-fn loopback_without_proxy() -> Vec<(String, String)> {
-    const LOOPBACK: &str = "127.0.0.1,localhost,::1";
-    ["NO_PROXY", "no_proxy"]
-        .iter()
-        .map(|name| {
-            let value = match std::env::var(name) {
-                Ok(given) if !given.trim().is_empty() => format!("{given},{LOOPBACK}"),
-                _ => LOOPBACK.to_string(),
-            };
-            (name.to_string(), value)
-        })
-        .collect()
 }
 
 /// The `harnix daemon` command line for these settings, a scene layer named by the engine's own
@@ -368,6 +363,129 @@ impl Drop for Factory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::daemon::tests::Fake;
+    use crate::templates::AttachTo;
+    use harnix_engine_api::link::LinkStatus;
+    use harnix_engine_api::{Tool, ToolCx, ToolError, ToolOutput, ToolProvider, ToolSpec};
+    use serde_json::{json, Value};
+    use std::time::Duration;
+    use tokio::net::UnixListener;
+
+    struct Echo(ToolSpec);
+
+    #[async_trait::async_trait]
+    impl Tool for Echo {
+        fn spec(&self) -> &ToolSpec {
+            &self.0
+        }
+        async fn call(&self, _: ToolCx, _: Value) -> Result<ToolOutput, ToolError> {
+            Ok(ToolOutput::text("echo"))
+        }
+    }
+
+    /// What every engine of the process gets, as the packages' carrier gives it.
+    struct Packages;
+
+    impl ToolProvider for Packages {
+        fn name(&self) -> &str {
+            "harnix-packages"
+        }
+        fn tools(&self) -> Vec<Arc<dyn Tool>> {
+            vec![Arc::new(Echo(ToolSpec::new("ext__acme_notes__echo", "says it back", json!({"type": "object"}))))]
+        }
+    }
+
+    /// A template's own provider.
+    struct Fleet;
+
+    impl ToolProvider for Fleet {
+        fn name(&self) -> &str {
+            "fleet"
+        }
+        fn tools(&self) -> Vec<Arc<dyn Tool>> {
+            vec![Arc::new(Echo(ToolSpec::new("fleet_status", "how the fleet is", json!({"type": "object"}))))]
+        }
+    }
+
+    fn factory(socket_dir: &Path) -> Factory {
+        let mut factory = Factory::new(Arc::new(|_: &str| None)).unwrap();
+        factory.socket_dir = socket_dir.to_path_buf();
+        factory.providers.push(Arc::new(Packages));
+        factory
+    }
+
+    async fn ready(built: &Built) {
+        let mut status = built.control.status();
+        tokio::time::timeout(Duration::from_secs(20), status.wait_for(LinkStatus::is_ready))
+            .await
+            .expect("never ready")
+            .unwrap();
+    }
+
+    /// A spawned daemon has the packages' tools under their own names, and the template's, on its
+    /// socket: this process registers them there, before the link says it is ready.
+    #[tokio::test]
+    async fn a_spawned_daemon_is_offered_the_packages_tools_and_the_templates() {
+        let dir = tempfile::tempdir().unwrap();
+        let factory = factory(dir.path());
+        // The "daemon" says it started and waits for its stdin to close; the test listens for it.
+        let started = dir.path().join("started");
+        let program = dir.path().join("daemon.sh");
+        std::fs::write(&program, format!("#!/bin/sh\ntouch '{}'\nexec cat > /dev/null\n", started.display())).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let template = InstanceTemplate::new(
+            "fleet",
+            TemplateCarrier::Spawn { engine: EngineProfile::default(), program: Some(program), args: Vec::new() },
+        )
+        .contribute(|c| {
+            c.provider(Arc::new(Fleet));
+        });
+        let built = factory.build_template("far", &template, dir.path().join("far")).await.unwrap();
+
+        tokio::time::timeout(Duration::from_secs(20), async {
+            while !started.exists() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("the daemon never started");
+        let listener = UnixListener::bind(factory.socket_dir.join(format!("{}.sock", short_name("far")))).unwrap();
+        let mut fake = loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            if let Some(fake) = Fake::answering(stream).await {
+                break fake;
+            }
+        };
+        let (id, method, params) = fake.request_with().await.unwrap();
+        assert_eq!(method, "daemon.setHostTools");
+        let names: Vec<Value> = params["host_tools"].as_array().unwrap().iter().map(|t| t["name"].clone()).collect();
+        assert!(names.contains(&json!("ext__acme_notes__echo")), "{names:?}");
+        assert!(names.contains(&json!("fleet_status")), "{names:?}");
+        fake.answer(id, json!({"host_tools": names, "refused": []})).await;
+        ready(&built).await;
+        built.control.shutdown().await;
+    }
+
+    /// An attached daemon is somebody else's: nothing is registered on it, not the packages' tools
+    /// and not a template's, and the link is ready without.
+    #[tokio::test]
+    async fn an_attached_daemon_is_offered_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let factory = factory(dir.path());
+        let socket = dir.path().join("theirs.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let attach = AttachTo::socket(socket);
+        let template = InstanceTemplate::new("theirs", TemplateCarrier::Attach(attach)).contribute(|c| {
+            c.provider(Arc::new(Fleet));
+        });
+        let built = factory.build_template("theirs", &template, dir.path().join("theirs")).await.unwrap();
+        let mut fake = Fake::accept(listener.accept().await.unwrap().0).await;
+        ready(&built).await;
+        let next = tokio::time::timeout(Duration::from_millis(300), fake.request_with()).await;
+        assert!(next.is_err(), "something was registered on an attached daemon: {next:?}");
+        built.control.shutdown().await;
+    }
 
     #[test]
     fn providers_go_only_where_there_is_a_data_root() {

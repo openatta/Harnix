@@ -1,11 +1,12 @@
-//! `WasmTools`: the running packages' tools in every session an in-process instance builds.
+//! `WasmTools`: the running packages' tools in every session of an instance this process builds
+//! or spawns.
 //!
-//! A tool provider (`harnix_ext::engine::ToolProvider`) the component gives every engine built in
-//! this process (`engine_everywhere`). Its tools are offered on the instance's link to the engine
-//! — sub-agents, team members and background tasks have them too — and offered again each time a
-//! package starts or stops: a package enabled now is in the next session built, and one disabled
-//! now is not (a session already built keeps what it was built with until it is rebuilt). Per
-//! package:
+//! A tool provider (`harnix_ext::engine::ToolProvider`) the component gives every engine this
+//! process builds or spawns (`engine_everywhere`). Its tools are offered on the instance's link to
+//! the engine — sub-agents, team members and background tasks have them too — and offered again
+//! each time a package starts or stops: a package enabled now is in the next session built, and one
+//! disabled now is not (a session already built keeps what it was built with until it is rebuilt).
+//! Per package:
 //!
 //! - each tool the host offered for it, as `ext__<id>__<tool>`. A call runs in an instance of its
 //!   own (`Control::call_tool`), with the calling session's project as its read-only `/project`

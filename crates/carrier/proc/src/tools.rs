@@ -1,11 +1,12 @@
-//! `ProcTools`: the running packages' tools in every session an in-process instance builds, each
-//! call carried over the package's extension wire.
+//! `ProcTools`: the running packages' tools in every session of an instance this process builds
+//! or spawns, each call carried over the package's extension wire.
 //!
-//! A tool provider (`harnix_ext::engine::ToolProvider`) the component gives every engine built in
-//! this process (`engine_everywhere`). Its tools are offered on the instance's link to the engine
-//! — sub-agents, team members and background tasks have them too — and offered again each time a
-//! package's process comes or goes: one up now is in the next session built, one that is not is
-//! not (a session already built keeps what it was built with until it is rebuilt). Per package:
+//! A tool provider (`harnix_ext::engine::ToolProvider`) the component gives every engine this
+//! process builds or spawns (`engine_everywhere`). Its tools are offered on the instance's link to
+//! the engine — sub-agents, team members and background tasks have them too — and offered again
+//! each time a package's process comes or goes: one up now is in the next session built, one that
+//! is not is not (a session already built keeps what it was built with until it is rebuilt). Per
+//! package:
 //!
 //! - each tool its manifest declares, as `ext__<id>__<tool>`. A call goes to its process
 //!   (`ctl.call_tool`), carrying the turn's chain and the package's call timeout as its deadline;

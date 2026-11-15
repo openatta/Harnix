@@ -219,7 +219,7 @@ impl ExtensionDescriptor {
         self.engine.as_ref()
     }
 
-    /// What it gives every engine built in this process. Native extensions only.
+    /// What it gives every engine this process builds or spawns. Native extensions only.
     pub fn engine_everywhere(&self) -> Option<&EngineContribution> {
         self.engine_everywhere.as_ref()
     }

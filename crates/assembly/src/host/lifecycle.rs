@@ -224,7 +224,7 @@ pub(crate) fn main_contribution(records: &[Record]) -> EngineContribution {
     all
 }
 
-/// What the enabled extensions give every engine built in this process: tool providers.
+/// What the enabled extensions give every engine this process builds or spawns: tool providers.
 pub(crate) fn everywhere(records: &[Record]) -> Vec<Arc<dyn ToolProvider>> {
     let mut providers = Vec::new();
     for record in records.iter().filter(|r| r.is_enabled()) {

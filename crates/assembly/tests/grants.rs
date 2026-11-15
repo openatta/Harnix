@@ -529,4 +529,33 @@ mod privileged {
         let e = call(&r, me, "system.compact", json!({"space": "acme.notes"})).await.unwrap_err();
         assert_eq!(e.code, codes::REFUSED);
     }
+    struct Nothing;
+
+    #[async_trait::async_trait]
+    impl harnix_ext::http::RouteHandler for Nothing {
+        async fn handle(
+            &self,
+            _cx: harnix_ext::http::RouteContext,
+            _req: harnix_ext::http::Request<harnix_ext::http::Body>,
+        ) -> harnix_ext::http::Response<harnix_ext::http::Body> {
+            harnix_ext::http::status(harnix_ext::http::StatusCode::NOT_FOUND, "nothing")
+        }
+    }
+
+    /// A package's routes are a directory of its files and its carrier's interface files; a tool
+    /// endpoint is not one of them any more: a spawned daemon reaches its tools over its socket.
+    #[test]
+    fn a_packages_carrier_serves_its_interface_and_nothing_else() {
+        let r = registered(first_party("")).unwrap();
+        let with = |prefix: &str| {
+            let trust = Trust::consent(Vec::<String>::new(), PackageCarrier::Wasm);
+            let mut d = DescriptorBuilder::new(id("acme.notes"), Manifest::new("acme.notes", "1.0.0"), trust);
+            d.route(prefix, Access::device(), Nothing);
+            d.build()
+        };
+        r.check_package(&with("ui"), &[]).unwrap();
+        let e = r.check_package(&with("mcp"), &[]).unwrap_err();
+        assert_eq!(e.code, codes::REFUSED);
+        assert!(e.message.contains("(`ui`)"), "{}", e.message);
+    }
 }

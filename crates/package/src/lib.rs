@@ -35,7 +35,8 @@ pub const MAX_TOOLS: usize = 64;
 /// The name a session sees one of a package's tools by: `ext__<id>__<tool>`, the id's `.` and `-`
 /// and the tool's `-` as `_`: the engine's tool names are letters, digits and `_`, starting with a
 /// letter, at most 64. Not one-to-one, so a package whose names would meet another's is refused at
-/// install ([`tool_clashes`]).
+/// install ([`tool_clashes`]). The host's check of a package's descriptor has a copy of this rule
+/// (`harnix-assembly`, `host/dynamic.rs`), which does not depend on this crate.
 pub fn tool_name(app: &str, tool: &str) -> String {
     format!("ext__{}__{}", app.replace(['.', '-'], "_"), tool.replace('-', "_"))
 }
@@ -96,12 +97,6 @@ pub fn tool_count<'a>(
 ) -> usize {
     manifest.tools.len()
         + installed.into_iter().filter(|m| m.app.id != manifest.app.id).map(|m| m.tools.len()).sum::<usize>()
-}
-
-/// The name a spawned daemon knows a package's MCP server by (its tools are
-/// `mcp__<server>__<tool>` there).
-pub fn server_name(app: &str) -> String {
-    format!("ext-{}", app.replace('.', "_"))
 }
 
 /// The longest note a package's hook may add after one of its tools' calls, in characters.

@@ -241,7 +241,7 @@ impl Extension for Packages {
         }
         r.topic(LIST_TOPIC).access(person());
         r.topic(PROGRESS_TOPIC).access(person());
-        // What the carrier gives every engine built in this process: its tools, in every session.
+        // What the carrier gives every engine this process builds or spawns: its tools, in every session.
         let Ok(carrier) = self.chosen(r.config()) else { return };
         let mut c = CarrierRegistrar::new(self.settings(r.config()));
         carrier.register(&mut c);
