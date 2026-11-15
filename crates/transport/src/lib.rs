@@ -100,13 +100,9 @@ pub struct Extensions {
     pub routes: Vec<ExtRoutes>,
     pub route_gate: Option<Arc<dyn RouteDecider>>,
     /// What answers `/ext/<id>/…` for an id no native extension took: the packages' own paths
-    /// (their interface files, the tool endpoint a spawned daemon reaches their tools through).
-    /// Handed the request whole, path and all, with the subject it was admitted as, if any, in its
-    /// extensions. Without one those paths are 404.
+    /// (their interface files). Handed the request whole, path and all, with the subject it was
+    /// admitted as, if any, in its extensions. Without one those paths are 404.
     pub packages: Option<Router>,
-    /// The credentials of the engines this process spawned: a request presenting one is
-    /// admitted as `Subject::Engine`.
-    pub engines: Option<Arc<harnix_authz::EngineCredentials>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -147,7 +143,6 @@ pub(crate) struct AppState {
     pub devices: Arc<harnix_authz::Devices>,
     pub challenges: Arc<admission::Challenges>,
     pub route_gate: ext_mount::SharedGate,
-    pub engines: Option<Arc<harnix_authz::EngineCredentials>>,
 }
 
 /// The channels this transport has open, for what has to end them from
@@ -228,7 +223,6 @@ pub(crate) fn assemble(
         devices,
         challenges: Arc::new(admission::Challenges::default()),
         route_gate: extensions.route_gate,
-        engines: extensions.engines.clone(),
     };
     let channels = Channels {
         sessions: state.sessions.clone(),

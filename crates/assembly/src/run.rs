@@ -84,17 +84,14 @@ pub(crate) async fn start_process(app: AppBuilder, cli: &Cli, basis: &Basis) -> 
     // back as this says.
     let recording = harnix_instance::Recording::new(cli.replay_dir.clone());
     recording.set_strict(cli.replay_strict);
-    // What a daemon this process spawns presents when it calls back: issued before any is.
-    let engines = Arc::new(harnix_authz::EngineCredentials::default());
     let instances = instances::build(
         profile,
         &basis.roots,
         &mut records,
         &mut table,
-        instances::Wiring { credentials: &credentials, engines: &engines, recording, grants: grants.clone() },
+        instances::Wiring { credentials: &credentials, recording, grants: grants.clone() },
     )
     .await?;
-    let servers = instances.registry.factory.servers.clone();
     let hub::Assembled { hub, instances, ui, brand_icon } =
         hub::assemble(cli, profile, &basis.roots, (&name, &version), &records, instances, &behind).await?;
     // The hub's rows have been in the route table since registration; from here they answer.
@@ -111,14 +108,12 @@ pub(crate) async fn start_process(app: AppBuilder, cli: &Cli, basis: &Basis) -> 
             ui: ui.clone(),
             devices: held.devices.clone(),
             credentials: credentials.clone(),
-            servers,
             state_root: basis.roots.state.clone(),
             projects_root: basis.roots.projects.clone(),
             dynamic,
             runtime_modules: profile.ui.runtime_modules,
             package_sections,
             unsandboxed: crate::host::spawn::unsandboxed(&records),
-            engines,
         },
         admission::Identity { name: &name, version: &version },
     );

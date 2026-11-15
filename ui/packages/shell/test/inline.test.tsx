@@ -62,8 +62,8 @@ describe("the applications the shell draws for", () => {
     expect(watch.marked()).toBe(true);
   });
 
-  it("are known by their tools' names in this process and in a spawned daemon", () => {
-    expect(toolNames("example.showcase", "echo")).toEqual(["ext__example_showcase__echo", "mcp__ext-example_showcase__echo"]);
+  it("are known by their tools' names, the same in every instance", () => {
+    expect(toolNames("example.showcase", "echo")).toEqual(["ext__example_showcase__echo"]);
   });
 
   it("have what the shell registered for them taken back", () => {

@@ -8,8 +8,7 @@
 //!
 //! Who the request is from, in order: a credential from a handshake
 //! (`Authorization: Bearer <credential>`, or `?credential=` where a browser
-//! API cannot set a header — a WebSocket); the credential of an engine this
-//! process spawned (`Subject::Engine`); on a loopback listener, the
+//! API cannot set a header — a WebSocket); on a loopback listener, the
 //! per-process token the same two ways, or a launch-link session cookie.
 //!
 //! What is under `/ext/` and no native extension's is the packages', which
@@ -78,13 +77,7 @@ async fn admit(state: AppState, mut req: Request, next: Next) -> Response {
     }
     let query = req.uri().query().unwrap_or("").to_string();
     if let Some(subject) = subject_of(&state, req.headers(), &query).await {
-        // An engine's credential is presented from this machine, or not at all: a token can leak,
-        // and being on the other side of a network is not something a token says.
-        let peer = req.extensions().get::<axum::extract::ConnectInfo<std::net::SocketAddr>>().map(|c| c.0);
-        let local = peer.is_some_and(|addr| addr.ip().to_canonical().is_loopback());
-        if local || !matches!(subject, Subject::Engine { .. }) {
-            req.extensions_mut().insert(subject);
-        }
+        req.extensions_mut().insert(subject);
     }
     next.run(req).await
 }
@@ -128,9 +121,6 @@ async fn subject_of(state: &AppState, headers: &HeaderMap, query: &str) -> Optio
         if let Some(established) = state.sessions.get(&credential) {
             return Some(established.subject.clone());
         }
-    }
-    if let Some(engine) = bearer.as_deref().and_then(|token| state.engines.as_ref()?.admit(token)) {
-        return Some(engine);
     }
     if state.config.admission == Admission::Token {
         let token = state.config.token.as_str();

@@ -70,7 +70,6 @@ pub(super) async fn serve(
         routes,
         route_gate: Some(admission.router.clone()),
         packages: admission.dynamic.as_ref().map(|host| host.routes.router()),
-        engines: Some(admission.engines.clone()),
     };
     let (router, statics, channels) = harnix_transport::router(
         admission.router.clone(),

@@ -27,8 +27,6 @@ pub(super) struct Instances {
 /// What the instances share with the rest of the process.
 pub(super) struct Wiring<'a> {
     pub credentials: &'a Arc<dyn Credentials>,
-    /// What a daemon this process spawns presents when it calls back.
-    pub engines: &'a Arc<harnix_authz::EngineCredentials>,
     pub recording: Arc<Recording>,
     pub grants: Arc<dyn harnix_kernel::GrantBook>,
 }
@@ -70,7 +68,7 @@ fn registry(
     table: &mut RouteTable,
     wiring: Wiring<'_>,
 ) -> anyhow::Result<RegistryConfig> {
-    let Wiring { credentials, engines, recording, grants } = wiring;
+    let Wiring { credentials, recording, grants } = wiring;
     let resolve = {
         let credentials = credentials.clone();
         Arc::new(move |name: &str| credentials.get(name).ok().map(|s| s.expose().to_string()))
@@ -79,10 +77,8 @@ fn registry(
     // A template that inherits providers inherits the main instance's.
     factory.providers_from = Some(roots.engine.clone());
     factory.recording = recording;
-    // What the extensions give every engine built in this process.
+    // What the extensions give every engine this process builds or spawns.
     factory.providers.extend(lifecycle::everywhere(records));
-    // A daemon reaches the packages' tools over HTTP, presenting a credential of its own.
-    factory.servers.issue_with(Arc::new(EngineTokens(engines.clone())));
     let mut registry = RegistryConfig {
         templates: BTreeMap::new(),
         ledger: Ledger::load(roots.state.join("kernel").join("instances.json"))?,
@@ -163,20 +159,6 @@ fn instance_root(instances_dir: &Path, data_root: Option<&str>, id: &str) -> std
 fn down(carrier: InstanceCarrier, reason: String) -> Built {
     tracing::error!(%reason, "instance not built");
     Built::new(DownLink::new(carrier, reason), Facts::default())
-}
-
-/// What issues and revokes the credential each daemon this process spawns presents at a package's
-/// tool endpoint, as its instance's engine.
-struct EngineTokens(Arc<harnix_authz::EngineCredentials>);
-
-impl harnix_instance::ServerTokens for EngineTokens {
-    fn issue(&self, instance: &str) -> String {
-        self.0.issue_engine(instance)
-    }
-
-    fn revoke(&self, token: &str) {
-        self.0.revoke(token)
-    }
 }
 
 #[cfg(test)]

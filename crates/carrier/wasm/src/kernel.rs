@@ -4,7 +4,7 @@
 //! - **Its names**: when the host starts a package it registers it here, and this is where its
 //!   descriptor is made — each `[[method]]` a method answered by [`Control::call_method`], its
 //!   topics published by its backend, its spaces, its tools from `[[tool]]`, its interface's files
-//!   and its tool endpoint as routes, trusted by the consent its component recorded — and
+//!   as a route, trusted by the consent its component recorded — and
 //!   registered through that component's registrar: on the record as the component's, by the
 //!   same host path a native extension takes.
 //! - **What it does as itself** — `host.call`, `publish`, `subscribe` — goes through its handle,
@@ -32,7 +32,7 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 use crate::registry::Registry;
-use harnix_carrier_shared::{McpEndpoint, UiFiles};
+use harnix_carrier_shared::UiFiles;
 
 pub(crate) struct CarrierKernel {
     /// The component's context, from the first package it started.
@@ -245,7 +245,6 @@ impl Kernel for CarrierKernel {
             d.tool(spec);
         }
         d.route("ui", Access::device(), UiFiles::new(self.registry.clone()));
-        d.route("mcp", Access::engine(), McpEndpoint::new(self.registry.clone()));
         let host = self.cx()?.service::<HostServices>()?;
         let handle = host.registrar().register(d.build(), installed.capabilities().to_vec()).await?;
         handle.mark(Availability::Ready);

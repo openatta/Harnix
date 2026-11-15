@@ -165,8 +165,7 @@ export function packagesOf(app: App): PackagesWatch {
   return watch;
 }
 
-/** The names a session knows a package's tool by: in this process, and in a spawned daemon. */
+/** The names a session knows a package's tool by: the same in every session, of any instance. */
 export function toolNames(id: string, tool: string): string[] {
-  const flat = id.replace(/\./g, "_");
-  return [`ext__${id.replace(/[.-]/g, "_")}__${tool.replace(/-/g, "_")}`, `mcp__ext-${flat}__${tool}`];
+  return [`ext__${id.replace(/[.-]/g, "_")}__${tool.replace(/-/g, "_")}`];
 }

@@ -79,8 +79,8 @@ impl<'a, C> Registrar<'a, C> {
         self.builder.engine()
     }
 
-    /// What it gives every engine built in this process: tool providers, and the tool names
-    /// every scene admits.
+    /// What it gives every engine this process builds or spawns: tool providers, registered on
+    /// each one's link. An attached daemon is somebody else's and gets none.
     pub fn engine_everywhere(&mut self) -> &mut EngineContribution {
         self.builder.engine_everywhere()
     }

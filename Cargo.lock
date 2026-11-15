@@ -1525,11 +1525,9 @@ dependencies = [
  "harnix-package",
  "harnix-wasm-port",
  "http",
- "http-body-util",
  "serde_json",
  "tokio",
  "tracing",
- "uuid",
 ]
 
 [[package]]

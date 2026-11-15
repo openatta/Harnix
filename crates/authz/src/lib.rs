@@ -4,11 +4,12 @@
 //! reads that against a subject. The route table holds the rows and asks here for every call, so
 //! "may this subject call this" has one answer however the call arrived.
 //!
-//! Four kinds of subject, judged differently. A device is a person, and in a single-user process
-//! the answer to "may this person do it" is nearly always yes — but a device holds no capability.
-//! An extension is let in by a row's declaration, and holds what it was granted: privilege comes
-//! from capabilities, never from which extension it is. The engine reaches a tool endpoint. The
-//! kernel is this binary, and reaches everything the hub does not own.
+//! Kinds of subject, judged differently. A device is a person, and in a single-user process the
+//! answer to "may this person do it" is nearly always yes — but a device holds no capability. An
+//! extension is let in by a row's declaration, and holds what it was granted: privilege comes from
+//! capabilities, never from which extension it is. The kernel is this binary, and reaches
+//! everything the hub does not own. An engine is named in the audit of what an extension's engine
+//! sends, and no row is open to it.
 //!
 //! Authorization happens at the method, not at the connection. A multi-channel topology gives
 //! one subject several connections; hanging the decision on a connection would give several
@@ -20,7 +21,7 @@ mod admission;
 mod audit;
 mod devices;
 
-pub use admission::{ChildBindings, ChildSubject, EngineCredentials};
+pub use admission::{ChildBindings, ChildSubject};
 pub use audit::{Audit, AuditEntry, AuditSink, Change, Decision};
 pub use devices::challenge as devices_challenge;
 pub use devices::{tokens_equal, Device, Devices, PairError, Persist, PAIRING_TTL};
@@ -53,7 +54,6 @@ pub fn decide(subject: &Subject, grants: &dyn GrantBook, access: &Access) -> Dec
             Some(cap) if !grants.holds(id, cap) => refused(LACKS_CAPABILITY),
             _ => Decision::Allow,
         },
-        Subject::Engine { .. } if access.opens_engine() => Decision::Allow,
         _ => refused("this method was not declared for this caller"),
     }
 }

@@ -25,7 +25,6 @@ pub(crate) fn of(table: &RouteTable) -> Value {
                 "access": {
                     "device": access.opens_devices(),
                     "extensions": access.extensions_listed(),
-                    "engine": access.opens_engine(),
                     "requires": requires,
                     "scope": access.scope().as_str(),
                     "refused": access.refusal(),
