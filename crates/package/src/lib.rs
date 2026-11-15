@@ -103,3 +103,40 @@ pub fn tool_count<'a>(
 pub fn server_name(app: &str) -> String {
     format!("ext-{}", app.replace('.', "_"))
 }
+
+/// The longest note a package's hook may add after one of its tools' calls, in characters.
+pub const MAX_NOTE: usize = 2000;
+
+/// What a note of the package `app` tells the model about a call of `tool`, as a reminder before
+/// its next step: nothing for a tool not its own, and at most [`MAX_NOTE`] characters, under its
+/// name. A downloaded package does not get to write after every tool the model calls. Every
+/// carrier's hooks read it so (`harnix-carrier-shared`, and an extension process's own engine in
+/// `harnix-proc`).
+pub fn note_for(app: &str, tool: &str, note: &str) -> Option<String> {
+    if !tool.starts_with(&tool_name(app, "")) {
+        return None;
+    }
+    let cut = note.chars().count() > MAX_NOTE;
+    let mut note: String = note.chars().take(MAX_NOTE).collect();
+    if cut {
+        note.push('…');
+    }
+    Some(format!("[{app}] {note}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_note_goes_on_its_own_tools_calls_only_and_only_so_long() {
+        assert_eq!(note_for("acme.notes", "ext__acme_notes__search", "seen").as_deref(), Some("[acme.notes] seen"));
+        for tool in ["Bash", "ext__acme_other__search", "ext__acme_notesx__search"] {
+            assert_eq!(note_for("acme.notes", tool, "seen"), None, "{tool}");
+        }
+        let long = "x".repeat(MAX_NOTE + 10);
+        let note = note_for("acme.notes", "ext__acme_notes__search", &long).unwrap();
+        assert_eq!(note.chars().filter(|c| *c == 'x').count(), MAX_NOTE);
+        assert!(note.ends_with('…'));
+    }
+}

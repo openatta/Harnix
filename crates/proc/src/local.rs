@@ -33,9 +33,6 @@ use serde_json::{json, Value};
 /// The provider's name in every session.
 const NAME: &str = "harnix-extension";
 
-/// The longest note a package's hook may add to a tool's result, in characters.
-const MAX_NOTE: usize = 2000;
-
 /// Where one tool call's progress goes, by the call's id.
 type Listener = Arc<dyn Fn(&str) + Send + Sync>;
 
@@ -343,21 +340,6 @@ struct AppEvents {
     local: Arc<Local>,
 }
 
-/// What a note of the package `app` tells the model about a call of `tool`, as a reminder before
-/// its next step: nothing for a tool not its own,
-/// and at most [`MAX_NOTE`] characters, under its name.
-fn note_for(app: &str, tool: &str, note: &str) -> Option<String> {
-    if !tool.starts_with(&tool_name(app, "")) {
-        return None;
-    }
-    let cut = note.chars().count() > MAX_NOTE;
-    let mut note: String = note.chars().take(MAX_NOTE).collect();
-    if cut {
-        note.push('…');
-    }
-    Some(format!("[{app}] {note}"))
-}
-
 #[async_trait]
 impl ToolHook for AppEvents {
     async fn before(&self, call: &ToolCallFacts) -> HookDecision {
@@ -380,7 +362,7 @@ impl ToolHook for AppEvents {
                 tracing::info!(package = %self.app, tool = %call.name(), %reason, "a package refused a tool call");
                 HookDecision::Block(format!("refused by the package `{}`: {reason}", self.app))
             }
-            HookReply::AddContext(note) => match note_for(&self.app, call.name(), &note) {
+            HookReply::AddContext(note) => match harnix_package::note_for(&self.app, call.name(), &note) {
                 Some(note) => HookDecision::AddContext(note),
                 None => HookDecision::Proceed,
             },
@@ -389,22 +371,5 @@ impl ToolHook for AppEvents {
                 HookDecision::Proceed
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_note_goes_on_its_own_tools_results_only_and_only_so_long() {
-        assert_eq!(note_for("acme.notes", "ext__acme_notes__search", "seen").as_deref(), Some("[acme.notes] seen"));
-        for tool in ["Bash", "ext__acme_other__search", "ext__acme_notesx__search"] {
-            assert_eq!(note_for("acme.notes", tool, "seen"), None, "{tool}");
-        }
-        let long = "x".repeat(MAX_NOTE + 10);
-        let note = note_for("acme.notes", "ext__acme_notes__search", &long).unwrap();
-        assert_eq!(note.chars().filter(|c| *c == 'x').count(), MAX_NOTE);
-        assert!(note.ends_with('…'));
     }
 }

@@ -22,8 +22,7 @@ use crate::registry::Loaded;
 /// The provider's name in every session.
 pub const NAME: &str = "harnix-packages";
 
-/// The longest note a package's hook may add to a tool's result, in characters.
-pub const MAX_NOTE: usize = 2000;
+pub use harnix_package::MAX_NOTE;
 
 /// Run `call` (a tool call or a hook named `call_id`), and cancel it in the host if `cancel` fires
 /// first. The call is polled first, so the host has its cancellation before it can be asked to.
@@ -91,7 +90,7 @@ pub fn hook_decision(app: &str, tool: &str, reply: HookReply) -> HookDecision {
             tracing::info!(package = %app, tool = %tool, %reason, "a package refused a tool call");
             HookDecision::Block(format!("refused by the package `{app}`: {reason}"))
         }
-        HookReply::AddContext(note) => match note_for(app, tool, &note) {
+        HookReply::AddContext(note) => match harnix_package::note_for(app, tool, &note) {
             Some(note) => HookDecision::AddContext(note),
             None => {
                 tracing::debug!(package = %app, tool = %tool, "a note for another's tool; left out");
@@ -102,40 +101,5 @@ pub fn hook_decision(app: &str, tool: &str, reply: HookReply) -> HookDecision {
             tracing::warn!(package = %app, tool = %tool, %failure, "a package's event hook failed; the call goes on");
             HookDecision::Proceed
         }
-    }
-}
-
-/// What a note of the package `app` tells the model about a call of `tool`, as a reminder before
-/// its next step: nothing for a tool not its own,
-/// and at most [`MAX_NOTE`] characters, under its name.
-fn note_for(app: &str, tool: &str, note: &str) -> Option<String> {
-    if !tool.starts_with(&crate::registry::tool_name(app, "")) {
-        return None;
-    }
-    let cut = note.chars().count() > MAX_NOTE;
-    let mut note: String = note.chars().take(MAX_NOTE).collect();
-    if cut {
-        note.push('…');
-    }
-    Some(format!("[{app}] {note}"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_note_goes_on_its_own_tools_results_only_and_only_so_long() {
-        assert_eq!(
-            note_for("acme.notes", "ext__acme_notes__search", "seen").as_deref(),
-            Some("[acme.notes] seen")
-        );
-        for tool in ["Bash", "ext__acme_other__search", "ext__acme_notesx__search"] {
-            assert_eq!(note_for("acme.notes", tool, "seen"), None, "{tool}");
-        }
-        let long = "x".repeat(MAX_NOTE + 10);
-        let note = note_for("acme.notes", "ext__acme_notes__search", &long).unwrap();
-        assert_eq!(note.chars().filter(|c| *c == 'x').count(), MAX_NOTE);
-        assert!(note.ends_with('…'));
     }
 }
