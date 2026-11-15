@@ -352,7 +352,7 @@ impl Wire {
     async fn read(self: Arc<Self>, reader: Reader, lost: CancellationToken) {
         let wired: Arc<dyn Wired> = self.clone();
         let mut lines = BufReader::new(reader).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
+        'reading: while let Ok(Some(line)) = lines.next_line().await {
             let Ok(frame) = serde_json::from_str::<Value>(&line) else {
                 continue;
             };
@@ -369,9 +369,12 @@ impl Wire {
                             continue;
                         }
                     }
-                    let Some(event) = translate::event(frame) else { continue };
-                    if self.events_tx.send(event).await.is_err() {
-                        break;
+                    // A host tool's permission ask may be answered here, or wait for its call.
+                    for frame in self.host.screen(frame, &wired, &self.events_tx) {
+                        let Some(event) = translate::event(frame) else { continue };
+                        if self.events_tx.send(event).await.is_err() {
+                            break 'reading;
+                        }
                     }
                 }
             }

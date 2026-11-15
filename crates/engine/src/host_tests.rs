@@ -100,8 +100,12 @@ impl Tool for Echo {
     fn spec(&self) -> &ToolSpec {
         &self.0
     }
-    fn permission(&self, _: &Value) -> Permission {
-        Permission::Allow
+    fn permission(&self, input: &Value) -> Permission {
+        match input["perm"].as_str() {
+            Some("deny") => Permission::Deny("not that".into()),
+            Some("ask") => Permission::Ask("Really run it?".into()),
+            _ => Permission::Allow,
+        }
     }
     async fn call(&self, cx: ToolCx, input: Value) -> Result<ToolOutput, ToolError> {
         if input["fail"].as_bool() == Some(true) {
@@ -450,4 +454,113 @@ async fn a_link_that_offers_nothing_registers_nothing() {
     let _taken = taken.await.unwrap().map_err(|r| format!("{r:?}")).unwrap();
     assert!(link.status().borrow().is_ready());
     link.shutdown().await;
+}
+
+fn tool_use(id: &str, input: Value) -> Value {
+    json!({"kind": "tool_use", "id": id, "name": "echo", "input": input})
+}
+
+fn permission_ask(prompt: &str, tool_use_id: &str) -> Value {
+    json!({"kind": "prompt", "prompt_type": "permission", "prompt_id": prompt, "tool_name": "echo",
+           "message": "Allow the host's tool echo?", "paths": [], "tool_use_id": tool_use_id})
+}
+
+/// The next event the hub is handed that is not a tool's call.
+async fn next_but_calls(events: &mut EventReceiver) -> EngineEvent {
+    loop {
+        match first_event(events).await {
+            EngineEvent::Session { kind: SessionEventKind::ToolCall { .. }, .. } => continue,
+            other => return other,
+        }
+    }
+}
+
+fn fragment(e: &EngineEvent) -> Option<String> {
+    match e {
+        EngineEvent::Session { kind: SessionEventKind::Fragment(_), event, .. } => event["text"].as_str().map(str::to_string),
+        _ => None,
+    }
+}
+
+/// A host tool that lets its call through is permitted by the link, and neither the ask nor its
+/// resolution reaches the hub; one that refuses it is refused, with its reason.
+#[tokio::test]
+async fn a_host_tools_ask_is_answered_by_the_tool() {
+    let (_link, mut fake, _taken, mut events) = ready(&provider(vec![])).await;
+    fake.push("s1", tool_use("u1", json!({}))).await;
+    fake.push("s1", permission_ask("p1", "u1")).await;
+    let (id, answer) = fake.expect(translate::SESSION_RESPOND).await;
+    assert_eq!(answer, json!({"session_id": "s1", "prompt_id": "p1", "prompt_type": "permission", "decision": {"type": "permit"}}));
+    fake.answer(id, json!({"prompt_id": "p1"})).await;
+    fake.push("s1", json!({"kind": "prompt_resolved", "prompt_id": "p1", "resolution": "answered"})).await;
+    fake.push("s1", json!({"kind": "text_delta", "text": "after"})).await;
+    assert_eq!(fragment(&next_but_calls(&mut events).await).as_deref(), Some("after"), "the hub saw the ask");
+
+    fake.push("s1", tool_use("u2", json!({"perm": "deny"}))).await;
+    fake.push("s1", permission_ask("p2", "u2")).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND).await;
+    assert_eq!(answer["decision"], json!({"type": "deny", "reason": "not that"}));
+}
+
+/// A tool that asks has its ask handed to the person, with its own question beside the engine's.
+#[tokio::test]
+async fn a_host_tool_that_asks_is_asked_with_its_own_question() {
+    let (_link, mut fake, _taken, mut events) = ready(&provider(vec![])).await;
+    fake.push("s1", tool_use("u1", json!({"perm": "ask"}))).await;
+    fake.push("s1", permission_ask("p1", "u1")).await;
+    match next_but_calls(&mut events).await {
+        EngineEvent::Session { kind: SessionEventKind::Asked(prompt), .. } => {
+            assert_eq!(prompt.value["tool_question"], "Really run it?");
+            assert_eq!(prompt.value["message"], "Allow the host's tool echo?");
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// An ask that comes before its call waits for it; one whose call never comes goes to the person
+/// as it is.
+#[tokio::test]
+async fn an_ask_before_its_call_waits_for_it() {
+    let (_link, mut fake, _taken, mut events) = ready(&provider(vec![])).await;
+    fake.push("s1", permission_ask("p1", "u1")).await;
+    fake.push("s1", tool_use("u1", json!({}))).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND).await;
+    assert_eq!(answer["decision"]["type"], "permit");
+
+    fake.push("s1", permission_ask("p2", "nowhere")).await;
+    let started = std::time::Instant::now();
+    match next_but_calls(&mut events).await {
+        EngineEvent::Session { kind: SessionEventKind::Asked(prompt), .. } => {
+            assert_eq!(prompt.prompt_id.as_deref(), Some("p2"));
+            assert!(prompt.value.get("tool_question").is_none());
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(started.elapsed() >= crate::permits::HOLD - Duration::from_millis(100), "it did not wait");
+}
+
+/// A call its tool refuses does not run, whatever let the engine make it.
+#[tokio::test]
+async fn a_call_its_tool_refuses_does_not_run() {
+    let (_link, mut fake, _taken, _events) = ready(&provider(vec![])).await;
+    fake.push("s1", tool_call("c1", json!({"perm": "deny", "text": "x"}))).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
+    assert_eq!(answer["result"], json!({"content": "refused: not that", "is_error": true}));
+}
+
+/// In an unattended layer, a call its tool would ask about has nobody to ask, and does not run.
+#[tokio::test]
+async fn an_unattended_layers_tool_that_would_ask_does_not_run() {
+    let mut contrib = EngineContribution::new();
+    contrib.scene(SceneLayer::new("quiet", SceneBase::builtin("code")).tool(echo("quiet_echo")).interactive(false));
+    let link = DaemonLink::with_host(InstanceCarrier::InProcess, "test", HostSide::new("main", Chains::default(), &contrib).unwrap());
+    let (connection, mut fake) = pair();
+    let taken = taking(&link, connection);
+    fake.greet(crate::REQUIRED_CAPABILITIES).await;
+    let _taken = taken.await.unwrap().map_err(|r| format!("{r:?}")).unwrap();
+    let mut call = tool_call("c1", json!({"perm": "ask"}));
+    call["name"] = json!("quiet_echo");
+    fake.push("s1", call).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
+    assert!(answer["result"]["content"].as_str().unwrap().contains("nobody is there"), "{answer}");
 }

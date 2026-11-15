@@ -70,7 +70,9 @@ const TOOL_USE: &str = "tool_use";
 const TOOL_RESULT: &str = "tool_result";
 const PROMPT: &str = "prompt";
 const PROMPT_RESOLVED: &str = "prompt_resolved";
-
+const SUBAGENT_PROGRESS: &str = "subagent_progress";
+/// The kind of ask a permission is.
+const PERMISSION: &str = "permission";
 const GOAL_CHANGED: &str = "goal_changed";
 const TEAM_PROGRESS: &str = "team_progress";
 const TASK_STARTED: &str = "task_started";
@@ -545,6 +547,70 @@ pub(crate) fn host_frame(frame: &Value) -> Option<HostFrame> {
     }
 }
 
+/// A frame a host tool's permission ask is judged from: a call of a tool and its end — a
+/// delegate's mirrored in its progress — a permission ask about one, and an ask resolved.
+#[derive(Debug, PartialEq)]
+pub(crate) enum PermitFrame {
+    ToolUse { session: String, id: String, name: String, input: Value },
+    ToolResult { session: String, id: String },
+    Asked { session: String, tool_name: String, tool_use_id: String },
+    Resolved { prompt_id: String },
+}
+
+/// The [`PermitFrame`] `frame` is, if any.
+pub(crate) fn permit_frame(frame: &Value) -> Option<PermitFrame> {
+    if frame.get("method").and_then(Value::as_str) != Some(SESSION_EVENT) {
+        return None;
+    }
+    let params = frame.get("params")?;
+    let session = params.get("session_id").and_then(Value::as_str)?.to_string();
+    let mut event = params.get("event")?;
+    let nested = event.get("kind").and_then(Value::as_str) == Some(SUBAGENT_PROGRESS);
+    if nested {
+        event = event.get("event")?;
+    }
+    let text = |k: &str| event.get(k).and_then(Value::as_str).map(str::to_string);
+    match event.get("kind").and_then(Value::as_str)? {
+        TOOL_USE => Some(PermitFrame::ToolUse {
+            session,
+            id: text("id")?,
+            name: text("name")?,
+            input: event.get("input").cloned().unwrap_or(Value::Null),
+        }),
+        TOOL_RESULT => Some(PermitFrame::ToolResult { session, id: text("id")? }),
+        // A delegate's ask is the root session's own frame, not mirrored.
+        PROMPT if !nested => {
+            if text("prompt_type").is_some_and(|t| t != PERMISSION) {
+                return None;
+            }
+            Some(PermitFrame::Asked { session, tool_name: text("tool_name")?, tool_use_id: text("tool_use_id")? })
+        }
+        PROMPT_RESOLVED if !nested => Some(PermitFrame::Resolved { prompt_id: text("prompt_id")? }),
+        _ => None,
+    }
+}
+
+/// The ask a frame is.
+pub(crate) fn prompt_id(frame: &Value) -> Option<String> {
+    frame.pointer("/params/event/prompt_id").and_then(Value::as_str).map(str::to_string)
+}
+
+/// An ask, with the tool's own question beside the engine's line.
+pub(crate) fn with_tool_question(frame: &mut Value, question: &str) {
+    if let Some(Value::Object(event)) = frame.pointer_mut("/params/event") {
+        event.insert("tool_question".into(), json!(question));
+    }
+}
+
+/// The answer to a permission ask: permitted, or refused with why.
+pub(crate) fn permit_answer(session: &str, prompt_id: &str, decision: Result<(), String>) -> Value {
+    let decision = match decision {
+        Ok(()) => json!({"type": "permit"}),
+        Err(why) => json!({"type": "deny", "reason": why}),
+    };
+    json!({"session_id": session, "prompt_id": prompt_id, "prompt_type": PERMISSION, "decision": decision})
+}
+
 /// The longest description a declared tool may have, in bytes.
 const MAX_DESCRIPTION: usize = 8192;
 /// How long the engine waits for a declared tool: its longest. A native tool has no timeout of its
@@ -896,6 +962,26 @@ mod tests {
         assert_eq!(sent, json!({"method": "session.setPrompt", "params": {"session_id": "s", "append": "a"}}));
         let sent = ops.set_prompt("s", Some(None), Some(Some("o".into()))).await.unwrap();
         assert_eq!(sent["params"], json!({"session_id": "s", "append": null, "override": "o"}));
+    }
+
+    #[test]
+    fn the_frames_a_permission_is_judged_from_are_read() {
+        let frame = |event: Value| json!({"jsonrpc": "2.0", "method": SESSION_EVENT, "params": {"session_id": "s", "event": event}});
+        assert_eq!(
+            permit_frame(&frame(json!({"kind": "tool_use", "id": "u", "name": "T", "input": {"a": 1}}))),
+            Some(PermitFrame::ToolUse { session: "s".into(), id: "u".into(), name: "T".into(), input: json!({"a": 1}) })
+        );
+        let nested = frame(json!({"kind": "subagent_progress", "event": {"kind": "tool_result", "id": "v"}}));
+        assert_eq!(permit_frame(&nested), Some(PermitFrame::ToolResult { session: "s".into(), id: "v".into() }));
+        let ask = frame(json!({"kind": "prompt", "prompt_type": "permission", "prompt_id": "p", "tool_name": "T", "tool_use_id": "u", "message": "Allow?"}));
+        assert_eq!(permit_frame(&ask), Some(PermitFrame::Asked { session: "s".into(), tool_name: "T".into(), tool_use_id: "u".into() }));
+        assert_eq!(prompt_id(&ask).as_deref(), Some("p"));
+        assert!(permit_frame(&frame(json!({"kind": "prompt", "prompt_type": "question", "prompt_id": "p", "tool_use_id": "u"}))).is_none());
+        assert!(permit_frame(&frame(json!({"kind": "text_delta", "text": "x"}))).is_none());
+        let mut asked = ask.clone();
+        with_tool_question(&mut asked, "Really?");
+        assert_eq!((&asked["params"]["event"]["tool_question"], &asked["params"]["event"]["message"]), (&json!("Really?"), &json!("Allow?")));
+        assert_eq!(permit_answer("s", "p", Err("no".into()))["decision"], json!({"type": "deny", "reason": "no"}));
     }
 
     #[test]

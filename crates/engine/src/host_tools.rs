@@ -9,12 +9,26 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 
 use harnix_contract::sync::lock;
-use harnix_engine_api::{Cancel, Progress, SessionRef, Tool, ToolCx, ToolError};
+use harnix_engine_api::{Cancel, Permission, Progress, SessionRef, Tool, ToolCx, ToolError, ToolOutput};
 
 use crate::host::{HostSide, Wired};
 use crate::translate::{self, HostToolCall};
 
 pub(crate) async fn run(host: Arc<HostSide>, wire: Arc<dyn Wired>, tool: Arc<dyn Tool>, call: HostToolCall, cancel: Cancel) {
+    // Asked again of the tool itself: a call it refuses does not run, whatever let the engine
+    // make it (a permission mode, an allow rule), and nor does one it would have asked about in
+    // a session nobody answers.
+    let refused = match tool.permission(&call.input) {
+        Permission::Deny(why) => Some(why),
+        Permission::Ask(_) if host.nobody_asks(&call.name) => Some("nobody is there to answer whether it may run".to_string()),
+        _ => None,
+    };
+    if let Some(why) = refused {
+        let out = Ok(ToolOutput::error(format!("refused: {why}")));
+        host.answer(&*wire, translate::SESSION_RESPOND_TOOL_CALL, translate::tool_answer(&call.session, &call.call_id, out)).await;
+        host.done(&call.call_id);
+        return;
+    }
     let project = host.project_of(&*wire, &call.session).await;
     let chain = host.chains().chain(&SessionRef::new(host.instance(), &call.session));
     let session = call.agent_session.as_deref().unwrap_or(&call.session);

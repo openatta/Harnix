@@ -71,6 +71,10 @@ pub struct HostSide {
     gates: Vec<Arc<dyn PromptGate>>,
     /// The scene layers its sessions may be created in, and their tools.
     layers: SceneLayers,
+    /// The layers' tools nobody is asked about: those of an unattended layer.
+    unattended: HashSet<String>,
+    /// Its tools' permission asks, answered for them (`permits.rs`).
+    pub(crate) permits: crate::permits::Permits,
     /// The tools the daemon took at the last registration, by name.
     declared: StdMutex<Arc<HashMap<String, Arc<dyn Tool>>>>,
     /// The hooks registered last: before tool calls, and on messages.
@@ -92,12 +96,21 @@ impl HostSide {
     /// What `contrib`'s providers, gates and scene layers offer the sessions of `instance`, whose
     /// turns' chains `chains` says; refused when its scene layers do not expand.
     pub fn new(instance: &str, chains: Chains, contrib: &EngineContribution) -> Result<Arc<Self>, String> {
+        let layers = SceneLayers::new(contrib.scenes())?;
+        let unattended = layers
+            .ids()
+            .filter_map(|id| layers.get(id))
+            .filter(|l| l.attended == Some(false))
+            .flat_map(|l| l.tools.iter().map(|t| t.spec().name().to_string()))
+            .collect();
         Ok(Arc::new(Self {
             instance: instance.into(),
             chains: chains.0,
             providers: contrib.providers().to_vec(),
             gates: contrib.prompt_gates().to_vec(),
-            layers: SceneLayers::new(contrib.scenes())?,
+            layers,
+            unattended,
+            permits: Default::default(),
             declared: StdMutex::default(),
             hooks_on: StdMutex::default(),
             calls: StdMutex::default(),
@@ -115,6 +128,19 @@ impl HostSide {
     /// The scene layers its sessions may be created in.
     pub fn layers(&self) -> &SceneLayers {
         &self.layers
+    }
+
+    /// Whether a call of `name` that would be asked about has nobody to ask: a tool of an
+    /// unattended scene layer.
+    pub(crate) fn nobody_asks(&self, name: &str) -> bool {
+        self.unattended.contains(name)
+    }
+
+    /// A task of the link's own, stopped with it.
+    pub(crate) fn keep(&self, task: AbortHandle) {
+        let mut tasks = lock(&self.tasks);
+        tasks.retain(|t| !t.is_finished());
+        tasks.push(task);
     }
 
     /// The tool a call by `name` reaches: a session's own, from a scene layer, before one the
@@ -349,6 +375,7 @@ impl HostSide {
         }
         *lock(&self.declared) = Arc::default();
         *lock(&self.hooks_on) = (false, false);
+        self.permits.clear();
         lock(&self.projects).clear();
     }
 

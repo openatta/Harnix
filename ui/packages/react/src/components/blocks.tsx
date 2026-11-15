@@ -308,7 +308,9 @@ export const AskCard = memo(function AskCard({ block, controller }: { block: Blo
   const tool = askedTool(prompt, asks, toolNames);
   const args = call ? toolArgs(call.input) : "";
   // The engine's own line names the tool by its wire name ("Allow ext__acme__echo?"): the card says the one name.
-  const message = prompt.message && prompt.tool_name && tool ? prompt.message.split(prompt.tool_name).join(tool) : prompt.message;
+  // A host tool's own question, when the link added it, says more than the engine's line.
+  const said = prompt.tool_question || prompt.message;
+  const message = !prompt.tool_question && said && prompt.tool_name && tool ? said.split(prompt.tool_name).join(tool) : said;
   const give = (decision: Decision) => void controller.answer(block.key, decision);
   const answered: Record<AskAnswer, string> = {
     allow: strings.permDecisionAllow,

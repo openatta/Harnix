@@ -21,6 +21,7 @@ mod host;
 mod host_hooks;
 mod host_tests;
 mod host_tools;
+mod permits;
 mod legacy;
 pub mod readers;
 mod replay_link;
