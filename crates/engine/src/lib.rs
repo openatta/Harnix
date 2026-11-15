@@ -14,6 +14,7 @@
 //! interface's (`translate.rs`), the one place that names Agix's methods and events. The
 //! instance layer builds the links; the hub only ever holds them as `EngineLink`s.
 
+mod activity;
 mod daemon_link;
 mod embed;
 mod gate;

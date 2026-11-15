@@ -152,7 +152,7 @@ impl Factory {
         let engine = Engine::start(EngineConfig::from_profile(&profile, &data_root)).await?;
         let facts = Facts::from(&engine);
         let here = InProcessEngine::start(engine, id, host).await?;
-        let recorder = self.recording.of(id, facts.recordings_root.clone());
+        let recorder = self.recording.of(id, Some(data_root.join("recordings")));
         Ok(Built { link: ReplayLink::daemon(here.link().clone(), recorder), control: here, facts })
     }
 
@@ -234,8 +234,9 @@ impl Factory {
                 if let Err(e) = crate::servers::forget(&data_root) {
                     tracing::warn!(instance = id, error = %e, "the MCP servers 0.4.3 wrote were not taken out");
                 }
-                // Where a daemon writes its recordings is its own: a deleted session's stays.
-                options.recorder = Some(self.recording.of(id, None));
+                // Its sessions record where its settings say, or under its data root, as the ones of
+                // an engine in this process do.
+                options.recorder = Some(self.recording.of(id, Some(data_root.join("recordings"))));
                 options.host = Some(host);
                 let daemon = Supervised::start_with(DaemonSpec {
                     endpoint: Endpoint::Unix(socket),
@@ -279,6 +280,7 @@ impl Factory {
                     }
                     _ => anyhow::bail!("attach takes exactly one of `socket` and `tcp`"),
                 };
+                // Somebody else's daemon records where it likes: no directory is named and none removed.
                 let options = SpawnOptions { recorder: Some(self.recording.of(id, None)), ..SpawnOptions::default() };
                 let daemon = Supervised::start_with(DaemonSpec { endpoint, spawn: None }, options);
                 Ok(Built::supervised(daemon, Facts { data_root, ..Facts::default() }))

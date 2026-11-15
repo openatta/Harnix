@@ -36,8 +36,10 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 use tokio::sync::{mpsc, oneshot, watch, Mutex};
 use tokio_util::sync::CancellationToken;
 
+use crate::activity::Activity;
 use crate::gate::{GatedOps, WakeGate};
 use crate::host::{HostSide, Wired};
+use crate::replay_link::RootCache;
 use crate::translate::{self, AgixOps, Rpc};
 
 /// Where a daemon listens.
@@ -161,6 +163,11 @@ struct Wire {
     connected_before: AtomicBool,
     /// What it offers on every connection it takes.
     host: Arc<HostSide>,
+    /// What frames said of each session since this link was made: when its readers must ask again.
+    activity: Arc<Activity>,
+    /// Where the engine records, as it said when asked: forgotten when its settings are reloaded
+    /// and when a connection is taken, the two times it can have changed unannounced.
+    recorder_root: Arc<RootCache>,
 }
 
 impl DaemonLink {
@@ -209,6 +216,8 @@ impl DaemonLink {
             call_timeout,
             connected_before: AtomicBool::new(false),
             host,
+            activity: Arc::default(),
+            recorder_root: Arc::default(),
         });
         let wired: Arc<dyn Wired> = wire.clone();
         wire.host.watch(Arc::downgrade(&wired));
@@ -216,6 +225,16 @@ impl DaemonLink {
         Arc::new(Self { ops, wire, events_rx: StdMutex::new(Some(events_rx)) })
     }
 
+
+    /// What the link has seen of each session: for its readers.
+    pub(crate) fn activity(&self) -> Arc<Activity> {
+        self.wire.activity.clone()
+    }
+
+    /// Where the engine records, as far as it was asked: for the recorder that creates its sessions.
+    pub(crate) fn recorder_root(&self) -> Arc<RootCache> {
+        self.wire.recorder_root.clone()
+    }
 
     /// What wakes it before a call, when it may be let go while idle ([`DaemonLink::gated`]).
     pub(crate) fn gate(&self) -> Option<Arc<dyn WakeGate>> {
@@ -239,6 +258,8 @@ impl DaemonLink {
             self.disconnect().await;
             return Err(refusal);
         }
+        self.wire.activity.connected();
+        self.wire.recorder_root.forget();
         if self.wire.connected_before.swap(true, Ordering::Relaxed) {
             let _ = self.wire.events_tx.send(EngineEvent::Reconnected).await;
         }
@@ -356,6 +377,9 @@ impl Wire {
             let Ok(frame) = serde_json::from_str::<Value>(&line) else {
                 continue;
             };
+            if let Some((session, stir)) = translate::stir(&frame) {
+                self.activity.saw(&session, stir);
+            }
             match frame.get("id").and_then(Value::as_u64) {
                 Some(id) if frame.get("method").is_none() => {
                     let waiter = lock(&self.pending).remove(&id);
@@ -398,6 +422,14 @@ impl Wire {
     }
 
     async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
+        let answer = self.send_call(method, params).await;
+        if method == translate::CONFIG_RELOAD {
+            self.recorder_root.forget();
+        }
+        answer
+    }
+
+    async fn send_call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         lock(&self.pending).insert(id, tx);

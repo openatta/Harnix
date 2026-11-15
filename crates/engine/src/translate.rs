@@ -43,6 +43,11 @@ pub const DAEMON_SET_HOOKS: &str = "daemon.setHooks";
 pub const SESSION_RESPOND_TOOL_CALL: &str = "session.respondToolCall";
 pub const SESSION_REPORT_TOOL_PROGRESS: &str = "session.reportToolProgress";
 pub const SESSION_RESPOND_HOOK: &str = "session.respondHook";
+pub const SESSION_CALLS: &str = "session.calls";
+pub const SESSION_CALL: &str = "session.call";
+pub const SESSION_CALL_BLOB: &str = "session.callBlob";
+pub const SESSION_SEARCH: &str = "session.search";
+pub const CONFIG_GET: &str = "config.get";
 
 /// What a daemon must say it has (`daemon.ping`'s `capabilities`) for a link to take it: the
 /// tools and hooks a connection registers, a session's own `attended`, `skill_dirs`, its recorded
@@ -505,6 +510,46 @@ pub(crate) struct HostHookCall {
     pub agent_session: Option<String>,
 }
 
+/// What a frame says of one session's activity, for a reader deciding whether to read again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stir {
+    TurnStarted,
+    TurnEnded,
+    Other,
+    Reconnect,
+}
+
+/// A frame an engine sent unasked, as far as it shows that a session moved: its session and what
+/// it did. `events_lagged` says events were lost, so anything may have moved (`Reconnect`, with
+/// no session). Read, not taken.
+pub(crate) fn stir(frame: &Value) -> Option<(String, Stir)> {
+    let params = frame.get("params")?;
+    match frame.get("method").and_then(Value::as_str)? {
+        DAEMON_EVENT => {
+            let kind = params.get("kind").and_then(Value::as_str)?;
+            if kind == EVENTS_LAGGED {
+                return Some((String::new(), Stir::Reconnect));
+            }
+            let session = params.get("session_id").and_then(Value::as_str)?.to_string();
+            let stir = match kind {
+                TURN_STARTED => Stir::TurnStarted,
+                TURN_COMPLETED => Stir::TurnEnded,
+                _ => Stir::Other,
+            };
+            Some((session, stir))
+        }
+        SESSION_EVENT => {
+            let session = params.get("session_id").and_then(Value::as_str)?.to_string();
+            let stir = match params.pointer("/event/kind").and_then(Value::as_str) {
+                Some(TURN_COMPLETE | "error") => Stir::TurnEnded,
+                _ => Stir::Other,
+            };
+            Some((session, stir))
+        }
+        _ => None,
+    }
+}
+
 /// The frame a host's tool or hook is called by, or taken back by; `None` for any other. Read,
 /// not taken: a frame that is not this link's goes on to [`event`] as it is.
 pub(crate) fn host_frame(frame: &Value) -> Option<HostFrame> {
@@ -761,6 +806,21 @@ pub(crate) fn user_prompt(input: &Value) -> (String, Delivery, Option<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_frame_says_which_session_moved_and_whether_a_turn_began_or_ended() {
+        let daemon = |kind: &str, session: Option<&str>| json!({"method": DAEMON_EVENT, "params": {"kind": kind, "session_id": session}});
+        let session = |kind: &str| json!({"method": SESSION_EVENT, "params": {"session_id": "s", "event": {"kind": kind}}});
+        assert_eq!(stir(&daemon("turn_started", Some("s"))), Some(("s".into(), Stir::TurnStarted)));
+        assert_eq!(stir(&daemon("turn_completed", Some("s"))), Some(("s".into(), Stir::TurnEnded)));
+        assert_eq!(stir(&daemon("session_created", Some("s"))), Some(("s".into(), Stir::Other)));
+        assert_eq!(stir(&daemon("events_lagged", None)), Some((String::new(), Stir::Reconnect)));
+        assert_eq!(stir(&daemon("session_created", None)), None, "no session named");
+        assert_eq!(stir(&session("turn_complete")), Some(("s".into(), Stir::TurnEnded)));
+        assert_eq!(stir(&session("error")), Some(("s".into(), Stir::TurnEnded)));
+        assert_eq!(stir(&session("text_delta")), Some(("s".into(), Stir::Other)));
+        assert_eq!(stir(&json!({"id": 3, "result": {}})), None);
+    }
 
     fn session(event: Value) -> EngineEvent {
         event_of(json!({"jsonrpc": "2.0", "method": SESSION_EVENT, "params": {"session_id": "s", "turn_id": "t", "event": event}}))
