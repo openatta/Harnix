@@ -98,6 +98,10 @@ impl EngineOps for GatedOps {
         self.awake().await?;
         self.agix.set_model(session, model, provider).await
     }
+    async fn set_skill_dirs(&self, session: &str, dirs: &[std::path::PathBuf]) -> Answer<Value> {
+        self.awake().await?;
+        self.agix.set_skill_dirs(session, dirs).await
+    }
     async fn close(&self, params: Value, delete: bool) -> Answer<Value> {
         self.awake().await?;
         self.agix.close(params, delete).await

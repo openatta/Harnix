@@ -49,6 +49,7 @@
 
 mod methods;
 mod records;
+mod skills;
 mod snapshot;
 mod starting;
 
@@ -290,6 +291,12 @@ impl Extension for Packages {
         for id in state.sections.keys().filter(|id| !installed.contains(id.as_str())) {
             tracing::warn!(package = %id, "[ext.\"{id}\"] configures a package that is not installed");
         }
+        // Each package's skills are where they should be, whether it is on or off; then the hub
+        // is told which are on.
+        for record in &records {
+            skills::settle(&state, record);
+        }
+        skills::publish(&state);
         // The enabled ones, started where they were left. One that does not start is reported by
         // `packages.list` and the rest go on: a package is not the process.
         for record in records.into_iter().filter(|r| r.enabled) {
@@ -325,6 +332,8 @@ impl Extension for Packages {
 /// pushed now rather than at the next move of the carrier's generation.
 pub(crate) async fn changed(state: &State, id: Option<&str>) {
     state.forget(id);
+    // Who sees which skills moves with what is installed, switched on or removed.
+    skills::publish(state);
     snapshot::push(state).await;
 }
 

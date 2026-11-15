@@ -405,9 +405,12 @@ export!(Ext);
 
 - **`agent/` 是一个 Agix 插件**：`plugin.toml` 加 skill、agent 类型、场景、QuickJS 脚本。安装时打包成一个 zip，经引擎的
   `engine.plugin.install` 装进 `[agent] install_into` 列出的每台实例，随包启停（`engine.plugin.enable` / `disable`），卸载时撤掉。
-  所以包的安装方（`packages`）要持 `engine.plugins`；放 skill 之后让实例重读设置要可选的 `engine.config.write`。
-- **skill**：`agent/skills/<名字>/` 拷进实例数据根的 `skills/<名字>/`，带一个标记文件说它是哪个包的；同名的、不是这个包的 skill
-  已经在那里，就拒。拷完让实例重读设置。
+  所以包的安装方（`packages`）要持 `engine.plugins`。
+- **skill**：`agent/skills/<名字>/` 不进实例，而是装、升级时拷到 `<状态目录>/ext/<包 id>/skills/`，由中枢按会话列给引擎
+  （会话选项 `skill_dirs`）。声明了 `[[space]]` 的包，skill 只在自己的 space 里；没声明的，每个 space 都有；系统 space 看全部。
+  `[agent] install_into` 只管 agent 包，不管 skill。attach 的实例不给目录（外面的 daemon 不一定在这台机器上）。包停用、卸载后，
+  内存里的会话立刻不再列它，冷会话在下次被打开时对上；会话 `move` 到别的 space 时目录跟着换。这个目录归 `packages` 写，升级时在目录里逐项
+  替换而不换目录本身（引擎监视的是这个目录）；模式 3 的沙箱放行它的读。引擎拒绝的位置（项目里、可写目录里）会被略去，会话照建。
 - **QuickJS 脚本**挂在 Agix 的扩展点上，没有 I/O，和包的虚拟机之间**没有通道**：要有逻辑的钩子，写成 WASM 的 `events`。QuickJS 只限资源，
   不是隔离边界：它的信任来自签名（§7），不来自沙箱。
 - **工具名**：会话里叫 `ext__<id>__<tool>`，id 里的 `.` 换成 `_`（模型 API 的工具名只收字母、数字、`_`、`-`，id 里没有 `_`，所以一一对应），

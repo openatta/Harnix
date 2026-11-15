@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use harnix_contract::s1::{caps, CallMeta, Capability, ExtId, PackageCarrier};
 use harnix_contract::ChainLink;
+pub use harnix_contract::SkillSource;
 use harnix_engine_api::ToolProvider;
 use harnix_ext::http::RouteHandler;
 use harnix_ext::{ExtensionContext, ExtensionDescriptor, Rpc, Service};
@@ -67,6 +68,11 @@ pub trait HostApi: Send + Sync {
     /// `harnix.ui`: a trusted package's modules, every other one's frames. Replaces what this
     /// component published before, and pushes `harnix.ui`.
     fn publish_ui(&self, entries: Vec<Value>);
+
+    /// The skills directories of the packages this component runs, and the spaces each declared:
+    /// listed to the sessions that see them. Replaces what this component published before; the
+    /// hub brings the sessions in memory up to date.
+    fn skill_sources(&self, sources: Vec<SkillSource>);
 
     /// The profile's `[ext."<id>"]` sections no linked extension owns and whose id is a package's:
     /// each package's configuration over its manifest's `[config]`. One for a package that is not

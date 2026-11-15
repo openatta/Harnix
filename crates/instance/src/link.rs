@@ -123,6 +123,9 @@ impl EngineOps for DownLink {
     async fn set_model(&self, _: &str, _: &str, _: Option<&str>) -> Answer<Value> {
         Err(self.unavailable())
     }
+    async fn set_skill_dirs(&self, _: &str, _: &[std::path::PathBuf]) -> Answer<Value> {
+        Err(self.unavailable())
+    }
     async fn passthrough(&self, _: &str, _: Value) -> Answer<Value> {
         Err(self.unavailable())
     }

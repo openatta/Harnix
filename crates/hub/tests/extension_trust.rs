@@ -134,6 +134,9 @@ impl EngineOps for FakeLink {
     async fn set_model(&self, session: &str, _: &str, _: Option<&str>) -> Answer<Value> {
         Ok(described(session))
     }
+    async fn set_skill_dirs(&self, session: &str, _: &[std::path::PathBuf]) -> Answer<Value> {
+        Ok(described(session))
+    }
     async fn passthrough(&self, method: &str, params: Value) -> Answer<Value> {
         self.passed.lock().unwrap().push(method.to_string());
         Ok(match params.get("session_id").and_then(Value::as_str) {
