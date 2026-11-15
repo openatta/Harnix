@@ -6,7 +6,7 @@
 
 import { clip, t, compact } from "@harnix/react";
 
-import type { AgentUsage, Task, TraceCall } from "./types.ts";
+import type { AgentUsage, Task, TraceCall, UsageNote } from "./types.ts";
 
 /** Every token an Agent's run has used: what went in, from the cache or not, and what came out. */
 export function totalTokens(u: AgentUsage): number {
@@ -17,6 +17,16 @@ export function totalTokens(u: AgentUsage): number {
 export function tokenTip(u: AgentUsage[]): string {
   const sum = (k: keyof AgentUsage) => u.reduce((n, a) => n + Number(a[k] ?? 0), 0);
   return t("system.tokenTip", { input: sum("input_tokens"), read: sum("cache_read_tokens"), write: sum("cache_write_tokens"), output: sum("output_tokens") });
+}
+
+/** The tokens' split, with which run they cover and that they are the figures read before when the instance sleeps. */
+export function tokenTitle(u: AgentUsage[], note?: UsageNote): string {
+  const parts = [tokenTip(u)];
+  const created = note?.run?.created_at ? new Date(note.run.created_at) : null;
+  if (created && !Number.isNaN(created.getTime())) parts.push(t("system.runSince", { at: created.toLocaleString() }));
+  if (note?.run?.earlier_run) parts.push(t("system.earlierRunGone"));
+  if (note?.stale) parts.push(t("system.usageStale"));
+  return parts.join("\n");
 }
 
 /** One call's tokens in and out. */

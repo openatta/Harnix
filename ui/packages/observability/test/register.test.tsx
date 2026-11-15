@@ -25,13 +25,14 @@ function host(answer: (method: string) => unknown): HostApi {
 
 const call = (index: number, tool: string) => ({
   index,
+  session_id: "s1",
   turn: 1,
   step: index,
   model: "m",
   input: { system: [], tools: 0, messages: 1 },
-  output: { text: "", chars: 0, thinking_chars: 0, tool_uses: 1 },
-  tools: [{ id: tool, name: "Bash", input: "{}" }],
-  outcome: { status: "ok" },
+  output: { chars: 0, thinking_chars: 0, tool_uses: 1 },
+  tools: [{ id: tool, name: "Bash" }],
+  status: "ok",
 });
 
 describe("the observability tabs", () => {
@@ -69,5 +70,21 @@ describe("the observability tabs", () => {
     expect(container.querySelector('[data-testid="system-calls"]')).not.toBeNull();
     expect(container.querySelector('[data-tool="tu-b"]')).not.toBeNull();
     expect(scrolled).toEqual(["tu-b"]);
+  });
+
+  it("the calls tab says which run it covers, and that an earlier one is gone", async () => {
+    const r = new Registry();
+    r.definePoint("system.inspector.tab", { kind: "render" }, "system");
+    const run = { created_at: "2025-11-15T09:46:40Z", generation: 1, earlier_run: true };
+    r.activate("observability", () => register(r, host((method) => (method === "observability.trace" ? { calls: [call(0, "tu-a")], run } : {}))));
+    r.settle();
+    const calls = r.list<{ render(t: unknown): React.ReactNode }>("system.inspector.tab")[0]!;
+    const { container } = render(<RegistryProvider registry={r}>{calls.render({ kind: "session", instance: "main", sessionId: "s1" })}</RegistryProvider>);
+    await act(async () => {
+      await tick();
+    });
+    const note = container.querySelector('[data-testid="run-note"]');
+    expect(note?.getAttribute("data-earlier")).toBe("true");
+    expect(container.querySelector('[data-testid="system-call-tool"]')?.textContent).not.toContain("{}");
   });
 });
