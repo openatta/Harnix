@@ -1,13 +1,4 @@
-//! Provider keys a provider's settings leave unset.
-
-/// Where the key of a configured provider comes from when its settings name none.
-///
-/// Asked while the engine turns provider settings into clients — at start, and when a provider is
-/// changed — so it answers at once: a source that reaches a vault resolves and caches first.
-pub trait CredentialSource: Send + Sync {
-    /// The key for the provider `provider_id`, or why there is none.
-    fn get(&self, provider_id: &str) -> Result<Secret, String>;
-}
+//! A credential, as the product's credential lookup hands it out.
 
 /// A credential. It prints as nothing.
 #[non_exhaustive]

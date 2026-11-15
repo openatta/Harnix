@@ -4,12 +4,11 @@ use std::any::Any;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use crate::credentials::CredentialSource;
 use crate::gate::PromptGate;
 use crate::provider::ToolProvider;
 use crate::scene::SceneLayer;
 
-/// Scenes, tool providers, prompt gates, a credential source and tool names every scene admits:
+/// Scenes, tool providers, prompt gates and tool names every scene admits:
 /// what one extension, or several gathered in order, give an engine.
 #[non_exhaustive]
 #[derive(Default, Clone)]
@@ -17,7 +16,6 @@ pub struct EngineContribution {
     scenes: Vec<SceneLayer>,
     providers: Vec<Arc<dyn ToolProvider>>,
     prompt_gates: Vec<Arc<dyn PromptGate>>,
-    credentials: Option<Arc<dyn CredentialSource>>,
     admitted: Vec<String>,
     foreign_hooks: Vec<ForeignHook>,
 }
@@ -42,17 +40,6 @@ impl EngineContribution {
     /// A gate on every message to every session the instance builds.
     pub fn prompt_gate(&mut self, gate: Arc<dyn PromptGate>) -> &mut Self {
         self.prompt_gates.push(gate);
-        self
-    }
-
-    /// Provider keys a provider's settings leave unset. The first source given wins; a second
-    /// is ignored with a warning.
-    pub fn credentials(&mut self, source: Arc<dyn CredentialSource>) -> &mut Self {
-        if self.credentials.is_some() {
-            tracing::warn!("a second credential source was offered; keeping the first");
-        } else {
-            self.credentials = Some(source);
-        }
         self
     }
 
@@ -93,10 +80,6 @@ impl EngineContribution {
         &self.prompt_gates
     }
 
-    pub fn credential_source(&self) -> Option<&Arc<dyn CredentialSource>> {
-        self.credentials.as_ref()
-    }
-
     pub fn admitted(&self) -> &[String] {
         &self.admitted
     }
@@ -112,7 +95,6 @@ impl std::fmt::Debug for EngineContribution {
             .field("scenes", &self.scenes.iter().map(|s| s.id().to_string()).collect::<Vec<_>>())
             .field("providers", &self.providers.iter().map(|p| p.name().to_string()).collect::<Vec<_>>())
             .field("prompt_gates", &self.prompt_gates.len())
-            .field("credentials", &self.credentials.is_some())
             .field("admitted", &self.admitted)
             .field("foreign_hooks", &self.foreign_hooks.len())
             .finish()

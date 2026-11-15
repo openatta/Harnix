@@ -8,8 +8,7 @@ use harnix_engine_api::{
     EngineContribution, PromptDecision, PromptFacts, PromptGate, SessionFacts, Tool, ToolHook, ToolProvider,
 };
 
-/// `from`'s, after what `into` has. The first credential source stays; a second is ignored with
-/// a warning, as when one contribution is offered two.
+/// `from`'s, after what `into` has.
 pub(crate) fn merge(into: &mut EngineContribution, from: &EngineContribution) {
     for layer in from.scenes() {
         into.scene(layer.clone());
@@ -25,9 +24,6 @@ pub(crate) fn merge(into: &mut EngineContribution, from: &EngineContribution) {
     }
     for pattern in from.admitted() {
         into.admit_everywhere(pattern);
-    }
-    if let Some(source) = from.credential_source() {
-        into.credentials(source.clone());
     }
 }
 
@@ -50,9 +46,6 @@ pub(crate) fn gated(c: &EngineContribution, enabled: Arc<AtomicBool>) -> EngineC
     }
     for pattern in c.admitted() {
         out.admit_everywhere(pattern);
-    }
-    if let Some(source) = c.credential_source() {
-        out.credentials(source.clone());
     }
     out
 }

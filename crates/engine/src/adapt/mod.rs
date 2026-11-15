@@ -2,7 +2,6 @@
 //! and each has a test beside it that reads that trait's methods out of Agix's source, so a
 //! method Agix adds turns a test red here instead of being answered by a default no one chose.
 
-pub(crate) mod credentials;
 pub(crate) mod gate;
 pub(crate) mod provider;
 pub(crate) mod scene;

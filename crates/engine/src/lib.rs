@@ -1,7 +1,7 @@
 //! Agix, behind Harnix's engine interface: the one crate that links the engine.
 //!
 //! What extensions give an engine is written in `harnix-engine-api`'s terms — tools, providers,
-//! hooks, scene layers, prompt gates, a credential source. This crate turns each into Agix's own
+//! hooks, scene layers, prompt gates. This crate turns each into Agix's own
 //! (`adapt`), and stands the engine up in this process
 //! ([`build`]) or serves it as a daemon ([`serve_daemon`]).
 //!

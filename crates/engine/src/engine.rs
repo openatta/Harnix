@@ -252,9 +252,7 @@ pub async fn build(config: EngineConfig) -> anyhow::Result<Engine> {
                 config.permission_prompt_timeout_secs,
             ),
             model_client: Some(client),
-            credentials: contrib
-                .credential_source()
-                .map(|c| Arc::new(crate::adapt::credentials::AgixCredentials(c.clone())) as Arc<dyn base::interface::credentials::CredentialSource>),
+            credentials: None,
             transcripts,
             permission: None,
             // A provider is an Agix plugin, registered in delegates too; gates and raw hooks

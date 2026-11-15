@@ -30,7 +30,7 @@ pub mod tool;
 
 pub use chain::{ChainSource, NoChains};
 pub use contribution::{EngineContribution, ForeignHook};
-pub use credentials::{CredentialSource, Secret};
+pub use credentials::Secret;
 pub use events::{Completion, DaemonEventKind, EngineEvent, Fragment, Joins, Prompt, SessionEventKind, Waiting};
 pub use link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus, EVENT_CAPACITY};
 pub use ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, Subscribed, Tasks, TurnInput};

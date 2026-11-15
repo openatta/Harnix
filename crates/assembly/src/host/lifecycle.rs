@@ -156,11 +156,10 @@ fn check_native(d: &ExtensionDescriptor) -> Result<(), String> {
     if let Some(everywhere) = d.engine_everywhere() {
         if !everywhere.scenes().is_empty()
             || !everywhere.prompt_gates().is_empty()
-            || everywhere.credential_source().is_some()
             || !everywhere.foreign_hooks().is_empty()
         {
-            return Err("what it gives every engine is tool providers and admitted tool names; scenes, gates, \
-                        credentials and hooks are the main instance's"
+            return Err("what it gives every engine is tool providers and admitted tool names; scenes and gates \
+                        are the main instance's"
                 .to_string());
         }
     }
