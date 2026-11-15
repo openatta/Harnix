@@ -21,9 +21,9 @@ struct FakeLink {
     carrier: InstanceCarrier,
     events: Mutex<Option<EventReceiver>>,
     status: watch::Sender<LinkStatus>,
-    /// What each session lists, as `session.get` says.
+    /// What each session lists, as the engine says.
     listed: Mutex<HashMap<String, Vec<PathBuf>>>,
-    /// `session.create`'s params, in order.
+    /// The create calls' params, in order.
     created: Mutex<Vec<Value>>,
     /// Each `setSkillDirs`: the session and what it was given.
     set: Mutex<Vec<(String, Vec<PathBuf>)>>,
