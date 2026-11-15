@@ -49,6 +49,9 @@ export interface Scene {
   description?: string;
   active?: boolean;
   requires_project?: boolean;
+  /** 场景层的一行：它跑在引擎的哪个场景上。 */
+  base?: string;
+  scene_layer?: boolean;
   [key: string]: unknown;
 }
 
@@ -155,7 +158,11 @@ export interface SessionRow {
   session_id: string;
   name?: string | null;
   preview?: string | null;
+  /** 引擎跑的场景（它自己的）；会话建在场景层里时，`scene_layer` 是那一层，显示用它。 */
   scene?: string | null;
+  scene_layer?: string | null;
+  /** 调用方自己加在系统提示词末尾的文字（`harnix.session.setPrompt`）。 */
+  prompt_append?: string | null;
   project_root?: string | null;
   status?: string;
   running?: boolean;
@@ -379,6 +386,8 @@ export interface PromptEvent {
   paths?: string[];
   /** 被问的那次 tool_use。 */
   tool_use_id?: string;
+  /** 宿主工具自己的问句（Harnix 的链路附上的）：卡片优先显示它。 */
+  tool_question?: string;
 }
 /**
  * 本轮结束，transcript 已落盘。被 hook 拦下、被中断、被截停的轮同样以它结束；没调模型的轮（hook 拦下、本地命令）

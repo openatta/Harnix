@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use harnix_contract::RpcError;
-use harnix_engine::{Connection, DaemonLink, Endpoint, HostSide, Presets, Recorder, Refusal, ReplayLink};
+use harnix_engine::{Connection, DaemonLink, Endpoint, HostSide, Recorder, Refusal, ReplayLink};
 use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, InstanceCarrier, LinkStatus};
 use harnix_supervise::{Child, ChildSpec, RestartPolicy, Restarts};
 use tokio::sync::{watch, Mutex};
@@ -53,11 +53,10 @@ pub struct SpawnOptions {
     pub reap_on_stop: bool,
     /// What the sessions it creates and resumes are recorded with.
     pub(crate) recorder: Option<Recorder>,
-    /// What this process offers on the link — a template's native contributions, and the tools
-    /// every engine this process builds or spawns gets — registered on every connection it takes.
+    /// What this process offers on the link — a template's native contributions (its scene
+    /// layers' tools among them) and the tools every engine this process builds or spawns gets —
+    /// registered on every connection it takes.
     pub(crate) host: Option<Arc<HostSide>>,
-    /// The template's scene layers: what the sessions it creates in one are created with.
-    pub(crate) presets: Arc<Presets>,
 }
 
 impl SpawnOptions {
@@ -100,8 +99,7 @@ impl Supervised {
 
     fn launch(spec: DaemonSpec, options: SpawnOptions, link: Arc<DaemonLink>) -> Arc<Self> {
         let reap = options.reap_on_stop && spec.spawn.is_some();
-        let presets = options.presets;
-        let replay = options.recorder.map(|recorder| ReplayLink::daemon(link.clone(), recorder, presets));
+        let replay = options.recorder.map(|recorder| ReplayLink::daemon(link.clone(), recorder));
         let this = Arc::new(Self {
             spec,
             link,

@@ -36,7 +36,7 @@ test.afterEach(() => api?.close());
 async function author(fixture: string): Promise<string> {
   const created = await api.call("harnix.session.create", { space: "flow", options: { recorder: { name: fixture } } });
   expect(created.space).toBe("flow");
-  expect((await api.call("engine.session.get", { session_id: created.session_id })).scene).toBe("flow-author");
+  expect((await api.call("engine.session.get", { session_id: created.session_id })).scene_layer).toBe("flow-author");
   await api.call("harnix.session.attach", { session_id: created.session_id });
   return created.session_id;
 }

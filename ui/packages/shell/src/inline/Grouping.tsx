@@ -87,7 +87,7 @@ export function GroupedSessions({ app, s, rule, rows }: { app: App; s: ShellStat
   useEffect(() => {
     if (decl.by !== "method" || !decl.method) return;
     let alive = true;
-    const sessions = rows.map((r) => ({ session_id: r.session_id, instance: r.instance, name: r.name ?? null, scene: r.scene ?? null, status: r.status ?? null, last_active: r.last_active ?? null }));
+    const sessions = rows.map((r) => ({ session_id: r.session_id, instance: r.instance, name: r.name ?? null, scene: r.scene_layer ?? r.scene ?? null, status: r.status ?? null, last_active: r.last_active ?? null }));
     app
       .call(`${owner.id}.${decl.method}`, { space, sessions })
       .then((value) => alive && setAnswer({ ids, value }))
@@ -101,7 +101,7 @@ export function GroupedSessions({ app, s, rule, rows }: { app: App; s: ShellStat
     };
   }, [app, owner.id, decl.by, decl.method, space, ids]);
   const groups = useMemo((): Group[] | null => {
-    if (decl.by === "scene") return byValue(rows, (r) => r.scene, other);
+    if (decl.by === "scene") return byValue(rows, (r) => r.scene_layer ?? r.scene, other);
     if (decl.by === "field") return byValue(rows, (r) => lookup(r as unknown as Record<string, unknown>, decl.field ?? ""), other);
     if (!answer || answer.ids !== ids) return null;
     return answer.value == null ? [{ key: OTHER, title: other, rows }] : fromAnswer(rows, answer.value, other);

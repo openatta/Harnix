@@ -40,7 +40,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context};
-use harnix_engine::{Chains, Engine, EngineConfig, HostSide, InProcessEngine, Presets};
+use harnix_engine::{Chains, Engine, EngineConfig, HostSide, InProcessEngine};
 use harnix_engine_api::{EngineContribution, EngineControl, EngineProfile};
 use harnix_wasm_host::{Host, HostOptions};
 use harnix_wasm_port::rpc::{KernelClient, Wire};
@@ -252,12 +252,12 @@ async fn serve_engine(ext: &str, local: &Arc<Local>, run: &Path, stream: tokio::
     let root = run.join("engine");
     std::fs::create_dir_all(&root).with_context(|| format!("its engine's data root {}", root.display()))?;
     let config = EngineConfig::from_profile(&EngineProfile::new(), &root);
-    let engine = Engine::start(config, &Presets::none()).await.with_context(|| format!("the engine of `{ext}`"))?;
+    let engine = Engine::start(config).await.with_context(|| format!("the engine of `{ext}`"))?;
     // The package's tools are offered on this process's own link to its engine: the product's
     // connection only reads and drives its sessions.
     let mut contrib = EngineContribution::new();
     contrib.provider(Arc::new(LocalTools(local.clone())));
-    let host = HostSide::new(local.instance(), Chains(local.clone()), &contrib);
+    let host = HostSide::new(local.instance(), Chains(local.clone()), &contrib).map_err(anyhow::Error::msg)?;
     let here = InProcessEngine::start(engine, local.instance(), host).await?;
     local.link_is(here.link().clone());
     here.engine().serve(stream);

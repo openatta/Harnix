@@ -12,9 +12,9 @@ use std::sync::Arc;
 
 use harnix_contract::sync::{lock, read, write};
 use harnix_contract::{RpcError, SkillSource};
-use harnix_engine_api::ops::EngineOps;
+use harnix_engine_api::ops::{EngineOps, SessionSetup};
 use harnix_engine_api::SessionInfo;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::{Hub, SessionKey};
 
@@ -107,32 +107,21 @@ impl Hub {
         }
     }
 
-    /// A new session of the engine, listing `dirs`; those the engine refuses are left out.
+    /// A new session of the engine, set up with `setup`; the skill directories the engine refuses
+    /// are left out.
     pub(crate) async fn create_listing(
         &self,
         ops: &dyn EngineOps,
         params: Value,
-        dirs: &[PathBuf],
+        setup: SessionSetup,
     ) -> Result<harnix_engine_api::SessionCreated, RpcError> {
-        let with = |dirs: &[PathBuf]| {
-            let mut params = params.clone();
-            if !dirs.is_empty() {
-                let listed: Vec<Value> = dirs.iter().map(|d| json!({"path": d})).collect();
-                if let Some(obj) = params.as_object_mut() {
-                    let options = obj.entry("options").or_insert_with(|| json!({}));
-                    if let Some(options) = options.as_object_mut() {
-                        options.insert("skill_dirs".into(), json!(listed));
-                    }
-                }
-            }
-            params
-        };
-        match ops.create(with(dirs)).await {
+        let dirs = setup.skill_dirs.clone();
+        match ops.create(params.clone(), setup.clone()).await {
             Err(e) => match refused_dirs(&e, dirs.len()) {
                 Some(bad) => {
                     tracing::warn!(refused = bad.len(), "the engine refuses some skill directories; creating the session with the rest");
                     let rest: Vec<PathBuf> = dirs.iter().enumerate().filter(|(i, _)| !bad.contains(i)).map(|(_, d)| d.clone()).collect();
-                    ops.create(with(&rest)).await
+                    ops.create(params, setup.skill_dirs(rest)).await
                 }
                 None => Err(e),
             },
@@ -191,6 +180,7 @@ fn refused_dirs(e: &RpcError, listed: usize) -> Option<Vec<usize>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn source(ext: &str, spaces: &[&str]) -> SkillSource {
         SkillSource::new(ext, format!("/state/ext/{ext}/skills"), spaces.iter().map(|s| s.to_string()).collect())

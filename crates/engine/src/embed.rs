@@ -27,7 +27,6 @@ use tokio::task::JoinHandle;
 
 use crate::daemon_link::{Connection, DaemonLink};
 use crate::host::HostSide;
-use crate::presets::{active_scenes, Presets};
 
 /// What the engine answers a request a connection has no room for: an answer of the link's is
 /// sent again then.
@@ -40,10 +39,10 @@ const DUPLEX_BYTES: usize = 1 << 20;
 /// An engine's settings: an instance profile's `[engine]`, on a data root.
 #[derive(Debug, Clone)]
 pub struct EngineConfig {
-    /// The scene a session that names none is created in, as the profile names it: a scene
-    /// layer's id is served on its base.
+    /// The scene a session that names none is created in: one of the engine's own.
     pub scene: String,
-    /// The scenes activated besides it, named the same way.
+    /// The engine's own scenes activated besides it. A scene layer is none of them: the hub sets
+    /// a session up from one.
     pub scenes: Vec<String>,
     pub model: String,
     pub max_tokens: u32,
@@ -76,13 +75,17 @@ impl EngineConfig {
         }
     }
 
-    /// Agix's settings for it: the scenes as the engine has them.
-    fn embed(&self, presets: &Presets) -> EmbedConfig {
-        let (scene, scenes) = presets.engine_scenes(&self.scene, &self.scenes);
+    /// Agix's settings for it.
+    fn embed(&self) -> EmbedConfig {
         let mut config = EmbedConfig::new(self.data_root.clone());
         config.cwd = self.cwd.clone();
-        config.scene = scene;
-        config.scenes = scenes;
+        config.scene = self.scene.clone();
+        config.scenes = Vec::new();
+        for scene in &self.scenes {
+            if *scene != self.scene && !config.scenes.contains(scene) {
+                config.scenes.push(scene.clone());
+            }
+        }
         config.model = self.model.clone();
         config.max_tokens = self.max_tokens;
         config.session_cap = self.session_cap;
@@ -107,9 +110,9 @@ pub struct Engine {
     /// Its transcripts, opened again to read, for readers that would otherwise page the protocol
     /// to get at text.
     pub history: Option<Arc<dyn HistoryStore>>,
-    /// The scenes it serves, as the profile names them (layers included), sorted, once each.
+    /// The scenes it serves, sorted, once each.
     pub active_scenes: Vec<String>,
-    /// The scene a session that names none is created in, as the profile names it.
+    /// The scene a session that names none is created in.
     pub scene: String,
     /// The model name sessions get with nothing overriding it.
     pub model: String,
@@ -119,10 +122,9 @@ pub struct Engine {
 }
 
 impl Engine {
-    /// Start the engine `config` describes; `presets` says which of its scenes are layers, and on
-    /// what.
-    pub async fn start(config: EngineConfig, presets: &Presets) -> anyhow::Result<Engine> {
-        let embed = config.embed(presets);
+    /// Start the engine `config` describes.
+    pub async fn start(config: EngineConfig) -> anyhow::Result<Engine> {
+        let embed = config.embed();
         let base = embed.scene.clone();
         let embedded = Embedded::start(embed).await.map_err(|e| anyhow::anyhow!("{e}"))?;
 
@@ -296,11 +298,11 @@ impl EngineControl for InProcessEngine {
 /// `harnix daemon`: the engine `config` describes, on its socket until told to stop — or, with
 /// `exit_with_stdin`, until stdin closes: how a spawned daemon learns its parent is gone, even
 /// one that was killed outright. Whatever guards the data root is its caller's to hold. The
-/// scenes are the engine's own: the parent has mapped any layer to its base already.
+/// scenes are the engine's own: the parent sets a session up from a scene layer.
 pub async fn serve_daemon(config: EngineConfig, exit_with_stdin: bool) -> anyhow::Result<()> {
     let socket = config.socket.clone().ok_or_else(|| anyhow::anyhow!("a daemon needs a socket to serve on"))?;
     let data_root = config.data_root.clone();
-    let engine = Arc::new(Engine::start(config, &Presets::none()).await?);
+    let engine = Arc::new(Engine::start(config).await?);
     if exit_with_stdin {
         let engine = engine.clone();
         tokio::spawn(async move {
@@ -323,10 +325,19 @@ pub async fn serve_daemon(config: EngineConfig, exit_with_stdin: bool) -> anyhow
     Ok(())
 }
 
+/// The scenes an engine serves: its default and the others, once each and sorted. The same for one
+/// built here and one spawned with the same profile.
+pub fn active_scenes(scene: &str, scenes: &[String]) -> Vec<String> {
+    let mut all: Vec<String> = std::iter::once(scene.to_string()).chain(scenes.iter().cloned()).collect();
+    all.sort();
+    all.dedup();
+    all
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use harnix_engine_api::{EngineEvent, EngineLink, SceneBase, SceneLayer};
+    use harnix_engine_api::{EngineEvent, EngineLink};
     use serde_json::json;
 
     fn config(dir: &Path) -> EngineConfig {
@@ -339,7 +350,7 @@ mod tests {
     }
 
     async fn started(dir: &Path) -> Arc<InProcessEngine> {
-        let engine = Engine::start(config(dir), &Presets::none()).await.unwrap();
+        let engine = Engine::start(config(dir)).await.unwrap();
         InProcessEngine::start(engine, "main", HostSide::none()).await.unwrap()
     }
 
@@ -349,6 +360,7 @@ mod tests {
         use harnix_engine_api::ops::codes;
         assert_eq!(codes::SESSION_NOT_FOUND, agix::rpc::codes::SESSION_NOT_FOUND);
         assert_eq!(codes::SESSION_BUSY, agix::rpc::codes::SESSION_BUSY);
+        assert_eq!(codes::PROJECT_REQUIRED, agix::rpc::codes::PROJECT_REQUIRED);
         assert_eq!(TOO_MANY_IN_FLIGHT, -32017);
     }
 
@@ -401,19 +413,11 @@ mod tests {
         assert!(link.ops().passthrough("daemon.status", json!({})).await.is_err());
     }
 
-    /// A scene layer is served on its base: the engine is started with the scenes it has, and
-    /// the profile's names are what it reports serving.
-    #[tokio::test]
-    async fn a_scene_layer_is_started_as_its_base() {
-        let layer = SceneLayer::new("probe-native", SceneBase::builtin("harnix"));
-        let presets = Presets::new(&[layer], "harnix").unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let mut config = config(dir.path());
-        config.scenes = vec!["probe-native".into(), "mini".into()];
-        let embed = config.embed(&presets);
-        assert_eq!((embed.scene.as_str(), embed.scenes.as_slice()), ("harnix", ["mini".to_string()].as_slice()));
-        let engine = Engine::start(config, &presets).await.unwrap();
-        assert_eq!(engine.active_scenes, ["harnix", "mini", "probe-native"]);
-        engine.shutdown().await;
+    #[test]
+    fn the_active_scenes_are_the_default_and_the_others_once_each() {
+        let others = ["mini".to_string(), "code".to_string(), "mini".to_string()];
+        assert_eq!(active_scenes("harnix", &others), ["code", "harnix", "mini"]);
+        assert_eq!(active_scenes("code", &["code".to_string()]), ["code"]);
+        assert_eq!(active_scenes("harnix", &[]), ["harnix"]);
     }
 }

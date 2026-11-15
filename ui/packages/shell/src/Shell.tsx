@@ -676,7 +676,7 @@ function Header({
   const space = spacesOf(app).find((c) => c.id === s.space);
   const row = s.current ? s.sessions.find((r) => r.session_id === s.current!.sessionId && r.instance === s.current!.instance) : null;
   const name = row?.name ?? session?.session?.name ?? null;
-  const scene = session?.session?.scene ?? row?.scene;
+  const scene = session?.session?.scene_layer ?? row?.scene_layer ?? session?.session?.scene ?? row?.scene;
   const overview = space?.center?.mode && space.center?.mode !== "chat" && !onBack;
   const registry = useRegistry(app.registry);
   const actions = space?.conversation?.headerActions

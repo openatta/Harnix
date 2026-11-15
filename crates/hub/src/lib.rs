@@ -39,8 +39,10 @@ mod clients;
 mod engine_rows;
 mod lifecycle;
 mod links;
+mod prompt;
 mod replay;
 mod rows;
+mod scenes;
 mod session;
 mod skills;
 mod spaces;
@@ -165,6 +167,8 @@ pub struct Hub {
     /// Which calls each running turn is on behalf of: written as turns start and settle, read by
     /// the tools their sessions call.
     pub(crate) turns: Arc<TurnChains>,
+    /// One `harnix.session.setPrompt` at a time (`prompt.rs`).
+    prompting: Mutex<()>,
 }
 
 pub struct HubConfig {
@@ -207,6 +211,7 @@ impl Hub {
                 skills: StdRwLock::new(BTreeMap::new()),
                 audit: StdRwLock::new(None),
                 turns: config.turns.clone(),
+                prompting: Mutex::new(()),
             }
         });
         hub
@@ -311,9 +316,15 @@ impl Hub {
     }
 
     /// One engine method of an instance, its answer as the engine gives it: for the assembly's
-    /// own reads of the engine (`hello`), which name a row of the hub's.
+    /// own reads of the engine (`hello`), which name a row of the hub's. The scene list has the
+    /// instance's scene layers in it, as the row's does.
     pub async fn passthrough(&self, instance: &str, method: &str, params: Value) -> Result<Value, RpcError> {
-        self.engine(instance)?.ops().passthrough(method, params).await
+        let linked = self.engine(instance)?;
+        let answer = linked.ops().passthrough(method, params).await?;
+        Ok(match method {
+            engine_rows::SCENE_LIST => scenes::listed(&linked.link.scene_layers(), answer),
+            _ => answer,
+        })
     }
 
     /// File an entry under `ns` and `event` in the log of `session` on `instance`, through its

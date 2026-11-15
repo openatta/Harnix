@@ -721,6 +721,19 @@
     {
       "access": {
         "device": false,
+        "extensions": [],
+        "hub_owned": true,
+        "refused": "use harnix.session.setPrompt — the hub keeps the scene's text in front of yours",
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.session.setPrompt",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
+        "device": false,
         "extensions": [
           "*"
         ],
@@ -1908,6 +1921,23 @@
       },
       "kind": "method",
       "name": "harnix.session.send",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "engine.control"
+        ],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix.session.setPrompt",
       "owner": "kernel:hub"
     },
     {

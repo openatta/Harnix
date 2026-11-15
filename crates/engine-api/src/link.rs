@@ -16,6 +16,7 @@ use tokio::sync::{mpsc, watch};
 
 use crate::events::EngineEvent;
 use crate::ops::EngineOps;
+use crate::scene::SceneLayers;
 
 /// How many events a link holds for the hub before it stops reading. A link that stops reading
 /// makes the engine's own outbound queue fill, and the engine then drops that subscription and
@@ -126,6 +127,12 @@ pub trait EngineControl: Send + Sync + 'static {
     /// its session (ipdrun-07).
     fn reaps_on_stop(&self) -> bool {
         false
+    }
+
+    /// The scene layers its sessions may be created in, expanded: the hub sets a session up from
+    /// one, and the link answers that session's own tools. None by default.
+    fn scene_layers(&self) -> SceneLayers {
+        SceneLayers::default()
     }
 
     /// Have the engine read its settings again: what its builder does after writing them.

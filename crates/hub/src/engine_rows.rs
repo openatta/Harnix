@@ -30,7 +30,14 @@ enum After {
     OneSession,
     /// The answer lists sessions: each held so, from an extension's engine.
     Sessions,
+    /// The answer lists the engine's scenes: the instance's scene layers are added to it.
+    SceneList,
+    /// The call is about one scene: a scene layer is asked of as its base, and answered as itself.
+    OneScene,
 }
+
+/// The engine's scene list, as the hub's row names it.
+pub(crate) const SCENE_LIST: &str = "engine.scene.list";
 
 /// Passed through for any device and any extension, with what each acts on, and whether it reaches the engine's
 /// settings or plugins — which nobody reaches on an extension's engine: its carrier wrote them.
@@ -40,9 +47,9 @@ const DEVICE: &[(&str, RowScope, After, bool)] = &[
     ("engine.session.history", RowScope::Session, After::Nothing, false),
     ("engine.session.entries", RowScope::Session, After::Nothing, false),
     ("engine.session.resume", RowScope::Session, After::Nothing, false),
-    ("engine.scene.list", RowScope::Open, After::Nothing, false),
-    ("engine.scene.describe", RowScope::Open, After::Nothing, false),
-    ("engine.scene.activate", RowScope::Open, After::Nothing, false),
+    (SCENE_LIST, RowScope::Open, After::SceneList, false),
+    ("engine.scene.describe", RowScope::Open, After::OneScene, false),
+    ("engine.scene.activate", RowScope::Open, After::OneScene, false),
     ("engine.commands.list", RowScope::Open, After::Nothing, false),
     ("engine.mcp.status", RowScope::Open, After::Nothing, false),
     ("engine.plugin.list", RowScope::Open, After::Nothing, true),
@@ -143,6 +150,10 @@ pub const HUB_OWNED: &[(&str, &str)] = &[
     ),
     ("engine.session.unsubscribe", "use harnix.session.detach — the hub owns subscriptions"),
     ("engine.daemon.subscribeEvents", "host events are the hub's to fan out"),
+    (
+        "engine.session.setPrompt",
+        "use harnix.session.setPrompt — the hub keeps the scene's text in front of yours",
+    ),
 ];
 
 /// How one engine row is passed through.
@@ -179,6 +190,14 @@ pub(crate) fn rows(hub: &HubCell) -> Vec<HubRow> {
             owner: Owner::Kernel(harnix_kernel::KernelPart::Hub),
             access: Access::device().with_extensions().scoped(RowScope::Session),
             handler: Some(answer(hub, "harnix.session.fork", true, |h, cx, p| async move { h.fork(&cx.subject, p).await })),
+        },
+        // A session's own prompt text, behind its scene layer's: changed as its context is, by
+        // whoever holds `engine.control` (a device through the system space).
+        HubRow::Method {
+            name: "harnix.session.setPrompt",
+            owner: Owner::Kernel(harnix_kernel::KernelPart::Hub),
+            access: Access::capability(caps::ENGINE_CONTROL).scoped(RowScope::Session),
+            handler: Some(answer(hub, "harnix.session.setPrompt", true, |h, _, p| async move { h.set_prompt(p).await })),
         },
         HubRow::Method {
             name: "harnix.session.respond",
@@ -239,9 +258,24 @@ impl Hub {
         // A caller that claimed a space is told of that space's sessions only: the engine lists
         // every one, whoever's it is.
         let held = (through.after == After::Sessions).then(|| self.held_space(&params)).flatten();
+        let layers = linked.link.scene_layers();
+        let (params, layer) = match through.after {
+            After::OneScene => crate::scenes::about_one(&layers, params),
+            _ => (params, None),
+        };
         let mut answer = linked.ops().passthrough(method, without_instance(params)).await?;
         if extension {
             harden(&mut answer, through.after);
+        }
+        match (through.after, &layer) {
+            (After::OneScene, Some(layer)) => answer = crate::scenes::one_described(layer, answer),
+            (After::SceneList, _) => answer = crate::scenes::listed(&layers, answer),
+            (After::OneSession, _) => {
+                if let Some(sid) = answer.get("session_id").and_then(Value::as_str).map(str::to_string) {
+                    lock(&self.spaces).decorate(&(instance.clone(), sid), &mut answer);
+                }
+            }
+            _ => {}
         }
         if let (Some(space), Some(Value::Array(rows))) = (held, answer.get_mut("sessions")) {
             self.home_of(&instance);
@@ -250,8 +284,16 @@ impl Hub {
                 self.space_known(&(instance.clone(), sid.to_string())) == space
             });
         }
+        if let (After::Sessions, Some(Value::Array(rows))) = (through.after, answer.get_mut("sessions")) {
+            let spaces = lock(&self.spaces);
+            for row in rows {
+                if let Some(sid) = row.get("session_id").and_then(Value::as_str).map(str::to_string) {
+                    spaces.decorate(&(instance.clone(), sid), row);
+                }
+            }
+        }
         match through.after {
-            After::Nothing | After::OneSession | After::Sessions => {}
+            After::Nothing | After::OneSession | After::Sessions | After::SceneList | After::OneScene => {}
             After::Goal => {
                 if let (Some(goal), Some(session)) = (answer.get("goal"), session) {
                     self.goal_heard(&(instance.clone(), session), goal.clone()).await;
@@ -273,13 +315,19 @@ impl Hub {
             .map(str::to_string)
             .unwrap_or_else(|| self.space_of(&key));
         let forked = self.engine(&key.0)?.ops().fork(without_instance(params)).await?;
+        let mut value = forked.value;
         if let Some(sid) = &forked.session_id {
             let new = (key.0.clone(), sid.clone());
             self.bind_space(&new, &space);
             self.note_starter(&new, subject);
+            // The engine copies the session's options and prompt: its layer and its caller's
+            // text are the fork's too.
+            let mut spaces = lock(&self.spaces);
+            spaces.copy_session(&key, &new);
+            spaces.decorate(&new, &mut value);
         }
         self.refresh("harnix.instances.sessions", json!({"instance": key.0}));
-        Ok(forked.value)
+        Ok(value)
     }
 
     /// `harnix.session.respond`: the engine does not take who answered, so the hub keeps it for

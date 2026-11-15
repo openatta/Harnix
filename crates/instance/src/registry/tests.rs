@@ -320,7 +320,7 @@ async fn an_adopted_engine_records_and_replays_as_the_process_does() {
     adoption.attach(stream).await.unwrap();
     let link = lock(&seen.links).get("proc.acme.board").cloned().expect("the hub has its link");
 
-    link.ops().create(json!({"options": {"recorder": {"name": "says-ready"}}})).await.unwrap();
+    link.ops().create(json!({"options": {"recorder": {"name": "says-ready"}}}), Default::default()).await.unwrap();
     let created = lock(&asked).iter().find(|r| r["params"]["options"]["recorder"].is_object()).cloned().expect("a create");
     let recorder = &created["params"]["options"]["recorder"];
     assert_eq!((recorder["mode"].as_str(), recorder["name"].as_str()), (Some("replay"), Some("says-ready")), "{created}");

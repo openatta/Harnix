@@ -31,6 +31,8 @@ export interface SessionRowView {
   instance?: string;
   name?: string | null;
   scene?: string | null;
+  /** The scene layer it was created in, when it was: what is shown in place of `scene`. */
+  scene_layer?: string | null;
   status?: string | null;
   space?: string;
   last_active?: string;

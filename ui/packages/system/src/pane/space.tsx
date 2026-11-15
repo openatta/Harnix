@@ -48,7 +48,7 @@ export function SpaceSessions({ view, space, current }: { view: View; space: str
               data-sid={row.session_id}
               data-instance={instance}
               data-current={isCurrent(row) ? "true" : undefined}
-              title={[row.name, row.scene, row.project_root].filter(Boolean).join(" · ")}
+              title={[row.name, row.scene_layer ?? row.scene, row.project_root].filter(Boolean).join(" · ")}
               onClick={() => view.select({ kind: "session", instance, sessionId: row.session_id })}
             >
               <span className="tt name">{row.name || tr("sidebar.untitled")}</span>

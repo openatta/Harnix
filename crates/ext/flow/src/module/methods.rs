@@ -600,7 +600,8 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
                         p.instance, p.session_id, e.message
                     ))
                 })?;
-            if session.get("scene").and_then(Value::as_str) != Some(super::AUTHOR_SCENE) {
+            // The engine names the scene it runs on; the hub, the scene layer it was created in.
+            if session.get("scene_layer").and_then(Value::as_str) != Some(super::AUTHOR_SCENE) {
                 return Err(RpcError::invalid_params(format!(
                     "session {}/{} is not a {} conversation",
                     p.instance,

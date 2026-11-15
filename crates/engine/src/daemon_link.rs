@@ -30,7 +30,7 @@ use harnix_contract::sync::lock;
 use harnix_contract::{codes, RpcError};
 use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus, EVENT_CAPACITY};
 use harnix_engine_api::ops::EngineOps;
-use harnix_engine_api::EngineEvent;
+use harnix_engine_api::{EngineEvent, SceneLayers};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot, watch, Mutex};
@@ -352,7 +352,7 @@ impl Wire {
     async fn read(self: Arc<Self>, reader: Reader, lost: CancellationToken) {
         let wired: Arc<dyn Wired> = self.clone();
         let mut lines = BufReader::new(reader).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
+        'reading: while let Ok(Some(line)) = lines.next_line().await {
             let Ok(frame) = serde_json::from_str::<Value>(&line) else {
                 continue;
             };
@@ -369,9 +369,12 @@ impl Wire {
                             continue;
                         }
                     }
-                    let Some(event) = translate::event(frame) else { continue };
-                    if self.events_tx.send(event).await.is_err() {
-                        break;
+                    // A host tool's permission ask may be answered here, or wait for its call.
+                    for frame in self.host.screen(frame, &wired, &self.events_tx) {
+                        let Some(event) = translate::event(frame) else { continue };
+                        if self.events_tx.send(event).await.is_err() {
+                            break 'reading;
+                        }
                     }
                 }
             }
@@ -475,6 +478,10 @@ impl EngineControl for DaemonLink {
 
     fn carrier(&self) -> InstanceCarrier {
         self.wire.carrier
+    }
+
+    fn scene_layers(&self) -> SceneLayers {
+        self.wire.host.layers().clone()
     }
 
     async fn reload_settings(&self) -> Result<(), RpcError> {

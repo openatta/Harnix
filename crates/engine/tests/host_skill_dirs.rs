@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use harnix_engine::{Engine, EngineConfig, HostSide, InProcessEngine, Presets};
+use harnix_engine::{Engine, EngineConfig, HostSide, InProcessEngine};
 use harnix_engine_api::link::EngineLink;
 use harnix_engine_api::EngineProfile;
 use serde_json::{json, Value};
@@ -35,7 +35,7 @@ impl Rig {
         // The engine keeps its own marks in the working directory: not the repository's.
         config.cwd = Some(base.join("cwd"));
         std::fs::create_dir_all(base.join("cwd")).unwrap();
-        let engine = Engine::start(config, &Presets::none()).await.expect("the engine starts");
+        let engine = Engine::start(config).await.expect("the engine starts");
         let engine = InProcessEngine::start(engine, "test", HostSide::none()).await.expect("the link is up");
         Rig { _root: root, skills, engine }
     }
@@ -46,7 +46,7 @@ impl Rig {
 
     async fn create_with(&self, dirs: Value) -> Result<harnix_engine_api::SessionCreated, harnix_contract::RpcError> {
         let params = json!({"project_root": null, "options": {"skill_dirs": dirs}});
-        self.engine.link().ops().create(params).await
+        self.engine.link().ops().create(params, Default::default()).await
     }
 
     /// The first listed directory's `state` and skill names, as `session.get` reports them.

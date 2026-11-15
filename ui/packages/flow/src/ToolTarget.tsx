@@ -1,9 +1,9 @@
 /**
  * A `flow-author` tool call that changes something, named by what it acts on.
  *
- * The permission card under it says only "Allow flow_update?": the engine replaces the tool's own
- * question with its generic one, so the card cannot say which flow. The row the call is drawn in —
- * the `tool.row` this package registers — says it instead, read from the call's input: the flow
+ * The permission card under it shows the tool's own question ("Let the agent …?", which the link
+ * adds beside the engine's generic line); the row the call is drawn in — the `tool.row` this
+ * package registers — names the target too, read from the call's input: the flow
  * named in `flow` (the tool refuses if that is no longer the conversation's current flow), the name
  * and title of a flow being created, the part (skill, rule, policy, gate, hook) being written, the run (and station) a run tool acts
  * on (xops-03 §5).

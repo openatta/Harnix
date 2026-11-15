@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use harnix_contract::RpcError;
 use harnix_engine_api::events::{Completion, DaemonEventKind, EngineEvent, Fragment, Joins, Prompt, SessionEventKind, Waiting};
-use harnix_engine_api::ops::{codes, Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, Subscribed, Tasks, TurnInput};
+use harnix_engine_api::ops::{codes, Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
 use harnix_engine_api::{Delivery, ToolError, ToolOutput, ToolSpec};
 use serde_json::{json, Value};
 
@@ -27,6 +27,7 @@ pub const SESSION_RUN_TURN: &str = "session.run_turn";
 pub const SESSION_INTERRUPT: &str = "session.interrupt";
 pub const SESSION_RENAME: &str = "session.rename";
 pub const SESSION_SET_MODEL: &str = "session.setModel";
+pub const SESSION_SET_PROMPT: &str = "session.setPrompt";
 pub const SESSION_SET_SKILL_DIRS: &str = "session.setSkillDirs";
 pub const SESSION_CLOSE: &str = "session.close";
 pub const SESSION_DELETE: &str = "session.delete";
@@ -42,7 +43,6 @@ pub const DAEMON_SET_HOOKS: &str = "daemon.setHooks";
 pub const SESSION_RESPOND_TOOL_CALL: &str = "session.respondToolCall";
 pub const SESSION_REPORT_TOOL_PROGRESS: &str = "session.reportToolProgress";
 pub const SESSION_RESPOND_HOOK: &str = "session.respondHook";
-pub const SCENE_ACTIVATE: &str = "scene.activate";
 
 /// What a daemon must say it has (`daemon.ping`'s `capabilities`) for a link to take it: the
 /// tools and hooks a connection registers, a session's own `attended`, `skill_dirs`, its recorded
@@ -70,6 +70,9 @@ const TOOL_USE: &str = "tool_use";
 const TOOL_RESULT: &str = "tool_result";
 const PROMPT: &str = "prompt";
 const PROMPT_RESOLVED: &str = "prompt_resolved";
+const SUBAGENT_PROGRESS: &str = "subagent_progress";
+/// The kind of ask a permission is.
+const PERMISSION: &str = "permission";
 const GOAL_CHANGED: &str = "goal_changed";
 const TEAM_PROGRESS: &str = "team_progress";
 const TASK_STARTED: &str = "task_started";
@@ -121,8 +124,8 @@ impl AgixOps {
 
 #[async_trait::async_trait]
 impl EngineOps for AgixOps {
-    async fn create(&self, params: Value) -> Answer<SessionCreated> {
-        self.call(SESSION_CREATE, params).await.map(SessionCreated::new)
+    async fn create(&self, params: Value, setup: SessionSetup) -> Answer<SessionCreated> {
+        self.call(SESSION_CREATE, set_up(params, &setup)).await.map(SessionCreated::new)
     }
 
     async fn get(&self, session: &str) -> Answer<SessionInfo> {
@@ -153,8 +156,10 @@ impl EngineOps for AgixOps {
         }
     }
 
+    /// A session that recorded options of its own keeps them (its scene layer's tools, prompt and
+    /// naming among them); one created before sessions had any is attended, as every session is.
     async fn resume(&self, session: &str, from: &SessionInfo) -> Answer<()> {
-        let mut params = json!({"session_id": session});
+        let mut params = json!({"session_id": session, "options": {"attended": true}});
         if let Some(scene) = from.scene() {
             params["scene"] = json!(scene);
         }
@@ -226,6 +231,17 @@ impl EngineOps for AgixOps {
         self.call(SESSION_SET_MODEL, params).await
     }
 
+    async fn set_prompt(&self, session: &str, append: Option<Option<String>>, override_text: Option<Option<String>>) -> Answer<Value> {
+        let mut params = json!({"session_id": session});
+        if let Some(append) = append {
+            params["append"] = json!(append);
+        }
+        if let Some(override_text) = override_text {
+            params["override"] = json!(override_text);
+        }
+        self.call(SESSION_SET_PROMPT, params).await
+    }
+
     async fn set_skill_dirs(&self, session: &str, dirs: &[std::path::PathBuf]) -> Answer<Value> {
         let listed: Vec<Value> = dirs.iter().map(|d| json!({"path": d})).collect();
         self.call(SESSION_SET_SKILL_DIRS, json!({"session_id": session, "skill_dirs": listed})).await
@@ -251,6 +267,53 @@ impl EngineOps for AgixOps {
     async fn passthrough(&self, method: &str, params: Value) -> Answer<Value> {
         self.call(agix_method(method), params).await
     }
+}
+
+/// A session's creation, with what the hub set it up with in its options: the scene layer's base
+/// as its scene, and what the layer adds — whether someone answers (yes, unless the layer says
+/// no), its naming, its prompt, its own tools, allowed outright in a session nobody answers —
+/// and the skill directories it sees.
+fn set_up(mut params: Value, setup: &SessionSetup) -> Value {
+    if !params.is_object() {
+        params = json!({});
+    }
+    let scene = setup.scene.as_ref();
+    if let Some(scene) = scene {
+        params["scene"] = json!(scene.base);
+    }
+    let obj = params.as_object_mut().expect("an object just now");
+    let options = obj.entry("options").or_insert_with(|| json!({}));
+    if !options.is_object() {
+        *options = json!({});
+    }
+    let options = options.as_object_mut().expect("an object just now");
+    let attended = scene.and_then(|s| s.attended).unwrap_or(true);
+    options.insert("attended".into(), json!(attended));
+    if let Some(scene) = scene {
+        if let Some(on) = scene.auto_name {
+            options.insert("auto_name".into(), json!(on));
+        }
+        if let Some(append) = scene.prompt_append() {
+            options.insert("prompt".into(), json!({"append": append}));
+        }
+        if !scene.tools.is_empty() {
+            let decls: Vec<Value> = scene.tools.iter().map(|t| host_tool_decl(t.spec())).collect();
+            options.insert("host_tools".into(), json!(decls));
+            // Nobody answers a session that is unattended: its own tools are let through without
+            // an ask, which would be refused. A deny rule the caller gave still wins.
+            if !attended {
+                let rules = options.entry("permission_rules").or_insert_with(|| json!([]));
+                if let Some(rules) = rules.as_array_mut() {
+                    rules.extend(scene.tools.iter().map(|t| json!({"source": "session", "behavior": "allow", "tool_name": t.spec().name()})));
+                }
+            }
+        }
+    }
+    if !setup.skill_dirs.is_empty() {
+        let dirs: Vec<Value> = setup.skill_dirs.iter().map(|d| json!({"path": d.display().to_string()})).collect();
+        options.insert("skill_dirs".into(), json!(dirs));
+    }
+    params
 }
 
 /// The Agix method a row of the hub's passes through to: its name without the `engine.` the
@@ -482,6 +545,70 @@ pub(crate) fn host_frame(frame: &Value) -> Option<HostFrame> {
         HOOK_CALL_RESOLVED => Some(HostFrame::HookCallResolved { call_id }),
         _ => None,
     }
+}
+
+/// A frame a host tool's permission ask is judged from: a call of a tool and its end — a
+/// delegate's mirrored in its progress — a permission ask about one, and an ask resolved.
+#[derive(Debug, PartialEq)]
+pub(crate) enum PermitFrame {
+    ToolUse { session: String, id: String, name: String, input: Value },
+    ToolResult { session: String, id: String },
+    Asked { session: String, tool_name: String, tool_use_id: String },
+    Resolved { prompt_id: String },
+}
+
+/// The [`PermitFrame`] `frame` is, if any.
+pub(crate) fn permit_frame(frame: &Value) -> Option<PermitFrame> {
+    if frame.get("method").and_then(Value::as_str) != Some(SESSION_EVENT) {
+        return None;
+    }
+    let params = frame.get("params")?;
+    let session = params.get("session_id").and_then(Value::as_str)?.to_string();
+    let mut event = params.get("event")?;
+    let nested = event.get("kind").and_then(Value::as_str) == Some(SUBAGENT_PROGRESS);
+    if nested {
+        event = event.get("event")?;
+    }
+    let text = |k: &str| event.get(k).and_then(Value::as_str).map(str::to_string);
+    match event.get("kind").and_then(Value::as_str)? {
+        TOOL_USE => Some(PermitFrame::ToolUse {
+            session,
+            id: text("id")?,
+            name: text("name")?,
+            input: event.get("input").cloned().unwrap_or(Value::Null),
+        }),
+        TOOL_RESULT => Some(PermitFrame::ToolResult { session, id: text("id")? }),
+        // A delegate's ask is the root session's own frame, not mirrored.
+        PROMPT if !nested => {
+            if text("prompt_type").is_some_and(|t| t != PERMISSION) {
+                return None;
+            }
+            Some(PermitFrame::Asked { session, tool_name: text("tool_name")?, tool_use_id: text("tool_use_id")? })
+        }
+        PROMPT_RESOLVED if !nested => Some(PermitFrame::Resolved { prompt_id: text("prompt_id")? }),
+        _ => None,
+    }
+}
+
+/// The ask a frame is.
+pub(crate) fn prompt_id(frame: &Value) -> Option<String> {
+    frame.pointer("/params/event/prompt_id").and_then(Value::as_str).map(str::to_string)
+}
+
+/// An ask, with the tool's own question beside the engine's line.
+pub(crate) fn with_tool_question(frame: &mut Value, question: &str) {
+    if let Some(Value::Object(event)) = frame.pointer_mut("/params/event") {
+        event.insert("tool_question".into(), json!(question));
+    }
+}
+
+/// The answer to a permission ask: permitted, or refused with why.
+pub(crate) fn permit_answer(session: &str, prompt_id: &str, decision: Result<(), String>) -> Value {
+    let decision = match decision {
+        Ok(()) => json!({"type": "permit"}),
+        Err(why) => json!({"type": "deny", "reason": why}),
+    };
+    json!({"session_id": session, "prompt_id": prompt_id, "prompt_type": PERMISSION, "decision": decision})
 }
 
 /// The longest description a declared tool may have, in bytes.
@@ -769,6 +896,92 @@ mod tests {
         assert!(matches!(host_frame(&frame(json!({"kind": "hook_call_resolved", "call_id": "h"}))), Some(HostFrame::HookCallResolved { .. })));
         assert!(host_frame(&frame(json!({"kind": "text_delta", "text": "x"}))).is_none());
         assert!(host_frame(&json!({"jsonrpc": "2.0", "method": DAEMON_EVENT, "params": {"event": {"kind": "hook_call", "call_id": "h"}}})).is_none());
+    }
+
+    struct Quiet(ToolSpec);
+
+    #[async_trait::async_trait]
+    impl harnix_engine_api::Tool for Quiet {
+        fn spec(&self) -> &ToolSpec {
+            &self.0
+        }
+        async fn call(&self, _: harnix_engine_api::ToolCx, _: Value) -> Result<ToolOutput, ToolError> {
+            Ok(ToolOutput::text(""))
+        }
+    }
+
+    fn layer(scene: harnix_engine_api::SceneLayer) -> harnix_engine_api::ExpandedScene {
+        let id = scene.id().to_string();
+        harnix_engine_api::SceneLayers::new(&[scene]).unwrap().get(&id).cloned().unwrap()
+    }
+
+    #[test]
+    fn a_session_is_created_on_its_layers_base_with_what_the_layer_adds() {
+        use harnix_engine_api::{PromptText, SceneBase, SceneLayer};
+        let tool = std::sync::Arc::new(Quiet(ToolSpec::new("Probe", "p", json!({"type": "object"}))));
+        let probe = layer(
+            SceneLayer::new("probe", SceneBase::builtin("harnix"))
+                .prompt(PromptText::plain("one"))
+                .prompt(PromptText::cached("two"))
+                .tool(tool.clone())
+                .auto_name(false),
+        );
+        let setup = SessionSetup::new().scene(Some(probe));
+        let sent = set_up(json!({"scene": "probe", "options": {"model": "m"}}), &setup);
+        assert_eq!(sent["scene"], "harnix");
+        let options = &sent["options"];
+        assert_eq!((&options["model"], &options["attended"], &options["auto_name"]), (&json!("m"), &json!(true), &json!(false)));
+        assert_eq!(options["prompt"], json!({"append": "one\n\ntwo"}));
+        assert_eq!(options["host_tools"][0]["name"], "Probe");
+        assert!(options.get("permission_rules").is_none(), "an attended session asks");
+        assert!(options.get("skill_dirs").is_none());
+
+        let quiet = layer(SceneLayer::new("quiet", SceneBase::builtin("code")).tool(tool).interactive(false));
+        let rules = json!([{"source": "session", "behavior": "deny", "tool_name": "Probe"}]);
+        let sent = set_up(json!({"options": {"permission_rules": rules}}), &SessionSetup::new().scene(Some(quiet)));
+        assert_eq!((&sent["scene"], &sent["options"]["attended"]), (&json!("code"), &json!(false)));
+        let rules = sent["options"]["permission_rules"].as_array().unwrap();
+        assert_eq!((rules[0]["behavior"].as_str(), rules[1]["behavior"].as_str()), (Some("deny"), Some("allow")), "the caller's first");
+        assert!(sent["options"].get("prompt").is_none() && sent["options"].get("auto_name").is_none());
+
+        let plain = set_up(Value::Null, &SessionSetup::new().skill_dirs(vec![PathBuf::from("/s/a")]));
+        assert_eq!(plain, json!({"options": {"attended": true, "skill_dirs": [{"path": "/s/a"}]}}));
+    }
+
+    #[tokio::test]
+    async fn set_prompt_sends_only_what_it_was_given() {
+        struct Echo;
+        #[async_trait::async_trait]
+        impl Rpc for Echo {
+            async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
+                Ok(json!({"method": method, "params": params}))
+            }
+        }
+        let ops = AgixOps(Arc::new(Echo));
+        let sent = ops.set_prompt("s", Some(Some("a".into())), None).await.unwrap();
+        assert_eq!(sent, json!({"method": "session.setPrompt", "params": {"session_id": "s", "append": "a"}}));
+        let sent = ops.set_prompt("s", Some(None), Some(Some("o".into()))).await.unwrap();
+        assert_eq!(sent["params"], json!({"session_id": "s", "append": null, "override": "o"}));
+    }
+
+    #[test]
+    fn the_frames_a_permission_is_judged_from_are_read() {
+        let frame = |event: Value| json!({"jsonrpc": "2.0", "method": SESSION_EVENT, "params": {"session_id": "s", "event": event}});
+        assert_eq!(
+            permit_frame(&frame(json!({"kind": "tool_use", "id": "u", "name": "T", "input": {"a": 1}}))),
+            Some(PermitFrame::ToolUse { session: "s".into(), id: "u".into(), name: "T".into(), input: json!({"a": 1}) })
+        );
+        let nested = frame(json!({"kind": "subagent_progress", "event": {"kind": "tool_result", "id": "v"}}));
+        assert_eq!(permit_frame(&nested), Some(PermitFrame::ToolResult { session: "s".into(), id: "v".into() }));
+        let ask = frame(json!({"kind": "prompt", "prompt_type": "permission", "prompt_id": "p", "tool_name": "T", "tool_use_id": "u", "message": "Allow?"}));
+        assert_eq!(permit_frame(&ask), Some(PermitFrame::Asked { session: "s".into(), tool_name: "T".into(), tool_use_id: "u".into() }));
+        assert_eq!(prompt_id(&ask).as_deref(), Some("p"));
+        assert!(permit_frame(&frame(json!({"kind": "prompt", "prompt_type": "question", "prompt_id": "p", "tool_use_id": "u"}))).is_none());
+        assert!(permit_frame(&frame(json!({"kind": "text_delta", "text": "x"}))).is_none());
+        let mut asked = ask.clone();
+        with_tool_question(&mut asked, "Really?");
+        assert_eq!((&asked["params"]["event"]["tool_question"], &asked["params"]["event"]["message"]), (&json!("Really?"), &json!("Allow?")));
+        assert_eq!(permit_answer("s", "p", Err("no".into()))["decision"], json!({"type": "deny", "reason": "no"}));
     }
 
     #[test]

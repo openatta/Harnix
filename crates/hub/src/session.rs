@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use harnix_contract::{Frame, RpcError};
 use harnix_engine_api::events::{Completion, Joins, Prompt, SessionEventKind};
-use harnix_engine_api::ops::SessionInfo;
+use harnix_contract::sync::lock;
+use harnix_engine_api::ops::{SessionInfo, SessionSetup};
 use harnix_kernel::CallContext;
 use serde_json::{json, Value};
 
@@ -230,6 +231,8 @@ impl Hub {
         self.ensure_subscribed(&key, &info).await?;
         let total = self.history_total(&key).await;
         let compactions = info.compactions();
+        let mut session = info.into_value();
+        lock(&self.spaces).decorate(&key, &mut session);
 
         let mut guard = self.inner.lock().await;
         let state = guard.sessions.entry(key).or_default();
@@ -258,7 +261,7 @@ impl Hub {
         };
         let mut attached = json!({
             "instance": instance,
-            "session": info.into_value(),
+            "session": session,
             "history_total": history_total,
             "replay": replay,
             "truncated": state.replay.truncated,
@@ -347,8 +350,9 @@ impl Hub {
         self.refresh("harnix.instances.sessions", json!({"instance": key.0}));
     }
 
-    /// Intercepted for where the new session lands and who started it. It records as every
-    /// session does, by the link.
+    /// Intercepted for where the new session lands, who started it, and what it is set up with:
+    /// the scene layer it is created in, expanded (`scenes.rs`), and the skills its space sees. It
+    /// records as every session does, by the link.
     pub(crate) async fn create(
         self: &std::sync::Arc<Self>,
         cx: &harnix_kernel::CallContext,
@@ -358,19 +362,26 @@ impl Hub {
         let subject = &cx.subject;
         let space = self.place(cx, &mut params).await?;
         let instance = self.instance_of(&params)?;
-        let dirs = self.skill_dirs_for(&instance, &space);
-        let created = self.create_listing(self.engine(&instance)?.ops(), without_instance(params), &dirs).await?;
+        let linked = self.engine(&instance)?;
+        let layer = crate::scenes::layer_for(&linked.link.scene_layers(), &params)?;
+        let setup = SessionSetup::new().scene(layer.clone()).skill_dirs(self.skill_dirs_for(&instance, &space));
+        let created = self.create_listing(linked.ops(), without_instance(params), setup).await?;
+        let mut value = created.value;
         if let Some(sid) = &created.session_id {
             let key = (instance.clone(), sid.clone());
             self.bind_space(&key, &space);
             self.note_starter(&key, subject);
+            let mut spaces = lock(&self.spaces);
+            if let Some(layer) = &layer {
+                spaces.note_layer(&key, &layer.id);
+            }
+            spaces.decorate(&key, &mut value);
         }
-        let mut created = created.value;
-        if let Some(obj) = created.as_object_mut() {
+        if let Some(obj) = value.as_object_mut() {
             obj.insert("instance".into(), json!(instance));
             obj.insert("space".into(), json!(space));
         }
-        Ok(created)
+        Ok(value)
     }
 
     /// How many times the engine has compacted the session.

@@ -126,7 +126,7 @@ test("a sub-agent station: the main Agent hands the task to a sub-agent of the m
   expect(station(v, "check").tasks[0].output).toEqual({ files: ["README.md"] });
   const session = main(v)!;
   const info = await api.call("engine.session.get", ref(session));
-  expect(info.scene).toBe("flow-harnix");
+  expect(info.scene_layer).toBe("flow-harnix");
   const { messages } = await api.call("engine.session.history", ref(session));
   expect(JSON.stringify(messages)).toContain("flow:demo-agent-1/check/check");
   const sessions = await api.call("flow.sessions", { run });
@@ -152,7 +152,7 @@ test("each flow has a conversation of its own, the general one is apart; the gui
   expect(mine).toMatchObject({ flow: "demo-main" });
   expect(mine.session_id).not.toBe(general.session_id);
   expect(await api.call("flow.session", { flow: "demo-main" })).toEqual(mine);
-  expect((await api.call("engine.session.get", { instance: mine.instance, session_id: mine.session_id })).scene).toBe("flow-author");
+  expect((await api.call("engine.session.get", { instance: mine.instance, session_id: mine.session_id })).scene_layer).toBe("flow-author");
   // Its flow does not change.
   const fixed = await api.refused("flow.focus", { instance: mine.instance, session_id: mine.session_id, flow: "demo-linear" });
   expect(fixed?.message).toMatch(/does not change/);

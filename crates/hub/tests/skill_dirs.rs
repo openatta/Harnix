@@ -11,7 +11,7 @@ use std::time::Duration;
 use harnix_contract::{ExtId, RpcError, SkillSource, SpaceDecl, Subject};
 use harnix_engine_api::events::EngineEvent;
 use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
-use harnix_engine_api::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, Subscribed, Tasks, TurnInput};
+use harnix_engine_api::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
 use harnix_hub::{Hub, HubCell, HubConfig, HubRow, Spaces};
 use harnix_kernel::{CallContext, Handler, InstanceBook, InstanceObserver, InstanceTrust, Listed, Rpc};
 use serde_json::{json, Value};
@@ -101,7 +101,13 @@ impl EngineLink for FakeLink {
 
 #[async_trait::async_trait]
 impl EngineOps for FakeLink {
-    async fn create(&self, params: Value) -> Answer<SessionCreated> {
+    /// What it was asked to create, with the directories it was set up with as the link writes
+    /// them into the options.
+    async fn create(&self, mut params: Value, setup: SessionSetup) -> Answer<SessionCreated> {
+        if !setup.skill_dirs.is_empty() {
+            let listed: Vec<Value> = setup.skill_dirs.iter().map(|d| json!({"path": d})).collect();
+            params["options"]["skill_dirs"] = json!(listed);
+        }
         self.created.lock().unwrap().push(params.clone());
         let dirs = listed_in(&params["options"]);
         if self.refuse_second && dirs.len() > 1 {
@@ -156,6 +162,9 @@ impl EngineOps for FakeLink {
     }
     async fn set_model(&self, session: &str, _: &str, _: Option<&str>) -> Answer<Value> {
         Ok(self.session(session))
+    }
+    async fn set_prompt(&self, session: &str, _: Option<Option<String>>, _: Option<Option<String>>) -> Answer<Value> {
+        Ok(json!({"session_id": session}))
     }
     async fn set_skill_dirs(&self, session: &str, dirs: &[PathBuf]) -> Answer<Value> {
         self.set.lock().unwrap().push((session.to_string(), dirs.to_vec()));
