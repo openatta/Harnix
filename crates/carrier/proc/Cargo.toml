@@ -1,6 +1,6 @@
 [package]
 name = "harnix-carrier-proc"
-version      = "0.4.2-2026110901"
+version      = "0.4.3-2026111501"
 edition      = "2021"
 rust-version = "1.87"
 license      = "Apache-2.0"
