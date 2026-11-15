@@ -2,7 +2,7 @@
  * @harnix/testkit —— LIVE 测试（testing.md）：起真的 harnix，经 @harnix/core 说协议，从 Playwright 驱动。
  */
 
-export { ROOT, RECORDINGS, STRICT_ROOT, type ModelMode, hasModel, loadEnv, modelMode, sleep } from "./env.ts";
+export { ROOT, RECORDINGS, STRICT_ROOT, type ModelMode, carrier, hasModel, loadEnv, modelMode, sleep } from "./env.ts";
 export { type Backend, type LaunchOptions, alive, binary, freePort, gone, makeProject, startHarnix } from "./launcher.ts";
 export { type Frame, type TestClient, Inconclusive, assert, connect, coverage, dropSessions, finish, inconclusive, runTurn } from "./api.ts";
 export { type TestFixtures, type WorkerFixtures, expect, launchFor, test, topology } from "./fixtures.ts";

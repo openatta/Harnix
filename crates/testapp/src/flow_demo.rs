@@ -31,11 +31,11 @@
 //! each handing in its own step. A run's main session replays `flow-main` (`demo-main`) or
 //! `flow-agent` (`demo-agent`).
 
-use std::sync::Arc;
 
 use harnix::prelude::*;
-use harnix_flow::module::StructuredScene;
-use harnix_flow::{
+use harnix::engine::SceneBase;
+use harnix_ext_flow::module::structured_scene;
+use harnix_ext_flow::{
     FileStore, Flow, GateResult, Gates, MemPacks, Programs, RunRecord, Tools, WorkItem,
 };
 use serde_json::{json, Value};
@@ -289,19 +289,13 @@ summary: how many findings of each severity, and the one that matters most.
 ";
 
 /// The scene a template's session hands in from: harnix, with `StructuredOutput` allowed.
-fn structured(e: &mut EngineContrib) {
-    e.scene(Arc::new(StructuredScene::new(Arc::new(
-        harnix::scenes::harnix::HarnixScene,
-    ))));
+fn structured(e: &mut harnix::engine::EngineContribution) {
+    e.scene(structured_scene(SceneBase::builtin("harnix")));
 }
 
 /// The engine of the flow module's templates: `structured-harnix` active beside the default.
 fn template_engine() -> EngineProfile {
-    EngineProfile {
-        scene: "harnix".into(),
-        scenes: vec!["structured-harnix".into()],
-        ..EngineProfile::default()
-    }
+    EngineProfile::new().scene("harnix").scenes(["structured-harnix"])
 }
 
 /// What the flow module is registered with in `harnix-testapp`.
@@ -309,33 +303,18 @@ pub fn module() -> Flow {
     Flow::builder()
         .store_with(|dir| FileStore::new(dir.join("runs")))
         .template(
-            InstanceTemplate::new(
-                "local",
-                TemplateCarrier::InProcess {
-                    engine: template_engine(),
-                    contrib: EngineContrib::new(),
-                },
-            )
-            .native(structured),
+            InstanceTemplate::in_process("local", template_engine()).contribute(structured),
         )
         .template(
-            InstanceTemplate::new(
-                "remote",
-                TemplateCarrier::Spawn {
-                    engine: template_engine(),
-                    program: None,
-                    args: Vec::new(),
-                },
-            )
-            .native(structured),
+            InstanceTemplate::spawn("remote", template_engine()).contribute(structured),
         )
-        .packs_with(|dir| harnix_flow::DirPacks::writable(dir.join("packs")).with_builtin(packs()))
+        .packs_with(|dir| harnix_ext_flow::DirPacks::writable(dir.join("packs")).with_builtin(packs()))
         .programs(DemoPrograms)
         .gates(DemoGates)
         .tools(DemoTools)
         .command_gates(true)
         .guarded_tools(
-            harnix_flow::module::DEFAULT_GUARDED
+            harnix_ext_flow::module::DEFAULT_GUARDED
                 .iter()
                 .copied()
                 .chain(["TodoWrite"]),
@@ -434,7 +413,7 @@ impl Tools for DemoTools {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use harnix_flow::{validate_yaml, Packs};
+    use harnix_ext_flow::{validate_yaml, Packs};
 
     #[test]
     fn the_demo_flows_are_valid() {

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Compare an application's Cargo.lock with Harnix's (harnix-sdk.md §25).
+// Compare an application's Cargo.lock with Harnix's (harnix-ext.md §25).
 //
 //   node harnix/scripts/check-lock.mjs [app-root]
 //

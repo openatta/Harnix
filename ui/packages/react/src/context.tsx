@@ -5,7 +5,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { ConnectionStatus, Hello, HarnixClient } from "@harnix/core";
-import { SessionController, SYSTEM_INSTANCE } from "@harnix/core/state";
+import { SessionController, MAIN_INSTANCE } from "@harnix/core/state";
 import type { SessionState } from "@harnix/core/state";
 import { zhCN, type HarnixUiStrings } from "./strings";
 
@@ -63,7 +63,7 @@ export function useConnection(): { status: ConnectionStatus; detail: string | un
  */
 export function useSession(
   sessionId: string,
-  instance: string = SYSTEM_INSTANCE,
+  instance: string = MAIN_INSTANCE,
   space?: string,
   extras?: (text: string) => Record<string, unknown>,
 ): { state: SessionState; controller: SessionController } {

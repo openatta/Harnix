@@ -1,5 +1,4 @@
-//! The static face: the interface itself, and the modules installed packages
-//! contribute to it.
+//! The static face: the interface itself.
 //!
 //! **The interface ships inside the binary.** One artifact to install, and no
 //! way to end up running a page and a backend that disagree — they are
@@ -8,12 +7,9 @@
 //! and how the front end is worked on: edit, reload, no recompile.
 //! `--headless` serves neither.
 //!
-//! A package's modules are **never** embedded, and could not be: a package is
-//! installed while the process runs, so its files exist only on disk. That is
-//! why the two are separate branches here rather than one lookup with a
-//! fallback — they answer from different places for different reasons.
+//! What installed packages contribute to it is not served from here: the `plugins` extension
+//! serves each package's files under its own routes, and publishes the modules to the page.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
@@ -43,8 +39,8 @@ fn embedded(path: &str) -> Option<&'static [u8]> {
 /// from the binary and a module served from the plugin cache come from the
 /// same host and port.
 ///
-/// Frames are this origin's only (`frame-src 'self'`): a runtime application's isolated
-/// interface, `/apps/<id>/ui/…`, sandboxed by the shell and served under a policy of its own.
+/// Frames are this origin's only (`frame-src 'self'`): an extension package's isolated
+/// interface, `/ext/<id>/ui/…`, sandboxed by the shell and served under a policy of its own.
 ///
 /// The one inline thing is the page's import map (concept §5.8), which a browser accepts only
 /// inline. It is allowed by its own hash and nothing else ([`page_csp`]); no `'unsafe-inline'`,
@@ -98,13 +94,6 @@ pub enum Face {
 
 pub struct StaticFace {
     face: Face,
-    /// Each installed package's directory, by name.
-    ///
-    /// Served from a **same-origin** path, which is what makes a runtime
-    /// `import()` possible. Resolved through this map rather than by joining
-    /// a path, so a request can only reach a directory the engine actually
-    /// installed.
-    packages: RwLock<BTreeMap<String, PathBuf>>,
     /// The product's `[brand] icon`, served at [`BRAND_ICON_PATH`].
     brand_icon: RwLock<Option<PathBuf>>,
 }
@@ -113,20 +102,12 @@ impl StaticFace {
     pub fn new(face: Face) -> Self {
         Self {
             face,
-            packages: RwLock::new(BTreeMap::new()),
             brand_icon: RwLock::new(None),
         }
     }
 
     pub fn set_brand_icon(&self, icon: Option<PathBuf>) {
         *write(&self.brand_icon) = icon;
-    }
-
-    /// Replace what is being served. Called at assembly and again after an
-    /// install, because a package that needed a restart to appear is a
-    /// package nobody will believe installed.
-    pub fn set_packages(&self, packages: BTreeMap<String, PathBuf>) {
-        *write(&self.packages) = packages;
     }
 
     pub fn serves_anything(&self) -> bool {
@@ -179,18 +160,6 @@ impl StaticFace {
         if clean == BRAND_ICON_PATH.trim_start_matches('/') {
             let icon = read(&self.brand_icon).clone()?;
             return read_file(&icon).map(|b| (b, "image/svg+xml"));
-        }
-
-        // `/plugins/<name>/ui/<file>` — always from disk. A package is
-        // installed while this process runs, so its files were never here to
-        // embed.
-        if let Some(rest) = clean.strip_prefix("plugins/") {
-            let (name, file) = rest.split_once("/ui/")?;
-            if name.contains('/') {
-                return None;
-            }
-            let dir = read(&self.packages).get(name).cloned()?;
-            return read_file(&contained(&dir.join("ui"), file)?).map(|b| (b, content_type(file)));
         }
 
         match self.interface(clean) {
@@ -331,36 +300,19 @@ mod tests {
         assert!(csp.contains(&expected), "{csp}");
     }
 
-    /// A package's files, and nothing beside them: an absolute path after `/ui/`, `..`, a link out
-    /// of the package, or an encoded traversal reach nothing.
+    /// The `--ui-dir` interface reaches only files inside its directory: an absolute path or a
+    /// link out of it is nothing, and the page falls back to the index.
     #[test]
-    fn a_package_path_cannot_leave_the_package() {
+    fn a_directory_interface_cannot_be_left() {
         let root = std::env::temp_dir().join(format!("harnix-statics-{}", uuid::Uuid::new_v4().simple()));
-        let ui = root.join("pkg").join("ui");
+        let ui = root.join("ui");
         std::fs::create_dir_all(ui.join("sub")).unwrap();
         std::fs::write(ui.join("sub").join("index.js"), "ok").unwrap();
         std::fs::write(root.join("secret"), "secret").unwrap();
         #[cfg(unix)]
         std::os::unix::fs::symlink(root.join("secret"), ui.join("link")).unwrap();
-        let face = StaticFace::new(Face::Directory(ui.clone()));
-        face.set_packages(BTreeMap::from([("x".to_string(), root.join("pkg"))]));
+        let face = StaticFace::new(Face::Directory(ui));
 
-        let (bytes, _) = face.read("/plugins/x/ui/sub/index.js").expect("the package's own file");
-        assert_eq!(bytes, b"ok");
-        let secret = root.join("secret");
-        for path in [
-            format!("/plugins/x/ui/{}", secret.display()),
-            "/plugins/x/ui//etc/passwd".to_string(),
-            "/plugins/x/ui//etc/hosts".to_string(),
-            "/plugins/x/ui/../../secret".to_string(),
-            "/plugins/x/ui/%2e%2e/%2e%2e/secret".to_string(),
-            "/plugins/x/ui/link".to_string(),
-            "/plugins/x/ui/".to_string(),
-        ] {
-            assert!(face.read(&path).is_none(), "{path} was served");
-        }
-        // The `--ui-dir` interface the same: an unknown or escaping path is the index, never a
-        // file outside.
         assert!(face.interface("/etc/passwd").is_none());
         assert!(face.interface("link").is_none());
         assert_eq!(face.interface("sub/index.js").as_deref(), Some(&b"ok"[..]));

@@ -5,15 +5,19 @@ edition      = "2021"
 rust-version = "1.87"
 license      = "Apache-2.0"
 publish      = false
-description  = "An application for the LIVE tests: modules that work, and modules that fail on purpose"
+description  = "An application for the LIVE tests: extensions that work, and extensions that fail on purpose"
 
 [[bin]]
 name = "harnix-testapp"
 path = "src/main.rs"
 
 [dependencies]
-harnix      = { workspace = true }
-harnix-flow = { workspace = true }
+# `agix`: the native templates' marked system prompt is a raw session hook.
+# `axum`: `probe`'s route is an `axum::Router`.
+harnix      = { workspace = true, features = ["agix", "axum"] }
+harnix-ext-flow = { workspace = true }
+# `fakehost` registers a package through the host's registrar, as the `packages` component does.
+harnix-host-api = { workspace = true }
 anyhow      = { workspace = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }
@@ -23,6 +27,26 @@ tracing     = { workspace = true }
 
 [features]
 default = []
-# `cargo build -p harnix-testapp --features apps`: this application hosting runtime applications,
-# verified against the mock store's key (tests/live/fixtures/store) instead of the store's own.
-apps = ["harnix/apps"]
+# `cargo build -p harnix-testapp --features wasm`: this application running packages in its own
+# process, verified against the mock store's key (tests/live/fixtures/store) instead of the store's
+# own.
+wasm = ["harnix/wasm"]
+# `cargo build -p harnix-testapp --features proc`: this binary re-executed as `ext-proc` runs an
+# extension package behind the extension wire (`tests/ext_proc.rs` starts it so).
+proc = ["harnix/proc"]
+# `--features probe`: `harnix-testapp ext-proc --probe …` tries what its sandbox lets it reach
+# (`crates/proc/tests/sandbox.rs` builds it so).
+probe = ["harnix/proc-probe"]
+
+[dev-dependencies]
+harnix-carrier-shared = { workspace = true }
+harnix-package   = { workspace = true }
+harnix-supervise = { workspace = true }
+harnix-wasm-port = { workspace = true, features = ["socket"] }
+async-trait      = { workspace = true }
+libc             = { workspace = true }
+tempfile         = { workspace = true }
+
+[[test]]
+name = "ext_proc"
+required-features = ["proc"]

@@ -7,14 +7,14 @@
 //! transport does not know what a session is, authorization does not know
 //! what a frame looks like, the hub does not know what HTTP is.
 //!
-//! Nothing here executes anything. It is types, three traits and a version —
+//! Nothing here executes anything. It is types, two traits and a version —
 //! and [`sync`], the one way the kernel takes a lock.
 
-pub mod apps;
+pub mod ext_id;
 pub mod frame;
 pub mod handshake;
+pub mod s1;
 pub mod space;
-pub mod subject;
 pub mod sync;
 
 pub use frame::{Channel, Frame, FrameSink};
@@ -22,12 +22,48 @@ pub use handshake::{
     Handshake, Limits, Topology, CONTRIB_API_VERSION, MAX_FRAME_BYTES, MAX_IN_FLIGHT,
     MAX_UPLOAD_BYTES, PROTOCOL_VERSION,
 };
-pub use space::{DefaultInstance, SpaceDecl, PROJECTS_SPACE, SESSIONS_SPACE, SYSTEM_SPACE};
-pub use subject::Subject;
+pub use space::{DefaultInstance, SpaceDecl};
+pub use s1::{ExtId, Subject};
+
+/// A session's full name: the instance it is on and its id there.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
+pub struct SessionRef {
+    pub instance: String,
+    pub session_id: String,
+}
+
+impl SessionRef {
+    pub fn new(instance: impl Into<String>, session_id: impl Into<String>) -> Self {
+        Self { instance: instance.into(), session_id: session_id.into() }
+    }
+}
+
+/// One link of a call chain: the extension that made a call, and that call's id. A tool call made
+/// on behalf of a session carries the chain that led to the session's turn.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ChainLink {
+    ext: String,
+    call: String,
+}
+
+impl ChainLink {
+    pub fn new(ext: impl Into<String>, call: impl Into<String>) -> Self {
+        Self { ext: ext.into(), call: call.into() }
+    }
+
+    pub fn ext(&self) -> &str {
+        &self.ext
+    }
+
+    pub fn call(&self) -> &str {
+        &self.call
+    }
+}
 
 /// The instance every process has: the engine built from the profile's
 /// `[engine]` (concept §3).
-pub const SYSTEM_INSTANCE: &str = "system";
+pub const MAIN_INSTANCE: &str = "main";
 
 /// The device a client admitted by the per-process token alone is: on a loopback listener there
 /// is no paired device to name, and every such client is the one person at this machine.
@@ -146,16 +182,14 @@ pub mod codes {
     /// lease that is not the caller's any more, a run whose stored revision moved on. Read it
     /// again before trying again.
     pub const CONFLICT: i32 = -31007;
-}
-
-/// The process's single admission point.
-///
-/// Transport holds one of these and knows nothing about what is behind it.
-/// Authorization implements it by deciding, then delegating to the hub.
-#[async_trait::async_trait]
-pub trait Gate: Send + Sync {
-    async fn call(&self, subject: &Subject, method: &str, params: Value)
-        -> Result<Value, RpcError>;
+    /// The call was cancelled before it answered: by its caller, or because what it was made
+    /// for was.
+    pub const CANCELLED: i32 = -31008;
+    /// The call's deadline passed before it answered (or before it started).
+    pub const DEADLINE_EXCEEDED: i32 = -31009;
+    /// The extension is there and cannot answer now; `data.failure` says why: `starting`,
+    /// `stopped`, `faulted`, `reentrant`. An instance out of reach is `INSTANCE_UNAVAILABLE`.
+    pub const EXTENSION_UNAVAILABLE: i32 = -31010;
 }
 
 /// Who issued an upload grant and where it lands.

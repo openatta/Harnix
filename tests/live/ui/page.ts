@@ -1,7 +1,7 @@
 /**
  * Driving the interface: open it, start a session that replays a fixture, type into the composer.
  *
- * Sessions are created from inside the page through `window.harnix.app` — the same `session.create`
+ * Sessions are created from inside the page through `window.harnix.app` — the same `harnix.session.create`
  * the new-session dialog sends, with the fixture's name, which only means something because the
  * backend was started in replay.
  *
@@ -55,6 +55,14 @@ export const tab = (scope: Page | Locator, id: string): Locator => scope.locator
 /** Create a session replaying `fixture`, open it, and return its id. */
 /** Without a project root the session is in the engine's own working directory — the test project. */
 export async function newSession(page: Page, fixture: string, projectRoot?: string): Promise<string> {
+  // Connected is not started: until the shell has landed on a space whose contribution is in, a
+  // session would be made for the space it was in before (none, on a fresh page) and opened
+  // there, and the space it lands on has no current one.
+  await page.waitForFunction(() => {
+    const { app } = (window as unknown as { harnix: { app: any } }).harnix;
+    const space = app.snapshot.space as string;
+    return space !== "" && app.registry.at("space").some((c: { id: string }) => c.id === space);
+  }, undefined, { timeout: 15_000 });
   const id = await page.evaluate(
     async ({ name, root }) => {
       const { app } = (window as unknown as { harnix: { app: any } }).harnix;
@@ -100,7 +108,7 @@ export async function openSettings(page: Page): Promise<void> {
 export async function toFlows(page: Page): Promise<void> {
   await spaceEntry(page, "system").click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", "system");
-  await tab(page.getByTestId("system-console"), "flows").click();
+  await tab(page.getByTestId("system-console"), "flow.flows").click();
   await expect(page.getByTestId("system-flows")).toBeVisible();
 }
 

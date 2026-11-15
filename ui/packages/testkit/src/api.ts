@@ -87,7 +87,7 @@ export async function connect(
 
   const events: Frame[] = [];
   const waiters: { match: (f: Frame) => boolean; resolve: (f: Frame) => void }[] = [];
-  client.onNotify((method, params) => {
+  client.onNotification((method, params) => {
     const frame = { method, params };
     events.push(frame);
     for (let i = waiters.length - 1; i >= 0; i -= 1) {
@@ -178,10 +178,10 @@ export async function connect(
  */
 export async function finish(client: TestClient, sessionId: string): Promise<void> {
   try {
-    const info = await client.call("session.get", { session_id: sessionId }).catch(() => null);
+    const info = await client.call("engine.session.get", { session_id: sessionId }).catch(() => null);
     const running = info?.turn_state && info.turn_state !== "idle";
     if (running) {
-      await client.call("session.interrupt", { session_id: sessionId }).catch(() => {});
+      await client.call("harnix.session.interrupt", { session_id: sessionId }).catch(() => {});
       await client
         .waitFor((f) => f.method === "harnix.turn_settled" && f.params.session_id === sessionId, {
           timeout: 20_000,
@@ -189,7 +189,7 @@ export async function finish(client: TestClient, sessionId: string): Promise<voi
         })
         .catch(() => {});
     }
-    await client.call("session.delete", { session_id: sessionId }).catch(() => {});
+    await client.call("harnix.session.delete", { session_id: sessionId }).catch(() => {});
   } catch {
     /* cleanup never fails a test */
   }
@@ -204,18 +204,18 @@ export async function dropSessions(client: TestClient): Promise<void> {
   try {
     const { instances } = await client.call("harnix.instances.list");
     for (const { id: instance } of instances ?? []) {
-      const { sessions } = await client.call("harnix.instances.sessions", { instance }).catch(() => ({ sessions: [] }));
+      const { sessions } = await client.call("harnix.sessions.list", { instance }).catch(() => ({ sessions: [] }));
       for (const { session_id, running } of sessions ?? []) {
         const ref = { instance, session_id };
         if (running) {
           // This client watches none of them, so it is asked rather than told when the turn settles.
-          await client.call("session.interrupt", ref).catch(() => {});
+          await client.call("harnix.session.interrupt", ref).catch(() => {});
           const still = async () =>
-            ((await client.call("harnix.instances.sessions", { instance }).catch(() => ({ sessions: [] }))).sessions ?? [])
+            ((await client.call("harnix.sessions.list", { instance }).catch(() => ({ sessions: [] }))).sessions ?? [])
               .some((s: any) => s.session_id === session_id && s.running);
           for (const deadline = Date.now() + 20_000; Date.now() < deadline && (await still()); ) await sleep(100);
         }
-        await client.call("session.delete", ref).catch(() => {});
+        await client.call("harnix.session.delete", ref).catch(() => {});
       }
     }
   } catch {
@@ -243,7 +243,7 @@ export async function runTurn(
   const answered = answeredBy.get(api) ?? new Set<string>();
   answeredBy.set(api, answered);
   const from = api.events.length;
-  const sent = await api.call("harnix.send", { ...session, message });
+  const sent = await api.call("harnix.session.send", { ...session, message });
   const asks: any[] = [];
   const deadline = Date.now() + timeout;
   for (;;) {
@@ -258,7 +258,7 @@ export async function runTurn(
       if (answered.has(id)) continue;
       answered.add(id);
       asks.push(f.params);
-      await api.call("session.respondToPrompt", {
+      await api.call("harnix.session.respond", {
         instance: f.params.instance ?? session.instance,
         session_id: f.params.session_id,
         prompt_id: id,

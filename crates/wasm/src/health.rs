@@ -1,17 +1,17 @@
-//! Whether an application is still worth calling, and what to report about it.
+//! Whether a package is still worth calling, and what to report about it.
 //!
 //! Isolation makes a fault cost one call rather than the process, which is
-//! what makes it safe to keep calling an application that just failed. It
+//! what makes it safe to keep calling a package that just failed. It
 //! does not make it useful: a tool that traps on every call turns each of the
 //! model's attempts into an error, and the model will keep trying. So
-//! something has to decide the application is broken and stop asking — and
+//! something has to decide the package is broken and stop asking — and
 //! say so, in the system space, where whoever installed it can see why.
 //!
 //! Three rules, because the three kinds of call fail differently and cost
 //! different things:
 //!
 //! - **A tool**: [`FAULT_LIMIT`] consecutive faults of one tool set *that tool*
-//!   aside; the application's other tools, its backend and its interface go on.
+//!   aside; the package's other tools, its backend and its interface go on.
 //!   A tool's input comes from the model, which retries — and from whatever was
 //!   injected into the conversation — so a fault there must not be able to take
 //!   down more than the tool it happened in. Only faults count: a timeout or a
@@ -21,7 +21,7 @@
 //! - **An event**: not counted towards anything. A hook that fails lets the
 //!   call through already, so it has nothing to stop retrying.
 //! - **The backend**: a trap loses the instance and the state in it. It is
-//!   rebuilt once; a second crash disables the application, because a backend
+//!   rebuilt once; a second crash disables the package, because a backend
 //!   that crashes again after a clean start is not going to be saved by a
 //!   third. "Again" means within [`crate::HEALTHY_PERIOD`]: a backend that
 //!   has run that long since its last crash has its count cleared, and its
@@ -35,7 +35,7 @@ use serde::Serialize;
 /// mishandles, and one bad argument should not cost the user the tool.
 pub const FAULT_LIMIT: u32 = 3;
 
-/// Where an application's VM is in its life.
+/// Where a package's VM is in its life.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum VmState {
@@ -71,7 +71,7 @@ pub(crate) struct Counters {
     pub last_crash: Option<std::time::Instant>,
 }
 
-/// One application's VM, as the system space shows it.
+/// One package's VM, as the system space shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct HealthSnapshot {
     pub app: String,
@@ -87,7 +87,7 @@ pub struct HealthSnapshot {
     /// The longest run of faults any one tool is on now.
     pub consecutive_faults: u32,
     /// Tools set aside after [`FAULT_LIMIT`] consecutive faults, and why. The rest of the
-    /// application runs on; only starting a new VM brings them back.
+    /// package runs on; only starting a new VM brings them back.
     pub tools_aside: std::collections::BTreeMap<String, String>,
     /// Times the backend was rebuilt after a crash (at most one).
     pub rebuilds: u32,

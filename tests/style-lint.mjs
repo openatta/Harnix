@@ -29,8 +29,8 @@ const files = (dir, pattern) => {
   return out;
 };
 
-// The flow space is built into the shell (xops-02 §7): its package is held to the same rules.
-const builtIn = ["react", "shell", "flow"];
+// The first-party UI packages with styles of their own are built into the shell: held to the same rules.
+const builtIn = ["react", "shell", "flow", "system", "observability", "packages"];
 const sheets = builtIn.flatMap((p) => files(join(packages, p, "src"), /\.css$/));
 const css = sheets.map(([, body]) => body).join("\n");
 const sources = builtIn.flatMap((p) => files(join(packages, p, "src"), /\.tsx?$/));
@@ -175,10 +175,10 @@ else if (words < 500) fail(`only ${words} dictionary entries read: has the dicti
 else ok(`${words} dictionary entries, none in a word the glossary retired (${BANNED.length} checked)`);
 
 /* ── comments cite what a reader can open ───────────────────────────────── */
-// The 0.4 design record, its roadmap and its review rounds left the repository (CLAUDE.md), and
+// The 0.4.2 design record, its roadmap and its review rounds left the repository (CLAUDE.md), and
 // so do the reports of a review; a comment that cites `design §7.3`, `review #4` or a review's
 // finding (`review G2`) sends the reader nowhere. A comment says its reason, or names a document
-// that is here: `concept §3.2`, `harnix-sdk.md §17.6`. And the words the glossary retired do not
+// that is here: `concept §3.2`, `harnix-ext.md §17.6`. And the words the glossary retired do not
 // come back in the code by another door.
 const tracked = execFileSync("git", ["ls-files", "-z", "--", "crates", "examples", "templates", "ui/packages", "tests", "scripts"], {
   cwd: root,
@@ -196,6 +196,21 @@ const RETIRED = [
   [new RegExp("[Ee]mpty " + "application"), "the empty application — the Harnix app"],
   [new RegExp("空" + "应用"), "空应用 — Harnix app"],
 ];
+// The 0.4.2 words (`crates/`, `examples/`, `ui/`), spelled so that this file does not say them.
+const OLD_WORDS = [
+  [new RegExp("插件 ?" + "APP"), "插件 APP — an extension package"],
+  [new RegExp("运行期" + "应用"), "运行期应用 — an extension package"],
+  [new RegExp("编译期" + "模块"), "编译期模块 — a native extension"],
+  [new RegExp("内建" + "模块"), "内建模块 — a first-party extension"],
+  [new RegExp("with_" + "builtins"), "with_builtins"],
+  [new RegExp("Nest" + "Host|use" + "Nest\\b"), "NestHost, useNest — HostApi, useHost"],
+  [new RegExp("harnix\\." + "apps\\."), "harnix.apps.* — packages.*"],
+  [new RegExp("\\[mod" + "ules\\."), "[modules.*] — [ext.*]"],
+  [new RegExp("harnix-" + "builtin\\b"), "harnix-builtin"],
+  [new RegExp("\\.hx" + "app\\b"), ".hxapp — .hxext"],
+  [new RegExp("features " + "apps\\b"), "--features apps"],
+];
+const oldWordsAt = /^(crates|examples|ui\/packages|templates)\//;
 const cited = [];
 let read = 0;
 for (const file of tracked) {
@@ -207,7 +222,8 @@ for (const file of tracked) {
     continue; // listed but not on disk: a deleted file not yet committed
   }
   read += 1;
-  const rules = file.startsWith("crates/") || file.startsWith("examples/") ? [...CITATIONS, ...RETIRED] : CITATIONS;
+  let rules = file.startsWith("crates/") || file.startsWith("examples/") ? [...CITATIONS, ...RETIRED] : CITATIONS;
+  if (oldWordsAt.test(file)) rules = [...rules, ...OLD_WORDS];
   const lines = body.split("\n");
   lines.forEach((line, i) => {
     for (const [pattern, what] of rules) if (pattern.test(line)) cited.push(`${file}:${i + 1} cites ${what}`);
@@ -222,6 +238,89 @@ for (const file of tracked) {
 }
 if (cited.length) fail(`citations a reader cannot follow, or retired words:\n  ${cited.join("\n  ")}`);
 else ok(`${read} source files, none citing the removed design record or using a retired word`);
+
+/* ── the 0.4.2 wire names are gone ────────────────────────────────────────── */
+// 0.4.3 names every method and topic once: the kernel's `harnix.<area>.<verb>`, the engine's
+// pass-throughs `engine.*`, an extension's under its id. A caller that still says a 0.4.2 name
+// calls nothing: there is no alias to answer it. The engine's own names (`session.list`, …) are
+// still the engine's in the crates that speak to Agix, so those are only refused where they are
+// quoted whole anywhere else.
+const family = (prefix, names) => names.split(/\s+/).map((n) => prefix + n);
+const OLD_NAMES = [
+  ...family("harnix.settings.", "describe set setProvider"),
+  ...family("harnix.plugins.", "upload install uninstall enable disable reload list"),
+  ...family(
+    "harnix.system.",
+    "trace trace.call turns usage calls context messages.drop messages.edit tasks.stop tasks.message tasks.output compact clear model rename goal goal.set goal.update instances.stop instances.restart instances.create instances.templates",
+  ),
+  ...family("harnix.devices.", "list pair.begin pair.complete revoke"),
+  ...family("harnix.workspaces.", "list create update reorder remove"),
+  ...family("harnix.sessions.", "archive export rename setModel tasks move"),
+  ...family(
+    "harnix.",
+    "sessions requestHeaders upload.begin process search listDirectory recentProjects files projects.create prefs.set attach detach send queue.remove queue.edit subscribe unsubscribe entries.append prompts.answerer",
+  ),
+  ...family(
+    "app.flow.",
+    "list get history defs def schema catalog validate save delete parts part part.save part.delete hooks focus session sessions guide pause resume dry_run.start dry_run.step dry_run.run dry_run.list start cancel proposal claim heartbeat submit fail retry confirm force rework release runs run dry_runs",
+  ),
+];
+const ENGINE_NAMES = [
+  ...family(
+    "session.",
+    "list get history entries resume tasks taskOutput inspectContext goal stopTask messageTask dropMessages editMessage compact clear setModel rename setGoal updateGoal export run_turn subscribe unsubscribe create interrupt close delete fork respondToPrompt",
+  ),
+  ...family("scene.", "list describe activate"),
+  ...family("config.", "get getProvider set setProvider update reload"),
+  ...family("plugin.", "list install uninstall enable disable reload"),
+  ...family("daemon.", "status ping doctor subscribeEvents shutdown"),
+  ...family("import.", "run list"),
+  ...family("mcp.", "status addServer"),
+  "commands.list",
+];
+// The extension package's names (0.4.2: "application packages"). `harnix-app` alone is still a name:
+// the first-party extension of that id; only the packing tool's commands and the manifest are gone.
+const OLD_PACKAGE_NAMES = [
+  /\bhxapp\b/,
+  /\bharnix-app\.toml\b/,
+  /(?<![\w])app__[a-z]/,
+  /\bmcp__app-/,
+  /@harnix\/(?:app-sdk|ui-kit)\b/,
+  /\bharnix-(?:app-sdk|ui-kit)\b/,
+  /\bharnix-ui-bridge@1\b/,
+  /\bharnix:app\b/,
+  /(?<![\w-])app\.wit\b/,
+  /\bharnix-app (?:new|build|pack|keygen|sign|verify|fingerprint|countersign|index|sign-index)\b/,
+  /--bin harnix-app\b/,
+  /\bharnix-app-(?:signatures|consent)@/,
+];
+const esc = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const oldWhole = new RegExp(`(?<![\\w.$@/-])(${OLD_NAMES.map(esc).join("|")})(?![\\w-]|\\.[A-Za-z_])`);
+const engineQuoted = new RegExp(`(?<=["'\`])(${ENGINE_NAMES.map(esc).join("|")})(?=["'\`])`);
+// The two suites that stand up a fake daemon answer Agix on its own wire, as those crates do.
+const agixFacing = /^crates\/(engine|engine-api|instance|builtin)\/|^crates\/hub\/src\/replay\.rs$|^tests\/live\/api\/instances-(daemon|ready)\.spec\.ts$/;
+const everything = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 28 }).split("\0").filter(Boolean);
+const named = [];
+for (const file of everything) {
+  // The two files that list the old names, to refuse them and to rewrite them.
+  if (file === "tests/style-lint.mjs" || file === "scripts/rewrite-recordings.mjs" || file.startsWith("agix/") || !textual.test(file)) continue;
+  if (file.includes("/recordings/") && file.endsWith(".jsonl")) continue;
+  let body;
+  try {
+    body = readFileSync(join(root, file), "utf8");
+  } catch {
+    continue;
+  }
+  body.split("\n").forEach((line, i) => {
+    const old =
+      line.match(oldWhole)?.[1] ??
+      OLD_PACKAGE_NAMES.map((pattern) => line.match(pattern)?.[0]).find(Boolean) ??
+      (agixFacing.test(file) ? undefined : line.match(engineQuoted)?.[1]);
+    if (old) named.push(`${file}:${i + 1} says \`${old}\``);
+  });
+}
+if (named.length) fail(`0.4.2 wire and package names, which nothing answers any more:\n  ${named.slice(0, 20).join("\n  ")}`);
+else ok(`${everything.length} tracked files, none saying a 0.4.2 wire or package name`);
 
 console.log(process.exitCode ? "\nSTYLE LINT FAILED" : "\nSTYLE LINT PASSED");
 process.exit(process.exitCode || 0);

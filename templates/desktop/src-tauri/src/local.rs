@@ -226,7 +226,7 @@ fn free_port() -> std::io::Result<u16> {
 }
 
 /// Where the app keeps its token, by the rules the app itself follows
-/// (`crates/app/src/paths.rs` in Harnix): `HARNIX_STATE_DIR`, else
+/// (`crates/assembly/src/paths.rs` in Harnix): `HARNIX_STATE_DIR`, else
 /// `~/.<product_id>`, the product id being the profile's `[brand] product_id`,
 /// else [`crate::config::PRODUCT_ID`]. Mirrored rather than shared, because the shell does not link
 /// Harnix; the child inherits this environment, so both sides read the same

@@ -1,20 +1,20 @@
 /**
  * The shell's end of a frame's bridge, against a frame played by the test over a real
  * `MessageChannel`: the port is handed once, at the first load; hello says what the frame is;
- * calls and topics outside the application's own names and its hub are refused and recorded; a
+ * calls and topics outside the package's own names and its hub are refused and recorded; a
  * second load, no hello, and a stopped heartbeat are failures; the shell's keys are acted on as
- * if pressed on the page; a notice is under the application's name. And the page-local record:
+ * if pressed on the page; a notice is under the package's name. And the page-local record:
  * three failures in a row set a surface aside.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HarnixClient } from "@harnix/core";
 import { Registry } from "@harnix/react";
-import { PROTOCOL, type Message } from "@harnix/app-sdk/protocol";
+import { PROTOCOL, type Message } from "@harnix/ext-sdk/protocol";
 
 import { App } from "../src/app";
 import { FrameBridge, HELLO_MS, MISSES, PING_MS, type FrameHost } from "../src/surfaces/bridge";
-import { interfacesOf, type AppInterface, type SurfaceDecl } from "../src/surfaces/model";
+import { interfacesOf, type PackageInterface, type SurfaceDecl } from "../src/surfaces/model";
 import { surfaces } from "../src/surfaces/store";
 
 class Client {
@@ -22,9 +22,9 @@ class Client {
   calls: { method: string; params: Record<string, unknown> }[] = [];
   call(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     this.calls.push({ method, params });
-    return Promise.resolve(method === "harnix.subscribe" ? { value: null } : { ok: method });
+    return Promise.resolve(method === "harnix.topics.subscribe" ? { value: null } : { ok: method });
   }
-  onNotify(): () => void {
+  onNotification(): () => void {
     return () => undefined;
   }
   onStatus(): () => void {
@@ -33,9 +33,9 @@ class Client {
   connect(): void {}
 }
 
-const IFACE: AppInterface = { id: "acme.notes", title: "Notes", trust: "store", hub: ["harnix.sessions"], links: false, spaces: ["acme.notes"], surfaces: [] };
+const IFACE: PackageInterface = { id: "acme.notes", title: "Notes", trust: "store", calls: ["harnix.sessions.list"], links: false, spaces: ["acme.notes"], surfaces: [] };
 const decl = (point: SurfaceDecl["point"], id: string = point): SurfaceDecl => ({
-  app: "acme.notes", point, id, frame: "/apps/acme.notes/ui/a.html", title: null, space: point.startsWith("space") ? "acme.notes" : null, sessions: "acme.notes", icon: null, order: null, center: null, kinds: [], wide: false,
+  app: "acme.notes", point, id, frame: "/ext/acme.notes/ui/a.html", title: null, space: point.startsWith("space") ? "acme.notes" : null, sessions: "acme.notes", icon: null, order: null, center: null, kinds: [], wide: false,
 });
 
 /** An iframe as far as the bridge sees one: load events, and a window to hand a port to. */
@@ -120,7 +120,7 @@ describe("a frame's bridge", () => {
     expect(f.handed[0]!.message).toEqual({ protocol: PROTOCOL, type: "connect" });
     const frame = framePort(f.handed[0]!.port);
     const hello = await frame.ask("hello", { sdk: "test" });
-    expect(hello.result).toMatchObject({ surface: { app: "acme.notes", point: "space", params: { n: 1 }, autoHeight: false, links: false }, env: { modal: false } });
+    expect(hello.result).toMatchObject({ surface: { ext: "acme.notes", point: "space", params: { n: 1 }, autoHeight: false, links: false }, env: { modal: false } });
     expect(outcome.ready).toBe(1);
     // A second load is the page going away.
     f.load();
@@ -133,15 +133,15 @@ describe("a frame's bridge", () => {
     f.load();
     const frame = framePort(f.handed[0]!.port);
     await frame.ask("hello");
-    expect((await frame.ask("call", { method: "app.acme.notes.list" })).result).toEqual({ ok: "app.acme.notes.list" });
-    expect((await frame.ask("call", { method: "harnix.sessions", params: { space: "acme.notes" } })).result).toEqual({ ok: "harnix.sessions" });
-    const refused = await frame.ask("call", { method: "harnix.apps.uninstall", params: { id: "acme.notes" } });
+    expect((await frame.ask("call", { method: "acme.notes.list" })).result).toEqual({ ok: "acme.notes.list" });
+    expect((await frame.ask("call", { method: "harnix.sessions.list", params: { space: "acme.notes" } })).result).toEqual({ ok: "harnix.sessions.list" });
+    const refused = await frame.ask("call", { method: "packages.uninstall", params: { id: "acme.notes" } });
     expect(refused.error).toMatchObject({ code: "refused" });
-    expect(client.calls.map((c) => c.method)).not.toContain("harnix.apps.uninstall");
+    expect(client.calls.map((c) => c.method)).not.toContain("packages.uninstall");
     const topic = await frame.ask("subscribe", { topic: "harnix.sessions.status" });
     expect(topic.error?.code).toBe("refused");
-    expect(surfaces.summary("acme.notes").refused.map((r) => r.name)).toEqual(expect.arrayContaining(["harnix.apps.uninstall", "harnix.sessions.status"]));
-    expect(app.registry.refusals().filter((r) => r.point === "bridge").map((r) => r.id)).toEqual(["harnix.apps.uninstall", "harnix.sessions.status"]);
+    expect(surfaces.summary("acme.notes").refused.map((r) => r.name)).toEqual(expect.arrayContaining(["packages.uninstall", "harnix.sessions.status"]));
+    expect(app.registry.refusals().filter((r) => r.point === "bridge").map((r) => r.id)).toEqual(["packages.uninstall", "harnix.sessions.status"]);
     // What is not a request at all.
     expect((await frame.ask("frobnicate")).error?.code).toBe("unknown");
   });
@@ -229,19 +229,19 @@ describe("the page's record of its frames", () => {
 
 describe("what hello says", () => {
   it("is read into each application's surfaces; a frame outside its own files is dropped", () => {
-    const { apps, refused } = interfacesOf({
+    const { packages, refused } = interfacesOf({
       contributions: [
         { plugin: "acme.notes", point: "home.card", api_version: 2, refused: "card.js", reason: "in the page" },
-        { plugin: "acme.notes", point: "space", api_version: 2, frame: "/apps/acme.notes/ui/a.html", surface: { id: "space", space: "acme.notes", title: { en: "Notes" } }, interface: { hub: ["harnix.sessions"], links: true, trust: "store", title: "Notes", spaces: ["acme.notes"] } },
-        { plugin: "acme.notes", point: "home.card", api_version: 2, frame: "/apps/other.app/ui/x.html", surface: { id: "card" }, interface: {} },
+        { plugin: "acme.notes", point: "space", api_version: 2, frame: "/ext/acme.notes/ui/a.html", surface: { id: "space", space: "acme.notes", title: { en: "Notes" } }, interface: { calls: ["harnix.sessions.list"], links: true, trust: "store", title: "Notes", spaces: ["acme.notes"] } },
+        { plugin: "acme.notes", point: "home.card", api_version: 2, frame: "/ext/other.app/ui/x.html", surface: { id: "card" }, interface: {} },
         { plugin: "pkg", point: "space", api_version: 2, module: "/plugins/pkg/ui/x.js" },
       ],
     });
     expect(refused).toEqual([{ app: "acme.notes", point: "home.card", module: "card.js", reason: "in the page" }]);
-    expect(apps).toHaveLength(1);
-    expect(apps[0]).toMatchObject({ id: "acme.notes", hub: ["harnix.sessions"], links: true });
-    expect(apps[0]!.surfaces.map((s) => [s.point, s.frame])).toEqual([
-      ["space", "/apps/acme.notes/ui/a.html"],
+    expect(packages).toHaveLength(1);
+    expect(packages[0]).toMatchObject({ id: "acme.notes", calls: ["harnix.sessions.list"], links: true });
+    expect(packages[0]!.surfaces.map((s) => [s.point, s.frame])).toEqual([
+      ["space", "/ext/acme.notes/ui/a.html"],
       ["home.card", null],
     ]);
   });

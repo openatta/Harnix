@@ -1,21 +1,21 @@
 /**
- * The applications whose interface runs in isolated frames, put on the page: each surface its
- * application declares becomes the contribution the shell already knows how to place — a space
+ * The packages whose interface runs in isolated frames, put on the page: each surface its
+ * package declares becomes the contribution the shell already knows how to place — a space
  * (its entry, centre, left column, tabs, second panel), a `home.card`, a `settings.section`, a
- * `details.panel` — whose drawing is a frame (`frame.tsx`), registered under the application's id
+ * `details.panel` — whose drawing is a frame (`frame.tsx`), registered under the package's id
  * like an installed module's. Modals open through the shell's dialog when a frame asks.
  *
- * When each is made and gone (harnix-plugin.md §6.2): a space's centre and left column when the space
+ * When each is made and gone (harnix-ext-package.md §6.2): a space's centre and left column when the space
  * is first entered, its tabs when first selected — kept, hidden, while away (`keeper.tsx`) — and
- * gone when the application stops; a second panel, a settings section, a card, a modal for as long
+ * gone when the package stops; a second panel, a settings section, a card, a modal for as long
  * as they are shown.
  *
- * The application's state follows `harnix.apps`: one that stops loses its frames, and an unsigned
- * one under `[apps] dev = true` whose `ui/` changed (`runtime.ui_rev`) has its frames reloaded.
+ * The package's state follows `packages.list`: one that stops loses its frames, and an unsigned
+ * one under `[ext.packages] dev = true` whose `ui/` changed (`runtime.ui_rev`) has its frames reloaded.
  */
 
 import { createRoot } from "react-dom/client";
-import type { Hello } from "@harnix/core";
+import type { UiView } from "@harnix/core";
 import type { ReactNode } from "react";
 import type { SpaceSecondary, SpaceTab } from "@harnix/react";
 
@@ -25,12 +25,12 @@ import { topicsOf } from "../topics.ts";
 import { QuestionLayer } from "./confirm.tsx";
 import { SurfaceView, type SurfaceActions } from "./frame.tsx";
 import { KeeperLayer, KeptSlot, keeper } from "./keeper.tsx";
-import { interfacesOf, titleOf, type AppInterface, type SurfaceDecl } from "./model.ts";
+import { interfacesOf, titleOf, type PackageInterface, type SurfaceDecl } from "./model.ts";
 import { surfaces } from "./store.ts";
 
 /** Each space's second panel, while it is open: what its frame was opened with. */
 const secondaries = new Map<string, { params: unknown; title?: string }>();
-/** Each application space's badge. */
+/** Each package space's badge. */
 const badges = new Map<string, string | number>();
 
 let layer = false;
@@ -51,7 +51,7 @@ function mountLayer(): void {
 }
 
 /** What a frame of `iface` may have the shell do for it, in the space `space`. */
-function actionsFor(app: App, iface: AppInterface, space: string | null): SurfaceActions {
+function actionsFor(app: App, iface: PackageInterface, space: string | null): SurfaceActions {
   return {
     space,
     openModal: (id, params) => openModal(app, iface, id, params),
@@ -70,8 +70,8 @@ function actionsFor(app: App, iface: AppInterface, space: string | null): Surfac
   };
 }
 
-/** One of the application's modals, in the shell's dialog; what it closed with (null: dismissed). */
-function openModal(app: App, iface: AppInterface, id: string, params: unknown): Promise<unknown> {
+/** One of the package's modals, in the shell's dialog; what it closed with (null: dismissed). */
+function openModal(app: App, iface: PackageInterface, id: string, params: unknown): Promise<unknown> {
   const decl = iface.surfaces.find((s) => s.point === "modal" && s.id === id);
   if (!decl) return Promise.resolve(null);
   return new Promise((resolve) => {
@@ -120,12 +120,12 @@ function Gone({ onGone, children }: { onGone: () => void; children: ReactNode })
   );
 }
 
-function firstSpace(iface: AppInterface): string | null {
+function firstSpace(iface: PackageInterface): string | null {
   return iface.surfaces.find((s) => s.point === "space")?.space ?? null;
 }
 
-/** Register one application's surfaces. */
-function register(app: App, iface: AppInterface): void {
+/** Register one package's surfaces. */
+function register(app: App, iface: PackageInterface): void {
   const owner = iface.id;
   const reg = app.registry;
   const of = (point: SurfaceDecl["point"], space?: string | null) => iface.surfaces.filter((s) => s.point === point && (space === undefined || s.space === space));
@@ -148,12 +148,16 @@ function register(app: App, iface: AppInterface): void {
         icon: centre.icon ?? "file",
         order: centre.order ?? 60,
         title: () => titleOf(iface, centre),
-        center,
-        ...(centre.sessions ? { sessions: centre.sessions } : { newSession: false }),
-        ...(center !== "chat" && centre.frame ? { overview: () => <KeptSlot app={app} iface={iface} decl={centre} actions={actions} /> } : {}),
-        ...(sidebar ? { sidebar: () => <KeptSlot app={app} iface={iface} decl={sidebar} actions={actions} /> } : {}),
-        ...(tabs.length ? { tabs } : {}),
-        ...(secondary
+        ...(centre.sessions ? { sessions: centre.sessions } : { conversation: { newSession: false } }),
+        sidebar: {
+          ...(sidebar ? { render: () => <KeptSlot app={app} iface={iface} decl={sidebar} actions={actions} /> } : {}),
+          badge: () => badges.get(space) ?? null,
+        },
+        ...(tabs.length ? { details: { tabs } } : {}),
+        center: {
+          mode: center,
+          ...(center !== "chat" && centre.frame ? { overview: () => <KeptSlot app={app} iface={iface} decl={centre} actions={actions} /> } : {}),
+          ...(secondary
           ? {
               secondary: (): SpaceSecondary | null => {
                 const open = secondaries.get(space);
@@ -170,7 +174,7 @@ function register(app: App, iface: AppInterface): void {
               },
             }
           : {}),
-        badge: () => badges.get(space) ?? null,
+        },
       },
       owner,
     );
@@ -215,15 +219,15 @@ function register(app: App, iface: AppInterface): void {
 }
 
 interface Listed {
-  apps?: { id: string; enabled?: boolean; runtime?: { state?: string; ui_rev?: string | null } }[];
+  packages?: { id: string; enabled?: boolean; runtime?: { state?: string; ui_rev?: string | null } }[];
 }
 
-/** Follow the applications' state: frames go with a stopped application, reload with a changed `ui/`. */
+/** Follow the packages' state: frames go with a stopped package, reload with a changed `ui/`. */
 function follow(app: App, ids: Set<string>): void {
-  if (!app.snapshot.reachable.includes("harnix.apps.list")) return;
+  if (!app.snapshot.reachable.includes("packages.list")) return;
   const revs = new Map<string, string>();
-  topicsOf(app.client).subscribe("harnix.apps", {}, (value) => {
-    for (const row of (value as Listed | null)?.apps ?? []) {
+  topicsOf(app.conn).subscribe("packages.list", {}, (value) => {
+    for (const row of (value as Listed | null)?.packages ?? []) {
       if (!ids.has(row.id)) continue;
       const running = Boolean(row.enabled) && row.runtime?.state === "running";
       surfaces.setStopped(row.id, !running);
@@ -238,18 +242,41 @@ function follow(app: App, ids: Set<string>): void {
   });
 }
 
-/** Put the isolated applications on the page; hello's contributions say which they are. */
-export async function loadSurfaces(app: App, hello: Hello): Promise<void> {
-  const { apps, refused } = interfacesOf(hello);
+/** The packages whose frames are on this page, and the record of the state they follow. */
+const placed = new WeakMap<App, { ids: Set<string>; declared: Map<string, string> }>();
+
+/**
+ * Put the isolated packages `harnix.ui` lists on the page, as it changes: one that appears is
+ * registered, one that goes takes its frames and everything registered for it, one whose
+ * declaration changed is registered again.
+ */
+export async function followSurfaces(app: App, view: Pick<UiView, "contributions">): Promise<void> {
+  const { packages, refused } = interfacesOf(view);
   for (const r of refused) app.registry.note({ point: r.point, owner: r.app, id: r.module, reason: r.reason });
-  if (!apps.length) return;
+  let state = placed.get(app);
+  if (!state) {
+    state = { ids: new Set(), declared: new Map() };
+    placed.set(app, state);
+    follow(app, state.ids);
+  }
+  const now = new Map(packages.map((iface) => [iface.id, JSON.stringify(iface)]));
+  for (const id of [...state.ids]) {
+    if (now.get(id) === state.declared.get(id)) continue;
+    state.ids.delete(id);
+    state.declared.delete(id);
+    keeper.drop(id);
+    app.registry.withdraw(id);
+  }
+  if (!packages.length) return;
   mountLayer();
-  for (const iface of apps) {
+  for (const iface of packages) {
+    if (state.ids.has(iface.id)) continue;
+    state.ids.add(iface.id);
+    state.declared.set(iface.id, now.get(iface.id)!);
     try {
-      register(app, iface);
+      app.registry.activate(iface.id, () => register(app, iface));
     } catch (e) {
       app.registry.note({ point: "surface", owner: iface.id, reason: e instanceof Error ? e.message : String(e) });
     }
   }
-  follow(app, new Set(apps.map((a) => a.id)));
 }

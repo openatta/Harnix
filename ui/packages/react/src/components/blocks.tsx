@@ -151,6 +151,15 @@ export const ContextRow = memo(function ContextRow({ block }: { block: BlockOf<"
 });
 
 export const ImageBlock = memo(function ImageBlock({ block }: { block: BlockOf<"image"> }) {
+  const strings = useStrings();
+  const { untrusted } = useChat();
+  // 不受信的会话只画随消息带来的图（`data:`）：外部网址不去取，写出来给人看
+  if (untrusted && !block.src.startsWith("data:"))
+    return (
+      <div className="hx-blk" data-testid="conv-image" data-state="blocked">
+        <span className="hx-faint">{strings.image}</span> <code>{block.src}</code>
+      </div>
+    );
   return (
     <div className="hx-blk" data-testid="conv-image">
       <img className="hx-image" src={block.src} alt="" />
@@ -298,7 +307,7 @@ export const AskCard = memo(function AskCard({ block, controller }: { block: Blo
   const call = asks?.tool(prompt.tool_use_id);
   const tool = askedTool(prompt, asks, toolNames);
   const args = call ? toolArgs(call.input) : "";
-  // The engine's own line names the tool by its wire name ("Allow app__acme__echo?"): the card says the one name.
+  // The engine's own line names the tool by its wire name ("Allow ext__acme__echo?"): the card says the one name.
   const message = prompt.message && prompt.tool_name && tool ? prompt.message.split(prompt.tool_name).join(tool) : prompt.message;
   const give = (decision: Decision) => void controller.answer(block.key, decision);
   const answered: Record<AskAnswer, string> = {

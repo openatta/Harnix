@@ -160,13 +160,13 @@ mod tests {
     /// instance is down, with who holds its data root.
     #[tokio::test]
     async fn a_daemon_that_cannot_have_the_lock_leaves_its_instance_down_saying_who() {
-        use crate::link::{EngineLink as _, LinkStatus};
-        use crate::{DaemonLink, DaemonSpec, Endpoint, SpawnSpec};
+        use harnix_engine_api::link::{EngineControl as _, LinkStatus};
+        use crate::{DaemonSpec, Endpoint, SpawnSpec, Supervised};
 
         let root = tempfile::tempdir().unwrap();
         let path = lock_path(root.path(), "ci");
         let _held = acquire(&path, Duration::ZERO).await.unwrap().unwrap();
-        let link = DaemonLink::start(DaemonSpec {
+        let link = Supervised::start(DaemonSpec {
             endpoint: Endpoint::Unix(root.path().join("d.sock")),
             spawn: Some(SpawnSpec {
                 // What a daemon that gave up does: exit before listening.

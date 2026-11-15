@@ -1,0 +1,1059 @@
+/* The system space: its console, its instances and Agents, and its inspector in the right column —
+ * with the pieces the tabs other packages put into it draw with too (the tabs strip, the tools row,
+ * the tables, the facts). Colours only from tokens. */
+
+/* ── the left column ─────────────────────────────────────────────────── */
+
+/* The system space's instance tree: an instance per row, its sessions indented under the open one. */
+#side .system-tree .inst .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--label-caption);
+}
+
+#side .system-tree .inst .dot.ready {
+  background: var(--state-success);
+}
+
+#side .system-tree .inst .dot.degraded,
+#side .system-tree .inst .dot.starting {
+  background: var(--state-warn);
+}
+
+#side .system-tree .inst .dot.down {
+  background: var(--state-error);
+}
+
+#side .system-tree .inst .meta {
+  display: inline;
+}
+
+#side .system-tree .inst-sessions {
+  margin: 0 0 4px 14px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border-l1);
+}
+
+#side .system-tree .srow.sub .space-tag {
+  font-size: 10.5px;
+  color: var(--label-caption);
+  border: 1px solid var(--border-l2);
+  border-radius: var(--radius-pill);
+  padding: 0 6px;
+  flex: none;
+}
+
+#side .system-tree .inst-empty {
+  padding-left: 24px;
+}
+
+/* ── the system space's inspector ───────────────────────────────────── */
+#details .facts {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+}
+
+#details .fact {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+#details .fact dt {
+  color: var(--label-caption);
+}
+
+#details .fact dd {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-code);
+  font-size: 12px;
+}
+
+#details .btn.wide {
+  width: 100%;
+  margin-top: 10px;
+}
+
+#details .ops {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+#details .ops .op {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+#details .ops .op .glyph,
+#details .messages .glyph {
+  width: 14px;
+  height: 14px;
+}
+
+#details .ops .op.danger {
+  color: var(--state-error);
+}
+
+#details .tasks,
+#details .messages {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+#details .task,
+#details .message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 0;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--border-l1);
+}
+
+#details .task .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--label-caption);
+}
+
+#details .task .dot.running {
+  background: var(--accent);
+}
+
+#details .task .dot.failed {
+  background: var(--state-error);
+}
+
+#details .task .dot.done {
+  background: var(--state-success);
+}
+
+#details .task .kind,
+#details .message .origin {
+  flex: none;
+  color: var(--label-secondary);
+}
+
+#details .task .what,
+#details .message .text {
+  flex: 1;
+  min-width: 0;
+}
+
+#details .task .when,
+#details .message .seq {
+  flex: none;
+  color: var(--label-caption);
+  font-family: var(--font-code);
+  font-size: 11px;
+}
+
+#details .task-output .label {
+  display: flex;
+  gap: 8px;
+  margin: 6px 0 2px;
+  color: var(--label-secondary);
+  font-size: 12px;
+}
+
+#details .task-output pre {
+  max-height: 240px;
+  overflow: auto;
+}
+
+#details .new-instance {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#details .new-instance .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+#details .new-instance input,
+#details .new-instance select {
+  border: 1px solid var(--border-l2);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  color: var(--label-primary);
+  padding: 5px 8px;
+  font: 12.5px var(--font-sans);
+}
+
+/* ── the system space's Agent pane ────────────────────────────────────── */
+
+#details .agent-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+
+#details .agent-head .nm {
+  font-weight: 600;
+}
+
+#details .agent-head .dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--label-tertiary);
+}
+
+#details .agent-head .dot.running {
+  background: var(--state-success);
+}
+
+#details .agent-head .dot.waiting,
+#details .agent-head .dot.stopped {
+  background: var(--state-warn);
+}
+
+#details .agent-head .dot.failed {
+  background: var(--state-error);
+}
+
+#details .agent-head .dot.done {
+  background: var(--state-success);
+}
+
+#details .agent-head .dot.cold {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--label-tertiary);
+}
+
+#details .kd {
+  padding: 0 5px;
+  border: 1px solid var(--border-l1);
+  border-radius: 5px;
+  font-size: 11px;
+  color: var(--label-tertiary);
+  white-space: nowrap;
+}
+
+#details .kd.own {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#details .stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+#details .stat-grid .cell {
+  padding: 8px;
+  border: 1px solid var(--border-l1);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+#details .stat-grid .v {
+  font-family: var(--font-code);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+#details .stat-grid .l {
+  font-size: 11px;
+  color: var(--label-tertiary);
+}
+
+#details .ctx-ring {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 0;
+}
+
+#details .ctx-ring .ring {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent) var(--pct), var(--border-l1) 0);
+}
+
+#details .ctx-ring .ring span {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface);
+  font-family: var(--font-code);
+  font-size: 11.5px;
+}
+
+#details .goal {
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid var(--border-l1);
+  border-radius: 8px;
+}
+
+#details .goal .label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#details .goal .objective {
+  margin: 4px 0;
+  font-size: 13px;
+}
+
+#details .kd.phase.active {
+  border-color: var(--state-success);
+  color: var(--state-success);
+}
+
+#details .kd.phase.paused,
+#details .kd.phase.blocked {
+  border-color: var(--state-warn);
+  color: var(--state-warn);
+}
+
+#details .messages .msg {
+  padding: 6px 0;
+  border-top: 1px solid var(--border-l1);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+#details .task-message {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+#details .task-message textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-l2);
+  border-radius: 10px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+
+#details .task-message .btn {
+  align-self: flex-end;
+}
+
+.teams .team {
+  margin: 6px 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-l1);
+  border-radius: 8px;
+}
+
+.teams .team-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.teams .team-h .nm {
+  font-weight: 600;
+}
+
+.teams .member {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12.5px;
+}
+
+.teams .dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--label-tertiary);
+}
+
+.teams .dot.running {
+  background: var(--state-success);
+}
+
+.teams .dot.done {
+  background: var(--state-success);
+}
+
+.teams .dot.waiting,
+.teams .dot.stopped {
+  background: var(--state-warn);
+}
+
+.teams .dot.failed {
+  background: var(--state-error);
+}
+
+/* ── the system console ───────────────────────────────────────────────── */
+
+.system-console {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 24px 40px;
+}
+
+.system-console .strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.system-console .kpi {
+  position: relative;
+  padding: 10px 12px;
+  border: 1px solid var(--border-l1);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.system-console .kpi .v {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  color: var(--label-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.system-console .kpi .l {
+  font-size: 12px;
+  color: var(--label-tertiary);
+}
+
+.system-console .kpi .tip2 {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  min-width: 320px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-l1);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+}
+
+.system-console .kpi.has-tip:hover .tip2 {
+  display: block;
+}
+
+.tip2-h {
+  font-size: 11.5px;
+  color: var(--label-tertiary);
+  margin-bottom: 4px;
+}
+
+.connections .conn-row {
+  display: flex;
+  gap: 8px;
+  padding: 5px 0;
+  border-top: 1px solid var(--border-l1);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.connections .conn-row:first-child {
+  border-top: 0;
+}
+
+.connections .dev {
+  font-weight: 500;
+}
+
+.connections .kind,
+.connections .topo {
+  color: var(--label-tertiary);
+}
+
+.connections .since {
+  margin-left: auto;
+  font-family: var(--font-code);
+  color: var(--label-tertiary);
+}
+
+.stabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border-l1);
+}
+
+.stabs button {
+  padding: 8px 12px;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  font-size: 13px;
+  color: var(--label-secondary);
+}
+
+.stabs button.on {
+  border-bottom-color: var(--accent);
+  color: var(--label-primary);
+  font-weight: 500;
+}
+
+.tree2 {
+  padding: 6px;
+  border: 1px solid var(--border-l1);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.tree2 .note {
+  padding: 8px 10px 2px;
+  font-size: 12px;
+  color: var(--label-tertiary);
+}
+
+.tree2 .tr {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tree2 .tr:hover {
+  background: var(--interactive-hover);
+}
+
+.tree2 .tr.on {
+  background: var(--accent-soft);
+}
+
+.tree2 .tgroup + .tgroup {
+  border-top: 1px solid var(--border-l1);
+}
+
+.tree2 .tr.l1 {
+  padding-left: 28px;
+}
+
+.tree2 .tr.l2 {
+  padding-left: 48px;
+}
+
+.tree2 .nm {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.tree2 .kd {
+  padding: 0 5px;
+  border: 1px solid var(--border-l1);
+  border-radius: 5px;
+  font-size: 11px;
+  color: var(--label-tertiary);
+  white-space: nowrap;
+}
+
+.tree2 .act {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-code);
+  font-size: 12px;
+  color: var(--label-tertiary);
+}
+
+.tree2 .el {
+  font-family: var(--font-code);
+  font-size: 12px;
+  color: var(--label-tertiary);
+}
+
+.tree2 .tr.done {
+  animation: fade-out 1.4s forwards;
+}
+
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+.tree2 .dot,
+#side .system-tree .dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--label-tertiary);
+}
+
+.tree2 .dot.ready,
+.tree2 .dot.running {
+  background: var(--state-success);
+}
+
+.tree2 .dot.running {
+  animation: ring-pulse-dot 1.4s ease-in-out infinite;
+}
+
+@keyframes ring-pulse-dot {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.tree2 .dot.degraded,
+.tree2 .dot.starting,
+.tree2 .dot.waiting {
+  background: var(--state-warn);
+}
+
+.tree2 .dot.down,
+.tree2 .dot.failed {
+  background: var(--state-error);
+}
+
+/* The Agents, drawn as DSH draws a session's state: amber waits on a person, the pulse runs,
+ * green is done, an idle Agent is a plain dot and one not loaded only a ring. */
+.tree2 .dot.done {
+  background: var(--state-success);
+}
+
+.tree2 .dot.stopped {
+  background: var(--state-warn);
+}
+
+.tree2 .dot.idle {
+  background: var(--label-tertiary);
+}
+
+.tree2 .dot.cold {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--label-tertiary);
+}
+
+.tree2.agents .tgroup + .tgroup {
+  border-top: 1px solid var(--border-l1);
+}
+
+.tree2 .twist {
+  display: inline-flex;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-left: -4px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  color: var(--label-tertiary);
+}
+
+.tree2 .twist:hover {
+  background: var(--interactive-hover);
+  color: var(--label-primary);
+}
+
+.tree2 .ic {
+  display: inline-flex;
+  width: 13px;
+  height: 13px;
+}
+
+.tree2 .kd.own {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.tree2 .kd.goal.active {
+  border-color: var(--state-success);
+  color: var(--state-success);
+}
+
+.tree2 .kd.goal.paused,
+.tree2 .kd.goal.stalled,
+.tree2 .kd.goal.blocked {
+  border-color: var(--state-warn);
+  color: var(--state-warn);
+}
+
+.tree2 .stat {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  min-width: 44px;
+  justify-content: flex-end;
+  font-family: var(--font-code);
+  font-size: 12px;
+  color: var(--label-secondary);
+  white-space: nowrap;
+}
+
+.tree2 .tr.none {
+  cursor: default;
+  font-size: 12px;
+  color: var(--label-tertiary);
+}
+
+.tree2 .tr.none:hover {
+  background: none;
+}
+
+.tree2 .agents-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 8px;
+  border-bottom: 1px solid var(--border-l1);
+  margin-bottom: 4px;
+}
+
+.tree2 .agents-bar input,
+.tree2 .agents-bar select {
+  height: 30px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-l2);
+  border-radius: 15px;
+  background: transparent;
+  font-size: 12.5px;
+  color: var(--label-primary);
+}
+
+.tree2 .agents-bar input {
+  flex: 1;
+  min-width: 0;
+}
+
+.tree2 .agents-bar .count {
+  flex: none;
+  font-family: var(--font-code);
+  font-size: 12px;
+  color: var(--label-tertiary);
+}
+
+.tree2 .el.live {
+  color: var(--state-success);
+}
+
+/*
+ * The Agents as a grid: every main Agent's row and the header line share the list's columns
+ * (subgrid), so a figure stands under its heading whatever the rows hold. The name column takes
+ * what is left and its tags give way first, cut short; the figures keep their width. The list's
+ * own width (not the window's) decides which figures fit: the model time and the last-active time
+ * go first, then the state's words (its dot stays) and the tokens.
+ */
+.tree2.agents {
+  container: agents / inline-size;
+}
+
+.tree2 .agents-list {
+  display: grid;
+  grid-template-columns: 18px 8px minmax(6em, 1fr) fit-content(9em) repeat(5, auto);
+  column-gap: 8px;
+}
+
+.tree2 .agents-list > .tgroup,
+.tree2 .agents-list > .tgroup > .tr.agent,
+.tree2 .agents-list > .tr.head {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  align-items: center;
+}
+
+/* What hangs under an opened Agent spans the row: its sub-agents, tasks and team. */
+.tree2 .agents-list > .tgroup > :not(.agent) {
+  grid-column: 1 / -1;
+}
+
+.tree2 .tr.head {
+  padding-top: 4px;
+  padding-bottom: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--label-tertiary);
+  cursor: default;
+}
+
+.tree2 .tr.head:hover {
+  background: none;
+}
+
+.tree2 .tr.head .c-name {
+  grid-column: 1 / 4;
+}
+
+.tree2 .tr.head .stat,
+.tree2 .tr.head .el {
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--label-tertiary);
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.tree2 .tr.agent .c-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tree2 .tr.agent .c-name .nm {
+  flex: 0 1 auto;
+  min-width: 3em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree2 .tr.agent .c-name .kd {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree2 .tr.agent .c-state {
+  flex: none;
+}
+
+.tree2 .tr.agent .stat,
+.tree2 .tr.head .stat {
+  min-width: 0;
+}
+
+.tree2 .tr.agent .el,
+.tree2 .tr.head .el {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.tree2 [role="row"][tabindex]:focus-visible {
+  outline-offset: -2px;
+}
+
+@container agents (max-width: 520px) {
+  .tree2 .agents-list {
+    grid-template-columns: 18px 8px minmax(5em, 1fr) fit-content(8em) repeat(3, auto);
+  }
+
+  .tree2 .agents-list [data-stat="time"],
+  .tree2 .agents-list .tr.agent .el,
+  .tree2 .agents-list .tr.head .el {
+    display: none;
+  }
+}
+
+@container agents (max-width: 400px) {
+  .tree2 .agents-list {
+    grid-template-columns: 18px 8px minmax(4em, 1fr) repeat(2, auto);
+  }
+
+  .tree2 .agents-list [data-stat="tokens"],
+  .tree2 .agents-list .tr.agent .c-state,
+  .tree2 .agents-list .tr.head .c-state {
+    display: none;
+  }
+
+  .tree2 .agents-bar select {
+    max-width: 40%;
+  }
+}
+
+.tree2 > .empty {
+  padding: 18px 10px;
+  font-size: 13px;
+  color: var(--label-tertiary);
+}
+
+.tree2 > .more {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border-l1);
+  font-size: 12.5px;
+  color: var(--accent);
+  text-align: left;
+}
+
+/* ── the inspector in the right column ────────────────────────────────── */
+
+#details .tools-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+#details .tools-row .end {
+  margin-left: auto;
+}
+
+#details .btn.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#details pre.scroll {
+  max-height: 320px;
+  overflow: auto;
+}
+
+#details .stack {
+  display: flex;
+  height: 14px;
+  margin: 8px 0 4px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--border-l1);
+}
+
+#details .stack i {
+  display: block;
+  height: 100%;
+}
+
+#details .stack .sys,
+#details .legend2 .sys::before {
+  background: var(--state-info);
+}
+
+#details .stack .tools,
+#details .legend2 .tools::before {
+  background: var(--state-warn);
+}
+
+#details .stack .msgs,
+#details .legend2 .msgs::before {
+  background: var(--state-success);
+}
+
+#details .legend2 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--label-secondary);
+}
+
+#details .legend2 span::before {
+  content: "";
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+/* A table of figures, in the right column or the centre. */
+.frames {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-code);
+  font-size: 12px;
+}
+
+.frames th {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border-l2);
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--label-tertiary);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.frames td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border-l1);
+  white-space: nowrap;
+}
+
+#details .frames td:last-child {
+  max-width: 0;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--label-secondary);
+}
+
+/* A task is its header row with, when picked, its detail and output under it — not beside it. */
+#details .task {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+#details .task.on {
+  border-color: var(--accent-line);
+}
+
+#details .task-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.frames tr[tabindex]:focus-visible {
+  outline-offset: -2px;
+}
+
+/* A goal the engine opens no rounds for, until someone resumes it. */
+#details .kd.phase.stalled {
+  border-color: var(--state-warn);
+  color: var(--state-warn);
+}
+
+/* The tasks tab: a task's header is the button that picks it, with its stop beside it. */
+#details .task-pick {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}

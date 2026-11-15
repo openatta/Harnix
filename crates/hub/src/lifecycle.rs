@@ -16,107 +16,108 @@
 use std::sync::Arc;
 
 use harnix_contract::{Frame, RpcError};
-use harnix_instance::link::{BARRIER, RECONNECTED};
-use harnix_instance::link::EventReceiver;
+use harnix_engine_api::events::{DaemonEventKind, EngineEvent, SessionEventKind};
+use harnix_engine_api::EventReceiver;
 use serde_json::{json, Value};
 
 use crate::{notification, Hub, SessionKey};
 
 impl Hub {
     pub(crate) async fn route(self: Arc<Self>, instance: String, mut events: EventReceiver) {
-        while let Some(frame) = events.recv().await {
-            let params = frame.get("params").cloned().unwrap_or(Value::Null);
-            match frame.get("method").and_then(Value::as_str) {
-                Some("session.event") => self.session_event(&instance, params).await,
-                Some("daemon.event") => self.daemon_event(&instance, params).await,
-                Some(BARRIER) => {
-                    if let Some(id) = params.get("id").and_then(Value::as_u64) {
-                        self.barrier_reached(id);
-                    }
+        while let Some(event) = events.recv().await {
+            match event {
+                EngineEvent::Session { session, turn_id, kind, event } => {
+                    self.session_event(&instance, session, turn_id, kind, event).await
                 }
-                Some(RECONNECTED) => {
+                EngineEvent::Daemon { kind, event } => self.daemon_event(&instance, kind, event).await,
+                EngineEvent::Barrier { id } => self.barrier_reached(id),
+                EngineEvent::Reconnected => {
                     tracing::info!(instance, "instance reconnected; resyncing its sessions");
                     tokio::spawn(self.clone().resync_instance(instance.clone()));
                 }
-                other => tracing::debug!(method = ?other, instance, "unrouted engine frame"),
+                EngineEvent::SubscriptionDropped { session } => {
+                    tracing::warn!(instance, session, "the engine dropped the hub's subscription; resyncing");
+                    let (hub, key) = (self.clone(), (instance.clone(), session));
+                    tokio::spawn(async move { hub.resync_session(key).await });
+                }
+                other => tracing::debug!(event = ?other, instance, "unrouted engine event"),
             }
         }
     }
 
-    async fn session_event(self: &Arc<Self>, instance: &str, params: Value) {
-        let kind = params
-            .get("event")
-            .and_then(|e| e.get("kind"))
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        let Some(session_id) = params.get("session_id").and_then(Value::as_str) else {
-            return;
-        };
-        let key: SessionKey = (instance.to_string(), session_id.to_string());
-        if kind == "subscription_dropped" {
-            tracing::warn!(instance, session_id, "the engine dropped the hub's subscription; resyncing");
-            let hub = self.clone();
-            tokio::spawn(async move { hub.resync_session(key).await });
+    async fn session_event(
+        self: &Arc<Self>,
+        instance: &str,
+        session_id: String,
+        turn_id: String,
+        kind: SessionEventKind,
+        event: Value,
+    ) {
+        let ends_turn = matches!(kind, SessionEventKind::TurnComplete(_));
+        if !self.bounded(instance, &session_id, event.to_string().len(), ends_turn) {
             return;
         }
-        crate::session::route_event(&self.inner, instance, params.clone()).await;
+        let key: SessionKey = (instance.to_string(), session_id.clone());
+        let tasks = || json!({"instance": instance, "session_id": session_id});
         // What a session waits on is on its row.
-        if matches!(kind, "prompt" | "tool_result" | "turn_complete" | "goal_changed") {
+        let relisted = matches!(
+            kind,
+            SessionEventKind::Asked(_)
+                | SessionEventKind::ToolResult { .. }
+                | SessionEventKind::TurnComplete(_)
+                | SessionEventKind::GoalChanged { .. }
+        );
+        let task = match &kind {
+            SessionEventKind::Task { task_id, started, session } => {
+                // A sub-agent's session is the engine's making: it is its parent's space's.
+                if let (true, Some(child)) = (*started, session) {
+                    self.child_session(&key, child);
+                }
+                Some((task_id.clone(), *started))
+            }
+            _ => None,
+        };
+        let teams = matches!(kind, SessionEventKind::TeamProgress { .. });
+        crate::session::route_event(&self.inner, instance, &session_id, &turn_id, &kind, event, self.is_extension(instance)).await;
+        if relisted {
             self.refresh("harnix.instances.sessions", json!({"instance": instance}));
         }
-        if kind == "team_progress" {
-            self.refresh(
-                "harnix.sessions.tasks",
-                json!({"instance": instance, "session_id": session_id}),
-            );
+        if teams {
+            self.refresh("harnix.session.tasks", tasks());
         }
-        if matches!(kind, "task_started" | "task_finished") {
-            let task_id = params
-                .get("event")
-                .and_then(|e| e.get("task"))
-                .and_then(|t| t.get("task_id"))
-                .and_then(Value::as_str);
-            if let Some(task_id) = task_id {
+        if let Some((task_id, started)) = task {
+            {
                 let mut guard = self.inner.lock().await;
                 let live = &mut guard.sessions.entry(key.clone()).or_default().live_tasks;
-                if kind == "task_started" {
-                    live.insert(task_id.to_string());
+                if started {
+                    live.insert(task_id);
                 } else {
-                    live.remove(task_id);
+                    live.remove(&task_id);
                 }
             }
-            self.refresh(
-                "harnix.sessions.tasks",
-                json!({"instance": instance, "session_id": session_id}),
-            );
+            self.refresh("harnix.session.tasks", tasks());
             self.refresh("harnix.instances.sessions", json!({"instance": instance}));
         }
     }
 
-    async fn daemon_event(self: &Arc<Self>, instance: &str, mut params: Value) {
-        let kind = params.get("kind").and_then(Value::as_str).unwrap_or("").to_string();
-        let session_id = params
-            .get("session_id")
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        match (kind.as_str(), session_id) {
-            ("turn_started", Some(sid)) => {
-                let turn_id = params.get("turn_id").and_then(Value::as_str).unwrap_or("");
-                self.turn_started_elsewhere(instance, &sid, turn_id).await;
+    async fn daemon_event(self: &Arc<Self>, instance: &str, kind: DaemonEventKind, mut event: Value) {
+        // An extension's engine-wide events are the hub's own account of its turns, and nobody
+        // else's: what it says of itself is not broadcast to every client. That a turn of one of
+        // its sessions started or ended is, as for the product's engines — rebuilt by the hub,
+        // marked as an extension's, and within its engine's bounds.
+        let extension = self.is_extension(instance);
+        let told = if extension { extension_turn(&kind, &event) } else { None };
+        let ends_turn = matches!(kind, DaemonEventKind::TurnCompleted { .. });
+        match kind {
+            DaemonEventKind::TurnStarted { session, turn_id } => {
+                self.turn_started_elsewhere(instance, &session, &turn_id).await;
             }
-            ("turn_completed", Some(sid)) => {
-                let turn_id = params.get("turn_id").and_then(Value::as_str).unwrap_or("");
-                self.turn_completed_elsewhere(instance, &sid, turn_id, &params).await;
+            DaemonEventKind::TurnCompleted { session, turn_id, initiator } => {
+                self.turn_completed_elsewhere(instance, &session, &turn_id, initiator).await;
             }
-            (
-                "session_created" | "session_resumed" | "session_evicted" | "session_closed"
-                | "session_deleted",
-                sid,
-            ) => {
+            DaemonEventKind::SessionsChanged { session, ended } => {
                 // An engine that is gone runs no tasks, and says nothing more of those it ran.
-                if let (Some(sid), "session_evicted" | "session_closed" | "session_deleted") =
-                    (sid, kind.as_str())
-                {
+                if let (Some(sid), true) = (session, ended) {
                     let key: SessionKey = (instance.to_string(), sid);
                     if let Some(state) = self.inner.lock().await.sessions.get_mut(&key) {
                         state.live_tasks.clear();
@@ -125,17 +126,23 @@ impl Hub {
                 self.refresh("harnix.instances.sessions", json!({"instance": instance}));
                 self.refresh("harnix.instances", json!({}));
             }
-            ("events_lagged", _) => {
+            DaemonEventKind::Lagged => {
                 tokio::spawn(self.clone().reconcile(instance.to_string()));
             }
             _ => {}
         }
+        if extension {
+            match told {
+                Some((session, told)) if self.bounded(instance, &session, told.to_string().len(), ends_turn) => event = told,
+                _ => return,
+            }
+        }
         // Which instance said it: a host event about a session is about
         // `(instance, session)` like every other frame.
-        if let Some(obj) = params.as_object_mut() {
+        if let Some(obj) = event.as_object_mut() {
             obj.insert("instance".into(), json!(instance));
         }
-        let out = Frame::host(notification("harnix.host_event", params));
+        let out = Frame::host(notification("harnix.host_event", event));
         let guard = self.inner.lock().await;
         let out = guard.clients.to_all(out);
         crate::send_after(guard, [out]).await;
@@ -153,6 +160,8 @@ impl Hub {
                 return;
             }
             state.running_turn = Some(turn_id.to_string());
+            // On behalf of no call this process made.
+            self.turns.start(instance, session_id, Default::default());
             state.turn_started_ms = Some(crate::now_ms());
             state.external = true;
             state.compacted = false;
@@ -182,7 +191,7 @@ impl Hub {
         instance: &str,
         session_id: &str,
         turn_id: &str,
-        params: &Value,
+        initiator: Value,
     ) {
         let key: SessionKey = (instance.to_string(), session_id.to_string());
         let ours_to_settle = {
@@ -192,7 +201,7 @@ impl Hub {
             })
         };
         if ours_to_settle {
-            let outcome = Ok(json!({"initiator": params.get("initiator")}));
+            let outcome = Ok(json!({"initiator": initiator}));
             let hub = self.clone();
             let turn = turn_id.to_string();
             tokio::spawn(async move { hub.settle_external(key, turn, outcome).await });
@@ -243,13 +252,14 @@ impl Hub {
     /// watchers to attach again.
     pub(crate) async fn resync_session(self: &Arc<Self>, key: SessionKey) {
         let (instance, session_id) = (key.0.clone(), key.1.clone());
-        let info = match self
-            .call(&instance, "session.get", json!({"session_id": session_id}))
-            .await
-        {
+        let got = match self.engine(&instance) {
+            Ok(linked) => linked.ops().get(&session_id).await,
+            Err(e) => Err(e),
+        };
+        let info = match got {
             Ok(info) => info,
             Err(e) => {
-                tracing::warn!(instance, session_id, error = %e.message, "resync: session.get failed");
+                tracing::warn!(instance, session_id, error = %e.message, "resync: engine.session.get failed");
                 return;
             }
         };
@@ -282,16 +292,13 @@ impl Hub {
         // Task events missed while the subscription was gone: read what is live now. A session
         // not subscribed again hears of no task ending, so it lists none.
         let live_tasks = if had_watchers { self.live_tasks(&key).await } else { Default::default() };
-        let running = info.get("turn_state").and_then(Value::as_str) == Some("running");
-        let current = info
-            .get("current_turn_id")
-            .and_then(Value::as_str)
-            .map(str::to_string);
+        let running = info.running();
+        let current = info.current_turn().map(str::to_string);
         let (watchers, settle, start_next) = {
             let mut guard = self.inner.lock().await;
             let state = guard.sessions.entry(key.clone()).or_default();
             state.history_total_before_turn = total;
-            state.compactions_before_turn = crate::session::compactions_of(&info);
+            state.compactions_before_turn = info.compactions();
             state.live_tasks = live_tasks;
             let mut settle = None;
             if running {
@@ -349,11 +356,10 @@ impl Hub {
                 .collect()
         };
         for key in keys {
-            let idle = self
-                .call(&key.0, "session.get", json!({"session_id": key.1}))
-                .await
-                .ok()
-                .is_some_and(|info| info.get("turn_state").and_then(Value::as_str) == Some("idle"));
+            let idle = match self.engine(&key.0) {
+                Ok(linked) => linked.ops().get(&key.1).await.is_ok_and(|info| info.idle()),
+                Err(_) => false,
+            };
             if idle {
                 let turn = {
                     let guard = self.inner.lock().await;
@@ -368,4 +374,28 @@ impl Hub {
         }
         self.refresh("harnix.instances.sessions", json!({"instance": instance}));
     }
+}
+
+/// A turn of an extension's engine starting or ending, as the hub tells every client of it: only
+/// what the hub reads off the event, never the event itself. `None` for anything else it says.
+fn extension_turn(kind: &DaemonEventKind, event: &Value) -> Option<(String, Value)> {
+    let name = kind.told_as()?;
+    let (session, turn_id) = match kind {
+        DaemonEventKind::TurnStarted { session, turn_id } => (session, turn_id),
+        DaemonEventKind::TurnCompleted { session, turn_id, .. } => (session, turn_id),
+        _ => return None,
+    };
+    // Who started it, when it is one of the engine's own words for that.
+    let initiator = event
+        .get("initiator")
+        .and_then(Value::as_str)
+        .filter(|i| !i.is_empty() && i.len() <= 32 && i.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'));
+    let told = json!({
+        "kind": name,
+        "session_id": session,
+        "turn_id": turn_id,
+        "initiator": initiator,
+        "trust": "extension",
+    });
+    Some((session.clone(), told))
 }

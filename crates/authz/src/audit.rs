@@ -14,6 +14,7 @@ use std::sync::Mutex;
 
 use harnix_contract::sync::lock;
 use harnix_contract::Subject;
+use harnix_kernel::CallContext;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -53,11 +54,21 @@ pub struct AuditEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session: Option<String>,
     /// When, in milliseconds since the epoch: on what changed the table at
-    /// runtime (an application's names declared or withdrawn), where "when"
+    /// runtime (a package's names declared or withdrawn), where "when"
     /// is half the question. A decision on a call is in order in the ring and
     /// carries none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub at_ms: Option<u64>,
+    /// The call decided, by the id this process gave it: on a decision about a call.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<u64>,
+    /// The call it was made while handling, when it was made by one: an extension acting for a
+    /// device, a module calling while it answers. The audit reads as a tree.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<u64>,
+    /// The extension whose page in a frame made a device's call: `ext:<id>`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub via: Option<String>,
 }
 
 /// What a runtime change to the table was, as an entry's `decision`.
@@ -69,10 +80,10 @@ pub enum Change {
     Withdraw,
     /// Putting a name in was refused, and nothing was written.
     Refuse,
-    /// An existing name was opened to a runtime application (its `hub`
-    /// capability, as a module's manifest grants).
+    /// An existing name was opened to an extension package (its `calls`
+    /// capability, as its manifest asks).
     Grant,
-    /// That grant was taken back, with the application.
+    /// That grant was taken back, with the package.
     Revoke,
 }
 
@@ -134,11 +145,36 @@ impl Audit {
             reason,
             session,
             at_ms: None,
+            call_id: None,
+            parent: None,
+            via: None,
         });
     }
 
-    /// A change to the table at runtime: `subject` (the module hosting the
-    /// application) declared or withdrew `name`, or was refused it. `reason`
+    /// A decision about one call: [`Audit::record`], with the call's id and its parent's.
+    pub fn record_call(
+        &self,
+        cx: &CallContext,
+        method: &str,
+        decision: Decision,
+        reason: Option<&'static str>,
+        session: Option<String>,
+    ) {
+        self.push(AuditEntry {
+            subject: cx.subject.label(),
+            method: method.to_string(),
+            decision: decision.as_str(),
+            reason,
+            session,
+            at_ms: None,
+            call_id: Some(cx.call_id.get()),
+            parent: cx.parent.map(|p| p.get()),
+            via: cx.on_behalf_of.as_ref().map(|ext| format!("ext:{ext}")),
+        });
+    }
+
+    /// A change to the table at runtime: `subject` (the host component carrying the
+    /// package) declared or withdrew `name`, or was refused it. `reason`
     /// says on whose behalf, or why not.
     pub fn record_change(&self, subject: &Subject, name: &str, change: Change, reason: Option<&'static str>) {
         let at_ms = std::time::SystemTime::now()
@@ -152,6 +188,9 @@ impl Audit {
             reason,
             session: None,
             at_ms: Some(at_ms),
+            call_id: None,
+            parent: None,
+            via: None,
         });
     }
 
@@ -191,5 +230,22 @@ mod tests {
         let subject = Subject::Device { id: harnix_contract::LOCAL_DEVICE.into() };
         audit.record(&subject, "harnix.ping", Decision::Allow, None, None);
         assert_eq!(audit.recent(1)[0].method, "harnix.ping");
+    }
+
+    /// A call's entry says which call it was and which call it was made in.
+    #[test]
+    fn a_call_is_recorded_with_its_id_and_its_parent() {
+        let audit = Audit::default();
+        let root = CallContext::root(Subject::Device { id: "d".into() }, None);
+        let child = root.child(&harnix_contract::ExtId::native("system").unwrap(), false);
+        audit.record_call(&root, "system.compact", Decision::Allow, None, None);
+        audit.record_call(&child, "engine.session.compact", Decision::Allow, None, None);
+        let [inner, outer] = [&audit.recent(2)[0], &audit.recent(2)[1]];
+        assert_eq!(outer.call_id, Some(root.call_id.get()));
+        assert_eq!(outer.parent, None);
+        assert_eq!(inner.parent, outer.call_id);
+        assert_eq!(inner.subject, "ext:system");
+        let json = serde_json::to_value(outer).unwrap();
+        assert!(json.get("parent").is_none(), "{json}");
     }
 }

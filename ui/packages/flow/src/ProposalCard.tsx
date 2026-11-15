@@ -1,5 +1,5 @@
 /**
- * A session's proposal (xops-01 §6): `flow_propose` writes an `app.<module>` entry with
+ * A session's proposal (xops-01 §6): `flow_propose` writes an entry under `<module>` with
  * `event: "proposal"` into the conversation, and nothing happens until a person takes it. Accept
  * calls `rework` or `cancel` with the session's reason and the proposal itself: the module acts
  * once and records `proposal_handled` in the session, so after a reload — or from another tab —
@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { useNest, useT } from "@harnix/react";
+import { useHost, useT } from "@harnix/react";
 
 import { errorText } from "./hooks";
 import { methodName } from "./model";
@@ -37,7 +37,7 @@ export interface ProposalCardProps {
 
 export function ProposalCard({ id, proposal, module = "flow" }: ProposalCardProps) {
   const t = useT();
-  const nest = useNest();
+  const nest = useHost();
   useSyncExternalStore(subscribe, () => version);
   const [state, setState] = useState<"open" | "busy" | "accepted">("open");
   const [error, setError] = useState<string | null>(null);

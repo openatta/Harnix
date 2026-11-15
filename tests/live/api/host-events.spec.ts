@@ -8,7 +8,7 @@
 // # Why this suite runs its own backend
 //
 // Every host event this build produces comes from connecting MCP servers, and
-// that happens once, at startup: `mcp.addServer` is refused here on purpose
+// that happens once, at startup: `engine.mcp.addServer` is refused here on purpose
 // (concept §3.4), so **no client can provoke one**. The only way to see the channel
 // carry anything is to start a process that will emit one — a server pointed
 // at a command that does not exist — and watch.
@@ -55,7 +55,7 @@ defineSuite("host-events", {
   feature: "sessions",
   gaps: {
     "a client that arrives after the failure cannot learn about it":
-      "Agix: `mcp.status` reporting the servers that failed to connect, not only those that did",
+      "Agix: `engine.mcp.status` reporting the servers that failed to connect, not only those that did",
   },
 }, {
   tests: {
@@ -140,14 +140,14 @@ defineSuite("host-events", {
         // Not an assertion that this is right — it is the gap, written down.
         //
         // The failure is announced once, on a channel, and nothing holds the
-        // state: `mcp.status` lists servers that connected, so a server that
+        // state: `engine.mcp.status` lists servers that connected, so a server that
         // never did is absent rather than broken. A tab opened a minute later
         // sees a healthy process. Catching up on a session's events is what
         // the hub's buffer is for (concept §3.2); there is no equivalent for
         // process-level facts, and the engine's own status call is where one
         // would naturally live.
         //
-        // Filed against Agix. When `mcp.status` reports servers that
+        // Filed against Agix. When `engine.mcp.status` reports servers that
         // failed, this test should assert the row rather than its absence.
         const backend = await startBackend({
           env: { ANTHROPIC_API_KEY: "host-events" },
@@ -161,9 +161,9 @@ defineSuite("host-events", {
 
           // A second client, connecting after the announcement it missed.
           const late = await connect(backend, { topology });
-          const { servers } = await late.call("mcp.status");
+          const { servers } = await late.call("engine.mcp.status");
           assert(!servers.some((s: { name: string }) => s.name === SERVER),
-            "mcp.status now reports the failed server — good; assert the row instead of this");
+            "engine.mcp.status now reports the failed server — good; assert the row instead of this");
           const missed = late.events.filter((f) => f.method === "harnix.host_event");
           assert(!missed.length, "host events are replayed to late clients — assert that instead");
           witness.close();

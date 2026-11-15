@@ -1,5 +1,5 @@
 /**
- * The shell's end of one frame's bridge (`harnix-ui-bridge@1`, `@harnix/app-sdk/protocol`).
+ * The shell's end of one frame's bridge (`harnix-ui-bridge@2`, `@harnix/ext-sdk/protocol`).
  *
  * The frame is handed a `MessageChannel` port once, when its page first loads, and that port is
  * the only thing the shell listens to for it: no window message is ever read. A second load is
@@ -11,20 +11,21 @@
  * `MISSES`) — which only a browser that runs sandboxed frames apart from the page can notice: where
  * the frame shares the page's thread, a page that hangs hangs the shell with it.
  *
- * Everything the frame asks is done by the shell, and only what its application's manifest lets
- * it ask for: methods and topics of its own (`app.<id>.*`) and in its `[interface] hub` — an
- * allowlist (`FRAME_HUB`), each name narrowed to the application's own spaces and their sessions
- * before the call goes out as the page —, sessions of its own space, items of its own kinds, its
- * own modals and settings sections. A refusal is
+ * Everything the frame asks is done by the shell, and only what its package's manifest lets
+ * it ask for: methods and topics of its own (`<id>.*`) and in its `[interface] calls`, sessions
+ * of its own space, items of its own kinds, its own modals and settings sections. Every call and
+ * every subscription goes out carrying the package's id (`"$ext"`): the server takes what the
+ * page may do, what the interface lists and the row's scope, and narrows it to the package's
+ * own spaces and their sessions. Here only what the page draws is narrowed — a call names one of
+ * its own spaces when it names none, and a session it names must be in one. A refusal is
  * answered as one, recorded for the Apps tab (`store.ts`) and noted in the registry, which
  * Settings → Diagnostics lists.
  */
 
 import { errorText } from "@harnix/core";
-import { SYSTEM_INSTANCE } from "@harnix/core/state";
-import { t } from "@harnix/react";
+import { MAIN_INSTANCE } from "@harnix/core/state";
+import { t, tabsOf } from "@harnix/react";
 import {
-  FRAME_HUB,
   PROTOCOL,
   admits,
   inDialog,
@@ -34,20 +35,19 @@ import {
   type Environment,
   type ErrorCode,
   type FrameRequests,
-  type HubScope,
   type KeyPress,
   type Message,
   type SessionRef,
   type ShellEvents,
   type Welcome,
-} from "@harnix/app-sdk/protocol";
+} from "@harnix/ext-sdk/protocol";
 
 import type { App } from "../app.ts";
 import { openSettings } from "../settings.tsx";
 import { topicsOf } from "../topics.ts";
 import { ask } from "./confirm.tsx";
 import { onShellEnvironment, shellEnvironment } from "./env.ts";
-import { autoHeight, titleOf, type AppInterface, type SurfaceDecl } from "./model.ts";
+import { autoHeight, titleOf, type PackageInterface, type SurfaceDecl } from "./model.ts";
 import { surfaces } from "./store.ts";
 
 /** How long a page has to say hello after it has loaded. */
@@ -61,24 +61,24 @@ const MAX_TEXT = 10_000;
 /** What the shell does for a frame that is not the bridge's own business: the frame's view. */
 export interface FrameHost {
   app: App;
-  iface: AppInterface;
+  iface: PackageInterface;
   decl: SurfaceDecl;
-  /** The interface space the application's sessions are drawn in (its first, if it has one). */
+  /** The interface space the package's sessions are drawn in (its first, if it has one). */
   space: string | null;
   params: unknown;
   ready(): void;
   failed(reason: string): void;
   resize(height: number): void;
   close(result: unknown): void;
-  /** One of the application's modals; resolves with what it closed with. */
+  /** One of the package's modals; resolves with what it closed with. */
   openModal(id: string, params: unknown): Promise<unknown>;
-  /** The application's space's second panel, given these params (null closes it). */
+  /** The package's space's second panel, given these params (null closes it). */
   secondary(open: { params: unknown; title?: string } | null): void;
-  /** A badge on the application's space entry. */
+  /** A badge on the package's space entry. */
   badge(value: string | number | null): void;
 }
 
-/** A request the application may not make: answered `refused`, and recorded. */
+/** A request the package may not make: answered `refused`, and recorded. */
 class Refused extends Error {
   constructor(
     readonly what: string,
@@ -148,7 +148,7 @@ export class FrameBridge {
   private readonly loaded = (): void => {
     this.loads += 1;
     if (this.loads > 1) {
-      // Not the application's page any more: whatever it navigated to is not left running here.
+      // Not the package's page any more: whatever it navigated to is not left running here.
       this.iframe.removeEventListener("load", this.loaded);
       this.iframe.src = "about:blank";
       this.fail(t("surface.failed.navigated"));
@@ -209,38 +209,35 @@ export class FrameBridge {
   }
 
   /**
-   * A call through a name of `[interface] hub`, narrowed by its scope: about the sessions of one of
-   * the application's own spaces (`space` filled in when it is left out), or about one session in
-   * them. The page's connection could reach any session; a frame is given its own.
+   * A call or subscription through a name of `[interface] calls`, as the page draws it: it claims
+   * one of the package's own spaces (its first, when it names none) — what the server narrows
+   * by — and a session it names must be in one of them. The server decides; this keeps a frame
+   * from reaching what the page would not show it.
    */
-  private async narrow(name: string, scope: HubScope | undefined, raw: unknown): Promise<unknown> {
-    if (!scope || scope === "open") return raw;
+  private async narrow(name: string, raw: unknown, claim: boolean): Promise<Record<string, unknown>> {
     const params: Record<string, unknown> = raw && typeof raw === "object" && !Array.isArray(raw) ? { ...(raw as Record<string, unknown>) } : {};
     const own = this.host.iface.spaces;
-    if (!own.length) this.refuse(name, t("surface.why.noSpace"));
-    if (scope === "space") {
-      const space = params.space ?? this.spaceSessions;
-      if (typeof space !== "string" || !own.includes(space)) this.refuse(name, t("surface.why.otherSpace"));
-      params.space = space;
-      return params;
+    if (params.space !== undefined && (typeof params.space !== "string" || !own.includes(params.space))) this.refuse(name, t("surface.why.otherSpace"));
+    if (claim && params.space === undefined && this.spaceSessions) params.space = this.spaceSessions;
+    if (params.session_id !== undefined) {
+      if (typeof params.session_id !== "string") throw new Invalid("`session_id` names a session of the application's own space");
+      if (!own.length) this.refuse(name, t("surface.why.noSpace"));
+      const instance = typeof params.instance === "string" ? params.instance : MAIN_INSTANCE;
+      if (!(await this.ownsSession(instance, params.session_id))) this.refuse(name, t("surface.why.otherSpace"));
     }
-    const sessionId = params.session_id;
-    if (typeof sessionId !== "string") throw new Invalid("`session_id` names a session of the application's own space");
-    const instance = typeof params.instance === "string" ? params.instance : SYSTEM_INSTANCE;
-    if (!(await this.ownsSession(instance, sessionId))) this.refuse(name, t("surface.why.otherSpace"));
     return params;
   }
 
-  /** Whether the session is in one of the application's own spaces. */
+  /** Whether the session is in one of the package's own spaces. */
   private async ownsSession(instance: string, sessionId: string): Promise<boolean> {
     for (const space of this.host.iface.spaces) {
-      const { sessions } = await this.host.app.call<{ sessions: { session_id: string }[] }>("harnix.sessions", { space, instance });
+      const { sessions } = await this.host.app.call<{ sessions: { session_id: string }[] }>("harnix.sessions.list", { space, instance });
       if (sessions.some((s) => s.session_id === sessionId)) return true;
     }
     return false;
   }
 
-  /** The application's own space must be in front for what acts on the front space. */
+  /** The package's own space must be in front for what acts on the front space. */
   private ownFront(name: string): string {
     const space = this.host.space;
     if (!space || this.host.app.snapshot.space !== space) this.refuse(name, t("surface.why.notFront"));
@@ -262,7 +259,7 @@ export class FrameBridge {
         this.host.ready();
         return {
           surface: {
-            app: iface.id,
+            ext: iface.id,
             point: decl.point,
             id: decl.id,
             space: decl.space,
@@ -276,18 +273,28 @@ export class FrameBridge {
       }
       case "call": {
         const name = text("method", 200);
-        if (!admits(iface.id, iface.hub, name, false)) this.refuse(name, t("surface.why.notListed"));
-        return app.call(name, await this.narrow(name, FRAME_HUB[name], p.params ?? {}));
+        if (!admits(iface.id, iface.calls, name, false)) this.refuse(name, t("surface.why.notListed"));
+        // Tagged with the package: the server narrows the call to what its interface may do
+        // too, whatever this side let through. Its own names are its own, wherever.
+        const own = name.startsWith(`${iface.id}.`);
+        const params = own ? ((p.params ?? {}) as Record<string, unknown>) : await this.narrow(name, p.params ?? {}, true);
+        return app.call(name, { ...params, $ext: iface.id });
       }
       case "subscribe": {
         const topic = text("topic", 200);
-        if (!admits(iface.id, iface.hub, topic, true)) this.refuse(topic, t("surface.why.notListed"));
-        const params = (await this.narrow(topic, FRAME_HUB[`topic:${topic}`], p.params ?? {})) as Record<string, unknown>;
+        if (!admits(iface.id, iface.calls, topic, true)) this.refuse(topic, t("surface.why.notListed"));
+        // A topic's params are its key: nothing is added to them, only checked.
+        const params = await this.narrow(topic, p.params ?? {}, false);
         if (this.disposed) return null;
         const sub = this.nextSub++;
-        const off = topicsOf(app.client).subscribe(topic, params, (value) =>
+        // Asked as the package, as its calls are: the server narrows it the same way.
+        const off = await topicsOf(app.conn).subscribeAs(iface.id, topic, params, (value) =>
           this.send({ kind: "event", name: "topic", data: { sub, value } satisfies ShellEvents["topic"] }),
         );
+        if (this.disposed) {
+          off();
+          return null;
+        }
         this.subs.set(sub, off);
         return { sub };
       }
@@ -304,21 +311,21 @@ export class FrameBridge {
         const space = this.host.space;
         const backend = this.spaceSessions;
         if (!space || !backend) this.refuse("session.open", t("surface.why.noSpace"));
-        const { sessions } = await app.call<{ sessions: { session_id: string; instance?: string }[] }>("harnix.sessions", { space: backend, instance: ref.instance });
+        const { sessions } = await app.call<{ sessions: { session_id: string; instance?: string }[] }>("harnix.sessions.list", { space: backend, instance: ref.instance });
         if (!sessions.some((s) => s.session_id === ref.sessionId)) this.refuse("session.open", t("surface.why.otherSpace"));
         if (app.snapshot.space !== space) await app.switchSpace(space);
         app.open(ref, space);
         return null;
       }
-      case "session.create": {
+      case "harnix.session.create": {
         const space = this.host.space;
         const backend = this.spaceSessions;
-        if (!space || !backend) this.refuse("session.create", t("surface.why.noSpace"));
+        if (!space || !backend) this.refuse("harnix.session.create", t("surface.why.noSpace"));
         const spec: Record<string, unknown> = { space: backend };
         if (typeof p.scene === "string") spec.scene = p.scene;
         if (p.options && typeof p.options === "object") spec.options = p.options;
-        const created = await app.call<{ session_id: string; instance?: string }>("session.create", spec);
-        const ref = { instance: created.instance ?? SYSTEM_INSTANCE, sessionId: created.session_id };
+        const created = await app.call<{ session_id: string; instance?: string }>("harnix.session.create", spec);
+        const ref = { instance: created.instance ?? MAIN_INSTANCE, sessionId: created.session_id };
         await app.refreshSessions();
         app.open(ref, space);
         return ref;
@@ -334,7 +341,7 @@ export class FrameBridge {
         app.toggleDetails(true);
         if (typeof p.tab === "string") {
           const contribution = app.registry.at("space").find((c) => c.id === space);
-          const tabs = typeof contribution?.tabs === "function" ? contribution.tabs() : (contribution?.tabs ?? []);
+          const tabs = tabsOf(contribution);
           if (tabs.some((x) => x.id === p.tab)) app.selectTab(p.tab, true);
         }
         return null;
@@ -373,7 +380,7 @@ export class FrameBridge {
       }
       case "notify": {
         const level = p.level === "error" ? "error" : "info";
-        // Under the application's name: a line from a frame never reads as the shell's own.
+        // Under the package's name: a line from a frame never reads as the shell's own.
         app.notice(t("surface.notice", { app: titleOf(iface), text: text("text", 300) }), level);
         return null;
       }

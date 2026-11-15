@@ -1,11 +1,11 @@
 /**
- * `sidebar.group`, declared: how one of an application's spaces groups its sessions in the left
+ * `sidebar.group`, declared: how one of a package's spaces groups its sessions in the left
  * column, as its manifest's `[[inline.sidebar_group]]` says — by scene, by a field of the session's
- * row (an array puts it in a group per element), or as the application's own method answers
+ * row (an array puts it in a group per element), or as the package's own method answers
  * (`{space, sessions}` → `{groups: [{key, title, sessions: [id]}]}`). What no rule places is in the
  * `other` group, last.
  *
- * Only the application's own space: what it declares never regroups the product's lists. A method
+ * Only the package's own space: what it declares never regroups the product's lists. A method
  * that fails leaves the list ungrouped, and is noted in the diagnostics.
  */
 
@@ -14,18 +14,18 @@ import { errorText } from "@harnix/core";
 import { t, useT } from "@harnix/react";
 
 import { keyOf, type App, type ShellSession, type ShellState } from "../app.ts";
-import { SessionRow } from "../sessions.tsx";
-import { appsOf, type GroupDecl, type RuntimeApp } from "./apps.ts";
+import { SessionRow } from "../rows.tsx";
+import { packagesOf, type GroupDecl, type RuntimePackage } from "./packages.ts";
 import { localized, lookup, words, type Text } from "./template.ts";
 
 export interface Rule {
-  owner: RuntimeApp;
+  owner: RuntimePackage;
   decl: GroupDecl;
 }
 
-/** The grouping a running application declares for `space`, if any. */
+/** The grouping a running package declares for `space`, if any. */
 export function groupingOf(app: App, space: string): Rule | null {
-  for (const owner of appsOf(app).running()) {
+  for (const owner of packagesOf(app).running()) {
     const decl = (owner.inline.sidebar_group ?? []).find((g) => (g.space ?? owner.id) === space);
     if (decl) return { owner, decl };
   }
@@ -59,7 +59,7 @@ function byValue(rows: ShellSession[], value: (row: ShellSession) => unknown, ot
   return out;
 }
 
-/** What the application's method answered, as groups over these rows. */
+/** What the package's method answered, as groups over these rows. */
 function fromAnswer(rows: ShellSession[], answer: unknown, other: string): Group[] {
   const listed = (answer as { groups?: { key?: unknown; title?: Text; sessions?: unknown[] }[] } | null)?.groups;
   const byId = new Map(rows.map((r) => [r.session_id, r]));
@@ -80,7 +80,7 @@ function fromAnswer(rows: ShellSession[], answer: unknown, other: string): Group
 export function GroupedSessions({ app, s, rule, rows }: { app: App; s: ShellState; rule: Rule; rows: ShellSession[] }) {
   const tr = useT();
   const { owner, decl } = rule;
-  const other = localized(decl.other) || tr("apps.group.other");
+  const other = localized(decl.other) || tr("packages.group.other");
   const ids = rows.map((r) => `${r.instance}/${r.session_id}`).join(",");
   const [answer, setAnswer] = useState<{ ids: string; value: unknown } | null>(null);
   const space = decl.space ?? owner.id;
@@ -89,7 +89,7 @@ export function GroupedSessions({ app, s, rule, rows }: { app: App; s: ShellStat
     let alive = true;
     const sessions = rows.map((r) => ({ session_id: r.session_id, instance: r.instance, name: r.name ?? null, scene: r.scene ?? null, status: r.status ?? null, last_active: r.last_active ?? null }));
     app
-      .call(`app.${owner.id}.${decl.method}`, { space, sessions })
+      .call(`${owner.id}.${decl.method}`, { space, sessions })
       .then((value) => alive && setAnswer({ ids, value }))
       .catch((e: unknown) => {
         if (!alive) return;
@@ -110,15 +110,15 @@ export function GroupedSessions({ app, s, rule, rows }: { app: App; s: ShellStat
   return (
     <>
       {groups.map((group) => (
-        <div key={group.key} className="group" data-group={group.key} data-testid="space-group" data-app={owner.id}>
+        <div key={group.key} className="group" data-group={group.key} data-testid="space-group" data-package={owner.id}>
           <div className="grp title">
-            <span className="label truncate" title={t("apps.card.from", { name: owner.title })}>
+            <span className="label truncate" title={t("packages.card.from", { name: owner.title })}>
               {group.title}
             </span>
             <span className="count">{group.rows.length}</span>
           </div>
           {group.rows.map((row) => (
-            <SessionRow key={keyOf(row.instance ?? "system", row.session_id)} app={app} s={s} session={row} />
+            <SessionRow key={keyOf(row.instance ?? "main", row.session_id)} app={app} s={s} session={row} />
           ))}
         </div>
       ))}

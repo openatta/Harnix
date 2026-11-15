@@ -11,7 +11,7 @@ import en from "./en.ts";
 import zhCN from "./zh-CN.ts";
 
 export type Locale = "zh-CN" | "en";
-export type LocaleChoice = Locale | "system";
+export type LocaleChoice = Locale | "auto";
 export type Translate = (key: string, vars?: Record<string, unknown>) => string;
 
 export const DICTIONARIES: Record<Locale, Record<string, string>> = { "zh-CN": zhCN, en };
@@ -40,7 +40,7 @@ function resolveInitial(): Locale {
 }
 
 /**
- * A module's language pack (harnix-sdk.md §22.4.1): keys it brings for its own text, merged into the
+ * An extension's language pack (harnix-ext.md §22.4.1): keys it brings for its own text, merged into the
  * dictionaries. Every key carries the module's namespace — `<owner>.` — so a pack can neither
  * rewrite the shell's text nor another module's; keys outside it are returned, not added.
  */
@@ -81,17 +81,17 @@ export function currentLocale(): Locale {
 }
 
 export function localeChoice(): LocaleChoice {
-  return stored() ?? "system";
+  return stored() ?? "auto";
 }
 
 export function setLocale(choice: LocaleChoice): void {
   try {
-    if (choice === "system") localStorage.removeItem(KEY);
+    if (choice === "auto") localStorage.removeItem(KEY);
     else localStorage.setItem(KEY, choice);
   } catch {
     /* private mode: the choice does not survive a reload */
   }
-  const next = choice === "system" ? fromSystem() : choice;
+  const next = choice === "auto" ? fromSystem() : choice;
   if (next === locale) return;
   locale = next;
   if (typeof document !== "undefined") document.documentElement.lang = locale;

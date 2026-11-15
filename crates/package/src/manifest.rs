@@ -1,0 +1,1150 @@
+//! `harnix-ext.toml`: what an extension package is, and what it asks for.
+//!
+//! Read strictly. Everything a package may have is a section or a field below; anything else
+//! is refused with its name, because a manifest is also what the installer shows a person, and a
+//! line nothing reads is a line that person was shown for nothing — or a capability somebody
+//! believes was granted.
+//!
+//! ```toml
+//! [app]
+//! id = "acme.showcase"          # <publisher>.<name>; dot-separated lowercase segments
+//! version = "0.1.0"
+//! harnix_api = 2                # the extension interface's major version
+//! title = "Showcase"            # optional
+//! publisher = "acme"            # the id's first segment
+//! description = "…"             # optional
+//!
+//! [capabilities]                # nothing unless written
+//! net = ["api.example.com"]     # hosts `http-request` may reach, exactly
+//! env = ["SHOWCASE_TOKEN"]      # what `secret` may read
+//! storage_mb = 1                # the key-value store's ceiling
+//! calls = ["harnix.session.create", "topic:harnix.sessions.status"]
+//!                               # what it may call (methods) and subscribe to (`topic:<name>`) as
+//!                               # `ext:<id>`; its own `<id>.*` needs no entry
+//! fs = ["${data}", "${project}"]# ${data} read-write; ${project} read-only, tool calls only
+//!
+//! [[component]]                 # at most one
+//! name = "tools"                # wasm/<name>.<engine fingerprint>.cwasm
+//! world = "harnix:ext/tools-ext@1.0.0"   # or harnix:ext/backend-ext@1.0.0
+//! memory_mb = 64
+//! timeout_ms = 30000
+//!
+//! [[tool]]                      # every tool the component provides, and only those: what the
+//! name = "echo"                 #   installer shows is what the host registers (`ext__<id>__<name>`),
+//! description = "Echo a text"   #   and `harnix-pack build` checks the component lists the same
+//! doc = "…"                     # optional: the long usage guide, fetched on demand
+//! read_only = true              # optional, false: declared for scheduling only
+//! concurrency_safe = true       # optional, false
+//! [tool.input_schema]           # JSON Schema of its input, an object
+//! type = "object"
+//!
+//! [events]                      # what its `events` export is offered (when it has one)
+//! tools = "own"                 # own (the default): its own tools' calls; all: every tool call
+//!
+//! [[method]]                    # <id>.<name>, answered by the backend (`backend-ext` only)
+//! name = "notes.add"
+//! subject = "device"            # who may call it: device (the default), module, kernel, or a list
+//! description = "…"             # optional
+//! [method.params]               # optional: JSON Schema the params are checked against
+//! type = "object"
+//! required = ["text"]
+//!
+//! [[topic]]                     # <id>.<name>, published by the backend (`backend-ext` only)
+//! name = "notes"
+//!
+//! [[space]]                     # a backend space: where its sessions land
+//! id = "acme.showcase"          # the package's id, or `<id>.<name>`
+//! scene = "harnix"              # optional: the scene a new session starts in
+//! instance = "main"           # optional
+//!
+//! [config]                      # host.config(): defaults, set over by the profile
+//! greeting = "hello"
+//!
+//! [[ui]]                        # ES modules under ui/, as a package's [[ui]]: run in the page,
+//! point = "home.card"           # a trusted publisher's only
+//! module = "showcase.js"
+//! api_version = 3
+//!
+//! [interface]                   # the interface in isolated frames (`surface.rs`)
+//! calls = ["harnix.sessions.list"]   # beyond <id>.*, what a frame may call
+//!
+//! [[surface]]                   # a region of the shell a frame fills
+//! point = "space"
+//! space = "acme.showcase"
+//! page = "frame/board.html"     # under ui/
+//!
+//! [agent]                       # agent/ (an Agix package) goes into these instances
+//! install_into = ["main"]
+//!
+//! [[inline.tool_row]]           # what the shell draws for it inline, from here alone: tool rows,
+//! tool = "echo"                 #   cards in the flow, commands, how its space groups sessions
+//! title = "Echo · {input.text}" #   (`inline.rs`)
+//! ```
+
+use std::collections::BTreeMap;
+
+use serde::Deserialize;
+use serde_json::Value;
+
+use crate::inline::Inline;
+pub use crate::surface::{Interface, Surface, Title};
+
+/// The extension interface this build implements: `[app] harnix_api`.
+pub const HARNIX_API: u32 = 2;
+
+/// The file name, at the package's root.
+pub const MANIFEST: &str = "harnix-ext.toml";
+
+/// The sections a manifest may have.
+const SECTIONS: &[&str] = &[
+    "app",
+    "capabilities",
+    "component",
+    "tool",
+    "config",
+    "ui",
+    "agent",
+    "method",
+    "topic",
+    "space",
+    "inline",
+    "interface",
+    "surface",
+    "backend",
+    "events",
+];
+
+/// The capabilities there are.
+const CAPABILITIES: &[&str] = &["net", "env", "storage_mb", "calls", "fs"];
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Manifest {
+    pub app: App,
+    pub capabilities: Capabilities,
+    pub component: Option<Component>,
+    /// `[[tool]]`: every tool the component provides.
+    pub tools: Vec<Tool>,
+    /// `[config]`, as JSON.
+    pub config: Value,
+    pub ui: Vec<UiEntry>,
+    pub agent: Agent,
+    pub methods: Vec<Method>,
+    pub topics: Vec<Topic>,
+    pub spaces: Vec<Space>,
+    /// `[inline]`: what the shell draws for it, declared.
+    pub inline: Inline,
+    /// `[interface]`: how the interface runs in frames, and what they may reach.
+    pub interface: Interface,
+    /// `[[surface]]`: the regions of the shell its frames fill.
+    pub surfaces: Vec<Surface>,
+    /// `[backend]`: whether its backend stays up, or is let go while idle.
+    pub backend: Backend,
+    /// `[events]`: which tool calls its `events` export is offered.
+    pub events: Events,
+}
+
+/// What `[events] tools` may say: the calls of the package's own tools only, or every tool
+/// call of every session (by name, with its input) — which is a capability, disclosed.
+pub const EVENT_SCOPES: &[&str] = &["own", "all"];
+
+/// `[events]`: which tool calls a component's `events` export is offered (`tool.before`).
+///
+/// By default, `own`: only the calls of its own tools. Anything more is what a person installing
+/// it has to be told, because seeing another tool's input is seeing what the session does with it
+/// — the commands it runs, the files it writes.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Events {
+    #[serde(default = "default_event_scope")]
+    pub tools: String,
+}
+
+impl Default for Events {
+    fn default() -> Self {
+        Self {
+            tools: default_event_scope(),
+        }
+    }
+}
+
+impl Events {
+    /// Offered every tool call, not only its own tools'.
+    pub fn all(&self) -> bool {
+        self.tools == EVENT_SCOPES[1]
+    }
+}
+
+fn default_event_scope() -> String {
+    EVENT_SCOPES[0].to_string()
+}
+
+/// One `[[method]]`: `<id>.<name>`, answered by the backend's `handle`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Method {
+    pub name: String,
+    /// Who may call it: `device`, `module`, `kernel`, or several. The package itself always
+    /// may (its tools reach their backend that way).
+    #[serde(default = "default_subject")]
+    pub subject: Subjects,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// JSON Schema its params are checked against before the backend sees them, written as TOML.
+    #[serde(default)]
+    pub params: Option<toml::Value>,
+}
+
+/// `subject = "device"` or `subject = ["device", "module"]`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(untagged)]
+pub enum Subjects {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl Subjects {
+    pub fn names(&self) -> Vec<&str> {
+        match self {
+            Subjects::One(s) => vec![s.as_str()],
+            Subjects::Many(v) => v.iter().map(String::as_str).collect(),
+        }
+    }
+}
+
+fn default_subject() -> Subjects {
+    Subjects::One("device".into())
+}
+
+/// Who a method may be declared for.
+pub const SUBJECTS: &[&str] = &["device", "module", "kernel"];
+
+/// One `[[topic]]`: `<id>.<name>`, whole values the backend publishes (`host.publish`).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Topic {
+    pub name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+/// One `[[space]]`: a backend space, where the sessions created in it land. What it looks like is
+/// the interface module's (a `space` contribution of the same id).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Space {
+    /// The package's id, or `<id>.<name>`.
+    pub id: String,
+    #[serde(default)]
+    pub scene: Option<String>,
+    #[serde(default)]
+    pub instance: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct App {
+    pub id: String,
+    pub version: String,
+    pub harnix_api: u32,
+    #[serde(default)]
+    pub title: Option<String>,
+    pub publisher: String,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Capabilities {
+    #[serde(default)]
+    pub net: Vec<String>,
+    #[serde(default)]
+    pub env: Vec<String>,
+    #[serde(default)]
+    pub storage_mb: u32,
+    #[serde(default)]
+    pub calls: Vec<String>,
+    #[serde(default)]
+    pub fs: Vec<String>,
+}
+
+/// The two worlds a component may implement, by the names a manifest writes.
+pub const WORLDS: &[&str] = &["harnix:ext/tools-ext@1.0.0", "harnix:ext/backend-ext@1.0.0"];
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Component {
+    pub name: String,
+    pub world: String,
+    #[serde(default = "default_memory_mb")]
+    pub memory_mb: u32,
+    #[serde(default = "default_timeout_ms")]
+    pub timeout_ms: u64,
+}
+
+/// One `[[tool]]`: a tool the component provides, as a session sees it (`ext__<id>__<name>`).
+///
+/// The manifest is the authority: it is what the installer shows and what the host registers, and a
+/// component that lists other tools is refused rather than believed.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Tool {
+    /// Letters, digits, `_` and `-`; unique among the package's.
+    pub name: String,
+    /// One line: it ships in the model's tool list on every call.
+    pub description: String,
+    /// The long usage guide, fetched on demand rather than sent every turn.
+    #[serde(default)]
+    pub doc: Option<String>,
+    /// JSON Schema of the tool's input, written as TOML.
+    pub input_schema: toml::Value,
+    /// Declared for scheduling only: the host does not relax permissions for it.
+    #[serde(default)]
+    pub read_only: bool,
+    #[serde(default)]
+    pub concurrency_safe: bool,
+}
+
+impl Tool {
+    /// The input schema as the JSON text the component's `tool-def` carries.
+    pub fn input_schema_json(&self) -> String {
+        toml_to_json(&self.input_schema).to_string()
+    }
+}
+
+/// How a backend is kept: `always` up while the package runs, or `on-demand` — stopped once
+/// idle for `idle_secs` with nothing holding it (no subscription, no timer, no call), and started
+/// again by the next call.
+pub const RESIDENT: &[&str] = &["always", "on-demand"];
+/// `idle_secs` unless the manifest says.
+pub const DEFAULT_IDLE_SECS: u64 = 600;
+/// The shortest `idle_secs` a manifest may ask for: a backend started and stopped more often than
+/// this costs more than it saves.
+pub const MIN_IDLE_SECS: u64 = 60;
+pub const MAX_IDLE_SECS: u64 = 86_400;
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Backend {
+    #[serde(default = "default_resident")]
+    pub resident: String,
+    #[serde(default = "default_idle_secs")]
+    pub idle_secs: u64,
+}
+
+impl Default for Backend {
+    fn default() -> Self {
+        Self {
+            resident: default_resident(),
+            idle_secs: DEFAULT_IDLE_SECS,
+        }
+    }
+}
+
+impl Backend {
+    pub fn on_demand(&self) -> bool {
+        self.resident == RESIDENT[1]
+    }
+}
+
+fn default_resident() -> String {
+    RESIDENT[0].to_string()
+}
+
+fn default_idle_secs() -> u64 {
+    DEFAULT_IDLE_SECS
+}
+
+fn default_memory_mb() -> u32 {
+    64
+}
+
+fn default_timeout_ms() -> u64 {
+    30_000
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UiEntry {
+    pub point: String,
+    /// Under the package's `ui/`.
+    pub module: String,
+    pub api_version: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Agent {
+    /// `main`, or the id of an instance that exists when the package is installed.
+    #[serde(default = "default_install_into")]
+    pub install_into: Vec<String>,
+}
+
+impl Default for Agent {
+    fn default() -> Self {
+        Self {
+            install_into: default_install_into(),
+        }
+    }
+}
+
+fn default_install_into() -> Vec<String> {
+    vec!["main".to_string()]
+}
+
+/// What the manifest says, in a sentence for whoever is installing it.
+pub type Error = String;
+
+impl Manifest {
+    pub fn parse(text: &str) -> Result<Self, Error> {
+        let table: toml::Table = text.parse().map_err(|e: toml::de::Error| {
+            format!("{MANIFEST} is not valid TOML: {}", e.message())
+        })?;
+        for key in table.keys() {
+            if !SECTIONS.contains(&key.as_str()) {
+                return Err(format!(
+                    "{MANIFEST}: unknown section `{key}` (a package has: {})",
+                    SECTIONS.join(", ")
+                ));
+            }
+        }
+        if let Some(caps) = table.get("capabilities") {
+            let caps = caps
+                .as_table()
+                .ok_or_else(|| format!("{MANIFEST}: `capabilities` is a table"))?;
+            for key in caps.keys() {
+                if !CAPABILITIES.contains(&key.as_str()) {
+                    return Err(format!(
+                        "{MANIFEST}: unknown capability `{key}` — a package may ask for {} and nothing else",
+                        CAPABILITIES.join(", ")
+                    ));
+                }
+            }
+        }
+
+        let section = |name: &str| -> Option<toml::Value> { table.get(name).cloned() };
+        let app: App = match section("app") {
+            Some(v) => v.try_into().map_err(|e| field_error("app", e))?,
+            None => return Err(format!("{MANIFEST}: `[app]` is missing")),
+        };
+        let capabilities: Capabilities = match section("capabilities") {
+            Some(v) => v.try_into().map_err(|e| field_error("capabilities", e))?,
+            None => Capabilities::default(),
+        };
+        let components: Vec<Component> = match section("component") {
+            Some(v) => v.try_into().map_err(|e| field_error("[component]]", e))?,
+            None => Vec::new(),
+        };
+        if components.len() > 1 {
+            return Err(format!(
+                "{MANIFEST}: a package has one component; this one declares {}",
+                components.len()
+            ));
+        }
+        let config = match section("config") {
+            Some(toml::Value::Table(t)) => toml_to_json(&toml::Value::Table(t)),
+            Some(_) => return Err(format!("{MANIFEST}: `config` is a table")),
+            None => Value::Object(Default::default()),
+        };
+        let ui: Vec<UiEntry> = match section("ui") {
+            Some(v) => v.try_into().map_err(|e| field_error("[ui]]", e))?,
+            None => Vec::new(),
+        };
+        let agent: Agent = match section("agent") {
+            Some(v) => v.try_into().map_err(|e| field_error("agent", e))?,
+            None => Agent::default(),
+        };
+        let tools: Vec<Tool> = match section("tool") {
+            Some(v) => v.try_into().map_err(|e| field_error("[tool]]", e))?,
+            None => Vec::new(),
+        };
+        let methods: Vec<Method> = match section("method") {
+            Some(v) => v.try_into().map_err(|e| field_error("[method]]", e))?,
+            None => Vec::new(),
+        };
+        let topics: Vec<Topic> = match section("topic") {
+            Some(v) => v.try_into().map_err(|e| field_error("[topic]]", e))?,
+            None => Vec::new(),
+        };
+        let spaces: Vec<Space> = match section("space") {
+            Some(v) => v.try_into().map_err(|e| field_error("[space]]", e))?,
+            None => Vec::new(),
+        };
+        let inline = match section("inline") {
+            Some(v) => Inline::read(&v)?,
+            None => Inline::default(),
+        };
+        let interface: Interface = match section("interface") {
+            Some(v) => v.try_into().map_err(|e| field_error("interface", e))?,
+            None => Interface::default(),
+        };
+        let surfaces: Vec<Surface> = match section("surface") {
+            Some(v) => v.try_into().map_err(|e| field_error("[surface]]", e))?,
+            None => Vec::new(),
+        };
+        let backend: Backend = match section("backend") {
+            Some(v) => v.try_into().map_err(|e| field_error("backend", e))?,
+            None => Backend::default(),
+        };
+        let events: Events = match section("events") {
+            Some(v) => v.try_into().map_err(|e| field_error("events", e))?,
+            None => Events::default(),
+        };
+        let manifest = Manifest {
+            app,
+            capabilities,
+            component: components.into_iter().next(),
+            tools,
+            config,
+            ui,
+            agent,
+            methods,
+            topics,
+            spaces,
+            inline,
+            interface,
+            surfaces,
+            backend,
+            events,
+        };
+        manifest.check()?;
+        Ok(manifest)
+    }
+
+    fn check(&self) -> Result<(), Error> {
+        let app = &self.app;
+        if !crate::valid_id(&app.id) || !app.id.contains('.') {
+            return Err(format!(
+                "{MANIFEST}: `{}` is not a package id: `<publisher>.<name>`, dot-separated \
+                 segments of lowercase letters, digits and `-`, each starting with a letter",
+                app.id
+            ));
+        }
+        if app.id.split('.').next() != Some(app.publisher.as_str()) {
+            return Err(format!(
+                "{MANIFEST}: the publisher `{}` is not the id's first segment (`{}`)",
+                app.publisher, app.id
+            ));
+        }
+        if !valid_version(&app.version) {
+            return Err(format!(
+                "{MANIFEST}: `{}` is not a version: `x.y.z`, with an optional `-<pre-release>`",
+                app.version
+            ));
+        }
+        if app.harnix_api != HARNIX_API {
+            return Err(format!(
+                "{MANIFEST}: `harnix_api = {}`, and this Harnix implements {HARNIX_API}",
+                app.harnix_api
+            ));
+        }
+        let caps = &self.capabilities;
+        for host in &caps.net {
+            if host.is_empty() || host.contains(['/', ':', '@', '*', ' ']) {
+                return Err(format!(
+                    "{MANIFEST}: `net` lists hosts, exactly (`api.example.com`), and `{host}` is not one"
+                ));
+            }
+        }
+        for name in &caps.env {
+            if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                return Err(format!(
+                    "{MANIFEST}: `{name}` in `env` is not an environment variable name"
+                ));
+            }
+        }
+        for entry in &caps.calls {
+            let name = entry.strip_prefix("topic:").unwrap_or(entry);
+            if !valid_dotted(name) {
+                return Err(format!(
+                    "{MANIFEST}: `{entry}` in `calls` is not a method name, or `topic:` and a topic's"
+                ));
+            }
+        }
+        // What is written under ${data} counts toward `storage_mb`: with none, it could write nothing.
+        if caps.storage_mb == 0 && caps.fs.iter().any(|p| p.starts_with("${data}")) {
+            return Err(format!(
+                "{MANIFEST}: `fs` grants ${{data}}, and its files count toward `storage_mb`, which is 0"
+            ));
+        }
+        // The grants themselves are checked when the VM starts (`harnix-wasm`); the anchors here.
+        for path in &caps.fs {
+            if !(path.starts_with("${data}") || path.starts_with("${project}")) {
+                return Err(format!(
+                    "{MANIFEST}: `{path}` in `fs` must start with ${{data}} (the package's own \
+                     directory) or ${{project}} (the calling session's, read-only)"
+                ));
+            }
+        }
+        if let Some(c) = &self.component {
+            if !valid_name(&c.name) {
+                return Err(format!(
+                    "{MANIFEST}: the component's name `{}` is lowercase letters, digits and `-`",
+                    c.name
+                ));
+            }
+            if !WORLDS.contains(&c.world.as_str()) {
+                return Err(format!(
+                    "{MANIFEST}: the component's world is one of {}, not `{}`",
+                    WORLDS.join(", "),
+                    c.world
+                ));
+            }
+            if !(1..=4096).contains(&c.memory_mb) {
+                return Err(format!("{MANIFEST}: `memory_mb` is 1 to 4096"));
+            }
+            if !(100..=600_000).contains(&c.timeout_ms) {
+                return Err(format!("{MANIFEST}: `timeout_ms` is 100 to 600000"));
+            }
+        }
+        self.check_tools()?;
+        for entry in &self.ui {
+            if entry.api_version != harnix_contract::CONTRIB_API_VERSION {
+                return Err(format!(
+                    "{MANIFEST}: the interface module `{}` is for contribution API {}, and this \
+                     Harnix's is {}",
+                    entry.module,
+                    entry.api_version,
+                    harnix_contract::CONTRIB_API_VERSION
+                ));
+            }
+            if !safe_relative(&entry.module) || !entry.module.ends_with(".js") {
+                return Err(format!(
+                    "{MANIFEST}: the interface module `{}` is a `.js` file under ui/",
+                    entry.module
+                ));
+            }
+        }
+        let backend = self.component.as_ref().is_some_and(|c| c.world == WORLDS[1]);
+        if !RESIDENT.contains(&self.backend.resident.as_str()) {
+            return Err(format!(
+                "{MANIFEST}: `[backend] resident` is one of {}, not `{}`",
+                RESIDENT.join(", "),
+                self.backend.resident
+            ));
+        }
+        if !(MIN_IDLE_SECS..=MAX_IDLE_SECS).contains(&self.backend.idle_secs) {
+            return Err(format!(
+                "{MANIFEST}: `[backend] idle_secs` is {MIN_IDLE_SECS} to {MAX_IDLE_SECS}, not {}",
+                self.backend.idle_secs
+            ));
+        }
+        if !backend && self.backend != Backend::default() {
+            return Err(format!(
+                "{MANIFEST}: `[backend]` is a backend's: the component's world is `{}`",
+                WORLDS[1]
+            ));
+        }
+        if !EVENT_SCOPES.contains(&self.events.tools.as_str()) {
+            return Err(format!(
+                "{MANIFEST}: `[events] tools` is one of {}, not `{}`",
+                EVENT_SCOPES.join(", "),
+                self.events.tools
+            ));
+        }
+        if self.component.is_none() && self.events != Events::default() {
+            return Err(format!(
+                "{MANIFEST}: `[events]` is a component's: it says what its `events` export is offered"
+            ));
+        }
+        if !backend && (!self.methods.is_empty() || !self.topics.is_empty()) {
+            return Err(format!(
+                "{MANIFEST}: `[[method]]` and `[[topic]]` are a backend's: the component's world is \
+                 `{}`",
+                WORLDS[1]
+            ));
+        }
+        let mut names = std::collections::BTreeSet::new();
+        for m in &self.methods {
+            if !valid_dotted(&m.name) || !names.insert(format!("method {}", m.name)) {
+                return Err(format!(
+                    "{MANIFEST}: the method `{}` is a unique dot-separated name of letters, digits, \
+                     `_` and `-`",
+                    m.name
+                ));
+            }
+            let subjects = m.subject.names();
+            if subjects.is_empty() || subjects.iter().any(|s| !SUBJECTS.contains(s)) {
+                return Err(format!(
+                    "{MANIFEST}: the method `{}`'s `subject` is one or more of {}",
+                    m.name,
+                    SUBJECTS.join(", ")
+                ));
+            }
+            if let Some(params) = &m.params {
+                let schema = toml_to_json(params);
+                if !schema.is_object() || jsonschema::meta::validate(&schema).is_err() {
+                    return Err(format!(
+                        "{MANIFEST}: the method `{}`'s `params` is not a JSON Schema",
+                        m.name
+                    ));
+                }
+            }
+        }
+        for t in &self.topics {
+            if !valid_dotted(&t.name) || !names.insert(format!("topic {}", t.name)) {
+                return Err(format!(
+                    "{MANIFEST}: the topic `{}` is a unique dot-separated name of letters, digits, \
+                     `_` and `-`",
+                    t.name
+                ));
+            }
+        }
+        for space in &self.spaces {
+            let id = &app.id;
+            let ours = space.id == *id
+                || space
+                    .id
+                    .strip_prefix(&format!("{id}."))
+                    .is_some_and(valid_name);
+            if !ours || !names.insert(format!("space {}", space.id)) {
+                return Err(format!(
+                    "{MANIFEST}: the space `{}` is `{id}` or `{id}.<name>`, once",
+                    space.id
+                ));
+            }
+        }
+        crate::surface::check(&app.id, &self.interface, &self.surfaces)?;
+        for target in &self.agent.install_into {
+            if target.is_empty() || target.contains(['/', ' ']) {
+                return Err(format!(
+                    "{MANIFEST}: `{target}` in `install_into` is not an instance id"
+                ));
+            }
+        }
+        self.inline.check(self)
+    }
+
+    fn check_tools(&self) -> Result<(), Error> {
+        if !self.tools.is_empty() && self.component.is_none() {
+            return Err(format!("{MANIFEST}: `[[tool]]` is a component's: this one has none"));
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        for tool in &self.tools {
+            let full = crate::tool_name(&self.app.id, &tool.name);
+            let name_ok = !tool.name.is_empty()
+                && tool.name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                && full.len() <= 64
+                && seen.insert(tool.name.as_str());
+            if !name_ok {
+                return Err(format!(
+                    "{MANIFEST}: the tool `{}` cannot be offered: a tool's name is letters, digits, \
+                     `_` and `-`, unique, `{full}` at most 64 characters",
+                    tool.name
+                ));
+            }
+            if tool.description.trim().is_empty() || tool.description.contains('\n') {
+                return Err(format!(
+                    "{MANIFEST}: the tool `{}`'s `description` is one line",
+                    tool.name
+                ));
+            }
+            let schema = toml_to_json(&tool.input_schema);
+            if !schema.is_object() || jsonschema::meta::validate(&schema).is_err() {
+                return Err(format!(
+                    "{MANIFEST}: the tool `{}`'s `input_schema` is not a JSON Schema object",
+                    tool.name
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// The names of the tools it declares.
+    pub fn tool_names(&self) -> Vec<String> {
+        self.tools.iter().map(|t| t.name.clone()).collect()
+    }
+
+    /// `[config]`, with `overrides` set over it key by key.
+    pub fn config_with(&self, overrides: Option<&Value>) -> Value {
+        let mut config = self.config.clone();
+        if let (Some(Value::Object(over)), Value::Object(base)) = (overrides, &mut config) {
+            for (k, v) in over {
+                base.insert(k.clone(), v.clone());
+            }
+        }
+        config
+    }
+}
+
+fn field_error(section: &str, e: toml::de::Error) -> Error {
+    format!("{MANIFEST}: in `[{section}]`: {}", e.message().trim())
+}
+
+pub(crate) fn valid_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && name
+            .chars()
+            .all(|c| matches!(c, 'a'..='z' | '0'..='9' | '-'))
+}
+
+/// A method or topic name: dot-separated segments of letters, digits, `_` and `-`.
+pub(crate) fn valid_dotted(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 128
+        && name.split('.').all(|s| {
+            !s.is_empty()
+                && s
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
+        })
+}
+
+fn valid_version(v: &str) -> bool {
+    let (core, pre) = match v.split_once('-') {
+        Some((core, pre)) => (core, Some(pre)),
+        None => (v, None),
+    };
+    let numbers: Vec<&str> = core.split('.').collect();
+    numbers.len() == 3
+        && numbers
+            .iter()
+            .all(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+        && pre.is_none_or(|p| {
+            !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '.')
+        })
+        && v.len() <= 64
+}
+
+/// A relative path with no `..`, no root, no empty segment, and no control character: a name
+/// that reads as one line wherever it is written — in the signatures' payload above all, where a
+/// line break in a name would make it two entries (`signature.rs`).
+pub fn safe_relative(path: &str) -> bool {
+    !path.is_empty()
+        && !path.starts_with('/')
+        && !path.contains('\\')
+        && !path.chars().any(char::is_control)
+        && path
+            .split('/')
+            .all(|s| !s.is_empty() && s != "." && s != "..")
+}
+
+/// Whether a `net` host is this machine or its local network: a loopback or private address, or
+/// a name that only ever means one (`localhost`, `*.localhost`, `*.local`). What such a host
+/// reaches is not the internet but the services next to Harnix — Harnix's own listener among
+/// them — so the installer says so, and the store does not countersign one.
+pub fn local_host(host: &str) -> bool {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    if host == "localhost" || host.ends_with(".localhost") || host.ends_with(".local") {
+        return true;
+    }
+    match host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(ip)) => {
+            ip.is_loopback() || ip.is_private() || ip.is_link_local() || ip.is_unspecified()
+        }
+        Ok(std::net::IpAddr::V6(ip)) => {
+            let first = ip.segments()[0];
+            ip.is_loopback()
+                || ip.is_unspecified()
+                || (first & 0xfe00) == 0xfc00 // unique local, fc00::/7
+                || (first & 0xffc0) == 0xfe80 // link local, fe80::/10
+        }
+        Err(_) => false,
+    }
+}
+
+pub fn toml_to_json(v: &toml::Value) -> Value {
+    match v {
+        toml::Value::String(s) => Value::String(s.clone()),
+        toml::Value::Integer(i) => Value::from(*i),
+        toml::Value::Float(f) => serde_json::Number::from_f64(*f)
+            .map(Value::Number)
+            .unwrap_or(Value::Null),
+        toml::Value::Boolean(b) => Value::Bool(*b),
+        toml::Value::Datetime(d) => Value::String(d.to_string()),
+        toml::Value::Array(a) => Value::Array(a.iter().map(toml_to_json).collect()),
+        toml::Value::Table(t) => Value::Object(
+            t.iter()
+                .map(|(k, v)| (k.clone(), toml_to_json(v)))
+                .collect::<serde_json::Map<_, _>>(),
+        ),
+    }
+}
+
+/// The overrides for one package from the profile's `[ext."<package id>"]`.
+pub fn overrides_for(config: &BTreeMap<String, toml::Value>, id: &str) -> Option<Value> {
+    config.get(id).map(toml_to_json)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    const GOOD: &str = r#"
+[app]
+id = "acme.showcase"
+version = "0.1.0"
+harnix_api = 2
+title = "Showcase"
+publisher = "acme"
+
+[capabilities]
+storage_mb = 1
+fs = ["${project}"]
+
+[[component]]
+name = "tools"
+world = "harnix:ext/tools-ext@1.0.0"
+timeout_ms = 5000
+
+[config]
+greeting = "hello"
+nested = { a = 1 }
+
+[[ui]]
+point = "home.card"
+module = "showcase.js"
+api_version = 3
+
+[agent]
+install_into = ["main"]
+"#;
+
+    fn with(edit: impl Fn(&str) -> String) -> Result<Manifest, Error> {
+        Manifest::parse(&edit(GOOD))
+    }
+
+    #[test]
+    fn a_complete_manifest_reads() {
+        let m = Manifest::parse(GOOD).unwrap();
+        assert_eq!(m.app.id, "acme.showcase");
+        assert_eq!(m.capabilities.storage_mb, 1);
+        let c = m.component.as_ref().unwrap();
+        assert_eq!(
+            (c.name.as_str(), c.memory_mb, c.timeout_ms),
+            ("tools", 64, 5000)
+        );
+        assert_eq!(m.config, json!({"greeting": "hello", "nested": {"a": 1}}));
+        assert_eq!(m.ui[0].module, "showcase.js");
+        assert_eq!(m.agent.install_into, ["main"]);
+        assert_eq!(
+            m.config_with(Some(&json!({"greeting": "hi", "extra": true}))),
+            json!({"greeting": "hi", "nested": {"a": 1}, "extra": true})
+        );
+    }
+
+    #[test]
+    fn a_backend_stays_up_unless_it_says_it_may_idle() {
+        let backend = |section: &str| {
+            with(|m| {
+                format!(
+                    "{}\n{section}",
+                    m.replace("tools-ext@1.0.0", "backend-ext@1.0.0")
+                )
+            })
+        };
+        let m = backend("").unwrap();
+        assert_eq!(m.backend, Backend::default());
+        assert!(!m.backend.on_demand());
+        let m = backend("[backend]\nresident = \"on-demand\"\n").unwrap();
+        assert!(m.backend.on_demand());
+        assert_eq!(m.backend.idle_secs, DEFAULT_IDLE_SECS);
+        assert_eq!(backend("[backend]\nresident = \"on-demand\"\nidle_secs = 120\n").unwrap().backend.idle_secs, 120);
+        for (section, says) in [
+            ("[backend]\nresident = \"sometimes\"\n", "`[backend] resident`"),
+            ("[backend]\nidle_secs = 5\n", "`[backend] idle_secs` is 60"),
+            ("[backend]\nidle_secs = 100000\n", "`[backend] idle_secs`"),
+            ("[backend]\nidle = 5\n", "unknown field `idle`"),
+        ] {
+            let err = backend(section).unwrap_err();
+            assert!(err.contains(says), "{section}: {err}");
+        }
+        // A tools-only component has no backend to keep.
+        let err = with(|m| format!("{m}\n[backend]\nresident = \"on-demand\"\n")).unwrap_err();
+        assert!(err.contains("`[backend]` is a backend's"), "{err}");
+    }
+
+    #[test]
+    fn events_are_its_own_tools_unless_it_asks_for_all() {
+        let m = Manifest::parse(GOOD).unwrap();
+        assert!(!m.events.all(), "own unless written");
+        assert!(with(|m| format!("{m}\n[events]\ntools = \"all\"\n")).unwrap().events.all());
+        assert!(!with(|m| format!("{m}\n[events]\ntools = \"own\"\n")).unwrap().events.all());
+        for (section, says) in [
+            ("[events]\ntools = \"some\"\n", "`[events] tools` is one of own, all"),
+            ("[events]\ninput = true\n", "unknown field `input`"),
+        ] {
+            let err = with(|m| format!("{m}\n{section}")).unwrap_err();
+            assert!(err.contains(says), "{section}: {err}");
+        }
+        let none = "[app]\nid = \"a.b\"\nversion = \"1.0.0\"\nharnix_api = 2\npublisher = \"a\"\n\n[events]\ntools = \"all\"\n";
+        assert!(Manifest::parse(none).unwrap_err().contains("a component's"));
+    }
+
+    #[test]
+    fn local_hosts_are_told_apart() {
+        for host in ["127.0.0.1", "127.8.9.1", "localhost", "LOCALHOST.", "api.localhost", "printer.local", "10.0.0.2", "192.168.1.20", "172.16.0.1", "169.254.1.1", "0.0.0.0"] {
+            assert!(local_host(host), "{host}");
+        }
+        for host in ["api.example.com", "8.8.8.8", "172.32.0.1", "localhost.example.com", "showcase.test"] {
+            assert!(!local_host(host), "{host}");
+        }
+    }
+
+    #[test]
+    fn a_name_with_a_control_character_is_not_a_path() {
+        assert!(safe_relative("ui/a.js"));
+        for name in ["ui/a\n0123  ui/b.js", "ui/a\r.js", "ui/a\0.js", "ui/\u{7f}.js"] {
+            assert!(!safe_relative(name), "{name:?}");
+        }
+    }
+
+    #[test]
+    fn the_least_an_application_can_be() {
+        let m = Manifest::parse(
+            "[app]\nid = \"a.b\"\nversion = \"1.0.0-rc.1\"\nharnix_api = 2\npublisher = \"a\"\n",
+        )
+        .unwrap();
+        assert!(m.component.is_none() && m.ui.is_empty());
+        assert_eq!(m.capabilities, Capabilities::default());
+        assert_eq!(
+            m.agent.install_into,
+            ["main"],
+            "agent/ goes to system unless said"
+        );
+    }
+
+    #[test]
+    fn what_is_not_known_is_refused_by_name() {
+        let cases: Vec<(String, &str)> = vec![
+            (GOOD.replace("storage_mb = 1", "gpu = true"), "unknown capability `gpu`"),
+            (format!("{GOOD}\n[extras]\nx = 1\n"), "unknown section `extras`"),
+            (format!("{GOOD}\n[[method]]\nname = \"m\"\n"), "are a backend's"),
+            (format!("{GOOD}\n[[topic]]\nname = \"t\"\n"), "are a backend's"),
+            (GOOD.replace("title = \"Showcase\"", "title = \"S\"\ncolour = \"red\""), "unknown field `colour`"),
+            (GOOD.replace("timeout_ms = 5000", "timeout_ms = 5000\nthreads = 4"), "unknown field `threads`"),
+            (GOOD.replace("harnix_api = 2", "harnix_api = 3"), "implements 2"),
+            (GOOD.replace("acme.showcase", "Acme.Showcase"), "not a package id"),
+            (GOOD.replace("\"acme.showcase\"", "\"showcase\""), "not a package id"),
+            (GOOD.replace("publisher = \"acme\"", "publisher = \"other\""), "first segment"),
+            (GOOD.replace("0.1.0", "one"), "not a version"),
+            (GOOD.replace("tools-ext@1.0.0", "tools@0.1.0"), "world is one of"),
+            (GOOD.replace("fs = [\"${project}\"]", "fs = [\"/etc\"]"), "must start with"),
+            (
+                GOOD.replace("storage_mb = 1", "storage_mb = 0")
+                    .replace("fs = [\"${project}\"]", "fs = [\"${data}\"]"),
+                "which is 0",
+            ),
+            (GOOD.replace("storage_mb = 1", "net = [\"https://x.example\"]"), "lists hosts"),
+            (GOOD.replace("api_version = 3", "api_version = 2"), "contribution API 2"),
+            (GOOD.replace("showcase.js", "../escape.js"), "under ui/"),
+            (GOOD.replace("[app]", "[app]\n").replace("id = ", "ident = "), "in `[app]`"),
+            (format!("{GOOD}\n[[component]]\nname = \"two\"\nworld = \"harnix:ext/tools-ext@1.0.0\"\n"), "one component"),
+            ("not = [toml".to_string(), "not valid TOML"),
+            ("[capabilities]\n".to_string(), "`[app]` is missing"),
+        ];
+        for (text, says) in cases {
+            let err = Manifest::parse(&text)
+                .err()
+                .unwrap_or_else(|| panic!("accepted: {says}"));
+            assert!(err.contains(says), "wanted `{says}`, got: {err}");
+            assert!(err.starts_with(MANIFEST), "{err}");
+        }
+        assert!(with(|g| g.to_string()).is_ok());
+    }
+
+    const BACKEND: &str = r#"
+[[method]]
+name = "notes.add"
+description = "Add a note"
+[method.params]
+type = "object"
+required = ["text"]
+properties.text = { type = "string", maxLength = 20 }
+
+[[method]]
+name = "notes.list"
+subject = ["device", "module"]
+
+[[topic]]
+name = "notes"
+
+[[space]]
+id = "acme.showcase"
+scene = "harnix"
+"#;
+
+    fn backend(extra: &str) -> String {
+        format!(
+            "{}\n{BACKEND}\n{extra}",
+            GOOD.replace("tools-ext@1.0.0", "backend-ext@1.0.0")
+        )
+    }
+
+    #[test]
+    fn a_backend_declares_its_methods_topics_and_spaces() {
+        let m = Manifest::parse(&backend("")).unwrap();
+        assert_eq!(m.methods.len(), 2);
+        assert_eq!(m.methods[0].subject.names(), ["device"]);
+        assert_eq!(m.methods[1].subject.names(), ["device", "module"]);
+        assert_eq!(
+            toml_to_json(m.methods[0].params.as_ref().unwrap())["required"],
+            json!(["text"])
+        );
+        assert_eq!(m.topics[0].name, "notes");
+        assert_eq!(m.spaces[0].scene.as_deref(), Some("harnix"));
+        let calls = backend("").replace(
+            "storage_mb = 1",
+            "storage_mb = 1\ncalls = [\"harnix.session.create\", \"topic:harnix.sessions.status\"]",
+        );
+        assert_eq!(Manifest::parse(&calls).unwrap().capabilities.calls.len(), 2);
+    }
+
+    const TOOL: &str = "\n[[tool]]\nname = \"echo\"\ndescription = \"Echo a text\"\nread_only = true\n\n\
+                        [tool.input_schema]\ntype = \"object\"\n";
+
+    #[test]
+    fn the_tools_are_the_manifests() {
+        let m = Manifest::parse(&format!("{GOOD}{TOOL}")).unwrap();
+        assert_eq!(m.tool_names(), ["echo"]);
+        let tool = &m.tools[0];
+        assert!(tool.read_only && !tool.concurrency_safe && tool.doc.is_none());
+        assert_eq!(serde_json::from_str::<Value>(&tool.input_schema_json()).unwrap(), json!({"type": "object"}));
+        assert!(Manifest::parse(GOOD).unwrap().tools.is_empty());
+
+        let cases: Vec<(String, &str)> = vec![
+            (format!("{GOOD}{TOOL}{TOOL}"), "cannot be offered"),
+            (format!("{GOOD}{}", TOOL.replace("\"echo\"", "\"bad name\"")), "cannot be offered"),
+            (format!("{GOOD}{}", TOOL.replace("\"Echo a text\"", "\"two\\nlines\"")), "one line"),
+            (format!("{GOOD}{}", TOOL.replace("type = \"object\"", "type = 7")), "not a JSON Schema"),
+            (format!("{GOOD}{}", TOOL.replace("read_only = true", "colour = 1")), "unknown field `colour`"),
+            (format!("{GOOD}{}", TOOL.replace("\n[tool.input_schema]\ntype = \"object\"", "")), "input_schema"),
+            (
+                GOOD.replace("[[component]]\nname = \"tools\"\nworld = \"harnix:ext/tools-ext@1.0.0\"\ntimeout_ms = 5000\n", "")
+                    + TOOL,
+                "a component's",
+            ),
+        ];
+        for (text, says) in cases {
+            let err = Manifest::parse(&text).err().unwrap_or_else(|| panic!("accepted: {says}"));
+            assert!(err.contains(says), "wanted `{says}`, got: {err}");
+        }
+    }
+
+    #[test]
+    fn a_backends_declarations_are_checked() {
+        let cases: Vec<(String, &str)> = vec![
+            (backend("[[method]]\nname = \"notes.add\"\n"), "unique"),
+            (backend("[[method]]\nname = \"bad name\"\n"), "unique"),
+            (backend("[[method]]\nname = \"m\"\nsubject = \"everyone\"\n"), "`subject`"),
+            (backend("[[method]]\nname = \"m\"\nsubject = []\n"), "`subject`"),
+            (backend("[[method]]\nname = \"m\"\nparams = { type = 7 }\n"), "not a JSON Schema"),
+            (backend("[[topic]]\nname = \"\"\n"), "the topic"),
+            (backend("[[space]]\nid = \"other.space\"\n"), "the space"),
+            (backend("[[space]]\nid = \"acme.showcase\"\n"), "once"),
+            (backend("[[space]]\nid = \"acme.showcase.x\"\ncolour = 1\n"), "unknown field"),
+            (
+                backend("").replace("storage_mb = 1", "storage_mb = 1\ncalls = [\"bad name\"]"),
+                "in `calls`",
+            ),
+        ];
+        for (text, says) in cases {
+            let err = Manifest::parse(&text)
+                .err()
+                .unwrap_or_else(|| panic!("accepted: {says}"));
+            assert!(err.contains(says), "wanted `{says}`, got: {err}");
+        }
+    }
+}

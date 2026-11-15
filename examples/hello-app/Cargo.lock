@@ -1383,35 +1383,55 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum",
- "base",
- "harnix-app",
- "harnix-authz",
+ "harnix-assembly",
+ "harnix-carrier-proc",
+ "harnix-carrier-wasm",
  "harnix-contract",
- "harnix-module",
- "runtime",
- "scene",
+ "harnix-engine",
+ "harnix-engine-api",
+ "harnix-ext",
+ "harnix-ext-devices",
+ "harnix-ext-flow",
+ "harnix-ext-harnix-app",
+ "harnix-ext-observability",
+ "harnix-ext-packages",
+ "harnix-ext-plugins",
+ "harnix-ext-settings",
+ "harnix-ext-system",
+ "harnix-proc",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "harnix-app"
+name = "harnix-assembly"
 version = "0.4.2-2026110901"
 dependencies = [
  "anyhow",
  "async-trait",
- "base",
+ "axum",
  "clap",
- "daemon",
- "harnix-apps",
  "harnix-authz",
- "harnix-builtin",
  "harnix-contract",
+ "harnix-engine",
+ "harnix-engine-api",
+ "harnix-ext",
+ "harnix-ext-devices",
+ "harnix-ext-flow",
+ "harnix-ext-harnix-app",
+ "harnix-ext-observability",
+ "harnix-ext-plugins",
+ "harnix-ext-settings",
+ "harnix-ext-system",
+ "harnix-host-api",
  "harnix-hub",
  "harnix-instance",
- "harnix-module",
+ "harnix-kernel",
+ "harnix-router",
+ "harnix-supervise",
  "harnix-transport",
- "history",
+ "http-body-util",
+ "libc",
  "serde",
  "serde_json",
  "tempfile",
@@ -1423,89 +1443,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "harnix-app-host"
-version = "0.4.2-2026110901"
-dependencies = [
- "anyhow",
- "async-trait",
- "harnix-app-package",
- "harnix-app-port",
- "harnix-contract",
- "harnix-wasm",
- "jsonschema",
- "reqwest 0.12.28",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-util",
- "toml",
- "tracing",
-]
-
-[[package]]
-name = "harnix-app-package"
-version = "0.4.2-2026110901"
-dependencies = [
- "anyhow",
- "harnix-contract",
- "harnix-wasm",
- "hex",
- "jsonschema",
- "reqwest 0.12.28",
- "ring",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "tokio",
- "toml",
- "zip",
-]
-
-[[package]]
-name = "harnix-app-port"
-version = "0.4.2-2026110901"
-dependencies = [
- "async-trait",
- "harnix-contract",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "harnix-apps"
-version = "0.4.2-2026110901"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum",
- "base",
- "harnix-app-host",
- "harnix-app-package",
- "harnix-app-port",
- "harnix-builtin",
- "harnix-contract",
- "harnix-module",
- "hex",
- "runtime",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-util",
- "toml",
- "tracing",
- "uuid",
- "zip",
-]
-
-[[package]]
 name = "harnix-authz"
 version = "0.4.2-2026110901"
 dependencies = [
- "async-trait",
  "base64 0.22.1",
  "harnix-contract",
+ "harnix-kernel",
  "hex",
  "ring",
  "serde",
@@ -1515,22 +1458,53 @@ dependencies = [
 ]
 
 [[package]]
-name = "harnix-builtin"
+name = "harnix-carrier-proc"
 version = "0.4.2-2026110901"
 dependencies = [
- "anyhow",
  "async-trait",
- "base",
  "base64 0.22.1",
- "harnix-contract",
- "harnix-module",
- "history",
- "ignore",
- "serde",
+ "harnix-carrier-shared",
+ "harnix-ext",
+ "harnix-host-api",
+ "harnix-package",
+ "harnix-wasm-port",
  "serde_json",
- "telemetry",
- "tempfile",
  "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "harnix-carrier-shared"
+version = "0.4.2-2026110901"
+dependencies = [
+ "async-trait",
+ "harnix-ext",
+ "harnix-package",
+ "harnix-wasm-port",
+ "http",
+ "http-body-util",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "harnix-carrier-wasm"
+version = "0.4.2-2026110901"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "harnix-carrier-shared",
+ "harnix-ext",
+ "harnix-host-api",
+ "harnix-package",
+ "harnix-wasm-host",
+ "harnix-wasm-port",
+ "serde_json",
+ "tokio",
+ "tokio-util",
  "toml",
  "tracing",
  "uuid",
@@ -1542,7 +1516,8 @@ version = "0.4.2-2026110901"
 dependencies = [
  "anyhow",
  "harnix",
- "harnix-flow",
+ "harnix-ext-flow",
+ "serde_json",
 ]
 
 [[package]]
@@ -1565,29 +1540,180 @@ dependencies = [
 ]
 
 [[package]]
-name = "harnix-flow"
+name = "harnix-engine"
 version = "0.4.2-2026110901"
 dependencies = [
  "anyhow",
  "async-trait",
  "base",
- "futures",
+ "daemon",
  "harnix-contract",
- "harnix-module",
+ "harnix-engine-api",
+ "history",
+ "model",
+ "reqwest 0.12.28",
+ "runtime",
+ "scene",
+ "serde",
+ "serde_json",
+ "telemetry",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "harnix-engine-api"
+version = "0.4.2-2026110901"
+dependencies = [
+ "async-trait",
+ "harnix-contract",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "harnix-ext"
+version = "0.4.2-2026110901"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "bytes",
+ "harnix-contract",
+ "harnix-engine-api",
+ "harnix-kernel",
+ "http",
+ "http-body-util",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tracing",
+]
+
+[[package]]
+name = "harnix-ext-devices"
+version = "0.4.2-2026110901"
+dependencies = [
+ "async-trait",
+ "harnix-ext",
+ "serde_json",
+]
+
+[[package]]
+name = "harnix-ext-flow"
+version = "0.4.2-2026110901"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "futures",
+ "harnix-ext",
  "jsonschema",
  "libc",
  "reqwest 0.12.28",
- "scene",
  "schemars",
  "serde",
  "serde_json",
  "serde_yaml",
  "sha2",
- "tempfile",
  "tokio",
  "tokio-util",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "harnix-ext-harnix-app"
+version = "0.4.2-2026110901"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "harnix-ext",
+ "ignore",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "harnix-ext-observability"
+version = "0.4.2-2026110901"
+dependencies = [
+ "async-trait",
+ "harnix-ext",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "harnix-ext-packages"
+version = "0.4.2-2026110901"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "harnix-ext",
+ "harnix-host-api",
+ "harnix-package",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "harnix-ext-plugins"
+version = "0.4.2-2026110901"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "harnix-ext",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
+ "tracing",
+]
+
+[[package]]
+name = "harnix-ext-settings"
+version = "0.4.2-2026110901"
+dependencies = [
+ "async-trait",
+ "harnix-ext",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
+name = "harnix-ext-system"
+version = "0.4.2-2026110901"
+dependencies = [
+ "async-trait",
+ "harnix-ext",
+ "serde_json",
+]
+
+[[package]]
+name = "harnix-host-api"
+version = "0.4.2-2026110901"
+dependencies = [
+ "async-trait",
+ "harnix-contract",
+ "harnix-engine-api",
+ "harnix-ext",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -1597,8 +1723,8 @@ dependencies = [
  "anyhow",
  "async-trait",
  "harnix-contract",
- "harnix-instance",
- "libc",
+ "harnix-engine-api",
+ "harnix-kernel",
  "serde",
  "serde_json",
  "tempfile",
@@ -1613,15 +1739,13 @@ version = "0.4.2-2026110901"
 dependencies = [
  "anyhow",
  "async-trait",
- "base",
- "daemon",
  "harnix-contract",
- "history",
+ "harnix-engine",
+ "harnix-engine-api",
+ "harnix-kernel",
+ "harnix-supervise",
  "libc",
- "model",
  "reqwest 0.12.28",
- "runtime",
- "scene",
  "serde",
  "serde_json",
  "tempfile",
@@ -1632,21 +1756,78 @@ dependencies = [
 ]
 
 [[package]]
-name = "harnix-module"
+name = "harnix-kernel"
+version = "0.4.2-2026110901"
+dependencies = [
+ "async-trait",
+ "harnix-contract",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
+name = "harnix-package"
 version = "0.4.2-2026110901"
 dependencies = [
  "anyhow",
  "async-trait",
- "axum",
- "base",
- "harnix-authz",
  "harnix-contract",
- "harnix-instance",
- "history",
+ "harnix-wasm",
+ "hex",
+ "jsonschema",
+ "reqwest 0.12.28",
+ "ring",
  "serde",
  "serde_json",
+ "sha2",
+ "tempfile",
  "tokio",
  "toml",
+ "zip",
+]
+
+[[package]]
+name = "harnix-proc"
+version = "0.4.2-2026110901"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "harnix-engine",
+ "harnix-engine-api",
+ "harnix-package",
+ "harnix-supervise",
+ "harnix-wasm-host",
+ "harnix-wasm-port",
+ "libc",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "harnix-router"
+version = "0.4.2-2026110901"
+dependencies = [
+ "async-trait",
+ "harnix-authz",
+ "harnix-contract",
+ "harnix-kernel",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "harnix-supervise"
+version = "0.4.2-2026110901"
+dependencies = [
+ "libc",
+ "tempfile",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -1662,7 +1843,7 @@ dependencies = [
  "futures",
  "harnix-authz",
  "harnix-contract",
- "harnix-hub",
+ "harnix-kernel",
  "include_dir",
  "reqwest 0.12.28",
  "ring",
@@ -1693,6 +1874,37 @@ dependencies = [
  "tracing",
  "wasmtime",
  "wasmtime-wasi",
+]
+
+[[package]]
+name = "harnix-wasm-host"
+version = "0.4.2-2026110901"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "harnix-contract",
+ "harnix-package",
+ "harnix-wasm",
+ "harnix-wasm-port",
+ "jsonschema",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "toml",
+ "tracing",
+]
+
+[[package]]
+name = "harnix-wasm-port"
+version = "0.4.2-2026110901"
+dependencies = [
+ "async-trait",
+ "harnix-contract",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]

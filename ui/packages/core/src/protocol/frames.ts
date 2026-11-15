@@ -52,24 +52,57 @@ export interface Scene {
   [key: string]: unknown;
 }
 
+/**
+ * 一台实例的引擎受信到哪一步：`product` 是产品自己拉起或连上的；`extension` 是扩展进程里的引擎，由第三方代码控制。
+ * 它的会话在列表、attach 与事件里标 `trust: "extension"`，外壳按不受信内容渲染。
+ */
+export type InstanceTrust = "product" | "extension";
+
+/** `hello.instances` 的一行：每台实例是什么、受信到哪一步、说的哪版协议。 */
+export interface HelloInstance {
+  id: string;
+  carrier: InstanceRow["carrier"];
+  trust: InstanceTrust;
+  status: InstanceRow["status"];
+  version?: string | null;
+  protocol_version?: number | null;
+}
+
+/** The engine's model providers as `hello` tells them: their models only, nothing of how each is reached. */
+export interface EngineProviders {
+  providers: Record<string, { default_model?: string | null; models?: string[] }>;
+  default_provider?: string | null;
+}
+
 export interface Hello {
   protocol_version: number;
   contrib_api_version: number;
+  /**
+   * 引擎（Agix）的协议版本。`harnix.event` 里的 `event` 与引擎直通方法的答是引擎的形状，不在
+   * `protocol_version` 的加法承诺里：它们照这个版本读。
+   */
+  engine_protocol?: number;
+  instances?: HelloInstance[];
   engine: {
     model?: string;
     active_scenes?: string[];
     /** The scene a session that names none is created in. */
     scene?: string | null;
     has_credentials?: boolean;
+    /** What a session can be switched to: each provider's default model and the others it allows,
+     *  and the default provider. Null when the engine could not say. */
+    providers?: EngineProviders | null;
     [key: string]: unknown;
   };
   scenes: Scene[];
   commands: unknown[];
-  contributions: unknown[];
-  /** What this product is and keeps (concept §5.10): its brand, the built-in spaces it keeps of
-   *  `sessions` / `projects` / `system`, whether packages' interface modules load. */
+  /** What a client fills in when it names none. `space` is null until the product names one. */
+  defaults?: { instance: string; space: string | null };
+  /** Every extension and whether it is enabled: the shell activates its compiled-in UI packages by
+   *  this before its first draw. What changes later is `harnix.ui`'s. */
+  extensions?: ExtensionEntry[];
+  /** What this product is (concept §5.10): its brand, whether packages' interface modules load. */
   shell?: {
-    spaces?: string[];
     brand?: { name?: string | null; icon?: string | null; product_id?: string };
     runtime_modules?: boolean;
     state_dir?: string;
@@ -79,6 +112,8 @@ export interface Hello {
     /** False (`[shell] new_session = false`, ipdrun-46): the shell draws no "New session" button and
      *  ⌘K starts none, in every space. Absent or true: as before. */
     new_session?: boolean;
+    /** `[shell] model_switch`: the composer changes a session's model through `harnix.session.setModel`. */
+    model_switch?: boolean;
     /** `[shell] narrow_details` (ipdrun-50): "beside" keeps three columns at ≤ 960px instead of
      *  maximizing an open right column over the conversation. Absent or "over": as before. */
     narrow_details?: "over" | "beside";
@@ -93,9 +128,29 @@ export interface Hello {
   };
 }
 
+/** One extension, as `hello.extensions` and `harnix.ui` tell it. */
+export interface ExtensionEntry {
+  id: string;
+  trust: "origin" | "consent" | string;
+  carrier?: "native" | "wasm" | "process" | string;
+  version?: string | null;
+  enabled: boolean;
+  /** In `hello.extensions`: the compiled-in UI package it is drawn by, when that is not its id. */
+  bundle?: string;
+  /** In `harnix.ui` only: what it declared of its interface (`bundle`, `surfaces`, `inline`,
+   *  `modules`, `points`), null when nothing. */
+  ui?: { bundle?: string; [key: string]: unknown } | null;
+}
+
+/** `harnix.ui`'s value: each extension's entry, and the interface modules to load. */
+export interface UiView {
+  extensions: ExtensionEntry[];
+  contributions: unknown[];
+}
+
 /* ── 会话 ─────────────────────────────────────────────────────────────── */
 
-/** `harnix.sessions` 的一行：引擎的 SessionInfo 加上 hub 折叠进来的 scene / project_root / running。 */
+/** `harnix.sessions.list` 的一行：引擎的 SessionInfo 加上 hub 折叠进来的 scene / project_root / running。 */
 export interface SessionRow {
   session_id: string;
   name?: string | null;
@@ -107,10 +162,12 @@ export interface SessionRow {
   message_count?: number;
   created_at?: string;
   last_active?: string;
+  /** 扩展进程里的引擎的会话：按不受信内容渲染（见 `InstanceTrust`）。产品自己的会话没有这个字段。 */
+  trust?: "extension";
   [key: string]: unknown;
 }
 
-/** `session.get` 的结果（attach 原样带回）。 */
+/** `engine.session.get` 的结果（attach 原样带回）。 */
 export interface SessionInfo extends SessionRow {
   turn_state?: "idle" | "running" | string;
   usage?: Usage | null;
@@ -164,10 +221,12 @@ export interface AttachResult {
   running_turn: string | null;
   queue: QueueItem[];
   seq: number;
+  /** 扩展进程里的引擎的会话（见 `InstanceTrust`）。 */
+  trust?: "extension";
 }
 
 /**
- * 模型眼里同是 user 的几种消息（daemon_rpc_protocol §4 session.history）。界面只把 user / steer / command
+ * 模型眼里同是 user 的几种消息（daemon_rpc_protocol §4 engine.session.history）。界面只把 user / steer / command
  * 画成人说的话；`null` 是旧日志，不知道。
  */
 export type MessageOrigin =
@@ -181,7 +240,7 @@ export type MessageOrigin =
   | "extension"
   | null;
 
-/** transcript 里的一条消息（session.history）。位置、来源、所属的轮与用量和实时帧对得上；旧日志没有的为 null。 */
+/** transcript 里的一条消息（engine.session.history）。位置、来源、所属的轮与用量和实时帧对得上；旧日志没有的为 null。 */
 export interface HistoryMessage {
   role: "user" | "assistant" | string;
   content: string | ContentPart[];
@@ -228,7 +287,7 @@ export type Decision =
 export interface UserMessageEvent {
   kind: "user_message";
   text: string;
-  /** 这条消息在中枢队列里的编号（与 harnix.send 应答、harnix.queue 里的 item_id 对应）。 */
+  /** 这条消息在中枢队列里的编号（与 harnix.session.send 应答、harnix.queue 里的 item_id 对应）。 */
   item_id?: string;
   /**
    * "steer"：交给了正在跑的这一轮，还没进对话——它不开新的一轮；进了对话时来一帧
@@ -382,7 +441,7 @@ export type EngineEvent =
 
 /* ── 方法表 ───────────────────────────────────────────────────────────── */
 
-/** 一个会话的地址：`instance` 省略即 `system`。 */
+/** 一个会话的地址：`instance` 省略即 `main`。 */
 export interface SessionKey {
   instance?: string;
   session_id: string;
@@ -393,20 +452,26 @@ export interface SessionKey {
 /** 一台实例，`harnix.instances` 里的一行。 */
 export interface InstanceRow {
   id: string;
-  carrier: "in_process" | "spawn" | "attach";
+  carrier: "in_process" | "spawn" | "attach" | "adopted";
   template: string | null;
   params: Record<string, string>;
   owner: string;
-  status: { state: "starting" | "ready" } | { state: "degraded"; since_ms: number; reason: string } | { state: "down"; reason: string };
+  status:
+    | { state: "starting" | "ready" }
+    | { state: "degraded"; since_ms: number; reason: string }
+    | { state: "down"; reason: string }
+    | { state: "hibernating"; since_ms: number };
   version?: string | null;
   protocol_version?: number | null;
   data_root: string;
   scenes: string[];
   pid?: number | null;
   created_ms: number;
+  /** 只在扩展进程里的引擎上有（见 `InstanceTrust`）。 */
+  trust?: "extension";
 }
 
-/** 一件任务（Agix `session.tasks`）。 */
+/** 一件任务（Agix `engine.session.tasks`）。 */
 export interface TaskRow {
   task_id: string;
   kind: "agent" | "teammate" | "shell" | "monitor" | "cron" | "code";
@@ -420,14 +485,15 @@ export interface TaskRow {
 export interface Methods {
   "harnix.handshake": { params: HandshakeParams; result: Negotiated };
   "harnix.hello": { params: Record<string, never>; result: Hello };
-  "harnix.sessions": { params: { instance?: string; space?: string }; result: { sessions: SessionRow[] } };
+  "harnix.ui": { params: Record<string, never>; result: UiView };
+  "harnix.sessions.list": { params: { instance?: string; space?: string }; result: { instance?: string; sessions: SessionRow[] } };
   "harnix.spaces.list": {
     params: Record<string, never>;
     result: { spaces: { id: string; instance: string | null; built: string | null; scene: string | null }[] };
   };
-  "harnix.attach": { params: SessionKey; result: AttachResult };
-  "harnix.detach": { params: SessionKey; result: { detached: boolean } };
-  "harnix.send": {
+  "harnix.session.attach": { params: SessionKey; result: AttachResult };
+  "harnix.session.detach": { params: SessionKey; result: { detached: boolean } };
+  "harnix.session.send": {
     params: SessionKey & {
       message: string;
       attachments?: unknown[];
@@ -438,20 +504,19 @@ export interface Methods {
     };
     result: SendResult;
   };
-  "harnix.queue.remove": { params: SessionKey & { item_id: string }; result: { items: QueueItem[] } };
-  "harnix.queue.edit": { params: SessionKey & { item_id: string; message: string }; result: { items: QueueItem[] } };
-  "harnix.subscribe": { params: { topic: string; params?: Record<string, unknown> }; result: { topic: string; value: unknown } };
-  "harnix.unsubscribe": { params: { topic: string; params?: Record<string, unknown> }; result: { unsubscribed: boolean } };
+  "harnix.session.queue.remove": { params: SessionKey & { item_id: string }; result: { items: QueueItem[] } };
+  "harnix.session.queue.edit": { params: SessionKey & { item_id: string; message: string }; result: { items: QueueItem[] } };
+  "harnix.topics.subscribe": { params: { topic: string; params?: Record<string, unknown> }; result: { topic: string; value: unknown } };
+  "harnix.topics.unsubscribe": { params: { topic: string; params?: Record<string, unknown> }; result: { unsubscribed: boolean } };
   "harnix.instances.list": { params: Record<string, never>; result: { instances: InstanceRow[] } };
-  "harnix.instances.sessions": { params: { instance: string }; result: { instance: string; sessions: SessionRow[] } };
   "harnix.instances.templates": {
     params: Record<string, never>;
     result: { templates: { id: string; carrier: string; params: string[]; ui: boolean; max: number | null }[] };
   };
   "harnix.instances.create": { params: { template: string; name: string; params?: Record<string, string> }; result: InstanceRow };
   "harnix.instances.stop": { params: { instance: string }; result: { stopped: string } };
-  "harnix.sessions.tasks": { params: SessionKey; result: { active: boolean; tasks: TaskRow[] } };
-  "session.create": {
+  "harnix.session.tasks": { params: SessionKey; result: { active: boolean; tasks: TaskRow[] } };
+  "harnix.session.create": {
     params: {
       instance?: string;
       scene?: string;
@@ -460,12 +525,12 @@ export interface Methods {
     };
     result: { instance: string; session_id: string; scene?: string; project_root?: string | null; [key: string]: unknown };
   };
-  "session.history": {
+  "engine.session.history": {
     params: SessionKey & { offset?: number; limit?: number };
     result: HistoryPage;
   };
-  "session.interrupt": { params: SessionKey; result: unknown };
-  "session.respondToPrompt": {
+  "harnix.session.interrupt": { params: SessionKey; result: unknown };
+  "harnix.session.respond": {
     params: SessionKey & { prompt_id: string; decision: Decision; tool_use_id?: string };
     result: { prompt_id: string };
   };
@@ -479,7 +544,15 @@ export type ResultOf<M extends MethodName> = Methods[M]["result"];
 
 export interface Notifications {
   /** 会话事件：中枢分配的 seq，追赶以它为锚。 */
-  "harnix.event": { instance: string; session_id: string; seq: number; turn_id: string; event: EngineEvent };
+  "harnix.event": {
+    instance: string;
+    session_id: string;
+    seq: number;
+    turn_id: string;
+    event: EngineEvent;
+    /** 扩展进程里的引擎的会话（见 `InstanceTrust`）。 */
+    trust?: "extension";
+  };
   /** 一轮结束（成功、失败或被中断）。 */
   "harnix.turn_settled": {
     instance: string;
@@ -508,7 +581,7 @@ export interface Notifications {
   "harnix.host_event": { kind: string; instance?: string; [key: string]: unknown };
   /** 宿主主题的整值快照。 */
   "harnix.topic": { topic: string; params: Record<string, unknown>; value: unknown };
-  /** 订阅的主题没有了（运行期应用撤下了）：每个参数组发一次，之后不再推；要再订，得等它重新登记。 */
+  /** 订阅的主题没有了（扩展包撤下了）：每个参数组发一次，之后不再推；要再订，得等它重新登记。 */
   "harnix.topic_ended": { topic: string; params: Record<string, unknown>; reason: string };
 }
 

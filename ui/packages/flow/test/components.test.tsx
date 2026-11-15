@@ -7,7 +7,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { NestProvider, Registry, setLocale, type NestHost } from "@harnix/react";
+import { HostProvider, Registry, setLocale, type HostApi } from "@harnix/react";
 
 import { FlowGraph } from "../src/FlowGraph";
 import { useRunView } from "../src/hooks";
@@ -88,7 +88,7 @@ function fakeHost(answers: Record<string, unknown> = {}) {
     session: { open: vi.fn((ref: unknown) => void opened.push(ref)) },
     details: { open: vi.fn() },
     t: (k: string) => k,
-  } as unknown as NestHost;
+  } as unknown as HostApi;
   return { host, calls, opened };
 }
 
@@ -97,9 +97,9 @@ describe("FlowGraph", () => {
     const { host } = fakeHost();
     const picked: string[] = [];
     render(
-      <NestProvider host={host}>
+      <HostProvider host={host}>
         <FlowGraph def={DEF} onSelect={(s) => picked.push(s)} />
-      </NestProvider>,
+      </HostProvider>,
     );
     expect(screen.getByTestId("flow-graph").dataset.mode).toBe("definition");
     for (const s of DEF.stations) expect(screen.getByTestId(`flow-node-${s.id}`).getAttribute("role")).toBe("button");
@@ -117,9 +117,9 @@ describe("FlowGraph", () => {
   it("draws a run: status, round, progress, forced", () => {
     const { host } = fakeHost();
     render(
-      <NestProvider host={host}>
+      <HostProvider host={host}>
         <FlowGraph def={DEF} view={RUNNING} selected="review" />
-      </NestProvider>,
+      </HostProvider>,
     );
     expect(screen.getByTestId("flow-graph").dataset.mode).toBe("run");
     expect(screen.getByTestId("flow-node-review").dataset.status).toBe("working");
@@ -136,9 +136,9 @@ describe("StationPanel", () => {
   it("enables what applies to a working confirm station and calls the module's methods", async () => {
     const { host, calls } = fakeHost();
     render(
-      <NestProvider host={host}>
+      <HostProvider host={host}>
         <StationPanel station="review" def={DEF} view={RUNNING} module="flow" />
-      </NestProvider>,
+      </HostProvider>,
     );
     const btn = (id: string) => screen.getByTestId(id) as HTMLButtonElement;
     expect(btn("flow-confirm").disabled).toBe(false);
@@ -147,14 +147,14 @@ describe("StationPanel", () => {
     expect(btn("flow-release").disabled).toBe(true);
 
     await act(async () => fireEvent.click(btn("flow-confirm")));
-    expect(calls).toContainEqual(["app.flow.confirm", { run: "r1", station: "review", pass: true }]);
+    expect(calls).toContainEqual(["flow.confirm", { run: "r1", station: "review", pass: true }]);
 
     // Force needs a reason.
     fireEvent.click(btn("flow-force"));
     expect(btn("flow-action-submit").disabled).toBe(true);
     fireEvent.change(screen.getByTestId("flow-reason"), { target: { value: "deadline" } });
     await act(async () => fireEvent.click(btn("flow-action-submit")));
-    expect(calls).toContainEqual(["app.flow.force", { run: "r1", station: "review", reason: "deadline" }]);
+    expect(calls).toContainEqual(["flow.force", { run: "r1", station: "review", reason: "deadline" }]);
 
     // Rework to a chosen target, with some of its tasks.
     fireEvent.click(btn("flow-rework"));
@@ -162,7 +162,7 @@ describe("StationPanel", () => {
     fireEvent.click(screen.getByTestId("flow-rework-task-1"));
     fireEvent.change(screen.getByTestId("flow-reason"), { target: { value: "thin" } });
     await act(async () => fireEvent.click(btn("flow-action-submit")));
-    expect(calls).toContainEqual(["app.flow.rework", { run: "r1", to: "analyze", tasks: ["1"], reason: "thin" }]);
+    expect(calls).toContainEqual(["flow.rework", { run: "r1", to: "analyze", tasks: ["1"], reason: "thin" }]);
   });
 
   it("disables everything on a passed station without rework targets, offers retry per failed task, opens sessions", async () => {
@@ -179,22 +179,22 @@ describe("StationPanel", () => {
     });
     const { host, calls, opened } = fakeHost();
     render(
-      <NestProvider host={host}>
+      <HostProvider host={host}>
         <StationPanel station="collect" def={DEF} view={failing} module="ops" />
-      </NestProvider>,
+      </HostProvider>,
     );
     for (const id of ["flow-confirm", "flow-reject", "flow-force", "flow-rework", "flow-release"]) {
       expect((screen.getByTestId(id) as HTMLButtonElement).disabled, id).toBe(true);
     }
     cleanup();
     render(
-      <NestProvider host={host}>
+      <HostProvider host={host}>
         <StationPanel station="analyze" def={DEF} view={failing} module="ops" />
-      </NestProvider>,
+      </HostProvider>,
     );
     expect(screen.queryByTestId("flow-retry-1")).toBeNull();
     await act(async () => fireEvent.click(screen.getByTestId("flow-retry-0")));
-    expect(calls).toContainEqual(["app.ops.retry", { run: "r1", station: "analyze", task: "0" }]);
+    expect(calls).toContainEqual(["ops.retry", { run: "r1", station: "analyze", task: "0" }]);
     fireEvent.click(screen.getByTestId("flow-open-session-0"));
     expect(opened).toEqual([{ instance: "flow", sessionId: "s-a" }]);
   });
@@ -217,9 +217,9 @@ describe("StationPanel", () => {
       },
     };
     render(
-      <NestProvider host={host}>
+      <HostProvider host={host}>
         <StationPanel station="analyze" def={DEF} info={info} />
-      </NestProvider>,
+      </HostProvider>,
     );
     expect(screen.getByTestId("flow-definition")).toBeTruthy();
     expect(screen.getByTestId("flow-skill-analyze").textContent).toContain("Read the module.");
@@ -267,48 +267,48 @@ describe("ProposalCard", () => {
   it("accepts a rework through the module and dismisses", async () => {
     const { host, calls } = fakeHost();
     render(
-      <NestProvider host={host}>
+      <HostProvider host={host}>
         <ProposalCard id="e1" proposal={{ run: "r1", station: "review", kind: "rework", to: "analyze", reason: "thin" }} />
-      </NestProvider>,
+      </HostProvider>,
     );
     await act(async () => fireEvent.click(screen.getByTestId("flow-proposal-accept")));
-    expect(calls).toEqual([["app.flow.rework", { run: "r1", to: "analyze", reason: "thin" }]]);
+    expect(calls).toEqual([["flow.rework", { run: "r1", to: "analyze", reason: "thin" }]]);
     expect(screen.getByTestId("flow-proposal-accepted")).toBeTruthy();
     cleanup();
     render(
-      <NestProvider host={host}>
+      <HostProvider host={host}>
         <ProposalCard id="e2" proposal={{ run: "r1", station: "review", kind: "cancel", reason: "wrong subject" }} />
-      </NestProvider>,
+      </HostProvider>,
     );
     act(() => fireEvent.click(screen.getByTestId("flow-proposal-dismiss")));
     expect(screen.queryByTestId("flow-proposal")).toBeNull();
   });
 
   it("names itself when accepted, and reads as accepted from the module's record after a reload", async () => {
-    const session = { instance: "system", session_id: "s1" };
+    const session = { instance: "main", session_id: "s1" };
     const proposal = { run: "r1", station: "review", kind: "rework" as const, to: "analyze", reason: "thin", session };
-    const fresh = fakeHost({ "app.flow.proposal": { handled: null } });
+    const fresh = fakeHost({ "flow.proposal": { handled: null } });
     render(
-      <NestProvider host={fresh.host}>
+      <HostProvider host={fresh.host}>
         <ProposalCard id="e3" proposal={proposal} />
-      </NestProvider>,
+      </HostProvider>,
     );
     await act(async () => {});
     expect(screen.getByTestId("flow-proposal").dataset.state).toBe("open");
     await act(async () => fireEvent.click(screen.getByTestId("flow-proposal-accept")));
     expect(fresh.calls).toContainEqual([
-      "app.flow.rework",
+      "flow.rework",
       { run: "r1", to: "analyze", reason: "thin", proposal: { ...session, entry: "e3" } },
     ]);
     cleanup();
-    const after = fakeHost({ "app.flow.proposal": { handled: { entry: "e3", action: "rework", by: { kind: "device", id: "d" } } } });
+    const after = fakeHost({ "flow.proposal": { handled: { entry: "e3", action: "rework", by: { kind: "device", id: "d" } } } });
     render(
-      <NestProvider host={after.host}>
+      <HostProvider host={after.host}>
         <ProposalCard id="e3" proposal={proposal} />
-      </NestProvider>,
+      </HostProvider>,
     );
     await act(async () => {});
-    expect(after.calls).toEqual([["app.flow.proposal", { ...session, entry: "e3" }]]);
+    expect(after.calls).toEqual([["flow.proposal", { ...session, entry: "e3" }]]);
     expect(screen.getByTestId("flow-proposal-accepted")).toBeTruthy();
     expect(screen.queryByTestId("flow-proposal-accept")).toBeNull();
   });
@@ -321,15 +321,15 @@ describe("useRunView", () => {
   }
 
   it("reads a run the topic has no value for (finished before a restart) from get", async () => {
-    const { host, calls } = fakeHost({ "app.flow.get": view({}, "finished") });
+    const { host, calls } = fakeHost({ "flow.get": view({}, "finished") });
     render(
-      <NestProvider host={host}>
+      <HostProvider host={host}>
         <Shown run="r1" />
-      </NestProvider>,
+      </HostProvider>,
     );
     await act(async () => {});
     expect(screen.getByTestId("shown").textContent).toBe("r1:finished");
-    expect(calls).toContainEqual(["app.flow.get", { run: "r1" }]);
+    expect(calls).toContainEqual(["flow.get", { run: "r1" }]);
   });
 });
 
@@ -339,17 +339,17 @@ describe("registerFlowSpace", () => {
     const flow = registerFlowSpace(r);
     expect(r.refusals()).toEqual([]);
     const space = r.at("space")[0]!;
-    expect(space).toMatchObject({ id: "flow", center: "chat", details: "open", owner: "flowui" });
+    expect(space).toMatchObject({ id: "flow", center: { mode: "chat" }, details: { initial: "open" }, owner: "flowui" });
     // The space's own sessions on the left, new ones allowed: nothing of its own there.
-    expect(space.sidebar).toBeUndefined();
-    expect(space.overview).toBeUndefined();
-    expect(space.newSession).toBeUndefined();
-    expect(typeof space.composerNotice).toBe("function");
-    expect((space.tabs as { id: string }[]).map((x) => x.id)).toEqual([flow.tabs.flows, flow.tabs.runs, flow.tabs.reference]);
+    expect(space.sidebar?.render).toBeUndefined();
+    expect(space.center?.overview).toBeUndefined();
+    expect(space.conversation?.newSession).toBeUndefined();
+    expect(typeof space.conversation?.composerNotice).toBe("function");
+    expect((space.details?.tabs as { id: string }[]).map((x) => x.id)).toEqual([flow.tabs.flows, flow.tabs.runs, flow.tabs.reference]);
     expect(flow.tabs).toEqual({ flows: "flow.flows", runs: "flow.runs", reference: "flow.reference" });
-    const block = { kind: "custom", type: "entry", data: { id: "e", ns: "app.flow", event: "proposal", payload: { run: "r", station: "s", kind: "cancel", reason: "x" }, at: 0 } } as never;
+    const block = { kind: "custom", type: "entry", data: { id: "e", ns: "flow", event: "proposal", payload: { run: "r", station: "s", kind: "cancel", reason: "x" }, at: 0 } } as never;
     expect(r.claim("flow.block", block)?.id).toBe("flow.proposal");
-    const handled = { kind: "custom", type: "entry", data: { id: "h", ns: "app.flow", event: "proposal_handled", payload: { entry: "e", action: "cancel", by: { kind: "device", id: "d" } }, at: 0 } } as never;
+    const handled = { kind: "custom", type: "entry", data: { id: "h", ns: "flow", event: "proposal_handled", payload: { entry: "e", action: "cancel", by: { kind: "device", id: "d" } }, at: 0 } } as never;
     expect(r.claim("flow.block", handled)?.id).toBe("flow.proposal-handled");
   });
 
@@ -357,8 +357,8 @@ describe("registerFlowSpace", () => {
     const r = new Registry();
     registerFlowSpace(r, { space: "ops", module: "ops" });
     const block = (ns: string) => ({ kind: "custom", type: "entry", data: { id: "e", ns, event: "proposal", payload: { run: "r", station: "s", kind: "cancel", reason: "x" }, at: 0 } }) as never;
-    expect(r.claim("flow.block", block("app.ops"))?.id).toBe("ops.proposal");
-    expect(r.claim("flow.block", block("app.flow"))).toBe(null);
+    expect(r.claim("flow.block", block("ops"))?.id).toBe("ops.proposal");
+    expect(r.claim("flow.block", block("flow"))).toBe(null);
   });
 });
 

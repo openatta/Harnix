@@ -34,6 +34,7 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use futures::Stream;
 use harnix_contract::{codes, RpcError, Topology};
+use harnix_kernel::CallContext;
 use serde_json::{json, Value};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
@@ -114,7 +115,7 @@ pub async fn rpc(
     // topology answers a JSON-RPC error naming the ceiling. One semantic, two
     // topologies: a limit that reads differently depending on which one is
     // carrying it is the semantics leaking into the choice (concept §3.3).
-    let mut request = match frame::parse_request(&raw) {
+    let request = match frame::parse_request(&raw) {
         Ok(request) => request,
         Err(Malformed { id, error }) => return Json(frame::error(id, &error)).into_response(),
     };
@@ -130,12 +131,12 @@ pub async fn rpc(
             RpcError::new(codes::HANDSHAKE_REFUSED, "unknown credential; call /handshake first"),
         );
     };
-    // `harnix.attach` arrives here while the frames it registers a watcher
-    // for go out on a different socket entirely.
-    request.say_client(established.client);
-
+    // `harnix.session.attach` arrives here while the frames it registers a watcher
+    // for go out on a different socket entirely: the client is the
+    // credential's, not this request's connection's.
+    let cx = CallContext::root(established.subject.clone(), Some(established.client));
     let id = request.id;
-    match crate::call_settled(state.gate.as_ref(), &established.subject, &request.method, request.params).await {
+    match crate::call_settled(state.gate.as_ref(), cx, &request.method, request.params).await {
         Ok(result) => Json(frame::ok(id, result)).into_response(),
         Err(e) => Json(frame::error(id, &e)).into_response(),
     }

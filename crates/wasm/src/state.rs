@@ -2,9 +2,9 @@
 //!
 //! Every instance — the resident backend, each tool call — gets its own
 //! `Store`, and the store's data is an [`AppState`]: the WASI context built
-//! from the application's capabilities and nothing else, the memory limiter,
+//! from the package's capabilities and nothing else, the memory limiter,
 //! and a handle on the VM's shared parts so the host functions can reach the
-//! application's services.
+//! package's services.
 
 use crate::spec::Resolved;
 use crate::vm::Shared;
@@ -32,10 +32,14 @@ pub(crate) struct AppState {
     pub role: Role,
     pub progress: Option<Arc<dyn ProgressSink>>,
     pub limiter: StoreLimiter,
-    /// Whether this store has a writable `/data`, and if so whether the application was over its
+    /// Whether this store has a writable `/data`, and if so whether the package was over its
     /// storage quota when the store was made (then its files are read-only here). `None`: nothing
     /// it can write, so nothing to measure after its calls.
     pub over_quota: Option<bool>,
+    /// The host's call this instance is serving now, by the id the host gave it: what a
+    /// `host.call` made from inside names as the call it was made for. None between calls, and
+    /// for what the backend does on its own (a timer, a topic value).
+    pub serving: Option<String>,
     wasi: WasiCtx,
     table: ResourceTable,
 }
@@ -59,6 +63,7 @@ impl AppState {
             progress,
             limiter,
             over_quota,
+            serving: None,
             wasi,
             table: ResourceTable::new(),
         })
@@ -68,7 +73,7 @@ impl AppState {
 /// The WASI context: preopens for the declared directories, and nothing else.
 /// No inherited environment, arguments or stdio, and no sockets — the
 /// network is `host.http-request`, where `net` is checked. `full`: the
-/// application is over its storage quota, so `/data`'s files are offered
+/// package is over its storage quota, so `/data`'s files are offered
 /// read-only (and may still be removed, which is how it gets under again).
 fn wasi_for(caps: &Resolved, project: Option<&Path>, full: bool) -> anyhow::Result<WasiCtx> {
     let mut builder = WasiCtxBuilder::new();
@@ -104,7 +109,7 @@ impl WasiView for AppState {
     }
 }
 
-/// Linear memory held by one application, across all of its stores.
+/// Linear memory held by one package, across all of its stores.
 #[derive(Debug)]
 pub(crate) struct MemoryAccount {
     pub limit: u64,
@@ -158,7 +163,7 @@ const MAX_MEMORIES: usize = 16;
 const MAX_TABLES: usize = 64;
 const MAX_TABLE_ELEMENTS: usize = 1 << 20;
 
-/// A store's view of the application's memory account.
+/// A store's view of the package's memory account.
 ///
 /// Growth is refused (the guest's `memory.grow` returns -1) rather than
 /// trapped on, so a guest that can cope with an allocation failure may; one

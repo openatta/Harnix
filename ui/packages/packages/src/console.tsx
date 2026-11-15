@@ -1,0 +1,194 @@
+/**
+ * The extension packages in the console of the process (`system.console.tab`, where a space
+ * defines it): the ones this process hosts, and how each one's VM is doing — its backend up or
+ * down, how often it was recycled or rebuilt, its faults, its memory and storage against their
+ * limits, the calls into its methods and their errors, and the calls it made as itself that were
+ * refused. What this page's frames of it do is the shell's, in its diagnostics.
+ *
+ * Extension processes that start unsandboxed, or not at all for want of a sandbox, are said in red
+ * above the table; a process's last lines of stderr are in its row opened.
+ *
+ * Fed by the topic `packages.list` (the same value as `packages.list`, pushed when it changes), so
+ * it stays current without asking.
+ */
+
+import { Fragment, useEffect, useState } from "react";
+import { megabytes, rowKeys, useT, type HostApi } from "@harnix/react";
+
+import { SandboxAlert, type Sandbox } from "./sandbox.tsx";
+
+interface Health {
+  world?: "tools" | "backend";
+  state?: "running" | "stopped" | "disabled";
+  reason?: string;
+  calls?: number;
+  faults?: number;
+  timeouts?: number;
+  rebuilds?: number;
+  recycles?: number;
+  last_error?: string | null;
+  memory_bytes?: number;
+  memory_limit_bytes?: number;
+  storage_bytes?: number;
+  storage_limit_bytes?: number;
+  subscriptions?: number;
+  timers?: number;
+  /** An on-demand backend stopped while idle; the next call starts it again. */
+  hibernating?: boolean;
+  wakes?: number;
+}
+
+interface Refusal {
+  method: string;
+  reason: string;
+  at_ms: number;
+}
+
+interface Runtime {
+  state: "running" | "hibernating" | "faulted" | "stopped" | "failed";
+  reason?: string | null;
+  world?: string | null;
+  methods?: string[];
+  topics?: string[];
+  calls?: { calls: number; errors: number; hub_calls: number; refused: Refusal[]; recent_errors: { method: string; message: string }[] };
+  health?: Health | null;
+  /** On the process carrier: its process, with the last lines it wrote to its stderr. */
+  process?: { pid?: number | null; starts?: number; stderr?: string[] } | null;
+}
+
+interface AppRow {
+  id: string;
+  version: string;
+  title?: string | null;
+  enabled: boolean;
+  registered: boolean;
+  runtime?: Runtime;  /** On the process carrier: the mode of the sandbox its process starts in. */
+  sandbox?: Sandbox["mode"];
+}
+
+interface PackagesList {
+  packages: AppRow[];
+  unreadable?: { dir: string; reason: string }[];
+  runtime?: { sandbox?: Sandbox | null };
+}
+
+/** What the row's dot says: running, idle with its backend stopped until the next call, set aside
+ *  after faulting, switched off, or did not start. */
+function appState(row: AppRow): Runtime["state"] {
+  if (!row.enabled) return "stopped";
+  return row.runtime?.state ?? "stopped";
+}
+
+export function PackagesTab({ host }: { host: HostApi }) {
+  const tr = useT();
+  const [list, setList] = useState<PackagesList | undefined>(undefined);
+  const [open, setOpen] = useState<string | null>(null);
+  useEffect(() => host.subscribe("packages.list", {}, (value) => setList((value as PackagesList | null) ?? undefined)), [host]);
+  if (!list) return <div className="system-pane" data-testid="system-packages">{tr("system.packages.loading")}</div>;
+  if (!list.packages.length) {
+    return (
+      <div className="system-pane" data-testid="system-packages">
+        <SandboxAlert sandbox={list.runtime?.sandbox} />
+        <div className="muted" data-testid="system-packages-empty">{tr("system.packages.none")}</div>
+      </div>
+    );
+  }
+  const dot: Record<string, string> = { running: "running", hibernating: "cold", faulted: "waiting", stopped: "cold", failed: "waiting" };
+  // Five columns, each a word or two: what a package is and how it answers. Its VM's figures
+  // (recycles, faults, memory, storage) are in the row opened, which has the room for them.
+  return (
+    <div className="system-pane system-packages" data-testid="system-packages">
+      <SandboxAlert sandbox={list.runtime?.sandbox} />
+      <div className="table-wrap">
+        <table className="frames packages">
+          <thead>
+            <tr>
+              <th>{tr("system.packages.app")}</th>
+              <th>{tr("system.packages.state")}</th>
+              <th>{tr("system.packages.backend")}</th>
+              <th>{tr("system.packages.calls")}</th>
+              <th>{tr("system.packages.refused")}</th>
+            </tr>
+          </thead>
+          <tbody data-rows="">
+            {list.packages.map((row) => {
+              const state = appState(row);
+              const rt = row.runtime;
+              const h = rt?.health ?? undefined;
+              const backend = h?.world === "backend" ? (h.hibernating ? "asleep" : h.state === "running" ? "up" : "down") : null;
+              const refused = rt?.calls?.refused ?? [];
+              const stderr = rt?.process?.stderr ?? [];
+              const shown = open === row.id;
+              const flip = () => setOpen(shown ? null : row.id);
+              return (
+                <Fragment key={row.id}>
+                  <tr
+                    className="package-row"
+                    data-testid="system-package"
+                    data-package={row.id}
+                    data-state={state}
+                    data-sandbox={row.sandbox}
+                    data-row=""
+                    tabIndex={0}
+                    aria-expanded={shown}
+                    onClick={flip}
+                    onKeyDown={rowKeys(flip, { open: shown, set: (to) => setOpen(to ? row.id : null) })}
+                  >
+                    <td className="package-name">
+                      <span className={`dot ${dot[state]}`} /> <span className="tt">{row.title ?? row.id}</span>
+                      {row.sandbox && row.sandbox !== "on" ? <span className="packages-sandbox-tag">{tr("packages.sandbox.tag")}</span> : null}
+                      <div className="muted">{row.id} {row.version}</div>
+                    </td>
+                    <td data-field="state">{tr(`system.packages.state.${state}`)}</td>
+                    <td data-field="backend">{backend ? tr(`system.packages.backend.${backend}`) : "—"}</td>
+                    <td data-field="calls">{rt?.calls ? `${rt.calls.calls} · ${rt.calls.errors}` : "—"}</td>
+                    <td data-field="refused">{refused.length}</td>
+                  </tr>
+                  {shown ? (
+                    <tr className="package-detail" data-testid="system-package-detail" data-package={row.id}>
+                      <td colSpan={5}>
+                        {h ? (
+                          <dl className="facts" data-testid="system-package-vm">
+                            <div className="fact" data-field="recycles"><dt>{tr("system.packages.recycles")}</dt><dd>{`${h.recycles ?? 0} / ${h.rebuilds ?? 0}`}</dd></div>
+                            <div className="fact" data-field="faults"><dt>{tr("system.packages.faults")}</dt><dd>{`${h.faults ?? 0} · ${h.timeouts ?? 0}`}</dd></div>
+                            <div className="fact" data-field="memory"><dt>{tr("system.packages.memory")}</dt><dd>{`${megabytes(h.memory_bytes)} / ${megabytes(h.memory_limit_bytes)}`}</dd></div>
+                            <div className="fact" data-field="storage"><dt>{tr("system.packages.storage")}</dt><dd>{`${megabytes(h.storage_bytes)} / ${megabytes(h.storage_limit_bytes)}`}</dd></div>
+                          </dl>
+                        ) : null}
+                        {rt?.reason ? <div role="alert" data-testid="system-package-reason">{rt.reason}</div> : null}
+                        {h?.last_error ? <div className="muted">{tr("system.packages.lastError", { error: h.last_error })}</div> : null}
+                        {rt?.methods?.length ? <div className="muted">{tr("system.packages.methods", { methods: rt.methods.join(", ") })}</div> : null}
+                        {rt?.topics?.length ? <div className="muted">{tr("system.packages.topics", { topics: rt.topics.join(", ") })}</div> : null}
+                        {stderr.length ? (
+                          <>
+                            <div className="turnh">{tr("system.packages.stderr")}</div>
+                            <pre className="packages-stderr" data-testid="system-package-stderr">{stderr.join("\n")}</pre>
+                          </>
+                        ) : null}
+                        <div className="turnh">{tr("system.packages.refusedCalls")}</div>
+                        {refused.length ? (
+                          <ul>
+                            {refused.map((r, i) => (
+                              <li key={i} data-testid="system-package-refusal">
+                                <code>{r.method}</code> — {r.reason}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <div className="muted">{tr("system.packages.noRefusals")}</div>
+                        )}
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {list.unreadable?.length ? (
+        <div className="muted">{tr("system.packages.unreadable", { dirs: list.unreadable.map((u) => u.dir).join(", ") })}</div>
+      ) : null}
+    </div>
+  );
+}

@@ -16,7 +16,7 @@ function hello(shell: Hello["shell"]): Hello {
 
 function draw(app: ReturnType<typeof scriptedApp>["app"]) {
   return render(
-    <HarnixUiProvider client={app.client as HarnixClient}>
+    <HarnixUiProvider client={app.conn as HarnixClient}>
       <Shell app={app} />
     </HarnixUiProvider>,
   );
@@ -59,7 +59,7 @@ describe("the profile's new_session switch", () => {
 
   it("a space's own newSession still applies on top", () => {
     const { app } = scriptedApp();
-    app.registry.register("space", space("quiet", { newSession: false }), "test");
+    app.registry.register("space", space("quiet", { conversation: { newSession: false } }), "test");
     app.set({ hello: hello({ new_session: true }) });
     const { container } = draw(app);
     expect(container.querySelector("#new")).not.toBeNull();

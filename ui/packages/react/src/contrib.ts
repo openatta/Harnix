@@ -1,18 +1,23 @@
 /**
- * 贡献点注册表（概念 §5.6）：界面上哪些地方可以由内建或运行期包填，以及怎么填。
+ * 贡献点注册表（概念 §5.6）：界面上哪些地方可以由内建、UI 包或运行期包填，以及怎么填。
  *
- * v2 的八个点，都注册 React 组件：
+ * v3 的九个内核点，都注册 React 组件：
  *
  * | 点 | 形状 | 怎么用 |
  * |---|---|---|
- * | `space` | `id`、`icon`、`title()`、`place?`、`within?`、`details?`、`center`、`sidebar?()`、`overview?()`、`tabs?` | 全部，按 `order` 再按注册顺序 |
+ * | `space` | `id`、`icon`、`title()`，与四组 `sidebar`、`center`、`conversation`、`details`，可选的 `store` | 全部，按 `order` 再按注册顺序 |
  * | `home.card` | `id`、`render()`、`title?()` | 全部，按 `order` 再按注册顺序 |
  * | `tool.row` | `match(tool块)`、`render(tool块)` | 后注册的先认领 |
  * | `details.panel` | `match(item)`、`render(item)`、`title?(item)` | 后注册的先认领 |
  * | `flow.block` | `match(块)`、`render(块)` | 后注册的先认领 |
  * | `sidebar.group` | `group(会话) → 组[]`、`label?()` | 只用最后注册的那一个 |
  * | `command` | `trigger?`（`/` 或 `@`）、`complete(query, ctx?) → 候选[]`（候选可带 `run`） | 全部，按注册顺序拼起来；`/` 与 `@` 两个菜单各问各的 |
- * | `settings.section` | `id`、`label()`、`render()` | 全部，按注册顺序 |
+ * | `settings.section` | `id`、`label()`、`render()`，可选的 `covers` | 全部，按注册顺序；外壳要人去配模型时打开 `covers` 里有 `"models"` 的那一节 |
+ * | `session.action` | `id`、`at`、`label(target)`、`match(target)`、`run(target)` | 标题栏、会话菜单、工具行各问 `at` 里有它的，按注册顺序 |
+ *
+ * 扩展还可以定义自己的点（`definePoint("<扩展 id>.<名>")`），别的包往里注册；注册进还没定义的点先挂着，全部注册完
+ * （`settle`）还没人定义就丢掉并记进诊断，给了 `orElse` 的调它。一个扩展激活时注册的（`activate`）记在它名下，
+ * 它停用时整批撤下（`withdraw`）；它的 `register` 返回的函数（订阅、计时器的收尾）这时一起调。
  *
  * 不是贡献点、但同样按 owner 记的还有三样：令牌覆盖（`tokens`）、语言包（`strings`）与图标（`icons`）。
  *
@@ -20,7 +25,7 @@
  * 被拒的、失败的都列在诊断页里。
  */
 
-import { createElement, Component, useSyncExternalStore, type ErrorInfo, type ReactNode } from "react";
+import { createContext, createElement, Component, useContext, useSyncExternalStore, type ErrorInfo, type ReactNode } from "react";
 import type { Block, BlockOf } from "@harnix/core/state";
 import type { SessionRow } from "@harnix/core";
 import type { ChatIds } from "./chat/types";
@@ -36,6 +41,7 @@ export const POINTS = [
   "sidebar.group",
   "command",
   "settings.section",
+  "session.action",
 ] as const;
 export type Point = (typeof POINTS)[number];
 
@@ -98,121 +104,134 @@ export interface SpaceSecondary {
 
 /** A space's right-column tabs, whichever way it gave them. */
 export function tabsOf(space: SpaceContribution | undefined): SpaceTab[] {
-  const tabs = space?.tabs;
+  const tabs = space?.details?.tabs;
   return typeof tabs === "function" ? tabs() : (tabs ?? []);
 }
 
-/** A space as the interface draws it (concept §5.4). Where its sessions land is the backend's. */
+/** A badge on a space's entry: a number or a very short text; nothing for null, undefined, 0, "". */
+export type Badge = string | number | null | undefined;
+
+/** What a session action is asked about: a session, or one tool call in it. `space` is the interface
+ *  space it is asked in (a space's `sessions` says which backend space that lists). */
+export type ActionTarget =
+  | { kind: "session"; session: SessionRef; space: string }
+  | { kind: "tool"; session: SessionRef; space: string; toolUseId: string; tool: string };
+
+/** Where the shell asks for session actions: the title bar, the session menu, a tool row. */
+export type ActionPlace = "header" | "menu" | "tool";
+
+/**
+ * A space as the interface draws it (concept §5.4), its members grouped by where they are drawn.
+ * Where its sessions land is the backend's. Every function is read at every draw: one whose answer
+ * changes calls `host.redraw()`, or the space gives a `store` and the shell follows it.
+ */
 export interface SpaceContribution {
   id: string;
-  /** A glyph name. */
+  /** A glyph name, or `<owner>.<name>` for an icon its owner registered. */
   icon: string;
   title(): string;
   order?: number;
   /** Where the left column lists it: with the product's spaces (`top`, the default) or at the
-   *  bottom, above the system entry — for what is global rather than one of the surfaces. */
+   *  bottom — for what is global rather than one of the surfaces. */
   place?: "top" | "bottom";
   /** The group it is listed in, among the `top` spaces: a line is drawn between two neighbours (by
-   *  `order`) whose groups differ. Undefined counts as "", so with no space naming one nothing
-   *  changes. Grouping does not reorder: keep a group's spaces together through `order`. */
+   *  `order`) whose groups differ. Undefined counts as "". Grouping does not reorder. */
   group?: string;
-  /** Another space's id: this one is shown inside it rather than listed — not in the left column's
-   *  list, entered by code (`host.spaces.switch`, say from that space's page), and while it is in
-   *  front that space's entry is lit. The flows inside the system space are one. */
+  /** Another space's id: this one is shown inside it rather than listed — entered by code, and
+   *  while it is in front that space's entry is lit. */
   within?: string;
-  /** The right column when this space is first entered; afterwards each space keeps its own. */
-  details?: "open" | "closed";
-  /** What the centre shows: the conversation, the overview with the conversation as a bar under
-   *  it, or the overview alone. */
-  center?: "chat" | "minimized" | "hidden";
-  /** The left column below the space list: its entries. The space's own sessions when absent. */
-  sidebar?(): ReactNode;
-  /** With no `sidebar()`: false leaves a session out of the space's list in the left column — say
-   *  the space's main conversation, which its entry already opens (ipdrun-54). Read at every draw
-   *  (call `host.redraw()` when the answer changes); absent, or a throw, lists it. */
-  listSession?(session: SessionRef): boolean;
-  /** Its entry in the left column was clicked while it is already in front: say, back to its main
-   *  conversation and its first page (with `listSession` that conversation has no row of its own).
-   *  Absent: such a click does nothing, as before; a throw is ignored (ipdrun-55). */
-  reenter?(): void;
-  /** The centre when it is not the conversation. */
-  overview?(): ReactNode;
-  /** Right-column tabs, beside the details drawer. A function when they depend on what is
-   *  selected, read at every draw. */
-  tabs?: SpaceTab[] | (() => SpaceTab[]);
-  /** The backend space whose sessions this one lists and creates; its own id when absent. Two
-   *  views of the same sessions — the session space by time, the projects space by project —
-   *  are two interface spaces over one backend space. */
+  /** The backend space whose sessions this one lists and creates; its own id when absent. */
   sessions?: string;
-  /** A line under the title: what this space is for. */
-  subtitle?(): string;
-  /** False: this space has no way to start a conversation — while it is in front the shell draws no
-   *  "New session" button (⌘K does nothing), no composer that creates a session (the empty
-   *  centre and the overview's ask box), and no "New session" heading. Sessions that already exist
-   *  open and work as before. Absent or true: as before. Only the interface; the hub still takes
-   *  `session.create`. */
-  newSession?: boolean;
-  /** Content in the centre's title bar, at its right end, just left of the theme and right-column
-   *  buttons; null or undefined for nothing. `session` is the open one, null when there is none.
-   *  Read at every draw of the bar; a throw drops this block only. */
-  headerActions?(session: SessionRef | null): ReactNode;
-  /** The right column's width when this space is in front and the reader has not dragged it (a width
-   *  the reader set wins): px, or under 1 a share of the window (0.45 is 45%). At least 320; at most
-   *  70% of the window, leaving the centre 400 px — the bound the reader drags within too, in every
-   *  space. */
-  detailsWidth?: number;
-  /** What a new conversation here might start with, offered under the composer. */
-  suggestions?(): string[];
-  /** One line under the composer (what the Agent may and may not do here). */
-  notice?(): string;
-  placeholder?(): string;
-  /** A badge on the space's entry in the left column: a number or a very short text. Nothing is
-   *  drawn for null, undefined, 0 or "". Read at every draw; call `host.redraw()` when it changes. */
-  badge?(): string | number | null | undefined;
-  /** A string: this space cannot be entered for now — its left-column entry is greyed, does not
-   *  switch when clicked, and says the string on hover; `host.spaces.switch` to it does nothing.
-   *  False, null or undefined: as before. Read at every draw (call `host.redraw()` when it changes);
-   *  a throw counts as enabled. A front space that becomes disabled stays in front: moving away is
-   *  the application's call. */
-  disabled?(): string | false | null | undefined;
-  /** The open session is read-only: the words that take the composer's place. False or undefined:
-   *  it can be written to. Only the interface — the hub still takes `harnix.send`; this guards
-   *  against mistakes, it is not a security boundary. */
-  readOnly?(session: SessionRef): string | false | undefined;
-  /** What stays at the top of the open session's flow, above the messages; null or undefined for
-   *  nothing. Read at every draw of the conversation. */
-  pinned?(session: SessionRef): ReactNode;
-  /** A line over the composer of an open session (`notice()` is the new conversation's); null or
-   *  undefined for none. Read at every draw of the conversation. */
-  composerNotice?(session: SessionRef): ReactNode;
-  /** What the open session's conversation shows while it has no message yet (a hint of what it is
-   *  for, what to ask); null or undefined for nothing. Read at every draw of the conversation. */
-  emptyConversation?(session: SessionRef): ReactNode;
-  /** The second side panel: what the space has open beside its right column (a selected item's
-   *  details); null or undefined while there is nothing — then no panel is drawn. Read at every
-   *  draw: call `host.redraw()` when it changes. Resizable, closable; on a narrow window it lies
-   *  over the conversation. */
-  secondary?(): SpaceSecondary | null | undefined;
-  /** Which words in the conversation's text are ids that open something, and what opening one
-   *  does. The pattern carries the `g` flag (the shell adds it when missing, and notes that). */
-  ids?(): ChatIds | undefined;
-  /** The composer's options. `steer`: a "deliver now" switch under it — while a turn runs, a
-   *  message goes into that turn at its next step instead of waiting for it to end. */
-  composer?: { steer?: boolean };
-  /** Command names (without the `/`) left out of this space's `/` menu — other owners' commands
-   *  only, so the space's own command of the same name takes the place of the engine's. Typed by
-   *  hand, such a command is still sent as text: this guards against mistakes, it forbids nothing. */
-  hideCommands?: string[];
-  /** The `@` menu while this space is in front. `first`: whose candidates come first when the menu
-   *  is cut to its length — the shell's own (files, `@session:`; the default) or the `@` command
-   *  contributions'. */
-  mention?: { first?: "contributed" | "files" };
-  /** The right-column tab this space holds current: one of its tab ids, or "details". Read when the
-   *  space comes to the front and at `host.redraw()`; a tab it names is selected (as by
-   *  `host.details.open(tab)`, without opening the column). Undefined, or an id it does not have:
-   *  the shell's own choice stands. A space that gives it also keeps the tab last clicked across a
-   *  space switch. Follow `host.details.onTab` to keep it in step with clicks. */
-  tab?(): string | undefined;
+  /** `host.navigate.open` brought this space to the front with a selection for it. */
+  accept?(selection: unknown): void;
+  /** The left column: the entry and what is under the space list. */
+  sidebar?: {
+    /** Under the space list: its entries. The space's own sessions when absent. */
+    render?(): ReactNode;
+    /** The left column's search box, drawn by the shell while this space is in front and gives
+     *  `search`: its text as it changes ("" when cleared), and `submit` when Enter was pressed. */
+    search?(q: string, submit?: boolean): void;
+    /** With no `render()`: false leaves a session out of the space's list (say its main
+     *  conversation, which its entry already opens). Absent, or a throw, lists it. */
+    listSession?(session: SessionRef): boolean;
+    /** A badge on its entry. */
+    badge?(): Badge;
+    /** A string: this space cannot be entered for now — its entry is greyed and says why on hover;
+     *  `host.spaces.switch` to it does nothing. A throw counts as enabled. */
+    disabled?(): string | false | null | undefined;
+  };
+  /** The centre. */
+  center?: {
+    /** The conversation, the overview with the conversation as a bar under it, or the overview alone. */
+    mode?: "chat" | "minimized" | "hidden";
+    /** The centre when it is not the conversation. */
+    overview?(): ReactNode;
+    /** The second side panel, between the conversation and the right column; null while there is
+     *  nothing. Resizable, closable; on a narrow window it lies over the conversation. */
+    secondary?(): SpaceSecondary | null | undefined;
+    /** What the open session's conversation shows while it has no message yet. */
+    emptyConversation?(session: SessionRef): ReactNode;
+  };
+  /** The conversation and its composer. */
+  conversation?: {
+    /** The open session is read-only: the words that take the composer's place. Only the
+     *  interface — it guards against mistakes, it is not a security boundary. */
+    readOnly?(session: SessionRef): string | false | undefined;
+    /** What stays at the top of the open session's flow, above the messages. */
+    pinned?(session: SessionRef): ReactNode;
+    /** A line over the composer of an open session. */
+    composerNotice?(session: SessionRef): ReactNode;
+    /** Which words in the conversation's text are ids that open something. */
+    ids?(): ChatIds | undefined;
+    /** `steer`: a "deliver now" switch under the composer. */
+    composer?: { steer?: boolean };
+    /** Other owners' command names (without the `/`) left out of this space's `/` menu. */
+    hideCommands?: string[];
+    /** The `@` menu: whose candidates come first when it is cut to its length. */
+    mention?: { first?: "contributed" | "files" };
+    /** Content at the right end of the centre's title bar; `session` is the open one or null. */
+    headerActions?(session: SessionRef | null): ReactNode;
+    /** False: no way to start a conversation here (no "New session", no composer that creates one). */
+    newSession?: boolean;
+    /** What a conversation started here is created with (say, the project open in the space): read
+     *  each time one is, under what the caller gave. */
+    newSessionDefaults?(): { project_root?: string | null; scene?: string } | undefined;
+    placeholder?(): string;
+    /** A line under the title: what this space is for. */
+    subtitle?(): string;
+    /** What a new conversation here might start with, offered under the composer. */
+    suggestions?(): string[];
+    /** One line under a new conversation's composer (what the Agent may and may not do here). */
+    notice?(): string;
+  };
+  /** The right column. */
+  details?: {
+    /** Tabs beside the details drawer; a function when they depend on what is selected. */
+    tabs?: SpaceTab[] | (() => SpaceTab[]);
+    /** The tab it holds current: one of its tab ids, or "details". */
+    tab?(): string | undefined;
+    /** Open or closed when the space is first entered; afterwards each space keeps its own. */
+    initial?: "open" | "closed";
+    /** Its width while the reader has not dragged it: px, or under 1 a share of the window. */
+    width?: number;
+    /** Its entry in the left column was clicked while it is already in front. */
+    reenter?(): void;
+  };
+  /** A store-shaped value: when it changes the shell draws again, with no `redraw()` to remember. */
+  store?: { subscribe(fn: () => void): () => void; getSnapshot(): unknown };
+}
+
+/** A session action: on a session, or a tool call in it. The shell asks it where `at` says. */
+export interface SessionAction {
+  id: string;
+  at: ActionPlace[];
+  icon?: string;
+  /** The shell asks before running it. */
+  danger?: boolean;
+  label(target: ActionTarget): string;
+  /** Read at every draw; a throw drops this one only. */
+  match(target: ActionTarget): boolean;
+  run(target: ActionTarget): void | Promise<void>;
 }
 
 export interface Contributions {
@@ -234,7 +253,33 @@ export interface Contributions {
     trigger?: "/" | "@";
     complete(query: string, ctx?: CommandContext): CommandCandidate[] | Promise<CommandCandidate[]>;
   };
-  "settings.section": { id: string; label(): string; render(): ReactNode };
+  "settings.section": {
+    id: string;
+    label(): string;
+    render(): ReactNode;
+    /** What the shell may send a reader here for: `"models"` — a turn has no model to go to. */
+    covers?: SettingsNeed[];
+  };
+  "session.action": SessionAction;
+}
+
+/** What the shell itself sends a reader to the settings for, to whichever section `covers` it. */
+export type SettingsNeed = "models";
+
+/** What a point an extension defines is: how its contributions are used. */
+export interface PointSpec {
+  kind: "register" | "render" | "fold";
+}
+
+/** What a package's `register` (or an `orElse`) may answer: called when its batch is withdrawn —
+ *  the topics it follows, its timers, stopped with what it registered. */
+export type Dispose = () => void;
+
+/** `register`'s options. */
+export interface RegisterOptions {
+  /** Called, in place of registering, when no one has defined the point by the time every
+   *  registration is done: fill a place of your own instead. */
+  orElse?: () => unknown;
 }
 
 const SHAPE: { [P in Point]: string[] } = {
@@ -246,7 +291,30 @@ const SHAPE: { [P in Point]: string[] } = {
   "sidebar.group": ["group"],
   command: ["complete"],
   "settings.section": ["label", "render"],
+  "session.action": ["label", "match", "run"],
 };
+
+const ACTION_PLACES: readonly string[] = ["header", "menu", "tool"];
+const SPACE_GROUPS = ["sidebar", "center", "conversation", "details", "store"] as const;
+
+/** What is wrong with a kernel point's contribution beyond its functions; null when nothing. */
+function shapeError(point: Point, c: Record<string, unknown>): string | null {
+  if (point === "command" && c.trigger !== undefined && c.trigger !== "/" && c.trigger !== "@") {
+    return `a command's trigger is "/" or "@", not ${JSON.stringify(c.trigger)}`;
+  }
+  if (point === "session.action") {
+    const at = c.at;
+    if (!Array.isArray(at) || !at.length || at.some((x) => !ACTION_PLACES.includes(x as string))) {
+      return `a session action's \`at\` lists where: ${ACTION_PLACES.join(", ")}`;
+    }
+  }
+  if (point === "space") {
+    // Contribution API 3 groups a space's members: a flat one is a module built for 2.
+    const flat = SPACE_GROUPS.find((g) => c[g] !== undefined && (typeof c[g] !== "object" || c[g] === null || Array.isArray(c[g])));
+    if (flat) return `a space's \`${flat}\` is a group of members (contribution API 3)`;
+  }
+  return null;
+}
 
 export interface Refusal {
   point: string;
@@ -257,8 +325,31 @@ export interface Refusal {
 
 type Entry<P extends Point> = Contributions[P] & { owner: string };
 
+/** What the registry keeps of a registration besides the contribution. */
+interface Meta {
+  /** The extension whose activation made it: what `withdraw` takes back. */
+  batch: string | null;
+  orElse?: () => unknown;
+  /** `settle` has decided it: kept, or dropped into the diagnostics. */
+  settled: boolean;
+}
+
+/** The extension points' definitions: who defined each, and how its contributions are used. */
+interface Defined {
+  owner: string;
+  spec: PointSpec;
+}
+
 export class Registry {
-  private readonly entries = new Map<Point, Entry<Point>[]>(POINTS.map((p) => [p, []]));
+  /** Every registration, by point name: the kernel's nine, and whatever else was named — a point an
+   *  extension defines, or one nobody has defined yet. */
+  private readonly entries = new Map<string, Entry<Point>[]>(POINTS.map((p) => [p, []]));
+  private readonly meta = new WeakMap<object, Meta>();
+  private readonly defined = new Map<string, Defined>();
+  /** The extension being activated (`activate`): what its registrations are kept under. */
+  private batch: string | null = null;
+  /** What each batch's `register` answered to be called when it is withdrawn. */
+  private readonly disposers = new Map<string, Dispose[]>();
   private readonly overrides = new Map<string, { value: string; owner: string }>();
   private readonly glyphs = new Map<string, string>();
   private readonly refused: Refusal[] = [];
@@ -269,31 +360,158 @@ export class Registry {
   private readonly listeners = new Set<() => void>();
   private version = 0;
 
-  register<P extends Point>(point: P, contribution: Contributions[P], owner: string): boolean;
-  register(point: string, contribution: unknown, owner: string): boolean;
-  register(point: string, contribution: unknown, owner: string): boolean {
-    const list = this.entries.get(point as Point);
+  register<P extends Point>(point: P, contribution: Contributions[P], owner: string, options?: RegisterOptions): boolean;
+  /** Any other point: one an extension defines, or a name only known at run time. A kernel
+   *  point's name goes through the typed overload above, so its shape is checked when compiled. */
+  register<N extends string>(point: Exclude<N, Point>, contribution: unknown, owner: string, options?: RegisterOptions): boolean;
+  register(point: string, contribution: unknown, owner: string, options: RegisterOptions = {}): boolean {
     const c = contribution as Record<string, unknown> | null;
-    if (!list) return this.refuse({ point, owner, reason: `there is no contribution point \`${point}\`` });
     if (!c || typeof c !== "object" || typeof c.id !== "string") {
       return this.refuse({ point, owner, reason: "a contribution needs an `id`" });
     }
-    const missing = SHAPE[point as Point].filter((name) => typeof c[name] !== "function");
-    if (missing.length) {
-      return this.refuse({ point, owner, id: c.id, reason: `missing ${missing.join(", ")}` });
+    const kernel = (POINTS as readonly string[]).includes(point);
+    if (kernel) {
+      const missing = SHAPE[point as Point].filter((name) => typeof c[name] !== "function");
+      if (missing.length) {
+        return this.refuse({ point, owner, id: c.id, reason: `missing ${missing.join(", ")}` });
+      }
+      const wrong = shapeError(point as Point, c);
+      if (wrong) return this.refuse({ point, owner, id: c.id, reason: wrong });
     }
-    if (point === "command" && c.trigger !== undefined && c.trigger !== "/" && c.trigger !== "@") {
-      return this.refuse({ point, owner, id: c.id, reason: `a command's trigger is "/" or "@", not ${JSON.stringify(c.trigger)}` });
-    }
-    list.push({ ...(c as object), owner } as Entry<Point>);
+    const entry = { ...(c as object), owner } as Entry<Point>;
+    // A kernel point and one already defined take it as it is; any other waits for its definer.
+    this.meta.set(entry, { batch: this.batch, orElse: options.orElse, settled: kernel || this.defined.has(point) });
+    let list = this.entries.get(point);
+    if (!list) this.entries.set(point, (list = []));
+    list.push(entry);
     this.changed();
     return true;
   }
 
   /**
+   * Define a contribution point of one's own, `<extension id>.<name>`: others register into it,
+   * the definer reads it with `list` or `useContributions`. Inside `activate` the extension is the
+   * one being activated; elsewhere `owner`. Refused, with why, for another's name, a kernel
+   * point's, or a point already defined.
+   */
+  definePoint(name: string, spec: PointSpec, owner?: string): boolean {
+    const by = this.batch ?? owner ?? "";
+    if (!by || !name.startsWith(`${by}.`) || name.length === by.length + 1) {
+      return this.refuse({ point: name, owner: by || "?", reason: `a point ${by || "it"} defines is \`${by || "<extension id>"}.<name>\`` });
+    }
+    if ((POINTS as readonly string[]).includes(name) || this.defined.has(name)) {
+      return this.refuse({ point: name, owner: by, reason: `\`${name}\` is already defined` });
+    }
+    if (spec?.kind !== "register" && spec?.kind !== "render" && spec?.kind !== "fold") {
+      return this.refuse({ point: name, owner: by, reason: "a point's kind is register, render or fold" });
+    }
+    this.defined.set(name, { owner: by, spec: { kind: spec.kind } });
+    for (const entry of this.entries.get(name) ?? []) this.meta.get(entry)!.settled = true;
+    this.changed();
+    return true;
+  }
+
+  /** Whether a point is there to be filled: a kernel point, or one an extension defined. */
+  isDefined(name: string): boolean {
+    return (POINTS as readonly string[]).includes(name) || this.defined.has(name);
+  }
+
+  /** The points extensions defined, and who defined each. */
+  definitions(): { name: string; owner: string; kind: PointSpec["kind"] }[] {
+    return [...this.defined].map(([name, d]) => ({ name, owner: d.owner, kind: d.spec.kind }));
+  }
+
+  /** Every registration of a point, in order; none while the point is not defined. */
+  list<T = unknown>(name: string): (T & { owner: string; id: string })[] {
+    if (!this.isDefined(name)) return [];
+    return (this.entries.get(name) ?? []) as unknown as (T & { owner: string; id: string })[];
+  }
+
+  /**
+   * Run one extension's `register`: everything registered and defined in it is kept under `ext`,
+   * and goes with it at `withdraw(ext)`, and so does the function it answers, if any (a `Dispose`)
+   * — called then. Synchronous: what it registers later, after an `await`, is under the owner it
+   * names only.
+   */
+  activate(ext: string, register: () => unknown): void {
+    const outer = this.batch;
+    this.batch = ext;
+    try {
+      const dispose = register();
+      if (typeof dispose === "function") {
+        let list = this.disposers.get(ext);
+        if (!list) this.disposers.set(ext, (list = []));
+        list.push(dispose as Dispose);
+      }
+    } finally {
+      this.batch = outer;
+    }
+  }
+
+  /**
+   * Every registration is in: one into a point still not defined is dropped — its `orElse` called
+   * instead (inside the same extension's batch), or the diagnostics told. The shell calls it after
+   * activating at hello, and again after each later activation.
+   */
+  settle(): void {
+    for (const [name, list] of this.entries) {
+      if (this.isDefined(name)) continue;
+      for (const entry of [...list]) {
+        const meta = this.meta.get(entry)!;
+        if (meta.settled) continue;
+        meta.settled = true;
+        list.splice(list.indexOf(entry), 1);
+        if (meta.orElse) {
+          const orElse = meta.orElse;
+          try {
+            this.activate(meta.batch ?? entry.owner, orElse);
+          } catch (e) {
+            this.fail(name, entry, e);
+          }
+        } else {
+          this.refuse({ point: name, owner: entry.owner, id: entry.id, reason: `no one defines the point \`${name}\`` });
+        }
+      }
+    }
+    this.changed();
+  }
+
+  /**
+   * Take back everything one extension's activation registered, and every registration owned by
+   * it: its points' definitions with them (what others registered into those stays, unseen, until
+   * they are defined again), its icons, its token overrides; and call what its `register` answered.
+   * Answers how many went.
+   */
+  withdraw(ext: string): number {
+    for (const dispose of this.disposers.get(ext) ?? []) {
+      try {
+        dispose();
+      } catch (e) {
+        this.fail("module", { id: "dispose", owner: ext }, e);
+      }
+    }
+    this.disposers.delete(ext);
+    let gone = 0;
+    for (const list of this.entries.values()) {
+      for (let i = list.length - 1; i >= 0; i -= 1) {
+        const entry = list[i]!;
+        if (entry.owner === ext || this.meta.get(entry)?.batch === ext) {
+          list.splice(i, 1);
+          gone += 1;
+        }
+      }
+    }
+    for (const [name, d] of [...this.defined]) if (d.owner === ext) this.defined.delete(name);
+    for (const name of [...this.glyphs.keys()]) if (name.startsWith(`${ext}.`)) this.glyphs.delete(name);
+    for (const [name, o] of [...this.overrides]) if (o.owner === ext) this.overrides.delete(name);
+    this.changed();
+    return gone;
+  }
+
+  /**
    * Take back one registration: `owner`'s `id` at `point`. For what the shell registers on an
-   * application's behalf from its manifest (its declared inline points), which goes when the
-   * application stops or changes. Answers whether there was one.
+   * package's behalf from its manifest (its declared inline points), which goes when the
+   * package stops or changes. Answers whether there was one.
    */
   unregister(point: Point, id: string, owner: string): boolean {
     const list = this.entries.get(point);
@@ -305,7 +523,7 @@ export class Registry {
   }
 
   /**
-   * Token overrides (harnix-sdk.md §22.4.1): a module's colours for names the theme already has. A name the
+   * Token overrides (harnix-ext.md §22.4.1): an extension's colours for names the theme already has. A name the
    * theme does not declare is refused with the reason — a module adds no colours of its own — and
    * so is a value that reaches outside the page (`url(`). Not a contribution point: it draws
    * nothing. A later override of the same name wins, as a later registration does.
@@ -341,7 +559,7 @@ export class Registry {
     return Object.fromEntries([...this.overrides].map(([name, o]) => [name, o.value]));
   }
 
-  /** A module's language pack; keys outside `<owner>.` are refused (harnix-sdk.md §22.4.1). */
+  /** An extension's language pack; keys outside `<owner>.` are refused (harnix-ext.md §22.4.1). */
   strings(locale: Locale, dictionary: Record<string, string>, owner: string): void {
     for (const key of addStrings(locale, dictionary, owner)) {
       this.refuse({ point: "strings", owner, id: key, reason: `a key of ${owner}'s pack is \`${owner}.…\`` });
@@ -350,7 +568,7 @@ export class Registry {
   }
 
   /**
-   * An application's own icons: name → the inside of an SVG (no `<svg>`), drawn on the shell's
+   * An extension's own icons: name → the inside of an SVG (no `<svg>`), drawn on the shell's
    * 24 grid at its 1.7 stroke, in `currentColor`. Each is `<owner>.<name>`, which is what a space's
    * `icon` names; a name without a dot is still the shell's. Only shapes and their geometry and
    * stroke are taken — a script, an `on*` handler, a link, a style, a reference to anything else
@@ -374,7 +592,7 @@ export class Registry {
     this.changed();
   }
 
-  /** An application icon's inside, as `icons` took it; undefined for a name it does not have. */
+  /** An extension icon's inside, as `icons` took it; undefined for a name it does not have. */
   icon(name: string): string | undefined {
     return this.glyphs.get(name);
   }
@@ -396,6 +614,20 @@ export class Registry {
       }
     }
     return null;
+  }
+
+  /** The session actions for a place and a target, in order: those whose `at` has the place and
+   *  whose `match` says yes. One whose `match` throws is left out, and counted as failed. */
+  actions(place: ActionPlace, target: ActionTarget): Entry<"session.action">[] {
+    return this.at("session.action").filter((a) => {
+      if (!a.at.includes(place)) return false;
+      try {
+        return a.match(target) === true;
+      } catch (e) {
+        queueMicrotask(() => this.fail("session.action", a, e));
+        return false;
+      }
+    });
   }
 
   /** The last `sidebar.group` registration: grouping is one decision, not a merge. */
@@ -489,6 +721,22 @@ function cleanSvg(body: string): string | { refused: string } {
 export function useRegistry(registry: Registry): Registry {
   useSyncExternalStore(registry.subscribe, registry.getVersion);
   return registry;
+}
+
+const RegistryContext = createContext<Registry | null>(null);
+
+/** The registry the page's UI packages registered into, for `useContributions`. */
+export function RegistryProvider({ registry, children }: { registry: Registry; children: ReactNode }) {
+  return createElement(RegistryContext.Provider, { value: registry }, children);
+}
+
+/** A point's registrations, kept up to date: what the point's definer draws from. */
+export function useContributions<T = unknown>(name: string, registry?: Registry): (T & { owner: string; id: string })[] {
+  const given = useContext(RegistryContext);
+  const r = registry ?? given;
+  if (!r) throw new Error("@harnix/react: useContributions() needs a <RegistryProvider> above it, or a registry");
+  useSyncExternalStore(r.subscribe, r.getVersion);
+  return r.list<T>(name);
 }
 
 /**

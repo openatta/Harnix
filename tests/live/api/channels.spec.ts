@@ -33,7 +33,7 @@ import {
 
 const CONNECTION = { tag: ["@feature:connection", "@layer:api"] };
 const AUTHZ = { tag: ["@feature:authz", "@layer:api"] };
-const PACKAGES = { tag: ["@feature:packages", "@layer:api"] };
+const PACKAGES = { tag: ["@feature:plugins", "@layer:api"] };
 
 test.describe.configure({ mode: "serial" });
 
@@ -110,7 +110,7 @@ test.describe("on loopback", () => {
 
     const first = stream();
     expect((await first.response).status).toBe(200);
-    expect((await rpc("harnix.subscribe", { topic: "harnix.process" })).result).toBeTruthy();
+    expect((await rpc("harnix.topics.subscribe", { topic: "system.process" })).result).toBeTruthy();
     // The connection drops, as a proxy's idle timeout or a laptop's sleep drops it.
     first.abort.abort();
     await sleep(200);
@@ -121,8 +121,8 @@ test.describe("on loopback", () => {
     const reopened = await second.response;
     expect(reopened.status).toBe(200);
     // A value computed afresh goes to who already watches it: this client, on the new stream.
-    expect((await rpc("harnix.subscribe", { topic: "harnix.process" })).result).toBeTruthy();
-    const frame = await readUntil(reopened, (f) => f.method === "harnix.topic" && f.params?.topic === "harnix.process");
+    expect((await rpc("harnix.topics.subscribe", { topic: "system.process" })).result).toBeTruthy();
+    const frame = await readUntil(reopened, (f) => f.method === "harnix.topic" && f.params?.topic === "system.process");
     expect(frame?.params?.value?.uptime_secs).toBeGreaterThanOrEqual(0);
   });
 
@@ -153,8 +153,8 @@ test.describe("on loopback", () => {
     let restarted: Backend | null = null;
     try {
       const api = await connect(own, { topology: topology() });
-      const grant = await api.call("harnix.devices.pair.begin", { label: "phone" });
-      const { device } = await api.call("harnix.devices.pair.complete", { code: grant.code, public_key: "dGVzdC1rZXk=" });
+      const grant = await api.call("devices.pair.begin", { label: "phone" });
+      const { device } = await api.call("devices.pair.complete", { code: grant.code, public_key: "dGVzdC1rZXk=" });
       api.close();
       // Kept like the token: in the state directory, readable by its owner only.
       const file = join(own.state, "devices.json");
@@ -166,14 +166,14 @@ test.describe("on loopback", () => {
 
       restarted = await own.restart();
       const again = await connect(restarted, { topology: topology() });
-      const { devices } = await again.call("harnix.devices.list");
+      const { devices } = await again.call("devices.list");
       expect(devices.map((d: any) => d.id)).toContain(device.id);
       // And revoking it is kept as well.
-      expect((await again.call("harnix.devices.revoke", { device_id: device.id })).revoked).toBe(true);
+      expect((await again.call("devices.revoke", { device_id: device.id })).revoked).toBe(true);
       again.close();
       restarted = await restarted.restart();
       const third = await connect(restarted, { topology: topology() });
-      expect((await third.call("harnix.devices.list")).devices.map((d: any) => d.id)).not.toContain(device.id);
+      expect((await third.call("devices.list")).devices.map((d: any) => d.id)).not.toContain(device.id);
       third.close();
     } finally {
       await (restarted ?? own).dispose();
@@ -185,17 +185,22 @@ test.describe("on loopback", () => {
     try {
       const name = "demo-rows-v2";
       const zip = readFileSync(join(ROOT, "tests", "fixtures", "packages", `${name}.zip`));
-      const grant = await api.call("harnix.plugins.upload", { name: `${name}.zip` });
+      const grant = await api.call("plugins.upload", { name: `${name}.zip` });
       const uploaded = await fetch(`${backend.url.replace(/\/$/, "")}${grant.url}`, { method: "POST", body: zip });
       expect(uploaded.ok).toBe(true);
-      await api.call("harnix.plugins.install", {
+      await api.call("plugins.install", {
         path: grant.path, name, version: "1.0.0", checksum: createHash("sha256").update(zip).digest("hex"),
       });
-      const at = (path: string) => fetch(`http://127.0.0.1:${backend.port}${path}`);
-      expect((await at(`/plugins/${name}/ui/rows.js`)).status).toBe(200);
-      // An absolute path after `/ui/` used to replace the package's directory: any file the
-      // process could read, with no token.
-      for (const path of [`/plugins/${name}/ui//etc/hosts`, `/plugins/${name}/ui//etc/passwd`, `/plugins/${name}/ui/%2e%2e/%2e%2e/manifest.json`]) {
+      // The `plugins` extension serves a package's `ui/` under its own route, to a caller with a
+      // credential: the page puts its own on the module's address.
+      const at = (path: string) =>
+        fetch(`http://127.0.0.1:${backend.port}${path}`, { headers: { authorization: `Bearer ${backend.token}` } });
+      const base = `/ext/plugins/ui/${name}`;
+      expect((await at(`${base}/rows.js`)).status).toBe(200);
+      expect((await fetch(`http://127.0.0.1:${backend.port}${base}/rows.js`)).status, "without a credential").toBe(401);
+      // An absolute path after the package's name used to replace the package's directory: any
+      // file the process could read.
+      for (const path of [`${base}//etc/hosts`, `${base}//etc/passwd`, `${base}/%2e%2e/%2e%2e/manifest.json`]) {
         const response = await at(path);
         expect(response.status, path).toBe(404);
         expect(await response.text(), path).not.toContain("localhost");
@@ -299,7 +304,7 @@ test.describe("on a reachable node", () => {
     const credential = (await shaken.json()).credential as string;
     const rpc = (method: string, params: unknown = {}) =>
       post(`/rpc?token=${encodeURIComponent(credential)}`, { jsonrpc: "2.0", id: 1, method, params });
-    expect((await rpc("harnix.devices.list")).status).toBe(200);
+    expect((await rpc("devices.list")).status).toBe(200);
     const events = await fetch(`${base}/events/host?token=${encodeURIComponent(credential)}`);
     expect(events.status).toBe(200);
 
@@ -318,10 +323,10 @@ test.describe("on a reachable node", () => {
     const closed = new Promise<CloseEvent>((resolve) => (socket.onclose = (e) => resolve(e)));
 
     // Revoked through its own credential: the answer comes back, and then nothing else does.
-    const revoked = await (await rpc("harnix.devices.revoke", { device_id: deviceId })).json();
+    const revoked = await (await rpc("devices.revoke", { device_id: deviceId })).json();
     expect(revoked.result?.revoked).toBe(true);
 
-    const refused = await rpc("harnix.devices.list");
+    const refused = await rpc("devices.list");
     expect(refused.status).toBe(401);
     expect((await refused.json()).error?.code).toBe(-31001);
     const event = await Promise.race([closed, sleep(10_000).then(() => null)]);

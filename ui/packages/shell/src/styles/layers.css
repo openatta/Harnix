@@ -4,8 +4,7 @@
 /* ── dialogs ─────────────────────────────────────────────────────────── */
 
 /* A dialog takes the focus as a box when it has nothing else to give it to: no ring for that. */
-.hx-modal:focus,
-.apps-dialog:focus {
+.hx-modal:focus {
   outline: none;
 }
 

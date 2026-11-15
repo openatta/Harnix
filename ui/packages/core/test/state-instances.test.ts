@@ -26,7 +26,7 @@ class FakeClient {
   status = "open";
   calls: { method: string; params: any }[] = [];
   private listeners = new Set<(m: string, p: Record<string, unknown>) => void>();
-  onNotify(fn: (m: string, p: Record<string, unknown>) => void) {
+  onNotification(fn: (m: string, p: Record<string, unknown>) => void) {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
   }
@@ -35,10 +35,10 @@ class FakeClient {
   }
   async call(method: string, params: any) {
     this.calls.push({ method, params });
-    if (method === "harnix.attach") {
+    if (method === "harnix.session.attach") {
       return { instance: params.instance, session: { session_id: params.session_id }, history_total: 0, replay: [], truncated: false, pending_prompts: [], running_turn: null, queue: [], seq: 0 };
     }
-    if (method === "harnix.send") return { turn_id: "t" };
+    if (method === "harnix.session.send") return { turn_id: "t" };
     return {};
   }
   notify() {}
@@ -67,9 +67,9 @@ describe("the same session id on two instances", () => {
     expect(text(b)).toEqual(["for beta"]);
 
     await a.send("hello");
-    const sent = client.calls.filter((c: any) => c.method === "harnix.send");
+    const sent = client.calls.filter((c: any) => c.method === "harnix.session.send");
     expect(sent.at(-1).params).toMatchObject({ instance: "alpha", session_id: "S1", space: "greeter" });
-    const attached = client.calls.filter((c: any) => c.method === "harnix.attach").map((c: any) => c.params);
+    const attached = client.calls.filter((c: any) => c.method === "harnix.session.attach").map((c: any) => c.params);
     expect(attached).toEqual(
       expect.arrayContaining([
         { instance: "alpha", session_id: "S1", space: "greeter" },
@@ -90,7 +90,7 @@ describe("send while a turn runs", () => {
     await flush();
     await c.send("first");
     await c.send("into this turn", [], { onBusy: "steer" });
-    const sent = client.calls.filter((x: any) => x.method === "harnix.send").map((x: any) => x.params.on_busy);
+    const sent = client.calls.filter((x: any) => x.method === "harnix.session.send").map((x: any) => x.params.on_busy);
     expect(sent).toEqual(["queue", "steer"]);
     c.stop();
   });

@@ -1,10 +1,10 @@
-//! What an application's files take: the `${data}` half of its `storage_mb`.
+//! What a package's files take: the `${data}` half of its `storage_mb`.
 //!
-//! The quota is one number for everything the application keeps — its key-value store and the
+//! The quota is one number for everything the package keeps — its key-value store and the
 //! files it writes under `/data` — because "16 MB of storage" is what the installer showed, not
 //! "16 MB, plus whatever it writes to disk". The key-value store is accounted on every write; the
 //! files are written through WASI, out of sight, so they are measured instead: when the VM starts
-//! and after every call that could have written them, off the async threads. An application over
+//! and after every call that could have written them, off the async threads. A package over
 //! its quota has its key-value writes refused, and its instances get `/data` with its files
 //! read-only — it may still delete them, which is how it makes room. That includes the resident
 //! backend, which would otherwise keep the writable `/data` it started with: a backend whose

@@ -22,7 +22,7 @@ import { startTestApp } from "./testapp";
 const TAGS = { tag: ["@feature:instances", "@layer:api"] };
 
 /**
- * A daemon from some other Agix: it answers `daemon.ping` with a protocol
+ * A daemon from some other Agix: it answers Agix's `daemon.ping` with a protocol
  * version nobody speaks.
  */
 function fakeDaemon(socket: string): Server {
@@ -95,14 +95,14 @@ test("a daemon speaking another protocol is refused, and says why", TAGS, async 
   const old = await until(api, "old", "down");
   expect(old.carrier).toBe("attach");
   expect(old.status.reason).toContain("protocol version 999");
-  const error = await api.refused("harnix.instances.sessions", { instance: "old" });
+  const error = await api.refused("harnix.sessions.list", { instance: "old" });
   expect(error?.message).toContain("protocol version 999");
 });
 
 test("a killed daemon degrades its instance, comes back, and its sessions resync", TAGS, async () => {
   const before = await until(api, "ci", "ready");
   const sessionId = await runOn(api, "ci");
-  const watched = await api.call("harnix.subscribe", { topic: "harnix.instances" });
+  const watched = await api.call("harnix.topics.subscribe", { topic: "harnix.instances" });
   expect(watched.value.instances.some((i: any) => i.id === "ci")).toBe(true);
 
   process.kill(before.pid, "SIGKILL");
@@ -120,16 +120,16 @@ test("a killed daemon degrades its instance, comes back, and its sessions resync
 
   // Attaching again, the watcher has everything: the transcript is the
   // daemon's, and survived it.
-  const attached = await api.call("harnix.attach", { instance: "ci", session_id: sessionId });
+  const attached = await api.call("harnix.session.attach", { instance: "ci", session_id: sessionId });
   expect(attached.history_total).toBeGreaterThanOrEqual(2);
-  const history = await api.call("session.history", { instance: "ci", session_id: sessionId });
+  const history = await api.call("engine.session.history", { instance: "ci", session_id: sessionId });
   expect(JSON.stringify(history.messages)).toMatch(/fixture ready/i);
 
   // And it takes turns again. The resume passes the recorder again — a
   // recorder is never written to the log, so the call that brings the
   // session back is where it comes from (Agix 0.2.8) — and the turn replays.
   api.events.length = 0;
-  const sent = await api.call("harnix.send", { instance: "ci", session_id: sessionId, message: "Say exactly: fixture ready" });
+  const sent = await api.call("harnix.session.send", { instance: "ci", session_id: sessionId, message: "Say exactly: fixture ready" });
   expect(sent.turn_id).toBeTruthy();
   const settled = await api.waitFor(
     (f) => f.method === "harnix.turn_settled" && f.params.session_id === sessionId && f.params.turn_id === sent.turn_id,
@@ -143,15 +143,15 @@ test("a killed daemon degrades its instance, comes back, and its sessions resync
  * prints its pid. Answers that pid.
  */
 async function leaveAProcess(api: TestClient, instance: string): Promise<number> {
-  const created = await api.call("session.create", {
+  const created = await api.call("harnix.session.create", {
     instance,
     scene: "harnix",
     project_root: api.project,
     options: { recorder: { name: "leaves-a-process" } },
   });
   const sessionId = created.session_id;
-  await api.call("harnix.attach", { instance, session_id: sessionId });
-  await api.call("harnix.send", { instance, session_id: sessionId, message: "Start a background sleep and print its pid" });
+  await api.call("harnix.session.attach", { instance, session_id: sessionId });
+  await api.call("harnix.session.send", { instance, session_id: sessionId, message: "Start a background sleep and print its pid" });
   await permit(api, instance, sessionId);
   await api.waitFor(
     (f) => f.method === "harnix.turn_settled" && f.params.session_id === sessionId,
@@ -170,7 +170,7 @@ async function permit(api: TestClient, instance: string, sessionId: string): Pro
     (f) => f.method === "harnix.event" && f.params.session_id === sessionId && f.params.event.kind === "prompt",
     { timeout: 30_000, describe: "the permission ask for the Bash call" },
   );
-  await api.call("session.respondToPrompt", {
+  await api.call("harnix.session.respond", {
     instance,
     session_id: sessionId,
     prompt_id: ask.params.event.prompt_id,

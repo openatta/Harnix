@@ -2,21 +2,36 @@
 resolver = "2"
 exclude = ["agix", "examples"]
 members = [
-    "crates/app",
-    "crates/app-host",
-    "crates/app-package",
-    "crates/app-port",
-    "crates/apps",
+    "crates/assembly",
+    "crates/wasm-host",
+    "crates/package",
+    "crates/proc",
+    "crates/wasm-port",
+    "crates/carrier/shared",
+    "crates/carrier/wasm",
+    "crates/carrier/proc",
     "crates/instance",
+    "crates/supervise",
     "crates/authz",
-    "crates/builtin",
     "crates/cli",
     "crates/client",
     "crates/contract",
-    "crates/flow",
+    "crates/engine",
+    "crates/engine-api",
+    "crates/ext/api",
+    "crates/ext/devices",
+    "crates/ext/flow",
+    "crates/ext/harnix-app",
+    "crates/ext/observability",
+    "crates/ext/packages",
+    "crates/ext/plugins",
+    "crates/ext/settings",
+    "crates/ext/system",
     "crates/harnix",
+    "crates/host-api",
     "crates/hub",
-    "crates/module",
+    "crates/kernel",
+    "crates/router",
     "crates/testapp",
     "crates/transport",
     "crates/wasm",
@@ -24,7 +39,7 @@ members = [
 
 # No `[workspace.package]`: each crate states its own version, licence,
 # edition and toolchain floor. An application takes these crates in as members
-# of *its* workspace (docs/harnix-sdk.md), and anything
+# of *its* workspace (docs/harnix-ext.md), and anything
 # inherited from a workspace would then be the application's — its licence
 # included. `scripts/set-version.sh` changes the version everywhere at once;
 # `tests/crate-metadata.mjs` checks they agree. The toolchain floor, 1.87, is
@@ -36,36 +51,63 @@ members = [
 # The dependency direction is one-way and each layer is ignorant of the one
 # above it; `tests/layering.rs` asserts it rather than leaving it to review.
 #
-#   app ─→ transport ─→ authz ─┐
-#     └───→ builtin ──→ hub ────┴─→ contract        (pure types, no deps)
-#                        └────→ instance → Agix
-#   module ─→ instance, authz, contract
+#   assembly ─→ router ─→ authz ─→ kernel ─→ contract (pure types, no deps)
+#     ├───→ transport ─→ authz, kernel                 (no hub, no router: it calls a `Dispatch`)
+#     └───→ hub ─→ kernel
+#            └────→ instance → Agix
 #   client ─→ contract                               (a process's own clients: CLI, tests, desktop shell)
 #   wasm                                             (applications' WebAssembly; a leaf: the host
 #                                                     implements its traits, and only it names wasmtime)
-#   app-package ─→ contract                          (a runtime application as it is distributed:
+#   package ─→ contract                          (a runtime application as it is distributed:
 #                                                     manifest, package, signatures, store)
-#   app-port ─→ contract                             (the host's boundary: Platform and Control)
-#   app-host ─→ app-package, app-port, wasm          (the supervisor: lifecycle, dispatch, idling)
-#   apps ─→ app-host, builtin, module, Agix          (the embedded glue: the port over the kernel,
-#                                                     the Agix plugin, /apps/<id>/…; only a build
-#                                                     with the `apps` feature links any of these)
+#   wasm-port ─→ contract                             (the host's boundary: Platform and Control)
+#   wasm-host ─→ package, wasm-port, wasm          (the supervisor: lifecycle, dispatch, idling)
+#   proc ─→ wasm-host, wasm-port, package          (an extension process: `<product> ext-proc`, the
+#                                                     host behind the extension wire; a library the
+#                                                     product links and re-executes itself as)
+#   ext/packages ─→ ext, host-api, package           (the host component that installs packages and
+#                                                     registers each as an extension)
+#   carrier/shared ─→ wasm-port, package, ext        (what both carriers do alike: the roster of running
+#                                                     packages, their interface entries, their tools as a
+#                                                     session sees them, /ext/<id>/ routes; no VM, no carrier)
+#   carrier/wasm ─→ shared, wasm-host, host-api, ext          (packages in this process: the port over an
+#                                                     extension handle and context, their tools in
+#                                                     every session, /ext/<id>/…; only a build with
+#                                                     the `wasm` feature links any of these)
+#   carrier/proc ─→ shared, wasm-port, host-api, ext          (packages in processes of their own: each one's
+#                                                     `ext-proc` started, kept and driven over the
+#                                                     extension wire; names no VM; feature `proc`)
 # ──────────────────────────────────────────────
 [workspace.dependencies]
 harnix           = { path = "crates/harnix" }
-harnix-app       = { path = "crates/app" }
-harnix-app-host  = { path = "crates/app-host" }
-harnix-app-package = { path = "crates/app-package" }
-harnix-app-port  = { path = "crates/app-port" }
-harnix-apps      = { path = "crates/apps" }
+harnix-assembly  = { path = "crates/assembly" }
+harnix-wasm-host = { path = "crates/wasm-host" }
+harnix-package   = { path = "crates/package" }
+harnix-proc      = { path = "crates/proc" }
+harnix-wasm-port = { path = "crates/wasm-port" }
+harnix-carrier-shared = { path = "crates/carrier/shared" }
+harnix-carrier-wasm = { path = "crates/carrier/wasm" }
+harnix-carrier-proc = { path = "crates/carrier/proc" }
 harnix-instance  = { path = "crates/instance" }
+harnix-supervise = { path = "crates/supervise" }
 harnix-authz     = { path = "crates/authz" }
-harnix-builtin   = { path = "crates/builtin" }
 harnix-client    = { path = "crates/client" }
 harnix-contract  = { path = "crates/contract" }
-harnix-flow      = { path = "crates/flow" }
-harnix-module    = { path = "crates/module" }
+harnix-engine    = { path = "crates/engine" }
+harnix-engine-api = { path = "crates/engine-api" }
+harnix-ext       = { path = "crates/ext/api" }
+harnix-ext-devices = { path = "crates/ext/devices" }
+harnix-ext-flow    = { path = "crates/ext/flow" }
+harnix-ext-harnix-app = { path = "crates/ext/harnix-app" }
+harnix-ext-observability = { path = "crates/ext/observability" }
+harnix-ext-packages = { path = "crates/ext/packages" }
+harnix-ext-plugins = { path = "crates/ext/plugins" }
+harnix-ext-settings = { path = "crates/ext/settings" }
+harnix-ext-system  = { path = "crates/ext/system" }
+harnix-host-api  = { path = "crates/host-api" }
 harnix-hub       = { path = "crates/hub" }
+harnix-kernel    = { path = "crates/kernel" }
+harnix-router    = { path = "crates/router" }
 harnix-transport = { path = "crates/transport" }
 harnix-wasm      = { path = "crates/wasm" }
 
@@ -103,6 +145,10 @@ futures = "0.3"
 async-trait = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
 bytes = "1"
+# The extension interface's HTTP routes are `http` 1.x, so axum's major version is not part of it.
+http = "1"
+http-body-util = "0.1"
+tower = { version = "0.5", default-features = false, features = ["util"] }
 axum = { version = "0.8", features = ["ws"] }
 # TLS for the listener. rustls is already in the graph via reqwest, so the
 # marginal cost against the binary-size budget is small.
@@ -124,7 +170,7 @@ libc = "0.2"
 base64 = "0.22"
 ignore = "0.4"
 toml = "0.8"
-# Application packages (`.hxapp`) and the agent package an installer hands Agix. The same
+# Application packages (`.hxext`) and the agent package an installer hands Agix. The same
 # version and features Agix's own package layer links, so nothing new is compiled.
 zip = { version = "2", default-features = false, features = ["deflate"] }
 clap = { version = "4", features = ["derive", "string"] }

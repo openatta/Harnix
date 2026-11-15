@@ -32,7 +32,7 @@ async function section(page: Page, id: string): Promise<void> {
 const providers = (page: Page) =>
   page.evaluate(async () => {
     const { app } = (window as any).harnix;
-    const described = await app.call("harnix.settings.describe", {});
+    const described = await app.call("settings.describe", {});
     return described.providers ?? {};
   });
 
@@ -89,20 +89,20 @@ test("a paired device is listed in Settings · Devices and revoked from there", 
   await open(page, backend.url);
   const device = await page.evaluate(async () => {
     const { app } = (window as any).harnix;
-    const grant = await app.call("harnix.devices.pair.begin", { label: "the test laptop" });
-    const paired = await app.call("harnix.devices.pair.complete", { code: grant.code, public_key: "dGVzdC1rZXk=" });
+    const grant = await app.call("devices.pair.begin", { label: "the test laptop" });
+    const paired = await app.call("devices.pair.complete", { code: grant.code, public_key: "dGVzdC1rZXk=" });
     return paired.device.id as string;
   });
   await section(page, "devices");
   await expect(page.getByTestId("settings-page")).toContainText("the test laptop");
   const revoke = page.locator(`[data-testid="device-revoke"][data-device="${device}"]`);
   // It asks first: dismissed, nothing happens.
-  page.once("dialog", (d) => void d.dismiss());
   await revoke.click();
+  await page.getByTestId("confirm-cancel").click();
   await expect(revoke).toBeVisible();
-  page.once("dialog", (d) => void d.accept());
   await revoke.click();
+  await page.getByTestId("confirm").click();
   await expect(revoke).toHaveCount(0);
-  const listed = await page.evaluate(async () => (await (window as any).harnix.app.call("harnix.devices.list", {})).devices);
+  const listed = await page.evaluate(async () => (await (window as any).harnix.app.call("devices.list", {})).devices);
   expect(listed.some((d: any) => d.id === device)).toBe(false);
 });

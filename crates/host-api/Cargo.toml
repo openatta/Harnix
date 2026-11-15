@@ -1,0 +1,17 @@
+[package]
+name = "harnix-host-api"
+version      = "0.4.2-2026110901"
+edition      = "2021"
+rust-version = "1.87"
+license      = "Apache-2.0"
+publish      = false
+description  = "What a host component reaches beyond the extension interface: runtime registration, extension processes, carriers"
+
+[dependencies]
+harnix-contract   = { workspace = true }
+harnix-ext        = { workspace = true }
+harnix-engine-api = { workspace = true }
+async-trait = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+tokio       = { workspace = true }

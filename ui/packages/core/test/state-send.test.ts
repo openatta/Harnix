@@ -1,6 +1,6 @@
 /**
  * A send's answer and its turn's events can arrive in either order: over split streams the events
- * come on their own stream, and a short turn can be over before the answer to `harnix.send` is back.
+ * come on their own stream, and a short turn can be over before the answer to `harnix.session.send` is back.
  * A turn that has settled stays settled however late that answer is.
  */
 
@@ -21,12 +21,12 @@ const strings: SessionStrings = {
   answerFailed: (r) => r,
 };
 
-/** A client whose answer to `harnix.send` waits until the test lets it go. */
+/** A client whose answer to `harnix.session.send` waits until the test lets it go. */
 class FakeClient {
   status = "open";
   private listeners = new Set<(m: string, p: Record<string, unknown>) => void>();
   release: () => void = () => {};
-  onNotify(fn: (m: string, p: Record<string, unknown>) => void) {
+  onNotification(fn: (m: string, p: Record<string, unknown>) => void) {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
   }
@@ -34,12 +34,12 @@ class FakeClient {
     return () => {};
   }
   async call(method: string, params: any) {
-    if (method === "harnix.attach") {
+    if (method === "harnix.session.attach") {
       return { instance: params.instance, session: { session_id: params.session_id }, history_total: 0, replay: [], truncated: false, pending_prompts: [], running_turn: null, queue: [], seq: 0 };
     }
-    if (method === "session.history") return { total: 0, messages: [] };
-    if (method === "session.entries") return { entries: [] };
-    if (method === "harnix.send") return new Promise((resolve) => (this.release = () => resolve({ turn_id: "t1" })));
+    if (method === "engine.session.history") return { total: 0, messages: [] };
+    if (method === "engine.session.entries") return { entries: [] };
+    if (method === "harnix.session.send") return new Promise((resolve) => (this.release = () => resolve({ turn_id: "t1" })));
     return {};
   }
   notify() {}
@@ -59,11 +59,11 @@ describe("send", () => {
 
     const sent = c.send("hello");
     const event = (seq: number, kind: string) =>
-      client.push("harnix.event", { instance: "system", session_id: "S1", seq, turn_id: "t1", event: { kind, text: "hello" } });
+      client.push("harnix.event", { instance: "main", session_id: "S1", seq, turn_id: "t1", event: { kind, text: "hello" } });
     event(1, "user_message");
     expect(c.getSnapshot().turn).toEqual({ turnId: "t1" });
     event(2, "turn_complete");
-    client.push("harnix.turn_settled", { instance: "system", session_id: "S1", turn_id: "t1", result: {} });
+    client.push("harnix.turn_settled", { instance: "main", session_id: "S1", turn_id: "t1", result: {} });
     expect(c.getSnapshot().turn).toBeNull();
 
     client.release();

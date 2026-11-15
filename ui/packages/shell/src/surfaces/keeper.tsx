@@ -11,19 +11,19 @@
  * lying over the conversation on a narrow window, its dialogs — is drawn above the frame too. It
  * is clipped to what of the slot its scrolling ancestors show.
  *
- * Gone with the application: when it stops, or the page goes.
+ * Gone with the package: when it stops, or the page goes.
  */
 
 import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
 
 import type { App } from "../app.ts";
 import { SurfaceView, type SurfaceActions } from "./frame.tsx";
-import { surfaceKey, type AppInterface, type SurfaceDecl } from "./model.ts";
+import { surfaceKey, type PackageInterface, type SurfaceDecl } from "./model.ts";
 
 interface Kept {
   key: string;
   app: App;
-  iface: AppInterface;
+  iface: PackageInterface;
   decl: SurfaceDecl;
   actions: SurfaceActions;
   slot: HTMLElement | null;
@@ -62,7 +62,7 @@ class Keeper {
     this.changed();
   }
 
-  /** The application stopped: its kept surfaces go. */
+  /** The package stopped: its kept surfaces go. */
   drop(app: string): void {
     let any = false;
     for (const [key, kept] of this.kept) {
@@ -160,7 +160,7 @@ function clipOf(el: HTMLElement, rect: DOMRect): { left: number; top: number; ri
 }
 
 /** Where a kept surface is shown, in the shell's own tree: an empty place it is laid over. */
-export function KeptSlot({ app, iface, decl, actions }: { app: App; iface: AppInterface; decl: SurfaceDecl; actions: SurfaceActions }) {
+export function KeptSlot({ app, iface, decl, actions }: { app: App; iface: PackageInterface; decl: SurfaceDecl; actions: SurfaceActions }) {
   const slot = useRef<HTMLDivElement>(null);
   const key = surfaceKey(decl);
   useLayoutEffect(() => {
@@ -169,7 +169,7 @@ export function KeptSlot({ app, iface, decl, actions }: { app: App; iface: AppIn
     keeper.attach({ app, iface, decl, actions }, el);
     return () => keeper.detach(key, el);
   }, [key]);
-  return <div ref={slot} className={`hx-slot ${decl.point.replace(".", "-")}`} data-testid="surface-slot" data-app={decl.app} data-surface={decl.id} data-point={decl.point} />;
+  return <div ref={slot} className={`hx-slot ${decl.point.replace(".", "-")}`} data-testid="surface-slot" data-package={decl.app} data-surface={decl.id} data-point={decl.point} />;
 }
 
 /** The kept surfaces, each in its host: rendered once for the page, outside the shell's tree. */
@@ -189,7 +189,7 @@ function KeptHost({ kept }: { kept: Kept }) {
     <div
       className="hx-kept"
       data-testid="surface-kept"
-      data-app={kept.decl.app}
+      data-package={kept.decl.app}
       data-point={kept.decl.point}
       data-surface={kept.decl.id}
       ref={(el) => {

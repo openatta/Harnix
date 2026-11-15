@@ -1,0 +1,20 @@
+[package]
+name = "harnix-engine-api"
+version      = "0.4.2-2026110901"
+edition      = "2021"
+rust-version = "1.87"
+license      = "Apache-2.0"
+publish      = false
+description  = "The engine in Harnix's words: tools, scenes, gates and readers, with nothing of Agix in them"
+
+[dependencies]
+harnix-contract = { workspace = true }
+async-trait = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+tokio       = { workspace = true }
+tokio-util  = { workspace = true }
+tracing     = { workspace = true }
+
+[dev-dependencies]
+tokio       = { workspace = true }

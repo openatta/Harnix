@@ -1,9 +1,9 @@
-//! The application: Harnix's built-ins, then your modules, in order.
+//! The application: Harnix's own extensions, then yours, in order.
 
 fn main() -> anyhow::Result<()> {
     harnix::App::builder()
         .name("myapp", env!("CARGO_PKG_VERSION"))
-        .with_builtins()
-        // .module(my_space::Module::default())
+        .extensions(harnix::first_party::standard())
+        // .extension(my_space::Extension::default()).grant([..])
         .run()
 }

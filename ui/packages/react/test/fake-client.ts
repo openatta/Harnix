@@ -1,6 +1,6 @@
 /**
  * 一个由测试驱动的假客户端：测试就是服务端。实现 SessionController 与组件用到的那部分
- * HarnixClient 表面（status、onStatus、onNotify、call、answer、notify）。
+ * HarnixClient 表面（status、onStatus、onNotification、call、answer、notify）。
  */
 
 import type { ConnectionStatus, HarnixClient, NotifyListener, StatusListener } from "@harnix/core";
@@ -21,7 +21,7 @@ export class FakeClient {
     return this as unknown as HarnixClient;
   }
 
-  onNotify(fn: NotifyListener) {
+  onNotification(fn: NotifyListener) {
     this.notifyListeners.add(fn);
     return () => this.notifyListeners.delete(fn);
   }

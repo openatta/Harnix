@@ -1,13 +1,13 @@
 /**
- * What runtime applications declare inline (`src/inline/`): the templates fill from what is drawn
- * and nothing else, and what the shell registers for an application follows `harnix.apps` — in
+ * What extension packages declare inline (`src/inline/`): the templates fill from what is drawn
+ * and nothing else, and what the shell registers for a package follows `packages.list` — in
  * when it runs, out when it stops, afresh when it changes.
  */
 
 import { describe, expect, it } from "vitest";
 import { Registry } from "@harnix/react";
 
-import { AppsWatch, toolNames } from "../src/inline/apps.ts";
+import { PackagesWatch, toolNames } from "../src/inline/packages.ts";
 import { fill, fillValue, inputOf, localized, say } from "../src/inline/template.ts";
 
 describe("inline templates", () => {
@@ -43,11 +43,11 @@ describe("inline templates", () => {
 
 describe("the applications the shell draws for", () => {
   it("are the running ones, with their declarations", () => {
-    const watch = new AppsWatch();
+    const watch = new PackagesWatch();
     let seen = 0;
     watch.subscribe(() => (seen += 1));
     watch.take({
-      apps: [
+      packages: [
         { id: "acme.notes", title: "Notes", enabled: true, trust: "store", runtime: { state: "running", inline: { command: [{ trigger: "/", name: "notes" }] } } },
         { id: "acme.off", enabled: false, runtime: { state: "stopped" } },
       ],
@@ -63,7 +63,7 @@ describe("the applications the shell draws for", () => {
   });
 
   it("are known by their tools' names in this process and in a spawned daemon", () => {
-    expect(toolNames("example.showcase", "echo")).toEqual(["app__example_showcase__echo", "mcp__app-example_showcase__echo"]);
+    expect(toolNames("example.showcase", "echo")).toEqual(["ext__example_showcase__echo", "mcp__ext-example_showcase__echo"]);
   });
 
   it("have what the shell registered for them taken back", () => {

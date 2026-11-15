@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CONTRIB_API_VERSION, HarnixClient, PROTOCOL_VERSION, TOKEN_STALE, tokenFromDocument, tokenFromPage, type ConnectionStatus } from "../src/index.ts";
+import { CONTRIB_API_VERSION, ENGINE_PROTOCOLS, HarnixClient, PROTOCOL_VERSION, TOKEN_STALE, engineProtocolRefusal, parseSessionEvent, tokenFromDocument, tokenFromPage, type ConnectionStatus } from "../src/index.ts";
 import { FakeServer, FakeSplit, RpcFailure, settle } from "./fakes.ts";
 
 const BASE = "http://127.0.0.1:4287";
@@ -53,18 +53,18 @@ describe("单双向流", () => {
   it("call 按 id 配对应答；错误以 {code, message} reject", async () => {
     const server = new FakeServer();
     server.answer = (method, params) => {
-      if (method === "harnix.handshake") return { topology: "single_duplex", protocol_version: 4, contrib_api_version: CONTRIB_API_VERSION };
-      if (method === "harnix.attach") return { session: { session_id: params.session_id }, seq: 7 };
-      if (method === "harnix.send") return new RpcFailure({ code: -32602, message: "empty message" });
+      if (method === "harnix.handshake") return { topology: "single_duplex", protocol_version: 5, contrib_api_version: CONTRIB_API_VERSION };
+      if (method === "harnix.session.attach") return { session: { session_id: params.session_id }, seq: 7 };
+      if (method === "harnix.session.send") return new RpcFailure({ code: -32602, message: "empty message" });
       return {};
     };
     const { client } = makeClient(server);
     client.connect();
     await client.ready();
 
-    const attached = await client.call("harnix.attach", { session_id: "S1" });
+    const attached = await client.call("harnix.session.attach", { session_id: "S1" });
     expect(attached.seq).toBe(7);
-    await expect(client.call("harnix.send", { session_id: "S1", message: " " })).rejects.toEqual({
+    await expect(client.call("harnix.session.send", { session_id: "S1", message: " " })).rejects.toEqual({
       code: -32602,
       message: "empty message",
     });
@@ -79,7 +79,7 @@ describe("单双向流", () => {
     await expect(client.call("harnix.hello")).rejects.toMatchObject({ message: "not connected" });
   });
 
-  it("通知分发给 onNotify 与带类型的 on；notify 不带 id", async () => {
+  it("通知分发给 onNotification 与带类型的 on；notify 不带 id", async () => {
     const server = new FakeServer();
     const { client } = makeClient(server);
     client.connect();
@@ -87,7 +87,7 @@ describe("单双向流", () => {
 
     const all: string[] = [];
     const seqs: number[] = [];
-    client.onNotify((method) => all.push(method));
+    client.onNotification((method) => all.push(method));
     const off = client.on("harnix.event", (params) => seqs.push(params.seq));
     server.last.push("harnix.event", { session_id: "S1", seq: 1, turn_id: "t", event: { kind: "text_delta", text: "a" } });
     server.last.push("harnix.queue", { session_id: "S1", items: [] });
@@ -97,9 +97,9 @@ describe("单双向流", () => {
     expect(all).toEqual(["harnix.event", "harnix.queue", "harnix.event"]);
     expect(seqs).toEqual([1]);
 
-    client.notify("harnix.detach", { session_id: "S1" });
+    client.notify("harnix.session.detach", { session_id: "S1" });
     const last = server.sent[server.sent.length - 1]!;
-    expect(last).toMatchObject({ method: "harnix.detach", params: { session_id: "S1" } });
+    expect(last).toMatchObject({ method: "harnix.session.detach", params: { session_id: "S1" } });
     expect(last.id).toBeUndefined();
     client.close();
   });
@@ -109,8 +109,8 @@ describe("单双向流", () => {
     const { client } = makeClient(server);
     client.connect();
     await client.ready();
-    await client.answer("session.respondToPrompt", { session_id: "S1", prompt_id: "p1", decision: { type: "permit" } });
-    expect(server.sent.at(-1)).toMatchObject({ method: "session.respondToPrompt", params: { prompt_id: "p1" } });
+    await client.answer("harnix.session.respond", { session_id: "S1", prompt_id: "p1", decision: { type: "permit" } });
+    expect(server.sent.at(-1)).toMatchObject({ method: "harnix.session.respond", params: { prompt_id: "p1" } });
     client.close();
   });
 
@@ -169,7 +169,7 @@ describe("分离流回退", () => {
     server.answer = () =>
       new RpcFailure({ code: -31001, message: "topology `single_duplex` is not served here; this build offers split_streams" });
     const split = new FakeSplit();
-    split.rpc = (method) => (method === "harnix.sessions" ? { sessions: [{ session_id: "S1" }] } : { prompt_id: "p1" });
+    split.rpc = (method) => (method === "harnix.sessions.list" ? { sessions: [{ session_id: "S1" }] } : { prompt_id: "p1" });
     const { client } = makeClient(server, split);
     client.connect();
     await client.ready();
@@ -178,13 +178,13 @@ describe("分离流回退", () => {
     expect(client.topology).toBe("split_streams");
     // 上游 client.js 在这里会因 onclose 再走一次回退；移植版只握手一次。
     expect(split.requests.filter((r) => r.url.endsWith("/handshake"))).toHaveLength(1);
-    expect(split.requests[0]!.body).toMatchObject({ token: "tok en", topology: "split_streams", protocol_version: 4 });
+    expect(split.requests[0]!.body).toMatchObject({ token: "tok en", topology: "split_streams", protocol_version: 5 });
     expect(split.sources.map((s) => new URL(s.url).pathname)).toEqual(["/events/session", "/events/host"]);
     expect(split.sources[0]!.url).toContain("token=cred-1");
 
-    const listed = await client.call("harnix.sessions");
+    const listed = await client.call("harnix.sessions.list");
     expect(listed.sessions[0]!.session_id).toBe("S1");
-    await client.answer("session.respondToPrompt", { session_id: "S1", prompt_id: "p1", decision: { type: "permit" } });
+    await client.answer("harnix.session.respond", { session_id: "S1", prompt_id: "p1", decision: { type: "permit" } });
     expect(split.requests.map((r) => new URL(r.url).pathname)).toEqual(["/handshake", "/rpc", "/respond"]);
 
     const seen: unknown[] = [];
@@ -192,8 +192,8 @@ describe("分离流回退", () => {
     split.sources[0]!.push("harnix.queue", { session_id: "S1", items: [{ item_id: "q1", message: "hi" }] });
     expect(seen).toEqual([[{ item_id: "q1", message: "hi" }]]);
 
-    client.notify("harnix.detach", { session_id: "S1" });
-    expect(split.requests.at(-1)).toMatchObject({ keepalive: true, body: { method: "harnix.detach" } });
+    client.notify("harnix.session.detach", { session_id: "S1" });
+    expect(split.requests.at(-1)).toMatchObject({ keepalive: true, body: { method: "harnix.session.detach" } });
 
     split.sources[1]!.fail();
     expect(client.status).toBe("degraded");
@@ -434,5 +434,41 @@ describe("在途上限", () => {
     const outcomes = await Promise.all(calls);
     expect(outcomes.every((e) => (e as { message?: string }).message === "connection closed")).toBe(true);
     client.close();
+  });
+});
+
+describe("引擎协议", () => {
+  it("hello 里的 engine_protocol 认不出：拒绝并说明，停在 incompatible，不再重连", async () => {
+    const server = new FakeServer();
+    server.answer = (method) =>
+      method === "harnix.handshake" ? { topology: "single_duplex" } : method === "harnix.hello" ? { engine_protocol: 99 } : undefined;
+    const { client } = makeClient(server);
+    client.connect();
+    await client.ready();
+    await expect(client.call("harnix.hello")).rejects.toMatchObject({ message: expect.stringContaining("protocol 99") });
+    expect(client.status).toBe("incompatible");
+    expect(client.detail).toContain("protocol 99");
+  });
+
+  it("认得的、没说的照常", () => {
+    expect(engineProtocolRefusal({ engine_protocol: ENGINE_PROTOCOLS[0] })).toBeNull();
+    expect(engineProtocolRefusal({})).toBeNull();
+    expect(engineProtocolRefusal({ engine_protocol: 2 })).toContain("protocol 2");
+  });
+
+  it("解析视图：认得的照意思读，认不出的是 other", () => {
+    expect(parseSessionEvent({ kind: "text_delta", text: "hi" })).toEqual({ kind: "text", text: "hi" });
+    expect(parseSessionEvent({ kind: "tool_result", id: "t1", is_error: true })).toEqual({ kind: "tool_result", toolUseId: "t1", isError: true });
+    expect(parseSessionEvent({ kind: "brand_new" })).toEqual({ kind: "other", raw: "brand_new" });
+    expect(parseSessionEvent(null)).toEqual({ kind: "other", raw: "" });
+  });
+});
+
+describe("带凭据的地址", () => {
+  it("一个同源路径带上令牌；没有令牌（启动链接的 cookie）原样", () => {
+    const { client } = makeClient(new FakeServer());
+    expect(client.withToken("/ext/plugins/ui/pkg/rows.js")).toBe("/ext/plugins/ui/pkg/rows.js?token=tok+en");
+    const { client: cookie } = makeClient(new FakeServer(), undefined, { token: "" });
+    expect(cookie.withToken("/ext/plugins/ui/pkg/rows.js")).toBe("/ext/plugins/ui/pkg/rows.js");
   });
 });

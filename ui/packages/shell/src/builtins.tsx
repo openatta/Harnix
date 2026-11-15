@@ -1,71 +1,30 @@
 /**
- * The product's own contributions, registered through the same points a package's go through,
- * so there is no private path for the built-in ones to take.
+ * The shell's own contributions, registered through the same points a package's go through, so
+ * there is no private path for them to take.
  *
  * Kinds the conversation trunk draws itself (messages, thinking, asks, sub-agents, images) need no
- * registration; what is registered here is what the shell adds: the "open in details" door on a
- * tool row, the request envelope, the workspace grouping, the engine's commands and the settings
- * pages.
+ * registration; what is registered here is what the shell adds. The settings panel's own sections
+ * are its frame's (`settings.tsx`), not registrations.
  */
 
 import type { Block, BlockOf } from "@harnix/core/state";
-import { Disclosure, STATUS_GLYPH, ToolDetails, t, toolArgs, toolDisplayName, TOOL_NAMES, useToolState, type DetailItem, type SidebarGroup } from "@harnix/react";
+import { Disclosure, STATUS_GLYPH, ToolDetails, t, toolArgs, toolDisplayName, TOOL_NAMES, useToolState, type DetailItem, Glyph } from "@harnix/react";
 
-import type { App, ShellSession } from "./app.ts";
+import type { App } from "./app.ts";
 import { Labelled, RequestPanel, RequestRow, type RequestBlock } from "./envelope.tsx";
-import { registerFlow } from "./flow.ts";
-import { Glyph } from "./glyph.tsx";
-import { ProjectsSidebar } from "./projects.tsx";
-import { SessionsSidebar } from "./sessions.tsx";
-import { builtinSections } from "./settings.tsx";
 import { startInline } from "./inline/index.tsx";
-import { openInSystem, registerSystem, systemOffered } from "./system/index.tsx";
+import { ActionButtons } from "./actions.tsx";
 
 const OWNER = "builtin";
 
 /**
- * The built-in spaces — conversations by time, conversations by project, the system, and the flows
- * when the backend has the flow module — are examples an application keeps or drops (`[shell]
- * spaces`). Whatever it drops is not registered at all, so the frame is the fixed chrome plus
- * whichever spaces are left. Settles once the flow space, which the backend is asked about, is in.
+ * The shell's own registrations: the "open in details" door on a tool row, the request envelope
+ * and its pane, the engine's commands, and the settings sections every product has. No space:
+ * every space is a UI package's or the application's. Then what extension packages declare
+ * inline, drawn by the shell.
  */
-export async function registerBuiltins(app: App): Promise<void> {
+export function registerBuiltins(app: App): void {
   const r = app.registry;
-  const keeps = (space: string) => app.snapshot.hello?.shell?.spaces?.includes(space) ?? true;
-
-  if (keeps("sessions")) {
-    r.register(
-      "space",
-      {
-        id: "sessions",
-        icon: "chat",
-        order: 10,
-        title: () => t("space.sessions"),
-        subtitle: () => t("space.sessions.subtitle"),
-        center: "chat",
-        sidebar: () => <SessionsSidebar app={app} />,
-      },
-      OWNER,
-    );
-  }
-  if (keeps("projects")) {
-    r.register(
-      "space",
-      {
-        id: "projects",
-        icon: "folder",
-        order: 20,
-        title: () => t("space.projects"),
-        subtitle: () => t("space.projects.subtitle"),
-        center: "chat",
-        sessions: "sessions",
-        sidebar: () => <ProjectsSidebar app={app} />,
-      },
-      OWNER,
-    );
-  }
-  if (keeps("system")) registerSystem(app);
-
   r.register("tool.row", { id: "builtin.tool", match: () => true, render: (block) => <ToolRow app={app} block={block} /> }, OWNER);
 
   r.register(
@@ -99,8 +58,6 @@ export async function registerBuiltins(app: App): Promise<void> {
     OWNER,
   );
 
-  r.register("sidebar.group", { id: "builtin.time", label: () => t("sidebar.byTime"), group: (sessions) => byTime(sessions as ShellSession[]) }, OWNER);
-
   r.register(
     "command",
     {
@@ -116,10 +73,7 @@ export async function registerBuiltins(app: App): Promise<void> {
     OWNER,
   );
 
-  for (const section of builtinSections(app)) r.register("settings.section", section, OWNER);
-
-  await registerFlow(app, keeps);
-  // What runtime applications declare inline, drawn by the shell: registered as they start.
+  // What extension packages declare inline, drawn by the shell: registered as they start.
   startInline(app);
 }
 
@@ -157,18 +111,12 @@ function ToolRow({ app, block }: { app: App; block: BlockOf<"tool"> }) {
         >
           {t("flow.openInDetails")}
         </button>
-        {systemOffered() && app.snapshot.current && block.id ? (
-          <button
-            type="button"
-            className="btn sm outline"
-            data-testid="tool-in-system"
-            onClick={() => {
-              const current = app.snapshot.current!;
-              void openInSystem(app, { instance: current.instance, sessionId: current.sessionId, space: app.snapshot.space, tool: block.id });
-            }}
-          >
-            {t("flow.inSystem")}
-          </button>
+        {app.snapshot.current && block.id ? (
+          <ActionButtons
+            app={app}
+            place="tool"
+            target={{ kind: "tool", session: { instance: app.snapshot.current.instance, sessionId: app.snapshot.current.sessionId }, space: app.snapshot.space, toolUseId: block.id, tool: block.name }}
+          />
         ) : null}
       </div>
     </Disclosure>
@@ -190,26 +138,4 @@ function ToolPanel({ block }: { block: BlockOf<"tool"> }) {
       {block.result != null ? <Labelled label={block.error ? t("flow.error") : t("flow.result")}>{block.result}</Labelled> : null}
     </div>
   );
-}
-
-/* ── grouping ─────────────────────────────────────────────────────────── */
-
-/* The session space lists everything by when it was last active: today, the last seven days,
- * earlier. Projects have a space of their own; an application that wants another grouping
- * registers its own `sidebar.group`, and the last registration wins. */
-function byTime(sessions: ShellSession[]): SidebarGroup[] {
-  const now = Date.now();
-  const startOfToday = new Date(new Date().toDateString()).getTime();
-  const groups = [
-    { key: "today", title: t("time.today"), rows: [] as ShellSession[] },
-    { key: "week", title: t("time.week"), rows: [] as ShellSession[] },
-    { key: "earlier", title: t("time.earlier"), rows: [] as ShellSession[] },
-  ];
-  const sorted = [...sessions].sort((a, b) => String(b.last_active ?? "").localeCompare(String(a.last_active ?? "")));
-  for (const session of sorted) {
-    const at = Date.parse(session.last_active ?? "");
-    const group = Number.isNaN(at) ? groups[2]! : at >= startOfToday ? groups[0]! : now - at < 7 * 86_400_000 ? groups[1]! : groups[2]!;
-    group.rows.push(session);
-  }
-  return groups.filter((g) => g.rows.length);
 }

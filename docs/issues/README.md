@@ -60,7 +60,7 @@
 | ipdrun-48 | [#47](https://github.com/openatta/Harnix/issues/47) | space 不能在左栏暂时灰掉（`SpaceContribution.disabled`） |
 | ipdrun-49 | [#48](https://github.com/openatta/Harnix/issues/48) | 左栏品牌下面没有地方放应用的上下文（`host.shell.context`） |
 | ipdrun-50 | [#49](https://github.com/openatta/Harnix/issues/49) | 窄屏时右栏只能盖住中区（`[shell] narrow_details`） |
-| ipdrun-51 | [#50](https://github.com/openatta/Harnix/issues/50) | 会话建了就不能换 space（`harnix.sessions.move`） |
+| ipdrun-51 | [#50](https://github.com/openatta/Harnix/issues/50) | 会话建了就不能换 space（`harnix.session.move`） |
 | ipdrun-52 | [#51](https://github.com/openatta/Harnix/issues/51) | 页面不知道自己在桌面壳里、是不是本地模式（`window.__HARNIX_SHELL__`） |
 | ipdrun-53 | [#52](https://github.com/openatta/Harnix/issues/52) | 左栏的 space 入口与下面的会话之间太挤，没有分隔 |
 | ipdrun-54 | [#53](https://github.com/openatta/Harnix/issues/53) | space 的主会话在左栏会话列表里与 space 入口重复（`SpaceContribution.listSession`） |
@@ -85,7 +85,7 @@
 
 | 编号 | GitHub | 标题 |
 |---|---|---|
-| xops-01 | [#60](https://github.com/openatta/Harnix/issues/60) | 流程能力——按站推动会话工作的可选模块（`harnix-flow`） |
+| xops-01 | [#60](https://github.com/openatta/Harnix/issues/60) | 流程能力——按站推动会话工作的可选模块（`harnix-ext-flow`） |
 | xops-02 | [#61](https://github.com/openatta/Harnix/issues/61) | 流程会话的落点与模型、按会话参数交付与限写、空应用自带流程、在对话里编写流程、试运行 |
 | xops-03 | [#62](https://github.com/openatta/Harnix/issues/62) | 流程的主 Agent 与子 Agent、运行状态与暂停、按站的耗时与用量、流程 space 改版 |
 | xops-04 | [#63](https://github.com/openatta/Harnix/issues/63) | 流程的规则、策略与权限、门禁、钩子；详情进二级栏；demo 会话 |

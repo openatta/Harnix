@@ -9,7 +9,7 @@
 //!
 //! This is the piece the second topology forced into the open. Client
 //! identity used to be "which connection is this", which works exactly as
-//! long as there is one — and then `harnix.attach` arrives on a POST while the
+//! long as there is one — and then `harnix.session.attach` arrives on a POST while the
 //! frames have to reach an event stream that is a different socket entirely.
 //! Tying identity to the credential fixes that, and it is also what makes
 //! revoking a device able to cut all of its channels at once
@@ -34,33 +34,8 @@ use std::time::{Duration, Instant};
 
 use harnix_contract::sync::lock;
 use harnix_contract::{Channel, Frame, FrameSink, Subject, Topology};
-use harnix_hub::ClientId;
+use harnix_kernel::{ClientId, ClientRegistry};
 use tokio::sync::{mpsc, watch};
-
-/// What this layer needs of the hub: to register a client, describe it, and
-/// forget it. A trait so the topologies can be exercised against something
-/// smaller than a hub with engines behind it.
-#[async_trait::async_trait]
-pub trait ClientRegistry: Send + Sync {
-    async fn add_client(&self, sink: Arc<dyn FrameSink>) -> ClientId;
-    fn describe_client(&self, id: ClientId, description: serde_json::Value);
-    async fn remove_client(&self, id: ClientId);
-}
-
-#[async_trait::async_trait]
-impl ClientRegistry for harnix_hub::Hub {
-    async fn add_client(&self, sink: Arc<dyn FrameSink>) -> ClientId {
-        harnix_hub::Hub::add_client(self, sink).await
-    }
-
-    fn describe_client(&self, id: ClientId, description: serde_json::Value) {
-        harnix_hub::Hub::describe_client(self, id, description)
-    }
-
-    async fn remove_client(&self, id: ClientId) {
-        harnix_hub::Hub::remove_client(self, id).await
-    }
-}
 
 /// Why a handshake is over, for the connection that has to say so.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -77,7 +52,7 @@ pub enum Ended {
 
 /// Frames one client may have waiting before it is taken to be gone.
 ///
-/// Catch-up does not travel here — it is the reply to `harnix.attach` — so
+/// Catch-up does not travel here — it is the reply to `harnix.session.attach` — so
 /// this is only what arrives live while the reader is behind. A healthy
 /// reader drains at the speed of its connection; this many waiting is one
 /// that is not reading at all.

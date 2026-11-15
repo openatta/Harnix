@@ -4,7 +4,7 @@
 //   node harnix/scripts/sync-app-deps.mjs [app-root]          rewrite the block
 //   node harnix/scripts/sync-app-deps.mjs [app-root] --check  fail if it drifted
 //
-// An application's workspace takes `harnix/crates/*` in as members, so
+// An application's workspace takes `harnix/crates/*` and `harnix/crates/ext/*` in as members, so
 // Harnix's crates resolve `xxx = { workspace = true }` against the
 // *application's* `[workspace.dependencies]`. Harnix's own
 // table is the one source of truth; this copies it into a marked block in
@@ -37,7 +37,7 @@ export function engineAt(appRoot) {
 export const MOVE_HINT =
   "this application carries its own agix/; Harnix brings the engine as harnix/agix — " +
   "git submodule deinit -f agix && git rm agix && git -C harnix submodule update --init agix, " +
-  "then run this script again (harnix/docs/harnix-sdk.md §11)";
+  "then run this script again (harnix/docs/harnix-ext.md §11)";
 
 /** The `[workspace.dependencies]` lines of Harnix's own Cargo.toml, rebased. */
 export function block(harnix = harnixRoot, { engine = "harnix/agix" } = {}) {

@@ -4,11 +4,11 @@
 //! do itself, so every one is a place a capability is checked. The pattern is
 //! uniform on purpose: check the declaration, and on a miss give the
 //! component an error naming the capability that would have allowed it —
-//! silently returning nothing leaves an application author debugging the
+//! silently returning nothing leaves a package author debugging the
 //! wrong thing. Only what passes reaches the host's services.
 
-use crate::bindings::harnix::app::host::Host;
-use crate::bindings::harnix::app::types::HttpResponse;
+use crate::bindings::harnix::ext::host::Host;
+use crate::bindings::harnix::ext::types::HttpResponse;
 use crate::state::{AppState, Role};
 use crate::HttpRequest;
 use serde_json::Value;
@@ -16,7 +16,7 @@ use std::time::Duration;
 
 /// `types` declares only shapes, so its generated trait has no methods;
 /// implementing it is how the linker learns they are accounted for.
-impl crate::bindings::harnix::app::types::Host for AppState {}
+impl crate::bindings::harnix::ext::types::Host for AppState {}
 
 fn parse(what: &str, json: &str) -> Result<Value, String> {
     serde_json::from_str(json).map_err(|e| format!("{what} is not valid JSON: {e}"))
@@ -29,7 +29,7 @@ impl AppState {
         match e {
             crate::KvError::Io(detail) => {
                 tracing::warn!(app = %self.shared.app, error = %detail, "{what} failed");
-                format!("{what} failed: the application's storage could not be reached")
+                format!("{what} failed: the package's storage could not be reached")
             }
             other => other.to_string(),
         }
@@ -88,7 +88,7 @@ impl Host for AppState {
             let refused =
                 crate::host_of(&url).unwrap_or_else(|| "(not an http(s) URL)".to_string());
             return Err(format!(
-                "network access to `{refused}` is not in this application's `net` capability"
+                "network access to `{refused}` is not in this package's `net` capability"
             ));
         }
         let request = HttpRequest {
@@ -113,7 +113,7 @@ impl Host for AppState {
     async fn secret(&mut self, key: String) -> Option<String> {
         if !self.shared.caps.allows_env(&key) {
             tracing::warn!(app = %self.shared.app, key = %key,
-                "an application asked for an environment variable it did not declare");
+                "a package asked for an environment variable it did not declare");
             return None;
         }
         self.shared.services.host.secret(&self.shared.app, &key)
@@ -139,7 +139,7 @@ impl Host for AppState {
             .put(&key, Some(&value), quota)
             .map_err(|e| match e {
                 crate::KvError::QuotaExceeded { .. } => format!(
-                    "storage quota exceeded: the application's `storage_mb` allows {} bytes, and \
+                    "storage quota exceeded: the package's `storage_mb` allows {} bytes, and \
                      its stored values and its files under /data would take more",
                     shared.caps.storage_bytes
                 ),
@@ -162,7 +162,7 @@ impl Host for AppState {
             .shared
             .services
             .host
-            .call(&self.shared.app, &method, params)
+            .call_within(&self.shared.app, self.serving.as_deref(), &method, params)
             .await?;
         Ok(result.to_string())
     }

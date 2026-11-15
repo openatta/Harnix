@@ -1,14 +1,7 @@
-//! `harnix daemon`: this binary as an Agix daemon (concept §3.1.1).
-//!
-//! The binary links Agix already, so a spawned instance needs no second
-//! executable, and its protocol version is this build's by construction. It
-//! builds the engine exactly as an in-process instance would, then serves it
-//! on a unix socket instead of keeping it.
+//! `harnix daemon`, as an instance: the engine served on a socket, with the instance's lock held
+//! on its data root for as long as it serves (concept §3.1.1).
 
 use std::path::{Path, PathBuf};
-
-use daemon::DaemonServer;
-use tokio::io::AsyncReadExt;
 
 use crate::factory::engine_config;
 use crate::profile::EngineProfile;
@@ -29,12 +22,15 @@ pub struct DaemonArgs {
 }
 
 pub async fn serve_daemon(args: DaemonArgs) -> anyhow::Result<()> {
-    serve_daemon_with(args, crate::EngineContrib::default()).await
+    serve_daemon_with(args, harnix_engine_api::EngineContribution::default()).await
 }
 
 /// [`serve_daemon`], with native contributions: a template's, built again in this process from
 /// its `native` (ipdrun-10).
-pub async fn serve_daemon_with(args: DaemonArgs, contrib: crate::EngineContrib) -> anyhow::Result<()> {
+pub async fn serve_daemon_with(
+    args: DaemonArgs,
+    contrib: harnix_engine_api::EngineContribution,
+) -> anyhow::Result<()> {
     std::fs::create_dir_all(&args.data_root)?;
     // Held to the end of this function: past the engine's own shutdown, which is what writes last.
     let _lock = match &args.instance {
@@ -51,35 +47,8 @@ pub async fn serve_daemon_with(args: DaemonArgs, contrib: crate::EngineContrib) 
         }
         None => None,
     };
-    let engine = crate::engine::build(engine_config(&args.engine, &args.data_root, contrib))
-    .await?;
-    let server = engine.server.clone();
-    let listener = DaemonServer::bind_unix(&args.socket)?;
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&args.socket, std::fs::Permissions::from_mode(0o600))?;
-    }
-    let stop = server.shutdown_token();
-    if args.exit_with_stdin {
-        let stop = stop.clone();
-        tokio::spawn(async move {
-            let mut stdin = tokio::io::stdin();
-            let mut buf = [0u8; 64];
-            while matches!(stdin.read(&mut buf).await, Ok(n) if n > 0) {}
-            tracing::info!("stdin closed; the parent is gone");
-            stop.cancel();
-        });
-    }
-    tracing::info!(
-        socket = %args.socket.display(),
-        data_root = %args.data_root.display(),
-        scenes = ?engine.active_scenes,
-        "daemon serving"
-    );
-    server.serve_unix_listener(listener).await?;
-    engine.shutdown().await;
-    let _ = std::fs::remove_file(&args.socket);
-    Ok(())
+    let config = engine_config(args.instance.as_deref().unwrap_or_default(), &args.engine, &args.data_root, contrib);
+    harnix_engine::serve_daemon(config, &args.socket, args.exit_with_stdin).await
 }
 
 /// The exit status of a daemon that refused what it was started with, and will refuse it again

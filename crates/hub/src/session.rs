@@ -3,19 +3,27 @@
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 
-use harnix_instance::engine_codes;
 use harnix_contract::{Frame, RpcError};
+use harnix_engine_api::events::{Completion, Joins, Prompt, SessionEventKind};
+use harnix_engine_api::ops::SessionInfo;
+use harnix_kernel::CallContext;
 use serde_json::{json, Value};
-use tokio::sync::Mutex;
 
 use crate::clients::ClientId;
 use crate::replay::Buffer;
-use crate::{notification, without_instance, Hub, Inner, SessionKey};
+use crate::{notification, without_instance, Hub, InnerLock, SessionKey};
+
+/// The event the hub writes into a session's stream for a person's own message: the engine
+/// emits none, and every other watcher needs to see it.
+pub(crate) const USER_MESSAGE: &str = "user_message";
 
 pub(crate) struct QueueItem {
     pub item_id: String,
     pub message: String,
     pub attachments: Value,
+    /// The calls the send was made on behalf of, the sender's own included: what the turn it
+    /// starts is on behalf of.
+    pub chain: harnix_kernel::Chain,
 }
 
 impl QueueItem {
@@ -44,7 +52,7 @@ pub(crate) struct SessionState {
     /// When the running turn began, in ms since the epoch: what an elapsed clock counts from.
     pub turn_started_ms: Option<u64>,
     pub queue: VecDeque<QueueItem>,
-    pub pending_prompts: Vec<Value>,
+    pub pending_prompts: Vec<Prompt>,
     pub watchers: HashSet<ClientId>,
     /// Projected-message count before the running turn began, so settling can
     /// tell whether the transcript has caught up.
@@ -70,9 +78,9 @@ pub(crate) struct SessionState {
     /// it (a schedule), or the link that was running it went away. Its end
     /// arrives as `turn_completed` or is found by a resync.
     pub external: bool,
-    /// The running turn's `turn_complete` event, once the engine has sent it: what settling
-    /// reports as the turn's `outcome` (ipdrun-17).
-    pub last_complete: Option<Value>,
+    /// How the running turn ended, once the engine has said: what settling reports as the
+    /// turn's `outcome` (ipdrun-17).
+    pub last_complete: Option<Completion>,
     /// The running turn's answer and tool calls, as its events went by: what settling reports as
     /// `outcome.text` and `outcome.tool_calls` (ipdrun-41).
     pub answer: Answer,
@@ -86,15 +94,14 @@ pub(crate) struct Answer {
     pub tool_calls: Vec<Value>,
 }
 
-/// The most answer text `outcome.text` carries; the rest is in `session.history`.
+/// The most answer text `outcome.text` carries; the rest is in `engine.session.history`.
 pub(crate) const ANSWER_TEXT_MAX: usize = 64 * 1024;
 
 impl Answer {
-    pub fn take_event(&mut self, kind: &str, event: &Value) {
-        let field = |k: &str| event.get(k).and_then(Value::as_str).unwrap_or("");
+    pub fn take_event(&mut self, kind: &SessionEventKind) {
         match kind {
-            "text_delta" => {
-                let text = field("text");
+            SessionEventKind::Fragment(f) if f.joins == Joins::Answer => {
+                let text = f.text.as_str();
                 let room = ANSWER_TEXT_MAX.saturating_sub(self.text.len());
                 if text.len() <= room {
                     self.text.push_str(text);
@@ -104,14 +111,14 @@ impl Answer {
                     self.truncated = true;
                 }
             }
-            "tool_use" => self.tool_calls.push(json!({"id": field("id"), "name": field("name")})),
-            "tool_result" => {
+            SessionEventKind::ToolCall { id, name } => self.tool_calls.push(json!({"id": id, "name": name})),
+            SessionEventKind::ToolResult { id, is_error } => {
                 if let Some(call) = self
                     .tool_calls
                     .iter_mut()
-                    .find(|c| c.get("id").and_then(Value::as_str) == Some(field("id")))
+                    .find(|c| c.get("id").and_then(Value::as_str) == Some(id.as_str()))
                 {
-                    call["is_error"] = json!(event.get("is_error").and_then(Value::as_bool).unwrap_or(false));
+                    call["is_error"] = json!(is_error);
                 }
             }
             _ => {}
@@ -127,6 +134,11 @@ impl SessionState {
     pub fn queue_view(&self) -> Vec<Value> {
         self.queue.iter().map(QueueItem::view).collect()
     }
+
+    /// The questions waiting on a person, as the engine put them.
+    pub fn prompts_view(&self) -> Vec<Value> {
+        self.pending_prompts.iter().map(|p| p.value.clone()).collect()
+    }
 }
 
 /// Assign a seq, buffer for catch-up, fold the projections, fan out.
@@ -135,65 +147,55 @@ impl SessionState {
 /// one lock, so a client attaching between two frames either finds a frame in
 /// its replay snapshot or receives it live — never both, never neither. The
 /// sending itself happens after the lock, in seq order (`send_after`).
-pub(crate) async fn route_event(inner: &Arc<Mutex<Inner>>, instance: &str, params: Value) {
-    let Some(session_id) = params.get("session_id").and_then(Value::as_str) else {
-        return;
-    };
-    let session_id = session_id.to_string();
-    let turn_id = params
-        .get("turn_id")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-    let event = params.get("event").cloned().unwrap_or(Value::Null);
-    let kind = event.get("kind").and_then(Value::as_str).unwrap_or("");
-
-    {
-        let mut guard = inner.lock().await;
-        let state = guard
-            .sessions
-            .entry((instance.to_string(), session_id.clone()))
-            .or_default();
-        if kind == "compact" {
-            state.compacted = true;
-        }
-        match kind {
-            "prompt" => state.pending_prompts.push(event.clone()),
-            "goal_changed" => state.goal = Some(event.get("goal").cloned().unwrap_or(Value::Null)),
-            "team_progress" => {
-                if let Some(id) = event.get("team_id").and_then(Value::as_str) {
-                    state.teams.insert(id.to_string(), event.clone());
-                }
-            }
-            // Answered, or refused on its timeout: the tool went on either way.
-            "tool_result" => {
-                let id = event.get("id").and_then(Value::as_str);
-                state
-                    .pending_prompts
-                    .retain(|p| id.is_none() || p.get("tool_use_id").and_then(Value::as_str) != id);
-                state.answer.take_event(kind, &event);
-            }
-            // Nothing is waiting on those answers any more.
-            "turn_complete" => {
-                state.pending_prompts.clear();
-                state.last_complete = Some(event.clone());
-            }
-            _ => state.answer.take_event(kind, &event),
-        }
-        state.seq += 1;
-        let seq = state.seq;
-        state.replay.push(seq, &turn_id, &event);
-        let watchers = state.watchers();
-        let frame = Frame::session(
-            session_id.clone(),
-            notification(
-                "harnix.event",
-                json!({"instance": instance, "session_id": session_id, "seq": seq, "turn_id": turn_id, "event": event}),
-            ),
-        );
-        let out = guard.clients.to_many(&watchers, frame);
-        crate::send_after(guard, [out]).await;
+///
+/// A session of an extension's engine keeps fewer frames for catch-up, and its frames say so.
+pub(crate) async fn route_event(
+    inner: &Arc<InnerLock>,
+    instance: &str,
+    session_id: &str,
+    turn_id: &str,
+    kind: &SessionEventKind,
+    event: Value,
+    extension: bool,
+) {
+    let mut guard = inner.lock().await;
+    let state = guard
+        .sessions
+        .entry((instance.to_string(), session_id.to_string()))
+        .or_default();
+    if extension {
+        state.replay.hold_to(crate::links::EXTENSION_BUFFER_FRAMES);
     }
+    match kind {
+        SessionEventKind::Compacted => state.compacted = true,
+        SessionEventKind::Asked(prompt) => state.pending_prompts.push(prompt.clone()),
+        SessionEventKind::GoalChanged { goal } => state.goal = Some(goal.clone()),
+        SessionEventKind::TeamProgress { team_id } => {
+            state.teams.insert(team_id.clone(), event.clone());
+        }
+        // Answered, or refused on its timeout: the tool went on either way.
+        SessionEventKind::ToolResult { id, .. } => {
+            state.pending_prompts.retain(|p| p.tool_use_id.as_deref() != Some(id.as_str()));
+            state.answer.take_event(kind);
+        }
+        // Nothing is waiting on those answers any more.
+        SessionEventKind::TurnComplete(completion) => {
+            state.pending_prompts.clear();
+            state.last_complete = Some(completion.clone());
+        }
+        _ => state.answer.take_event(kind),
+    }
+    state.seq += 1;
+    let seq = state.seq;
+    state.replay.push(seq, turn_id, kind, &event);
+    let watchers = state.watchers();
+    let mut params = json!({"instance": instance, "session_id": session_id, "seq": seq, "turn_id": turn_id, "event": event});
+    if extension {
+        params["trust"] = json!("extension");
+    }
+    let frame = Frame::session(session_id.to_string(), notification("harnix.event", params));
+    let out = guard.clients.to_many(&watchers, frame);
+    crate::send_after(guard, [out]).await;
 }
 
 impl Hub {
@@ -207,21 +209,24 @@ impl Hub {
     /// buffer holds.
     pub(crate) async fn attach(
         &self,
-        subject: &harnix_contract::Subject,
+        cx: &CallContext,
         params: Value,
     ) -> Result<Value, RpcError> {
         let key = self.key_of(&params)?;
         let (instance, session_id) = (key.0.clone(), key.1.clone());
-        let client = client_of(subject, &params)?;
+        let client = client_of(cx)?;
 
-        // `session.get` reads the transcript, so it answers for a cold session
-        // too — and it is where the scene comes from, which a resume needs.
-        let info = self
-            .call(&instance, "session.get", json!({"session_id": session_id}))
-            .await?;
+        // Reading a session answers for a cold one too — and it is where the scene comes from,
+        // which a resume needs.
+        let linked = self.engine(&instance)?;
+        let mut info = linked.ops().get(&session_id).await?;
+        let extension = linked.is_extension();
+        if extension {
+            info.harden();
+        }
         self.ensure_subscribed(&key, &info).await?;
         let total = self.history_total(&key).await;
-        let compactions = compactions_of(&info);
+        let compactions = info.compactions();
 
         let mut guard = self.inner.lock().await;
         let state = guard.sessions.entry(key).or_default();
@@ -248,21 +253,25 @@ impl Hub {
         } else {
             Vec::new()
         };
-        Ok(json!({
+        let mut attached = json!({
             "instance": instance,
-            "session": info,
+            "session": info.into_value(),
             "history_total": history_total,
             "replay": replay,
             "truncated": state.replay.truncated,
-            "pending_prompts": state.pending_prompts,
+            "pending_prompts": state.prompts_view(),
             "running_turn": state.running_turn,
             "queue": state.queue_view(),
             "seq": state.seq,
-        }))
+        });
+        if extension {
+            attached["trust"] = json!("extension");
+        }
+        Ok(attached)
     }
 
     /// Subscribe the hub to a session once, resuming it first if it exists
-    /// only on disk. `info` is its `session.get`. Returns the engine's
+    /// only on disk. `info` is what the engine says of it. Returns the engine's
     /// watermark when this call subscribed, `None` when the hub already was.
     ///
     /// Every way into a session goes through here — a client attaching, a
@@ -271,9 +280,9 @@ impl Hub {
     pub(crate) async fn ensure_subscribed(
         &self,
         key: &SessionKey,
-        info: &Value,
+        info: &SessionInfo,
     ) -> Result<Option<u64>, RpcError> {
-        let (instance, session_id) = (key.0.as_str(), key.1.as_str());
+        let session_id = key.1.as_str();
         let subscribed = {
             let guard = self.inner.lock().await;
             guard.sessions.get(key).is_some_and(|s| s.subscribed)
@@ -281,54 +290,37 @@ impl Hub {
         if subscribed {
             return Ok(None);
         }
-        let mut resp = self
-            .call(instance, "session.subscribe", json!({"session_id": session_id}))
-            .await;
-        // Only live sessions have subscribers. One that exists on disk but
-        // not in memory has to be brought back first — opening a past
-        // conversation is otherwise impossible.
-        if crate::is_code(&resp, engine_codes::SESSION_NOT_FOUND) {
-            let mut resume = json!({"session_id": session_id});
-            if let Some(scene) = info.get("scene").and_then(Value::as_str) {
-                resume["scene"] = json!(scene);
+        let linked = self.engine(&key.0)?;
+        let ops = linked.ops();
+        let subscribed = match ops.subscribe(session_id).await? {
+            Some(subscribed) => subscribed,
+            // Only live sessions have subscribers. One that exists on disk but
+            // not in memory has to be brought back first — opening a past
+            // conversation is otherwise impossible. Recorded as every resume is,
+            // by the link.
+            None => {
+                ops.resume(session_id, info).await?;
+                ops.subscribe(session_id).await?.ok_or_else(|| {
+                    RpcError::new(harnix_engine_api::ops::codes::SESSION_NOT_FOUND, "the session was resumed and is not there")
+                })?
             }
-            if let Some(root) = info.get("project_root").filter(|r| !r.is_null()) {
-                resume["project_root"] = root.clone();
-            }
-            if let Some(name) = self.inner.lock().await.recordings.get(key).cloned() {
-                resume["options"] = json!({"recorder": {"name": name}});
-            }
-            // A resumed session records too, or its next turn would be
-            // the one turn with no envelope. Nothing is written until it
-            // makes a call, so reopening a conversation just to read it
-            // leaves the previous run's recording intact.
-            self.call(instance, "session.resume", self.recording(resume))
-                .await?;
-            resp = self
-                .call(instance, "session.subscribe", json!({"session_id": session_id}))
-                .await;
-        }
-        let resp = resp?;
+        };
         let mut guard = self.inner.lock().await;
         let state = guard.sessions.entry(key.clone()).or_default();
         state.subscribed = true;
         // Replaced, not extended: after a resync these are the same asks
         // the hub already held.
-        state.pending_prompts = resp
-            .get("pending_prompts")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        Ok(resp.get("last_seq").and_then(Value::as_u64))
+        state.pending_prompts = subscribed.pending;
+        Ok(subscribed.last_seq)
     }
 
     pub(crate) async fn detach(
         &self,
-        subject: &harnix_contract::Subject,
+        cx: &CallContext,
         params: Value,
     ) -> Result<Value, RpcError> {
         let key = self.key_of(&params)?;
-        let client = client_of(subject, &params)?;
+        let client = client_of(cx)?;
         let mut guard = self.inner.lock().await;
         if let Some(state) = guard.sessions.get_mut(&key) {
             state.watchers.remove(&client);
@@ -343,50 +335,30 @@ impl Hub {
     }
 
     /// A prompt was answered: it no longer waits, and the session's row says so.
-    pub(crate) async fn answered(self: &Arc<Self>, key: &SessionKey, which: impl Fn(&Value) -> bool) {
+    pub(crate) async fn answered(self: &Arc<Self>, key: &SessionKey, which: impl Fn(&Prompt) -> bool) {
         if let Some(state) = self.inner.lock().await.sessions.get_mut(key) {
             state.pending_prompts.retain(|p| !which(p));
         }
         self.refresh("harnix.instances.sessions", json!({"instance": key.0}));
     }
 
-    /// Intercepted so the new session records (see `with_recording`).
+    /// Intercepted for where the new session lands and who started it. It records as every
+    /// session does, by the link.
     pub(crate) async fn create(
         self: &std::sync::Arc<Self>,
-        subject: &harnix_contract::Subject,
+        cx: &harnix_kernel::CallContext,
         mut params: Value,
     ) -> Result<Value, RpcError> {
-        let space = self.place(&mut params).await?;
+        let subject = &cx.subject;
+        let space = self.place(cx, &mut params).await?;
         let instance = self.instance_of(&params)?;
-        let named = params
-            .get("options")
-            .and_then(|o| o.get("recorder"))
-            .and_then(|r| r.get("name"))
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        let mut created = self
-            .call(
-                &instance,
-                "session.create",
-                self.recording(without_instance(params)),
-            )
-            .await?;
-        if let (Some(name), Some(_), Some(sid)) = (
-            named,
-            self.replay_from(),
-            created.get("session_id").and_then(Value::as_str),
-        ) {
-            self.inner
-                .lock()
-                .await
-                .recordings
-                .insert((instance.clone(), sid.to_string()), name);
-        }
-        if let Some(sid) = created.get("session_id").and_then(Value::as_str) {
-            let key = (instance.clone(), sid.to_string());
+        let created = self.engine(&instance)?.ops().create(without_instance(params)).await?;
+        if let Some(sid) = &created.session_id {
+            let key = (instance.clone(), sid.clone());
             self.bind_space(&key, &space);
             self.note_starter(&key, subject);
         }
+        let mut created = created.value;
         if let Some(obj) = created.as_object_mut() {
             obj.insert("instance".into(), json!(instance));
             obj.insert("space".into(), json!(space));
@@ -394,24 +366,19 @@ impl Hub {
         Ok(created)
     }
 
-    /// How many times the engine has compacted the session (`session.get`'s `compact_count`).
+    /// How many times the engine has compacted the session.
     pub(crate) async fn compactions(&self, key: &SessionKey) -> u64 {
-        self.call(&key.0, "session.get", json!({"session_id": key.1}))
-            .await
-            .map(|info| compactions_of(&info))
-            .unwrap_or(0)
+        match self.engine(&key.0) {
+            Ok(linked) => linked.ops().get(&key.1).await.map(|info| info.compactions()).unwrap_or(0),
+            Err(_) => 0,
+        }
     }
 
     pub(crate) async fn history_total(&self, key: &SessionKey) -> u64 {
-        self.call(
-            &key.0,
-            "session.history",
-            json!({"session_id": key.1, "limit": 0}),
-        )
-        .await
-        .ok()
-        .and_then(|v| v.get("total").and_then(Value::as_u64))
-        .unwrap_or(0)
+        match self.engine(&key.0) {
+            Ok(linked) => linked.ops().history_len(&key.1).await.unwrap_or(0),
+            Err(_) => 0,
+        }
     }
 
     pub(crate) async fn fan_out(&self, watchers: &[ClientId], frame: Frame) {
@@ -424,25 +391,14 @@ impl Hub {
 /// Which client this call is on behalf of.
 ///
 /// Watching is per-client, and a subject may have several. The transport
-/// stamps the id onto the params; nothing else may set it, which is why a
-/// missing one is an error rather than a default.
-pub(crate) fn client_of(
-    subject: &harnix_contract::Subject,
-    params: &Value,
-) -> Result<ClientId, RpcError> {
-    params
-        .get("__client")
-        .and_then(Value::as_u64)
-        .map(ClientId)
-        .ok_or_else(|| {
-            RpcError::invalid_params(format!(
-                "{} called a watching method outside a client connection",
-                subject.label()
-            ))
-        })
+/// says which connection a call came on; nothing else may, which is why a
+/// call that came on none is an error rather than a default.
+pub(crate) fn client_of(cx: &CallContext) -> Result<ClientId, RpcError> {
+    cx.client.ok_or_else(|| {
+        RpcError::invalid_params(format!(
+            "{} called a watching method outside a client connection",
+            cx.subject.label()
+        ))
+    })
 }
 
-/// A `session.get` answer's compaction count; zero when it does not say.
-pub(crate) fn compactions_of(info: &Value) -> u64 {
-    info.get("compact_count").and_then(Value::as_u64).unwrap_or(0)
-}

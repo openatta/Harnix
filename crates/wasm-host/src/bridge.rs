@@ -1,0 +1,667 @@
+//! What a package's VM is lent (`harnix_wasm::VmHost`), what answers its methods, and what
+//! it is counted by.
+//!
+//! A package reaches the product, and the product reaches it, through the registration the
+//! host makes for it ([`Kernel::register`]). That registration is everything the package is
+//! to the rest of the product:
+//!
+//! - **Its methods** (`[[method]]`, `<id>.<name>`) are declared with the principals the
+//!   manifest names, so a call from the page, an extension or another package is admitted and
+//!   audited before [`Method::answer`] sees it. Its params are checked against the declared schema
+//!   here, then the call queues for the resident backend's `handle`.
+//! - **Its topics** (`[[topic]]`) are the only ones `host.publish` reaches, in the order the
+//!   backend published them.
+//! - **Its `calls` capability** is what `host.call` and `host.subscribe` may reach as
+//!   `ext:<id>`; the kernel decides, grants and audits. Whatever it refuses is kept here too,
+//!   for the system space.
+//! - **Its spaces** (`[[space]]`) are listed with every other.
+//!
+//! **A call's chain.** Every call the host serves for the product comes with its [`CallMeta`], and
+//! is kept here while it runs ([`Bridge::serve`]): a `host.call` the package makes while serving
+//! it names it as its parent, and — when it holds the backend (a method call, `init`) — carries its
+//! chain with the package held on it. A call that comes back into this backend while the
+//! backend still serves the call the chain holds it on is refused at once, however it travelled
+//! ([`Bridge::holds_backend`]); one whose call was answered long ago is not. What the backend does
+//! on its own — a timer firing, a topic value — is served the same way, under an id the VM made
+//! for it ([`VmHost::delivering`]): a call it makes then holds the package on that id.
+//!
+//! Who may call a package's methods, then: whoever its manifest names — `device` (the
+//! default) is every paired device and so the page, under its token, `module` every module (a
+//! compiled-in module, or another package whose `calls` list the method), `kernel` the product
+//! itself — and always the package itself, whose tools reach their backend that way. A session
+//! does not call methods: the agent uses the package's tools, and a tool that needs the
+//! backend's state asks for it with `host.call`.
+
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
+
+use async_trait::async_trait;
+use harnix_wasm_port::{CallAs, CallMeta, Failure, Kernel, Publish, RpcError, Subject, Subscription};
+use harnix_wasm::{VmHost, AppVm, CallFailure, WeakAppVm};
+use serde_json::{json, Value};
+use tokio::sync::{mpsc, oneshot};
+
+use harnix_wasm_port::codes;
+use harnix_contract::sync::lock;
+
+/// Refused calls kept per package for the system space.
+const REFUSALS_KEPT: usize = 20;
+/// Publishes waiting for the kernel, and topic values waiting for the backend's VM to start.
+/// Past this the package (or the hub, for what it subscribed to) is outrunning what takes them,
+/// and dropping — counted — beats growing without bound.
+pub(crate) const QUEUE: usize = 256;
+/// Method errors kept per package.
+const ERRORS_KEPT: usize = 20;
+
+pub(crate) fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// A call of the product's the host is serving for one package.
+struct Served {
+    meta: CallMeta,
+    /// It holds the resident backend: a call made while serving it waits on it.
+    holds: bool,
+    /// How many times it is being served (a product that reuses an id for two calls at once).
+    count: usize,
+}
+
+/// Ids for calls the product sent with none.
+static UNNAMED: AtomicU64 = AtomicU64::new(1);
+
+/// While held, the call is being served ([`Bridge::serve`]).
+pub(crate) struct Serving {
+    bridge: Arc<Bridge>,
+    id: String,
+}
+
+impl Serving {
+    /// The id the call is served under: the product's, or one made for it when it gave none.
+    pub(crate) fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+impl Drop for Serving {
+    fn drop(&mut self) {
+        leave(&mut lock(&self.bridge.served), &self.id);
+    }
+}
+
+fn enter(served: &mut HashMap<String, Served>, id: &str, meta: CallMeta, holds: bool) {
+    let entry = served.entry(id.to_string()).or_insert(Served { meta, holds, count: 0 });
+    entry.holds |= holds;
+    entry.count += 1;
+}
+
+fn leave(served: &mut HashMap<String, Served>, id: &str) {
+    if let Some(entry) = served.get_mut(id) {
+        entry.count -= 1;
+        if entry.count == 0 {
+            served.remove(id);
+        }
+    }
+}
+
+/// What one package did, as the system space shows it. Every count it makes bumps the host's
+/// generation (`Host::generation`): what the package does on its own — a timer's work, what
+/// it publishes — moves it as much as a call does.
+#[derive(Default)]
+pub struct Stats {
+    inner: Mutex<Counted>,
+    generation: Arc<AtomicU64>,
+}
+
+#[derive(Default)]
+struct Counted {
+    /// Per method: calls, and how many of them failed.
+    methods: BTreeMap<String, (u64, u64)>,
+    /// `host.call`s it made, and how many were refused.
+    hub_calls: u64,
+    published: u64,
+    /// What a full queue dropped: publishes, values for the backend, a tool call's progress.
+    dropped_publishes: u64,
+    dropped_topic_values: u64,
+    dropped_progress: u64,
+    errors: VecDeque<Value>,
+    refused: VecDeque<Value>,
+}
+
+impl Stats {
+    /// The counts, to change: the generation moves with them.
+    fn counted(&self) -> MutexGuard<'_, Counted> {
+        self.generation.fetch_add(1, Ordering::Relaxed);
+        lock(&self.inner)
+    }
+
+    pub(crate) fn method(&self, name: &str, error: Option<&RpcError>) {
+        let mut c = self.counted();
+        let entry = c.methods.entry(name.to_string()).or_default();
+        entry.0 += 1;
+        if let Some(e) = error {
+            entry.1 += 1;
+            if c.errors.len() == ERRORS_KEPT {
+                c.errors.pop_front();
+            }
+            c.errors.push_back(json!({"method": name, "code": e.code, "message": e.message, "at_ms": now_ms()}));
+        }
+    }
+
+    /// A call the package made as itself (`host.call`, `host.subscribe`) and how it ended.
+    fn hub(&self, what: &str, outcome: &Result<Value, RpcError>) {
+        let mut c = self.counted();
+        c.hub_calls += 1;
+        if let Err(e) = outcome {
+            if e.code == codes::REFUSED {
+                if c.refused.len() == REFUSALS_KEPT {
+                    c.refused.pop_front();
+                }
+                c.refused.push_back(json!({"method": what, "reason": e.message, "at_ms": now_ms()}));
+            }
+        }
+    }
+
+    pub(crate) fn dropped_progress(&self) {
+        self.counted().dropped_progress += 1;
+    }
+
+    pub fn report(&self) -> Value {
+        let c = lock(&self.inner);
+        let calls: u64 = c.methods.values().map(|(n, _)| n).sum();
+        let errors: u64 = c.methods.values().map(|(_, e)| e).sum();
+        json!({
+            "calls": calls,
+            "errors": errors,
+            "methods": c.methods.iter().map(|(name, (n, e))| json!({"name": name, "calls": n, "errors": e})).collect::<Vec<_>>(),
+            "hub_calls": c.hub_calls,
+            "published": c.published,
+            "dropped": {
+                "publishes": c.dropped_publishes,
+                "topic_values": c.dropped_topic_values,
+                "progress": c.dropped_progress,
+            },
+            // Newest first.
+            "recent_errors": c.errors.iter().rev().collect::<Vec<_>>(),
+            "refused": c.refused.iter().rev().collect::<Vec<_>>(),
+        })
+    }
+}
+
+/// What the package's VM is lent: the kernel behind `call`, `publish` and `subscribe`, the
+/// secrets the profile gives it, and the queue its subscriptions' values wait in until the VM has
+/// started.
+pub struct Bridge {
+    app: String,
+    kernel: Arc<dyn Kernel>,
+    /// `[[topic]]`: all `host.publish` may reach.
+    topics: BTreeSet<String>,
+    /// `[ext.packages.secrets."<id>"]`: what `host.secret` reads, for a name `env` declares.
+    secrets: BTreeMap<String, String>,
+    /// Publishes, in the order the backend made them, to one task that hands them to the kernel.
+    publish: mpsc::Sender<(String, Value)>,
+    /// Topic values for the backend's `on-topic`, held until its VM has started.
+    topic_values: mpsc::Sender<(String, Value)>,
+    started: Mutex<Option<oneshot::Sender<WeakAppVm>>>,
+    pub stats: Arc<Stats>,
+    /// The product's calls being served for the package, by the id each was served under.
+    served: Mutex<HashMap<String, Served>>,
+    /// While its VM starts: the start it serves, which `init`'s calls are made for.
+    booting: Mutex<Option<String>>,
+    /// The timer firing or topic value the backend answers now, by the id the VM gave it.
+    delivering: Mutex<Option<String>>,
+}
+
+impl Bridge {
+    /// `generation`: the host's, which every count this bridge makes moves.
+    pub fn new(
+        app: &str,
+        topics: impl IntoIterator<Item = String>,
+        secrets: BTreeMap<String, String>,
+        kernel: Arc<dyn Kernel>,
+        generation: Arc<AtomicU64>,
+    ) -> Arc<Self> {
+        let (publish, mut publish_rx) = mpsc::channel::<(String, Value)>(QUEUE);
+        let (topic_values, mut values) = mpsc::channel::<(String, Value)>(QUEUE);
+        let (started, vm) = oneshot::channel::<WeakAppVm>();
+        let stats = Arc::new(Stats {
+            inner: Mutex::default(),
+            generation,
+        });
+        // Values that arrive while `init` is still running wait here; the VM queues them behind it.
+        tokio::spawn(async move {
+            let Ok(vm) = vm.await else { return };
+            while let Some((topic, value)) = values.recv().await {
+                let Some(vm) = vm.upgrade() else { break };
+                vm.deliver_topic(&topic, &value);
+            }
+        });
+        {
+            let (app, kernel, stats) = (app.to_string(), kernel.clone(), stats.clone());
+            tokio::spawn(async move {
+                while let Some((topic, value)) = publish_rx.recv().await {
+                    let publish = Publish {
+                        app: app.clone(),
+                        topic: topic.clone(),
+                        value,
+                    };
+                    match kernel.publish(CallMeta::default(), publish).await {
+                        Ok(()) => stats.counted().published += 1,
+                        // Withdrawn under it: nothing more can be published.
+                        Err(e) => tracing::debug!(%app, %topic, error = %e.message, "not published"),
+                    }
+                }
+            });
+        }
+        Arc::new(Self {
+            app: app.to_string(),
+            kernel,
+            topics: topics.into_iter().collect(),
+            secrets,
+            publish,
+            topic_values,
+            started: Mutex::new(Some(started)),
+            stats,
+            served: Mutex::new(HashMap::new()),
+            booting: Mutex::new(None),
+            delivering: Mutex::new(None),
+        })
+    }
+
+    /// Serve the product's call `meta` for as long as the answer is held, by `key`: the id the VM
+    /// is told it serves (a method call's own id, a tool call's or a hook's). `holds`: it holds
+    /// the resident backend. A call with no id is given one.
+    pub(crate) fn serve(self: &Arc<Self>, key: &str, meta: &CallMeta, holds: bool) -> Serving {
+        let id = match key {
+            "" => format!("unnamed-{}", UNNAMED.fetch_add(1, Ordering::Relaxed)),
+            key => key.to_string(),
+        };
+        let meta = match meta.call_id() {
+            "" => meta.clone().with_call_id(id.as_str()),
+            _ => meta.clone(),
+        };
+        enter(&mut lock(&self.served), &id, meta, holds);
+        Serving { bridge: self.clone(), id }
+    }
+
+    /// While the VM starts, `init`'s calls are made for `start`.
+    pub(crate) fn booting(&self, start: Option<&str>) {
+        *lock(&self.booting) = start.map(str::to_string);
+    }
+
+    /// Whether the backend is still serving the call `call`: a call whose chain holds the
+    /// package on it would wait for itself.
+    pub fn holds_backend(&self, call: &str) -> bool {
+        lock(&self.served).get(call).is_some_and(|s| s.holds)
+    }
+
+    /// The metadata of a call the package makes while serving `serving` (or `init`'s call,
+    /// while it starts): that call its parent, its chain the served call's — with the
+    /// package held on it when it holds the backend — and its deadline the same.
+    fn made_within(&self, serving: Option<&str>) -> CallMeta {
+        let booting = lock(&self.booting).clone();
+        let Some(id) = serving.map(str::to_string).or(booting) else {
+            return CallMeta::default();
+        };
+        match lock(&self.served).get(&id) {
+            Some(served) => served.meta.child(&self.app, served.holds),
+            None => CallMeta::default(),
+        }
+    }
+
+    /// A value on a topic it subscribed to, from the kernel.
+    pub fn deliver(&self, topic: String, value: Value) {
+        self.queue_value(topic, value);
+    }
+
+    fn queue_value(&self, topic: String, value: Value) {
+        if let Err(mpsc::error::TrySendError::Full(_)) = self.topic_values.try_send((topic, value)) {
+            self.stats.counted().dropped_topic_values += 1;
+            tracing::warn!(app = %self.app, "the backend's topic queue is full; a value dropped");
+        }
+    }
+
+    /// The VM has started: hand it what arrived meanwhile, and everything after.
+    pub fn started(&self, vm: &AppVm) {
+        if let Some(tx) = lock(&self.started).take() {
+            let _ = tx.send(vm.downgrade());
+        }
+    }
+}
+
+#[async_trait]
+impl VmHost for Bridge {
+    async fn call(&self, app: &str, method: &str, params: Value) -> Result<Value, String> {
+        self.call_within(app, None, method, params).await
+    }
+
+    async fn call_within(&self, _app: &str, serving: Option<&str>, method: &str, params: Value) -> Result<Value, String> {
+        // On the same task, so a call that routes back into this backend is recognized by the VM
+        // and refused rather than waiting for itself; and carrying the chain of the call it serves,
+        // so the host recognizes it too when the route went through another task or process.
+        let call = CallAs {
+            app: self.app.clone(),
+            method: method.to_string(),
+            params,
+        };
+        let outcome = self.kernel.call(self.made_within(serving), call).await;
+        self.stats.hub(method, &outcome);
+        outcome.map_err(|e| e.message)
+    }
+
+    /// Served while it runs, holding the backend, as a call of the product's is: nothing waits on
+    /// it, so the chain of what it calls starts with it.
+    fn delivering(&self, _app: &str, serving: Option<&str>) {
+        let mut served = lock(&self.served);
+        let mut delivering = lock(&self.delivering);
+        if let Some(done) = delivering.take() {
+            leave(&mut served, &done);
+        }
+        if let Some(id) = serving {
+            enter(&mut served, id, CallMeta::new(id), true);
+            *delivering = Some(id.to_string());
+        }
+    }
+
+    fn publish(&self, _app: &str, topic: &str, value: Value) -> Result<(), String> {
+        if !self.topics.contains(topic) {
+            return Err(format!(
+                "`{topic}` is not a topic `{}` declared (`[[topic]]` in its manifest)",
+                self.app
+            ));
+        }
+        match self.publish.try_send((topic.to_string(), value)) {
+            Ok(()) => Ok(()),
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                self.stats.counted().dropped_publishes += 1;
+                Err(format!(
+                    "dropped: `{}` has {QUEUE} publishes waiting already; it publishes faster than \
+                     they can be sent",
+                    self.app
+                ))
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                Err("the package is stopping".to_string())
+            }
+        }
+    }
+
+    async fn subscribe(&self, _app: &str, topic: &str, params: &Value) -> Result<(), String> {
+        let outcome = self
+            .kernel
+            .subscribe(self.made_within(None), Subscription {
+                app: self.app.clone(),
+                topic: topic.to_string(),
+                params: params.clone(),
+            })
+            .await;
+        self.stats.hub(&format!("topic:{topic}"), &outcome);
+        let answer = outcome.map_err(|e| e.message)?;
+        // The value now, as any subscriber is given it; every later one comes from the kernel.
+        let value = &answer["value"];
+        if !value.is_null() {
+            self.queue_value(topic.to_string(), value.clone());
+        }
+        Ok(())
+    }
+
+    async fn unsubscribe(&self, _app: &str, topic: &str, params: &Value) {
+        let _ = self
+            .kernel
+            .unsubscribe(CallMeta::default(), Subscription {
+                app: self.app.clone(),
+                topic: topic.to_string(),
+                params: params.clone(),
+            })
+            .await;
+    }
+
+    /// From the profile, never from this process's environment (`VmHost::secret`).
+    fn secret(&self, _app: &str, key: &str) -> Option<String> {
+        let value = self.secrets.get(key).cloned();
+        if value.is_none() {
+            tracing::debug!(app = %self.app, %key, "a declared secret the profile does not set");
+        }
+        value
+    }
+}
+
+/// One `[[method]]`, answered by the resident backend.
+pub struct Method {
+    pub app: String,
+    pub name: String,
+    pub schema: Option<jsonschema::Validator>,
+}
+
+/// What the backend's `handle` is told of who called: `{"subject": "device:d1", "kind", "id"}`.
+fn caller_json(caller: &Subject) -> Value {
+    let mut caller_value = serde_json::to_value(caller).unwrap_or(json!({}));
+    if let Some(obj) = caller_value.as_object_mut() {
+        obj.insert("subject".into(), json!(caller.label()));
+    }
+    caller_value
+}
+
+pub(crate) fn failure_of(failure: &CallFailure) -> Failure {
+    match failure {
+        CallFailure::TimedOut => Failure::TimedOut,
+        CallFailure::Cancelled => Failure::Cancelled,
+        CallFailure::Faulted(_) => Failure::Faulted,
+        CallFailure::Unavailable(_) | CallFailure::Reentrant(_) => Failure::Unavailable,
+    }
+}
+
+impl Method {
+    fn full(&self) -> String {
+        format!("{}.{}", self.app, self.name)
+    }
+
+    /// Checked against its schema, then answered by `vm` (none: the package is not running),
+    /// serving the product's call `serving`.
+    pub async fn answer(
+        &self,
+        vm: Option<&AppVm>,
+        serving: &str,
+        caller: &Subject,
+        params: Value,
+    ) -> Result<Value, RpcError> {
+        let params = if params.is_null() { json!({}) } else { params };
+        if let Some(schema) = &self.schema {
+            let problems: Vec<String> = schema
+                .iter_errors(&params)
+                .take(5)
+                .map(|e| {
+                    let at = e.instance_path().to_string();
+                    if at.is_empty() { e.to_string() } else { format!("{at}: {e}") }
+                })
+                .collect();
+            if !problems.is_empty() {
+                return Err(RpcError::invalid_params(format!(
+                    "`{}`'s params do not match its schema: {}",
+                    self.full(),
+                    problems.join("; ")
+                )));
+            }
+        }
+        let Some(vm) = vm else {
+            return Err(unavailable(&self.app, &self.full(), "the package is not running", "stopped"));
+        };
+        match vm.handle_as(Some(serving), &self.name, &params, &caller_json(caller)).await {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(e)) => Err(RpcError {
+                code: e.code,
+                message: e.message,
+                data: e.data,
+            }),
+            Err(failure) => Err(no_answer(&self.app, &self.full(), &failure, vm)),
+        }
+    }
+}
+
+/// The backend gave no answer, in the codes a caller tells the reasons apart by: its timeout
+/// passed (`DEADLINE_EXCEEDED`), the call was cancelled (`CANCELLED`), or the package could
+/// not take it (`EXTENSION_UNAVAILABLE`, `data.failure` saying why: it crashed or was set aside —
+/// `faulted` —, it is stopped, the call would have re-entered it).
+pub(crate) fn no_answer(app: &str, method: &str, failure: &CallFailure, vm: &AppVm) -> RpcError {
+    let (code, why) = match failure {
+        CallFailure::TimedOut => (codes::DEADLINE_EXCEEDED, "timed_out"),
+        CallFailure::Cancelled => (codes::CANCELLED, "cancelled"),
+        CallFailure::Faulted(_) => (codes::EXTENSION_UNAVAILABLE, "faulted"),
+        CallFailure::Reentrant(_) => (codes::EXTENSION_UNAVAILABLE, "reentrant"),
+        CallFailure::Unavailable(_) => match vm.health().state {
+            harnix_wasm::VmState::Disabled { .. } => (codes::EXTENSION_UNAVAILABLE, "faulted"),
+            harnix_wasm::VmState::Stopped => (codes::EXTENSION_UNAVAILABLE, "stopped"),
+            _ => (codes::EXTENSION_UNAVAILABLE, "unavailable"),
+        },
+    };
+    let mut e = RpcError::new(code, format!("`{method}`: {failure}"));
+    e.data = Some(json!({"app": app, "failure": why}));
+    e
+}
+
+/// The package cannot take the call (`EXTENSION_UNAVAILABLE`); `failure` says why:
+/// `stopped`, `reentrant`.
+pub(crate) fn unavailable(app: &str, method: &str, why: &str, failure: &str) -> RpcError {
+    let mut e = RpcError::new(codes::EXTENSION_UNAVAILABLE, format!("`{method}`: {why}"));
+    e.data = Some(json!({"app": app, "failure": failure}));
+    e
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A kernel that never takes a publish: one the package outruns.
+    struct Stuck;
+
+    #[async_trait]
+    impl Kernel for Stuck {
+        async fn publish(&self, _: CallMeta, _: Publish) -> Result<(), RpcError> {
+            std::future::pending().await
+        }
+        async fn register(&self, _: CallMeta, _: harnix_wasm_port::Registration) -> Result<(), RpcError> {
+            unreachable!()
+        }
+        async fn withdraw(&self, _: CallMeta, _: String) -> Result<(), RpcError> {
+            unreachable!()
+        }
+        async fn call(&self, _: CallMeta, _: CallAs) -> Result<Value, RpcError> {
+            unreachable!()
+        }
+        async fn subscribe(&self, _: CallMeta, _: Subscription) -> Result<Value, RpcError> {
+            unreachable!()
+        }
+        async fn unsubscribe(&self, _: CallMeta, _: Subscription) -> Result<(), RpcError> {
+            unreachable!()
+        }
+        async fn fetch(&self, _: CallMeta, _: harnix_wasm_port::Fetch) -> Result<harnix_wasm_port::Fetched, RpcError> {
+            unreachable!()
+        }
+        async fn turn_chain(&self, _: CallMeta, _: harnix_wasm_port::TurnRef) -> Result<harnix_wasm_port::TurnChain, RpcError> {
+            unreachable!()
+        }
+        fn progress(&self, _: harnix_wasm_port::Progress) {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn a_call_made_while_serving_one_is_its_child_and_held_on_it_only_when_it_holds_the_backend() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let _in = runtime.enter();
+        let bridge = Bridge::new("acme.notes", [], BTreeMap::new(), Arc::new(Stuck), Default::default());
+        let method = CallMeta::new("41").chain([harnix_wasm_port::ChainLink::new("acme.todo", "7")]).deadline_ms(9);
+        let held = bridge.serve("41", &method, true);
+        let tool = bridge.serve("", &CallMeta::default(), false);
+        assert!(bridge.holds_backend("41") && !bridge.holds_backend(tool.id()));
+        let made = bridge.made_within(Some("41"));
+        assert_eq!((made.parent_id(), made.deadline()), (Some("41"), Some(9)));
+        assert!(made.holds("acme.todo", "7") && made.holds("acme.notes", "41"));
+        let from_tool = bridge.made_within(Some(tool.id()));
+        assert_eq!(from_tool.parent_id(), Some(tool.id()));
+        assert!(from_tool.links().is_empty(), "a tool holds no backend");
+        assert_eq!(bridge.made_within(None), CallMeta::default(), "what the backend does on its own");
+        // Answered, it holds nothing any more.
+        drop(held);
+        assert!(!bridge.holds_backend("41"));
+        assert_eq!(bridge.made_within(Some("41")), CallMeta::default());
+        // While it starts, `init` serves the start.
+        let start = bridge.serve("s1", &CallMeta::new("s1"), true);
+        bridge.booting(Some(start.id()));
+        assert!(bridge.made_within(None).holds("acme.notes", "s1"));
+        bridge.booting(None);
+        drop(start);
+        // A timer firing or a topic value: served under the VM's id while it runs, holding the
+        // backend, with nothing before it.
+        VmHost::delivering(&*bridge, "acme.notes", Some("delivery-1"));
+        assert!(bridge.holds_backend("delivery-1"));
+        let made = bridge.made_within(Some("delivery-1"));
+        assert_eq!(made.parent_id(), Some("delivery-1"));
+        assert!(made.holds("acme.notes", "delivery-1") && made.links().len() == 1, "{made:?}");
+        VmHost::delivering(&*bridge, "acme.notes", None);
+        assert!(!bridge.holds_backend("delivery-1"));
+        assert_eq!(bridge.made_within(Some("delivery-1")), CallMeta::default());
+    }
+
+    #[tokio::test]
+    async fn publishes_past_the_queue_are_dropped_counted_and_said() {
+        let bridge = Bridge::new("acme.notes", ["notes".to_string()], BTreeMap::new(), Arc::new(Stuck), Default::default());
+        let mut refused = Vec::new();
+        for n in 0..QUEUE + 10 {
+            if let Err(e) = VmHost::publish(&*bridge, "acme.notes", "notes", json!(n)) {
+                refused.push(e);
+            }
+        }
+        // The queue, and at most one taken off it and stuck in the kernel.
+        assert!((9..=10).contains(&refused.len()), "{}", refused.len());
+        assert!(refused[0].starts_with("dropped"), "{}", refused[0]);
+        assert_eq!(bridge.stats.report()["dropped"]["publishes"], json!(refused.len()));
+        // Topic values for a VM that has not started wait in a queue of the same bound.
+        for n in 0..QUEUE + 3 {
+            bridge.deliver("harnix.sessions.status".into(), json!(n));
+        }
+        assert_eq!(bridge.stats.report()["dropped"]["topic_values"], json!(3));
+    }
+
+    #[test]
+    fn a_secret_is_the_profiles_or_none() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let _in = runtime.enter();
+        let secrets = BTreeMap::from([("TOKEN".to_string(), "given".to_string())]);
+        let bridge = Bridge::new("acme.notes", [], secrets, Arc::new(Stuck), Default::default());
+        std::env::set_var("HARNIX_BRIDGE_TEST_ENV", "the-process-own");
+        assert_eq!(VmHost::secret(&*bridge, "acme.notes", "TOKEN").as_deref(), Some("given"));
+        assert_eq!(VmHost::secret(&*bridge, "acme.notes", "HARNIX_BRIDGE_TEST_ENV"), None);
+    }
+
+    #[test]
+    fn the_caller_is_named_for_the_backend() {
+        assert_eq!(
+            caller_json(&Subject::Device { id: "d1".into() }),
+            json!({"kind": "device", "id": "d1", "subject": "device:d1"})
+        );
+        assert_eq!(caller_json(&Subject::Kernel)["subject"], json!("kernel"));
+    }
+
+    #[test]
+    fn refusals_and_errors_are_kept_newest_first_and_bounded() {
+        let stats = Stats::default();
+        for n in 0..(REFUSALS_KEPT + 5) {
+            stats.hub(&format!("m{n}"), &Err(RpcError::refused("no")));
+        }
+        stats.hub("ok", &Ok(json!(1)));
+        stats.hub("broken", &Err(RpcError::new(codes::INTERNAL_ERROR, "x")));
+        stats.method("notes.add", None);
+        stats.method("notes.add", Some(&RpcError::invalid_params("bad")));
+        let report = stats.report();
+        assert_eq!(report["hub_calls"], json!(REFUSALS_KEPT + 7));
+        let refused = report["refused"].as_array().unwrap();
+        assert_eq!(refused.len(), REFUSALS_KEPT, "only refusals, and only so many");
+        assert_eq!(refused[0]["method"], json!(format!("m{}", REFUSALS_KEPT + 4)));
+        assert_eq!((report["calls"].clone(), report["errors"].clone()), (json!(2), json!(1)));
+        assert_eq!(report["recent_errors"][0]["code"], json!(codes::INVALID_PARAMS));
+    }
+}

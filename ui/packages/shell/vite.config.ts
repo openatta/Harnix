@@ -1,10 +1,17 @@
 /**
- * One build of the whole interface (harnix-sdk.md §22.5): Harnix's shell and, for an application, its
- * spaces' interface modules, into the directory the binary embeds.
+ * One build of the whole interface (harnix-ext.md §22.5): Harnix's shell, its first-party UI
+ * packages and, for an application, its spaces' interface modules, into the directory the binary
+ * embeds.
  *
+ *   HARNIX_UI_FIRST_PARTY  which of Harnix's own UI packages go in (`@harnix/<name>`), comma-
+ *                      separated; all of them when unset, none when empty. Each names the
+ *                      backend extension it draws (`export const extension`) and registers only
+ *                      while that extension is enabled, so one an application does not link costs
+ *                      bytes, not behaviour.
  *   HARNIX_UI_MODULES  the application's interface entry points, comma-separated absolute paths,
  *                      in the order of its modules; each exports `register(registry, host)`.
- *                      Generated into `virtual:harnix-modules`. Empty for Harnix itself.
+ *                      After the first-party packages in `virtual:harnix-modules`: a later
+ *                      registration wins a claim. Empty for Harnix itself.
  *   HARNIX_UI_OUT      where the build goes; `ui/dist` by default. The binary is built with
  *                      `HARNIX_UI_DIST` pointing at the same place.
  *
@@ -77,11 +84,25 @@ function importMap(): Plugin {
 
 const VIRTUAL = "virtual:harnix-modules";
 
-function harnixModules(): Plugin {
-  const entries = (process.env.HARNIX_UI_MODULES ?? "")
+/**
+ * Harnix's own UI packages, in the order they register: the settings sections in the order the
+ * panel lists them, then the spaces, the system space before what fills its points.
+ */
+const FIRST_PARTY = ["settings", "plugins", "devices", "packages", "harnix-app", "system", "observability", "flow"];
+
+const list = (value: string) =>
+  value
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+
+function harnixModules(): Plugin {
+  const chosen = process.env.HARNIX_UI_FIRST_PARTY;
+  const firstParty = (chosen === undefined ? FIRST_PARTY : list(chosen)).map((name) => {
+    if (!FIRST_PARTY.includes(name)) throw new Error(`HARNIX_UI_FIRST_PARTY: no first-party UI package \`${name}\` (${FIRST_PARTY.join(", ")})`);
+    return `@harnix/${name}`;
+  });
+  const entries = [...firstParty, ...list(process.env.HARNIX_UI_MODULES ?? "")];
   return {
     name: "harnix-modules",
     resolveId(id) {

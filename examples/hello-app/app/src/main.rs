@@ -2,15 +2,15 @@
 //!
 //! | space | interface | backend | Agent |
 //! |---|---|---|---|
-//! | `greeter` | a tab and a HOME card (`ui/`) | the `greeter` module below | its own in-process instance, from the module's template |
+//! | `greeter` | a tab and a HOME card (`ui/`) | the `greeter` extension below | its own in-process instance, from the extension's template |
 //! | `notes` | a space (`ui/`) | — | the `system` instance |
 //!
 //! The greeter also shows the two channels for what a call and a topic do not fit
-//! (docs/harnix-sdk.md §9, §10.2): a long job whose progress is a topic with a parameter
-//! (`count_to`, `app.greeter.job { job_id }`), and the module's own link under
-//! `/apps/greeter/` — an HTTP route and a WebSocket.
+//! (docs/harnix-ext.md §9, §10.2): a long job whose progress is a topic with a parameter
+//! (`count_to`, `greeter.job { job_id }`), and the extension's own link under
+//! `/ext/greeter/` — an HTTP route and a WebSocket.
 //!
-//! And an approval (docs/harnix-sdk.md §10.1), built on the public contract alone: a ticket
+//! And an approval (docs/harnix-ext.md §10.1), built on the public contract alone: a ticket
 //! written into the conversation as an entry, the session's pending tickets on a topic, an answer
 //! only a person can give (`approve` is for `Device`), the first answer winning, silence past the
 //! deadline counting as no, and every decision written down as another entry.
@@ -22,6 +22,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use harnix::axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use harnix::axum::routing::get;
+use harnix::ext::http::axum::router;
 use harnix::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -29,8 +30,10 @@ use serde_json::{json, Value};
 fn main() -> anyhow::Result<()> {
     harnix::App::builder()
         .name("hello-app", env!("CARGO_PKG_VERSION"))
-        .with_builtins()
-        .module(Greeter::default())
+        .extensions(harnix::first_party::standard())
+        // It needs no capability: its own topics, its own instance, entries in sessions.
+        .extension(Greeter::default())
+        .ungranted()
         .run()
 }
 
@@ -57,60 +60,54 @@ struct CountTo {
 }
 
 #[harnix::async_trait]
-impl Module for Greeter {
-    const API_VERSION: u32 = harnix::MODULE_API_VERSION;
+impl Extension for Greeter {
+    type Config = ();
 
     fn manifest(&self) -> Manifest {
         Manifest::new("greeter", "0.1.0").disclosure("greets people, and runs its sessions on an instance of its own")
     }
 
-    fn templates(&self, t: &mut InstanceTemplates) {
-        t.add(InstanceTemplate::new(
-            "desk",
-            TemplateCarrier::InProcess {
-                engine: EngineProfile {
-                    scene: "harnix".into(),
-                    ..EngineProfile::default()
-                },
-                contrib: EngineContrib::new(),
-            },
-        ));
-    }
+    fn register(&self, m: &mut Registrar<'_, ()>) {
+        m.template(InstanceTemplate::in_process("desk", EngineProfile::new().scene("harnix")));
+        m.space(SpaceDecl::new("greeter").instance("template:greeter.desk").scene("harnix"));
+        m.topic("greeted").published();
+        m.topic("job").param("job_id").published();
+        m.topic("approvals").param("instance").param("session_id").published();
 
-    fn spaces(&self, s: &mut SpaceRegistry) {
-        s.add(SpaceDecl::new("greeter").instance("template:greeter.desk").scene("harnix"));
-    }
+        // Its own link, under `/ext/greeter/`: an HTTP route and a WebSocket.
+        let routes = harnix::axum::Router::new()
+            .route("/hello", get(|| async { "hello from the greeter's own route" }))
+            .route("/echo", get(|ws: WebSocketUpgrade| async { ws.on_upgrade(echo) }));
+        m.route("", Access::device(), router(routes));
 
-    fn methods(&self, m: &mut MethodRegistry) {
         let greeted = self.greeted.clone();
-        m.method("greet", Principal::Device)
+        m.method("greet").access(Access::device())
             .describe("says hello, and counts")
             .schema(json!({"type": "object", "required": ["name"], "properties": {"name": {"type": "string"}}}))
-            .handler(move |cx: CallContext, p: Greet| {
+            .handler(move |cx: Call, p: Greet| {
                 let greeted = greeted.clone();
                 async move {
                     let n = greeted.fetch_add(1, Ordering::SeqCst) + 1;
-                    cx.module().events().publish("greeted", json!({}), json!({"count": n})).await?;
+                    cx.ext().topics().publish("greeted", json!({}), json!({"count": n})).await?;
                     Ok(json!({"greeting": format!("hello, {}", p.name), "count": n}))
                 }
             });
 
         let jobs = self.jobs.clone();
-        m.method("count_to", Principal::Device)
-            .describe("counts to `to`, slowly: a long job, answered with its id, its progress on `app.greeter.job`")
+        m.method("count_to").access(Access::device())
+            .describe("counts to `to`, slowly: a long job, answered with its id, its progress on `greeter.job`")
             .schema(json!({"type": "object", "required": ["to"], "properties": {"to": {"type": "integer", "minimum": 1, "maximum": 100}}}))
-            .handler(move |cx: CallContext, p: CountTo| {
+            .handler(move |cx: Call, p: CountTo| {
                 let jobs = jobs.clone();
                 async move {
                     let job_id = format!("job-{}", jobs.fetch_add(1, Ordering::SeqCst) + 1);
-                    let events = cx.module().events().clone();
+                    let ext = cx.ext().clone();
                     let key = json!({"job_id": job_id});
                     let state = |done: u32| json!({"job_id": job_id, "done": done, "total": p.to, "finished": done == p.to});
                     // The first value is there before the id is handed out: whoever subscribes
                     // next reads it, however late.
-                    events.publish("job", key.clone(), state(0)).await?;
+                    ext.topics().publish("job", key.clone(), state(0)).await?;
                     let states: Vec<_> = (1..=p.to).map(state).collect();
-                    let module = cx.module().clone();
                     let card = match (p.instance, p.session_id) {
                         (Some(instance), Some(session_id)) => Some(SessionRef { instance, session_id }),
                         _ => None,
@@ -119,10 +116,10 @@ impl Module for Greeter {
                     tokio::spawn(async move {
                         for value in states {
                             tokio::time::sleep(Duration::from_millis(40)).await;
-                            let _ = events.publish("job", key.clone(), value).await;
+                            let _ = ext.topics().publish("job", key.clone(), value).await;
                         }
                         if let Some(session) = card {
-                            let _ = module.sessions().append_entry(&session, Entry::new("job_done", done)).await;
+                            let _ = ext.sessions().append_entry(&session, Entry::new("job_done", done)).await;
                         }
                     });
                     Ok(json!({"job_id": job_id}))
@@ -130,53 +127,51 @@ impl Module for Greeter {
             });
 
         let approvals = self.approvals.clone();
-        m.method("request_approval", Principal::Device)
+        m.method("request_approval").access(Access::device())
             .describe("asks a person to approve something, in a conversation; no answer by the deadline is a no")
             .schema(json!({"type": "object", "required": ["instance", "session_id", "title"], "properties": {
                 "instance": {"type": "string"}, "session_id": {"type": "string"}, "title": {"type": "string"},
                 "timeout_ms": {"type": "integer", "minimum": 100}}}))
-            .handler(move |cx: CallContext, p: RequestApproval| {
+            .handler(move |cx: Call, p: RequestApproval| {
                 let approvals = approvals.clone();
                 async move {
-                    let module = cx.module().clone();
+                    let ext = cx.ext().clone();
                     let ticket = approvals.open(&p);
                     let session = ticket.session();
-                    module
-                        .sessions()
+                    ext.sessions()
                         .append_entry(&session, Entry::new("approval", json!(ticket)))
                         .await?;
-                    approvals.publish(&module, &session).await?;
+                    approvals.publish(&ext, &session).await?;
                     let (id, wait) = (ticket.id.clone(), Duration::from_millis(p.timeout_ms));
                     tokio::spawn(async move {
                         tokio::time::sleep(wait).await;
                         // Already answered is the usual case, not an error.
-                        let _ = settle(&module, &approvals, &id, Decision::Reject, "timeout").await;
+                        let _ = settle(&ext, &approvals, &id, Decision::Reject, "timeout").await;
                     });
                     Ok(json!(ticket))
                 }
             });
 
-        // A person's answer: `Device` only, so neither the Agent nor a module — this one included —
-        // can give it for them.
+        // A person's answer: a device's only, so neither the Agent nor an extension — this one
+        // included — can give it for them.
         let approvals = self.approvals.clone();
-        m.method("approve", Principal::Device)
+        m.method("approve").access(Access::device())
             .describe("a person's answer to an approval; the first answer stands")
             .schema(json!({"type": "object", "required": ["ticket", "decision"], "properties": {
                 "ticket": {"type": "string"}, "decision": {"enum": ["approve", "reject"]}}}))
-            .handler(move |cx: CallContext, p: Answer| {
+            .handler(move |cx: Call, p: Answer| {
                 let approvals = approvals.clone();
                 async move {
                     let by = cx.device().unwrap_or("?").to_string();
-                    settle(cx.module(), &approvals, &p.ticket, p.decision, &by).await
+                    settle(cx.ext(), &approvals, &p.ticket, p.decision, &by).await
                 }
             });
 
-        m.method("answer_for_a_person", Principal::Device)
-            .describe("tries to approve as this module, and reports the refusal it gets")
-            .handler(|cx: CallContext, p: Value| async move {
+        m.method("answer_for_a_person").access(Access::device())
+            .describe("tries to approve as this extension, and reports the refusal it gets")
+            .handler(|cx: Call, p: Value| async move {
                 let tried = cx
-                    .module()
-                    .call("app.greeter.approve", json!({"ticket": p["ticket"], "decision": "approve"}))
+                    .call("greeter.approve", json!({"ticket": p["ticket"], "decision": "approve"}))
                     .await;
                 Ok(match tried {
                     Ok(answer) => json!({"answered": answer}),
@@ -185,25 +180,11 @@ impl Module for Greeter {
             });
     }
 
-    fn events(&self, e: &mut EventRegistry) {
-        e.topic("greeted");
-        e.topic("job").param("job_id");
-        e.topic("approvals").param("instance").param("session_id");
-    }
-
-    fn routes(&self, r: &mut RouteRegistry) {
-        let router = harnix::axum::Router::new()
-            .route("/hello", get(|| async { "hello from the greeter's own route" }))
-            .route("/echo", get(|ws: WebSocketUpgrade| async { ws.on_upgrade(echo) }));
-        r.serve(&[Principal::Device], router);
-    }
-
-    async fn start(&self, cx: ModuleContext) -> anyhow::Result<()> {
-        cx.events().publish("greeted", json!({}), json!({"count": 0})).await?;
+    async fn start(&self, cx: ExtensionContext) -> anyhow::Result<()> {
+        cx.topics().publish("greeted", json!({}), json!({"count": 0})).await?;
         Ok(())
     }
 }
-
 
 async fn echo(mut socket: WebSocket) {
     while let Some(Ok(message)) = socket.recv().await {
@@ -304,7 +285,7 @@ impl Approvals {
         Ok(ticket.clone())
     }
 
-    async fn publish(&self, module: &ModuleContext, session: &SessionRef) -> Result<(), RpcError> {
+    async fn publish(&self, ext: &ExtensionContext, session: &SessionRef) -> Result<(), RpcError> {
         let tickets: Vec<Ticket> = self
             .tickets
             .lock()
@@ -313,8 +294,7 @@ impl Approvals {
             .filter(|t| t.instance == session.instance && t.session_id == session.session_id)
             .cloned()
             .collect();
-        module
-            .events()
+        ext.topics()
             .publish(
                 "approvals",
                 json!({"instance": session.instance, "session_id": session.session_id}),
@@ -325,13 +305,12 @@ impl Approvals {
 }
 
 /// Decide, write the decision into the conversation, and tell whoever is watching.
-async fn settle(module: &ModuleContext, approvals: &Approvals, id: &str, decision: Decision, by: &str) -> Result<Value, RpcError> {
+async fn settle(ext: &ExtensionContext, approvals: &Approvals, id: &str, decision: Decision, by: &str) -> Result<Value, RpcError> {
     let ticket = approvals.decide(id, decision, by)?;
     let session = ticket.session();
-    module
-        .sessions()
+    ext.sessions()
         .append_entry(&session, Entry::new("approval_decided", json!({"ticket": ticket.id, "state": ticket.state, "by": by})))
         .await?;
-    approvals.publish(module, &session).await?;
+    approvals.publish(ext, &session).await?;
     Ok(json!(ticket))
 }

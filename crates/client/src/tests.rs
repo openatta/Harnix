@@ -124,14 +124,14 @@ fn a_call_carries_the_credential_and_reads_a_chunked_answer() {
     let (a, b) = answer.split_at(10);
     let (url, seen) = serve(vec![handshake_ok(), chunked(200, vec![a.to_string(), b.to_string()])]);
     let client = Client::connect(&url, "tok").unwrap();
-    let result = client.call("app.x.do", json!({"n": 1})).unwrap();
+    let result = client.call("x.do", json!({"n": 1})).unwrap();
     assert_eq!(result, json!({"ok": "中文 ✓"}));
     seen.recv().unwrap();
     let request = seen.recv().unwrap();
     assert_eq!(request.line, "POST /rpc HTTP/1.1");
     assert!(request.headers.iter().any(|h| h == "Authorization: Bearer cred-1"));
     let body: Value = serde_json::from_str(&request.body).unwrap();
-    assert_eq!(body["method"], "app.x.do");
+    assert_eq!(body["method"], "x.do");
     assert_eq!(body["params"], json!({"n": 1}));
 }
 

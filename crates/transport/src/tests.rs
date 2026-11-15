@@ -10,12 +10,11 @@ use std::sync::{Arc, Mutex};
 use base64::Engine as _;
 use futures::{SinkExt as _, StreamExt as _};
 use harnix_contract::sync::lock;
-use harnix_contract::{Frame, FrameSink, Gate, RpcError, Subject};
-use harnix_hub::ClientId;
+use harnix_contract::{Frame, FrameSink, RpcError};
+use harnix_kernel::{CallContext, ClientId, ClientRegistry, Dispatch};
 use ring::signature::KeyPair as _;
 use serde_json::{json, Value};
 
-use crate::session::ClientRegistry;
 use crate::{Admission, BrowserAdmission, Channels, Config, Extensions, Face, LaunchLinks};
 
 /// The part of a hub a transport talks to, and nothing behind it.
@@ -60,12 +59,12 @@ impl ClientRegistry for FakeHub {
     }
 }
 
-/// Answers every call with who made it.
+/// Answers every call with who made it, and on which client.
 struct Echo;
 
 #[async_trait::async_trait]
-impl Gate for Echo {
-    async fn call(&self, subject: &Subject, method: &str, _params: Value) -> Result<Value, RpcError> {
+impl Dispatch for Echo {
+    async fn call(&self, cx: CallContext, method: &str, _params: Value) -> Result<Value, RpcError> {
         if method == "test.panic" {
             panic!("a handler that panics");
         }
@@ -74,7 +73,7 @@ impl Gate for Echo {
             e.data = Some(json!({"turn": "t1"}));
             return Err(e);
         }
-        Ok(json!({"subject": subject, "method": method}))
+        Ok(json!({"subject": cx.subject, "method": method, "client": cx.client.map(|c| c.0)}))
     }
 }
 
@@ -338,7 +337,7 @@ async fn an_unknown_credential_is_unauthorized() {
     assert_eq!(stream.status(), 401);
 }
 
-/// The split topology reads the frame before the credential (`docs/harnix-sdk.md` §21.1): a frame
+/// The split topology reads the frame before the credential (`docs/harnix-ext.md` §21.1): a frame
 /// with no method, or that is not JSON, is refused whatever the credential, and a credential that is
 /// missing or unknown is a 401 whose body still answers under the request's id.
 #[tokio::test]
@@ -438,6 +437,43 @@ async fn a_call_that_panics_is_answered_with_an_error() {
     assert_eq!(reply["error"]["code"], harnix_contract::codes::INTERNAL_ERROR, "{reply}");
 }
 
+/// The client a call is for is the credential's, carried beside the params on both topologies:
+/// nothing a request puts in its params says which client it is.
+#[tokio::test]
+async fn the_client_comes_from_the_credential_not_the_params() {
+    let served = serve(Admission::Token).await;
+    let http = client();
+    let credential = split_handshake(&http, &served.base, json!({})).await;
+    let posed = json!({"jsonrpc": "2.0", "id": 7, "method": "test.who", "params": {"client": 99}});
+    let body: Value = http
+        .post(format!("{}/rpc?token={credential}", served.base))
+        .json(&posed)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let split = body["result"]["client"].as_u64().expect("a split call has its handshake's client");
+
+    let (mut socket, _) = tokio_tungstenite::connect_async(&served.ws).await.unwrap();
+    let handshake = json!({"jsonrpc": "2.0", "id": 1, "method": "harnix.handshake", "params": hello("single_duplex", json!({}))});
+    socket.send(tokio_tungstenite::tungstenite::Message::text(handshake.to_string())).await.unwrap();
+    socket.next().await.unwrap().unwrap();
+    socket.send(tokio_tungstenite::tungstenite::Message::text(posed.to_string())).await.unwrap();
+    let reply = tokio::time::timeout(std::time::Duration::from_secs(5), socket.next())
+        .await
+        .expect("no answer")
+        .unwrap()
+        .unwrap()
+        .into_text()
+        .unwrap();
+    let reply: Value = serde_json::from_str(&reply).unwrap();
+    let duplex = reply["result"]["client"].as_u64().expect("a socket call has its handshake's client");
+    assert_ne!(split, duplex, "two handshakes, two clients");
+    assert!(split != 99 && duplex != 99, "{split} {duplex}");
+}
+
 /// A frame refused before the gate, and an error from behind it, read the same on both
 /// topologies: the same code, message and id, and `data` whole.
 #[tokio::test]
@@ -495,4 +531,18 @@ async fn both_topologies_refuse_and_answer_alike() {
     assert_eq!(refused["id"], 9);
     assert_eq!(refused["error"]["code"], harnix_contract::codes::HANDSHAKE_REFUSED, "{refused}");
     assert!(refused["error"]["message"].as_str().unwrap().contains("POST /handshake"), "{refused}");
+}
+
+/// A page's call through the shell's bridge names its extension in `"$ext"`: taken out of the
+/// params, into the call's context; a malformed one is the caller's mistake.
+#[test]
+fn the_bridges_extension_is_taken_out_of_the_params() {
+    let cx = || harnix_kernel::CallContext::root(harnix_contract::Subject::device("d"), None);
+    let (cx1, params) = super::on_behalf_of(cx(), serde_json::json!({"$ext": "acme.notes", "x": 1})).unwrap();
+    assert_eq!(cx1.on_behalf_of.as_ref().map(|e| e.as_str()), Some("acme.notes"));
+    assert_eq!(params, serde_json::json!({"x": 1}));
+    let (plain, _) = super::on_behalf_of(cx(), serde_json::json!({"x": 1})).unwrap();
+    assert!(plain.on_behalf_of.is_none());
+    let e = super::on_behalf_of(cx(), serde_json::json!({"$ext": "Not Ok"})).unwrap_err();
+    assert_eq!(e.code, harnix_contract::codes::INVALID_PARAMS);
 }

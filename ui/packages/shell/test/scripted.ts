@@ -25,13 +25,16 @@ export class ScriptedClient {
       return Promise.reject(e);
     }
   }
-  onNotify(fn: Listener): () => void {
+  onNotification(fn: Listener): () => void {
     this.notify.add(fn);
     return () => this.notify.delete(fn);
   }
   onStatus(fn: (s: string) => void): () => void {
     this.statusListeners.add(fn);
     return () => this.statusListeners.delete(fn);
+  }
+  push(method: string, params: Record<string, unknown>): void {
+    for (const fn of [...this.notify]) fn(method, params);
   }
 }
 
@@ -46,6 +49,7 @@ export function scriptedApp(): { app: App; client: ScriptedClient } {
   const app = new App(client as unknown as HarnixClient, new Registry());
   app.registry.register("space", space("sessions"), "test");
   app.registry.register("space", space("b"), "test");
+  app.set({ space: "sessions" });
   return { app, client };
 }
 

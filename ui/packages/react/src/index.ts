@@ -21,6 +21,7 @@ export {
   type ChatRenderers,
   type ChatRole,
   type ChatTone,
+  type ChatTrust,
   type ChatVariant,
   type MentionItem,
   type QuickReply,
@@ -44,9 +45,13 @@ export { SessionList, type SessionListProps } from "./components/SessionList";
 export { ConnectionBadge } from "./components/ConnectionBadge";
 export { BuiltinToolRow, Disclosure, STATUS_GLYPH, ToolDetails, argumentSummary, askedTool, clip, rowTitle, toolAsks, useToolState, type ToolAsks, type ToolRowContribution, type UserRowContribution } from "./components/blocks";
 export { lineDiff, hunks, type DiffLine } from "./diff";
-export { markdown, escapeHtml } from "./markdown";
+export { markdown, escapeHtml, type MarkdownOptions } from "./markdown";
 export { zhCN, en, uiStrings, type HarnixUiStrings } from "./strings";
 export { Icon } from "./chat/icons";
+export { GLYPHS, Glyph, glyphHtml, iconsFrom, toolGlyph } from "./glyph";
+export { rowKeys, useRoving, type Roving } from "./roving";
+export { ago, clock, compact, fileSize, megabytes, millis, since } from "./format";
+export { DialogBody, DialogFoot, SettingsReload, SettingsRow, SettingsSection, SettingsValue, useSettingsReload } from "./settings";
 export {
   focusables,
   isTop,
@@ -66,8 +71,18 @@ export { MenuBox, type MenuBoxProps } from "./menu";
 export {
   POINTS,
   Registry,
+  RegistryProvider,
   Contributed,
+  useContributions,
   useRegistry,
+  type ActionPlace,
+  type ActionTarget,
+  type Badge,
+  type Dispose,
+  type PointSpec,
+  type RegisterOptions,
+  type SessionAction,
+  type SettingsNeed,
   type CommandCandidate,
   type CommandContext,
   type Contributions,
@@ -82,4 +97,15 @@ export {
 } from "./contrib";
 export { t, translate, useT, useLocale, setLocale, currentLocale, localeChoice, addStrings, DICTIONARIES, type Locale, type LocaleChoice, type Translate } from "./i18n/index";
 export type { FlowBlockContribution } from "./chat/types";
-export { NestProvider, useCurrentSession, useNest, type NestHost, type SessionRef as HostSessionRef, type ShellContext } from "./host";
+export {
+  HostProvider,
+  useCurrentSession,
+  useHost,
+  type HostApi,
+  type HostEvent,
+  type MenuItem,
+  type SessionEventView,
+  type SessionRef as HostSessionRef,
+  type ShellContext,
+  type TurnSettled,
+} from "./host";

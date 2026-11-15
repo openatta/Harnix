@@ -29,7 +29,7 @@ test.afterAll(async () => { await backend?.dispose(); });
 
 /** A flow's own conversation, made by the module the first time it is asked for. */
 async function ownConversation(page: Page, flow: string): Promise<string> {
-  return page.evaluate(async (f) => (await (window as any).harnix.app.call("app.flow.session", { flow: f })).session_id as string, flow);
+  return page.evaluate(async (f) => (await (window as any).harnix.app.call("flow.session", { flow: f })).session_id as string, flow);
 }
 
 async function current(page: Page): Promise<string | null> {
@@ -38,7 +38,7 @@ async function current(page: Page): Promise<string | null> {
 
 const systemEntry = (page: Page) => page.getByTestId("sidebar-foot").locator('[data-testid="space-entry"][data-space="system"]');
 
-test("no Flows space among the spaces: the system console has a Flows tab, after all and before diagnostics; active stays the first", TAGS, async ({ page }) => {
+test("no Flows space among the spaces: the system console has a Flows tab, after all; active stays the first", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, backend.url);
   await expect(spaceEntry(page, "sessions")).toBeVisible();
@@ -49,12 +49,11 @@ test("no Flows space among the spaces: the system console has a Flows tab, after
   await expect(tabs.first()).toHaveAttribute("data-tab", "active");
   await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
   const order = await tabs.evaluateAll((els) => els.map((el) => el.getAttribute("data-tab")));
-  expect(order.filter((id) => id !== "apps")).toEqual(["active", "all", "flows", "diagnostics"]);
-  expect(order.indexOf("flows")).toBeLessThan(order.indexOf("diagnostics"));
-  if (order.includes("apps")) expect(order.indexOf("flows")).toBeLessThan(order.indexOf("apps"));
+  expect(order.filter((id) => id !== "packages")).toEqual(["active", "all", "flow.flows"]);
+  if (order.includes("packages")) expect(order.indexOf("flow.flows")).toBeLessThan(order.indexOf("packages"));
 
   // The strip stays at the top; the flows and the runs under the tabs.
-  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="flows"]').click();
+  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="flow.flows"]').click();
   await expect(page.getByTestId("system-strip")).toBeVisible();
   await expect(page.getByTestId("flow-def-example-review")).toBeVisible();
   await expect(page.getByTestId("flow-runs-toolbar")).toBeVisible();
@@ -101,7 +100,7 @@ test("into a flow: the left column is its context, its conversation in the middl
   await expect(page.locator("#main")).toHaveAttribute("data-space", "system");
   await expect(page.getByTestId("system-tree")).toBeVisible();
   await expect(page.getByTestId("flow-context")).toHaveCount(0);
-  await expect(page.locator('[data-testid="system-console"] [role="tab"][data-tab="flows"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-testid="system-console"] [role="tab"][data-tab="flow.flows"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.getByTestId("system-flows")).toBeVisible();
   await expect(page.locator("#secondary")).toHaveCount(0);
 
@@ -118,7 +117,7 @@ test("a flow's session opened from elsewhere opens inside the system space, in i
   await open(page, backend.url);
   const own = await ownConversation(page, "example-review");
   await expect(page.locator("#main")).toHaveAttribute("data-space", "sessions");
-  await page.evaluate((sessionId) => (window as any).harnix.host.session.open({ instance: "system", sessionId }, { switchSpace: true }), own);
+  await page.evaluate((sessionId) => (window as any).harnix.host.session.open({ instance: "main", sessionId }, { switchSpace: true }), own);
   await expect(page.locator("#main")).toHaveAttribute("data-space", "flow");
   await expect.poll(() => current(page)).toBe(own);
   await expect(systemEntry(page)).toHaveAttribute("aria-pressed", "true");
@@ -135,7 +134,7 @@ test("an old flow session kept as the front one still opens on load", TAGS, asyn
   // What a page of the separate Flows space left in this browser.
   await page.evaluate((sessionId) => {
     localStorage.setItem("harnix.space", JSON.stringify("flow"));
-    localStorage.setItem("harnix.space.current", JSON.stringify({ flow: { instance: "system", sessionId } }));
+    localStorage.setItem("harnix.space.current", JSON.stringify({ flow: { instance: "main", sessionId } }));
   }, own);
   await page.reload();
   await connected(page);

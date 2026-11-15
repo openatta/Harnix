@@ -23,14 +23,14 @@ export async function sessionMentions(app: App, query: string): Promise<MentionI
   const items: MentionItem[] = [];
   for (const instance of instances.filter((i) => i.status.state === "ready")) {
     const { sessions } = await app
-      .call<{ sessions: { session_id: string; name?: string | null; space?: string }[] }>("harnix.sessions", { instance: instance.id })
+      .call<{ sessions: { session_id: string; name?: string | null; space?: string }[] }>("harnix.sessions.list", { instance: instance.id })
       .catch(() => ({ sessions: [] }));
     for (const row of sessions) {
       const name = row.name || row.session_id;
       if (q && !name.toLowerCase().includes(q) && !row.session_id.startsWith(q)) continue;
       items.push({
         id: `session:${instance.id}/${row.session_id}`,
-        label: `${name} · ${row.space ?? "sessions"}`,
+        label: row.space ? `${name} · ${row.space}` : name,
         insert: `@session:${instance.id}/${row.session_id} `,
       });
     }
@@ -65,7 +65,7 @@ export function useCommands(app: App): ChatCommand[] {
     let alive = true;
     const ctx = commandContext(app);
     const space = spacesOf(app).find((c) => c.id === ctx.space);
-    const hidden = new Set(space?.hideCommands ?? []);
+    const hidden = new Set(space?.conversation?.hideCommands ?? []);
     const asked = commandsFor(app, "/");
     void Promise.all(
       asked.map((c) =>
@@ -141,6 +141,6 @@ export async function withContributed(app: App, query: string, own: MentionItem[
     label: candidate.description,
     insert: candidate.replacement,
   }));
-  const first = spacesOf(app).find((c) => c.id === app.snapshot.space)?.mention?.first;
+  const first = spacesOf(app).find((c) => c.id === app.snapshot.space)?.conversation?.mention?.first;
   return (first === "contributed" ? [...contributed, ...own] : [...own, ...contributed]).slice(0, MENTIONS_MAX);
 }

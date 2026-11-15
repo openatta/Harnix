@@ -141,10 +141,10 @@ export function QueuedBubble({
 /* ── 助手的话 ─────────────────────────────────────────────────────── */
 
 function useMessageHtml(text: string): string {
-  const { ids } = useChat();
+  const { ids, untrusted } = useChat();
   const canOpen = ids?.canOpen;
   const onOpen = Boolean(ids?.onOpen);
-  return chipifyHtml(markdown(text), ids?.pattern, (id) => onOpen && (canOpen ? canOpen(id) : true));
+  return chipifyHtml(markdown(text, { untrusted }), ids?.pattern, (id) => onOpen && (canOpen ? canOpen(id) : true));
 }
 
 export function CopyButton({ text }: { text: string }) {
@@ -227,6 +227,7 @@ export const TranscriptText = memo(function TranscriptText({ block, extras }: { 
 /** "思考了 N 秒"一行（原型 .cv-think），点开看思考的内容（.cv-thtext） */
 export const ThinkRow = memo(function ThinkRow({ block }: { block: BlockOf<"think"> }) {
   const strings = useStrings();
+  const { untrusted } = useChat();
   const [open, setOpen] = useState(false);
   const seconds =
     block.startedAt != null && block.endedAt != null ? Math.max(1, Math.round((block.endedAt - block.startedAt) / 1000)) : null;
@@ -255,7 +256,7 @@ export const ThinkRow = memo(function ThinkRow({ block }: { block: BlockOf<"thin
           <Icon.down />
         </span>
       </button>
-      {open ? <div className="hx-cv-thtext hx-md" data-testid="conv-think-text" dangerouslySetInnerHTML={{ __html: markdown(block.text) }} /> : null}
+      {open ? <div className="hx-cv-thtext hx-md" data-testid="conv-think-text" dangerouslySetInnerHTML={{ __html: markdown(block.text, { untrusted }) }} /> : null}
     </>
   );
 });
@@ -444,6 +445,7 @@ export function SegmentRow({
   testId?: string;
   meta?: ReactNode;
 }) {
+  const { untrusted } = useChat();
   const [open, setOpen] = useState(false);
   return (
     <div className="hx-blk hx-cc-seg-wrap" data-testid={testId} data-state={open ? "open" : "closed"}>
@@ -464,7 +466,7 @@ export function SegmentRow({
           </span>
         ) : null}
       </button>
-      {open && body ? <div className="hx-cc-seg-body hx-md" dangerouslySetInnerHTML={{ __html: markdown(body) }} /> : null}
+      {open && body ? <div className="hx-cc-seg-body hx-md" dangerouslySetInnerHTML={{ __html: markdown(body, { untrusted }) }} /> : null}
     </div>
   );
 }

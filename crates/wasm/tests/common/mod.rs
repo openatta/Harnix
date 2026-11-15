@@ -119,6 +119,8 @@ pub struct MockHost {
     pub route_to: OnceLock<AppVm>,
     /// What `secret` gives, by name.
     pub secrets: Mutex<HashMap<String, String>>,
+    /// What `delivering` was told, in order.
+    pub delivering: Mutex<Vec<Option<String>>>,
 }
 
 impl MockHost {
@@ -134,7 +136,7 @@ impl MockHost {
 }
 
 #[async_trait]
-impl AppHost for MockHost {
+impl VmHost for MockHost {
     async fn call(&self, app: &str, method: &str, params: Value) -> Result<Value, String> {
         self.calls
             .lock()
@@ -157,7 +159,7 @@ impl AppHost for MockHost {
         let _ = app;
         if topic == "undeclared" {
             return Err(format!(
-                "`{topic}` is not a topic this application declared"
+                "`{topic}` is not a topic this package declared"
             ));
         }
         self.published.lock().unwrap().push((topic.into(), value));
@@ -166,7 +168,7 @@ impl AppHost for MockHost {
 
     async fn subscribe(&self, _app: &str, topic: &str, _params: &Value) -> Result<(), String> {
         if topic == "forbidden.topic" {
-            return Err("not in the `hub` capability".into());
+            return Err("not in the `calls` capability".into());
         }
         self.subscribed.lock().unwrap().push(topic.into());
         Ok(())
@@ -178,6 +180,10 @@ impl AppHost for MockHost {
 
     fn secret(&self, _app: &str, key: &str) -> Option<String> {
         self.secrets.lock().unwrap().get(key).cloned()
+    }
+
+    fn delivering(&self, _app: &str, serving: Option<&str>) {
+        self.delivering.lock().unwrap().push(serving.map(str::to_string));
     }
 }
 

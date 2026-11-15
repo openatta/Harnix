@@ -64,15 +64,15 @@ test("a project added by name is listed; renamed from its menu it says so; remov
   await expect(project).toBeVisible();
 
   await project.getByRole("treeitem", { level: 1 }).click({ button: "right" });
-  await page.locator('[data-testid="project-menu"] [data-item="rename"]').click();
+  await page.locator('[data-testid="host-menu"] [data-item="rename"]').click();
   const renamed = `${name}-renamed`;
   await page.locator("#modal input").fill(renamed);
-  await page.getByTestId("rename-save").click();
+  await page.getByTestId("host-prompt-ok").click();
   const after = page.getByTestId("projects").locator("[data-project]", { hasText: renamed });
   await expect(after).toBeVisible();
 
   await after.getByRole("treeitem", { level: 1 }).click({ button: "right" });
-  await page.locator('[data-testid="project-menu"] [data-item="remove"]').click();
+  await page.locator('[data-testid="host-menu"] [data-item="remove"]').click();
   await expect(page.locator("#modal")).toHaveCount(0);
   await expect(page.getByTestId("projects").locator("[data-project]", { hasText: renamed })).toHaveCount(0);
   expect(errors).toEqual([]);
@@ -81,18 +81,20 @@ test("a project added by name is listed; renamed from its menu it says so; remov
 test("a project added by picking its directory: walked into, used, listed by its path", PROJECTS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, URL);
-  // A directory of the test project's to pick: made where the picker starts.
-  const start = await page.evaluate(async () => (await (window as any).harnix.app.call("harnix.listDirectory", {})).path as string);
+  // A directory of the test project's to pick: made where the picker starts, the projects
+  // directory, even before any project has been made in it.
+  const { path: start, projects_root } = await page.evaluate(async () => (await (window as any).harnix.app.call("harnix-app.listDirectory", {})) as { path: string; projects_root: string });
+  expect(start, "the picker opens on the projects directory").toBe(projects_root);
   const made = await page.evaluate(async () => {
     const { app } = (window as any).harnix;
-    return (await app.call("harnix.projects.create", { name: `picked-${Date.now()}` })).path as string;
+    return (await app.call("harnix-app.projects.create", { name: `picked-${Date.now()}` })).path as string;
   });
   // That made it a project already; take it off so the picker is what adds it back.
   await page.evaluate(async (path) => {
     const { app } = (window as any).harnix;
-    const { workspaces } = await app.call("harnix.workspaces.list", {});
+    const { workspaces } = await app.call("harnix-app.workspaces.list", {});
     const row = workspaces.find((w: any) => w.path === path);
-    if (row) await app.call("harnix.workspaces.remove", { id: row.id });
+    if (row) await app.call("harnix-app.workspaces.remove", { id: row.id });
     await app.refreshSessions();
   }, made);
   await toProjects(page);
@@ -121,13 +123,13 @@ test("the title opens the session's menu", SHELL, async ({ page }) => {
   await page.getByTestId("head-title").click();
   const menu = page.getByTestId("session-menu");
   await expect(menu).toBeVisible();
-  for (const item of ["rename", "fork", "archive", "export", "delete"]) await expect(menu.locator(`button[data-item="${item}"]`)).toBeVisible();
+  for (const item of ["rename", "fork", "action:harnix-app.archive", "action:harnix-app.export", "delete"]) await expect(menu.locator(`button[data-item="${item}"]`)).toBeVisible();
 });
 
 test("the system entry counts the running sessions while they run", SHELL, async ({ page }) => {
   await open(page, URL);
   await newSession(page, "runs-a-while");
-  const count = page.getByTestId("running-count");
+  const count = page.locator('[data-testid="space-entry"][data-space="system"]').getByTestId("space-badge");
   await expect(count).toHaveCount(0);
   await say(page, "Use the Bash tool to wait a few seconds");
   await expect(count).toHaveText("1", { timeout: 15_000 });

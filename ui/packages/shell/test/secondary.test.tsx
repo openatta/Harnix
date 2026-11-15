@@ -13,10 +13,10 @@ afterEach(cleanup);
 
 function drawn(panel: () => SpaceSecondary | null) {
   const { app } = scriptedApp();
-  app.registry.register("space", space("side", { secondary: panel }), "test");
+  app.registry.register("space", space("side", { center: { secondary: panel } }), "test");
   app.set({ space: "side" });
   const { container } = render(
-    <HarnixUiProvider client={app.client as HarnixClient}>
+    <HarnixUiProvider client={app.conn as HarnixClient}>
       <Shell app={app} />
     </HarnixUiProvider>,
   );

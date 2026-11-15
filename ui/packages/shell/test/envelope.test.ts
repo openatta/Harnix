@@ -18,9 +18,9 @@ describe("envelope changes", () => {
     expect(change(null, base)).toBe("initial");
   });
   it("tells system, tools, both, and the call configuration apart", () => {
-    expect(change(base, { ...base, system: [{ role: "system", text: "you were" }] })).toBe("system");
+    expect(change(base, { ...base, system: [{ role: "system", text: "you were" }] })).toBe("prompt");
     expect(change(base, { ...base, tools: [] })).toBe("tools");
-    expect(change(base, { ...base, system: [], tools: [] })).toBe("systemAndTools");
+    expect(change(base, { ...base, system: [], tools: [] })).toBe("promptAndTools");
     expect(change(base, { ...base, model: "fallback" })).toBe("config");
   });
 });

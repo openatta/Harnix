@@ -7,8 +7,8 @@ import { scriptedApp } from "./scripted";
 describe("the session list", () => {
   it("draws a session the engine listed twice once", async () => {
     const { app, client } = scriptedApp();
-    const row = { instance: "system", session_id: "s1", last_active: "" };
-    client.answer = (method) => (method === "harnix.sessions" ? { sessions: [row, { ...row }, { ...row, session_id: "s2" }] } : {});
+    const row = { instance: "main", session_id: "s1", last_active: "" };
+    client.answer = (method) => (method === "harnix.sessions.list" ? { sessions: [row, { ...row }, { ...row, session_id: "s2" }] } : {});
     await app.refreshSessions();
     expect(app.snapshot.sessions.map((s) => s.session_id)).toEqual(["s1", "s2"]);
   });
@@ -19,16 +19,25 @@ describe("the session list", () => {
     const late = new Promise<void>((resolve) => (release = resolve));
     let calls = 0;
     client.answer = (method) => {
-      if (method !== "harnix.workspaces.list") return { sessions: [] };
+      if (method !== "harnix.sessions.list") return {};
       calls += 1;
-      // The first list is the old one, and it is slow; the second already has the new project.
-      return calls === 1 ? late.then(() => ({ workspaces: [] })) : { workspaces: [{ id: "w1", path: "/p" }] };
+      // The first list is the old one, and it is slow; the second already has the new session.
+      return calls === 1 ? late.then(() => ({ sessions: [] })) : { sessions: [{ instance: "main", session_id: "new" }] };
     };
     const first = app.refreshSessions();
     await app.refreshSessions();
-    expect(app.snapshot.workspaces.map((w) => w.id)).toEqual(["w1"]);
+    expect(app.snapshot.sessions.map((s) => s.session_id)).toEqual(["new"]);
     release();
     await first;
-    expect(app.snapshot.workspaces.map((w) => w.id)).toEqual(["w1"]);
+    expect(app.snapshot.sessions.map((s) => s.session_id)).toEqual(["new"]);
+  });
+
+  it("is the front space's: the backend space it claims is the one listed", async () => {
+    const { app, client } = scriptedApp();
+    app.registry.register("space", { id: "projects", icon: "folder", title: () => "Projects", sessions: "sessions" }, "test");
+    await app.switchSpace("projects");
+    expect(client.calls.filter((c) => c.method === "harnix.sessions.list").at(-1)?.params).toEqual({ space: "sessions" });
+    await app.switchSpace("b");
+    expect(client.calls.filter((c) => c.method === "harnix.sessions.list").at(-1)?.params).toEqual({ space: "b" });
   });
 });

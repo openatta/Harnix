@@ -1,26 +1,20 @@
 /**
- * The modal dialogs: new session, add project, rename, confirm, and the directory picker they
- * share; and the session and workspace menus, which open those. Each dialog opens through
- * `App.openModal` and renders its own `.body` and `.foot`, so a dialog's buttons can read the
- * dialog's state.
+ * The shell's own dialogs: rename, confirm, the connection; and the session menu, which opens
+ * them. Each dialog opens through `App.openModal` and renders its own `.body` and `.foot`, so a
+ * dialog's buttons can read the dialog's state. What a UI package asks for goes through
+ * `host.dialogs` (`host-dialogs.tsx`).
  */
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { errorText, type Scene } from "@harnix/core";
-import { t, useT } from "@harnix/react";
+import { errorText } from "@harnix/core";
+import { DialogBody, DialogFoot, t, useT } from "@harnix/react";
 
-import type { App, ShellSession, Workspace } from "./app.ts";
-import { since } from "./format.ts";
-import { Glyph } from "./glyph.tsx";
+import type { App } from "./app.ts";
+import { actionMenuItems } from "./actions.tsx";
 import { openMenu, type MenuEntry } from "./Menu.tsx";
 
-export function Body({ children }: { children: ReactNode }) {
-  return <div className="body">{children}</div>;
-}
-
-export function Foot({ children }: { children?: ReactNode }) {
-  return <div className="foot">{children}</div>;
-}
+export const Body = DialogBody;
+export const Foot = DialogFoot;
 
 export function CloseFoot({ app }: { app: App }) {
   const t = useT();
@@ -55,231 +49,6 @@ async function attempt(app: App, run: () => Promise<unknown>, failed?: (error: s
     app.notice(failed ? failed(errorText(e)) : errorText(e), "error");
     return false;
   }
-}
-
-/* ── directory picker ─────────────────────────────────────────────────── */
-
-interface Listing {
-  path: string;
-  breadcrumbs: { name: string; path: string }[];
-  entries: { name: string; hidden?: boolean }[];
-}
-
-export function DirectoryPicker({ app, onPick }: { app: App; onPick: (path: string) => void }) {
-  const t = useT();
-  const [listing, setListing] = useState<Listing | null>(null);
-  const open = async (path?: string) => {
-    await attempt(app, async () => setListing(await app.call<Listing>("harnix.listDirectory", path ? { path } : {})));
-  };
-  useEffect(() => {
-    void open();
-  }, []);
-  if (!listing) return <div className="picker" />;
-  const entries = listing.entries.filter((entry) => !entry.hidden);
-  return (
-    <div className="picker">
-      <div className="crumbs">
-        {listing.breadcrumbs.map((crumb, i) => (
-          <span key={crumb.path}>
-            <button type="button" onClick={() => void open(crumb.path)}>
-              {crumb.name}
-            </button>
-            {i < listing.breadcrumbs.length - 1 ? <span>/</span> : null}
-          </span>
-        ))}
-        <span> </span>
-        <button type="button" className="btn sm outline" data-testid="picker-use" onClick={() => onPick(listing.path)}>
-          {t("dialog.useThisDirectory")}
-        </button>
-      </div>
-      <div className="list">
-        {entries.map((entry) => (
-          <button
-            type="button"
-            key={entry.name}
-            className="entry"
-            onClick={() => void open(`${listing.path.replace(/\/$/, "")}/${entry.name}`)}
-          >
-            <Glyph name="folder" className="glyph" />
-            <span className="truncate">{entry.name}</span>
-          </button>
-        ))}
-        {!entries.length ? <div className="empty">{t("dialog.noSubdirectories")}</div> : null}
-      </div>
-    </div>
-  );
-}
-
-/* ── new session ──────────────────────────────────────────────────────── */
-
-interface Recents {
-  projects?: { project_root: string }[];
-  cwd?: string | null;
-  projects_root?: string | null;
-}
-
-export async function newSessionDialog(app: App, preselect?: string): Promise<void> {
-  let recents: Recents = {};
-  try {
-    recents = await app.call<Recents>("harnix.recentProjects", {});
-  } catch {
-    /* the picker still works without recents */
-  }
-  app.openModal({
-    title: t("dialog.newSession"),
-    content: <NewSession app={app} recents={recents} preselect={preselect} />,
-  });
-}
-
-function NewSession({ app, recents, preselect }: { app: App; recents: Recents; preselect?: string }) {
-  const t = useT();
-  const scenes = (app.snapshot.hello?.scenes ?? []) as (Scene & { capabilities?: { requires_project?: boolean } })[];
-  const active = scenes.filter((scene) => scene.active);
-  // The engine's own default first: the active list is sorted by id, and a flow's wrapped scenes
-  // (`flow-*`) sort before most.
-  const preferred = app.snapshot.hello?.engine?.scene;
-  const [scene, setScene] = useState(active.find((s) => s.scene === preferred)?.scene ?? active[0]?.scene ?? "harnix");
-  const [mode, setMode] = useState("default");
-  const [root, setRoot] = useState<string | null>(preselect ?? recents.cwd ?? null);
-  const chosen = scenes.find((s) => s.scene === scene);
-  const optional = chosen?.capabilities?.requires_project === false;
-
-  const recentRows: { label: string; path: string | null; sub?: string }[] = [];
-  if (recents.projects_root) recentRows.push({ label: recents.projects_root, path: recents.projects_root, sub: t("dialog.projectsRoot") });
-  if (recents.cwd && recents.cwd !== recents.projects_root) recentRows.push({ label: recents.cwd, path: recents.cwd, sub: t("dialog.currentDirectory") });
-  for (const project of recents.projects ?? []) {
-    if (project.project_root !== recents.cwd && project.project_root !== recents.projects_root) {
-      recentRows.push({ label: project.project_root, path: project.project_root });
-    }
-  }
-  recentRows.push({ label: t("dialog.noProjectSession"), path: null });
-
-  const create = () =>
-    attempt(
-      app,
-      async () => {
-        await app.create({ scene, project_root: root, options: { permission_mode: mode } });
-        app.closeModal();
-      },
-      (error) => t("dialog.createFailed", { error }),
-    );
-
-  return (
-    <>
-      <Body>
-        <div className="field">
-          <label>{t("dialog.scene")}</label>
-          <select data-testid="new-scene" value={scene} onChange={(e) => setScene(e.target.value)}>
-            {scenes.map((s) => (
-              <option key={s.scene} value={s.scene}>
-                {[
-                  s.name || s.scene,
-                  (s as { capabilities?: { requires_project?: boolean } }).capabilities?.requires_project ? t("dialog.sceneNeedsProject") : "",
-                  s.active ? "" : t("dialog.sceneInactive"),
-                ].join("")}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="field">
-          <label>{t("dialog.permissionMode")}</label>
-          <select data-testid="new-mode" value={mode} onChange={(e) => setMode(e.target.value)}>
-            <option value="default">{t("dialog.mode.default")}</option>
-            <option value="acceptEdits">{t("dialog.mode.acceptEdits")}</option>
-            <option value="plan">{t("dialog.mode.plan")}</option>
-            <option value="bypassPermissions">{t("dialog.mode.bypass")}</option>
-          </select>
-        </div>
-        <div className={`field${optional ? " optional" : ""}`}>
-          <label>{t("dialog.projectRoot")}</label>
-          <div className="menu-list">
-            {recentRows.map((row) => (
-              <button type="button" key={row.label} onClick={() => setRoot(row.path)}>
-                <Glyph name="folder" className="glyph" />
-                <span className="truncate">{row.label}</span>
-                {row.sub ? <span className="sub">{row.sub}</span> : null}
-              </button>
-            ))}
-          </div>
-          <label>{t("dialog.orBrowse")}</label>
-          <DirectoryPicker app={app} onPick={setRoot} />
-          <div className="picked" data-testid="new-root">
-            {root ?? t("dialog.noProject")}
-          </div>
-        </div>
-      </Body>
-      <Foot>
-        <button type="button" className="btn outline" onClick={() => app.closeModal()}>
-          {t("common.cancel")}
-        </button>
-        <button type="button" className="btn primary" data-testid="new-create" onClick={() => void create()}>
-          {t("common.create")}
-        </button>
-      </Foot>
-    </>
-  );
-}
-
-/* ── add project ──────────────────────────────────────────────────────── */
-
-export function addWorkspaceDialog(app: App): void {
-  app.openModal({ title: t("dialog.addProject"), content: <AddWorkspace app={app} /> });
-}
-
-function AddWorkspace({ app }: { app: App }) {
-  const t = useT();
-  const [name, setName] = useState("");
-  const [chosen, setChosen] = useState<string | null>(null);
-  const add = async () => {
-    if (!name.trim() && !chosen) {
-      app.notice(t("dialog.pickDirectoryFirst"));
-      return;
-    }
-    const ok = await attempt(
-      app,
-      () =>
-        name.trim()
-          ? app.call("harnix.projects.create", { name: name.trim() })
-          : app.call("harnix.workspaces.create", { path: chosen }),
-      (error) => t("dialog.addFailed", { error }),
-    );
-    if (ok) {
-      app.closeModal();
-      void app.refreshSessions();
-    }
-  };
-  return (
-    <>
-      <Body>
-        <div className="field">
-          <label>{t("dialog.newProject")}</label>
-          <input
-            type="text"
-            placeholder={t("dialog.projectNamePlaceholder")}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void add();
-            }}
-          />
-          <div className="hint">{t("dialog.newProjectHint")}</div>
-        </div>
-        <div className="field">
-          <label>{t("dialog.existingProject")}</label>
-          <DirectoryPicker app={app} onPick={setChosen} />
-          <div className="picked">{chosen ?? t("dialog.noDirectoryChosen")}</div>
-        </div>
-      </Body>
-      <Foot>
-        <button type="button" className="btn outline" onClick={() => app.closeModal()}>
-          {t("common.cancel")}
-        </button>
-        <button type="button" className="btn primary" data-testid="project-add" onClick={() => void add()}>
-          {t("common.add")}
-        </button>
-      </Foot>
-    </>
-  );
 }
 
 /* ── rename, confirm ──────────────────────────────────────────────────── */
@@ -348,91 +117,6 @@ export function confirmDialog(app: App, message: string, confirm: () => Promise<
   });
 }
 
-/* ── export ───────────────────────────────────────────────────────────── */
-
-/** Where a session is, and the space a call about it claims. */
-export interface ExportTarget {
-  instance: string;
-  session_id: string;
-  space: string;
-}
-
-/**
- * Export a session: as markdown to read, or as the engine's archive to keep (the session with its
- * sub-agents' sessions, the images in its messages, its entries and a manifest — and the recorded
- * model calls only when asked, since they carry the full prompts and tool input). The file is made
- * here from what the backend answers.
- */
-export function exportDialog(app: App, target: ExportTarget): void {
-  app.openModal({ title: t("dialog.export"), content: <ExportForm app={app} target={target} /> });
-}
-
-function ExportForm({ app, target }: { app: App; target: ExportTarget }) {
-  const [format, setFormat] = useState<"markdown" | "archive">("markdown");
-  const [recording, setRecording] = useState(false);
-  const go = () =>
-    attempt(
-      app,
-      async () => {
-        const answer = await app.call<{ file: string; format: string; content: unknown; encoding?: string }>("harnix.sessions.export", {
-          ...target,
-          format,
-          recording: format === "archive" && recording,
-        });
-        const body =
-          answer.encoding === "base64"
-            ? Uint8Array.from(atob(String(answer.content)), (c) => c.charCodeAt(0))
-            : typeof answer.content === "string"
-              ? answer.content
-              : JSON.stringify(answer.content, null, 2);
-        const type = format === "markdown" ? "text/markdown" : answer.encoding === "base64" ? "application/zip" : "application/json";
-        const url = URL.createObjectURL(new Blob([body], { type }));
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = answer.file;
-        link.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-        app.closeModal();
-      },
-      (error) => t("dialog.exportFailed", { error }),
-    );
-  return (
-    <>
-      <Body>
-        <div className="field">
-          <label className="check">
-            <input type="radio" name="export-format" data-testid="export-markdown" checked={format === "markdown"} onChange={() => setFormat("markdown")} />
-            {t("dialog.exportMarkdown")}
-          </label>
-          <label className="check">
-            <input type="radio" name="export-format" data-testid="export-archive" checked={format === "archive"} onChange={() => setFormat("archive")} />
-            {t("dialog.exportArchive")}
-          </label>
-          <label className="check">
-            <input
-              type="checkbox"
-              data-testid="export-recording"
-              disabled={format !== "archive"}
-              checked={format === "archive" && recording}
-              onChange={(e) => setRecording(e.target.checked)}
-            />
-            {t("dialog.exportRecording")}
-          </label>
-          <div className="hint">{t("dialog.exportRecordingHint")}</div>
-        </div>
-      </Body>
-      <Foot>
-        <button type="button" className="btn outline" onClick={() => app.closeModal()}>
-          {t("common.cancel")}
-        </button>
-        <button type="button" className="btn primary" data-testid="export-go" onClick={() => void go()}>
-          {t("dialog.exportGo")}
-        </button>
-      </Foot>
-    </>
-  );
-}
-
 /* ── menus ────────────────────────────────────────────────────────────── */
 
 /** Where a menu was opened from: the element the focus goes back to, and the point it opens at. */
@@ -441,14 +125,22 @@ export interface MenuOrigin {
   at: { x: number; y: number };
 }
 
+/** The session a menu is about: where it is, and the name it shows. */
+export interface MenuSession {
+  instance: string;
+  session_id: string;
+  name?: string | null;
+}
+
 /**
  * A session's menu, anchored where it was opened (its row, `⋯`, the title). Only what has to be
- * confirmed opens a dialog.
+ * confirmed opens a dialog. The shell's own items use the kernel's methods; what an extension
+ * offers on a session (archiving, exporting, opening it elsewhere) comes from `session.action`.
  */
-export function sessionMenu(app: App, session: ShellSession, from: MenuOrigin): void {
-  // The backend space its sessions belong to, not the front one: the projects space lists the
-  // session space's sessions.
-  const key = { instance: session.instance ?? "system", session_id: session.session_id, space: app.claim() };
+export function sessionMenu(app: App, session: MenuSession, from: MenuOrigin): void {
+  // The backend space the front space lists, not its id: the projects space lists the session
+  // space's sessions.
+  const key = { instance: session.instance, session_id: session.session_id, space: app.claim() };
   const reopen = (sessionId: string) => app.open({ instance: key.instance, sessionId });
   const items: MenuEntry[] = [
     { id: "open", icon: "chat", label: t("common.open"), run: () => reopen(session.session_id) },
@@ -456,17 +148,7 @@ export function sessionMenu(app: App, session: ShellSession, from: MenuOrigin): 
       id: "rename",
       icon: "edit",
       label: t("common.rename"),
-      run: () => renameDialog(app, t("dialog.renameSession"), session.name, (title) => app.call("harnix.sessions.rename", { ...key, title })),
-    },
-    {
-      id: "archive",
-      icon: "archive",
-      label: session.archived ? t("dialog.unarchive") : t("dialog.archive"),
-      sub: t("dialog.archiveHint"),
-      run: () =>
-        void attempt(app, () => app.call("harnix.sessions.archive", { ...key, archived: !session.archived })).then((ok) => {
-          if (ok) void app.refreshSessions();
-        }),
+      run: () => renameDialog(app, t("dialog.renameSession"), session.name, (title) => app.call("harnix.session.rename", { ...key, title })),
     },
     {
       id: "fork",
@@ -476,14 +158,13 @@ export function sessionMenu(app: App, session: ShellSession, from: MenuOrigin): 
         void attempt(
           app,
           async () => {
-            const forked = await app.call<{ session_id: string }>("session.fork", key);
+            const forked = await app.call<{ session_id: string }>("harnix.session.fork", key);
             await app.refreshSessions();
             reopen(forked.session_id);
           },
           (error) => t("dialog.forkFailed", { error }),
         ),
     },
-    { id: "export", icon: "download", label: t("dialog.export"), run: () => exportDialog(app, key) },
     {
       id: "close",
       icon: "archive",
@@ -493,7 +174,7 @@ export function sessionMenu(app: App, session: ShellSession, from: MenuOrigin): 
         void attempt(
           app,
           async () => {
-            await app.call("session.close", key);
+            await app.call("harnix.session.close", key);
             void app.refreshSessions();
           },
           (error) => t("dialog.closeFailed", { error }),
@@ -509,9 +190,9 @@ export function sessionMenu(app: App, session: ShellSession, from: MenuOrigin): 
         void attempt(
           app,
           async () => {
-            const plan = await app.call<{ sidechains_deleted?: number }>("session.delete", { ...key, dry_run: true });
+            const plan = await app.call<{ sidechains_deleted?: number }>("harnix.session.delete", { ...key, dry_run: true });
             confirmDialog(app, t("dialog.deleteConfirm", { count: plan.sidechains_deleted ?? 0 }), async () => {
-              await app.call("session.delete", key);
+              await app.call("harnix.session.delete", key);
               app.closeModal();
               app.forget({ instance: key.instance, sessionId: key.session_id });
               void app.refreshSessions();
@@ -521,83 +202,16 @@ export function sessionMenu(app: App, session: ShellSession, from: MenuOrigin): 
         ),
     },
   ];
+  // What extensions offer on a session, after the shell's own and before deleting it.
+  const target = { kind: "session" as const, session: { instance: key.instance, sessionId: key.session_id }, space: app.snapshot.space };
+  items.splice(items.length - 1, 0, ...actionMenuItems(app, target));
   const name = session.name || t("sidebar.untitled");
   openMenu({ label: t("sidebar.sessionActions"), title: name, items, at: from.at, returnTo: from.origin, testId: "session-menu", className: "session-menu" });
 }
 
-/** A project's menu, anchored where it was opened. */
-export function workspaceMenu(app: App, workspace: Workspace, from: MenuOrigin): void {
-  const items: MenuEntry[] = [
-    { id: "new", icon: "plus", label: t("dialog.newSessionHere"), run: () => void newSessionDialog(app, workspace.path) },
-    {
-      id: "rename",
-      icon: "edit",
-      label: t("common.rename"),
-      run: () => renameDialog(app, t("dialog.renameProject"), workspace.title, (title) => app.call("harnix.workspaces.update", { id: workspace.id, title })),
-    },
-    {
-      id: "remove",
-      icon: "trash",
-      danger: true,
-      label: t("dialog.removeGroup"),
-      sub: t("dialog.removeGroupHint"),
-      run: () =>
-        void attempt(app, () => app.call("harnix.workspaces.remove", { id: workspace.id })).then((ok) => {
-          if (ok) void app.refreshSessions();
-        }),
-    },
-  ];
-  openMenu({
-    label: t("sidebar.projectActions"),
-    title: workspace.title ?? workspace.path,
-    items,
-    at: from.at,
-    returnTo: from.origin,
-    testId: "project-menu",
-    className: "project-menu",
-  });
-}
-
 /* ── the connection ───────────────────────────────────────────────────── */
 
-/** One connection to this process, as `harnix.process` lists it. */
-export interface Connection {
-  client: number;
-  device: string;
-  topology: string;
-  user_agent?: string;
-  since_ms?: number;
-}
-
-/** What kind of client a user agent is, roughly: a desktop shell, a phone, a browser. */
-export function clientKind(agent: string | undefined): "desktop" | "mobile" | "browser" | "script" {
-  const ua = agent ?? "";
-  if (!ua) return "script";
-  if (/Tauri|Electron|harnix-desktop/i.test(ua)) return "desktop";
-  if (/Mobile|Android|iPhone|iPad/i.test(ua)) return "mobile";
-  if (/Mozilla|WebKit|Chrome|Safari|Firefox/i.test(ua)) return "browser";
-  return "script";
-}
-
-/** The users connected right now: device, kind, how, since when. */
-export function Connections({ connections }: { connections: Connection[] }) {
-  const t = useT();
-  if (!connections.length) return <div className="hint">{t("process.noConnections")}</div>;
-  return (
-    <div className="connections" data-testid="connections">
-      {connections.map((c) => (
-        <div key={c.client} className="conn-row" data-device={c.device}>
-          <span className="dev">{c.device}</span>
-          <span className="kind">{t(`process.kind.${clientKind(c.user_agent)}`)}</span>
-          <span className="topo">{c.topology}</span>
-          <span className="since">{c.since_ms ? since(c.since_ms) : ""}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/** This page's connection, and everyone else's. */
+/** This page's connection: its state, how it is carried, to where, at which protocol. */
 export function connectionDialog(app: App): void {
   info(app, t("avatar.connection"), <ConnectionBody app={app} />);
 }
@@ -605,13 +219,6 @@ export function connectionDialog(app: App): void {
 function ConnectionBody({ app }: { app: App }) {
   const t = useT();
   const s = app.snapshot;
-  const [connections, setConnections] = useState<Connection[] | null>(null);
-  useEffect(() => {
-    void app
-      .call<{ connections?: Connection[] }>("harnix.process", {})
-      .then((r) => setConnections(r.connections ?? []))
-      .catch(() => setConnections([]));
-  }, [app]);
   return (
     <div className="connection" data-testid="connection-details">
       <dl className="facts">
@@ -621,7 +228,7 @@ function ConnectionBody({ app }: { app: App }) {
         </div>
         <div className="fact">
           <dt>{t("avatar.topology")}</dt>
-          <dd>{app.client.topology ?? ""}</dd>
+          <dd>{app.conn.topology ?? ""}</dd>
         </div>
         <div className="fact">
           <dt>{t("avatar.address")}</dt>
@@ -632,8 +239,6 @@ function ConnectionBody({ app }: { app: App }) {
           <dd>v{s.hello?.protocol_version ?? "?"}</dd>
         </div>
       </dl>
-      <div className="label">{t("process.users")}</div>
-      {connections ? <Connections connections={connections} /> : null}
     </div>
   );
 }

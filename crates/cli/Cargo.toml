@@ -8,19 +8,26 @@ publish      = false
 description  = "The Harnix app, `harnix`: the built-ins and the flow module (xops-02 §6)"
 
 # The binary lives here, not in `crates/harnix`, so an application that depends on the `harnix`
-# library does not compile `harnix-flow` for a binary it never builds (`tests/layering.rs`).
+# library does not compile `harnix-ext-flow` for a binary it never builds (`tests/layering.rs`).
 [[bin]]
 name = "harnix"
 path = "src/main.rs"
 
 [dependencies]
 harnix      = { workspace = true }
-harnix-flow = { workspace = true }
+harnix-ext-flow = { workspace = true, optional = true }
 anyhow      = { workspace = true }
 
-
 [features]
-default = []
-# `cargo build -p harnix-cli --features apps`: a `harnix` that can host runtime applications.
-# Its own target directory keeps the default build's untouched (scripts/check.sh).
-apps = ["harnix/apps"]
+# The Harnix app as it ships: its own extensions, flows, and packages in this process.
+default = ["wasm", "flow", "proc"]
+# Packages, run in this process's WebAssembly (mode 2).
+wasm = ["harnix/wasm"]
+# Extension processes: the `ext-proc` subcommand this binary is re-executed as (mode 3).
+proc = ["harnix/proc"]
+flow = ["harnix/flow", "dep:harnix-ext-flow"]
+
+[dev-dependencies]
+# `harnix::testing::describe`: the route table this binary serves, pinned by `tests/method_table.rs`.
+harnix = { workspace = true, features = ["testing"] }
+serde_json = { workspace = true }

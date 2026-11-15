@@ -1,6 +1,6 @@
 /**
  * The request envelope: what the model was sent minus the messages — the assembled system blocks,
- * the tool catalog, the call configuration (concept §6.4). `harnix.requestHeaders` folds the engine's
+ * the tool catalog, the call configuration (concept §6.4). `observability.calls` folds the engine's
  * recording down to the points where it changed; each change becomes a row in the flow (a `custom`
  * block of type `request`), and the details pane shows it at full length.
  *
@@ -9,10 +9,9 @@
  */
 
 import type { SessionController } from "@harnix/core/state";
-import { Disclosure, clip, t } from "@harnix/react";
+import { Disclosure, clip, t, Glyph } from "@harnix/react";
 
 import type { App } from "./app.ts";
-import { Glyph } from "./glyph.tsx";
 
 export interface SystemPart {
   role?: string;
@@ -39,7 +38,7 @@ export interface Header {
   tools?: ToolEntry[];
 }
 
-export type Change = "initial" | "system" | "tools" | "systemAndTools" | "config";
+export type Change = "initial" | "prompt" | "tools" | "promptAndTools" | "config";
 
 export interface RequestBlock {
   header: Header;
@@ -58,7 +57,7 @@ export function followEnvelopes(app: App, controller: SessionController): () => 
     if (reading) return;
     reading = true;
     try {
-      const answer = await app.call<{ headers?: Header[] }>("harnix.requestHeaders", {
+      const answer = await app.call<{ headers?: Header[] }>("observability.calls", {
         instance: controller.instance,
         session_id: controller.sessionId,
       });
@@ -88,9 +87,9 @@ export function followEnvelopes(app: App, controller: SessionController): () => 
     if (!loading && wasLoading) void read();
     wasLoading = loading;
   });
-  const offNotify = app.client.onNotify((method, params) => {
+  const offNotify = app.conn.onNotification((method, params) => {
     if (method !== "harnix.event" || params.session_id !== controller.sessionId) return;
-    if ((params.instance ?? "system") !== controller.instance) return;
+    if ((params.instance ?? "main") !== controller.instance) return;
     const kind = (params.event as { kind?: string } | undefined)?.kind;
     if (kind === "turn_complete") void read();
   });
@@ -109,8 +108,8 @@ export function change(previous: Header | null, header: Header): Change {
   if (!previous) return "initial";
   const sameSystem = systemSignature(previous) === systemSignature(header);
   const sameTools = toolSignature(previous) === toolSignature(header);
-  if (!sameSystem && !sameTools) return "systemAndTools";
-  if (!sameSystem) return "system";
+  if (!sameSystem && !sameTools) return "promptAndTools";
+  if (!sameSystem) return "prompt";
   if (!sameTools) return "tools";
   // The hub reports only envelopes that differ from the one before, so what is left is the
   // call configuration: a model fallback, a token ceiling, a thinking-mode switch.
@@ -157,7 +156,9 @@ function configLine(h: Header): string {
 function systemLabel(block: SystemPart, index: number): string {
   const head = block.source
     ? t("request.systemBlockSource", { n: index + 1, source: block.source })
-    : t("request.systemBlock", { n: index + 1, role: block.role ?? "system" });
+    : block.role
+      ? t("request.systemBlock", { n: index + 1, role: block.role })
+      : t("request.systemBlockPlain", { n: index + 1 });
   return block.cache ? `${head} · ${t("request.cache", { marker: block.cache })}` : head;
 }
 
@@ -262,7 +263,7 @@ export function RequestPanel({ block }: { block: RequestBlock }) {
           {JSON.stringify(Object.fromEntries(catalog.map((tool) => [tool.name, tool.input_schema])), null, 2)}
         </Labelled>
       ) : null}
-      {block.previous && (block.change === "system" || block.change === "systemAndTools") ? (
+      {block.previous && (block.change === "prompt" || block.change === "promptAndTools") ? (
         <Labelled label={t("request.previousSystem")}>
           {systemBlocks(block.previous).map((part) => part.text ?? "").join("\n\n")}
         </Labelled>

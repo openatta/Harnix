@@ -1,6 +1,6 @@
-//! An application's key-value storage.
+//! A package's key-value storage.
 //!
-//! One namespace per application, shared by its backend and its tool calls —
+//! One namespace per package, shared by its backend and its tool calls —
 //! the only state a tool call can leave behind, since its instance is gone
 //! when it returns. The quota (the manifest's `storage_mb`) is enforced by
 //! the store itself, inside the same lock as the write, so two concurrent
@@ -36,7 +36,7 @@ impl std::fmt::Display for KvError {
             Self::QuotaExceeded { quota, needed } => write!(
                 f,
                 "storage quota exceeded: this write needs {needed} bytes in total and the \
-                 application's `storage_mb` allows {quota}"
+                 package's `storage_mb` allows {quota}"
             ),
             Self::InvalidKey(why) => write!(f, "invalid key: {why}"),
             Self::Io(e) => write!(f, "storage error: {e}"),
@@ -46,13 +46,13 @@ impl std::fmt::Display for KvError {
 
 impl std::error::Error for KvError {}
 
-/// One application's storage.
+/// One package's storage.
 pub trait KvStore: Send + Sync {
     fn get(&self, key: &str) -> Result<Option<Vec<u8>>, KvError>;
     /// Write `value`, or delete the key when it is `None`. Refused when the
     /// namespace would grow past `quota` bytes; a write that does not grow
     /// it (an overwrite with something no larger, a delete) always succeeds,
-    /// so an application over a lowered quota can still make room.
+    /// so a package over a lowered quota can still make room.
     fn put(&self, key: &str, value: Option<&[u8]>, quota: u64) -> Result<(), KvError>;
     /// Bytes in use, keys and values.
     fn used_bytes(&self) -> u64;
@@ -136,7 +136,7 @@ impl KvStore for MemoryKv {
 /// to a temporary file and renamed into place so a crash leaves either the old
 /// value or the new one.
 ///
-/// The directory must be the application's alone and outside anything its
+/// The directory must be the package's alone and outside anything its
 /// `fs` capability preopens — otherwise the component could rewrite it
 /// directly and walk straight past the quota.
 pub struct FileKv {

@@ -25,41 +25,17 @@ import {
 } from "react";
 import { errorText } from "@harnix/core";
 import type { BlockOf, SessionController, SessionState } from "@harnix/core/state";
-import {
-  ChatComposer,
-  ChatPanel,
-  Contributed,
-  listenForLayers,
-  modalUp,
-  t,
-  useLayer,
-  useRegistry,
-  useT,
-  ComposerNote,
-  askedTool,
-  rowTitle,
-  toolAsks,
-  type Attached,
-  type ChatIds,
-  type ComposerApi,
-  type MentionItem,
-  type ModelOption,
-  type SpaceContribution,
-  type SpaceSecondary,
-  type ToolRowContribution,
-} from "@harnix/react";
+import { ChatComposer, ChatPanel, Contributed, listenForLayers, modalUp, t, useLayer, useRegistry, useT, ComposerNote, askedTool, rowTitle, toolAsks, type Attached, type ChatIds, type ComposerApi, type MentionItem, type ModelOption, type SpaceContribution, type SpaceSecondary, type ToolRowContribution, Glyph, useRoving } from "@harnix/react";
 
 import { ask, detailsWidthOf, keyOf, later, orderTabs, safeTabs, secondaryWidthOf, type App, type OpenModal, type ShellState, type Widths } from "./app.ts";
 import { useBrand } from "./brand.ts";
 import { referencesIn, sessionMentions, useCommands, withContributed } from "./commands.ts";
 import { followEnvelopes } from "./envelope.tsx";
-import { Glyph } from "./glyph.tsx";
 import { sessionMenu } from "./dialogs.tsx";
 import { MenuHost, menuBelow } from "./Menu.tsx";
-import { useRovingTabIndex } from "./roving.ts";
-import { openSettings } from "./settings.tsx";
+import { openSettingsFor } from "./settings.tsx";
 import { Sidebar, spacesOf } from "./Sidebar.tsx";
-import { SYSTEM, openInSystem, systemOffered } from "./system/index.tsx";
+import { ActionButtons } from "./actions.tsx";
 
 export function Shell({ app }: { app: App }) {
   const s = useSyncExternalStore(app.subscribe, app.getSnapshot);
@@ -69,6 +45,7 @@ export function Shell({ app }: { app: App }) {
   // The right column's bounds, and a width given as a share, follow the window.
   useWindowWidth();
   const narrow = useNarrow(app, s);
+  useSpaceStores(app);
   // Runs after every child has drawn: whoever waits for this state to be on the page can go on.
   useEffect(() => app.drew());
   const space = spacesOf(app).find((c) => c.id === s.space);
@@ -154,6 +131,26 @@ function Resizer({ app, column }: { app: App; column: keyof Widths }) {
 /* ── narrow windows ───────────────────────────────────────────────────── */
 
 /** Whether a media query matches, as the window changes. */
+/** A space that gives a `store` is drawn again whenever it changes, with no `redraw()` to remember. */
+function useSpaceStores(app: App): void {
+  const version = useSyncExternalStore(app.registry.subscribe, app.registry.getVersion);
+  useEffect(() => {
+    const offs = spacesOf(app).flatMap((space) => {
+      const store = space.store;
+      if (!store) return [];
+      try {
+        return [store.subscribe(() => app.redraw())];
+      } catch (e) {
+        later(() => app.registry.fail("space", space, e));
+        return [];
+      }
+    });
+    return () => {
+      for (const off of offs) off();
+    };
+  }, [app, version]);
+}
+
 function useMedia(query: string): boolean {
   const matches = () => typeof matchMedia === "function" && matchMedia(query).matches;
   const [on, setOn] = useState(matches);
@@ -248,7 +245,7 @@ function useTheme(choice: ShellState["theme"]) {
     query.addEventListener("change", change);
     return () => query.removeEventListener("change", change);
   }, []);
-  const theme = choice === "system" ? (dark ? "dark" : "light") : choice;
+  const theme = choice === "auto" ? (dark ? "dark" : "light") : choice;
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     const meta = document.querySelector('meta[name="theme-color"]');
@@ -334,7 +331,7 @@ function Main({ app, s }: { app: App; s: ShellState }) {
   const [controller, setController] = useState<SessionController | null>(null);
   const session = useControllerState(controller);
   const space = spacesOf(app).find((c) => c.id === s.space);
-  const center = space?.center ?? "chat";
+  const center = space?.center?.mode ?? "chat";
   // An overview space shows its conversation on demand: after something is asked, or when the
   // reader goes back to it.
   const [talking, setTalking] = useState(false);
@@ -378,9 +375,9 @@ function Overview({ app, space, onAsked }: { app: App; space: SpaceContribution 
   const registry = useRegistry(app.registry);
   return (
     <Contributed registry={registry} point="space" contribution={space}>
-      <div className={`dash-in${space.center === "hidden" ? " full" : ""}`}>
-        {space.overview?.() ?? null}
-        {space.center !== "hidden" && space.newSession !== false ? <FirstMessage app={app} variant="ask" onSent={onAsked} placeholder={space.placeholder?.()} /> : null}
+      <div className={`dash-in${space.center?.mode === "hidden" ? " full" : ""}`}>
+        {space.center?.overview?.() ?? null}
+        {space.center?.mode !== "hidden" && space.conversation?.newSession !== false ? <FirstMessage app={app} variant="ask" onSent={onAsked} placeholder={space.conversation?.placeholder?.()} /> : null}
       </div>
     </Contributed>
   );
@@ -415,7 +412,7 @@ function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app:
   );
   const send = async (message: string, attachments: unknown[]): Promise<boolean> => {
     if (!app.modelReady()) {
-      openSettings(app, "models");
+      openSettingsFor(app, "models");
       return false;
     }
     try {
@@ -425,7 +422,7 @@ function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app:
         await setModel(app, target, picked);
         chosenModels.set(keyOf(key.instance, key.sessionId), picked.id);
       }
-      await app.sessionCall("harnix.send", target, { message, attachments, ...referencesIn(message) });
+      await app.sessionCall("harnix.session.send", target, { message, attachments, ...referencesIn(message) });
       onSent?.();
       return true;
     } catch (e) {
@@ -487,14 +484,15 @@ function useBindComposer(app: App, session?: string): (api: ComposerApi | null) 
 }
 
 /**
- * The method a session's model is changed by: `harnix.sessions.setModel` when the profile opens it
- * (`[shell] model_switch`), for a session of the front space; else the system space's, so only when
- * that space is kept. Null when neither is reachable: the menu shows the model and cannot change it.
+ * The method a session's model is changed by: `harnix.session.setModel` when the profile opens it
+ * (`[shell] model_switch`), for a session of the front space; else the system space's
+ * (`system.model`), so only when that space is kept. `engine.session.setModel` itself is no device's
+ * to call. Null when neither is reachable: the menu shows the model and cannot change it.
  */
 function setModelMethod(app: App): string | null {
   const reachable = app.snapshot.reachable;
-  if (reachable.includes("harnix.sessions.setModel")) return "harnix.sessions.setModel";
-  if (reachable.includes("harnix.system.model")) return "harnix.system.model";
+  if (reachable.includes("harnix.session.setModel")) return "harnix.session.setModel";
+  if (reachable.includes("system.model")) return "system.model";
   return null;
 }
 
@@ -502,7 +500,7 @@ async function setModel(app: App, target: { instance: string; session_id: string
   const method = setModelMethod(app);
   if (!method) return;
   const params = { ...target, ...modelParams(option) };
-  await app.call(method, method === "harnix.sessions.setModel" ? { ...params, space: app.claim() } : params);
+  await app.call(method, method === "harnix.session.setModel" ? { ...params, space: app.claim() } : params);
 }
 
 /** The model each session was switched to here, by session key: the session's own record does not
@@ -515,8 +513,8 @@ function modelParams(option: ModelOption): Record<string, string> {
 
 /** What the model menu offers: the default model first, then each provider's default and allowed models. */
 function useModels(app: App): ModelOption[] {
-  const providers = useSyncExternalStore(app.subscribe, () => app.snapshot.providers);
   const hello = useSyncExternalStore(app.subscribe, () => app.snapshot.hello);
+  const providers = hello?.engine?.providers;
   return useMemo(() => {
     const out: ModelOption[] = [];
     const seen = new Set<string>();
@@ -544,7 +542,7 @@ function ModelSetupNote({ app }: { app: App }) {
     <div className="hx-cmp-note hx-cmp-note-warn model-setup" data-testid="model-setup">
       <Glyph name="key" className="glyph" />
       <span className="text">{t("model.setupNeeded")}</span>
-      <button type="button" className="btn sm primary" data-testid="model-setup-open" onClick={() => openSettings(app, "models")}>
+      <button type="button" className="btn sm primary" data-testid="model-setup-open" onClick={() => openSettingsFor(app, "models")}>
         {t("model.setupAction")}
       </button>
     </div>
@@ -580,7 +578,7 @@ function useControllerState(controller: SessionController | null): SessionState 
 function Hero({ app }: { app: App }) {
   const t = useT();
   const space = spacesOf(app).find((c) => c.id === app.snapshot.space);
-  const suggestions = space?.suggestions?.() ?? [];
+  const suggestions = space?.conversation?.suggestions?.() ?? [];
   const [seed, setSeed] = useState(0);
   return (
     <div id="scroll" className="hero-wrap">
@@ -589,16 +587,16 @@ function Hero({ app }: { app: App }) {
           <Glyph name="brand" className="logo" />
           <span>{t("hero.greeting", { greeting: greeting(t) })}</span>
         </div>
-        <div className="hero-sub">{space?.subtitle?.() ?? space?.title() ?? t("hero.body")}</div>
+        <div className="hero-sub">{space?.conversation?.subtitle?.() ?? space?.title() ?? t("hero.body")}</div>
       </div>
-      {space?.newSession === false ? (
+      {space?.conversation?.newSession === false ? (
         <div className="hero-sub" data-testid="no-new-session">
-          {space.placeholder?.()}
+          {space.conversation?.placeholder?.()}
         </div>
       ) : (
-        <FirstMessage key={seed} app={app} placeholder={space?.placeholder?.()} />
+        <FirstMessage key={seed} app={app} placeholder={space?.conversation?.placeholder?.()} />
       )}
-      {suggestions.length && space?.newSession !== false ? (
+      {suggestions.length && space?.conversation?.newSession !== false ? (
         <div className="chips">
           {suggestions.map((text) => (
             <button
@@ -608,7 +606,7 @@ function Hero({ app }: { app: App }) {
               onClick={async () => {
                 try {
                   const key = await app.create({});
-                  await app.sessionCall("harnix.send", { instance: key.instance, session_id: key.sessionId }, { message: text });
+                  await app.sessionCall("harnix.session.send", { instance: key.instance, session_id: key.sessionId }, { message: text });
                   setSeed((n) => n + 1);
                 } catch (e) {
                   app.notice(errorText(e), "error");
@@ -620,7 +618,7 @@ function Hero({ app }: { app: App }) {
           ))}
         </div>
       ) : null}
-      {space?.notice ? <div className="disc">{space.notice()}</div> : null}
+      {space?.conversation?.notice ? <div className="disc">{space.conversation?.notice()}</div> : null}
       <HomeCards app={app} />
     </div>
   );
@@ -679,10 +677,10 @@ function Header({
   const row = s.current ? s.sessions.find((r) => r.session_id === s.current!.sessionId && r.instance === s.current!.instance) : null;
   const name = row?.name ?? session?.session?.name ?? null;
   const scene = session?.session?.scene ?? row?.scene;
-  const overview = space?.center && space.center !== "chat" && !onBack;
+  const overview = space?.center?.mode && space.center?.mode !== "chat" && !onBack;
   const registry = useRegistry(app.registry);
-  const actions = space?.headerActions
-    ? ask(registry, space, () => space.headerActions!(s.current ? { instance: s.current.instance, sessionId: s.current.sessionId } : null), null)
+  const actions = space?.conversation?.headerActions
+    ? ask(registry, space, () => space.conversation!.headerActions!(s.current ? { instance: s.current.instance, sessionId: s.current.sessionId } : null), null)
     : null;
   return (
     <header id="head" className="topbar" data-tauri-drag-region="deep">
@@ -704,13 +702,13 @@ function Header({
           <Glyph name="chevronDown" className="glyph" />
         </button>
       ) : (
-        <div className="title truncate">{overview ? space?.title() : s.current ? name || t("sidebar.untitled") : space?.newSession === false ? space.title() : t("sidebar.newSession")}</div>
+        <div className="title truncate">{overview ? space?.title() : s.current ? name || t("sidebar.untitled") : space?.conversation?.newSession === false ? space.title() : t("sidebar.newSession")}</div>
       )}
       <div className="meta">
         {space ? (
           <span className="pill acc" data-testid="space-pill">
             {space.title()}
-            {space.subtitle ? <span className="sub"> · {space.subtitle()}</span> : null}
+            {space.conversation?.subtitle ? <span className="sub"> · {space.conversation?.subtitle()}</span> : null}
           </span>
         ) : null}
         {!overview && scene ? <span className="pill">{scene}</span> : null}
@@ -730,17 +728,8 @@ function Header({
           </div>
         </Contributed>
       ) : null}
-      {row && !overview && s.space !== SYSTEM && systemOffered() ? (
-        <button
-          type="button"
-          className="ib"
-          data-testid="head-in-system"
-          title={t("head.inSystem")}
-          aria-label={t("head.inSystem")}
-          onClick={() => void openInSystem(app, { instance: row.instance ?? "system", sessionId: row.session_id, space: s.space })}
-        >
-          <Glyph name="cpu" className="glyph" />
-        </button>
+      {row && !overview ? (
+        <ActionButtons app={app} place="header" target={{ kind: "session", session: { instance: row.instance, sessionId: row.session_id }, space: s.space }} />
       ) : null}
       <button type="button" className="ib" data-testid="theme-toggle" title={t("app.theme")} onClick={() => app.setTheme(isDark() ? "light" : "dark")}>
         <Glyph name={isDark() ? "sun" : "moon"} className="glyph" />
@@ -790,39 +779,18 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
   );
 
   const commands = useCommands(app);
-  const projectRoot = s.sessions.find((r) => r.session_id === current.sessionId)?.project_root ?? null;
-  const filesAsked = useRef(0);
-  // `@` offers the project's files and — after `@session:` — sessions of any space, which go to
-  // the turn as a copy of what was said in them (concept §5.4: sessions do not cross spaces;
-  // references do).
+  const asked = useRef(0);
+  // `@` offers what the `command` contributions at `@` give (a project's files, say) and — after
+  // `@session:` — sessions of any space, which go to the turn as a copy of what was said in them
+  // (concept §5.4: sessions do not cross spaces; references do).
   const mention = useMemo(() => {
     return async (query: string): Promise<MentionItem[]> => {
-      const mine = ++filesAsked.current;
-      if (query.startsWith("session:")) {
-        const items = await withContributed(app, query, await sessionMentions(app, query.slice("session:".length)));
-        return mine === filesAsked.current ? items : [];
-      }
-      const files = projectRoot
-        ? (
-            await app.call<{ files: { path: string; size?: number }[] }>("harnix.files", {
-              project_root: projectRoot,
-              query,
-            })
-          ).files
-        : [];
-      if (mine !== filesAsked.current) return [];
-      const items = await withContributed(
-        app,
-        query,
-        files.map((f) => ({
-          id: f.path,
-          label: f.size != null ? `${(f.size / 1024).toFixed(1)} KB` : undefined,
-          insert: `@${f.path} `,
-        })),
-      );
-      return mine === filesAsked.current ? items : [];
+      const mine = ++asked.current;
+      const own = query.startsWith("session:") ? await sessionMentions(app, query.slice("session:".length)) : [];
+      const items = await withContributed(app, query, own);
+      return mine === asked.current ? items : [];
     };
-  }, [app, projectRoot]);
+  }, [app]);
 
   const upload = useUpload(app);
 
@@ -849,14 +817,14 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
   // What the front space says about this session: read at every draw, each one failing on its own.
   const space = spacesOf(app).find((c) => c.id === s.space);
   const ref = { instance: current.instance, sessionId: current.sessionId };
-  const readOnly = space?.readOnly ? ask(registry, space, () => space.readOnly!(ref), undefined) : undefined;
-  const pinned = space?.pinned ? ask(registry, space, () => space.pinned!(ref), null) : null;
+  const readOnly = space?.conversation?.readOnly ? ask(registry, space, () => space.conversation!.readOnly!(ref), undefined) : undefined;
+  const pinned = space?.conversation?.pinned ? ask(registry, space, () => space.conversation!.pinned!(ref), null) : null;
   // Nothing said yet in it: the space may say what this conversation is for.
   const blank = !!sessionState && !sessionState.loading && !sessionState.failed && sessionState.blocks.length === 0 && !sessionState.turn && !sessionState.queue.length;
-  const emptyHint = blank && space?.emptyConversation ? ask(registry, space, () => space.emptyConversation!(ref), null) : null;
-  const spaceNotice = space?.composerNotice ? ask(registry, space, () => space.composerNotice!(ref), null) : null;
-  const ids = space?.ids ? globalIds(app, space, ask(registry, space, () => space.ids!(), undefined)) : undefined;
-  const steerable = space?.composer?.steer === true;
+  const emptyHint = blank && space?.center?.emptyConversation ? ask(registry, space, () => space.center!.emptyConversation!(ref), null) : null;
+  const spaceNotice = space?.conversation?.composerNotice ? ask(registry, space, () => space.conversation!.composerNotice!(ref), null) : null;
+  const ids = space?.conversation?.ids ? globalIds(app, space, ask(registry, space, () => space.conversation!.ids!(), undefined)) : undefined;
+  const steerable = space?.conversation?.composer?.steer === true;
   const running = sessionState?.turn != null || sessionState?.session?.turn_state === "running";
   const [steer, setSteer] = useState(() => steering.has(sessionKey));
   const toggleSteer = () => {
@@ -888,7 +856,7 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
         sendExtras={referencesIn}
         onController={bind}
         header={false}
-        placeholder={spacesOf(app).find((c) => c.id === s.space)?.placeholder?.() ?? t("composer.placeholder")}
+        placeholder={spacesOf(app).find((c) => c.id === s.space)?.conversation?.placeholder?.() ?? t("composer.placeholder")}
         hint={t("composer.hint")}
         disabled={s.connection !== "open" && s.connection !== "degraded"}
         draftKey={keyOf(current.instance, current.sessionId)}
@@ -992,8 +960,8 @@ function dataUrl(file: File): Promise<string> {
 
 /** The front space's second side panel, if it has one open now; a throw counts as none. */
 function secondaryOf(app: App, space: (SpaceContribution & { owner: string }) | undefined): SpaceSecondary | null {
-  if (!space?.secondary) return null;
-  const panel = ask(app.registry, space, () => space.secondary!(), null);
+  if (!space?.center?.secondary) return null;
+  const panel = ask(app.registry, space, () => space.center!.secondary!(), null);
   return panel && typeof panel.render === "function" ? panel : null;
 }
 
@@ -1064,7 +1032,7 @@ function Details({ app, s }: { app: App; s: ShellState }) {
   const shown = tabs.find((x) => x.id === current);
   // One Tab stop for the strip; the arrows go along it.
   const strip = useRef<HTMLDivElement>(null);
-  const roving = useRovingTabIndex(strip, { items: '[role="tab"]', orientation: "horizontal", activate: true });
+  const roving = useRoving(strip, { items: '[role="tab"]', orientation: "horizontal", activate: true });
   return (
     // Closed it is zero wide, not gone: inert, or Tab would still walk through what is in it.
     <aside id="details" aria-hidden={!app.detailsOpen(s)} inert={!app.detailsOpen(s)}>

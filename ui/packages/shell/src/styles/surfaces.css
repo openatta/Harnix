@@ -141,7 +141,7 @@ html.resizing .hx-frame {
 }
 
 #details .body:has(> .hx-slot),
-#sessions:has(> .hx-slot) {
+#space-column:has(> .hx-slot) {
   overflow: hidden;
   padding: 0;
 }

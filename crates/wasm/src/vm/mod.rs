@@ -1,10 +1,10 @@
-//! One application's VM: its linked component, its resident backend, and the
+//! One package's VM: its linked component, its resident backend, and the
 //! short-lived instances its tool calls and events run in.
 //!
 //! # Two kinds of instance
 //!
 //! The **resident** backend is one `Store` that lives as long as the VM. The
-//! application's state is in it, so calls into it are serialized (a store is
+//! package's state is in it, so calls into it are serialized (a store is
 //! not re-entrant) behind an async mutex: methods from [`AppVm::handle`], and
 //! topic values and timer firings from a queue drained by one worker task, in
 //! order. Every **tool call and event** gets a store of its own, built from the
@@ -22,7 +22,7 @@
 //! unusable in any case), so a fresh instance is started and `init` runs again.
 //! Its in-memory state is lost and the health snapshot says so (`recycles`).
 //! A backend call takes no cancellation for the same reason: a client that
-//! goes away must not be able to wipe an application's state.
+//! goes away must not be able to wipe a package's state.
 //!
 //! # What an instance holds on the host
 //!
@@ -47,7 +47,7 @@ mod types;
 pub use bindings::{MAX_SUBSCRIPTIONS, MAX_TIMERS};
 pub use types::{AppError, CallFailure, HookDecision, ToolDef, ToolOutput, World};
 
-use crate::bindings::exports::harnix::app::{backend, events, tools};
+use crate::bindings::exports::harnix::ext::{backend, events, tools};
 use crate::engine::{wasm_err, AppComponent, WasmEngine};
 use crate::health::{Counters, HealthSnapshot, VmState, FAULT_LIMIT};
 use crate::spec::{AppSpec, Resolved};
@@ -74,13 +74,13 @@ use wasmtime::Store;
 const INTERNAL_ERROR: i32 = -32603;
 /// How long a backend has to run without crashing for a crash before it to stop counting: past
 /// this, the next crash is a first one again and is rebuilt, rather than disabling the
-/// application. A backend that crashes once a week is unlucky; one that crashes twice in a minute
+/// package. A backend that crashes once a week is unlucky; one that crashes twice in a minute
 /// is broken. [`AppVm::set_healthy_period`] changes it.
 pub const HEALTHY_PERIOD: Duration = Duration::from_secs(10 * 60);
 
 static NEXT_VM: AtomicU64 = AtomicU64::new(1);
 
-/// One application's VM. Cheap to clone; every clone is the same VM.
+/// One package's VM. Cheap to clone; every clone is the same VM.
 ///
 /// Must be started, used and dropped inside a tokio runtime: the backend's
 /// delivery worker and its timers are tasks.
@@ -118,7 +118,7 @@ struct Inner {
 }
 
 
-/// The parts every store of the application reaches: what host functions
+/// The parts every store of the package reaches: what host functions
 /// need, and what outlives any one instance.
 pub(crate) struct Shared {
     vm_id: u64,
@@ -135,7 +135,7 @@ pub(crate) struct Shared {
     timers: Mutex<HashMap<String, (u64, AbortHandle)>>,
     timer_generation: AtomicU64,
     deliveries: mpsc::Sender<Delivery>,
-    /// `${data}`, when the application was granted it: measured into its storage.
+    /// `${data}`, when the package was granted it: measured into its storage.
     data_dir: Option<PathBuf>,
     /// What the files under it took when last measured.
     data_bytes: AtomicU64,
@@ -213,7 +213,7 @@ async fn with_deadline<T>(
 }
 
 impl AppVm {
-    /// Link `component` for the application `spec` describes and, for a
+    /// Link `component` for the package `spec` describes and, for a
     /// backend, start its resident instance (`init` with `spec.config`).
     ///
     /// Fails when a capability cannot be resolved, the component imports
@@ -225,6 +225,49 @@ impl AppVm {
         services: Services,
     ) -> anyhow::Result<AppVm> {
         let app = spec.id.clone();
+        let (inner, queue) = Self::link(engine, component, spec, services).await?;
+        if inner.world == World::Backend {
+            let resident = inner
+                .instantiate_resident()
+                .await
+                .map_err(|f| anyhow!("starting the backend of `{app}`: {f}"))?;
+            *inner.resident.lock().await = Some(resident);
+            tokio::spawn(drain(Arc::downgrade(&inner), queue));
+        }
+        Ok(AppVm { inner })
+    }
+
+    /// The tools `component` lists, without starting it: linked with nothing granted and nothing to
+    /// call, so a backend's `init` does not run. What the packing tool checks the manifest's
+    /// `[[tool]]` against.
+    pub async fn listed_tools(
+        engine: &WasmEngine,
+        component: &AppComponent,
+        services: Services,
+    ) -> anyhow::Result<Vec<ToolDef>> {
+        let spec = AppSpec {
+            id: "example.listing".into(),
+            capabilities: Default::default(),
+            limits: crate::Limits::default(),
+            dirs: Default::default(),
+            config: serde_json::Value::Null,
+        };
+        let (inner, _) = Self::link(engine, component, spec, services).await?;
+        AppVm { inner }
+            .list_tools(&CancellationToken::new())
+            .await
+            .map_err(|e| anyhow!("listing the component's tools: {e}"))
+    }
+
+    /// Link the component and build what a start and a listing share, short of the backend's
+    /// resident instance.
+    async fn link(
+        engine: &WasmEngine,
+        component: &AppComponent,
+        spec: AppSpec,
+        services: Services,
+    ) -> anyhow::Result<(Arc<Inner>, mpsc::Receiver<Delivery>)> {
+        let app = spec.id.clone();
         let caps = Resolved::resolve(&spec.capabilities, &spec.dirs)
             .with_context(|| format!("resolving the capabilities of `{app}`"))?;
 
@@ -232,9 +275,9 @@ impl AppVm {
         wasmtime_wasi::p2::add_to_linker_async(&mut linker)
             .map_err(wasm_err)
             .context("adding WASI to the linker")?;
-        crate::bindings::BackendAppEvents::add_to_linker::<_, HasSelf<AppState>>(&mut linker, |s| s)
+        crate::bindings::BackendExtEvents::add_to_linker::<_, HasSelf<AppState>>(&mut linker, |s| s)
             .map_err(wasm_err)
-            .context("adding the harnix:app host interface to the linker")?;
+            .context("adding the harnix:ext host interface to the linker")?;
         let pre = linker
             .instantiate_pre(&component.component)
             .map_err(wasm_err)
@@ -245,7 +288,7 @@ impl AppVm {
             World::Backend => Some(
                 backend::GuestIndices::new(&pre)
                     .map_err(wasm_err)
-                    .with_context(|| format!("`{app}` does not match harnix:app/backend"))?,
+                    .with_context(|| format!("`{app}` does not match harnix:ext/backend"))?,
             ),
             World::Tools => None,
         };
@@ -287,15 +330,7 @@ impl AppVm {
             resident: tokio::sync::Mutex::new(None),
             hibernating: std::sync::atomic::AtomicBool::new(false),
         });
-        if world == World::Backend {
-            let resident = inner
-                .instantiate_resident()
-                .await
-                .map_err(|f| anyhow!("starting the backend of `{app}`: {f}"))?;
-            *inner.resident.lock().await = Some(resident);
-            tokio::spawn(drain(Arc::downgrade(&inner), queue));
-        }
-        Ok(AppVm { inner })
+        Ok((inner, queue))
     }
 
     pub fn app(&self) -> &str {
@@ -357,6 +392,7 @@ impl AppVm {
         inner.shared.tool_admitted(name)?;
         let input = input.to_string();
         let mut store = inner.store(Role::Transient, progress, project)?;
+        store.data_mut().serving = Some(call_id.to_string());
         let mut started = false;
         let call = async {
             let instance = inner.pre.instantiate_async(&mut store).await?;
@@ -394,6 +430,18 @@ impl AppVm {
         payload: &Value,
         cancel: &CancellationToken,
     ) -> Result<HookDecision, CallFailure> {
+        self.on_event_as(None, event, payload, cancel).await
+    }
+
+    /// [`AppVm::on_event`], serving the host's call `serving`: what a `host.call` made from
+    /// inside names as the call it was made for ([`crate::VmHost::call_within`]).
+    pub async fn on_event_as(
+        &self,
+        serving: Option<&str>,
+        event: &str,
+        payload: &Value,
+        cancel: &CancellationToken,
+    ) -> Result<HookDecision, CallFailure> {
         let inner = &self.inner;
         let Some(idx) = &inner.events else {
             return Ok(HookDecision::Proceed);
@@ -401,6 +449,7 @@ impl AppVm {
         inner.shared.admit()?;
         let payload = payload.to_string();
         let mut store = inner.store(Role::Transient, None, None)?;
+        store.data_mut().serving = serving.map(str::to_string);
         let mut started = false;
         let call = async {
             let instance = inner.pre.instantiate_async(&mut store).await?;
@@ -417,7 +466,7 @@ impl AppVm {
             .into())
     }
 
-    /// Answer the method `app.<id>.<method>` with the resident backend.
+    /// Answer the method `<id>.<method>` with the resident backend.
     /// `caller` describes who called; the hub has already admitted the call.
     ///
     /// The outer `Result` is whether the backend answered; the inner one is
@@ -431,10 +480,22 @@ impl AppVm {
         params: &Value,
         caller: &Value,
     ) -> Result<Result<Value, AppError>, CallFailure> {
+        self.handle_as(None, method, params, caller).await
+    }
+
+    /// [`AppVm::handle`], serving the host's call `serving`: what a `host.call` the backend makes
+    /// while it answers names as the call it was made for ([`crate::VmHost::call_within`]).
+    pub async fn handle_as(
+        &self,
+        serving: Option<&str>,
+        method: &str,
+        params: &Value,
+        caller: &Value,
+    ) -> Result<Result<Value, AppError>, CallFailure> {
         let inner = &self.inner;
         inner.export(&inner.backend, "backend")?;
         if holds(inner.shared.vm_id) {
-            return Err(CallFailure::Unavailable(format!(
+            return Err(CallFailure::Reentrant(format!(
                 "`{method}` would re-enter the backend of `{}`, which is waiting on this very call",
                 inner.shared.app
             )));
@@ -461,10 +522,14 @@ impl AppVm {
                 "the backend is not running".into(),
             ));
         };
+        resident.store.data_mut().serving = serving.map(str::to_string);
         let call = resident
             .guest
             .call_handle(&mut resident.store, method, &params, &caller);
         let outcome = holding(inner.shared.vm_id, with_deadline(call, inner.timeout, None)).await;
+        if let Some(resident) = guard.as_mut() {
+            resident.store.data_mut().serving = None;
+        }
         let answer = inner.settle_resident(&mut guard, outcome, method).await?;
         Ok(match answer {
             Ok(json) => serde_json::from_str(&json).map_err(|e| AppError {
@@ -495,7 +560,7 @@ impl AppVm {
         }
     }
 
-    /// Stop the application: the backend's `stop`, bounded by the timeout;
+    /// Stop the package: the backend's `stop`, bounded by the timeout;
     /// then its instance, subscriptions and timers are released. Every later
     /// call is refused.
     pub async fn stop(&self) {
@@ -607,7 +672,7 @@ impl Inner {
     fn export<'a, T>(&self, idx: &'a Option<T>, interface: &str) -> Result<&'a T, CallFailure> {
         idx.as_ref().ok_or_else(|| {
             CallFailure::Unavailable(format!(
-                "`{}` does not export harnix:app/{interface}",
+                "`{}` does not export harnix:ext/{interface}",
                 self.shared.app
             ))
         })
@@ -657,7 +722,7 @@ impl Inner {
         let shared = &self.shared;
         shared.measure().await;
         let what = call.what();
-        // Could not even be instantiated because the application's other
+        // Could not even be instantiated because the package's other
         // instances hold its memory: the component did nothing wrong.
         if let (Err(Abort::Failed(_)), false, true) = (&outcome, started, refused) {
             return Err(CallFailure::Unavailable(format!(
@@ -716,7 +781,7 @@ impl Shared {
         }
     }
 
-    /// Bytes the application keeps: its key-value store, and its files under `${data}` as last
+    /// Bytes the package keeps: its key-value store, and its files under `${data}` as last
     /// measured.
     pub(crate) fn storage_used(&self) -> u64 {
         self.services
@@ -765,7 +830,7 @@ impl Shared {
         self.data_dir.is_some() && self.storage_used() >= self.caps.storage_bytes
     }
 
-    /// Set the application aside. A VM already stopped stays stopped: what failed while it was
+    /// Set the package aside. A VM already stopped stays stopped: what failed while it was
     /// stopping is not a reason to report it broken.
     fn disable(&self, reason: String) {
         let mut state = lock(&self.state);

@@ -30,13 +30,13 @@ test.beforeEach(async () => {
 test.afterEach(() => api?.close());
 
 test("a settled turn says how it ended, as its turn_complete did", TAGS, async () => {
-  const created = await api.call("session.create", {
+  const created = await api.call("harnix.session.create", {
     project_root: api.project,
     options: { recorder: { name: "says-ready" } },
   });
   const sessionId = created.session_id;
-  await api.call("harnix.attach", { session_id: sessionId });
-  const sent = await api.call("harnix.send", { session_id: sessionId, message: "Say exactly: fixture ready" });
+  await api.call("harnix.session.attach", { session_id: sessionId });
+  const sent = await api.call("harnix.session.send", { session_id: sessionId, message: "Say exactly: fixture ready" });
   const settled = await api.waitFor(
     (f) => f.method === "harnix.turn_settled" && f.params.turn_id === sent.turn_id,
     { timeout: 60_000, describe: "the turn to settle" },
@@ -51,7 +51,7 @@ test("a settled turn says how it ended, as its turn_complete did", TAGS, async (
 });
 
 test("a tap that fell behind still has the settlement, with its outcome", TAGS, async () => {
-  const answer = await api.call("app.fleet.settle_behind", {
+  const answer = await api.call("fleet.settle_behind", {
     project_root: api.project,
     recording: "says-ready",
     message: "Say exactly: fixture ready",

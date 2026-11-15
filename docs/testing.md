@@ -1,9 +1,9 @@
 # 测试：LIVE 框架
 
-> 读者：改 Harnix 的人；在 Harnix 上做应用、要给自己的应用写 LIVE 测试的人；写插件 APP 的人。
+> 读者：改 Harnix 的人；在 Harnix 上做应用、要给自己的应用写 LIVE 测试的人；写扩展包（WASM 扩展）的人。
 >
-> 为什么这样测见 [概念与架构](concept_and_architecture.md) §8。这里写怎么用：检查分几层、LIVE 怎么跑、怎么写、怎么录像（含手做）、
-> 覆盖表怎么读、插件 APP 怎么测、应用怎么用 `@harnix/testkit` 写自己的 LIVE。
+> 为什么这样测见 [概念与架构](concept_and_architecture.md)。这里写怎么用：检查分几层、LIVE 怎么跑、两种载体怎么测、契约与快照测什么、
+> 怎么写、怎么录像（含手做）、覆盖表怎么读、扩展包怎么测、应用怎么用 `@harnix/testkit` 写自己的 LIVE。
 
 ---
 
@@ -11,7 +11,7 @@
 
 **功能测试都对着真的 `harnix` 二进制跑。** 不用假 DOM，不 mock 中枢，不用假后端。后端经它自己的
 协议测（`api` project，不开浏览器），界面在 chromium 里测（`ui` project）。只有一个运行器：
-Playwright Test。两种拓扑（`single_duplex`、`split_streams`）各跑一遍。
+Playwright Test。两种拓扑（`single_duplex`、`split_streams`）各跑一遍；扩展包的套件再在进程载体（模式 3）上跑一遍（§3）。
 
 `@harnix/core` 等前端包的 Vitest 是单元测试，**不算功能覆盖**。
 
@@ -27,29 +27,63 @@ scripts/prune.sh                 # 清构建缓存：增量缓存全删，超过
 
 | 层 | 跑什么 | 要什么 |
 |---|---|---|
-| `build` | `pnpm install --frozen-lockfile`、外壳构建；`harnix-cli` 与 `harnix-testapp` 的发布构建；带 `apps` 的 `harnix`、打包工具 `harnix-app`、带 `apps` 的 `harnix-testapp`，都编在 `target/apps`；`examples/hello-app` 照应用的方式构建 | — |
-| `rust` | Harnix 各 crate 的 `cargo test`；`harnix-wasm`、`harnix-app-host`、`harnix-apps` 各带 `compile` 再跑一遍；`harnix-app` 带 `apps` 再跑一遍 | — |
-| `clippy` | 同样的 crate 与 feature，`-D warnings`、`--no-deps` | — |
-| `offline` | `tests/crate-metadata.mjs`（版本、许可、Agix 钉，以及 SDK 文档写的版本）、`app-scripts`、`style-lint`、`readme-pairing`、`recordings`（录像名两头都对得上，§6）；桌面壳的 `check-no-ipc`、`check-rename` | — |
-| `frontend` | 各包的 typecheck（含 `tests/live`，与各包一样 `strict`）与 Vitest；协议类型对着 Rust 重新生成再比；覆盖表 `--check`；插件 APP 带的 SDK 与 ui-kit 是否最新（`tests/app-ui-vendored.mjs`） | — |
-| `api` | LIVE 的 `api` project，回放，两种拓扑；`HARNIX_COVERAGE_GATE=1`（§7）；真录的录像在其中严格回放（`strict-replay.spec.ts`，§3） | — |
+| `build` | `pnpm install --frozen-lockfile`、外壳构建；`harnix-cli`（缺省带两种载体 `wasm`、`proc`）与 `harnix-testapp` 的发布构建；打包工具 `harnix-pack`（并照 `harnix-pack new` 起一个脚手架、`build` 一遍）、带 `wasm,proc` 的 `harnix-testapp`，编在 `target/packages`；`examples/hello-app` 照应用的方式构建 | — |
+| `rust` | Harnix 各 crate 的 `cargo test`；`harnix-wasm-port` 带 `socket`、`harnix-wasm`、`harnix-wasm-host` 带 `compile` 各再跑一遍；`harnix-testapp` 带 `proc` 跑 `ext_proc`（它自己重新执行成扩展进程）。契约、层次规则、方法表快照、沙箱的探针都在这一层（§2.1） | — |
+| `clippy` | 同样的 crate 与 feature（含两个载体与 `socket`、`proc`），`-D warnings`、`--no-deps` | — |
+| `offline` | `tests/crate-metadata.mjs`（版本、许可、Agix 钉，以及 `docs/harnix-ext.md` 版本表写的数）、`app-scripts`、`style-lint`、`readme-pairing`、`recordings`（录像名两头都对得上，§6）、`ui-layering`；桌面壳的 `check-no-ipc`、`check-rename` | — |
+| `frontend` | 各包的 typecheck（含 `tests/live`，与各包一样 `strict`）与 Vitest；协议类型对着 Rust 重新生成再比；覆盖表 `--check`；扩展包带的 SDK 与 ui-kit 是否最新（`tests/app-ui-vendored.mjs`） | — |
+| `api` | LIVE 的 `api` project，回放，两种拓扑；`HARNIX_COVERAGE_GATE=1`（§7）；真录的录像在其中严格回放（`strict-replay.spec.ts`，§3）；扩展包的套件在 `--carrier process` 下再跑一遍（`single_duplex`，§3）；方法表快照（§2.1） | — |
 | `template` | 把 `templates/app` 拷出去，当一个新应用离线构建（`target/template`） | — |
 | `live` | `api` project 连真模型，两种拓扑 | `.env` 里有模型凭据 |
-| `browser` | LIVE 的 `ui` project，两种拓扑（后端只给这一种，页面得自己走过去） | chromium（`pnpm install:browser`） |
+| `browser` | LIVE 的 `ui` project，两种拓扑（后端只给这一种，页面得自己走过去）；扩展包的套件在 `--carrier process` 下再跑一遍（`single_duplex`） | chromium（`pnpm install:browser`） |
 | `interface` | 起一个同时给两种拓扑的后端，`tests/topology-parity.mjs` 逐条比两边的答 | 模型 |
 | `remote` | 绑非回环、带 TLS，`tests/remote-smoke.mjs` 走配对 | `--with-remote` 与模型 |
-| `budget` | `tests/budget.mjs`：二进制体积（默认构建 ≤ 48 MB，`target/apps` 的带 `apps` 构建另有 ≤ 52 MB）、界面产物、冷启动、内存、延迟；最后一个、单独跑 | 发布构建 |
+| `budget` | `tests/budget.mjs`：二进制体积（缺省构建带两种载体 ≤ 52 MB）、界面产物、冷启动、内存、延迟；扩展进程（带它自己的引擎，开着沙箱）的常驻、拉起到 `proc.hello`、`ctl.start` 到应答、启用与按需唤醒的冷启动；最后一个、单独跑 | 发布构建 |
 
 **跳过的层要说，不能当作通过。** 缺模型、缺 chromium、没给 `--with-remote` 的层报 `skipped` 和原因，汇总里看得到；一层没跑不是一层过了。
 层的输出写进临时文件，只有失败时才显示最后 30 行。
+
+**时长**：一次完整的 `scripts/check.sh`（0.4.3 的第三轮）一共 2643 s，约 44 分钟，比没有进程载体时长；其中进程载体多出的
+`api`、`browser` 各一遍每个包多一个扩展进程，没有改变套件时长的量级。每层的用时在 `check.sh` 汇总里逐层打印，要看哪层变慢了看那里。
 
 一次从零开始的全量检查要编几十 G。`check.sh` 开头看一眼剩余空间，不到 15G（`HARNIX_CHECK_NEED_GB`）就
 拒跑并说明，免得跑到一半在某一层报出一个看不出原因的错。cargo 只增不删，每个里程碑、每次发布之后跑一次
 `scripts/prune.sh`。**不要跑 `cargo test --workspace`**：会连带跑吸收进来的 Agix crate，Agix 的测试在 Agix 里跑。
 
+### 2.1 `rust` 层里的契约、快照与探针
+
+这几样不开浏览器、不连模型，改了扩展接口、授予、载体或沙箱就先看它们：
+
+| 测什么 | 在哪 |
+|---|---|
+| **层次与命名规则**：crate 之间谁能依赖谁（`l01`…`l25`）、源码里不许出现什么（`c01`…`c18`，如骨架不认任何第一方扩展 id、接缝之外没有 Agix、S1 类型都 `#[non_exhaustive]`、没有别名与垫片、一条 `#[ignore]` 都不剩）；读 `cargo metadata` | `crates/harnix/tests/layering.rs`（`cargo test -p harnix --test layering`）；前端一侧 `tests/ui-layering.mjs` |
+| **扩展接口契约**：一个测试扩展只用 `harnix-ext` 的公开 API，把 `Registrar`、`ExtensionContext`、`Call` 的每个函数各用一次，跑在 `harnix::testing::Kernel` 上（真的路由器、假的引擎）；space 声称 | `crates/ext/api/tests/contract.rs`、`space_claim.rs` |
+| **授予与准入**：少授、多授拒绝启动；扩展声明的能力能授、能要求；同样的授予给别的扩展就有同样的权力；动态描述违反结构约束的每条一例；范围与名字 | `crates/assembly/tests/grants.rs` |
+| **子命令分派**：`ext-proc` 走登记的入口，不读 profile、不拿状态锁、不装配扩展 | `crates/assembly/tests/child_entry.rs` |
+| **并发**：`ensure`、`harnix.session.create`、`attach`、`restart` 一起来，锁序的 `debug_assert!` 打开 | `crates/assembly/tests/instances_stress.rs` |
+| **不受信的实例**：假的扩展实例刷大帧、刷频、伪造标题与 `turn_state`——被截断、降级、审计 | `crates/hub/tests/extension_trust.rs` |
+| **扩展线**：每个端口方法往返、取消、截止时间、元数据只是提示、背压、超长帧 | `crates/wasm-port/tests/wire.rs`（`--features socket`） |
+| **重入**：后端经产品回调自己，两种载体都当场答 `reentrant` | `crates/wasm-host/tests/chain.rs`、`crates/carrier/proc/tests/reentry.rs` |
+| **监护**：退避、放弃、stdin 断开、进程组收割、只继承声明的 fd | `crates/supervise/tests/children.rs` |
+| **载体（真进程）**：版本或指纹不符被拒、多报方法被拒并被杀、闲置回收后唤醒、崩溃三次置于一旁、它的引擎被收养成 `proc.<id>` | `crates/carrier/proc/tests/process.rs`、`crates/testapp/tests/ext_proc.rs` |
+| **沙箱的探针**：见下 | `crates/supervise/tests/sandbox.rs`、`crates/proc/tests/sandbox.rs`、`crates/carrier/proc/tests/sandboxed.rs` |
+| **不受信内容的渲染**：`trust: "extension"` 的会话里 HTML 只当文本、链接变文字、外部图片不加载 | `ui/packages/react/test/untrusted.test.tsx` |
+
+**方法表快照**。每个能调的方法、主题、路由，谁拥有、对谁开放（设备、扩展、引擎、要不要能力、范围），固定在
+`crates/harnix/tests/method-table.snap.json`，每种主体能碰到什么在 `reachable.snap.json`。两处比它：`crates/cli/tests/method_table.rs`（`rust` 层，
+对 `harnix` 缺省装配的路由表）与 `tests/live/api/method-table.spec.ts`（对运行中的进程的 `harnix.diagnostics`、`harnix.reachable`）。改了一行就是改了客户端
+能调什么：`HARNIX_UPDATE_SNAPSHOTS=1` 重写快照，**提交说明写为什么**。`method-table.spec.ts` 另守着一条：批准、拒绝、授予、撤销、安装、卸载、配对这类
+人经界面做的决定不许对扩展开放。
+
+**沙箱的探针**。`harnix-testapp` 带 feature `probe` 时，`ext-proc --probe` 在沙箱里试一遍它和它起的 shell 够得着什么，由 `harnix-supervise` 以真的
+`SandboxSpec` 拉起。`crates/proc/tests/sandbox.rs` 查：读不到状态目录的 `token`、`devices.json`、别的扩展的数据、`main` 引擎根、自己的 `install.json`；
+写不了自己的包目录；读写得了自己的 `run/`；连得上回环；`/bin/sh -c cat …` 继承同样的限制。macOS 总是跑（`sandbox-exec` 随系统）；
+Linux 要有 Landlock 与 Yama，缺了就说「没跑」和原因，不算过。`harnix-testapp` 的探针由测试起一个嵌套的 cargo 构建，不是 dev-dependency
+（那会让整次测试的 feature 合并打开 `compile`）。
+
 流程会话任务的判轮（发任务、没交就催一次、退回修正、任务结束时打断还在跑的轮、重启后接着做）在 `rust` 层里测：
-`crates/flow/src/module/turns.rs` 的循环读一串帧、经一个 trait 发消息和打断，测试拿真内核配一份按脚本出帧的会话，一轮一轮看；
-`command` 门禁和门禁结果碰上提交冲突的情况在 `crates/flow/src/module/gate.rs`。LIVE 的 `ui/flow*.spec.ts` 看的是同一段逻辑过整个后端。
+`crates/ext/flow/src/module/turns.rs` 的循环读一串帧、经一个 trait 发消息和打断，测试拿真内核配一份按脚本出帧的会话，一轮一轮看；
+`command` 门禁和门禁结果碰上提交冲突的情况在 `crates/ext/flow/src/module/gate.rs`。LIVE 的 `ui/flow*.spec.ts` 看的是同一段逻辑过整个后端。
 
 ## 3. 跑 LIVE
 
@@ -63,6 +97,7 @@ pnpm -r run test                       # 前端各包的 Vitest（会话状态�
 pnpm live --live                       # 连 .env 里的真模型
 pnpm live --no-model                   # 不碰模型：要模型的套件跳过（只给没有录像的机器用）
 pnpm live --strict                     # 严格回放：请求与录像不一致的那次调用失败
+pnpm live --carrier process            # 只跑扩展包的套件，每个包在自己的进程里（模式 3，开着沙箱）
 pnpm live api/hub.spec.ts              # 一个文件；其余参数原样交给 playwright test
 scripts/check.sh                       # 所有层，从便宜到贵
 scripts/prune.sh                       # 清构建缓存：增量缓存全删，超过 25G 的 target 整个清掉
@@ -76,6 +111,22 @@ scripts/prune.sh                       # 清构建缓存：增量缓存全删，
 
 **拓扑**：`--topology` 决定 API 套件说哪一种（缺省 `single_duplex`）；`ui` project 的后端只给这一种，页面得自己握手回退过去。
 `scripts/check.sh` 两种各跑一遍，所以新写的功能两种拓扑都要过。
+
+**载体**：`--carrier wasm|process` 决定扩展包跑在哪（缺省 `wasm`，产品进程里，模式 2；`process`，每个包一个 `<产品> ext-proc` 扩展进程，模式 3，开着沙箱）。
+testkit 的 `carrier()` 读它，套件的 profile 里用 `onCarrier()` 把 `[ext.packages] carrier` 写成它。`process` 下只跑 `features.mjs` 的
+`CARRIER_SUITES`（`api/packages*.spec.ts`、`ui/packages*.spec.ts`：两种载体都该成立的套件）；把载体钉在自己 profile 里的套件（`CARRIER_PINNED`，
+即 `packages-process.spec.ts`）不再跑一遍，因为它每次都跑。只在一种载体成立的断言（两种载体的差异见 [扩展包](harnix-ext-package.md)）用
+`test.skip(carrier() !== …)` 写明。`scripts/check.sh` 在 `api`、`browser` 两层各多跑一遍 `single_duplex × 扩展包套件 × process`：
+多出的是扩展包套件在一种拓扑下的一遍（API 7 个文件、界面 5 个文件），每个包多一个扩展进程，拉起到能答约 50 ms。
+两种拓扑不再在进程载体上乘一遍：载体在产品背后，不在客户端的线上，前两遍已经覆盖线。
+
+**覆盖表有「进程载体」一列**（§7）：标了 `carrier` 的行在进程载体上也必须有用例，零就失败。
+
+**扩展的引擎只从设置页的 provider 拿模型。** 扩展（包括进程载体里的包）自己的 Agix 看不到产品环境里的 `ANTHROPIC_*`，只有产品的 provider
+（设置页的 `settings.setProvider`）会推给它；回放的会话用不着，真模型的要。所以要真模型的 LIVE 套件先调
+`tests/live/api/packages-host.ts` 的 `provideModel(api)`：它把 `.env` 里的模型凭据设成默认 provider `live-run`，并断言扩展的引擎（`proc.<id>`）
+拿到了（`.env` 里没有模型就 `test.skip`）。`packages-runtime.spec.ts`、`packages-process.spec.ts` 里碰引擎的用例就是这样写的；
+新写的、要扩展引擎调模型的用例照做，不要往后端的环境里塞变量。
 
 ### 三种模型模式
 
@@ -92,11 +143,13 @@ scripts/prune.sh                       # 清构建缓存：增量缓存全删，
 所以对一般的用例，严格回放每一次调用都对不上。
 
 **真录的那几份照严格回放跑**：`api/strict-replay.spec.ts`（`@strict`）把 `record-fixture.mjs` 录的每一份
-（`api/recorded.ts` 的 `RECORDED`：每份怎么录的——那句话、场景、后端，插件 APP 的那几份在带 apps 的二进制上、装着 showcase；
+（`api/recorded.ts` 的 `RECORDED`：每份怎么录的——那句话、场景、后端，扩展包的那几份在装着 showcase 的二进制上；
 请求里带着工具当场编出来的 pid、任务 id 的三份写明 `varies`，只按位置回放）照录的那样起后端，在录的那个目录
 （`/tmp/harnix-fixture/<名字>`，testkit 的 `STRICT_ROOT` 与 `fixedScratch`；目录旁边有锁，另一个检出的运行会等）、
 用录的那句话、`SHELL=/bin/zsh` 重放，强制严格。它在 `api` 层里，两种拓扑都跑；提示词写着操作系统，所以只在 macOS 上跑，
-别处跳过。它红了，就是这个构建发给模型的东西变了（提示词、工具表、场景参数）：照 §6 重录，再看用它的用例断言的东西还在不在。
+别处跳过。**两份已知失败**：`spawns-agent` 与 `app-subagent`（`KNOWN_FAILING`，`test.fail`）——子 Agent 不继承父会话的 Environment，提示词里是跑测试那天的日期而不是录像的
+（Agix#44，维护者 2026-11-13 定）。它们是「预期失败」：修好的 Agix 一进来，这两条反而变红，那时去掉 `KNOWN_FAILING` 里的项。其余都得全过。
+它红了，就是这个构建发给模型的东西变了（提示词、工具表、场景参数）：照 §6 重录，再看用它的用例断言的东西还在不在。
 
 `HARNIX_REPLAY_REPORT=1`：任何一次回放的调用和录像对不上，就让它所在的用例失败（照样放回去、跑完）。在固定目录之外
 每次调用都在路径上对不上，所以它是诊断用的：看一个改动让哪些请求变了，不进 `check.sh`。
@@ -115,8 +168,8 @@ scripts/prune.sh                       # 清构建缓存：增量缓存全删，
 ui/packages/core/            @harnix/core：协议类型（生成）、协议客户端、会话状态；Vitest
 ui/packages/react/           @harnix/react：对话组件、贡献注册表、i18n、令牌；Vitest（jsdom）
 ui/packages/shell/           @harnix/shell：界面本身；Vitest，构建到 ui/dist
-ui/packages/app-sdk/         @harnix/app-sdk：应用界面在隔离 iframe 里的一侧（桥 harnix-ui-bridge@1、mock 宿主）；Vitest
-ui/packages/ui-kit/          @harnix/ui-kit：iframe 里的外壳令牌与基础组件；Vitest
+ui/packages/ext-sdk/         @harnix/ext-sdk：扩展包界面在隔离 iframe 里的一侧（桥 harnix-ui-bridge@2、mock 宿主）；Vitest
+ui/packages/ext-kit/          @harnix/ext-kit：iframe 里的外壳令牌与基础组件；Vitest
 ui/packages/testkit/         @harnix/testkit
   src/launcher.ts            startHarnix：独立的 HOME、数据根、引擎根、项目、端口、拓扑、回放目录
   src/api.ts                 connect：基于 @harnix/core/client 的测试客户端；finish、inconclusive；覆盖计数
@@ -142,10 +195,10 @@ import { expect, finish, test } from "@harnix/testkit";
 const TAGS = { tag: ["@feature:sessions", "@layer:api"] };
 
 test("a new session is idle and in the list", TAGS, async ({ api }) => {
-  const { session_id } = await api.call("session.create", { scene: "harnix", project_root: api.project });
+  const { session_id } = await api.call("harnix.session.create", { scene: "harnix", project_root: api.project });
   try {
-    expect((await api.call("session.get", { session_id })).turn_state).toBe("idle");
-    const { sessions } = await api.call("harnix.sessions");
+    expect((await api.call("engine.session.get", { session_id })).turn_state).toBe("idle");
+    const { sessions } = await api.call("harnix.sessions.list");
     expect(sessions.some((s) => s.session_id === session_id)).toBe(true);
   } finally {
     await finish(api, session_id);
@@ -227,6 +280,9 @@ node tests/live/record-fixture.mjs --scene code <名字> "<提示词>"    # 别�
 参数名是 `fixture`/`recording` 的辅助函数收到的字面量、`harnix-testapp` 给流程会话起的 `flow-…`）都是一个录像目录；
 每个录像目录都有东西回放它（被点名，或者是某个流程站点的 `flow-<站点>`）。
 
+方法或主题改名后，录像里说过旧名字的块（工具描述、`flow_guide` 返回的指南）要改写：`node scripts/rewrite-recordings.mjs`
+把块里的旧名字换成新名字，块按新内容重算摘要（文件名与 `calls.jsonl` 里的引用一起改）；`--check` 只查不写，有要改的就退出 1。
+
 录像按位置回放。每个后端都有自己的数据根、HOME 和项目，全局记忆与 telemetry 不会串进来（N-003）。
 隔离以后回放仍然错位（同一轮里可选的旁路调用时有时无），就向 Agix 提「按调用种类匹配」，不在
 Harnix 侧绕过。
@@ -238,8 +294,8 @@ Harnix 侧绕过。
 
 1. 拷一份结构相同的：一次工具调用加一句话的，从 `calls-a-native-tool` 或 `app-echo` 拷；两个会话的（子 Agent），从 `app-subagent` 拷。
 2. 改 `calls.jsonl` 里属于它自己的那几行：`tool_args_chunks` 的 `args`（工具输入的 JSON 文本）、`kind: "tool_use"` 那一块的 `name` 与 `input`、
-   `text_chunks` 的 `texts`（最后那句话）。插件 APP 的工具名是 `app__<id 的 . 换成 _>__<工具>`，spawn 的实例里是
-   `mcp__app-<id 的 . 换成 _>__<工具>`。
+   `text_chunks` 的 `texts`（最后那句话）。扩展包的工具名是 `ext__<id 的 . 换成 _>__<工具>`，spawn 的实例里是
+   `mcp__ext-<id 的 . 换成 _>__<工具>`。
 3. `blobs/` 里是请求的内容（按哈希存）。缺省回放按位置、不严格，请求和录下的不一样只记日志，所以 blob 可以原样留着。手做的录像
    严格回放过不了，也不进 `strict-replay.spec.ts`；要它也过，就得用 `record-fixture.mjs` 真录一份。
 4. 在 `recordings/README.md` 的表里加一行：它演示什么、从哪一份改出来、改了什么。
@@ -261,6 +317,7 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
 - 用例没带标签，或者标了不存在的 `feature`；
 - 某一行在某一层是零，`features.mjs` 里又没写 `na`（不适用，写理由）或 `pending`（哪个里程碑补）；
 - 一行已经有用例了，还标着 `pending`；
+- 「进程载体」一列：行标了 `carrier`（`features.mjs`，经扩展包的行）而在 `--carrier process` 下一个用例也没有，或者没标却有（该列数的是 `CARRIER_SUITES` 在进程载体下列出的用例，API 与界面合计）；
 - 一个 `@gap` 用例没写等什么修。
 
 不算覆盖的两种：
@@ -288,53 +345,53 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
 方法让这一层失败，除非 `features.mjs` 的 `UNCALLED` 写了它和理由；`UNCALLED` 里的方法有用例调到了也失败，免得清单
 替已经做完的事继续开脱。只跑一个文件时不设，只打印。
 
-## 8. 插件 APP 的测试
+## 8. 扩展包的测试
 
-插件 APP 的套件要带 `apps` feature 的二进制：它连着应用运行时和 WebAssembly 引擎，缺省的构建里没有。
+扩展包（WASM 扩展）的套件跑缺省构建的 `harnix`：它带着两种载体（`wasm`、`proc`）。
 
 | 东西 | 在哪 |
 |---|---|
-| 带 `apps` 的 `harnix` | `cargo build --release -p harnix-cli --features apps --target-dir target/apps`；`scripts/check.sh` 编好后经 `HARNIX_APPS_BIN` 告诉套件，单跑时套件自己编（`tests/live/api/apps-host.ts`） |
-| 打包工具 `harnix-app` | 同一个目录，`-p harnix-app-package --features compile --bin harnix-app` |
-| 带 `apps` 的 `harnix-testapp` | 同一个目录；信 mock 商店、能缩短休眠的只有它（见下面的隐藏钩子） |
-| 示例应用 | `examples/apps/showcase`：测试开始时编组件（`wasm32-wasip2`）、为这个引擎编译、打成 `.hxapp`，按源码哈希缓存在 `target/apps/showcase/` |
-| mock 商店 | `tests/live/api/apps-store.ts` 在临时目录里用 `harnix-app sign` / `countersign` / `index` 把 showcase 做成两个版本（0.2.0 多要几项能力）、写出 `index.json`，经 `[apps] store = "file://…"` 给后端；mock 的发布者与商店密钥在 `tests/live/fixtures/store/`，只是测试钥 |
+| `harnix` | 缺省构建（`target/release`），同 `pnpm live`；载体由 `--carrier` 定（`tests/live/api/packages-host.ts`） |
+| 打包工具 `harnix-pack` | `cargo build --release -p harnix-package --features compile --bin harnix-pack --target-dir target/packages`；`scripts/check.sh` 编好（设了 `HARNIX_BIN` 时套件不再问 cargo），单跑时套件自己编 |
+| 带 `wasm,proc` 的 `harnix-testapp` | 同一个目录；信 mock 商店、能缩短休眠的只有它（见下面的两个构建方法） |
+| 示例包 | `examples/packages/showcase`：测试开始时编组件（`wasm32-wasip2`）、为这个引擎编译、打成 `.hxext`，按源码哈希缓存在 `target/packages/showcase/` |
+| mock 商店 | `tests/live/api/packages-store.ts` 在临时目录里用 `harnix-pack sign` / `countersign` / `index` 把 showcase 做成两个版本（0.2.0 多要几项能力）、写出 `index.json`，经 `[ext.packages] store = "file://…"` 给后端；mock 的发布者与商店密钥在 `tests/live/fixtures/store/`，只是测试钥 |
 
-**Rust 这边**：
+**Rust 这边**（载体与沙箱的测试见 §2.1）：
 
 - `harnix-wasm` 拿真组件跑：`crates/wasm/tests/fixtures/` 下的组件用 `cargo build --target wasm32-wasip2` 现编（rustc 的 wasip2 链接器直接出组件，
   不需要别的工具），按源码哈希缓存在 `target/tmp/` 下。第一次之前 `rustup target add wasm32-wasip2`。它跑两遍：`cargo test -p harnix-wasm` 是产品的
   构建（不带编译器，那里的测试加载编译工具编出的产物），`cargo test -p harnix-wasm --features compile` 跑组件测试。
-- `cargo test -p harnix-app-host --features compile`：应用宿主对着假的 `Kernel` 与 `Agent`，它们与 `Control` 每个方向的每次调用都经
-  `harnix-app-port` 的回环适配器（feature `loopback`）用 `serde_json` 编码再解码，证明这条边界能搬上 RPC。
-- `cargo test -p harnix-apps --features compile`：嵌入的粘合层，照 `apps` 模块那样装、用、停、卸，和装到一半失败的回滚；装签名包、篡改、
-  升级与升级失败的回滚在 `crates/apps/tests/signed.rs`。
-- 签名、目录、披露的逻辑另有单测（`crates/app-package/src/{signature,store,disclosure,publish}.rs`）；休眠的规则在
-  `crates/app-host/tests/idle.rs`（`HostOptions::idle`）与 `crates/wasm/tests/hibernate.rs`。
+- `cargo test -p harnix-wasm-host --features compile`：宿主核心对着假的 `Kernel` 与 `Agent`，它们与 `Control` 每个方向的每次调用都经
+  `harnix-wasm-port` 的回环适配器（feature `loopback`）用 `serde_json` 编码再解码，证明这条边界能搬上 RPC。
+- `cargo test -p harnix-ext-packages`：`packages` 的装、用、停、卸与装到一半失败的回滚（`crates/ext/packages/tests/lifecycle.rs`）。
+- 签名、目录、披露的逻辑另有单测（`crates/package/src/{signature,store,disclosure,publish}.rs`）；休眠的规则在
+  `crates/wasm-host/tests/idle.rs`（闲置时限由 `Start::limits` 给）与 `crates/wasm/tests/hibernate.rs`。
 
-**LIVE 这边**（都在 `tests/live/{api,ui}/apps*.spec.ts`）：装与运行时、后端、商店、iframe、行内点、休眠，API 与界面各一份，两种拓扑都跑。
+**LIVE 这边**（都在 `tests/live/{api,ui}/packages*.spec.ts`，另有 `package-ui.spec.ts`）：装与运行时、后端、商店、iframe、行内点、休眠，API 与界面各一份，
+两种拓扑都跑，进程载体再跑一遍（§3）。`api/packages-process.spec.ts` 只在进程载体上成立：重启、置于一旁、版本与复核、它的 space 的会话在 `proc.<id>`、
+唤醒、沙箱开着的 showcase 加 agent 包（真的 showcase 起来、它的 Agix 调一次 shell 工具；要模型的几条先 `provideModel`）。
 
-- iframe 的套件装 showcase：未签名、商店签的界面画在沙箱 iframe 里，受信发布者的进页面，`[interface] isolate = true` 时同一个应用也进 iframe
+- iframe 的套件装 showcase：未签名、商店签的界面画在沙箱 iframe 里，受信发布者的进页面，`[interface] isolate = true` 时同一个包也进 iframe
   （套件用 mock 发布者的钥匙现签一份）。iframe 里的东西用 `page.frameLocator` 找，看它自己的世界（存储、令牌、网络）用 `frame.evaluate`。
-- `@harnix/app-sdk` 与 `@harnix/ui-kit` 有自己的 Vitest（SDK 带 mock 宿主）；showcase 带着两者构建出的文件（`ui/frame/vendor/`），
+- `@harnix/ext-sdk` 与 `@harnix/ext-kit` 有自己的 Vitest（SDK 带 mock 宿主）；showcase 带着两者构建出的文件（`ui/frame/vendor/`），
   `node tests/app-ui-vendored.mjs` 在 `frontend` 层查它们是不是最新的（`--write` 重新生成）。
-- 休眠的套件在测试里把 showcase 改成 `[backend] resident = "on-demand"`（`watch_sessions = false`，`init` 不订阅），跑在带 `apps` 的
-  `harnix-testapp` 上。
+- 休眠的套件在测试里把 showcase 改成 `[backend] resident = "on-demand"`（`watch_sessions = false`，`init` 不订阅），跑在带 `wasm,proc` 的 `harnix-testapp` 上。
 
-**隐藏的测试钩子**（`AppBuilder` 上 `#[doc(hidden)]` 的三个方法，产品用不着，profile 也改不了；`harnix-testapp` 用它们）：
+**测试应用的两个构建方法**（`harnix-testapp` 用，`harnix` 缺省构建里 profile 改不了）：
 
-| 钩子 | 做什么 | `harnix-testapp` 怎么用 |
+| 方法 | 做什么 | `harnix-testapp` 怎么用 |
 |---|---|---|
-| `app_host(module)` | 除了 `apps` 内建模块，也把应用宿主给这个模块（没有 `[apps] enabled` 就没有宿主可给） | 它的 `fakehost` 模块装一个假应用，测运行期登记 |
-| `store_keys(keys)` | 用这些 hex 的 ed25519 公钥验商店副署，替掉内置的商店公钥（只在带 `apps` 的构建里读） | mock 商店的公钥（`tests/live/fixtures/store/mock-store.pub`） |
-| `app_idle(duration)` | 所有 `on-demand` 后端闲置这么久就休眠，替掉清单的 `idle_secs`（不短于一分钟的那条规则只对清单） | 环境变量 `HARNIX_TESTAPP_APP_IDLE_MS`（毫秒），休眠的套件设它 |
+| `Packages::store_keys(keys)` | 用这些 hex 的 ed25519 公钥验商店副署，替掉内置的商店公钥 | mock 商店的公钥（`tests/live/fixtures/store/mock-store.pub`） |
+| `Packages::idle(duration)` | 所有 `on-demand` 后端闲置这么久就休眠，替掉清单的 `idle_secs`（不短于一分钟的那条规则只对清单） | 环境变量 `HARNIX_TESTAPP_APP_IDLE_MS`（毫秒），休眠的套件设它 |
 
-`harnix` 内置的是商店自己的公钥，profile 改不了，所以 mock 商店在它那里什么也装不上（套件也测这一条）。
+它的 `fakehost` 扩展持 `extensions.manage`，经宿主的登记口装一个假包，测运行期登记与撤下（`crates/testapp/src/fake_app.rs`）。
+`harnix` 内置的是商店自己的公钥，所以 mock 商店在它那里什么也装不上（套件也测这一条）。
 
 ## 9. 应用写自己的 LIVE：`@harnix/testkit`
 
 在 Harnix 上做的应用用同一套东西测自己：`@harnix/testkit` 起进程、连客户端、给 Playwright 夹具。导出与选项的全表见
-[SDK](harnix-sdk.md) §24。
+[Harnix 扩展](harnix-ext.md)。
 
 - **起谁**：`startHarnix({ bin })` 的 `bin` 写应用二进制的绝对路径（不写是 `harnix`）。每个后端有自己的 HOME、数据根、引擎根、项目、端口。
 - **配什么**：`profile`（追加在 `[transport]` 之后的 TOML）、`env`、`args`、`topologies`、`seed`（引擎读之前就要在的状态）、`uiDir`。
@@ -344,8 +401,8 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
 - **收尾**：`await backend.dispose()`（等进程退出再删目录），不要用 `stop()`；起过一轮的用例以 `finish(client, sessionId)` 结束。
 - **组件测试**：`link:` 进来的 `@harnix/react` 会从 `harnix/` 那边解析 `react`，vitest 里写 `resolve: { dedupe: ["react", "react-dom"] }`。
 
-写插件 APP 的人测法一样：`bin` 指带 `apps` 的二进制，profile 加 `[apps] enabled = true`、`dev = true`，`harnix.apps.installFile` 装自己的 `.hxapp`
-（[插件](harnix-plugin.md) §11）。
+写扩展包的人测法一样：`bin` 指带 `wasm`（或 `proc`）的二进制，profile 写 `[ext.packages]` 的 `dev = true` 与 `carrier`，`packages.installFile` 装自己的 `.hxext`
+（见 [扩展包](harnix-ext-package.md)）；要真模型的用例先 `provideModel`（§3）。
 
 ## 10. 协议类型
 

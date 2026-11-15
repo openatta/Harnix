@@ -1,5 +1,5 @@
 /**
- * Module routes, `/apps/<id>/` (concept §3.3.5): same origin, admitted by the
+ * Module routes, `/ext/<id>/` (concept §3.3.5): same origin, admitted by the
  * same token or credential, decided in the authorization table, refused
  * before the module's code runs.
  */
@@ -20,7 +20,7 @@ test.afterAll(async () => { await backend?.dispose(); });
 const url = (path: string) => `${backend.url.replace(/\/$/, "")}${path}`;
 
 test("a route answers a request that carries the token", TAGS, async () => {
-  const response = await fetch(url("/apps/probe/hello"), {
+  const response = await fetch(url("/ext/probe/hello"), {
     headers: { authorization: `Bearer ${backend.token}` },
   });
   expect(response.status).toBe(200);
@@ -32,7 +32,7 @@ test("and one that carries a handshake's credential", TAGS, async () => {
   try {
     const credential = api.handshake.credential;
     expect(credential).toBeTruthy();
-    const response = await fetch(url(`/apps/probe/hello?credential=${credential}`));
+    const response = await fetch(url(`/ext/probe/hello?credential=${credential}`));
     expect(response.status).toBe(200);
   } finally {
     api.close();
@@ -40,20 +40,20 @@ test("and one that carries a handshake's credential", TAGS, async () => {
 });
 
 test("a request with nothing is refused before the module runs", TAGS, async () => {
-  expect((await fetch(url("/apps/probe/hello"))).status).toBe(401);
-  const wrong = await fetch(url("/apps/probe/hello"), { headers: { authorization: "Bearer guess" } });
+  expect((await fetch(url("/ext/probe/hello"))).status).toBe(401);
+  const wrong = await fetch(url("/ext/probe/hello"), { headers: { authorization: "Bearer guess" } });
   expect(wrong.status).toBe(401);
 });
 
 test("a page from elsewhere is refused by its Origin", TAGS, async () => {
-  const response = await fetch(url("/apps/probe/hello"), {
+  const response = await fetch(url("/ext/probe/hello"), {
     headers: { authorization: `Bearer ${backend.token}`, origin: "https://evil.example" },
   });
   expect(response.status).toBe(403);
 });
 
 test("a disabled module's routes are not served", TAGS, async () => {
-  const response = await fetch(url("/apps/fails-start/hello"), {
+  const response = await fetch(url("/ext/fails-start/hello"), {
     headers: { authorization: `Bearer ${backend.token}` },
   });
   expect(response.status).not.toBe(200);

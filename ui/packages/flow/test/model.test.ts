@@ -142,8 +142,8 @@ describe("actions per status", () => {
 
 describe("wire helpers", () => {
   it("names methods under the module's id", () => {
-    expect(methodName("flow", "confirm")).toBe("app.flow.confirm");
-    expect(methodName("ops", "start")).toBe("app.ops.start");
+    expect(methodName("flow", "confirm")).toBe("flow.confirm");
+    expect(methodName("ops", "start")).toBe("ops.start");
   });
 
   it("finds the run id in what start answers", () => {
@@ -165,8 +165,8 @@ describe("wire helpers", () => {
     expect(sessionOf(task("a", "claimed", { session: { instance: "i", session_id: "s" } }))).toEqual({ instance: "i", sessionId: "s" });
     expect(sessionOf(task("a", "claimed"))).toBe(null);
     // As the flow module writes it.
-    expect(sessionOf(task("a", "claimed", { session: "system/abc" }))).toEqual({ instance: "system", sessionId: "abc" });
-    expect(sessionOf(task("a", "claimed", { session: "abc" }))).toEqual({ instance: "system", sessionId: "abc" });
+    expect(sessionOf(task("a", "claimed", { session: "main/abc" }))).toEqual({ instance: "main", sessionId: "abc" });
+    expect(sessionOf(task("a", "claimed", { session: "abc" }))).toEqual({ instance: "main", sessionId: "abc" });
   });
 
   it("reads the kernel's shapes: the pinned definition, open stations, check status, digests", () => {
@@ -186,19 +186,19 @@ describe("wire helpers", () => {
   it("claims only the flow's proposal entries", () => {
     const entry = (ns: string, event: string, payload: unknown) => ({ kind: "custom", type: "entry", data: { id: "e1", ns, event, payload, at: 0 } });
     const p = { run: "r1", station: "review", kind: "rework", to: "analyze", reason: "findings are thin" };
-    expect(proposalOf(entry("app.flow", "proposal", p))).toEqual({ id: "e1", proposal: { ...p, session: null } });
-    const session = { instance: "system", session_id: "s1" };
-    expect(proposalOf(entry("app.flow", "proposal", { ...p, session }))?.proposal.session).toEqual(session);
-    expect(proposalOf(entry("app.flow", "proposal", { ...p, kind: "cancel", to: undefined }))?.proposal.kind).toBe("cancel");
-    expect(proposalOf(entry("app.other", "proposal", p))).toBe(null);
-    expect(proposalOf(entry("app.ops", "proposal", p), "app.ops")).not.toBe(null);
-    expect(proposalOf(entry("app.flow", "other", p))).toBe(null);
-    expect(proposalOf(entry("app.flow", "proposal", { ...p, kind: "delete" }))).toBe(null);
+    expect(proposalOf(entry("flow", "proposal", p))).toEqual({ id: "e1", proposal: { ...p, session: null } });
+    const session = { instance: "main", session_id: "s1" };
+    expect(proposalOf(entry("flow", "proposal", { ...p, session }))?.proposal.session).toEqual(session);
+    expect(proposalOf(entry("flow", "proposal", { ...p, kind: "cancel", to: undefined }))?.proposal.kind).toBe("cancel");
+    expect(proposalOf(entry("other", "proposal", p))).toBe(null);
+    expect(proposalOf(entry("ops", "proposal", p), "ops")).not.toBe(null);
+    expect(proposalOf(entry("flow", "other", p))).toBe(null);
+    expect(proposalOf(entry("flow", "proposal", { ...p, kind: "delete" }))).toBe(null);
     expect(proposalOf({ kind: "custom", type: "request", data: {} })).toBe(null);
   });
 
   it("reads an accepted proposal's record, and nothing else", () => {
-    const entry = (event: string, payload: unknown) => ({ kind: "custom", type: "entry", data: { id: "e2", ns: "app.flow", event, payload, at: 0 } });
+    const entry = (event: string, payload: unknown) => ({ kind: "custom", type: "entry", data: { id: "e2", ns: "flow", event, payload, at: 0 } });
     const by = { kind: "device", id: "d" };
     expect(proposalHandledOf(entry("proposal_handled", { entry: "e1", action: "rework", by }))).toEqual({ entry: "e1", action: "rework", by });
     expect(proposalHandledOf(entry("proposal", { entry: "e1", action: "rework", by }))).toBe(null);
@@ -342,7 +342,7 @@ describe("what a run is doing and what it spent (xops-03)", () => {
   });
 
   it("finds the main session under @main", () => {
-    expect(mainSessionOf({ session_keys: { "@main": "box/m1", run: "system/x" } })).toEqual({ instance: "box", sessionId: "m1" });
+    expect(mainSessionOf({ session_keys: { "@main": "box/m1", run: "main/x" } })).toEqual({ instance: "box", sessionId: "m1" });
     expect(mainSessionOf({ session_keys: {} })).toBe(null);
   });
 

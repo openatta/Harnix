@@ -1,137 +1,17 @@
-//! The hub's only view of an instance (concept §3.1.1).
+//! The links this layer hands the hub (concept §3.1.1).
 //!
-//! Two carriers implement [`EngineLink`] — an engine in this process
-//! ([`crate::InProcessLink`]) and an Agix daemon in another
-//! ([`crate::DaemonLink`]) — and the hub has no branch on which one it holds.
-//! Everything the hub needs is here: calls, the one stream of asynchronous
-//! frames, an ordering mark, and the link's health.
-//!
-//! This is the kernel's interface. Modules are never handed one: a module
-//! that could call `session.run_turn` on a link would be a way around the
-//! hub's "subscribe before anyone" invariant.
+//! An engine in this process, a daemon in another, or nothing at all: the engine's links
+//! (`harnix_engine`), wrapped so that what they create is recorded — or a [`DownLink`], for an
+//! instance that could not be built. The hub holds each as an `EngineLink` and has no branch on
+//! which it is; the registry keeps only its `EngineControl` half.
 
-use harnix_contract::{codes, RpcError};
-use serde::Serialize;
-use serde_json::{json, Value};
-use tokio::sync::{mpsc, watch};
+use std::sync::Arc;
 
-/// Every asynchronous frame a link carries, in the order the engine sent
-/// them: `session.event`, `daemon.event`, and the link's own two —
-/// [`BARRIER`] and [`RECONNECTED`].
-pub type EventReceiver = mpsc::Receiver<Value>;
-
-/// How many frames a link holds for the hub before it stops reading. A link
-/// that stops reading makes the engine's own outbound queue fill, and the
-/// engine then drops that subscription and says so (`subscription_dropped`) —
-/// the hub resyncs. So a slow hub costs a resync, never memory.
-pub const EVENT_CAPACITY: usize = 4096;
-
-/// A mark written behind every frame the link had received when
-/// [`EngineLink::mark`] was called.
-pub const BARRIER: &str = "harnix.barrier";
-
-/// Written by a link that lost its engine and found it again. Every
-/// subscription it had is gone: the engine's subscriptions belong to the
-/// connection (Agix protocol §5.6).
-pub const RECONNECTED: &str = "harnix.reconnected";
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "state", rename_all = "snake_case")]
-pub enum LinkStatus {
-    Starting,
-    Ready,
-    /// Lost, and being found again. Turns on the far side keep running.
-    Degraded { since_ms: u64, reason: String },
-    /// Not coming back without someone changing something.
-    Down { reason: String },
-}
-
-impl LinkStatus {
-    pub fn is_ready(&self) -> bool {
-        matches!(self, LinkStatus::Ready)
-    }
-}
-
-/// Which carrier, for the instance list. The hub reports it and never branches on it: what differs
-/// between carriers — a spawned daemon reaching this process's runtime applications over MCP, say
-/// (`servers.rs`) — is the carrier's own doing, in this layer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Carrier {
-    InProcess,
-    Spawn,
-    Attach,
-}
-
-#[async_trait::async_trait]
-pub trait EngineLink: Send + Sync + 'static {
-    /// One JSON-RPC call. A streaming method's frames arrive on the event
-    /// stream; this returns its final answer.
-    async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError>;
-
-    /// The event stream. There is one: the first caller gets it, and it
-    /// stays the same receiver across reconnects.
-    fn take_events(&self) -> Option<EventReceiver>;
-
-    /// Put a [`BARRIER`] frame carrying `id` behind every frame this link
-    /// had received when the call was made, and return once it is queued.
-    ///
-    /// Settling a turn waits for its mark to come out of the event stream:
-    /// a call's reply can overtake that call's last events, and a watcher
-    /// that saw `turn_settled` before `turn_complete` drew the turn twice.
-    async fn mark(&self, id: u64);
-
-    fn status(&self) -> watch::Receiver<LinkStatus>;
-
-    /// What the engine says it is: `{version, protocol_version, capabilities}`.
-    /// `Null` until the link has reached it once.
-    fn identity(&self) -> Value;
-
-    fn carrier(&self) -> Carrier;
-
-    /// The process carrying the engine, when it is not this one and this
-    /// one started it.
-    fn pid(&self) -> Option<u32> {
-        None
-    }
-
-    /// Whether stopping or restarting the process carrying the engine also ends what is left in its
-    /// session (ipdrun-07).
-    fn reaps_on_stop(&self) -> bool {
-        false
-    }
-
-    async fn shutdown(&self);
-}
-
-/// The frame [`EngineLink::mark`] writes.
-pub fn barrier_frame(id: u64) -> Value {
-    json!({"jsonrpc": "2.0", "method": BARRIER, "params": {"id": id}})
-}
-
-pub fn reconnected_frame() -> Value {
-    json!({"jsonrpc": "2.0", "method": RECONNECTED, "params": {}})
-}
-
-/// The answer to a call on a link that cannot reach its engine.
-pub fn unavailable(status: &LinkStatus) -> RpcError {
-    let why = match status {
-        LinkStatus::Starting => "is starting".to_string(),
-        LinkStatus::Ready => "lost its engine mid-call".to_string(),
-        LinkStatus::Degraded { reason, .. } => format!("is reconnecting ({reason})"),
-        LinkStatus::Down { reason } => format!("is down ({reason})"),
-    };
-    RpcError::new(codes::INSTANCE_UNAVAILABLE, format!("the instance {why}"))
-}
-
-/// The protocol version this build of Harnix speaks to an Agix daemon: the
-/// one of the Agix it links.
-pub fn expected_protocol() -> u64 {
-    daemon::discovery::identity()
-        .get("protocol_version")
-        .and_then(Value::as_u64)
-        .unwrap_or(0)
-}
+use harnix_contract::RpcError;
+use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
+use harnix_engine_api::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, Subscribed, Tasks, TurnInput};
+use serde_json::Value;
+use tokio::sync::watch;
 
 pub fn now_ms() -> u64 {
     std::time::SystemTime::now()
@@ -140,44 +20,110 @@ pub fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// An instance that could not be built: a ledger entry whose template is
-/// gone or whose owner is disabled, or a carrier that failed to start. It is
-/// listed `Down` with the reason, so the system space can say what happened
-/// to it; its data root is not touched.
+/// An instance that could not be built: a ledger entry whose template is gone or whose owner is
+/// disabled, or a carrier that failed to start. It is listed `Down` with the reason, so the
+/// system space can say what happened to it; its data root is not touched.
 pub struct DownLink {
     status: watch::Sender<LinkStatus>,
-    carrier: Carrier,
+    carrier: InstanceCarrier,
 }
 
 impl DownLink {
-    pub fn new(carrier: Carrier, reason: String) -> std::sync::Arc<Self> {
+    pub fn new(carrier: InstanceCarrier, reason: String) -> Arc<Self> {
         let (status, _) = watch::channel(LinkStatus::Down { reason });
-        std::sync::Arc::new(Self { status, carrier })
+        Arc::new(Self { status, carrier })
     }
 
     /// One whose template is gone, and with it what carrier it had: listed as in-process.
-    pub fn without_template(reason: String) -> std::sync::Arc<Self> {
-        Self::new(Carrier::InProcess, reason)
+    pub fn without_template(reason: String) -> Arc<Self> {
+        Self::new(InstanceCarrier::InProcess, reason)
+    }
+
+    fn unavailable(&self) -> RpcError {
+        self.status.borrow().unavailable()
     }
 }
 
 #[async_trait::async_trait]
+impl EngineControl for DownLink {
+    fn status(&self) -> watch::Receiver<LinkStatus> {
+        self.status.subscribe()
+    }
+    fn identity(&self) -> EngineIdentity {
+        EngineIdentity::default()
+    }
+    fn carrier(&self) -> InstanceCarrier {
+        self.carrier
+    }
+    async fn reload_settings(&self) -> Result<(), RpcError> {
+        Err(self.unavailable())
+    }
+    async fn shutdown(&self) {}
+}
+
+#[async_trait::async_trait]
 impl EngineLink for DownLink {
-    async fn call(&self, _method: &str, _params: Value) -> Result<Value, RpcError> {
-        Err(unavailable(&self.status.borrow()))
+    fn ops(&self) -> &dyn EngineOps {
+        self
     }
     fn take_events(&self) -> Option<EventReceiver> {
         None
     }
     async fn mark(&self, _id: u64) {}
-    fn status(&self) -> watch::Receiver<LinkStatus> {
-        self.status.subscribe()
+}
+
+/// Every call answers that the instance is down.
+#[async_trait::async_trait]
+impl EngineOps for DownLink {
+    async fn create(&self, _: Value) -> Answer<SessionCreated> {
+        Err(self.unavailable())
     }
-    fn identity(&self) -> Value {
-        Value::Null
+    async fn get(&self, _: &str) -> Answer<SessionInfo> {
+        Err(self.unavailable())
     }
-    fn carrier(&self) -> Carrier {
-        self.carrier
+    async fn list(&self) -> Answer<Vec<SessionInfo>> {
+        Err(self.unavailable())
     }
-    async fn shutdown(&self) {}
+    async fn subscribe(&self, _: &str) -> Answer<Option<Subscribed>> {
+        Err(self.unavailable())
+    }
+    async fn resume(&self, _: &str, _: &SessionInfo) -> Answer<()> {
+        Err(self.unavailable())
+    }
+    async fn history_len(&self, _: &str) -> Answer<u64> {
+        Err(self.unavailable())
+    }
+    async fn transcript(&self, _: &str, _: usize) -> Answer<Vec<Said>> {
+        Err(self.unavailable())
+    }
+    async fn tasks(&self, _: &str) -> Answer<Tasks> {
+        Err(self.unavailable())
+    }
+    async fn run_turn(&self, _: &str, _: TurnInput) -> Answer<Value> {
+        Err(self.unavailable())
+    }
+    async fn interrupt(&self, _: &str) -> Answer<Value> {
+        Err(self.unavailable())
+    }
+    async fn close(&self, _: Value, _: bool) -> Answer<Value> {
+        Err(self.unavailable())
+    }
+    async fn fork(&self, _: Value) -> Answer<SessionCreated> {
+        Err(self.unavailable())
+    }
+    async fn append_entry(&self, _: &str, _: Entry) -> Answer<Value> {
+        Err(self.unavailable())
+    }
+    async fn respond(&self, _: Value) -> Answer<Value> {
+        Err(self.unavailable())
+    }
+    async fn rename(&self, _: &str, _: &str) -> Answer<Value> {
+        Err(self.unavailable())
+    }
+    async fn set_model(&self, _: &str, _: &str, _: Option<&str>) -> Answer<Value> {
+        Err(self.unavailable())
+    }
+    async fn passthrough(&self, _: &str, _: Value) -> Answer<Value> {
+        Err(self.unavailable())
+    }
 }

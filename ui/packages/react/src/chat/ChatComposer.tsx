@@ -65,7 +65,7 @@ function currentTrigger(value: string, caret: number): Trigger | null {
 }
 
 /**
- * 上下文环的配置（ChatFeatures.contextRing 的对象形式）。环的值取会话的 `context`（turn_complete 与 session.get
+ * 上下文环的配置（ChatFeatures.contextRing 的对象形式）。环的值取会话的 `context`（turn_complete 与 engine.session.get
  * 带的，引擎按厂商计数）；会话还没有调过模型时才用这里的 `ratio`。
  */
 export interface ContextRingConfig {
@@ -88,7 +88,7 @@ export interface Attached {
   label: string;
   /** 图片的预览（data: URL；CSP 不放 blob:） */
   preview?: string;
-  /** 随 harnix.send 发出的那一项 */
+  /** 随 harnix.session.send 发出的那一项 */
   attachment: unknown;
 }
 
@@ -118,7 +118,7 @@ export interface ChatComposerProps {
   elsewhere?: boolean;
   /** 发送：true ⇒ 已发、清空；false ⇒ 没发、保留原文 */
   send: (text: string, attachments: unknown[]) => Promise<boolean>;
-  /** 输入框的句柄：应用往里插字（`useNest().composer.insert`）。卸载时给 null */
+  /** 输入框的句柄：应用往里插字（`useHost().composer.insert`）。卸载时给 null */
   bind?: (api: ComposerApi | null) => void;
   /** 上传一个文件；给了才能加附件（＋ 里的"上传文件"、粘贴、拖放）。失败时自己报，然后 reject */
   upload?: (file: File) => Promise<Attached>;

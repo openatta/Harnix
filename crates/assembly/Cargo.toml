@@ -1,0 +1,48 @@
+[package]
+name = "harnix-assembly"
+version      = "0.4.2-2026110901"
+edition      = "2021"
+rust-version = "1.87"
+license      = "Apache-2.0"
+publish      = false
+description  = "App::builder(): a Harnix process assembled from extensions, and the extension host"
+
+[dependencies]
+harnix-instance  = { workspace = true }
+harnix-engine-api = { workspace = true }
+harnix-engine    = { workspace = true }
+harnix-authz     = { workspace = true }
+harnix-kernel    = { workspace = true }
+harnix-router    = { workspace = true }
+harnix-contract  = { workspace = true }
+harnix-ext       = { workspace = true }
+harnix-host-api  = { workspace = true }
+harnix-hub       = { workspace = true }
+harnix-transport = { workspace = true }
+# An extension process, kept (`host/spawn.rs`).
+harnix-supervise = { workspace = true }
+tokio       = { workspace = true }
+# An extension's routes, served by the transport.
+axum           = { workspace = true }
+http-body-util = { workspace = true }
+async-trait = { workspace = true }
+anyhow      = { workspace = true }
+clap        = { workspace = true }
+tracing     = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+toml        = { workspace = true }
+uuid        = { workspace = true }
+libc        = { workspace = true }
+
+[dev-dependencies]
+tempfile    = { workspace = true }
+# The first-party extensions, linked or not: what not linking one changes (`tests/grants.rs`).
+harnix-ext-system = { workspace = true }
+harnix-ext-harnix-app    = { workspace = true }
+harnix-ext-flow          = { workspace = true }
+harnix-ext-settings      = { workspace = true }
+harnix-ext-plugins       = { workspace = true }
+harnix-ext-observability = { workspace = true }
+harnix-ext-devices       = { workspace = true }

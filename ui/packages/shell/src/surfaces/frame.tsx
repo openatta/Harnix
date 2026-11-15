@@ -1,7 +1,7 @@
 /**
- * One surface: the application's page in its sandboxed frame, and the frame the shell draws
+ * One surface: the package's page in its sandboxed frame, and the frame the shell draws
  * around it — its title while it loads, what went wrong and a reload when it fails, a note when it
- * has been set aside or its application has stopped. A failed page is "this part failed, reload",
+ * has been set aside or its package has stopped. A failed page is "this part failed, reload",
  * never half a white panel.
  *
  * The `<iframe>` is made here by hand, not by React, so its `sandbox` is set before it has a
@@ -16,12 +16,12 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useT } from "@harnix/react";
-import { inDialog } from "@harnix/app-sdk/protocol";
+import { inDialog } from "@harnix/ext-sdk/protocol";
 
 import type { App } from "../app.ts";
 import { FrameBridge } from "./bridge.ts";
 import { asking, onAsking } from "./confirm.tsx";
-import { autoHeight, surfaceKey, titleOf, type AppInterface, type SurfaceDecl } from "./model.ts";
+import { autoHeight, surfaceKey, titleOf, type PackageInterface, type SurfaceDecl } from "./model.ts";
 import { surfaces } from "./store.ts";
 
 /** What a surface's frame may have the shell do beyond the bridge's own requests. */
@@ -50,7 +50,7 @@ export function SurfaceView({
   onClose,
 }: {
   app: App;
-  iface: AppInterface;
+  iface: PackageInterface;
   decl: SurfaceDecl;
   actions: SurfaceActions;
   params?: unknown;
@@ -89,7 +89,7 @@ export function SurfaceView({
     iframe.setAttribute("referrerpolicy", "no-referrer");
     iframe.setAttribute("title", title);
     iframe.className = "hx-frame";
-    iframe.dataset.app = decl.app;
+    iframe.dataset.package = decl.app;
     iframe.dataset.surface = decl.id;
     iframe.dataset.point = decl.point;
     iframe.dataset.testid = "surface-frame";
@@ -150,7 +150,7 @@ export function SurfaceView({
     <div
       className={`hx-surface${sized ? " sized" : " fill"}`}
       data-testid="surface"
-      data-app={decl.app}
+      data-package={decl.app}
       data-point={decl.point}
       data-surface={decl.id}
       data-state={state}

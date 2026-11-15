@@ -1,7 +1,7 @@
-//! What an application is allowed, and what it is given.
+//! What a package is allowed, and what it is given.
 //!
 //! An [`AppSpec`] is the manifest's `[capabilities]` and `[[component]]`
-//! limits after the person installing the application agreed to them. It is
+//! limits after the person installing the package agreed to them. It is
 //! resolved once, when the VM starts — paths expanded and checked, hosts
 //! normalized — so no decision at call time depends on anything a component
 //! could influence between the check and the use.
@@ -18,11 +18,11 @@ use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
-/// Everything the VM needs to know about one application.
+/// Everything the VM needs to know about one package.
 #[derive(Debug, Clone)]
 pub struct AppSpec {
     /// `<publisher>.<name>`; how the host's services are told which
-    /// application is asking.
+    /// package is asking.
     pub id: String,
     pub capabilities: Capabilities,
     pub limits: Limits,
@@ -33,16 +33,16 @@ pub struct AppSpec {
 
 /// The manifest's `[capabilities]`, as agreed to at install.
 ///
-/// `hub` (which hub methods and topics the application may use) is not here:
+/// `calls` (which hub methods and topics the package may use) is not here:
 /// it is the hub's admission that enforces it, against the subject
-/// `module:<app id>`, exactly as for a compiled-in module's grants.
+/// `ext:<app id>`, exactly as for a native extension's grants.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Capabilities {
     /// Hosts `http-request` may reach, matched exactly and case-insensitively.
-    /// No suffix rules: an application that wants a subdomain names it.
+    /// No suffix rules: a package that wants a subdomain names it.
     pub net: Vec<String>,
-    /// The names `secret` may read, matched exactly: secrets the host keeps for the application
-    /// (Harnix: the profile's `[apps.secrets."<id>"]`), not the process's environment.
+    /// The names `secret` may read, matched exactly: secrets the host keeps for the package
+    /// (Harnix: the profile's `[ext.packages.secrets."<id>"]`), not the process's environment.
     pub env: Vec<String>,
     /// Ceiling on the key-value store, keys and values both counted.
     pub storage_bytes: u64,
@@ -52,12 +52,12 @@ pub struct Capabilities {
 
 /// One preopened directory.
 ///
-/// `path` must start at an anchor — `${data}` (the application's own data
+/// `path` must start at an anchor — `${data}` (the package's own data
 /// directory) or `${project}` (read-only) — and may not contain `..`. An
 /// unanchored path is refused rather than taken literally: `/` would read as
 /// a grant of the whole machine, which is exactly the line a reviewer skims.
 ///
-/// `${project}` has no single value for an application: it is the project of
+/// `${project}` has no single value for a package: it is the project of
 /// the session whose tool call is running, so it is resolved per call
 /// ([`crate::AppVm::call_tool`]'s `project`), and the backend, which serves
 /// every session at once, never has it.
@@ -68,7 +68,7 @@ pub struct FsGrant {
     pub writable: bool,
 }
 
-/// Where the `${data}` anchor of [`FsGrant`] points for this application.
+/// Where the `${data}` anchor of [`FsGrant`] points for this package.
 /// (`${project}` is the calling session's, given per tool call.)
 #[derive(Debug, Clone, Default)]
 pub struct AppDirs {
@@ -81,7 +81,7 @@ pub struct AppDirs {
 /// The manifest's `[[component]]` limits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
-    /// Linear memory for the whole application: the resident backend and
+    /// Linear memory for the whole package: the resident backend and
     /// every tool call running at the same moment, together.
     pub memory_bytes: u64,
     /// How long one call (a method, a tool, an event, `init`, `stop`) may
@@ -99,7 +99,7 @@ impl Default for Limits {
     }
 }
 
-/// Capabilities resolved against this application's directories.
+/// Capabilities resolved against this package's directories.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Resolved {
     net: HashSet<String>,
@@ -123,7 +123,7 @@ struct ProjectGrant {
 pub(crate) struct Preopen {
     pub host: PathBuf,
     /// Where the component sees it: `/data/…` or `/project/…`. Never the
-    /// host's own path — where the application's files live on this machine
+    /// host's own path — where the package's files live on this machine
     /// is none of its business, and a stable name is what its code can be
     /// written against.
     pub guest: String,
@@ -152,7 +152,7 @@ impl Resolved {
     /// The `${project}` grants placed under `project`, read-only. A granted
     /// subdirectory this project does not have is left out (the component
     /// sees it as absent) rather than failing the call: projects differ, and
-    /// the grant was checked when the application started.
+    /// the grant was checked when the package started.
     pub fn project_preopens(&self, project: &Path) -> Vec<Preopen> {
         self.project
             .iter()

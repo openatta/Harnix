@@ -13,7 +13,7 @@ defineSuite("authz", { feature: "authz" }, {
       const { methods, subject } = await client.call("harnix.reachable");
       assert(Array.isArray(methods) && methods.length > 20, `${methods?.length} methods`);
       assert(subject.kind === "device", `subject is ${subject.kind}`);
-      assert(methods.includes("harnix.send"), "harnix.send is not reachable");
+      assert(methods.includes("harnix.session.send"), "harnix.session.send is not reachable");
     },
 
     "an unlisted method is not found": async ({ client }) => {
@@ -23,7 +23,7 @@ defineSuite("authz", { feature: "authz" }, {
     },
 
     "credential and endpoint methods are refused with a reason": async ({ client }) => {
-      for (const method of ["config.setProvider", "config.set", "daemon.shutdown", "import.run"]) {
+      for (const method of ["engine.config.setProvider", "engine.config.set", "engine.daemon.shutdown", "engine.import.run"]) {
         const e = await client.refused(method, {});
         assert(e, `${method} was allowed`);
         // Refused, not merely absent — the distinction is the whole point.
@@ -34,10 +34,10 @@ defineSuite("authz", { feature: "authz" }, {
 
     "the hub's own semantics are not reachable around it": async ({ client }) => {
       const reachedBy: [string, RegExp][] = [
-        ["session.run_turn", /harnix\.send/],
-        ["session.subscribe", /harnix\.attach/],
-        ["session.unsubscribe", /harnix\.detach/],
-        ["daemon.subscribeEvents", /host events/i],
+        ["engine.session.run_turn", /harnix\.session\.send/],
+        ["engine.session.subscribe", /harnix\.session\.attach/],
+        ["engine.session.unsubscribe", /harnix\.session\.detach/],
+        ["engine.daemon.subscribeEvents", /host events/i],
       ];
       for (const [method, expect] of reachedBy) {
         const e = await client.refused(method, {});
@@ -51,19 +51,23 @@ defineSuite("authz", { feature: "authz" }, {
       // manifest, a capability declaration and a disclosure. Adding an MCP
       // server configures a subprocess-spawning tool with none of the three,
       // so it is refused here and named in the reason.
-      const mcp = await client.refused("mcp.addServer", {});
-      assert(mcp && mcp.code === REFUSED, "mcp.addServer is not refused");
+      const mcp = await client.refused("engine.mcp.addServer", {});
+      assert(mcp && mcp.code === REFUSED, "engine.mcp.addServer is not refused");
 
       const { methods } = await client.call("harnix.reachable");
-      for (const method of ["harnix.plugins.install", "harnix.plugins.list"]) {
+      for (const method of ["plugins.install", "plugins.list"]) {
         assert(methods.includes(method), `${method} is not reachable`);
       }
     },
 
     "what did not take is queryable": async ({ client }) => {
-      const { methods, refused } = await client.call("harnix.contributions");
-      assert(methods.length > 15, `${methods.length} registered`);
-      assert(Array.isArray(refused), "no refusal list");
+      // Every extension is listed whether or not it took, and one that did not says why.
+      const { extensions } = await client.call("harnix.extensions");
+      assert(extensions.length > 5, `${extensions.length} extensions`);
+      for (const e of extensions) {
+        assert(typeof e.enabled === "boolean", `${e.id}: no enabled flag`);
+        assert(e.enabled || e.reason, `${e.id} is off and does not say why`);
+      }
     },
   },
 });

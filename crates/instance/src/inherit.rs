@@ -1,8 +1,8 @@
-//! Providers an instance inherits from `system` (ipdrun-11).
+//! Providers an instance inherits from `main` (ipdrun-11).
 //!
-//! The settings page writes providers into the `system` instance's global tier; an instance built
+//! The settings page writes providers into the `main` instance's global tier; an instance built
 //! from a template has a data root, and so a global tier, of its own, and saw none of them. A
-//! template that says `inherit_providers` has `system`'s providers merged into its instances' global
+//! template that says `inherit_providers` has `main`'s providers merged into its instances' global
 //! tier — by the factory when an instance is built, and every time the settings page changes a
 //! provider ([`crate::Factory::inherit_into`]) — and the instance reloads.
 //!
@@ -10,7 +10,7 @@
 //! to stack a read-only "upstream" under them. So Harnix records which provider ids it wrote, in
 //! `<data_root>/.inherited-providers.json`, and only ever adds, changes or removes those: a
 //! provider the instance configures itself under the same id is the instance's, and stays. The
-//! default provider likewise: set from `system`'s only when the instance has none of its own.
+//! default provider likewise: set from `main`'s only when the instance has none of its own.
 
 use std::path::Path;
 
@@ -19,7 +19,7 @@ use serde_json::{json, Map, Value};
 /// The record of what was inherited, beside the instance's own settings.
 pub(crate) const RECORD: &str = ".inherited-providers.json";
 
-/// Bring one instance's global tier in line with `system`'s providers. `Ok(true)` when it changed.
+/// Bring one instance's global tier in line with `main`'s providers. `Ok(true)` when it changed.
 pub(crate) fn merge(system_root: &Path, instance_root: &Path) -> std::io::Result<bool> {
     let upstream = read(&system_root.join("settings.json"))?;
     let settings_path = instance_root.join("settings.json");

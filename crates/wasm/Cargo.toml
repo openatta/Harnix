@@ -5,10 +5,10 @@ edition      = "2021"
 rust-version = "1.87"
 license      = "Apache-2.0"
 publish      = false
-description  = "The WebAssembly runtime for Harnix applications: one wasmtime engine, one VM per application"
+description  = "The WebAssembly runtime for Harnix packages: one wasmtime engine, one VM per package"
 
 # Depends on no other Harnix crate and on nothing of Agix: it defines the
-# traits through which the host lends it services (`AppHost`, `KvStore`,
+# traits through which the host lends it services (`VmHost`, `KvStore`,
 # `HttpFetcher`), and the host implements them. That keeps wasmtime's names
 # inside this crate, which `crates/harnix/tests/layering.rs` asserts.
 [dependencies]
@@ -28,7 +28,7 @@ tracing     = { workspace = true }
 # `WASMTIME_VERSION` in src/engine.rs states the same number; a test checks
 # they agree.
 #
-# No `gc`, no `threads`, no pooling allocator: an application component is a
+# No `gc`, no `threads`, no pooling allocator: a package component is a
 # Rust (or similar) program in linear memory, and every feature here is one
 # more thing in the binary and one more input to the fingerprint.
 wasmtime      = { version = "=47.0.3", default-features = false, features = ["runtime", "component-model", "async", "std", "anyhow"] }

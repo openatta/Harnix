@@ -1,0 +1,144 @@
+//! Pairing, listing, revoking: what `devices.manage` hands an extension.
+//!
+//! Here, because these are the authorization layer's data and this is the layer that owns both
+//! it and the transport whose channels a revocation has to end. The methods that reach it are the
+//! `devices` extension's.
+
+use std::sync::Arc;
+use std::time::SystemTime;
+
+use harnix_authz::{Devices, PairError};
+use harnix_contract::RpcError;
+use harnix_kernel::seat::DeviceAdmin;
+use serde_json::{json, Value};
+
+/// Characters a pairing code is drawn from.
+///
+/// No `0`/`O`, no `1`/`I`/`l`: the code is read off one screen and typed into
+/// another, and the two most common ways that goes wrong are worth designing
+/// out rather than apologising for.
+const ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+const CODE_LEN: usize = 8;
+
+/// Paired devices, managed: listing, pairing, revoking. What `devices.manage` hands an extension.
+pub struct DeviceBook {
+    devices: Arc<Devices>,
+    /// Ending a revoked device's channels. The authorization layer knows a
+    /// credential belongs to a subject; only transport knows there are
+    /// connections carrying it.
+    disconnect: Arc<dyn Fn(&str) + Send + Sync>,
+}
+
+impl DeviceBook {
+    pub fn new(devices: Arc<Devices>, disconnect: Arc<dyn Fn(&str) + Send + Sync>) -> Self {
+        Self { devices, disconnect }
+    }
+}
+
+impl DeviceAdmin for DeviceBook {
+    fn list(&self) -> Value {
+        self.devices.sweep(SystemTime::now());
+        json!({"devices": self.devices.list()})
+    }
+
+    fn pair_begin(&self, label: &str) -> Value {
+        let now = SystemTime::now();
+        self.devices.sweep(now);
+        let code = pairing_code();
+        let handle = self.devices.begin_pairing(&code, label.to_string(), now);
+        // The code is returned once, to be shown once. Only its hash
+        // is kept, so this is the only moment it exists in the clear.
+        json!({
+            "handle": handle,
+            "code": code,
+            "expires_in_secs": harnix_authz::PAIRING_TTL.as_secs(),
+        })
+    }
+
+    fn pair_complete(&self, code: &str, public_key: &str) -> Result<Value, RpcError> {
+        let now = SystemTime::now();
+        self.devices.sweep(now);
+        match self.devices.complete_pairing(code, public_key, now, &stamp(now)) {
+            Ok(device) => Ok(json!({"device": device})),
+            // One error for "no such code", "expired" and "already
+            // used": telling them apart tells a guesser which guesses
+            // were closer.
+            Err(e @ (PairError::Refused | PairError::TooManyAttempts)) => Err(RpcError::refused(e.to_string())),
+        }
+    }
+
+    fn revoke(&self, device: &str) -> bool {
+        let removed = self.devices.revoke(device);
+        // Immediately, and all of its channels — a credential belongs
+        // to the subject, not to a connection, so there is no such
+        // thing as revoking one of them (concept §6.3).
+        if removed {
+            (self.disconnect)(device);
+        }
+        removed
+    }
+}
+
+/// Mint a code and say it on the console.
+///
+/// The bootstrap problem, answered: pairing is a method, methods need
+/// admission, and a reachable listener admits nobody until a device is
+/// paired. Something has to break the circle, and the honest place is the
+/// console of the process that was just started — whoever started it is
+/// there, and nobody else is.
+///
+/// Only when there are no devices yet. A node with a paired device already
+/// has a way to pair the next one, and printing a code every restart would
+/// leave a standing door in the scrollback.
+pub fn bootstrap(devices: &Devices, reachable: bool) {
+    if !reachable || !devices.list().is_empty() {
+        return;
+    }
+    let code = pairing_code();
+    let now = SystemTime::now();
+    devices.begin_pairing(&code, "first device", now);
+    let minutes = harnix_authz::PAIRING_TTL.as_secs() / 60;
+    println!(
+        "  no device is paired yet, and this listener is reachable.\n\
+         \n\
+         \x20   pairing code → {code}     (valid {minutes} minutes, one use)\n\
+         \n\
+         \x20 Enter it on the device you want to use this from.\n"
+    );
+}
+
+fn pairing_code() -> String {
+    let bytes = uuid::Uuid::new_v4();
+    bytes
+        .as_bytes()
+        .iter()
+        .take(CODE_LEN)
+        .map(|b| ALPHABET[*b as usize % ALPHABET.len()] as char)
+        .collect()
+}
+
+fn stamp(now: SystemTime) -> String {
+    now.duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs().to_string())
+        .unwrap_or_else(|_| "0".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The two ways reading a code off a screen goes wrong, designed out.
+    #[test]
+    fn a_pairing_code_has_no_ambiguous_characters() {
+        for _ in 0..200 {
+            let code = pairing_code();
+            assert_eq!(code.len(), CODE_LEN);
+            for c in code.chars() {
+                assert!(
+                    !"01OIl".contains(c),
+                    "`{code}` contains an ambiguous character"
+                );
+            }
+        }
+    }
+}

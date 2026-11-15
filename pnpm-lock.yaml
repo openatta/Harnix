@@ -49,7 +49,60 @@ importers:
         specifier: 5.9.3
         version: 5.9.3
 
-  ui/packages/app-sdk:
+  ui/packages/core:
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 5.0.5
+        version: 5.0.5(@types/node@24.19.2)(jsdom@30.1.3)(vite@7.3.7(@types/node@24.19.2))
+
+  ui/packages/devices:
+    dependencies:
+      '@harnix/core':
+        specifier: workspace:*
+        version: link:../core
+      '@harnix/react':
+        specifier: workspace:*
+        version: link:../react
+    devDependencies:
+      '@testing-library/react':
+        specifier: 16.3.3
+        version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@types/node':
+        specifier: 24.19.2
+        version: 24.19.2
+      '@types/react':
+        specifier: 19.3.0
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: 19.3.0
+        version: 19.3.0(@types/react@19.3.0)
+      jsdom:
+        specifier: 30.1.3
+        version: 30.1.3
+      react:
+        specifier: 19.3.1
+        version: 19.3.1
+      react-dom:
+        specifier: 19.3.1
+        version: 19.3.1(react@19.3.1)
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 5.0.5
+        version: 5.0.5(@types/node@24.19.2)(jsdom@30.1.3)(vite@7.3.7(@types/node@24.19.2))
+
+  ui/packages/ext-kit:
+    dependencies:
+      '@harnix/ext-sdk':
+        specifier: workspace:*
+        version: link:../ext-sdk
+      '@harnix/react':
+        specifier: workspace:*
+        version: link:../react
     devDependencies:
       '@types/node':
         specifier: 24.19.2
@@ -67,8 +120,51 @@ importers:
         specifier: 5.0.5
         version: 5.0.5(@types/node@24.19.2)(jsdom@30.1.3)(vite@7.3.7(@types/node@24.19.2))
 
-  ui/packages/core:
+  ui/packages/ext-sdk:
     devDependencies:
+      '@types/node':
+        specifier: 24.19.2
+        version: 24.19.2
+      jsdom:
+        specifier: 30.1.3
+        version: 30.1.3
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vite:
+        specifier: 7.3.7
+        version: 7.3.7(@types/node@24.19.2)
+      vitest:
+        specifier: 5.0.5
+        version: 5.0.5(@types/node@24.19.2)(jsdom@30.1.3)(vite@7.3.7(@types/node@24.19.2))
+
+  ui/packages/flow:
+    dependencies:
+      '@harnix/react':
+        specifier: workspace:*
+        version: link:../react
+    devDependencies:
+      '@testing-library/react':
+        specifier: 16.3.3
+        version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@types/node':
+        specifier: 24.19.2
+        version: 24.19.2
+      '@types/react':
+        specifier: 19.3.0
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: 19.3.0
+        version: 19.3.0(@types/react@19.3.0)
+      jsdom:
+        specifier: 30.1.3
+        version: 30.1.3
+      react:
+        specifier: 19.3.1
+        version: 19.3.1
+      react-dom:
+        specifier: 19.3.1
+        version: 19.3.1(react@19.3.1)
       typescript:
         specifier: 5.9.3
         version: 5.9.3
@@ -76,8 +172,122 @@ importers:
         specifier: 5.0.5
         version: 5.0.5(@types/node@24.19.2)(jsdom@30.1.3)(vite@7.3.7(@types/node@24.19.2))
 
-  ui/packages/flow:
+  ui/packages/harnix-app:
     dependencies:
+      '@harnix/core':
+        specifier: workspace:*
+        version: link:../core
+      '@harnix/react':
+        specifier: workspace:*
+        version: link:../react
+    devDependencies:
+      '@testing-library/react':
+        specifier: 16.3.3
+        version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@types/node':
+        specifier: 24.19.2
+        version: 24.19.2
+      '@types/react':
+        specifier: 19.3.0
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: 19.3.0
+        version: 19.3.0(@types/react@19.3.0)
+      jsdom:
+        specifier: 30.1.3
+        version: 30.1.3
+      react:
+        specifier: 19.3.1
+        version: 19.3.1
+      react-dom:
+        specifier: 19.3.1
+        version: 19.3.1(react@19.3.1)
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 5.0.5
+        version: 5.0.5(@types/node@24.19.2)(jsdom@30.1.3)(vite@7.3.7(@types/node@24.19.2))
+
+  ui/packages/observability:
+    dependencies:
+      '@harnix/core':
+        specifier: workspace:*
+        version: link:../core
+      '@harnix/react':
+        specifier: workspace:*
+        version: link:../react
+    devDependencies:
+      '@testing-library/react':
+        specifier: 16.3.3
+        version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@types/node':
+        specifier: 24.19.2
+        version: 24.19.2
+      '@types/react':
+        specifier: 19.3.0
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: 19.3.0
+        version: 19.3.0(@types/react@19.3.0)
+      jsdom:
+        specifier: 30.1.3
+        version: 30.1.3
+      react:
+        specifier: 19.3.1
+        version: 19.3.1
+      react-dom:
+        specifier: 19.3.1
+        version: 19.3.1(react@19.3.1)
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 5.0.5
+        version: 5.0.5(@types/node@24.19.2)(jsdom@30.1.3)(vite@7.3.7(@types/node@24.19.2))
+
+  ui/packages/packages:
+    dependencies:
+      '@harnix/core':
+        specifier: workspace:*
+        version: link:../core
+      '@harnix/react':
+        specifier: workspace:*
+        version: link:../react
+    devDependencies:
+      '@testing-library/react':
+        specifier: 16.3.3
+        version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@types/node':
+        specifier: 24.19.2
+        version: 24.19.2
+      '@types/react':
+        specifier: 19.3.0
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: 19.3.0
+        version: 19.3.0(@types/react@19.3.0)
+      jsdom:
+        specifier: 30.1.3
+        version: 30.1.3
+      react:
+        specifier: 19.3.1
+        version: 19.3.1
+      react-dom:
+        specifier: 19.3.1
+        version: 19.3.1(react@19.3.1)
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 5.0.5
+        version: 5.0.5(@types/node@24.19.2)(jsdom@30.1.3)(vite@7.3.7(@types/node@24.19.2))
+
+  ui/packages/plugins:
+    dependencies:
+      '@harnix/core':
+        specifier: workspace:*
+        version: link:../core
       '@harnix/react':
         specifier: workspace:*
         version: link:../react
@@ -144,17 +354,51 @@ importers:
         specifier: 5.0.5
         version: 5.0.5(@types/node@24.19.2)(jsdom@30.1.3)(vite@7.3.7(@types/node@24.19.2))
 
-  ui/packages/shell:
+  ui/packages/settings:
     dependencies:
-      '@harnix/app-sdk':
-        specifier: workspace:*
-        version: link:../app-sdk
       '@harnix/core':
         specifier: workspace:*
         version: link:../core
-      '@harnix/flow':
+      '@harnix/react':
         specifier: workspace:*
-        version: link:../flow
+        version: link:../react
+    devDependencies:
+      '@testing-library/react':
+        specifier: 16.3.3
+        version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@types/node':
+        specifier: 24.19.2
+        version: 24.19.2
+      '@types/react':
+        specifier: 19.3.0
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: 19.3.0
+        version: 19.3.0(@types/react@19.3.0)
+      jsdom:
+        specifier: 30.1.3
+        version: 30.1.3
+      react:
+        specifier: 19.3.1
+        version: 19.3.1
+      react-dom:
+        specifier: 19.3.1
+        version: 19.3.1(react@19.3.1)
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 5.0.5
+        version: 5.0.5(@types/node@24.19.2)(jsdom@30.1.3)(vite@7.3.7(@types/node@24.19.2))
+
+  ui/packages/shell:
+    dependencies:
+      '@harnix/core':
+        specifier: workspace:*
+        version: link:../core
+      '@harnix/ext-sdk':
+        specifier: workspace:*
+        version: link:../ext-sdk
       '@harnix/react':
         specifier: workspace:*
         version: link:../react
@@ -165,6 +409,30 @@ importers:
         specifier: 19.3.1
         version: 19.3.1(react@19.3.1)
     devDependencies:
+      '@harnix/devices':
+        specifier: workspace:*
+        version: link:../devices
+      '@harnix/flow':
+        specifier: workspace:*
+        version: link:../flow
+      '@harnix/harnix-app':
+        specifier: workspace:*
+        version: link:../harnix-app
+      '@harnix/observability':
+        specifier: workspace:*
+        version: link:../observability
+      '@harnix/packages':
+        specifier: workspace:*
+        version: link:../packages
+      '@harnix/plugins':
+        specifier: workspace:*
+        version: link:../plugins
+      '@harnix/settings':
+        specifier: workspace:*
+        version: link:../settings
+      '@harnix/system':
+        specifier: workspace:*
+        version: link:../system
       '@testing-library/react':
         specifier: 16.3.3
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -190,6 +458,43 @@ importers:
         specifier: 5.0.5
         version: 5.0.5(@types/node@24.19.2)(jsdom@30.1.3)(vite@7.3.7(@types/node@24.19.2))
 
+  ui/packages/system:
+    dependencies:
+      '@harnix/core':
+        specifier: workspace:*
+        version: link:../core
+      '@harnix/react':
+        specifier: workspace:*
+        version: link:../react
+    devDependencies:
+      '@testing-library/react':
+        specifier: 16.3.3
+        version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@types/node':
+        specifier: 24.19.2
+        version: 24.19.2
+      '@types/react':
+        specifier: 19.3.0
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: 19.3.0
+        version: 19.3.0(@types/react@19.3.0)
+      jsdom:
+        specifier: 30.1.3
+        version: 30.1.3
+      react:
+        specifier: 19.3.1
+        version: 19.3.1
+      react-dom:
+        specifier: 19.3.1
+        version: 19.3.1(react@19.3.1)
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 5.0.5
+        version: 5.0.5(@types/node@24.19.2)(jsdom@30.1.3)(vite@7.3.7(@types/node@24.19.2))
+
   ui/packages/testkit:
     dependencies:
       '@harnix/core':
@@ -205,31 +510,6 @@ importers:
       typescript:
         specifier: 5.9.3
         version: 5.9.3
-
-  ui/packages/ui-kit:
-    dependencies:
-      '@harnix/app-sdk':
-        specifier: workspace:*
-        version: link:../app-sdk
-      '@harnix/react':
-        specifier: workspace:*
-        version: link:../react
-    devDependencies:
-      '@types/node':
-        specifier: 24.19.2
-        version: 24.19.2
-      jsdom:
-        specifier: 30.1.3
-        version: 30.1.3
-      typescript:
-        specifier: 5.9.3
-        version: 5.9.3
-      vite:
-        specifier: 7.3.7
-        version: 7.3.7(@types/node@24.19.2)
-      vitest:
-        specifier: 5.0.5
-        version: 5.0.5(@types/node@24.19.2)(jsdom@30.1.3)(vite@7.3.7(@types/node@24.19.2))
 
 packages:
 

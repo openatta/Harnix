@@ -1,0 +1,47 @@
+[package]
+name = "harnix-ext-flow"
+version      = "0.4.2-2026110901"
+edition      = "2021"
+rust-version = "1.87"
+license      = "Apache-2.0"
+publish      = false
+description  = "Flows: a graph of stations that drives session work, judged on structured signals only"
+
+[lib]
+name = "harnix_ext_flow"
+
+[features]
+# The Harnix extension (`Flow`): sessions, programs, native tools, methods, topics. Off, the crate
+# is the pure kernel with its stores and packs and links nothing of Harnix or Agix.
+default = ["extension"]
+extension = ["dep:harnix-ext", "dep:anyhow", "dep:reqwest", "dep:tokio-util", "dep:futures"]
+
+[dependencies]
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+async-trait = { workspace = true }
+sha2        = { workspace = true }
+uuid        = { workspace = true }
+serde_yaml  = "0.9"
+schemars    = "1"
+jsonschema  = { version = "0.49", default-features = false }
+# FileStore's disk work on the blocking pool; the module's tasks and timers.
+tokio       = { workspace = true }
+# What the file store skips, said rather than swallowed.
+tracing     = { workspace = true }
+# The file store's flush to disk (`fsync`) on macOS.
+libc        = { workspace = true }
+# The module's tasks, tracked and told to stop.
+tokio-util  = { workspace = true, optional = true }
+# A session task reads its session as a stream of frames.
+futures     = { workspace = true, optional = true }
+# The extension interface, and the scenes and tools it gives the engine in Harnix's words.
+harnix-ext      = { workspace = true, optional = true }
+anyhow          = { workspace = true, optional = true }
+# Hooks' webhooks (xops-04 §5).
+reqwest         = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+# Paused time: a session task's waits run through in an instant.
+tokio    = { workspace = true, features = ["test-util"] }

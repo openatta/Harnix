@@ -12,11 +12,12 @@
 
 use std::sync::Arc;
 
-use harnix_instance::engine_codes;
-use harnix_contract::{Frame, RpcError, Subject};
+use harnix_contract::{Frame, RpcError};
+use harnix_engine_api::events::Completion;
+use harnix_engine_api::ops::{codes as engine_codes, TurnInput};
 use serde_json::{json, Value};
 
-use crate::session::QueueItem;
+use crate::session::{QueueItem, USER_MESSAGE};
 use crate::{new_id, notification, without_instance, Hub, SessionKey};
 
 /// What a send does when the session already has a turn running.
@@ -46,10 +47,22 @@ impl OnBusy {
     }
 }
 
+/// What a send is on behalf of: the calls its own call is, and the extension that made it held on
+/// that call — a turn it starts that calls back into that extension finds it waiting, while it is.
+fn sent_on_behalf_of(cx: &harnix_kernel::CallContext) -> harnix_kernel::Chain {
+    match &cx.subject {
+        harnix_contract::Subject::Extension { id } => {
+            let own = vec![harnix_kernel::ChainLink::new(id.as_str(), cx.call_id.to_string())];
+            cx.chain.union(&own.into())
+        }
+        _ => cx.chain.clone(),
+    }
+}
+
 impl Hub {
     pub(crate) async fn send(
         self: &Arc<Self>,
-        _subject: &Subject,
+        cx: &harnix_kernel::CallContext,
         params: Value,
     ) -> Result<Value, RpcError> {
         let key = self.key_of(&params)?;
@@ -75,15 +88,12 @@ impl Hub {
             item_id: new_id("q"),
             message,
             attachments: json!(attachments),
+            chain: sent_on_behalf_of(cx),
         };
-        // Sending implies watching. A client that skipped `harnix.attach` would
+        // Sending implies watching. A client that skipped `harnix.session.attach` would
         // otherwise get neither the turn's events nor its settlement — frames
         // go to watchers, and it would not be one.
-        if let Some(client) = params
-            .get("__client")
-            .and_then(Value::as_u64)
-            .map(crate::ClientId)
-        {
+        if let Some(client) = cx.client {
             let mut guard = self.inner.lock().await;
             guard
                 .sessions
@@ -96,31 +106,26 @@ impl Hub {
         // An instance that is reconnecting takes the send into the queue: it
         // runs once the instance is back and its sessions are resynced. A
         // send is not refused for a hiccup the user cannot see.
-        let ready = self
-            .slot(&key.0)
-            .is_some_and(|slot| slot.link.status().borrow().is_ready());
+        let linked = self.engine(&key.0)?;
+        let ready = linked.link.status().borrow().is_ready();
         if !ready {
             if on_busy == OnBusy::Reject {
-                let status = self.slot(&key.0).map(|s| s.status());
-                return Err(harnix_instance::link::unavailable(
-                    &status.unwrap_or(harnix_instance::LinkStatus::Starting),
-                ));
+                let status = linked.link.status().borrow().clone();
+                return Err(status.unavailable());
             }
             return Ok(self.enqueue(&key, item, false).await);
         }
 
         // The session has to exist before a turn is opened on it.
         //
-        // `session.run_turn` does not require one — handed an id it does not
+        // Running a turn does not require one — handed an id it does not
         // know, the engine makes a session and runs the turn there. That is
         // reasonable for the engine and wrong for a client: a mistyped id
         // came back as a settled turn, with the transcript in a session under
         // an id the caller had never seen and could not ask for again, and a
         // model call spent on it. The hub owns turns (concept §3.2), so refusing here
         // is the hub's to do.
-        let info = self
-            .call(&key.0, "session.get", json!({"session_id": &session_id}))
-            .await?;
+        let info = linked.ops().get(&session_id).await?;
         self.ensure_subscribed(&key, &info).await?;
 
         let busy = {
@@ -135,8 +140,7 @@ impl Hub {
                 OnBusy::Reject => Err(RpcError::new(engine_codes::SESSION_BUSY, "session is busy")),
                 OnBusy::Queue => Ok(self.enqueue(&key, item, false).await),
                 OnBusy::Interrupt => {
-                    self.call(&key.0, "session.interrupt", json!({"session_id": session_id}))
-                        .await?;
+                    linked.ops().interrupt(&session_id).await?;
                     {
                         let mut guard = self.inner.lock().await;
                         guard.sessions.entry(key.clone()).or_default().queue.clear();
@@ -176,16 +180,12 @@ impl Hub {
     /// steer into a queued turn of its own, whose call then lasts that
     /// turn — so the answer is waited for briefly and the call left to run.
     async fn steer(self: &Arc<Self>, key: &SessionKey, item: QueueItem) -> Result<Value, RpcError> {
+        // The running turn reads it, so the turn is on behalf of its calls too.
+        self.turns.join(&key.0, &key.1, &item.chain);
         let turn_id = new_id("t");
-        let hub = self.clone();
-        let instance = key.0.clone();
-        let params = json!({
-            "session_id": key.1,
-            "turn_id": turn_id,
-            "message": item.message,
-            "on_busy": "steer",
-        });
-        let call = tokio::spawn(async move { hub.call(&instance, "session.run_turn", params).await });
+        let linked = self.engine(&key.0)?;
+        let (session, input) = (key.1.clone(), TurnInput::steer(turn_id.clone(), item.message));
+        let call = tokio::spawn(async move { linked.ops().run_turn(&session, input).await });
         match tokio::time::timeout(std::time::Duration::from_secs(5), call).await {
             Ok(Ok(result)) => result,
             Ok(Err(e)) => Err(RpcError::new(harnix_contract::codes::INTERNAL_ERROR, e.to_string())),
@@ -193,7 +193,7 @@ impl Hub {
         }
     }
 
-    /// Begin a turn and hand it to a task, so `harnix.send` returns at once and
+    /// Begin a turn and hand it to a task, so `harnix.session.send` returns at once and
     /// the turn outlives the client that asked for it.
     ///
     /// The task is a **loop**, not a chain of recursive calls: a settled turn
@@ -213,18 +213,13 @@ impl Hub {
             let mut current = first;
             loop {
                 let (turn_id, item) = current;
-                let outcome = hub
-                    .call(
-                        &key.0,
-                        "session.run_turn",
-                        json!({
-                            "session_id": key.1,
-                            "turn_id": turn_id,
-                            "message": item.message,
-                            "attachments": item.attachments,
-                        }),
-                    )
-                    .await;
+                let outcome = match hub.engine(&key.0) {
+                    Ok(linked) => {
+                        let input = TurnInput::new(turn_id.clone(), item.message.clone(), item.attachments.clone());
+                        linked.ops().run_turn(&key.1, input).await
+                    }
+                    Err(e) => Err(e),
+                };
                 // The link went away under the turn. The turn did not: it
                 // runs on, and either reports its end on the link once it is
                 // back or is found finished by the resync.
@@ -263,6 +258,8 @@ impl Hub {
         let (seq, event, watchers) = {
             let mut guard = self.inner.lock().await;
             let state = guard.sessions.entry(key.clone()).or_default();
+            // A turn is on behalf of the item that started it, and not of the one before it.
+            self.turns.start(instance, session_id, item.chain.clone());
             state.running_turn = Some(turn_id.clone());
             state.turn_started_ms = Some(crate::now_ms());
             state.external = false;
@@ -274,8 +271,8 @@ impl Hub {
             state.replay.clear();
             state.seq += 1;
             let seq = state.seq;
-            let event = json!({"kind": "user_message", "text": item.message});
-            state.replay.push(seq, &turn_id, &event);
+            let event = json!({"kind": USER_MESSAGE, "text": item.message});
+            state.replay.push(seq, &turn_id, &harnix_engine_api::SessionEventKind::Other, &event);
             (seq, event, state.watchers())
         };
         self.fan_out(
@@ -315,6 +312,7 @@ impl Hub {
                 return None;
             }
             state.running_turn = None;
+            self.turns.settle(instance, session_id);
             state.turn_started_ms = None;
             state.external = false;
             state.pending_prompts.clear();
@@ -339,8 +337,8 @@ impl Hub {
                 "error": {"code": error.code, "message": error.message},
             }),
         };
-        // How the turn ended, as the engine said in its `turn_complete`: here too, so a watcher
-        // that missed that frame (a tap that fell behind) still has it (ipdrun-17).
+        // How the turn ended, as the engine said when it completed: here too, so a watcher that
+        // missed that frame (a tap that fell behind) still has it (ipdrun-17).
         if let Some((complete, answer)) = complete {
             params["outcome"] = outcome_of(&complete, &answer);
         }
@@ -371,9 +369,7 @@ impl Hub {
     /// presses stop and the next queued message starts immediately.
     pub(crate) async fn interrupt(self: &Arc<Self>, params: Value) -> Result<Value, RpcError> {
         let key = self.key_of(&params)?;
-        let result = self
-            .call(&key.0, "session.interrupt", json!({"session_id": key.1}))
-            .await?;
+        let result = self.engine(&key.0)?.ops().interrupt(&key.1).await?;
         let watchers = {
             let mut guard = self.inner.lock().await;
             let state = guard.sessions.entry(key.clone()).or_default();
@@ -384,41 +380,81 @@ impl Hub {
         Ok(result)
     }
 
+    /// `harnix.session.rename {instance?, session_id, title}`: the session's title is the
+    /// engine's name for it, so every client lists the same one; nothing here keeps a title of
+    /// its own.
+    pub(crate) async fn rename(self: &Arc<Self>, params: Value) -> Result<Value, RpcError> {
+        let key = self.key_of(&params)?;
+        let title = params.get("title").and_then(Value::as_str).unwrap_or("").trim().to_string();
+        if title.is_empty() {
+            return Err(RpcError::invalid_params("a title is not empty"));
+        }
+        self.engine(&key.0)?.ops().rename(&key.1, &title).await?;
+        self.refresh("harnix.instances.sessions", json!({"instance": key.0}));
+        Ok(json!({"session_id": key.1, "title": title}))
+    }
+
+    /// `harnix.session.setModel {instance?, session_id, model, provider?, space?}`: the model of a
+    /// session of the space the caller claims (the default space when it claims none). Never
+    /// across spaces: a space reaching across is not where this is done.
+    pub(crate) async fn set_model(self: &Arc<Self>, params: Value) -> Result<Value, RpcError> {
+        let key = self.key_of(&params)?;
+        let model = params
+            .get("model")
+            .and_then(Value::as_str)
+            .filter(|m| !m.is_empty())
+            .ok_or_else(|| RpcError::invalid_params("missing model"))?
+            .to_string();
+        let provider = params.get("provider").and_then(Value::as_str).map(str::to_string);
+        self.home_of(&key.0);
+        let (claimed, crosses, bound) = {
+            let spaces = harnix_contract::sync::lock(&self.spaces);
+            let claimed = spaces.claimed_space(&params);
+            let crosses = spaces.crosses(&claimed);
+            (claimed, crosses, spaces.bound(&key).to_string())
+        };
+        if crosses {
+            return Err(RpcError::new(
+                harnix_contract::codes::SPACE_MISMATCH,
+                format!("`{claimed}` reaches across spaces; a session's model is changed within its own"),
+            ));
+        }
+        if bound != claimed {
+            return Err(RpcError {
+                code: harnix_contract::codes::SPACE_MISMATCH,
+                message: format!("session `{}` on instance `{}` belongs to the space `{bound}`, not `{claimed}`", key.1, key.0),
+                data: Some(json!({"space": bound, "instance": key.0, "session_id": key.1})),
+            });
+        }
+        self.engine(&key.0)?.ops().set_model(&key.1, &model, provider.as_deref()).await
+    }
+
+    /// Close a session, or `delete` it. Deleting it deletes its recording too, which is the link's
+    /// to do.
     pub(crate) async fn close_or_delete(
         self: &Arc<Self>,
-        method: &str,
         params: Value,
+        delete: bool,
     ) -> Result<Value, RpcError> {
         let key = self.key_of(&params)?;
-        let session_id = key.1.clone();
-        let result = self.call(&key.0, method, without_instance(params.clone())).await?;
+        let result = self.engine(&key.0)?.ops().close(without_instance(params.clone()), delete).await?;
         // A dry run only asks what would go.
         if params.get("dry_run").and_then(Value::as_bool) == Some(true) {
             return Ok(result);
         }
         self.inner.lock().await.sessions.remove(&key);
-        if method == "session.delete" {
+        if delete {
             self.unbind_space(&key);
+            // Its sub-agents' sessions went with it, and what was kept of their space with them.
+            for child in result.get("sidechain_ids").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
+                self.unbind_space(&(key.0.clone(), child.to_string()));
+            }
         }
         // The engine's own events about it came while it was still being taken down: a view
         // computed for them may have listed it still. Now that the engine has answered, and what
         // the hub kept of it is gone, the views are computed once more.
         self.refresh("harnix.instances.sessions", json!({"instance": key.0}));
         self.refresh("harnix.instances", json!({}));
-        // The recorder keeps no retention policy and says so — a recording is
-        // a self-contained directory for whoever owns the session to remove,
-        // and deleting the session is that moment. Closing is not: the
-        // conversation can be reopened, and what the model saw should still
-        // be there (concept §6.4).
-        let recordings = self.slot(&key.0).and_then(|s| s.facts.recordings_root.clone());
-        if let (true, Some(root)) = (method == "session.delete", recordings) {
-            let dir = root.join(&session_id);
-            if dir.is_dir() {
-                if let Err(e) = std::fs::remove_dir_all(&dir) {
-                    tracing::warn!(dir = %dir.display(), error = %e, "recording not removed");
-                }
-            }
-        }
         Ok(result)
     }
 
@@ -440,7 +476,7 @@ impl Hub {
         Ok(json!({"items": snapshot}))
     }
 
-    /// `harnix.queue.edit {session_id, item_id, message}`: change what a queued message says before
+    /// `harnix.session.queue.edit {session_id, item_id, message}`: change what a queued message says before
     /// it runs. Its place and attachments stay. One that has started (or was withdrawn) is no longer
     /// in the queue, and is refused rather than quietly sent as it was.
     pub(crate) async fn queue_edit(self: &Arc<Self>, params: Value) -> Result<Value, RpcError> {
@@ -454,7 +490,7 @@ impl Hub {
             .get("message")
             .and_then(Value::as_str)
             .filter(|m| !m.trim().is_empty())
-            .ok_or_else(|| RpcError::invalid_params("missing message: to take it out of the queue, harnix.queue.remove"))?
+            .ok_or_else(|| RpcError::invalid_params("missing message: to take it out of the queue, harnix.session.queue.remove"))?
             .to_string();
         let (watchers, snapshot) = {
             let mut guard = self.inner.lock().await;
@@ -491,24 +527,26 @@ impl Hub {
     }
 }
 
-/// What `harnix.turn_settled` carries as `outcome`: the points of the engine's `turn_complete` a
-/// caller acts on, and what the turn said and called (ipdrun-41) — the answer's text up to
-/// [`ANSWER_TEXT_MAX`](crate::session::ANSWER_TEXT_MAX) (`text_truncated` past it; the whole of it
-/// is in `session.history`), and each tool call's `id`, `name` and `is_error` once it has a result.
-fn outcome_of(complete: &Value, answer: &crate::session::Answer) -> Value {
+/// What `harnix.turn_settled` carries as `outcome`: the points of how the engine said the turn
+/// ended that a caller acts on, and what the turn said and called (ipdrun-41) — the answer's text
+/// up to [`ANSWER_TEXT_MAX`](crate::session::ANSWER_TEXT_MAX) (`text_truncated` past it; the whole
+/// of it is in the transcript), and each tool call's `id`, `name` and `is_error` once it has a
+/// result.
+fn outcome_of(complete: &Completion, answer: &crate::session::Answer) -> Value {
     let mut outcome = json!({
-        "stop_reason": complete.get("stop_reason").cloned().unwrap_or(Value::Null),
-        "usage": complete.get("usage").cloned().unwrap_or(Value::Null),
+        "stop_reason": complete.stop_reason,
+        "usage": complete.usage,
         "text": answer.text,
         "tool_calls": answer.tool_calls,
     });
     if answer.truncated {
         outcome["text_truncated"] = json!(true);
     }
-    for key in ["structured_output", "message"] {
-        if let Some(value) = complete.get(key).filter(|v| !v.is_null()) {
-            outcome[key] = value.clone();
-        }
+    if let Some(output) = &complete.structured_output {
+        outcome["structured_output"] = output.clone();
+    }
+    if let Some(message) = &complete.message {
+        outcome["message"] = message.clone();
     }
     outcome
 }
@@ -516,14 +554,33 @@ fn outcome_of(complete: &Value, answer: &crate::session::Answer) -> Value {
 #[cfg(test)]
 mod outcome_tests {
     use super::*;
+    use harnix_engine_api::events::{Fragment, Joins, SessionEventKind};
 
     #[test]
-    fn the_outcome_is_the_points_of_turn_complete() {
-        let complete = json!({
-            "kind": "turn_complete", "stop_reason": "stopped_by_hook", "api_calls": 2,
-            "usage": {"input_tokens": 10, "output_tokens": 3},
-            "structured_output": {"ok": true}, "message": "the hook said no", "context": {"x": 1},
-        });
+    fn a_send_is_on_behalf_of_its_calls_chain_and_its_sender() {
+        use harnix_contract::{ExtId, Subject};
+        use harnix_kernel::{CallContext, ChainLink};
+        let device = CallContext::root(Subject::Device { id: "d".into() }, None);
+        assert!(sent_on_behalf_of(&device).is_empty(), "a device holds nothing");
+        let notes = ExtId::package("acme.notes").unwrap();
+        let held = device.child(&ExtId::package("acme.todo").unwrap(), true).child(&notes, false);
+        let chain = sent_on_behalf_of(&held);
+        let links: Vec<_> = chain.links().iter().map(|l| (l.ext().to_string(), l.call().to_string())).collect();
+        assert_eq!(
+            links,
+            [
+                ("acme.todo".to_string(), device.call_id.to_string()),
+                ("acme.notes".to_string(), held.call_id.to_string()),
+            ]
+        );
+        assert!(chain.links().contains(&ChainLink::new("acme.notes", held.call_id.to_string())));
+    }
+
+    #[test]
+    fn the_outcome_is_the_points_of_the_completion() {
+        let complete = Completion::new(json!("stopped_by_hook"), json!({"input_tokens": 10, "output_tokens": 3}))
+            .with_structured_output(Some(json!({"ok": true})))
+            .with_message(Some(json!("the hook said no")));
         assert_eq!(
             outcome_of(&complete, &Default::default()),
             json!({
@@ -535,25 +592,29 @@ mod outcome_tests {
                 "tool_calls": [],
             })
         );
-        let plain = outcome_of(&json!({"kind": "turn_complete", "stop_reason": "end_turn", "usage": {}}), &Default::default());
+        let plain = outcome_of(&Completion::new(json!("end_turn"), json!({})), &Default::default());
         assert!(plain.get("structured_output").is_none() && plain.get("message").is_none());
+    }
+
+    fn text(t: &str) -> SessionEventKind {
+        SessionEventKind::Fragment(Fragment::new(Joins::Answer, "text", t))
     }
 
     #[test]
     fn the_outcome_has_what_the_turn_said_and_called() {
         let mut answer = crate::session::Answer::default();
-        for (kind, event) in [
-            ("text_delta", json!({"text": "Let me look. "})),
-            ("tool_use", json!({"id": "tu1", "name": "Read", "input": {"path": "a"}})),
-            ("tool_use", json!({"id": "tu2", "name": "Bash", "input": {}})),
-            ("tool_result", json!({"id": "tu1", "name": "Read", "content": "x", "is_error": false})),
-            ("tool_result", json!({"id": "tu2", "name": "Bash", "content": "boom", "is_error": true})),
-            ("thinking_delta", json!({"text": "hmm"})),
-            ("text_delta", json!({"text": "Done."})),
+        for kind in [
+            text("Let me look. "),
+            SessionEventKind::ToolCall { id: "tu1".into(), name: "Read".into() },
+            SessionEventKind::ToolCall { id: "tu2".into(), name: "Bash".into() },
+            SessionEventKind::ToolResult { id: "tu1".into(), is_error: false },
+            SessionEventKind::ToolResult { id: "tu2".into(), is_error: true },
+            SessionEventKind::Fragment(Fragment::new(Joins::Thinking, "text", "hmm")),
+            text("Done."),
         ] {
-            answer.take_event(kind, &event);
+            answer.take_event(&kind);
         }
-        let outcome = outcome_of(&json!({"stop_reason": "end_turn", "usage": {}}), &answer);
+        let outcome = outcome_of(&Completion::new(json!("end_turn"), json!({})), &answer);
         assert_eq!(outcome["text"], "Let me look. Done.");
         assert_eq!(
             outcome["tool_calls"],
@@ -570,11 +631,11 @@ mod outcome_tests {
         let mut answer = crate::session::Answer::default();
         let chunk = "é".repeat(1000);
         while !answer.truncated {
-            answer.take_event("text_delta", &json!({"text": chunk}));
+            answer.take_event(&text(&chunk));
         }
-        answer.take_event("text_delta", &json!({"text": "more"}));
+        answer.take_event(&text("more"));
         assert!(answer.text.len() <= crate::session::ANSWER_TEXT_MAX);
-        let outcome = outcome_of(&json!({"stop_reason": "end_turn"}), &answer);
+        let outcome = outcome_of(&Completion::new(json!("end_turn"), json!({})), &answer);
         assert_eq!(outcome["text_truncated"], true);
     }
 }

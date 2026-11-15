@@ -1,7 +1,7 @@
 //! The process-wide wasmtime engine: its configuration, its fingerprint, and
 //! loading components.
 //!
-//! One `Engine` per process, shared by every application. It owns the code
+//! One `Engine` per process, shared by every package. It owns the code
 //! of every loaded component and the epoch every deadline is measured in;
 //! isolation comes from the per-instance `Store`, not from the engine, so a
 //! second engine would buy nothing.
@@ -10,7 +10,7 @@
 //!
 //! A precompiled artifact (`.cwasm`) is machine code for one wasmtime
 //! version, one target and one engine configuration. The store compiles each
-//! application once per fingerprint and the installer picks the artifact by
+//! package once per fingerprint and the installer picks the artifact by
 //! it, so the fingerprint has to be identical in the build that compiles
 //! (with Cranelift) and the build that loads (without). It is therefore
 //! derived from what both builds share — the wasmtime version, the target
@@ -105,6 +105,12 @@ impl WasmEngine {
         })
     }
 
+    /// What [`WasmEngine::fingerprint`] says for an engine of this build, without making one: what
+    /// a product compares with the engine of an extension process it started.
+    pub fn this_build() -> String {
+        fingerprint_of(&Self::config())
+    }
+
     /// What an artifact must have been compiled for to load here:
     /// `wasmtime-<version>+<target triple>+<configuration digest>`, the digest
     /// covering the configuration and the [`CPU`] it compiles for. Stable
@@ -195,7 +201,7 @@ impl AppComponent {
         Ok(Self { component, world })
     }
 
-    /// Which `harnix:app` world the component implements. The installer
+    /// Which `harnix:ext` world the component implements. The installer
     /// compares it with the manifest's claim.
     pub fn world(&self) -> crate::World {
         self.world
@@ -213,7 +219,7 @@ fn world_of(engine: &Engine, component: &Component) -> Result<crate::World> {
         .map(|(name, _)| name.to_string())
         .collect();
     let exports_interface = |interface: &str| {
-        let prefix = format!("harnix:app/{interface}@0.1.");
+        let prefix = format!("harnix:ext/{interface}@1.0.");
         exports.iter().any(|e| e.starts_with(&prefix))
     };
     if exports_interface("backend") {
@@ -222,8 +228,8 @@ fn world_of(engine: &Engine, component: &Component) -> Result<crate::World> {
         Ok(crate::World::Tools)
     } else {
         bail!(
-            "the component implements neither `harnix:app/backend` nor `harnix:app/tools` \
-             at 0.1 (it exports: {})",
+            "the component implements neither `harnix:ext/backend` nor `harnix:ext/tools` \
+             at 1.0 (it exports: {})",
             if exports.is_empty() {
                 "nothing".to_string()
             } else {

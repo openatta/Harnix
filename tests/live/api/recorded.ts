@@ -17,7 +17,7 @@ import type { SessionRow, TaskRow } from "@harnix/core/protocol";
 import { type Backend, type LaunchOptions, type TestClient, runTurn, sleep } from "@harnix/testkit";
 
 // With its extension: `record-fixture.mjs` loads this under plain `node`.
-import { SHOWCASE_ID, appsTools, showcasePackage } from "./apps-host.ts";
+import { SHOWCASE_ID, appsTools, showcasePackage } from "./packages-host.ts";
 
 export interface Recorded {
   name: string;
@@ -25,7 +25,7 @@ export interface Recorded {
   message: string;
   /** The scene it is created in; `null`: the binary's default, as a suite that names none. Default `harnix`. */
   scene?: string | null;
-  /** `session.create`'s options beside the recorder (a permission mode). */
+  /** `harnix.session.create`'s options beside the recorder (a permission mode). */
   options?: Record<string, unknown>;
   /** The project's `.agix/settings.json` (an operator's switch, such as teams). */
   settings?: Record<string, unknown>;
@@ -42,7 +42,7 @@ export interface Recorded {
   varies?: string;
 }
 
-const tool = (name: string) => `app__example_showcase__${name}`;
+const tool = (name: string) => `ext__example_showcase__${name}`;
 /** The `code` scene beside the default, as the suites that replay its tools run it. */
 const CODE = '\n[engine]\nscenes = ["code"]\n';
 /** "Call it, then say this": the shape most of them have. */
@@ -118,11 +118,10 @@ export async function backendFor(entry: Recorded, base: LaunchOptions, launch: (
         ...own,
         bin: appsTools().bin,
         profile: `
-[apps]
-enabled = true
+[ext.packages]
 dev = true
 
-[apps.config."${SHOWCASE_ID}"]
+[ext."${SHOWCASE_ID}"]
 greeting = "hello from the profile"
 ${entry.profile ?? ""}`,
       }
@@ -137,19 +136,19 @@ ${entry.profile ?? ""}`,
  * starts something lasting — that, until it is done. Answers the session and the settlement.
  */
 export async function play(api: TestClient, entry: Recorded, recorder?: string): Promise<{ session_id: string; settled: any }> {
-  if (entry.apps) await api.call("harnix.apps.installFile", { path: showcasePackage().path });
+  if (entry.apps) await api.call("packages.installFile", { path: showcasePackage().path });
   if (entry.settings) {
     mkdirSync(join(api.project, ".agix"), { recursive: true });
     writeFileSync(join(api.project, ".agix", "settings.json"), JSON.stringify(entry.settings));
   }
   const scene = entry.scene === undefined ? "harnix" : entry.scene;
-  const created = await api.call("session.create", {
+  const created = await api.call("harnix.session.create", {
     ...(scene ? { scene } : {}),
     project_root: api.project,
     options: { ...entry.options, ...(recorder ? { recorder: { name: recorder } } : {}) },
   });
-  const session = { instance: "system", session_id: created.session_id };
-  await api.call("harnix.attach", session);
+  const session = { instance: "main", session_id: created.session_id };
+  await api.call("harnix.session.attach", session);
   const { settled } = await runTurn(api, session, entry.message, { timeout: 240_000 });
   if (entry.tasks) await tasksDone(api, session);
   return { session_id: created.session_id, settled };
@@ -168,11 +167,11 @@ async function tasksDone(api: TestClient, session: { instance: string; session_i
       if (f.method !== "harnix.event" || f.params.event?.kind !== "prompt" || answered.has(f.params.event.prompt_id)) continue;
       answered.add(f.params.event.prompt_id);
       await api
-        .call("session.respondToPrompt", { instance: f.params.instance ?? session.instance, session_id: f.params.session_id, prompt_id: f.params.event.prompt_id, decision: { type: "permit" } })
+        .call("harnix.session.respond", { instance: f.params.instance ?? session.instance, session_id: f.params.session_id, prompt_id: f.params.event.prompt_id, decision: { type: "permit" } })
         .catch(() => {});
     }
-    const { tasks } = await api.call("harnix.sessions.tasks", session);
-    const { sessions } = await api.call("harnix.instances.sessions", { instance: session.instance });
+    const { tasks } = await api.call("harnix.session.tasks", session);
+    const { sessions } = await api.call("harnix.sessions.list", { instance: session.instance });
     const busy =
       tasks.some((t: TaskRow) => t.status === "running" || t.status === "waiting") ||
       sessions.some((r: SessionRow) => r.session_id === session.session_id && r.running);

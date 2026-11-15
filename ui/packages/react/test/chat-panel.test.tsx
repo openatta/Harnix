@@ -34,7 +34,7 @@ function type(value: string) {
 
 beforeEach(() => {
   server = new FakeClient();
-  server.handlers["harnix.attach"] = (p) => attached(String(p.session_id));
+  server.handlers["harnix.session.attach"] = (p) => attached(String(p.session_id));
 });
 
 afterEach(() => cleanup());
@@ -108,20 +108,20 @@ describe("发送", () => {
     fireEvent.keyDown(input(), { key: "Enter" });
     await settle();
     expect(sent).toEqual(["检查一下条款是否都可测", "打字的话"]);
-    expect(server.called("harnix.send")).toHaveLength(0);
+    expect(server.called("harnix.session.send")).toHaveLength(0);
   });
 
-  it("没有给 send：快捷回复经 harnix.send 发出（on_busy: queue）", async () => {
-    server.handlers["harnix.send"] = () => ({ turn_id: "t1" });
+  it("没有给 send：快捷回复经 harnix.session.send 发出（on_busy: queue）", async () => {
+    server.handlers["harnix.session.send"] = () => ({ turn_id: "t1" });
     mount({ quickReplies: [{ label: "还缺哪些边界条款？" }] });
     await settle();
     fireEvent.click(screen.getByTestId("conv-quick-reply"));
     await settle();
-    expect(server.called("harnix.send")[0]!.params).toMatchObject({ message: "还缺哪些边界条款？", on_busy: "queue" });
+    expect(server.called("harnix.session.send")[0]!.params).toMatchObject({ message: "还缺哪些边界条款？", on_busy: "queue" });
   });
 
   it("运行中、没有输入：发送键是停止；有输入时是发送（插话进队列）；Esc 先提示，再按一次才中断", async () => {
-    server.handlers["harnix.attach"] = () => attached("S1", { running_turn: "t1" });
+    server.handlers["harnix.session.attach"] = () => attached("S1", { running_turn: "t1" });
     const interrupt = vi.fn();
     mount({ interrupt });
     await settle();
@@ -193,9 +193,9 @@ describe("发送", () => {
     elsewhere.remove();
   });
 
-  it("排队中的一条能就地改：保存发 harnix.queue.edit，原位留下新的话；Esc 放弃不发", async () => {
-    server.handlers["harnix.attach"] = () => attached("S1", { queue: [{ item_id: "q1", message: "旧的话", attachments: [] }] });
-    server.handlers["harnix.queue.edit"] = (p) => ({ items: [{ item_id: "q1", message: String(p.message), attachments: [] }] });
+  it("排队中的一条能就地改：保存发 harnix.session.queue.edit，原位留下新的话；Esc 放弃不发", async () => {
+    server.handlers["harnix.session.attach"] = () => attached("S1", { queue: [{ item_id: "q1", message: "旧的话", attachments: [] }] });
+    server.handlers["harnix.session.queue.edit"] = (p) => ({ items: [{ item_id: "q1", message: String(p.message), attachments: [] }] });
     mount();
     await settle();
     fireEvent.click(screen.getByTestId("conv-queue-edit"));
@@ -203,13 +203,13 @@ describe("发送", () => {
     expect(editor.value).toBe("旧的话");
     fireEvent.keyDown(editor, { key: "Escape" });
     expect(screen.queryByTestId("conv-queue-editor")).toBeNull();
-    expect(server.called("harnix.queue.edit")).toHaveLength(0);
+    expect(server.called("harnix.session.queue.edit")).toHaveLength(0);
 
     fireEvent.click(screen.getByTestId("conv-queue-edit"));
     fireEvent.change(screen.getByTestId("conv-queue-editor"), { target: { value: "新的话" } });
     await act(async () => fireEvent.click(screen.getByTestId("conv-queue-save")));
     await settle();
-    expect(server.called("harnix.queue.edit")[0]!.params).toMatchObject({ session_id: "S1", item_id: "q1", message: "新的话" });
+    expect(server.called("harnix.session.queue.edit")[0]!.params).toMatchObject({ session_id: "S1", item_id: "q1", message: "新的话" });
     expect(screen.getByTestId("conv-queue-item").textContent).toContain("新的话");
   });
 
@@ -226,7 +226,7 @@ describe("发送", () => {
     expect((screen.getByTestId("conv-send") as HTMLButtonElement).disabled).toBe(true);
     fireEvent.keyDown(input(), { key: "Enter" });
     await settle();
-    expect(server.called("harnix.send")).toHaveLength(0);
+    expect(server.called("harnix.session.send")).toHaveLength(0);
     expect(input().value).toBe("断线前写的");
   });
 
@@ -240,14 +240,14 @@ describe("发送", () => {
 
 describe("消息流", () => {
   it("压缩替换进来的消息画成「压缩后的消息」一行（可展开），别的注入仍是「注入的上下文」", async () => {
-    server.handlers["session.history"] = () => ({
+    server.handlers["engine.session.history"] = () => ({
       messages: [
         { role: "user", content: "之前聊过的摘要", origin: "compact" },
         { role: "user", content: "召回的记忆", origin: "injected" },
         { role: "user", content: "接着说", origin: "user" },
       ],
     });
-    server.handlers["harnix.attach"] = () => attached("S1", { history_total: 3 });
+    server.handlers["harnix.session.attach"] = () => attached("S1", { history_total: 3 });
     mount();
     await settle();
     const compact = screen.getByTestId("conv-compact");
@@ -258,7 +258,7 @@ describe("消息流", () => {
 
   it("助手：头像 + 名字一组只出一次；人的话打断分组；编号变 chip，点了交给应用", async () => {
     const open = vi.fn();
-    server.handlers["session.history"] = () => ({
+    server.handlers["engine.session.history"] = () => ({
       messages: [
         { role: "user", content: "看下 SR-002" },
         { role: "assistant", content: [{ type: "text", text: "SL-002-1 缺一条" }, { type: "text", text: "`SR-003` 不变" }] },
@@ -266,7 +266,7 @@ describe("消息流", () => {
         { role: "assistant", content: [{ type: "text", text: "收到" }] },
       ],
     });
-    server.handlers["harnix.attach"] = () => attached("S1", { history_total: 4 });
+    server.handlers["harnix.session.attach"] = () => attached("S1", { history_total: 4 });
     mount({ assistant: { name: "architect", avatar: "构" }, ids: { pattern: /\b(?:SR|SL)-\d+(?:-\d+)?\b/g, onOpen: open } });
     await settle();
     expect(screen.getAllByTestId("conv-speaker")).toHaveLength(2);
@@ -281,7 +281,7 @@ describe("消息流", () => {
   });
 
   it("排队中的插话在流里（带撤回）；正在回复在流里", async () => {
-    server.handlers["harnix.attach"] = () => attached("S1", { running_turn: "t1", queue: [{ item_id: "q1", message: "关键分支加上日志" }] });
+    server.handlers["harnix.session.attach"] = () => attached("S1", { running_turn: "t1", queue: [{ item_id: "q1", message: "关键分支加上日志" }] });
     mount();
     await settle();
     const queued = screen.getByTestId("conv-queue-item");
@@ -293,7 +293,7 @@ describe("消息流", () => {
 
 describe("立即送达：待送达、已送达与退回队列", () => {
   it("交给正在跑的一轮：流的末尾待送达 → 送达后成为已送达的人的话；退回则去掉，转为队列里的排队", async () => {
-    server.handlers["harnix.attach"] = () => attached("S1", { running_turn: "t1" });
+    server.handlers["harnix.session.attach"] = () => attached("S1", { running_turn: "t1" });
     mount({ variant: "transcript" });
     await settle();
     act(() => {
@@ -358,7 +358,7 @@ describe("转录", () => {
   });
 
   it("中断：还在跑的工具变成 ⏸ 已中断", async () => {
-    server.handlers["harnix.attach"] = () => attached("S1", { running_turn: "t1" });
+    server.handlers["harnix.session.attach"] = () => attached("S1", { running_turn: "t1" });
     mount({ variant: "transcript" });
     await settle();
     act(() => server.event("S1", { kind: "tool_use", id: "s1", name: "Bash", input: { command: "sleep 30" } }));
@@ -378,7 +378,7 @@ describe("转录", () => {
   });
 
   it("别处中断（BUG-UI-211：工位的中断走服务端）：取消的工具标已中断，不是失败；停止原因不另起一行", async () => {
-    server.handlers["harnix.attach"] = () => attached("S1", { running_turn: "t1" });
+    server.handlers["harnix.session.attach"] = () => attached("S1", { running_turn: "t1" });
     mount({ variant: "transcript" });
     await settle();
     act(() => server.event("S1", { kind: "tool_use", id: "s1", name: "Bash", input: { command: "sleep 6" } }));
@@ -424,8 +424,8 @@ describe("上下文环", () => {
     expect(screen.getByTestId("conv-context-note").textContent).toBe("超过 70% 自动压缩");
   });
 
-  it("attach 时取 session.get 的 context；会话还没有 context 时才用应用给的比例", async () => {
-    server.handlers["harnix.attach"] = () =>
+  it("attach 时取 engine.session.get 的 context；会话还没有 context 时才用应用给的比例", async () => {
+    server.handlers["harnix.session.attach"] = () =>
       attached("S1", { session: { session_id: "S1", turn_state: "idle", context: { tokens: 30_000, compact_threshold: 150_000, window: 200_000 } } });
     mount({ variant: "transcript", features: { contextRing: { ratio: 0.9, note: "压缩与清空都以摘要重建上下文" } } });
     await settle();
@@ -435,7 +435,7 @@ describe("上下文环", () => {
     expect(screen.getByTestId("conv-context-note").textContent).toBe("超过 75% 自动压缩 · 压缩与清空都以摘要重建上下文");
     cleanup();
 
-    server.handlers["harnix.attach"] = (p) => attached(String(p.session_id));
+    server.handlers["harnix.session.attach"] = (p) => attached(String(p.session_id));
     mount({ variant: "transcript", features: { contextRing: { ratio: 0.4 } } });
     await settle();
     expect(screen.getByTestId("conv-context-ring").dataset.value).toBe("0.4");
@@ -490,7 +490,7 @@ describe("菜单", () => {
     await settle();
     expect(run).toHaveBeenCalledTimes(1);
     expect(input().value).toBe("");
-    expect(server.calls.filter((f) => f.method === "harnix.send")).toHaveLength(0);
+    expect(server.calls.filter((f) => f.method === "harnix.session.send")).toHaveLength(0);
     type("/pl");
     fireEvent.keyDown(input(), { key: "Enter" });
     expect(input().value).toBe("/plain ");

@@ -9,12 +9,10 @@ description  = "Agix instances: built in-process or reached as a daemon, behind 
 
 [dependencies]
 harnix-contract = { workspace = true }
-daemon      = { workspace = true }
-base        = { workspace = true }
-model       = { workspace = true }
-scene       = { workspace = true }
-history     = { workspace = true }
-runtime     = { workspace = true }
+harnix-kernel   = { workspace = true }
+harnix-supervise = { workspace = true }
+harnix-engine   = { workspace = true }
+harnix-engine-api = { workspace = true }
 tokio       = { workspace = true }
 tokio-util  = { workspace = true }
 anyhow      = { workspace = true }
@@ -28,3 +26,5 @@ libc        = { workspace = true }
 
 [dev-dependencies]
 tempfile    = { workspace = true }
+# Agix's own settings loader, to see that what is written is what the engine reads.
+harnix-engine = { workspace = true, features = ["agix"] }

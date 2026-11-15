@@ -19,7 +19,7 @@ test("a module's migration runs before it starts, and only once per step", TAGS,
     const api = await connect(backend);
     const probe = await moduleStatus(api, "probe");
     expect(probe.migrations).toEqual(["001-create", "002-index"]);
-    const marker = join(backend.state, "modules", "probe", "schema");
+    const marker = join(backend.state, "ext", "probe", "data", "schema");
     expect(existsSync(marker)).toBe(true);
     expect(readFileSync(marker, "utf8").split("\n")).toEqual(["001-create", "002-index"]);
     api.close();
@@ -36,10 +36,10 @@ test("a failed migration disables that module alone", TAGS, async () => {
     expect(failed.enabled).toBe(false);
     expect(failed.phase).toBe("migration");
     expect(failed.reason).toContain("on purpose");
-    expect(await api.refused("app.fails-migrate.ping", {})).toBeTruthy();
+    expect(await api.refused("fails-migrate.ping", {})).toBeTruthy();
     // The modules after it in the list started.
     expect((await moduleStatus(api, "probe")).enabled).toBe(true);
-    expect((await api.call("app.probe.echo", { text: "up" })).text).toBe("up");
+    expect((await api.call("probe.echo", { text: "up" })).text).toBe("up");
     api.close();
   } finally {
     await backend.dispose();

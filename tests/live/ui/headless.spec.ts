@@ -22,7 +22,7 @@ test("a module's headless sessions are in the instance tree, and open like any o
   await open(page, backend.url);
   const started: string[] = await page.evaluate(async (root) => {
     const { app } = (window as any).harnix;
-    const result = await app.call("app.fleet.headless", {
+    const result = await app.call("fleet.headless", {
       count: 2,
       project_root: root,
       recording: "says-ready",
@@ -33,7 +33,7 @@ test("a module's headless sessions are in the instance tree, and open like any o
   expect(started).toHaveLength(2);
 
   await page.locator('#side [data-space="system"]').click();
-  await page.locator('[data-testid="system-tree-instance"][data-instance="system"]').click();
+  await page.locator('[data-testid="system-tree-instance"][data-instance="main"]').click();
   const listed = (sid: string) => page.locator(`[data-testid="system-instance"] [data-testid="instance-session"][data-sid="${sid}"]`);
   for (const sid of started) await expect(listed(sid)).toBeVisible({ timeout: 30_000 });
   await listed(started[0]!).click();

@@ -52,7 +52,7 @@ async fn a_method_reaches_the_backend_with_its_params_caller_and_configuration()
         json!({"greeting": "hi"})
     );
 
-    // The application's own error, passed through rather than judged.
+    // The package's own error, passed through rather than judged.
     let err = call(&rig.vm, "fail", json!({})).await.unwrap().unwrap_err();
     assert_eq!((err.code, err.message.as_str()), (42, "failing as asked"));
     assert_eq!(err.data, Some(json!({"why": "test"})));
@@ -97,16 +97,16 @@ async fn host_calls_and_publishes_go_to_the_host_as_the_application() {
     let answer = ok(
         &rig.vm,
         "call",
-        json!({"target": "harnix.sessions", "x": 1}),
+        json!({"target": "harnix.sessions.list", "x": 1}),
     )
     .await;
-    assert_eq!(answer["answered"], "harnix.sessions");
+    assert_eq!(answer["answered"], "harnix.sessions.list");
     assert_eq!(
         rig.host.calls.lock().unwrap().as_slice(),
         [(
             "acme.probe".to_string(),
-            "harnix.sessions".to_string(),
-            json!({"target": "harnix.sessions", "x": 1})
+            "harnix.sessions.list".to_string(),
+            json!({"target": "harnix.sessions.list", "x": 1})
         )]
     );
     let refused = call(&rig.vm, "call", json!({"target": "test.refuse"}))
@@ -138,7 +138,7 @@ async fn a_call_routed_back_into_the_same_backend_is_refused_rather_than_deadloc
     rig.host.route_to.set(rig.vm.clone()).ok().unwrap();
     let answer = tokio::time::timeout(
         Duration::from_secs(3),
-        call(&rig.vm, "call", json!({"target": "app.acme.probe.count"})),
+        call(&rig.vm, "call", json!({"target": "acme.probe.count"})),
     )
     .await
     .expect("deadlocked")
@@ -512,7 +512,7 @@ async fn a_subscription_delivers_topic_values_in_order() {
         .await
         .unwrap()
         .unwrap_err();
-    assert!(refused.message.contains("hub"), "{refused:?}");
+    assert!(refused.message.contains("calls"), "{refused:?}");
 
     for n in 0..5 {
         rig.vm
@@ -529,6 +529,26 @@ async fn a_subscription_delivers_topic_values_in_order() {
         .map(|v| v["value"]["n"].clone())
         .collect();
     assert_eq!(seen, [0, 1, 2, 3, 4]);
+}
+
+/// A topic value and a timer firing are each answered under an id of their own, which the host is
+/// told while the backend answers it, and told is done after: what the backend calls meanwhile is
+/// made within it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_delivery_is_answered_under_an_id_of_its_own() {
+    let rig = rig("backend-probe", backend_caps(), limits(5_000)).await;
+    ok(&rig.vm, "subscribe", json!({"topic": "harnix.sessions.status"})).await;
+    rig.vm.deliver_topic("harnix.sessions.status", &json!({"n": 1}));
+    ok(&rig.vm, "timer", json!({"id": "t1", "ms": "10"})).await;
+    eventually(Duration::from_secs(3), "both answered", || {
+        rig.host.delivering.lock().unwrap().len() == 4
+    })
+    .await;
+    let told = rig.host.delivering.lock().unwrap().clone();
+    assert!(told[0].is_some() && told[1].is_none() && told[2].is_some() && told[3].is_none(), "{told:?}");
+    assert_ne!(told[0], told[2], "an id is never made twice");
+    assert_eq!(rig.host.published_on("seen").len(), 1);
+    assert_eq!(rig.host.published_on("timer").len(), 1);
 }
 
 /// Subscriptions and timers belong to the instance that made them. When it

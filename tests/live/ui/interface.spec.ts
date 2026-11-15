@@ -81,7 +81,7 @@ test("the theme chosen in settings applies at once, survives a reload, and follo
   // Back to the system's: the page follows what the system prefers.
   await page.emulateMedia({ colorScheme: "dark" });
   await openSettings(page);
-  await page.getByTestId("settings-theme").selectOption("system");
+  await page.getByTestId("settings-theme").selectOption("auto");
   await expect.poll(theme).toBe("dark");
   await page.emulateMedia({ colorScheme: "light" });
   await expect.poll(theme).toBe("light");
@@ -131,7 +131,7 @@ test("the language switches everything at once, and comes back", SETTINGS, async
   await language.selectOption("zh-CN");
   await expect(page.locator("#new")).toContainText("新会话");
   await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
-  await language.selectOption("system");
+  await language.selectOption("auto");
 });
 
 test("the sidebar collapses to a rail and back", TAGS, async ({ page }) => {
@@ -294,8 +294,8 @@ test("the avatar is the settings: its ring says the connection, its menu opens s
   await expect(avatar).not.toHaveAttribute("data-conn", "ok");
 });
 
-test("with every built-in space removed, the frame is the chrome alone and says so", SHELL, async ({ page }) => {
-  const bare = await startHarnix(launchFor("replay", { profile: "\n[shell]\nspaces = []\n" }));
+test("with every extension that has a space switched off, the frame is the chrome alone and says so", SHELL, async ({ page }) => {
+  const bare = await startHarnix(launchFor("replay", { profile: "\n[extensions]\noff = [\"harnix-app\", \"system\", \"flow\"]\n" }));
   try {
     await open(page, bare.url);
     await expect(page.getByTestId("no-spaces")).toBeVisible();
@@ -325,7 +325,7 @@ test("at a phone's width nothing scrolls sideways: a conversation, the system sp
   }
   // A flow entered, its details beside the conversation.
   await page.evaluate(() => (window as any).harnix.app.switchSpace("system"));
-  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="flows"]').click();
+  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="flow.flows"]').click();
   await expect.poll(sideways, { message: "the Flows tab" }).toBeLessThanOrEqual(0);
   await page.getByTestId("flow-def-example-review").click();
   await expect(page.getByTestId("flow-context")).toHaveAttribute("data-flow", "example-review");
@@ -341,7 +341,7 @@ test("in Chinese the system space has no string left untranslated or showing its
   await page.locator('#side [data-space="system"]').click();
   await expect(page.getByTestId("system-console")).toBeVisible();
   // The system space's strings are `system.*`; one drawn as its key has no translation. Method
-  // names (`harnix.system.context`) are not keys: a dot before is not a key's start.
+  // names (`system.context`) are not keys: a dot before is not a key's start.
   const leaked = () => page.evaluate(() => document.body.innerText.match(/(?<![\w.])system\.[a-z][\w.]*[a-z]\b/g) ?? []);
   for (const tab of ["active", "all"]) {
     const button = page.locator(`[data-testid="system-console"] [role="tab"][data-tab="${tab}"]`);
@@ -351,7 +351,7 @@ test("in Chinese the system space has no string left untranslated or showing its
   }
   await expect(page.locator('[data-testid="system-strip"] [data-kpi="threads"] .l')).toHaveText(/[一-鿿]/);
   await openSettings(page);
-  await page.getByTestId("settings-language").selectOption("system");
+  await page.getByTestId("settings-language").selectOption("auto");
   await page.keyboard.press("Escape");
 });
 
@@ -361,7 +361,7 @@ test("in Chinese the flows have no string left untranslated or showing its key",
   await page.getByTestId("settings-language").selectOption("zh-CN");
   await page.keyboard.press("Escape");
   await toFlows(page);
-  await expect(page.locator('[data-testid="system-console"] [role="tab"][data-tab="flows"]')).toHaveText("流程");
+  await expect(page.locator('[data-testid="system-console"] [role="tab"][data-tab="flow.flows"]')).toHaveText("流程");
   const leaked = () =>
     page.evaluate(() => {
       const text = document.body.innerText;
@@ -382,5 +382,5 @@ test("in Chinese the flows have no string left untranslated or showing its key",
   await expect(page.getByTestId("flow-context-title")).toHaveText("通用会话");
   expect(await leaked(), "the general conversation").toEqual([]);
   await openSettings(page);
-  await page.getByTestId("settings-language").selectOption("system");
+  await page.getByTestId("settings-language").selectOption("auto");
 });

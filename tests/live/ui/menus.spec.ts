@@ -71,14 +71,14 @@ test("allowing an ask for the session answers it, and the call runs", SESSIONS, 
 test("a session archived from its menu leaves the list, comes back behind the toggle, and is unarchived", SPACE, async ({ page }) => {
   await open(page, URL);
   const id = await withTurn(page);
-  await fromMenu(page, id, "archive");
+  await fromMenu(page, id, "action:harnix-app.archive");
   await expect(row(page, id)).toHaveCount(0);
   const toggle = page.getByTestId("archive-toggle");
   await expect(toggle).toBeVisible();
   await toggle.click();
   await expect(row(page, id)).toBeVisible();
   // Unarchived, it is an ordinary row again: nothing is left behind the toggle.
-  await fromMenu(page, id, "archive");
+  await fromMenu(page, id, "action:harnix-app.archive");
   await expect(toggle).toHaveCount(0);
   await expect(row(page, id)).toBeVisible();
 });
@@ -108,7 +108,7 @@ test("delete asks first; cancelled it keeps the session, confirmed it removes it
   const gone = await page.evaluate(async (sid) => {
     const { app } = (window as any).harnix;
     try {
-      await app.call("session.get", { instance: "system", session_id: sid });
+      await app.call("engine.session.get", { instance: "main", session_id: sid });
       return false;
     } catch {
       return true;
@@ -121,7 +121,7 @@ test("a new session from a project's menu: the dialog offers the active scenes, 
   await open(page, URL);
   const path = await page.evaluate(async () => {
     const { app } = (window as any).harnix;
-    const made = await app.call("harnix.projects.create", { name: `dialog-${Date.now()}` });
+    const made = await app.call("harnix-app.projects.create", { name: `dialog-${Date.now()}` });
     await app.refreshSessions();
     return made.path as string;
   });
@@ -129,7 +129,7 @@ test("a new session from a project's menu: the dialog offers the active scenes, 
   await expect(page.locator("#main")).toHaveAttribute("data-space", "projects");
   const project = page.getByTestId("projects").locator("[data-project]", { hasText: "dialog-" });
   await project.getByRole("treeitem", { level: 1 }).click({ button: "right" });
-  await page.locator('[data-testid="project-menu"] [data-item="new"]').click();
+  await page.locator('[data-testid="host-menu"] [data-item="new"]').click();
 
   const scene = page.getByTestId("new-scene");
   await expect(scene).toHaveValue("harnix");
@@ -155,14 +155,14 @@ test("a project's session is renamed and deleted from its menu in the projects s
   await open(page, URL);
   await page.evaluate(async () => {
     const { app } = (window as any).harnix;
-    await app.call("harnix.projects.create", { name: `menu-${Date.now()}` });
+    await app.call("harnix-app.projects.create", { name: `menu-${Date.now()}` });
     await app.refreshSessions();
   });
   await spaceEntry(page, "projects").click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", "projects");
   const project = page.getByTestId("projects").locator("[data-project]", { hasText: "menu-" });
   await project.getByRole("treeitem", { level: 1 }).click({ button: "right" });
-  await page.locator('[data-testid="project-menu"] [data-item="new"]').click();
+  await page.locator('[data-testid="host-menu"] [data-item="new"]').click();
   await page.getByTestId("new-mode").selectOption({ index: 0 });
   await page.getByTestId("new-create").click();
   await expect(page.locator("#modal")).toHaveCount(0);
@@ -187,7 +187,7 @@ test("a session is exported from its menu: markdown to read, or the engine's arc
   await open(page, URL);
   const id = await withTurn(page);
   const download = async (pick: () => Promise<void>) => {
-    await fromMenu(page, id, "export");
+    await fromMenu(page, id, "action:harnix-app.export");
     await pick();
     const [file] = await Promise.all([page.waitForEvent("download"), page.getByTestId("export-go").click()]);
     const bytes = readFileSync((await file.path())!);

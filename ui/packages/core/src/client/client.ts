@@ -25,7 +25,9 @@ import type {
   ParamsOf,
   ResultOf,
   CallError,
+  Hello,
 } from "../protocol/frames.ts";
+import { engineProtocolRefusal } from "../protocol/events.ts";
 import { CONTRIB_API_VERSION, HANDSHAKE_REFUSED, PROTOCOL_VERSION, type Topology } from "../protocol/generated/contract.ts";
 import {
   connectSplit,
@@ -178,14 +180,14 @@ export class HarnixClient {
   }
 
   /** 所有服务端通知。返回取消订阅的函数。 */
-  onNotify(fn: NotifyListener): () => void {
+  onNotification(fn: NotifyListener): () => void {
     this.notifyListeners.add(fn);
     return () => this.notifyListeners.delete(fn);
   }
 
   /** 某一种通知，带类型。 */
   on<M extends NotificationName>(method: M, fn: (params: Notifications[M]) => void): () => void {
-    return this.onNotify((name, params) => {
+    return this.onNotification((name, params) => {
       if (name === method) fn(params as unknown as Notifications[M]);
     });
   }
@@ -289,7 +291,7 @@ export class HarnixClient {
   /* ── 模块自有链接 ───────────────────────────────────────────────── */
 
   /**
-   * 模块 `module` 自己的 HTTP 路由（概念与架构 §3.3.5）：同源的 `/apps/<module>/<path>`，凭据由这里带上。
+   * 模块 `module` 自己的 HTTP 路由（概念与架构 §3.3.5）：同源的 `/ext/<module>/<path>`，凭据由这里带上。
    * `path` 走不出这个模块的前缀——`..`、别的来源一律拒绝，模块代码拼不出别的地址。
    */
   async appFetch(module: string, path: string, init: RequestInit = {}): Promise<Response> {
@@ -310,8 +312,8 @@ export class HarnixClient {
   }
 
   private appUrl(module: string, path: string): URL {
-    if (!/^[a-z][a-z0-9_-]*$/.test(module)) throw new Error(`not a module id: ${module}`);
-    const prefix = `/apps/${module}/`;
+    if (!/^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9-]*)?$/.test(module)) throw new Error(`not an extension id: ${module}`);
+    const prefix = `/ext/${module}/`;
     if (/^[a-z][a-z0-9+.-]*:|^[\\/]{2}|\\/.test(path)) throw new Error(`not a path of module ${module}: ${path}`);
     const relative = path.replace(/^\/+/, "");
     const base = new URL(this.baseUrl);
@@ -559,15 +561,54 @@ export class HarnixClient {
       if (this.pending.size >= this.maxInFlight) this.waiting.push({ method, params, slot });
       else this.send(method, params, slot);
     });
-    if (method !== "harnix.hello" || this.maxInFlightGiven) return sent;
+    if (method !== "harnix.hello") return sent;
     return sent.then((hello) => {
+      // The engine's events and answers are read by `@harnix/core`'s parsing layer alone: one of a
+      // shape it does not know is refused here, with why, rather than drawn as something else.
+      const refused = engineProtocolRefusal(hello as Hello | null);
+      if (refused) {
+        this.refuse(refused);
+        throw { message: refused } satisfies CallError;
+      }
       const cap = (hello as { limits?: { max_in_flight?: unknown } } | null)?.limits?.max_in_flight;
-      if (typeof cap === "number" && cap > 0) {
+      if (!this.maxInFlightGiven && typeof cap === "number" && cap > 0) {
         this.maxInFlight = cap;
         this.drain();
       }
       return hello;
     });
+  }
+
+  /** Stop for good, saying why: what the page reads it is not built for. */
+  private refuse(reason: string): void {
+    this.refused = true;
+    this.negotiatedValue = null;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    if (this.socket) {
+      const socket = this.socket;
+      this.socket = null;
+      socket.onclose = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.close();
+    }
+    this.carrier?.close();
+    this.carrier = null;
+    this.rejectPending();
+    this.setStatus("incompatible", reason);
+  }
+
+  /**
+   * A same-origin path with this client's credential on it, for what the browser fetches itself
+   * and cannot be given a header — an ES module a package brings (`import()`). Under a launch
+   * link's cookie there is no token, and the path is returned as it is.
+   */
+  withToken(path: string): string {
+    if (!this.token) return path;
+    const url = new URL(path, this.baseUrl);
+    url.searchParams.set("token", this.token);
+    return url.origin === new URL(this.baseUrl).origin ? url.pathname + url.search : path;
   }
 
   /** 不要应答；用在卸载时，那时应答也到不了。 */

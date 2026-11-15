@@ -1,11 +1,11 @@
 //! What the VM's callers see: the world a component implements, its tools and their output, a
 //! lifecycle event's answer, a method's error, and why a call produced no answer.
 
-use crate::bindings::harnix::app::types as wit;
+use crate::bindings::harnix::ext::types as wit;
 use serde::Serialize;
 use serde_json::Value;
 
-/// The `harnix:app` world a component implements.
+/// The `harnix:ext` world a component implements.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum World {
@@ -45,7 +45,7 @@ pub enum HookDecision {
     AddContext(String),
 }
 
-/// A method's failure as the application reports it, for its caller.
+/// A method's failure as the package reports it, for its caller.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct AppError {
     pub code: i32,
@@ -56,25 +56,28 @@ pub struct AppError {
 /// Why a call produced no answer from the component.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CallFailure {
-    /// The call outlived the application's `timeout_ms`.
+    /// The call outlived the package's `timeout_ms`.
     TimedOut,
     /// The caller withdrew (a cancelled turn, a closing session).
     Cancelled,
     /// The component trapped, ran out of memory, or could not be run.
     Faulted(String),
-    /// The call was not made: the application is stopped or disabled, its
-    /// component does not export what was asked for, or the call would have
-    /// deadlocked. Never counted against the application.
+    /// The call was not made: the package is stopped or disabled, or its
+    /// component does not export what was asked for. Never counted against
+    /// the package.
     Unavailable(String),
+    /// The call was not made: it came back into a backend that is waiting on
+    /// it, and would have deadlocked. Never counted against the package.
+    Reentrant(String),
 }
 
 impl std::fmt::Display for CallFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::TimedOut => write!(f, "the application's call exceeded its timeout"),
-            Self::Cancelled => write!(f, "the application's call was cancelled"),
-            Self::Faulted(e) => write!(f, "the application failed: {e}"),
-            Self::Unavailable(e) => write!(f, "the application cannot take this call: {e}"),
+            Self::TimedOut => write!(f, "the package's call exceeded its timeout"),
+            Self::Cancelled => write!(f, "the package's call was cancelled"),
+            Self::Faulted(e) => write!(f, "the package failed: {e}"),
+            Self::Unavailable(e) | Self::Reentrant(e) => write!(f, "the package cannot take this call: {e}"),
         }
     }
 }
@@ -104,8 +107,8 @@ impl From<wit::HookDecision> for HookDecision {
     }
 }
 
-impl From<wit::AppError> for AppError {
-    fn from(e: wit::AppError) -> Self {
+impl From<wit::ExtError> for AppError {
+    fn from(e: wit::ExtError) -> Self {
         Self {
             code: e.code,
             message: e.message,

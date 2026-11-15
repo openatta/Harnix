@@ -1,0 +1,280 @@
+//! Every seam the interface is assembled out of, and what each one costs.
+//!
+//! This is the source. The table in `docs/contribution_points.md` is rendered
+//! from it, and a test compares the two — see the module docs.
+//!
+//! Engine and host extension points are *not* here, and not because they were
+//! forgotten: extending the agent is Agix's, and a copy of its catalog
+//! kept on this side would be a second copy to drift.
+
+use std::fmt::Write as _;
+
+use crate::ui::PointDecl;
+
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PointKind {
+    /// Contribute a named, ordered, removable thing.
+    Register,
+    /// Fold a stream into derived state.
+    Fold,
+    /// Draw something.
+    Render,
+}
+
+/// The order of magnitude a point fires at. This is a constraint, not
+/// decoration: it decides whether a point is open, and to what.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Frequency {
+    PerProcess,
+    PerSession,
+    PerTurn,
+    /// When a block's state changes — a tool starts, finishes, fails. Tens
+    /// per turn. Explicitly *not* per streaming delta.
+    PerBlockChange,
+    /// When the user's selection or a panel's input changes.
+    PerInteraction,
+}
+
+impl PointKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PointKind::Register => "注册",
+            PointKind::Fold => "折叠",
+            PointKind::Render => "呈现",
+        }
+    }
+}
+
+impl Frequency {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Frequency::PerProcess => "每进程(10⁰ 量级)",
+            Frequency::PerSession => "每会话(10⁰ 量级)",
+            Frequency::PerTurn => "每轮(10⁰–10¹ 量级)",
+            Frequency::PerBlockChange => "每次块状态变化(10¹ 量级)",
+            Frequency::PerInteraction => "每次交互(10⁰–10¹ 量级)",
+        }
+    }
+}
+
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy)]
+pub struct Point {
+    pub id: &'static str,
+    pub kind: PointKind,
+    /// What a contribution here supplies.
+    pub what: &'static str,
+    /// When it is evaluated.
+    pub when: &'static str,
+    pub frequency: Frequency,
+}
+
+/// The nine points the interface is built out of.
+///
+/// The number is part of the design (concept §5.6): a tenth is an argument to
+/// be made, not a commit to be pushed. The ninth, `session.action`, was argued:
+/// three things the shell drew for one extension (open in the system space, view
+/// a tool call there, archive and export) were one kind of thing with nowhere to go. Every one of them is drawn by a built-in
+/// registration **and asked for by the shell**, which is what makes the count
+/// honest — a seam nothing uses is not a seam, it is a line in this list.
+/// It has happened: five of the seven points there were once went unasked.
+pub const POINTS: &[Point] = &[
+    Point {
+        id: "space",
+        kind: PointKind::Register,
+        what: "一个 space:左栏入口与条目、右栏页签、中区模式、新会话的默认值",
+        when: "界面启动时",
+        frequency: Frequency::PerProcess,
+    },
+    Point {
+        id: "home.card",
+        kind: PointKind::Render,
+        what: "新对话输入框下面的一张卡",
+        when: "新对话的空白页打开时",
+        frequency: Frequency::PerInteraction,
+    },
+    Point {
+        id: "tool.row",
+        kind: PointKind::Render,
+        what: "一次工具调用在流里的那一行:图标、标题、摘要",
+        when: "该工具块状态变化时",
+        frequency: Frequency::PerBlockChange,
+    },
+    Point {
+        id: "details.panel",
+        kind: PointKind::Render,
+        what: "详情栏里的一页",
+        when: "选中项变化时",
+        frequency: Frequency::PerInteraction,
+    },
+    Point {
+        id: "flow.block",
+        kind: PointKind::Render,
+        what: "流里的一种新块",
+        when: "该块状态变化时",
+        frequency: Frequency::PerBlockChange,
+    },
+    Point {
+        id: "sidebar.group",
+        kind: PointKind::Register,
+        what: "会话列表的分组与排序",
+        when: "会话集合变化时",
+        frequency: Frequency::PerInteraction,
+    },
+    Point {
+        id: "command",
+        kind: PointKind::Register,
+        what: "一条 `/` 命令或 `@` 引用的补全候选（`trigger` 选哪个菜单）",
+        when: "命令面板打开时",
+        frequency: Frequency::PerInteraction,
+    },
+    Point {
+        id: "settings.section",
+        kind: PointKind::Render,
+        what: "设置面板里的一节",
+        when: "设置页打开时",
+        frequency: Frequency::PerInteraction,
+    },
+    Point {
+        id: "session.action",
+        kind: PointKind::Register,
+        what: "对一个会话或它里面一次工具调用的动作（`at`：标题栏、会话菜单、工具行）",
+        when: "标题栏、会话菜单、工具行画出时",
+        frequency: Frequency::PerInteraction,
+    },
+];
+
+pub fn point(id: &str) -> Option<&'static Point> {
+    POINTS.iter().find(|p| p.id == id)
+}
+
+/// A point a first-party extension defines for the others to fill, beside the shell's nine and not
+/// counted among them: the extension declares it (`UiDecl::point`) and its UI package defines it.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy)]
+pub struct ExtensionPoint {
+    /// The extension that defines it; the point's name starts with its id.
+    pub owner: &'static str,
+    pub id: &'static str,
+    pub kind: PointKind,
+    pub what: &'static str,
+    pub when: &'static str,
+    pub frequency: Frequency,
+}
+
+impl ExtensionPoint {
+    /// The declaration its owner registers.
+    pub fn decl(&self) -> PointDecl {
+        PointDecl::new(self.id, self.kind, self.frequency).what(self.what).when(self.when)
+    }
+}
+
+/// The points first-party extensions define. Listed here, with the shell's, so the generated
+/// catalog shows every point a UI package can fill; each owner declares its own from this list.
+pub const EXTENSION_POINTS: &[ExtensionPoint] = &[
+    ExtensionPoint {
+        owner: "system",
+        id: "system.console.tab",
+        kind: PointKind::Register,
+        what: "系统 space 控制台的一个页签（`{id, title(), render(), order?, about?()}`）",
+        when: "系统 space 的控制台画出时",
+        frequency: Frequency::PerInteraction,
+    },
+    ExtensionPoint {
+        owner: "system",
+        id: "system.inspector.tab",
+        kind: PointKind::Render,
+        what: "系统 space 右栏里选中会话的一页（`{id, title(target), match(target), render(target), tools?}`）",
+        when: "右栏的选中项变化时",
+        frequency: Frequency::PerInteraction,
+    },
+];
+
+/// The points `owner` defines.
+pub fn points_of(owner: &str) -> impl Iterator<Item = &'static ExtensionPoint> + '_ {
+    EXTENSION_POINTS.iter().filter(move |p| p.owner == owner)
+}
+
+/// The table `docs/contribution_points.md` carries between its generated
+/// markers. Changing a point changes the doc; a test enforces it.
+pub fn render_markdown() -> String {
+    let mut out = String::new();
+    out.push_str("| 贡献点 | 类型 | 贡献什么 | 求值时机 | 频率 |\n");
+    out.push_str("|---|---|---|---|---|\n");
+    for p in POINTS {
+        let kind = p.kind.as_str();
+        let _ = writeln!(
+            out,
+            "| `{}` | {} | {} | {} | {} |",
+            p.id,
+            kind,
+            p.what,
+            p.when,
+            p.frequency.as_str()
+        );
+    }
+    out
+}
+
+/// The second table in `docs/contribution_points.md`: the points first-party extensions define.
+pub fn render_extension_markdown() -> String {
+    let mut out = String::new();
+    out.push_str("| 贡献点 | 定义者 | 类型 | 贡献什么 | 求值时机 | 频率 |\n");
+    out.push_str("|---|---|---|---|---|---|\n");
+    for p in EXTENSION_POINTS {
+        let _ = writeln!(
+            out,
+            "| `{}` | `{}` | {} | {} | {} | {} |",
+            p.id,
+            p.owner,
+            p.kind.as_str(),
+            p.what,
+            p.when,
+            p.frequency.as_str()
+        );
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An extension's point is named under its id, and is never one of the shell's.
+    #[test]
+    fn an_extension_point_is_its_owners() {
+        for p in EXTENSION_POINTS {
+            assert!(p.id.starts_with(&format!("{}.", p.owner)), "{} is not under {}", p.id, p.owner);
+            assert!(point(p.id).is_none(), "{} is one of the shell's", p.id);
+        }
+        assert_eq!(points_of("system").count(), 2);
+    }
+
+    /// Nine, and adding one is a decision (concept §5.6).
+    #[test]
+    fn the_interface_has_nine_points() {
+        assert_eq!(POINTS.len(), 9);
+    }
+
+    /// Nothing here may fire per streaming delta — the whole reason frequency
+    /// is stated in the contract (concept §5.6).
+    #[test]
+    fn no_point_follows_the_stream() {
+        for p in POINTS {
+            assert!(
+                matches!(
+                    p.frequency,
+                    Frequency::PerProcess
+                        | Frequency::PerSession
+                        | Frequency::PerBlockChange
+                        | Frequency::PerInteraction
+                        | Frequency::PerTurn
+                ),
+                "{} fires too often to be contributable",
+                p.id
+            );
+        }
+    }
+}

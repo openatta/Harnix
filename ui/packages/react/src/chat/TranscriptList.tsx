@@ -13,7 +13,7 @@ import { Agent, ContextRow, ImageBlock } from "../components/blocks";
 import type { Block } from "@harnix/core/state";
 import { TOOL_NAMES } from "./format";
 import { SystemLine, ThinkRow, TranscriptText, TranscriptToolRow, Typing, UserBubble } from "./messages";
-import { ChatContext, type ChatContextValue, type ChatIds, type ChatRenderers } from "./types";
+import { ChatContext, type ChatContextValue, type ChatIds, type ChatRenderers, type ChatTrust } from "./types";
 
 export interface TranscriptListProps {
   /** 块表（自上而下）；key 在表内唯一且稳定 */
@@ -36,6 +36,8 @@ export interface TranscriptListProps {
   renderers?: ChatRenderers;
   /** "收起所有 diff"（应用的开关） */
   diffsCollapsed?: boolean;
+  /** `extension`：块来自扩展进程里的引擎的会话，按不受信内容画 */
+  trust?: ChatTrust;
   testId?: string;
   className?: string;
 }
@@ -59,8 +61,9 @@ export function TranscriptList(props: TranscriptListProps) {
       diffsCollapsed: collapsed,
       diffGeneration: generation.n,
       toolSummary: renderers?.toolSummary,
+      untrusted: props.trust === "extension",
     }),
-    [toolNames, ids, collapsed, generation.n, renderers?.toolSummary],
+    [toolNames, ids, collapsed, generation.n, renderers?.toolSummary, props.trust],
   );
 
   const onScroll = useCallback(() => {

@@ -6,7 +6,7 @@
  * The system space's Flows tab lists the flows and every run, and edits no definition: its first
  * rows add (in the general conversation), filter and sort. A flow clicked there makes the left
  * column that flow's — the way back, its conversation, its runs — and what is picked there is what
- * the middle talks to: the flow's own conversation (made by the module, `app.flow.session {flow}`)
+ * the middle talks to: the flow's own conversation (made by the module, `flow.session {flow}`)
  * or a run's main session; the general conversation is where a new flow is written. What is picked
  * opens beside the conversation, in the second side panel (xops-04 §7): a flow's diagram,
  * definition, parts (skills, rules, policies, gates, hooks) and YAML; a run's details. Closing that
@@ -18,7 +18,7 @@
  * no flow, and the Agent relays that a flow must be selected first). A replayed session names its
  * recording when it is made, and the module makes a flow's own conversation with none: these two
  * run in a flow-author conversation of the space the test makes, pointed at the flow with
- * `app.flow.focus` as a flow's own is. The real run's main session has no recording here: the test
+ * `flow.focus` as a flow's own is. The real run's main session has no recording here: the test
  * passes its session station by force, as a person may.
  *
  * Without the flow module there are no flows: `examples/hello-app` (`spaces.spec.ts` lists its
@@ -53,7 +53,7 @@ async function current(page: Page): Promise<string | null> {
 
 /** What the module answers for a flow's conversation (no flow: the general one). */
 async function conversationOf(page: Page, flow?: string): Promise<string> {
-  return page.evaluate(async (f) => (await (window as any).harnix.app.call("app.flow.session", f ? { flow: f } : {})).session_id as string, flow);
+  return page.evaluate(async (f) => (await (window as any).harnix.app.call("flow.session", f ? { flow: f } : {})).session_id as string, flow);
 }
 
 /** A flow-author conversation of the space replaying `fixture`, pointed at `flow` (none: no flow). */
@@ -64,10 +64,10 @@ async function converse(page: Page, fixture: string, flow: string | null): Promi
     return app.snapshot.current.sessionId as string;
   }, fixture);
   await expect(page.getByTestId("conv-input")).toBeEnabled();
-  const scene = await page.evaluate(async (session_id) => (await (window as any).harnix.app.call("session.get", { session_id, space: "flow" })).scene, id);
+  const scene = await page.evaluate(async (session_id) => (await (window as any).harnix.app.call("engine.session.get", { session_id, space: "flow" })).scene, id);
   expect(scene).toBe("flow-author");
   if (flow) {
-    await page.evaluate(async ({ session_id, flow }) => (window as any).harnix.app.call("app.flow.focus", { instance: "system", session_id, flow }), { session_id: id, flow });
+    await page.evaluate(async ({ session_id, flow }) => (window as any).harnix.app.call("flow.focus", { instance: "main", session_id, flow }), { session_id: id, flow });
   }
   return id;
 }
@@ -292,7 +292,7 @@ test("a run started on the flow: its main session in the middle, its state, paus
   // The middle is the run's main session.
   const main = async () =>
     page.evaluate(async (r) => {
-      const v = await (window as any).harnix.app.call("app.flow.get", { run: r });
+      const v = await (window as any).harnix.app.call("flow.get", { run: r });
       return ((v.record.session_keys ?? {})["@main"] as string | undefined)?.split("/")[1] ?? null;
     }, run);
   await expect.poll(main, { timeout: 15_000 }).not.toBeNull();
@@ -410,8 +410,8 @@ test("the reference, in the right column inside a flow: the guide, the catalog a
   expect(errors).toEqual([]);
 });
 
-test("a profile that drops the flows in [shell] spaces does not get them", TAGS, async ({ page }) => {
-  const without = await startHarnix(launchFor("replay", { profile: '\n[shell]\nspaces = ["sessions", "projects", "system"]\n' }));
+test("a profile that switches the flows off does not get them", TAGS, async ({ page }) => {
+  const without = await startHarnix(launchFor("replay", { profile: '\n[extensions]\noff = ["flow"]\n' }));
   try {
     const errors = watchConsole(page);
     await open(page, without.url);
@@ -419,9 +419,9 @@ test("a profile that drops the flows in [shell] spaces does not get them", TAGS,
     await expect(page.locator('#side [data-space="flow"]')).toHaveCount(0);
     await page.locator('#side button[data-space="system"]').click();
     await expect(page.getByTestId("system-console")).toBeVisible();
-    await expect(page.locator('[data-testid="system-console"] [role="tab"][data-tab="flows"]')).toHaveCount(0);
-    // The module is still there; only the interface leaves it out.
-    expect(await page.evaluate(() => (window as any).harnix.app.snapshot.reachable.includes("app.flow.defs"))).toBe(true);
+    await expect(page.locator('[data-testid="system-console"] [role="tab"][data-tab="flow.flows"]')).toHaveCount(0);
+    // Switched off, its methods go with its interface.
+    expect(await page.evaluate(() => (window as any).harnix.app.snapshot.reachable.includes("flow.defs"))).toBe(false);
     expect(errors).toEqual([]);
   } finally {
     await without.dispose();
@@ -429,7 +429,7 @@ test("a profile that drops the flows in [shell] spaces does not get them", TAGS,
 });
 
 test("a profile that keeps the flows but not the system space gets them as a space of their own, as before", TAGS, async ({ page }) => {
-  const alone = await startHarnix(launchFor("replay", { profile: '\n[shell]\nspaces = ["sessions", "flow"]\n' }));
+  const alone = await startHarnix(launchFor("replay", { profile: '\n[extensions]\noff = ["system"]\n' }));
   try {
     const errors = watchConsole(page);
     await open(page, alone.url);

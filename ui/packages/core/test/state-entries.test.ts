@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { SessionController, type SessionStrings } from "../src/state/index.ts";
 
-const entry = (id: string, at: number) => ({ id, ns: "app.greeter", event: "job_done", payload: { id }, at });
+const entry = (id: string, at: number) => ({ id, ns: "greeter", event: "job_done", payload: { id }, at });
 
 const strings: SessionStrings = {
   openFailed: (r) => r,
@@ -27,7 +27,7 @@ class FakeClient {
   status = "open";
   calls: { method: string; params: any }[] = [];
   private listeners = new Set<(m: string, p: Record<string, unknown>) => void>();
-  onNotify(fn: (m: string, p: Record<string, unknown>) => void) {
+  onNotification(fn: (m: string, p: Record<string, unknown>) => void) {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
   }
@@ -36,10 +36,10 @@ class FakeClient {
   }
   async call(method: string, params: any) {
     this.calls.push({ method, params });
-    if (method === "harnix.attach") {
+    if (method === "harnix.session.attach") {
       return { instance: params.instance, session: { session_id: params.session_id }, history_total: 2, replay: [], truncated: false, pending_prompts: [], running_turn: null, queue: [], seq: 0 };
     }
-    if (method === "session.history") {
+    if (method === "engine.session.history") {
       return {
         total: 2,
         messages: [
@@ -48,10 +48,10 @@ class FakeClient {
         ].slice(params.offset, params.offset + params.limit),
       };
     }
-    if (method === "session.entries") {
+    if (method === "engine.session.entries") {
       return { entries: [entry("e1", 1), entry("e2", 2)] };
     }
-    if (method === "harnix.send") return { turn_id: "t" };
+    if (method === "harnix.session.send") return { turn_id: "t" };
     return {};
   }
   notify() {}

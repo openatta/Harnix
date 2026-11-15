@@ -4,13 +4,33 @@
 use super::{holding, with_deadline, Inner, Shared};
 use crate::sync::lock;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Weak;
+use std::sync::{OnceLock, Weak};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 
 /// Topic values and timer firings waiting for the backend. Past this the
 /// backend is not keeping up, and dropping (and counting) beats growing
 /// without bound.
 pub(super) const DELIVERY_QUEUE: usize = 256;
+
+/// The id the backend answers one delivery under: never made twice, in this process or in another
+/// process of the same package, since a chain that holds the backend on it can outlive both
+/// (a turn the delivery queued).
+fn serving_id() -> String {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    static SINCE: OnceLock<u128> = OnceLock::new();
+    let since = SINCE.get_or_init(|| SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos()));
+    format!("delivery-{since:x}-{}", NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
+/// While held, the host knows the backend answers a delivery ([`crate::VmHost::delivering`]).
+struct Delivering<'a>(&'a Shared);
+
+impl Drop for Delivering<'_> {
+    fn drop(&mut self) {
+        self.0.services.host.delivering(&self.0.app, None);
+    }
+}
 
 pub(super) enum Delivery {
     Topic { topic: String, value_json: String },
@@ -51,6 +71,13 @@ impl Inner {
             return;
         };
         let vm_id = self.shared.vm_id;
+        // Served like a call the host made: what the backend calls while it answers this is made
+        // within it, and a call that comes back into the backend before it is done is refused by
+        // it, however it travelled.
+        let serving = serving_id();
+        resident.store.data_mut().serving = Some(serving.clone());
+        self.shared.services.host.delivering(&self.shared.app, Some(&serving));
+        let delivering = Delivering(&self.shared);
         let (what, outcome) = match &delivery {
             Delivery::Topic { topic, value_json } => {
                 let call = resident
@@ -69,6 +96,10 @@ impl Inner {
                 )
             }
         };
+        drop(delivering);
+        if let Some(resident) = guard.as_mut() {
+            resident.store.data_mut().serving = None;
+        }
         let _ = self.settle_resident(&mut guard, outcome, &what).await;
     }
 }

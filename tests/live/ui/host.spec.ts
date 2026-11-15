@@ -1,5 +1,5 @@
 /**
- * What a space can do through its host (`useNest()`) and what it can say about itself
+ * What a space can do through its host (`useHost()`) and what it can say about itself
  * (`SpaceContribution`), in a real browser against a real backend.
  *
  * The spaces here are registered from inside the page, on the shell's own registry, the way a
@@ -63,11 +63,11 @@ test("session.open with switchSpace opens a session in the space the hub has it 
   // A session of the system space, made the way that space makes them.
   const other = await page.evaluate(async () => {
     const { app } = (window as any).harnix;
-    const created = await app.call("session.create", { space: "system", scene: "harnix", options: { recorder: { name: "says-ready" } } });
-    return { instance: created.instance ?? "system", sessionId: created.session_id as string };
+    const created = await app.call("harnix.session.create", { space: "system", scene: "harnix", options: { recorder: { name: "says-ready" } } });
+    return { instance: created.instance ?? "main", sessionId: created.session_id as string };
   });
   // Without the option, nothing changes: the front space's own session is opened there.
-  await page.evaluate((ref) => (window as any).harnix.host.session.open(ref), { instance: "system", sessionId: mine });
+  await page.evaluate((ref) => (window as any).harnix.host.session.open(ref), { instance: "main", sessionId: mine });
   await expect(page.locator("#main")).toHaveAttribute("data-space", "sessions");
   await page.evaluate((ref) => (window as any).harnix.host.session.open(ref, { switchSpace: true }), other);
   await expect(page.locator("#main")).toHaveAttribute("data-space", "system");
@@ -78,7 +78,7 @@ test("session.open with switchSpace opens a session in the space the hub has it 
   expect(state.current).toEqual(other);
   expect(state.sessions.sessionId).toBe(mine);
   const missing = await page.evaluate(() =>
-    (window as any).harnix.host.session.open({ instance: "system", sessionId: "no-such-session" }, { switchSpace: true }).then(
+    (window as any).harnix.host.session.open({ instance: "main", sessionId: "no-such-session" }, { switchSpace: true }).then(
       () => "opened",
       (e: Error) => e.message,
     ),
@@ -96,7 +96,7 @@ test("details: redraw adds a tab, open selects it, clicks are heard, and each sp
     const tab = (id: string) => ({ id, title: () => id.toUpperCase(), render: () => `body of ${id}` });
     app.registry.register(
       "space",
-      { id: "tabbed", icon: "chat", title: () => "Tabbed", sessions: "sessions", tabs: () => (t.count > 0 ? [tab("t1"), tab("t2")] : [tab("t1")]) },
+      { id: "tabbed", icon: "chat", title: () => "Tabbed", sessions: "sessions", details: { tabs: () => (t.count > 0 ? [tab("t1"), tab("t2")] : [tab("t1")]) } },
       "test",
     );
   });
@@ -150,8 +150,7 @@ test("useCurrentSession: the right column follows the session picked in the left
         icon: "chat",
         title: () => "Follows",
         sessions: "sessions",
-        details: "open",
-        tabs: [{ id: "now", title: () => "Now", render: () => React.createElement(Current) }],
+        details: { initial: "open", tabs: [{ id: "now", title: () => "Now", render: () => React.createElement(Current) }] },
       },
       "test",
     );
@@ -211,10 +210,10 @@ test("badge: a space's entry shows its count, not when it is zero, also on the r
   await page.evaluate(() => {
     const { app } = (window as any).harnix;
     const t = ((window as any).__t = { count: 0 });
-    app.registry.register("space", { id: "counted", icon: "chat", title: () => "Counted", sessions: "sessions", badge: () => t.count }, "test");
+    app.registry.register("space", { id: "counted", icon: "chat", title: () => "Counted", sessions: "sessions", sidebar: { badge: () => t.count } }, "test");
     app.registry.register(
       "space",
-      { id: "broken", icon: "chat", title: () => "Broken", sessions: "sessions", badge: () => { throw new Error("badge broke"); } },
+      { id: "broken", icon: "chat", title: () => "Broken", sessions: "sessions", sidebar: { badge: () => { throw new Error("badge broke"); } } },
       "test",
     );
   });
@@ -251,19 +250,21 @@ async function conversationSpace(page: Page): Promise<void> {
         icon: "chat",
         title: () => "Talk",
         sessions: "sessions",
-        notice: () => "first-screen notice",
-        readOnly: (s: { sessionId: string }) => (s.sessionId === t.readOnly ? "Archived" : false),
-        pinned: (s: { sessionId: string }) =>
-          s.sessionId === t.pinned
-            ? React.createElement(
-                "div",
-                { "data-testid": "pinned-block" },
-                "waiting on you ",
-                React.createElement("button", { type: "button", "data-testid": "pinned-button", onClick: () => (t.clicked += 1) }, "Approve"),
-              )
-            : null,
-        composerNotice: () => "do not paste keys",
-        ids: () => ({ pattern: /\bfixture\b/, onOpen: (id: string) => t.opened.push(id) }),
+        conversation: {
+          notice: () => "first-screen notice",
+          readOnly: (s: { sessionId: string }) => (s.sessionId === t.readOnly ? "Archived" : false),
+          pinned: (s: { sessionId: string }) =>
+            s.sessionId === t.pinned
+              ? React.createElement(
+                  "div",
+                  { "data-testid": "pinned-block" },
+                  "waiting on you ",
+                  React.createElement("button", { type: "button", "data-testid": "pinned-button", onClick: () => (t.clicked += 1) }, "Approve"),
+                )
+              : null,
+          composerNotice: () => "do not paste keys",
+          ids: () => ({ pattern: /\bfixture\b/, onOpen: (id: string) => t.opened.push(id) }),
+        },
       },
       "test",
     );
@@ -277,10 +278,10 @@ test("readOnly: a session the space calls read-only has no composer, only the wo
   const archived = await newSession(page, "says-ready");
   const open_ = await newSession(page, "says-ready");
   await page.evaluate((id) => ((window as any).__t.readOnly = id), archived);
-  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "system", sessionId: id }), archived);
+  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "main", sessionId: id }), archived);
   await expect(page.getByTestId("conv-readonly")).toContainText("Archived");
   await expect(page.getByTestId("conv-input")).toHaveCount(0);
-  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "system", sessionId: id }), open_);
+  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "main", sessionId: id }), open_);
   await expect(page.getByTestId("conv-input")).toBeVisible();
   await expect(page.getByTestId("conv-readonly")).toHaveCount(0);
 });
@@ -302,7 +303,7 @@ test("pinned: a session's block stays above the flow and calls its space; other 
   expect(top!.y).toBeLessThan(first!.y);
   await page.getByTestId("pinned-button").click();
   expect(await page.evaluate(() => (window as any).__t.clicked)).toBe(1);
-  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "system", sessionId: id }), other);
+  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "main", sessionId: id }), other);
   await expect(page.getByTestId("conv-input")).toBeVisible();
   await expect(page.getByTestId("conv-pinned")).toHaveCount(0);
   expect(errors).toEqual([]);
@@ -349,7 +350,7 @@ test("composer.steer: a space that asks for it has a deliver-now switch, and a m
   await expect(page.getByTestId("conv-steer")).toHaveCount(0);
   await page.evaluate(() => {
     const { app } = (window as any).harnix;
-    app.registry.register("space", { id: "steered", icon: "chat", title: () => "Steered", sessions: "sessions", composer: { steer: true } }, "test");
+    app.registry.register("space", { id: "steered", icon: "chat", title: () => "Steered", sessions: "sessions", conversation: { composer: { steer: true } } }, "test");
   });
   await inSpace(page, "steered");
   await newSession(page, "asks-permission");
@@ -366,7 +367,7 @@ test("composer.steer: a space that asks for it has a deliver-now switch, and a m
     const t = ((window as any).__t = { busy: [] as string[] });
     const call = client.call.bind(client);
     client.call = (method: string, params: any) => {
-      if (method === "harnix.send") t.busy.push(params.on_busy);
+      if (method === "harnix.session.send") t.busy.push(params.on_busy);
       return call(method, params);
     };
   });
@@ -386,13 +387,13 @@ test("composer.steer: a space that asks for it has a deliver-now switch, and a m
   await expect(page.locator('[data-testid="conv-message"]', { hasText: "and this now" }).getByTestId("conv-steered")).toBeVisible();
 });
 
-test("model_switch: without the system space the composer changes the model through harnix.sessions.setModel", SHELL, async ({ page }) => {
-  const backend = await startHarnix(launchFor("replay", { profile: "[shell]\nspaces = [\"sessions\"]\nmodel_switch = true\n" }));
+test("model_switch: without the system space the composer changes the model through harnix.session.setModel", SHELL, async ({ page }) => {
+  const backend = await startHarnix(launchFor("replay", { profile: "[shell]\nmodel_switch = true\n[extensions]\noff = [\"system\", \"flow\"]\n" }));
   try {
     await open(page, backend.url);
     const reachable = await page.evaluate(() => (window as any).harnix.app.snapshot.reachable as string[]);
-    expect(reachable).toContain("harnix.sessions.setModel");
-    expect(reachable).not.toContain("harnix.system.model");
+    expect(reachable).toContain("harnix.session.setModel");
+    expect(reachable).not.toContain("system.model");
     await newSession(page, "says-ready");
     await page.getByTestId("conv-model").click();
     await page.getByTestId("conv-model-custom").fill("claude-switched-model");
@@ -401,7 +402,7 @@ test("model_switch: without the system space the composer changes the model thro
   } finally {
     await backend.dispose();
   }
-  const without = await startHarnix(launchFor("replay", { profile: "[shell]\nspaces = [\"sessions\"]\n" }));
+  const without = await startHarnix(launchFor("replay", { profile: "[extensions]\noff = [\"system\", \"flow\"]\n" }));
   try {
     await open(page, without.url);
     await newSession(page, "says-ready");
@@ -429,7 +430,7 @@ test("commands: one that runs instead of inserting, asked with the front space, 
       },
       "test",
     );
-    app.registry.register("space", { id: "quiet", icon: "chat", title: () => "Quiet", sessions: "sessions", hideCommands: ["clear"] }, "test");
+    app.registry.register("space", { id: "quiet", icon: "chat", title: () => "Quiet", sessions: "sessions", conversation: { hideCommands: ["clear"] } }, "test");
   });
   const names = async () => {
     const input = page.getByTestId("conv-input");
@@ -544,7 +545,7 @@ test("a split-streams page whose session stream dropped catches up on what it mi
   await say(page, "Say exactly: fixture ready");
   // The turn runs and settles while the page has no session stream: its reply went nowhere.
   await expect
-    .poll(async () => JSON.stringify(await api.call("session.history", { session_id: id })), { timeout: 30_000 })
+    .poll(async () => JSON.stringify(await api.call("engine.session.history", { session_id: id })), { timeout: 30_000 })
     .toMatch(/fixture ready/i);
   await expect(page.locator('[data-testid="conv-message"]', { hasText: /fixture ready/i })).toHaveCount(0);
 
@@ -562,7 +563,7 @@ test("newSession: false: no New session button, no ⌘K, no composer that create
     const { app } = (window as any).harnix;
     app.registry.register(
       "space",
-      { id: "closed", icon: "chat", title: () => "Closed Space", sessions: "sessions", newSession: false, placeholder: () => "nothing to start here", suggestions: () => ["a chip"] },
+      { id: "closed", icon: "chat", title: () => "Closed Space", sessions: "sessions", conversation: { newSession: false, placeholder: () => "nothing to start here", suggestions: () => ["a chip"] } },
       "test",
     );
     app.registry.register(
@@ -572,9 +573,8 @@ test("newSession: false: no New session button, no ⌘K, no composer that create
         icon: "chat",
         title: () => "Board",
         sessions: "sessions",
-        center: "minimized",
-        newSession: false,
-        overview: () => null,
+        center: { mode: "minimized", overview: () => null },
+        conversation: { newSession: false },
       },
       "test",
     );
@@ -595,7 +595,7 @@ test("newSession: false: no New session button, no ⌘K, no composer that create
   await expect(page.getByTestId("first-message")).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).harnix.app.snapshot.current)).toBeNull();
   // A session that already exists opens and works there.
-  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "system", sessionId: id }), mine);
+  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "main", sessionId: id }), mine);
   await expect(page.getByTestId("conv-input")).toBeVisible();
   await expect(page.locator("#new")).toHaveCount(0);
   // An overview space: no ask box either.
@@ -616,9 +616,9 @@ test("detailsWidth: the space's width is the right column's default; a dragged w
   await open(page, URL);
   await page.evaluate(() => {
     const { app } = (window as any).harnix;
-    app.registry.register("space", { id: "wide", icon: "chat", title: () => "Wide", sessions: "sessions", detailsWidth: 560 }, "test");
-    app.registry.register("space", { id: "huge", icon: "chat", title: () => "Huge", sessions: "sessions", detailsWidth: 5000 }, "test");
-    app.registry.register("space", { id: "share", icon: "chat", title: () => "Share", sessions: "sessions", detailsWidth: 0.45 }, "test");
+    app.registry.register("space", { id: "wide", icon: "chat", title: () => "Wide", sessions: "sessions", details: { width: 560 } }, "test");
+    app.registry.register("space", { id: "huge", icon: "chat", title: () => "Huge", sessions: "sessions", details: { width: 5000 } }, "test");
+    app.registry.register("space", { id: "share", icon: "chat", title: () => "Share", sessions: "sessions", details: { width: 0.45 } }, "test");
   });
   const width = () => page.evaluate(() => document.querySelector<HTMLElement>("#frame")!.style.getPropertyValue("--details-width"));
   const drag = (w: number | null) => page.evaluate((v) => (window as any).harnix.app.setWidth("details", v), w);
@@ -672,9 +672,11 @@ test("headerActions: the space's block is in the title bar, left of the theme an
         icon: "chat",
         title: () => "Bar",
         sessions: "sessions",
-        headerActions: (s: unknown) => {
-          t.seen.push(s);
-          return React.createElement("button", { type: "button", className: "ib", title: "Compact", "data-testid": "bar-compact", onClick: () => (t.clicked += 1) }, "C");
+        conversation: {
+          headerActions: (s: unknown) => {
+            t.seen.push(s);
+            return React.createElement("button", { type: "button", className: "ib", title: "Compact", "data-testid": "bar-compact", onClick: () => (t.clicked += 1) }, "C");
+          },
         },
       },
       "test",
@@ -686,8 +688,10 @@ test("headerActions: the space's block is in the title bar, left of the theme an
         icon: "chat",
         title: () => "Broken",
         sessions: "sessions",
-        headerActions: () => {
-          throw new Error("boom");
+        conversation: {
+          headerActions: () => {
+            throw new Error("boom");
+          },
         },
       },
       "test",
@@ -724,12 +728,12 @@ test("an overview space with a session open: the overview first, the conversatio
     const { app } = (window as any).harnix;
     app.registry.register(
       "space",
-      { id: "desk", icon: "chat", title: () => "Desk", sessions: "sessions", center: "minimized", overview: () => null },
+      { id: "desk", icon: "chat", title: () => "Desk", sessions: "sessions", center: { mode: "minimized", overview: () => null } },
       "test",
     );
   });
   await inSpace(page, "desk");
-  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "system", sessionId: id }), mine);
+  await page.evaluate((id) => (window as any).harnix.app.open({ instance: "main", sessionId: id }), mine);
   await expect(page.getByTestId("overview")).toBeVisible();
   await page.getByTestId("to-conversation").click();
   await expect(page.getByTestId("conv-input")).toBeVisible();

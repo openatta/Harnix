@@ -1,28 +1,25 @@
 /**
  * The left column, in Helm's shape. Fixed in every space: the brand and a new conversation at
- * the top; the system entry and the avatar at the bottom. Between them, the spaces this product
- * keeps and — below them — the front space's own column (`sidebar()`, where the sessions space
- * has its search), or its sessions when it has none.
+ * the top; the avatar at the bottom. Between them, the spaces this product has, the search box
+ * when the front space searches (`sidebar.search`), and the front space's own column
+ * (`sidebar.render()`), or its sessions when it has none.
  *
  * The avatar is the settings: its ring says how this page is connected, hovering says to what,
- * and a click opens the menu. The system space, when kept, is entered from the bottom rather than
- * listed with the others: it is about the process, not one of the product's surfaces. A space
- * that says `place: "bottom"` (something global, not a surface) sits there too, above it. One shown
- * inside another (`within`, the flows inside the system space) is not listed: the other's entry is
- * lit while it is in front.
+ * and a click opens the menu. A space that says `place: "bottom"` — about the process or the
+ * product as a whole rather than one of its surfaces, the system space say — is entered from the
+ * bottom, above the avatar. One shown inside another (`within`) is not listed: the other's entry
+ * is lit while it is in front.
  */
 
-import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { Contributed, setLocale, currentLocale, useRegistry, useT, type SpaceContribution } from "@harnix/react";
+import { Contributed, setLocale, currentLocale, useRegistry, useT, type SpaceContribution, Glyph } from "@harnix/react";
 
-import { ask, disabledOf, keyOf, uniqueSessions, type App, type ShellSession, type ShellState } from "./app.ts";
-import { SYSTEM } from "./constants.ts";
+import { ask, disabledOf, keyOf, type App, type ShellSession, type ShellState } from "./app.ts";
 import { connectionDialog } from "./dialogs.tsx";
-import { Glyph } from "./glyph.tsx";
-import { AppMark, GroupedSessions, appsOf, groupingOf } from "./inline/index.tsx";
+import { AppMark, GroupedSessions, packagesOf, groupingOf } from "./inline/index.tsx";
 import { Menu, type MenuEntry } from "./Menu.tsx";
-import { SessionRow } from "./sessions.tsx";
+import { SessionRow } from "./rows.tsx";
 import { openSettings } from "./settings.tsx";
 
 /** The spaces, in order. */
@@ -66,8 +63,8 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
   // A new conversation needs a space with a conversation: the front one if it has one, else the
   // first that does.
   const startNew = async () => {
-    if (space?.center === "hidden" || space?.id === SYSTEM || space?.within) {
-      const talking = spacesOf(app).find((c) => c.id !== SYSTEM && !c.within && c.center !== "hidden" && disabledOf(app.registry, c) === null);
+    if (space?.center?.mode === "hidden" || space?.within) {
+      const talking = spacesOf(app).find((c) => !c.within && c.center?.mode !== "hidden" && disabledOf(app.registry, c) === null);
       if (!talking) return;
       await app.switchSpace(talking.id);
     }
@@ -104,7 +101,7 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
         {overlay ? createPortal(<div id="tl-tools">{collapse}</div>, document.body) : collapse}
       </div>
       <ContextLine s={s} />
-      {space?.newSession === false || !app.startsSessions() ? null : (
+      {space?.conversation?.newSession === false || !app.startsSessions() ? null : (
         <>
           <button type="button" id="new" className="nav new" title={t("sidebar.newSessionHint")} onClick={() => void startNew()}>
             <Glyph name="edit" className="glyph" />
@@ -116,13 +113,14 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
       )}
       <SpaceList app={app} s={s} />
       {space ? <div className="sep chats-sep" role="separator" data-testid="sessions-sep" /> : null}
-      <div id="sessions" className="chats" data-space={s.space}>
-        {space?.sidebar ? (
+      {space?.sidebar?.search ? <SearchBox app={app} s={s} /> : null}
+      <div id="space-column" className="chats" data-space={s.space}>
+        {space?.sidebar?.render ? (
           <Contributed registry={registry} point="space" contribution={space}>
-            {space.sidebar()}
+            {space.sidebar.render()}
           </Contributed>
         ) : space ? (
-          <SpaceSessions app={app} s={s} listed={space.listSession} />
+          <SpaceSessions app={app} s={s} listed={space?.sidebar?.listSession} />
         ) : null}
       </div>
       {/* On the rail, where the column folded away: it opens it again (narrow, as a drawer). */}
@@ -159,7 +157,7 @@ function ContextLine({ s }: { s: ShellState }) {
 
 function SpaceList({ app, s }: { app: App; s: ShellState }) {
   useRegistry(app.registry);
-  const spaces = spacesOf(app).filter((c) => c.id !== SYSTEM && c.place !== "bottom" && !c.within);
+  const spaces = spacesOf(app).filter((c) => c.place !== "bottom" && !c.within);
   if (!spaces.length) return null;
   return (
     <nav className="spaces" aria-label="spaces" data-testid="space-list">
@@ -194,9 +192,10 @@ function SpaceEntry({ app, s, space }: { app: App; s: ShellState; space: SpaceCo
       aria-pressed={on}
       onClick={() => {
         if (disabledOf(app.registry, space) !== null) return;
-        if (space.id === s.space && space.reenter) {
+        const reenter = space.details?.reenter;
+        if (space.id === s.space && reenter) {
           try {
-            space.reenter();
+            reenter();
           } catch {
             // the space's own business; the click stays harmless
           }
@@ -222,38 +221,49 @@ function SpaceEntry({ app, s, space }: { app: App; s: ShellState; space: SpaceCo
 
 /** What a space's `badge()` says, as drawn: nothing for null, undefined, 0 and "". */
 function badgeOf(app: App, space: SpaceContribution & { owner: string }): string | null {
-  if (!space.badge) return null;
-  const value = ask(app.registry, space, () => space.badge!(), null);
+  const badge = space.sidebar?.badge;
+  if (!badge) return null;
+  const value = ask(app.registry, space, () => badge(), null);
   return value === null || value === undefined || value === 0 || value === "" ? null : String(value);
 }
 
-/** A space with no column of its own: its sessions, newest first. */
-function SpaceSessions({ app, s, listed }: { app: App; s: ShellState; listed?: SpaceContribution["listSession"] }) {
+/**
+ * The left column's search box, for a space that searches (`sidebar.search`): what it says goes to
+ * the space as it is typed, Enter submits it, Escape clears it. What it finds is the space's to draw.
+ */
+function SearchBox({ app, s }: { app: App; s: ShellState }) {
   const t = useT();
-  const [rows, setRows] = useState<ShellSession[] | null>(null);
-  const claim = app.claim(s.space);
-  // Drawn again when an application starts or stops: its grouping comes and goes with it.
-  const watch = appsOf(app);
+  const query = s.search.query;
+  return (
+    <div className={`s-tools section-head${query ? " searching" : ""}`} data-testid="session-search" data-state={query ? "searching" : "idle"}>
+      <label className="s-search">
+        <Glyph name="search" className="glyph" />
+        <input
+          id="search"
+          type="text"
+          spellCheck={false}
+          placeholder={t("sidebar.search")}
+          value={query}
+          onChange={(e) => app.set({ search: { query: e.target.value } })}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              app.set({ search: { query: "" } });
+              e.currentTarget.blur();
+            } else if (e.key === "Enter" && query.trim()) app.search(query.trim(), true);
+          }}
+        />
+      </label>
+    </div>
+  );
+}
+
+/** A space with no column of its own: its sessions, newest first. */
+function SpaceSessions({ app, s, listed }: { app: App; s: ShellState; listed?: NonNullable<SpaceContribution["sidebar"]>["listSession"] }) {
+  const t = useT();
+  // Drawn again when an extension package starts or stops: its grouping comes and goes with it.
+  const watch = packagesOf(app);
   useSyncExternalStore(watch.subscribe, watch.getVersion);
-  // Read again when a turn settles, and when the shell's own list was read again (`refreshSessions`:
-  // a session made, renamed, archived or deleted) — not each time another listed one is opened.
-  useEffect(() => {
-    let alive = true;
-    const load = () =>
-      app
-        .call<{ sessions: ShellSession[] }>("harnix.sessions", { space: claim })
-        .then((r) => alive && setRows(uniqueSessions(r.sessions).sort((a, b) => String(b.last_active ?? "").localeCompare(String(a.last_active ?? "")))))
-        .catch(() => alive && setRows([]));
-    void load();
-    const off = app.client.onNotify((method) => {
-      if (method === "harnix.turn_settled") void load();
-    });
-    return () => {
-      alive = false;
-      off();
-    };
-  }, [app, claim, s.sessions]);
-  if (rows === null) return null;
+  const rows = [...s.sessions].sort((a, b) => String(b.last_active ?? "").localeCompare(String(a.last_active ?? "")));
   if (!rows.length) return <div className="empty">{t("sidebar.noSessions")}</div>;
   // the space leaves some out (its main conversation, which its entry opens): an empty result draws nothing
   const shown = listed ? rows.filter((row) => shownBy(listed, row)) : rows;
@@ -264,54 +274,30 @@ function SpaceSessions({ app, s, listed }: { app: App; s: ShellState; listed?: S
   return (
     <div className="group">
       {shown.map((row) => (
-        <SessionRow key={keyOf(row.instance ?? "system", row.session_id)} app={app} s={s} session={row} />
+        <SessionRow key={keyOf(row.instance, row.session_id)} app={app} s={s} session={row} />
       ))}
     </div>
   );
 }
 
-function shownBy(listed: NonNullable<SpaceContribution["listSession"]>, row: ShellSession): boolean {
+function shownBy(listed: NonNullable<NonNullable<SpaceContribution["sidebar"]>["listSession"]>, row: ShellSession): boolean {
   try {
-    return listed({ instance: row.instance ?? "system", sessionId: row.session_id }) !== false;
+    return listed({ instance: row.instance, sessionId: row.session_id }) !== false;
   } catch {
     return true;
   }
 }
 
-/* ── the bottom: the system entry and the avatar ──────────────────────── */
+/* ── the bottom: the spaces placed there, and the avatar ───────────────── */
 
 function Bottom({ app, s }: { app: App; s: ShellState }) {
-  const t = useT();
   useRegistry(app.registry);
-  const system = spacesOf(app).find((c) => c.id === SYSTEM);
-  const below = spacesOf(app).filter((c) => c.id !== SYSTEM && c.place === "bottom" && !c.within);
-  const running = Object.keys(s.running).length;
+  const below = spacesOf(app).filter((c) => c.place === "bottom" && !c.within);
   return (
     <div className="l-bottom foot" data-testid="sidebar-foot">
       {below.map((space) => (
         <SpaceEntry key={space.id} app={app} s={s} space={space} />
       ))}
-      {system ? (
-        <button
-          type="button"
-          className={`nav space${lit(app, s, SYSTEM) ? " on" : ""}`}
-          data-testid="space-entry"
-          data-space={SYSTEM}
-          title={system.title()}
-          aria-pressed={lit(app, s, SYSTEM)}
-          onClick={() => void app.switchSpace(SYSTEM)}
-        >
-          <Glyph name={system.icon} className="glyph" />
-          <span className="lbl truncate">{system.title()}</span>
-          {running ? (
-            <span className="end">
-              <span className="bn" data-testid="running-count">
-                {running}
-              </span>
-            </span>
-          ) : null}
-        </button>
-      ) : null}
       <Avatar app={app} s={s} />
     </div>
   );
@@ -336,7 +322,7 @@ function Avatar({ app, s }: { app: App; s: ShellState }) {
         : s.connection === "incompatible"
           ? t("conn.incompatible")
           : t("conn.closed");
-  const tooltip = [label, app.client.topology ?? "", location.host, s.hello?.engine?.model ?? ""].filter(Boolean).join(" · ");
+  const tooltip = [label, app.conn.topology ?? "", location.host, s.hello?.engine?.model ?? ""].filter(Boolean).join(" · ");
   const wrap = useRef<HTMLDivElement>(null);
   const items: MenuEntry[] = [
     { id: "settings", icon: "settings", label: t("app.settings"), testId: "open-settings", run: () => openSettings(app) },
@@ -389,7 +375,7 @@ function Avatar({ app, s }: { app: App; s: ShellState }) {
 }
 
 function nextTheme(theme: ShellState["theme"]): ShellState["theme"] {
-  return theme === "system" ? "light" : theme === "light" ? "dark" : "system";
+  return theme === "auto" ? "light" : theme === "light" ? "dark" : "auto";
 }
 
 function initials(name: string): string {
