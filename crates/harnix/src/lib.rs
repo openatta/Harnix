@@ -68,10 +68,9 @@ pub mod first_party {
     pub use harnix_ext_packages::Packages;
 
     /// What the `packages` component is granted: registering packages as extensions, installing
-    /// their agent packages, and having an instance re-read its skills.
+    /// their agent packages.
     #[cfg(any(feature = "wasm", feature = "proc"))]
-    pub const PACKAGES_GRANTS: [harnix_contract::s1::Capability; 3] =
-        [caps::EXTENSIONS_MANAGE, caps::ENGINE_PLUGINS, caps::ENGINE_CONFIG_WRITE];
+    pub const PACKAGES_GRANTS: [harnix_contract::s1::Capability; 2] = [caps::EXTENSIONS_MANAGE, caps::ENGINE_PLUGINS];
 
     /// The `packages` component, on the carriers this build links: in this process (`wasm`, mode
     /// 2), in processes of their own (`proc`, mode 3), or both, the profile choosing.

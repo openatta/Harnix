@@ -146,16 +146,6 @@ pub struct AgentSwitch {
     pub on: bool,
 }
 
-/// A package's skills in one instance: placed from `source` (its `agent/skills/`), or taken
-/// out (`source` unused).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Skills {
-    pub app: String,
-    pub instance: String,
-    pub source: PathBuf,
-    pub names: Vec<String>,
-}
-
 /// One tool a package's component lists.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolDef {
@@ -275,13 +265,6 @@ pub trait Agent: Send + Sync {
     async fn uninstall_agent(&self, agent: AgentRef) -> Result<(), RpcError>;
     /// Switch an installed agent package on or off with the package.
     async fn switch_agent(&self, switch: AgentSwitch) -> Result<(), RpcError>;
-    /// Put the skills in the instance's skills directory, marked as the package's. A skill of
-    /// that name that is not the package's is refused, by name.
-    async fn place_skills(&self, skills: Skills) -> Result<(), RpcError>;
-    /// Take out the skills marked as the package's, and nothing else.
-    async fn remove_skills(&self, skills: Skills) -> Result<(), RpcError>;
-    /// The instance re-reads its configuration, its skills included.
-    async fn reload_instance(&self, instance: String) -> Result<(), RpcError>;
     /// Offer the package's tools to sessions built from now on (or withdraw them: no tools).
     async fn expose_tools(&self, offer: Offer) -> Result<(), RpcError>;
 }

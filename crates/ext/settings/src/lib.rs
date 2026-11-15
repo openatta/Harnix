@@ -171,12 +171,16 @@ async fn describe(call: &Call, params: Value) -> Rpc<Value> {
     if let Some(root) = &project_root {
         effective_request["project_root"] = json!(root);
     }
-    let effective = call
-        .call("engine.config.get", effective_request)
-        .await
-        .ok()
-        .and_then(|value| value.get("settings").cloned())
-        .unwrap_or(Value::Null);
+    // What the engine runs with: its layers merged, and what an untrusted project may not loosen
+    // already taken off. Re-read for this (project, scene) by `set` before it is asked.
+    let effective = match call.call("engine.config.get", effective_request).await {
+        Ok(value) => value.get("settings").cloned(),
+        Err(e) => {
+            tracing::warn!(error = %e.message, "the effective settings could not be read");
+            problems.push(json!({"tier": "effective", "error": e.message}));
+            None
+        }
+    };
 
     let fields: Vec<Value> = FIELDS
         .iter()
@@ -192,36 +196,8 @@ async fn describe(call: &Call, params: Value) -> Rpc<Value> {
                     ((*tier).to_string(), value)
                 })
                 .collect();
-
-            // What the files say, highest tier wins. Computed here rather than taken from
-            // `engine.config.get {tier:"effective"}` because that answer is memoized per (project,
-            // scene) and `apply_reloaded_settings` only swaps the pool's own pair — so for every
-            // other pair it keeps serving the value from before the reload, and a settings page
-            // that showed it would report that a write it just made did nothing. The engine's
-            // own answer rides along as `engine` for diagnostics.
-            let (source, from_files) = TIERS
-                .iter()
-                .rev()
-                .find_map(|tier| {
-                    per_tier
-                        .get(*tier)
-                        .filter(|value| !value.is_null())
-                        .map(|value| (json!(tier), value.clone()))
-                })
-                .unwrap_or((Value::Null, Value::Null));
-
-            json!({
-                "key": field.key,
-                "kind": kind_name(field.kind),
-                "options": match field.kind {
-                    Kind::Choice(options) => json!(options),
-                    _ => Value::Null,
-                },
-                "effective": from_files,
-                "source": source,
-                "engine": dig(&effective, field.key).cloned().unwrap_or(Value::Null),
-                "tiers": per_tier,
-            })
+            let engine = effective.as_ref().and_then(|settings| dig(settings, field.key));
+            field_view(field, per_tier, engine)
         })
         .collect();
 
@@ -244,6 +220,36 @@ async fn describe(call: &Call, params: Value) -> Rpc<Value> {
         },
         "providers": providers,
     }))
+}
+
+/// One field as the page gets it. `effective` is the engine's value (`None`: it could not be
+/// asked, and the files' highest tier stands in). `source` is the highest tier that wrote the
+/// field; `withheld` says the project tier wrote a value the engine does not use, which is what
+/// an untrusted project's looser setting looks like.
+fn field_view(field: &Field, per_tier: Map<String, Value>, engine: Option<&Value>) -> Value {
+    let written = TIERS
+        .iter()
+        .rev()
+        .find_map(|tier| per_tier.get(*tier).filter(|value| !value.is_null()).map(|value| (*tier, value.clone())));
+    let source = written.as_ref().map_or(Value::Null, |(tier, _)| json!(tier));
+    let effective = match engine {
+        Some(value) => value.clone(),
+        None => written.map_or(Value::Null, |(_, value)| value),
+    };
+    let project = per_tier.get("project").filter(|value| !value.is_null());
+    let withheld = engine.is_some() && project.is_some_and(|value| *value != effective);
+    json!({
+        "key": field.key,
+        "kind": kind_name(field.kind),
+        "options": match field.kind {
+            Kind::Choice(options) => json!(options),
+            _ => Value::Null,
+        },
+        "effective": effective,
+        "source": source,
+        "withheld": withheld,
+        "tiers": per_tier,
+    })
 }
 
 /// Write one whitelisted field into one tier, then make the engine re-read.
@@ -272,7 +278,16 @@ async fn set(call: &Call, params: Value) -> Rpc<Value> {
 
     set_in_file(&path, &key, value)?;
 
-    let reloaded = call.call("engine.config.reload", json!({})).await.is_ok();
+    // Re-read the pair `describe` asks about next: the engine keeps its settings per (project,
+    // scene), and a reload names the one it drops.
+    let mut reload = json!({});
+    if let Some(scene) = scene {
+        reload["scene"] = json!(scene);
+    }
+    if let Some(root) = project_root {
+        reload["project_root"] = json!(root);
+    }
+    let reloaded = call.call("engine.config.reload", reload).await.is_ok();
     let mut described = describe(call, params.clone()).await?;
     if let Some(object) = described.as_object_mut() {
         object.insert("written".into(), json!(path.display().to_string()));
@@ -460,10 +475,10 @@ fn patch_providers(
             }
         }
         match entry.get("api_type").and_then(Value::as_str) {
-            Some("anthropic" | "openai_compatible") => {}
+            Some("anthropic" | "openai_compatible" | "openai_responses") => {}
             _ => {
                 return Err(RpcError::invalid_params(
-                    "config.api_type: `anthropic` or `openai_compatible`",
+                    "config.api_type: `anthropic`, `openai_compatible` or `openai_responses`",
                 ))
             }
         }
@@ -637,9 +652,35 @@ mod tests {
     fn a_provider_the_engine_would_not_load_is_refused() {
         let mut document = json!({});
         assert!(patch_providers(&mut document, "a", false, Some(&json!({"api_type": "gemini"})), None).is_err());
+        let responses = json!({"api_type": "openai_responses", "base_url": "https://api.openai.com/v1"});
+        patch_providers(&mut document, "r", false, Some(&responses), None).unwrap();
         assert!(patch_providers(&mut document, "a", false, Some(&json!({"api_type": "anthropic", "shell": "x"})), None).is_err());
         assert!(patch_providers(&mut document, "a", false, Some(&json!({"api_type": "anthropic"})), Some("zz")).is_err());
         assert!(!valid_provider_id("a b"));
+    }
+
+    #[test]
+    fn a_field_is_the_engines_value_and_says_when_the_project_tier_was_not_taken() {
+        let field = &FIELDS[0];
+        let tiers = |global: Value, project: Value| {
+            let mut m = Map::new();
+            m.insert("global".into(), global);
+            m.insert("scene".into(), Value::Null);
+            m.insert("project".into(), project);
+            m
+        };
+        // Nothing written: the engine's default shows, from no tier.
+        let unset = field_view(field, tiers(Value::Null, Value::Null), Some(&json!("default")));
+        assert_eq!((&unset["effective"], &unset["source"], &unset["withheld"]), (&json!("default"), &Value::Null, &json!(false)));
+        // The project wrote it and the engine took it.
+        let taken = field_view(field, tiers(json!("a"), json!("b")), Some(&json!("b")));
+        assert_eq!((&taken["source"], &taken["withheld"]), (&json!("project"), &json!(false)));
+        // The project wrote it and the engine did not.
+        let withheld = field_view(field, tiers(json!("a"), json!("b")), Some(&json!("a")));
+        assert_eq!((&withheld["effective"], &withheld["source"], &withheld["withheld"]), (&json!("a"), &json!("project"), &json!(true)));
+        // The engine could not be asked: the files stand in, and nothing is called withheld.
+        let blind = field_view(field, tiers(json!("a"), json!("b")), None);
+        assert_eq!((&blind["effective"], &blind["withheld"]), (&json!("b"), &json!(false)));
     }
 
     /// A writer waits for whoever holds the tier's directory, the engine included.

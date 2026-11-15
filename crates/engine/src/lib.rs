@@ -19,9 +19,9 @@ mod embed;
 mod gate;
 mod host;
 mod host_hooks;
-#[cfg(test)]
 mod host_tests;
 mod host_tools;
+mod legacy;
 pub mod readers;
 mod replay_link;
 mod translate;
@@ -30,6 +30,7 @@ pub use daemon_link::{Connection, DaemonLink, Endpoint, Refusal, Taken};
 pub use embed::{active_scenes, serve_daemon, Engine, EngineConfig, InProcessEngine};
 pub use gate::WakeGate;
 pub use host::{Chains, HostSide};
+pub use legacy::strip_package_skills;
 pub use replay_link::{Recorder, Recording, ReplayLink};
 pub use translate::REQUIRED_CAPABILITIES;
 

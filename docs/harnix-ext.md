@@ -957,7 +957,7 @@ pub trait Extension: Send + Sync + 'static {
 | `call(method, params)` | 以 `ext:<id>` 的身份调任何方法（根调用），和设备走同一个准入点、同样审计 |
 | `sessions()` | `Sessions`，见 §17.6 |
 | `instances()` | `Instances`：`create(template, name, params)`、`ensure(template, name, params)`（幂等，并发调同名也只建一台，`start` 里用）、`ensure_ready(template, name, params, timeout)`（同上，等到 `ready` 再返回；`down` 或超时报 `INSTANCE_UNAVAILABLE`）、`wait_ready(instance, timeout)`、`stop(instance)`（数据根留着） |
-| `engine(instance)` | `Option<EngineView>`，一台实例的只读视图：`instance()`、`active_scenes()`、`model()`、`trust()`；要能力的：`recordings()`（`recordings.read`）、`transcripts()`（`transcripts.read`）、`skills()`（`engine.plugins`）、`config_files()`（`engine.config.write`） |
+| `engine(instance)` | `Option<EngineView>`，一台实例的只读视图：`instance()`、`active_scenes()`、`model()`、`trust()`；要能力的：`recordings()`（`recordings.read`）、`transcripts()`（`transcripts.read`）、`config_files()`（`engine.config.write`） |
 | `process()` | `process.observe`：版本、运行时长、内存、线程、已连接的客户端 |
 | `bulk()` | 一次性上传凭据：`grant(max_bytes)`、`grant_named(name, max_bytes)`（文件名以清理过的 `name` 结尾，给按名字或后缀读它的，如 `plugins.upload`） |
 | `ui()` | `UiPublisher`：运行期发布的界面条目（`plugins` 发 Agix 包的 `[[ui]]`） |

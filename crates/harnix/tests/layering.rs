@@ -849,13 +849,14 @@ mod rules {
         out
     }
 
-    /// A crate's production source: `src/**/*.rs`, each file up to its `#[cfg(test)]`.
+    /// A crate's production source: `src/**/*.rs`, each file up to its `#[cfg(test)]`; a file that
+    /// is a test module as a whole (`#![cfg(test)]`) is none of it.
     fn sources(name: &str) -> Vec<(PathBuf, String)> {
         files_under(&crate_dir(name).join("src"), &["rs"])
             .into_iter()
             .map(|path| {
                 let text = std::fs::read_to_string(&path).unwrap_or_default();
-                let end = text.find("#[cfg(test)]").unwrap_or(text.len());
+                let end = if text.contains("#![cfg(test)]") { 0 } else { text.find("#[cfg(test)]").unwrap_or(text.len()) };
                 (path, text[..end].to_string())
             })
             .collect()

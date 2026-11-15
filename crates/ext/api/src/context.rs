@@ -137,18 +137,6 @@ impl ProcessInfo {
     }
 }
 
-/// An instance's skills directory: where a skill an extension places goes.
-#[derive(Debug, Clone)]
-pub struct SkillsDir {
-    path: PathBuf,
-}
-
-impl SkillsDir {
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
 /// Where an instance's engine keeps the settings tiers an extension that edits them writes: the
 /// global tier and each scene's. The project tier is the project's own, `<project>/.agix/`.
 #[derive(Debug, Clone)]
@@ -215,11 +203,6 @@ impl EngineView {
         Ok(ConfigFiles { root: self.view.0.settings_root.clone() })
     }
 
-    /// Where its engine looks for skills. Needs `engine.plugins`.
-    pub fn skills(&self) -> Rpc<SkillsDir> {
-        self.ext.require(&caps::ENGINE_PLUGINS)?;
-        Ok(SkillsDir { path: self.view.0.skills_dir.clone() })
-    }
 }
 
 /// Paired devices: listing, pairing, revoking. The admission of a paired device stays the

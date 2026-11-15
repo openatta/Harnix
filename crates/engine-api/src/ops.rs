@@ -38,8 +38,9 @@ pub const TITLE_MAX: usize = 200;
 /// questions and which questions it may put, its naming, and its prompt.
 pub const HUB_OWNED_OPTIONS: [&str; 6] = ["host_tools", "skill_dirs", "attended", "auto_name", "prompt", "prompt_types"];
 
-/// The turn states a session can be in.
-const TURN_STATES: &[&str] = &["idle", "running"];
+/// The turn states a session can be in: a turn is running, or the engine holds the session to
+/// rebuild it or to operate on its context.
+const TURN_STATES: &[&str] = &["idle", "running", "rebuilding", "operating"];
 
 #[async_trait::async_trait]
 pub trait EngineOps: Send + Sync {
@@ -86,6 +87,10 @@ pub trait EngineOps: Send + Sync {
     /// of all of it. For each, `None` leaves it as it is, `Some(None)` clears it (back to the
     /// settings'), `Some(Some(text))` sets it.
     async fn set_prompt(&self, session: &str, append: Option<Option<String>>, override_text: Option<Option<String>>) -> Answer<Value>;
+
+    /// Replace the host skill directories the session lists, as a whole (none: it lists none).
+    /// The next turn sees them; a session not in memory has them from when it is resumed.
+    async fn set_skill_dirs(&self, session: &str, dirs: &[PathBuf]) -> Answer<Value>;
 
     /// Close the session, or `delete` it. `params` are the engine's own (a dry run, say).
     async fn close(&self, params: Value, delete: bool) -> Answer<Value>;
@@ -174,6 +179,12 @@ impl SessionInfo {
     /// Nothing is running in it.
     pub fn idle(&self) -> bool {
         self.turn_state() == Some("idle")
+    }
+
+    /// The engine holds it with no turn to interrupt: it is rebuilding in place, or an operation
+    /// on its context has it alone.
+    pub fn held(&self) -> bool {
+        matches!(self.turn_state(), Some("rebuilding" | "operating"))
     }
 
     fn turn_state(&self) -> Option<&str> {
@@ -307,5 +318,26 @@ pub struct Entry {
 impl Entry {
     pub fn new(ns: impl Into<String>, event: impl Into<String>, payload: Value) -> Self {
         Self { ns: ns.into(), event: event.into(), payload }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn hardened(state: &str) -> SessionInfo {
+        let mut info = SessionInfo::new(json!({"turn_state": state}));
+        info.harden();
+        info
+    }
+
+    #[test]
+    fn a_session_the_engine_holds_is_neither_running_nor_free() {
+        let rebuilding = hardened("rebuilding");
+        assert!(rebuilding.held() && !rebuilding.running() && !rebuilding.idle());
+        assert!(hardened("operating").held());
+        assert!(!hardened("running").held());
+        assert!(!hardened("weird").held() && hardened("weird").value()["turn_state"].is_null());
     }
 }

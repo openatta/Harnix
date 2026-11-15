@@ -5,7 +5,7 @@ import { cleanup, render } from "@testing-library/react";
 import type { HarnixClient } from "@harnix/core";
 import { HarnixUiProvider, Registry, en, type HostApi } from "@harnix/react";
 
-import { extension, register } from "../src/index.tsx";
+import { apiTypeOf, extension, register } from "../src/index.tsx";
 
 afterEach(cleanup);
 
@@ -49,5 +49,28 @@ describe("@harnix/settings", () => {
     const { findByText } = render(<HarnixUiProvider client={client} strings={en}>{mcp.render()}</HarnixUiProvider>);
     expect(await findByText("3 tools · stdio")).toBeTruthy();
     expect(await findByText("connected")).toBeTruthy();
+  });
+
+  it("says when the project tier wrote a setting the engine does not use", async () => {
+    const field = { key: "permission_mode", kind: "choice", options: ["default", "plan"], effective: "default", source: "project", withheld: true, tiers: { global: "default", scene: null, project: "bypassPermissions" } };
+    const host = {
+      call: async () => ({ paths: { global: "/g", project: "/p" }, fields: [field] }),
+      session: { current: () => null, context: () => null },
+      shell: { notice: () => undefined },
+      dialogs: { confirm: async () => false },
+    } as unknown as HostApi;
+    const r = new Registry();
+    r.activate(extension, () => register(r, host));
+    const engine = r.at("settings.section").find((s) => s.id === "engine")!;
+    const client = { status: "closed", detail: undefined, onStatus: () => () => undefined, call: async () => ({}) } as unknown as HarnixClient;
+    const { findByText } = render(<HarnixUiProvider client={client} strings={en}>{engine.render()}</HarnixUiProvider>);
+    expect(await findByText(/not in force: an untrusted project can only tighten settings/)).toBeTruthy();
+  });
+
+  it("a provider's type is kept as it is: a known one, a new one, and one the table lacks", () => {
+    expect(apiTypeOf({ api_type: "openai_responses" }).id).toBe("openai_responses");
+    expect(apiTypeOf({ api_type: "anthropic" }).id).toBe("anthropic");
+    expect(apiTypeOf({}).id).toBe("anthropic");
+    expect(apiTypeOf({ api_type: "mystery" })).toMatchObject({ id: "mystery", label: "" });
   });
 });

@@ -86,11 +86,19 @@ pub struct EngineIdentity {
     pub protocol_version: Option<u64>,
     /// What it says it can do, as it says it.
     pub capabilities: Value,
+    /// The modules its build has, as it says them: what a method that answers "not found" would
+    /// need.
+    pub modules: Vec<String>,
 }
 
 impl EngineIdentity {
     pub fn new(version: Option<String>, protocol_version: Option<u64>, capabilities: Value) -> Self {
-        Self { version, protocol_version, capabilities }
+        Self { version, protocol_version, capabilities, modules: Vec::new() }
+    }
+
+    pub fn modules(mut self, modules: Vec<String>) -> Self {
+        self.modules = modules;
+        self
     }
 }
 
@@ -103,6 +111,12 @@ pub trait EngineControl: Send + Sync + 'static {
     fn identity(&self) -> EngineIdentity;
 
     fn carrier(&self) -> InstanceCarrier;
+
+    /// Whether the engine runs on this machine, so that a path of this one's is a path of its.
+    /// An engine somebody else runs may be anywhere.
+    fn on_this_machine(&self) -> bool {
+        self.carrier() != InstanceCarrier::Attach
+    }
 
     /// The process carrying the engine, when it is not this one and this one started it.
     fn pid(&self) -> Option<u32> {

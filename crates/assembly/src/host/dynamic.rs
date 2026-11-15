@@ -54,6 +54,8 @@ pub(crate) struct DynamicHost {
     pub unsandboxed: BTreeSet<String>,
     /// Where an extension process's own engine is adopted.
     pub instances: Arc<harnix_instance::InstanceRegistry>,
+    /// Told which packages' skills sessions list.
+    pub hub: Arc<harnix_hub::Hub>,
     /// What each component shares with every spawned daemon, merged.
     shared: Mutex<BTreeMap<ExtId, Vec<ToolEndpoint>>>,
 }
@@ -62,6 +64,7 @@ pub(crate) struct DynamicHost {
 pub(crate) struct DynamicParts {
     pub router: Arc<Router>,
     pub instances: Arc<harnix_instance::InstanceRegistry>,
+    pub hub: Arc<harnix_hub::Hub>,
     pub seats: Arc<Seats>,
     pub servers: Arc<SharedServers>,
     pub state_root: std::path::PathBuf,
@@ -73,7 +76,7 @@ pub(crate) struct DynamicParts {
 
 impl DynamicHost {
     pub fn new(packages: Arc<PackageTable>, parts: DynamicParts) -> Arc<Self> {
-        let DynamicParts { router, instances, seats, servers, state_root, ui, runtime_modules, sections, unsandboxed } = parts;
+        let DynamicParts { router, instances, hub, seats, servers, state_root, ui, runtime_modules, sections, unsandboxed } = parts;
         Arc::new(Self {
             packages,
             router,
@@ -87,6 +90,7 @@ impl DynamicHost {
             children: Arc::default(),
             unsandboxed,
             instances,
+            hub,
             shared: Mutex::new(BTreeMap::new()),
         })
     }
@@ -221,6 +225,10 @@ impl HostApi for HostFor {
     fn publish_ui(&self, entries: Vec<Value>) {
         let entries = if self.host.runtime_modules { entries } else { Vec::new() };
         self.host.ui.set_extension(self.by.as_str(), entries);
+    }
+
+    fn skill_sources(&self, sources: Vec<harnix_contract::SkillSource>) {
+        self.host.hub.set_skill_sources(self.by.as_str(), sources);
     }
 
     fn package_sections(&self) -> BTreeMap<String, Value> {

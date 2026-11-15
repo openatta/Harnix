@@ -304,7 +304,6 @@ fn summary(fingerprint: &str, parts: &Value, disclosure: &Value, started: Value)
         "agent": parts.get("agent").filter(|a| !a.is_null()).map(|agent| json!({
             "package": agent["package"], "instances": agent["instances"], "disclosure": disclosure,
         })),
-        "skills": parts.get("skills").cloned().unwrap_or(json!({})),
         "started": started,
     })
 }
@@ -484,7 +483,7 @@ impl Carrier for ProcCarrier {
     /// What it placed is in its process's engine, and goes with it: nothing to take out here.
     async fn unplace(&self, _cx: &ExtensionContext, app: &Installed) -> Rpc<Value> {
         let placed = placed_of(app);
-        Ok(json!({"agent": placed.get("agent").cloned().unwrap_or(Value::Null), "skills": placed.get("skills").cloned().unwrap_or(json!({}))}))
+        Ok(json!({"agent": placed.get("agent").cloned().unwrap_or(Value::Null)}))
     }
 
     async fn status(&self, id: &ExtId) -> Value {

@@ -137,6 +137,9 @@ impl EngineOps for FakeLink {
     async fn set_prompt(&self, session: &str, _: Option<Option<String>>, _: Option<Option<String>>) -> Answer<Value> {
         Ok(described(session))
     }
+    async fn set_skill_dirs(&self, session: &str, _: &[std::path::PathBuf]) -> Answer<Value> {
+        Ok(described(session))
+    }
     async fn passthrough(&self, method: &str, params: Value) -> Answer<Value> {
         self.passed.lock().unwrap().push(method.to_string());
         Ok(match params.get("session_id").and_then(Value::as_str) {
@@ -576,7 +579,7 @@ fn sub_agent(child: &str) -> EngineEvent {
     EngineEvent::Session {
         session: "s1".into(),
         turn_id: "t".into(),
-        kind: SessionEventKind::Task { task_id: "k".into(), started: true, session: Some(child.into()) },
+        kind: SessionEventKind::Task { task_id: "k".into(), started: true, session: Some(child.into()), live: true },
         event: json!({"kind": "task_started", "task": {"task_id": "k", "detail": {"agent_session_id": child}}}),
     }
 }

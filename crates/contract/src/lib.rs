@@ -23,7 +23,7 @@ pub use handshake::{
     Handshake, Limits, Topology, CONTRIB_API_VERSION, MAX_FRAME_BYTES, MAX_IN_FLIGHT,
     MAX_UPLOAD_BYTES, PROTOCOL_VERSION,
 };
-pub use space::{DefaultInstance, SpaceDecl};
+pub use space::{DefaultInstance, SkillSource, SpaceDecl};
 pub use s1::{ExtId, Subject};
 
 /// A session's full name: the instance it is on and its id there.

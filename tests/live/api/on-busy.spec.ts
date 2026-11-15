@@ -70,6 +70,38 @@ test("interrupt stops the running turn, drops the queue behind it, and runs next
   }
 });
 
+// What becomes of a steer when the turn is interrupted right after it. The engine either gives the
+// message back (`user_messages_returned`) or, past the last step boundary, queues it as a turn of its
+// own, which an interrupt cannot reach. The hub does neither itself: this only records which happens.
+test("a steer followed by an interrupt: records whether the engine gives the message back or runs it", TAGS, async ({}, testInfo) => {
+  const { session_id } = await api.call("harnix.session.create", {
+    project_root: api.project,
+    options: { recorder: { name: "asks-permission" }, permission_mode: "default" },
+  });
+  try {
+    await api.call("harnix.session.attach", { session_id });
+    const first = await api.call("harnix.session.send", { session_id, message: "Use the Bash tool to run: echo permission-check" });
+    await api.waitFor(
+      (f) => f.method === "harnix.event" && f.params.session_id === session_id && f.params.event.kind === "prompt",
+      { timeout: 30_000, describe: "the first turn to stop at its ask" },
+    );
+    const mark = api.events.length;
+    const steered = await api.call("harnix.session.send", { session_id, message: "a word in passing", on_busy: "steer" });
+    await api.call("harnix.session.interrupt", { session_id });
+    await api.waitFor(
+      (f) => f.method === "harnix.turn_settled" && f.params.session_id === session_id && f.params.turn_id === first.turn_id,
+      { timeout: 30_000, describe: "the interrupted turn to settle" },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    const after = api.events.slice(mark).filter((f) => f.method === "harnix.event" && f.params.session_id === session_id);
+    const returned = after.some((f) => f.params.event.kind === "user_messages_returned");
+    const ran = after.some((f) => f.params.event.kind === "user_message" && f.params.event.text === "a word in passing" && f.params.event.delivery !== "steer");
+    testInfo.annotations.push({ type: "steer-then-interrupt", description: `delivery=${steered.delivery ?? "?"} returned=${returned} ran-as-next-turn=${ran}` });
+  } finally {
+    await finish(api, session_id);
+  }
+});
+
 test("an on_busy that is not one of the four is refused before anything is sent", TAGS, async () => {
   const { session_id } = await api.call("harnix.session.create", {});
   try {

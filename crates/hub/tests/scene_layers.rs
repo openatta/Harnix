@@ -157,6 +157,9 @@ impl EngineOps for FakeLink {
         self.prompted.lock().unwrap().push((append.clone(), override_text));
         Ok(json!({"session_id": session, "append": append.flatten(), "applies": "next_turn"}))
     }
+    async fn set_skill_dirs(&self, session: &str, _: &[std::path::PathBuf]) -> Answer<Value> {
+        Ok(described(session))
+    }
     async fn passthrough(&self, method: &str, params: Value) -> Answer<Value> {
         self.passed.lock().unwrap().push((method.to_string(), params.clone()));
         Ok(match method {

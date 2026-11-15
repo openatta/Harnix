@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyEvent,
   applyHistoryMessage,
+  answerAsk,
   applySettled,
   emptySession,
   toolResultText,
@@ -74,10 +75,44 @@ describe("归约", () => {
     expect(s2.context).toBe(s1.context);
   });
 
-  it("error 帧只收尾，不另报失败（失败由 nest.turn_settled 说）", () => {
-    const s = run([{ kind: "text_delta", text: "半" }, { kind: "error", code: -32000, message: "boom" }]);
+  it("error 帧只收尾，不另报失败（失败由 harnix.turn_settled 说）；没写进日志的另说一句", () => {
+    const frame = { kind: "error", code: "model_unavailable", message: "model_unavailable: boom", retryable: true, retry_after_ms: null };
+    const s = run([{ kind: "text_delta", text: "半" }, { ...frame, persisted: true }]);
     expect(s.blocks).toHaveLength(1);
     expect(s.blocks[0]).toMatchObject({ streaming: false });
+    const lost = applyEvent(s, { ...frame, persisted: false } as never, { ...opts, unrecordedText: "没写进日志" });
+    expect(lost.blocks[1]).toMatchObject({ kind: "note", tone: "error", text: "没写进日志" });
+  });
+
+  it("notification 帧：引擎的原话成一条提示，空的不成块", () => {
+    const s = run([{ kind: "notification", message: "x not saved", status: null }]);
+    expect(s.blocks).toEqual([expect.objectContaining({ kind: "note", tone: "info", text: "x not saved" })]);
+    expect(run([{ kind: "notification", message: "", status: "proactive" }]).blocks).toEqual([]);
+  });
+
+  it("prompt_resolved 收起卡片：别处答的、超时的、被撤回的各说各的；本地已答的不动", () => {
+    const ask = (id: string) => ({ kind: "prompt", prompt_id: id, tool_name: "Bash" });
+    const asked = run([ask("p1"), ask("p2"), ask("p3"), ask("p4")]);
+    const s = run(
+      [
+        { kind: "prompt_resolved", prompt_id: "p1", resolution: "answered" },
+        { kind: "prompt_resolved", prompt_id: "p2", resolution: "withdrawn", reason: "timed_out" },
+        { kind: "prompt_resolved", prompt_id: "p3", resolution: "withdrawn", reason: "cancelled" },
+        { kind: "prompt_resolved", prompt_id: "nope", resolution: "answered" },
+      ],
+      asked,
+    );
+    expect(s.blocks.map((b) => (b.kind === "ask" ? b.answered : null))).toEqual(["answered", "timeout", "withdrawn", undefined]);
+    const key = asked.blocks[3]!.key;
+    const local = applyEvent(answerAsk(asked, key, "allow"), { kind: "prompt_resolved", prompt_id: "p4", resolution: "answered" } as never, opts);
+    expect(local.blocks[3]).toMatchObject({ answered: "allow" });
+  });
+
+  it("compact 帧：修剪（trim）不画，压缩画一行", () => {
+    const frame = { kind: "compact", strategy: "MicroCompact", messages_before: 9, messages_after: 9, tokens_before: 900, tokens_after: 500 };
+    expect(run([{ ...frame, trim: true }]).blocks).toEqual([]);
+    const s = run([{ ...frame, strategy: "Summary", messages_after: 3 }]);
+    expect(s.blocks[0]).toMatchObject({ kind: "context", compact: { before: 9, after: 3, saved: 400 } });
   });
 
   it("工具调用结束流式块；tool_result 按 id 配对，不按顺序", () => {
@@ -200,19 +235,22 @@ describe("立即送达：交给正在跑的一轮，赶不上的退回队首", (
     expect(s.blocks[0]).not.toHaveProperty("steered");
   });
 
-  it("本轮在送达前结束：user_messages_returned 去掉待送达（中枢把它排回队首），下一轮以普通 user_message 送来", () => {
+  it("本轮在送达前结束：user_messages_returned 去掉待送达并说出原话（中枢不重发），再发时以普通 user_message 送来", () => {
     let s = run([{ kind: "user_message", text: "开始", item_id: "q-1" }, steer]);
-    s = run([{ kind: "user_messages_returned", messages: [{ message_id: "q-2", content: "插一句" }] }], s);
+    const returned = { kind: "user_messages_returned", messages: [{ message_id: "q-2", content: "插一句" }] };
+    s = applyEvent(s, returned as never, { ...opts, returnedText: (t) => `没送到：${t}` });
     expect(s.steering).toEqual([]);
-    expect(s.blocks).toHaveLength(1);
+    expect(s.blocks).toHaveLength(2);
+    expect(s.blocks[1]).toMatchObject({ kind: "note", tone: "stop", text: "没送到：插一句" });
     s = run([steer], s);
     s = run([{ kind: "user_message", text: "插一句", item_id: "q-2" }], s);
     expect(s.steering).toEqual([]);
     expect(s.blocks.map((b) => [b.kind, (b as { itemId?: string }).itemId])).toEqual([
       ["user", "q-1"],
+      ["note", undefined],
       ["user", "q-2"],
     ]);
-    expect(s.blocks[1]).not.toHaveProperty("steered");
+    expect(s.blocks[2]).not.toHaveProperty("steered");
   });
 
   it("一轮结束时还待送达的不会再进这一轮：清掉", () => {

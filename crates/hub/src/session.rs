@@ -1,7 +1,6 @@
 //! Per-session state, and what arrives from the engine.
 
 use std::collections::{HashSet, VecDeque};
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use harnix_contract::{Frame, RpcError};
@@ -175,6 +174,9 @@ pub(crate) async fn route_event(
         SessionEventKind::TeamProgress { team_id } => {
             state.teams.insert(team_id.clone(), event.clone());
         }
+        SessionEventKind::AskResolved { prompt_id, .. } => {
+            state.pending_prompts.retain(|p| p.prompt_id.as_deref() != Some(prompt_id.as_str()));
+        }
         // Answered, or refused on its timeout: the tool went on either way.
         SessionEventKind::ToolResult { id, .. } => {
             state.pending_prompts.retain(|p| p.tool_use_id.as_deref() != Some(id.as_str()));
@@ -315,6 +317,8 @@ impl Hub {
         // Replaced, not extended: after a resync these are the same asks
         // the hub already held.
         state.pending_prompts = subscribed.pending;
+        drop(guard);
+        self.reconcile_skill_dirs(key, info).await;
         Ok(subscribed.last_seq)
     }
 
@@ -361,7 +365,7 @@ impl Hub {
         let linked = self.engine(&instance)?;
         let layer = crate::scenes::layer_for(&linked.link.scene_layers(), &params)?;
         let setup = SessionSetup::new().scene(layer.clone()).skill_dirs(self.skill_dirs_for(&instance, &space));
-        let created = linked.ops().create(without_instance(params), setup).await?;
+        let created = self.create_listing(linked.ops(), without_instance(params), setup).await?;
         let mut value = created.value;
         if let Some(sid) = &created.session_id {
             let key = (instance.clone(), sid.clone());
@@ -378,11 +382,6 @@ impl Hub {
             obj.insert("space".into(), json!(space));
         }
         Ok(value)
-    }
-
-    /// The skill directories a new session of `space` on `instance` sees: none yet.
-    pub(crate) fn skill_dirs_for(&self, _instance: &str, _space: &str) -> Vec<PathBuf> {
-        Vec::new()
     }
 
     /// How many times the engine has compacted the session.
@@ -421,3 +420,35 @@ pub(crate) fn client_of(cx: &CallContext) -> Result<ClientId, RpcError> {
     })
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use harnix_engine_api::events::Waiting;
+
+    fn asked(id: &str) -> SessionEventKind {
+        SessionEventKind::Asked(Prompt::new(json!({"prompt_id": id}), Some(id.into()), None, Waiting::Approval))
+    }
+
+    /// A question the engine says stopped waiting is no longer pending; the others stay.
+    #[tokio::test]
+    async fn a_resolved_question_is_not_pending_any_more() {
+        let inner = Arc::new(InnerLock::default());
+        let key = ("main".to_string(), "s".to_string());
+        for id in ["p1", "p2"] {
+            route_event(&inner, "main", "s", "t", &asked(id), json!({"kind": "prompt"}), false).await;
+        }
+        let pending = |inner: &Arc<InnerLock>| {
+            let inner = inner.clone();
+            let key = key.clone();
+            async move {
+                let guard = inner.lock().await;
+                guard.sessions[&key].pending_prompts.iter().map(|p| p.prompt_id.clone().unwrap()).collect::<Vec<_>>()
+            }
+        };
+        assert_eq!(pending(&inner).await, ["p1", "p2"]);
+        let resolved = SessionEventKind::AskResolved { prompt_id: "p1".into(), answered: false };
+        route_event(&inner, "main", "s", "t", &resolved, json!({"kind": "prompt_resolved"}), false).await;
+        assert_eq!(pending(&inner).await, ["p2"]);
+    }
+}

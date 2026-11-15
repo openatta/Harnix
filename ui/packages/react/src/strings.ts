@@ -43,6 +43,9 @@ export interface HarnixUiStrings {
   stopReason: (reason: string) => string;
   /** 人的话被拒收（ipdrun-13）：`reason` 是理由；`text` 是被拒的那句，只在它不在流里时给（steer）。 */
   messageRefused?: (reason: string, text?: string) => string;
+  /** The engine gave a steered message back: the turn ended before it was read. */
+  steerReturned: (text: string) => string;
+  turnUnrecorded: string;
   tokens: (count: number) => string;
   cached: (count: number) => string;
   toolInput: string;
@@ -71,6 +74,8 @@ export interface HarnixUiStrings {
   permDecisionAllow: string;
   permDecisionDeny: string;
   permDecisionTimeout: string;
+  permDecisionWithdrawn: string;
+  permDecisionElsewhere: string;
   permCountdown: (seconds: number) => string;
   answerFailed: (error: string) => string;
   sessions: string;
@@ -156,6 +161,8 @@ export function uiStrings(locale: Locale): HarnixUiStrings {
   const s = (key: string, vars?: Record<string, unknown>) => translate(locale, `chat.${key}`, vars);
   const allow = s("permDecisionAllow");
   const deny = s("permDecisionDeny");
+  const withdrawn = s("permDecisionWithdrawn");
+  const elsewhere = s("permDecisionElsewhere");
   return {
     untitled: s("untitled"),
     connOpen: s("connOpen"),
@@ -198,6 +205,10 @@ export function uiStrings(locale: Locale): HarnixUiStrings {
     permDecisionAllow: s("permDecisionAllow"),
     permDecisionDeny: s("permDecisionDeny"),
     permDecisionTimeout: s("permDecisionTimeout"),
+    permDecisionWithdrawn: s("permDecisionWithdrawn"),
+    permDecisionElsewhere: s("permDecisionElsewhere"),
+    steerReturned: (text) => s("steerReturned", { text }),
+    turnUnrecorded: s("turnUnrecorded"),
     sessions: s("sessions"),
     newSession: s("newSession"),
     noSessions: s("noSessions"),
@@ -273,7 +284,16 @@ export function uiStrings(locale: Locale): HarnixUiStrings {
     compacted: ({ before, after, saved }) =>
       before != null && after != null ? s(saved ? "compactedSaved" : "compactedCounts", { before, after, saved }) : s("compacted"),
     permRequest: (tool) => s("permRequest", { tool }),
-    permAnswered: (decision, tool) => (decision === allow ? s("permAnsweredAllow", { tool }) : decision === deny ? s("permAnsweredDeny", { tool }) : s("permAnsweredTimeout", { tool })),
+    permAnswered: (decision, tool) => 
+      decision === allow
+        ? s("permAnsweredAllow", { tool })
+        : decision === deny
+          ? s("permAnsweredDeny", { tool })
+          : decision === withdrawn
+            ? s("permAnsweredWithdrawn", { tool })
+            : decision === elsewhere
+              ? s("permAnsweredElsewhere", { tool })
+              : s("permAnsweredTimeout", { tool }),
     permCountdown: (seconds) => s("permCountdown", { seconds }),
     answerFailed: (error) => s("answerFailed", { error }),
     thoughtFor: (seconds) => s("thoughtFor", { seconds }),

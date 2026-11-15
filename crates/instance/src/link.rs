@@ -126,6 +126,9 @@ impl EngineOps for DownLink {
     async fn set_prompt(&self, _: &str, _: Option<Option<String>>, _: Option<Option<String>>) -> Answer<Value> {
         Err(self.unavailable())
     }
+    async fn set_skill_dirs(&self, _: &str, _: &[std::path::PathBuf]) -> Answer<Value> {
+        Err(self.unavailable())
+    }
     async fn passthrough(&self, _: &str, _: Value) -> Answer<Value> {
         Err(self.unavailable())
     }

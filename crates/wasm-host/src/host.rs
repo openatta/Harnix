@@ -16,7 +16,7 @@
 //! A step that fails undoes every step before it, and why is kept for [`Control::status`].
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -54,8 +54,6 @@ pub struct HostOptions {
 /// One package that is running.
 struct Running {
     version: String,
-    /// The unpacked package.
-    root: PathBuf,
     /// How far its package was trusted when it started.
     trust: Trust,
     vm: Option<AppVm>,
@@ -482,7 +480,7 @@ impl Host {
         }
         let (registration, methods) = Self::declare(&manifest, &root)?;
         let bytes = Self::component(&manifest, start, &root, self.engine.fingerprint())?;
-        placement::switch(self.agent.as_ref(), id, &root, &start.parts, true).await?;
+        placement::switch(self.agent.as_ref(), id, &start.parts, true).await?;
         let bridge = Bridge::new(
             id,
             manifest.topics.iter().map(|t| t.name.clone()),
@@ -498,7 +496,7 @@ impl Host {
             Ok(booted) => booted,
             Err(e) => {
                 lock(&self.bridges).remove(id);
-                placement::switch(self.agent.as_ref(), id, &root, &start.parts, false)
+                placement::switch(self.agent.as_ref(), id, &start.parts, false)
                     .await
                     .ok();
                 return Err(e);
@@ -517,7 +515,6 @@ impl Host {
         }
         let running = Arc::new(Running {
             version: start.version.clone(),
-            root: root.clone(),
             trust,
             vm: booted.vm,
             tools: booted.tools.clone(),
@@ -639,7 +636,6 @@ impl Control for Host {
         placed.undo(self.agent.as_ref(), &unplace.app).await;
         Ok(json!({
             "agent": placed.agent.as_ref().map(|(package, _, instances)| json!({"package": package, "instances": instances})),
-            "skills": placed.skills,
         }))
     }
 
@@ -694,7 +690,7 @@ impl Control for Host {
         if let Some(vm) = &app.vm {
             vm.stop().await;
         }
-        placement::switch(self.agent.as_ref(), id, &app.root, &stop.parts, false)
+        placement::switch(self.agent.as_ref(), id, &stop.parts, false)
             .await
             .ok();
         tracing::info!(app = %id, "application stopped");
