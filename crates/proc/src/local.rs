@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use async_trait::async_trait;
 use base64::Engine as _;
-use harnix_engine::InProcessLink;
+use harnix_engine::DaemonLink;
 use harnix_engine_api::ops::EngineOps;
 use harnix_engine_api::{
     Cancel, ChainLink, ChainSource, EngineControl, EngineLink, HookDecision, Permission, SessionFacts, SessionRef, Tool, ToolCallFacts,
@@ -50,7 +50,7 @@ pub(crate) struct Local {
     /// The wire's kernel, which what a package asks of the product goes to.
     wire: Arc<dyn Kernel>,
     host: OnceLock<Weak<Host>>,
-    link: OnceLock<Arc<InProcessLink>>,
+    link: OnceLock<Arc<DaemonLink>>,
     offers: Mutex<BTreeMap<String, Offer>>,
     listeners: Mutex<HashMap<String, Listener>>,
     hooks: AtomicU64,
@@ -78,7 +78,7 @@ impl Local {
         let _ = self.host.set(Arc::downgrade(host));
     }
 
-    pub(crate) fn link_is(&self, link: Arc<InProcessLink>) {
+    pub(crate) fn link_is(&self, link: Arc<DaemonLink>) {
         let _ = self.link.set(link);
     }
 

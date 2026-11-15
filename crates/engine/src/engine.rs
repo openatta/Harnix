@@ -1,11 +1,11 @@
 //! Standing the engine up, in this process.
 //!
-//! The engine is linked as a library and called in-process: no socket, no
-//! handshake, no subprocess to supervise (concept §9). This does what `agixd`'s
-//! `main.rs` does — resolve scenes, load the settings tiers, build the model
-//! client and the `SessionPool` — and stops before the part that binds
-//! listeners. What it hands back is a `DaemonServer` whose `dispatch_public`
-//! the hub calls directly.
+//! The engine is linked as a library and runs in this process: no socket, no
+//! subprocess to supervise (concept §9). This does what `agixd`'s `main.rs`
+//! does — resolve scenes, load the settings tiers, build the model client and
+//! the `SessionPool` — and stops before the part that binds listeners. What it
+//! hands back is a `DaemonServer`, which the hub reaches over an in-memory
+//! stream (`assemble::InProcessEngine`) as it would a daemon over a socket.
 //!
 //! The assembly itself is Agix's (`daemon::assemble::pool`); this file only
 //! decides what Harnix hands it: the root, the scenes, a client that may start

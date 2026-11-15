@@ -5,9 +5,9 @@
 //! (`adapt`), and stands the engine up in this process
 //! ([`build`]) or serves it as a daemon ([`serve_daemon`]).
 //!
-//! It also carries the links the hub reaches an engine through — [`InProcessLink`] for one in
-//! this process, [`DaemonLink`] for one at the other end of a stream, and the [`ReplayLink`] that
-//! records or replays what either creates — and the translation between Agix's protocol and the
+//! It also carries the link the hub reaches an engine through — [`DaemonLink`], on a stream to a
+//! daemon in another process or on an in-memory one to an engine in this ([`InProcessEngine`]),
+//! and the [`ReplayLink`] that records or replays what it creates — and the translation between Agix's protocol and the
 //! engine interface's (`translate.rs`), the one place that names Agix's methods and events. The
 //! instance layer builds the links; the hub only ever holds them as `EngineLink`s.
 
@@ -17,7 +17,6 @@ mod daemon_link;
 pub mod engine;
 mod gate;
 mod hooks;
-mod inproc;
 pub mod readers;
 mod replay_link;
 pub mod scenes;
@@ -27,7 +26,7 @@ mod translate;
 pub use daemon_link::{Connection, DaemonLink, Endpoint, Refusal, Taken};
 pub use gate::WakeGate;
 pub use engine::{active_scenes, build, Chains, Engine, EngineConfig};
-pub use inproc::InProcessLink;
+pub use assemble::InProcessEngine;
 pub use replay_link::{Recorder, Recording, ReplayLink};
 pub use serve::serve_daemon;
 
