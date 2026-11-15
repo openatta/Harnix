@@ -335,6 +335,11 @@ test.describe("on", () => {
         expect(calls.length).toBeGreaterThan(0);
         for (const call of calls) {
           expect(call.timing.sent_at).toBeGreaterThan(0);
+          // A call still streaming — one beside the turn, a title say — has no duration yet.
+          if (call.duration_ms == null) {
+            expect(call.status).toBe("in_flight");
+            continue;
+          }
           if (call.timing.generate_ms != null) expect(call.timing.generate_ms).toBeLessThanOrEqual(call.duration_ms);
           if (call.timing.ttft_ms != null) expect(call.timing.ttft_ms).toBeLessThanOrEqual(call.duration_ms);
         }
