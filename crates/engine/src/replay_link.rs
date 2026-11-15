@@ -154,15 +154,18 @@ impl Recorder {
     }
 
     /// Where the engine is to record now: what its settings name, else this instance's own
-    /// directory; `None` when the daemon is somebody else's.
-    async fn root(&self, rpc: &dyn Rpc) -> Option<PathBuf> {
+    /// directory; `None` when the daemon is somebody else's. The engine reads its settings for a
+    /// scene, so they are asked for the one the call names; a call that names none (a resume, a
+    /// delete) takes what was read before, or the instance's directory.
+    async fn root(&self, rpc: &dyn Rpc, scene: Option<&str>) -> Option<PathBuf> {
         let fallback = self.fallback.as_ref()?;
         if self.recording.replay_from.is_some() {
             return Some(fallback.clone());
         }
-        let configured = match self.configured.get() {
-            Some(known) => known,
-            None => match rpc.call(translate::CONFIG_GET, json!({"tier": "effective"})).await {
+        let configured = match (self.configured.get(), scene) {
+            (Some(known), _) => known,
+            (None, None) => None,
+            (None, Some(scene)) => match rpc.call(translate::CONFIG_GET, json!({"tier": "effective", "scene": scene})).await {
                 Ok(answer) => {
                     let root = answer
                         .pointer("/settings/recorder/root")
@@ -250,7 +253,9 @@ impl Rpc for Recorded {
     async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
         let deleting = (method == translate::SESSION_DELETE).then(|| params.clone());
         let root = match method {
-            translate::SESSION_CREATE | translate::SESSION_RESUME | translate::SESSION_DELETE => self.recorder.root(&*self.rpc).await,
+            translate::SESSION_CREATE | translate::SESSION_RESUME | translate::SESSION_DELETE => {
+                self.recorder.root(&*self.rpc, params.get("scene").and_then(Value::as_str)).await
+            }
             _ => None,
         };
         let (params, named) = self.recorder.prepare(method, params, root.as_deref());
@@ -441,6 +446,8 @@ mod tests {
         async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
             lock(&self.asked).push(method.to_string());
             match method {
+                // The engine reads settings for a scene, and refuses a read that names none.
+                translate::CONFIG_GET if params.get("scene").is_none() => Err(RpcError::invalid_params("missing field `scene`")),
                 translate::CONFIG_GET => Ok(json!({"settings": self.settings})),
                 translate::SESSION_DELETE => Ok(self.deleted.clone()),
                 _ => Ok(params),
@@ -458,26 +465,30 @@ mod tests {
     async fn the_root_is_what_the_engines_settings_name_asked_once() {
         let configured = engine(json!({"recorder": {"mode": "record", "root": "/configured"}}));
         let rec = Recorded { rpc: configured.clone(), recorder: Recording::new(None).of("w", Some(PathBuf::from("/own"))) };
-        let created = rec.call(translate::SESSION_CREATE, json!({})).await.unwrap();
+        // Read for the scene a creation names: one that names none is not a read the engine takes.
+        let unnamed = rec.call(translate::SESSION_CREATE, json!({})).await.unwrap();
+        assert_eq!(unnamed["options"]["recorder"]["dir"], "/own");
+        assert!(lock(&configured.asked).iter().all(|m| m != translate::CONFIG_GET), "asked without a scene");
+        let created = rec.call(translate::SESSION_CREATE, json!({"scene": "harnix"})).await.unwrap();
         assert_eq!(created["options"]["recorder"]["dir"], "/configured");
         let resumed = rec.call(translate::SESSION_RESUME, json!({"session_id": "s1"})).await.unwrap();
         assert_eq!(resumed["options"]["recorder"]["dir"], "/configured");
         assert_eq!(lock(&configured.asked).iter().filter(|m| *m == translate::CONFIG_GET).count(), 1);
         rec.recorder.configured.forget();
-        rec.call(translate::SESSION_CREATE, json!({})).await.unwrap();
+        rec.call(translate::SESSION_CREATE, json!({"scene": "harnix"})).await.unwrap();
         assert_eq!(lock(&configured.asked).iter().filter(|m| *m == translate::CONFIG_GET).count(), 2, "asked again once forgotten");
 
         let plain = Recorded { rpc: engine(json!({})), recorder: Recording::new(None).of("w", Some(PathBuf::from("/own"))) };
-        let created = plain.call(translate::SESSION_CREATE, json!({})).await.unwrap();
+        let created = plain.call(translate::SESSION_CREATE, json!({"scene": "harnix"})).await.unwrap();
         assert_eq!(created["options"]["recorder"]["dir"], "/own");
 
         let relative = Recorded { rpc: engine(json!({"recorder": {"root": "rel"}})), recorder: Recording::new(None).of("w", Some(PathBuf::from("/own"))) };
-        let created = relative.call(translate::SESSION_CREATE, json!({})).await.unwrap();
+        let created = relative.call(translate::SESSION_CREATE, json!({"scene": "harnix"})).await.unwrap();
         assert_eq!(created["options"]["recorder"]["dir"], "/own", "a root that is not absolute is not one");
 
         let theirs = engine(json!({"recorder": {"root": "/configured"}}));
         let somebody_elses = Recorded { rpc: theirs.clone(), recorder: Recording::new(None).of("w", None) };
-        let created = somebody_elses.call(translate::SESSION_CREATE, json!({})).await.unwrap();
+        let created = somebody_elses.call(translate::SESSION_CREATE, json!({"scene": "harnix"})).await.unwrap();
         assert_eq!(created["options"]["recorder"], json!({"mode": "record"}));
         assert!(lock(&theirs.asked).iter().all(|m| m != translate::CONFIG_GET), "a daemon that is not ours is not asked");
     }
