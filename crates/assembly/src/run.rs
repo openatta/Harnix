@@ -95,7 +95,7 @@ pub(crate) async fn start_process(app: AppBuilder, cli: &Cli, basis: &Basis) -> 
     )
     .await?;
     let servers = instances.registry.factory.servers.clone();
-    let hub::Assembled { hub, instances, ui, history, brand_icon } =
+    let hub::Assembled { hub, instances, ui, brand_icon } =
         hub::assemble(cli, profile, &basis.roots, (&name, &version), &records, instances, &behind).await?;
     // The hub's rows have been in the route table since registration; from here they answer.
     let _ = behind.hub.set(hub.clone());
@@ -107,7 +107,6 @@ pub(crate) async fn start_process(app: AppBuilder, cli: &Cli, basis: &Basis) -> 
         table,
         grants,
         &behind,
-        history,
         admission::Parts {
             ui: ui.clone(),
             devices: held.devices.clone(),

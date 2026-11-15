@@ -8,7 +8,7 @@ use std::sync::Arc;
 use harnix_router::RouteTable;
 use harnix_engine_api::InstanceCarrier;
 use harnix_instance::{
-    Built, DownLink, EngineConfig, Factory, Facts, HistoryStore, Ledger, Owner, Recording, RegistryConfig,
+    Built, DownLink, EngineConfig, Factory, Facts, Ledger, Owner, Recording, RegistryConfig,
 };
 use harnix_ext::Credentials;
 
@@ -22,8 +22,6 @@ pub(super) struct Instances {
     pub registry: RegistryConfig,
     /// The main instance, built in this process from the profile's `[engine]`.
     pub main: Built,
-    /// The main instance's history: where audit entries are filed.
-    pub history: Option<Arc<dyn HistoryStore>>,
     /// The profile's `[[instances]]`, each built or down with its reason.
     pub fixed: Vec<(String, Built)>,
 }
@@ -67,14 +65,12 @@ pub(super) async fn build(
         model = %engine.model,
         "engine ready (in-process)"
     );
-    let history = engine.history.clone();
     let main = registry.factory.in_process(harnix_hub::MAIN, engine).await;
 
     let fixed = fixed(profile, &mut registry).await?;
     Ok(Instances {
         registry,
         main,
-        history,
         fixed,
     })
 }

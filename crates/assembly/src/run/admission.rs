@@ -72,11 +72,10 @@ pub(super) fn admit(
     table: RouteTable,
     grants: Arc<harnix_kernel::GrantTable>,
     behind: &Behind,
-    history: Option<Arc<dyn harnix_instance::HistoryStore>>,
     parts: Parts,
     identity: Identity<'_>,
 ) -> Admission {
-    let audit = audit(hub, history);
+    let audit = audit(hub);
     let (short, _) = crate::cli::versions(identity.name, identity.version);
     let diagnostics = Arc::new(Diagnostics {
         versions: json!({
@@ -155,7 +154,7 @@ pub(super) fn admit(
 }
 
 /// The audit: a ring for the diagnostics page, and a durable sink in the session timeline.
-fn audit(hub: &Arc<Hub>, history: Option<Arc<dyn harnix_instance::HistoryStore>>) -> Arc<Audit> {
+fn audit(hub: &Arc<Hub>) -> Arc<Audit> {
     let audit = Arc::new(Audit::default());
     {
         // The system space reaching across spaces: allowed, and on the record (concept §5.4). And
@@ -174,13 +173,9 @@ fn audit(hub: &Arc<Hub>, history: Option<Arc<dyn harnix_instance::HistoryStore>>
         }));
     }
     // Decisions worth going back for land in the session timeline, as engine
-    // extension entries — in order with everything else, and skippable by
+    // extension entries (`session.appendEntry` on the `main` instance's link) — in order with everything else, and skippable by
     // anything that does not know what they are (concept §6.5). The ring stays for
     // the diagnostics page.
-    if let Some(store) = history {
-        audit.set_sink(Box::new(audit_log::TimelineAudit::new(harnix_engine::timeline::Timeline::new(store))));
-    } else {
-        tracing::warn!("no history store; audit entries live only in memory");
-    }
+    audit.set_sink(Box::new(audit_log::TimelineAudit::new(hub.clone())));
     audit
 }
