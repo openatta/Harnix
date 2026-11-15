@@ -70,18 +70,10 @@ const QUESTION: &str = "question";
 /// on a review.
 const PLAN_TOOL: &str = "ExitPlanMode";
 
-/// One of Agix's calls, as a link makes it: into the engine's dispatch, or over a socket.
+/// One of Agix's calls, as a link makes it over its stream.
 #[async_trait::async_trait]
 pub(crate) trait Rpc: Send + Sync + 'static {
     async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError>;
-}
-
-/// One of this crate's links, under whatever wraps it: its calls, and its one event stream.
-pub(crate) trait Raw: harnix_engine_api::EngineLink {
-    fn rpc(&self) -> Arc<dyn Rpc>;
-
-    /// The event stream, the first time it is asked for.
-    fn events(&self) -> Option<harnix_engine_api::EventReceiver>;
 }
 
 /// [`EngineOps`] over Agix's calls.

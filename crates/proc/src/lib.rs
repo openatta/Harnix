@@ -41,7 +41,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Context};
 use harnix_engine::assemble::{engine_config, serve_stream};
-use harnix_engine::{Chains, InProcessLink};
+use harnix_engine::{Chains, InProcessEngine};
 use harnix_engine_api::{EngineContribution, EngineControl, EngineProfile};
 use harnix_wasm_host::{Host, HostOptions};
 use harnix_wasm_port::rpc::{KernelClient, Wire};
@@ -249,7 +249,7 @@ where
 
 /// The process's own engine, built on `run/engine/` with the package's tools in its sessions, and
 /// served to the product on `stream` for as long as the stream stays open.
-async fn serve_engine(ext: &str, local: &Arc<Local>, run: &Path, stream: tokio::net::UnixStream) -> anyhow::Result<Arc<InProcessLink>> {
+async fn serve_engine(ext: &str, local: &Arc<Local>, run: &Path, stream: tokio::net::UnixStream) -> anyhow::Result<Arc<InProcessEngine>> {
     let root = run.join("engine");
     std::fs::create_dir_all(&root).with_context(|| format!("its engine's data root {}", root.display()))?;
     let mut contrib = EngineContribution::new();
@@ -259,10 +259,10 @@ async fn serve_engine(ext: &str, local: &Arc<Local>, run: &Path, stream: tokio::
     config.chains = Chains(local.clone());
     let engine = harnix_engine::build(config).await.with_context(|| format!("the engine of `{ext}`"))?;
     let server = engine.server.clone();
-    let link = InProcessLink::start(engine).await;
-    local.link_is(link.clone());
-    tokio::spawn(serve_stream(server, stream));
-    Ok(link)
+    let here = InProcessEngine::start(engine, local.instance()).await?;
+    local.link_is(here.link().clone());
+    serve_stream(server, stream);
+    Ok(here)
 }
 
 /// Marks an error as one of setting the process up: [`entry`] exits [`EXIT_SETUP`] with it.

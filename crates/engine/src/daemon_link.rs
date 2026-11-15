@@ -260,12 +260,14 @@ impl DaemonLink {
     }
 }
 
-impl translate::Raw for DaemonLink {
-    fn rpc(&self) -> Arc<dyn Rpc> {
+impl DaemonLink {
+    /// Its calls, for what wraps it ([`crate::ReplayLink`]).
+    pub(crate) fn rpc(&self) -> Arc<dyn Rpc> {
         self.wire.clone()
     }
 
-    fn events(&self) -> Option<EventReceiver> {
+    /// The event stream, the first time it is asked for.
+    pub(crate) fn events(&self) -> Option<EventReceiver> {
         lock(&self.events_rx).take()
     }
 }
@@ -328,7 +330,12 @@ impl Wire {
     }
 
     async fn disconnect(&self) {
-        *self.writer.lock().await = None;
+        // Shut down rather than only dropped: the writer may be half of a stream whose other half
+        // the reader still holds (an in-memory one), and the far side should read the end now.
+        let writer = self.writer.lock().await.take();
+        if let Some(mut writer) = writer {
+            let _ = writer.shutdown().await;
+        }
         let waiting: Vec<_> = lock(&self.pending).drain().collect();
         let status = self.status.borrow().clone();
         for (_, waiter) in waiting {
@@ -426,7 +433,7 @@ impl EngineLink for DaemonLink {
     }
 
     fn take_events(&self) -> Option<EventReceiver> {
-        translate::Raw::events(self)
+        self.events()
     }
 
     /// Replies and events come off one socket in the order the daemon wrote them, and the reader

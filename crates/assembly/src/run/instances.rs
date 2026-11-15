@@ -65,7 +65,7 @@ pub(super) async fn build(
         model = %engine.model,
         "engine ready (in-process)"
     );
-    let main = registry.factory.in_process(harnix_hub::MAIN, engine).await;
+    let main = registry.factory.in_process(harnix_hub::MAIN, engine).await?;
 
     let fixed = fixed(profile, &mut registry).await?;
     Ok(Instances {

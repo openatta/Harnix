@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use harnix_engine::{Endpoint, InProcessLink, Recording, ReplayLink};
+use harnix_engine::{Endpoint, InProcessEngine, Recording, ReplayLink};
 use harnix_engine_api::{EngineControl, EngineLink};
 
 use crate::daemon::{DaemonSpec, SpawnOptions, SpawnSpec, Supervised};
@@ -139,12 +139,13 @@ impl Factory {
         engine::Chains(Arc::new(TurnSource(self.turns.clone())))
     }
 
-    /// The link to an engine already built in this process: the main instance's.
-    pub async fn in_process(&self, id: &str, engine: crate::Engine) -> Built {
+    /// The link to an engine already built in this process: the main instance's. The registry
+    /// stops the engine with the link.
+    pub async fn in_process(&self, id: &str, engine: crate::Engine) -> anyhow::Result<Built> {
         let facts = Facts::from(&engine);
-        let link = InProcessLink::start(engine).await;
+        let here = InProcessEngine::start(engine, id).await?;
         let recorder = self.recording.of(id, facts.recordings_root.clone());
-        Built::new(ReplayLink::in_process(link, recorder), facts)
+        Ok(Built { link: ReplayLink::daemon(here.link().clone(), recorder), control: here, facts })
     }
 
     pub async fn build(
@@ -196,7 +197,7 @@ impl Factory {
                 let mut config = engine_config(id, engine, &data_root, contrib);
                 config.chains = self.chains();
                 let engine = engine::build(config).await?;
-                Ok(self.in_process(id, engine).await)
+                self.in_process(id, engine).await
             }
             TemplateCarrier::Spawn {
                 engine,

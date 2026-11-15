@@ -157,7 +157,7 @@ fn the_hub_does_not_know_about_connections() {
 /// depends on that layer and `Carrier` is one of its types; the hub's code can.
 #[test]
 fn the_hub_names_no_carrier_and_opens_no_data_root() {
-    let forbidden = ["Carrier::", "DaemonLink", "InProcessLink", "data_root"];
+    let forbidden = ["Carrier::", "DaemonLink", "InProcessEngine", "data_root"];
     let dir = workspace_root().join("crates/hub/src");
     let mut offenders = Vec::new();
     for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
@@ -1396,7 +1396,7 @@ mod rules {
     fn c04_the_hub_knows_no_carrier_no_data_root_and_no_agix_name() {
         says_nothing_of(
             &[HUB],
-            &["Carrier", "DaemonLink", "InProcessLink", "data_root", "InstanceRegistry::", "EngineContribution::"],
+            &["Carrier", "DaemonLink", "InProcessEngine", "data_root", "InstanceRegistry::", "EngineContribution::"],
             false,
             &nobody,
         );
