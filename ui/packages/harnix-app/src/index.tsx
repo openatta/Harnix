@@ -17,7 +17,7 @@ import { ProjectsSidebar } from "./projects.tsx";
 import { SessionsSidebar, byTime } from "./sessions.tsx";
 import { AppStore, SESSIONS } from "./store.ts";
 
-export { AppStore, SESSIONS, uniqueSessions, type AppSession, type AppState, type Workspace } from "./store.ts";
+export { AppStore, SESSIONS, type AppSession, type AppState, type Workspace } from "./store.ts";
 export { byTime } from "./sessions.tsx";
 
 /** The backend extension this is the interface of. */

@@ -55,23 +55,6 @@ export interface AppState {
 
 export const keyOf = (instance: string, sessionId: string) => `${instance}/${sessionId}`;
 
-/**
- * A session list with each session once — a defence, not the fix. Agix's `engine.session.list` lists a
- * session it has let go of (past `session_cap`) once per project it has served, and counts a folder
- * reached under two spellings (macOS's `/var/…` and `/private/var/…`) as two projects, so such a
- * session comes back twice (openatta/Agix#23). Two rows with one key would draw two entries for one
- * session.
- */
-export function uniqueSessions<T extends { instance?: unknown; session_id: string }>(rows: T[], fallback: string): T[] {
-  const seen = new Set<string>();
-  return rows.filter((row) => {
-    const key = keyOf(typeof row.instance === "string" ? row.instance : fallback, row.session_id);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
 function storedProject(): string | null {
   try {
     const raw = localStorage.getItem(PROJECT_KEY);
@@ -172,7 +155,7 @@ export class AppStore {
       const workspaces = spaces.workspaces ?? [];
       // Which workspace a session belongs to is its project root matched against a workspace's
       // path: the backend knows the paths, the hub the roots, and the join is made here.
-      const sessions: AppSession[] = uniqueSessions(listed.sessions ?? [], fallback).map((row) => {
+      const sessions: AppSession[] = (listed.sessions ?? []).map((row) => {
         const workspace = workspaces.find((w) => row.project_root && w.path === row.project_root);
         return {
           ...row,
