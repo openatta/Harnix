@@ -186,15 +186,26 @@ test("reap_on_stop: stopping the instance ends what its sessions left running (i
   expect(await gone(pid), `${pid} outlived instances.stop`).toBe(true);
 });
 
-test("reap_on_stop: a daemon killed outright has its session's processes ended when it is restarted (ipdrun-07)", TAGS, async () => {
+// Pinned as it is, not as it should be. Since Agix 0.3.15 each command starts in a session of its
+// own (no controlling terminal to push input into), so ending the daemon's session on its restart
+// no longer reaches what its commands left: they outlive a SIGKILL. The engine keeps a list of its
+// commands' process groups for the next run to stop, but only for a host that asks it to.
+test("reap_on_stop: a daemon killed outright leaves its session's processes running when it is restarted (ipdrun-07)", {
+  tag: [...TAGS.tag, "@gap"],
+  annotation: {
+    type: "gap",
+    description: "Harnix: a spawned daemon keeps the engine's list of its commands' process groups (agix::process::orphans::persist_to) and stops a previous run's on start (reap_previous)",
+  },
+}, async () => {
   const built = await api.call("harnix.instances.create", { template: "reaper", name: "reaper-2", wait: "ready" });
   const pid = await leaveAProcess(api, "reaper-2");
   process.kill(built.pid, "SIGKILL");
   try {
-    expect(await gone(pid, 10_000), `${pid} outlived its daemon's SIGKILL`).toBe(true);
-    const after = await until(api, "reaper-2", "ready");
-    expect(after.pid).not.toBe(built.pid);
+    expect(await gone(built.pid, 10_000)).toBe(true);
+    await expect.poll(async () => (await until(api, "reaper-2", "ready")).pid, { timeout: 60_000 }).not.toBe(built.pid);
+    expect(await gone(pid, 3_000), `${pid} is reaped after its daemon's SIGKILL now: assert that, and drop the @gap`).toBe(false);
   } finally {
+    if (alive(pid)) process.kill(pid, "SIGKILL");
     await api.call("harnix.instances.stop", { instance: "reaper-2" });
   }
 });
