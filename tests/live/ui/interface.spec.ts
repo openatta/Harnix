@@ -6,7 +6,7 @@
 
 import { dropSessions, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-import { connected, flowReference, newSession, open, openFlow, openSettings, say, sessionRow, settingsSection, toFlows, watchConsole } from "./page";
+import { connected, flowReference, newSession, open, openFlow, openSettings, reply, say, sessionRow, settingsSection, toFlows, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:session-space", "@layer:ui"] };
 const SETTINGS = { tag: ["@feature:settings", "@layer:ui"] };
@@ -158,6 +158,8 @@ test("search filters the list by name, and Enter searches the transcripts", TAGS
   await open(page, URL);
   const id = await newSession(page, "says-ready");
   await say(page, "Say exactly: fixture ready");
+  // Searched once the turn has said something: the transcript is what is searched.
+  await expect(reply(page)).toContainText(/fixture ready/i, { timeout: 30_000 });
   await expect(sessionRow(page, id)).toBeVisible();
   await page.locator("#search").fill("no session is called this");
   await expect(page.getByTestId("session-search")).toHaveAttribute("data-state", "searching");

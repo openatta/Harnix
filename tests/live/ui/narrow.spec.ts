@@ -65,6 +65,9 @@ for (const width of [900, 600]) {
       await expect(frame(page)).toHaveAttribute("data-sidebar", "collapsed");
       await expect(page.getByTestId("rail-sessions")).toBeVisible();
       await expect(page.locator('[data-testid="session-row"]').first()).toBeHidden();
+      // The reply is drawn a moment before its turn is over: until then the system space's entry
+      // counts it running, a badge that is the rail's own.
+      await expect(page.getByTestId("space-badge")).toHaveCount(0, { timeout: 10_000 });
       const seen = await leaks(page);
       expect(seen.width).toBeLessThanOrEqual(57);
       expect(seen.out).toEqual([]);
