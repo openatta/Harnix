@@ -154,10 +154,7 @@ pub(crate) fn register(
 /// instance's — and its routes share one access, since the router decides them as one row.
 fn check_native(d: &ExtensionDescriptor) -> Result<(), String> {
     if let Some(everywhere) = d.engine_everywhere() {
-        if !everywhere.scenes().is_empty()
-            || !everywhere.prompt_gates().is_empty()
-            || !everywhere.foreign_hooks().is_empty()
-        {
+        if !everywhere.scenes().is_empty() || !everywhere.prompt_gates().is_empty() {
             return Err("what it gives every engine is tool providers and admitted tool names; scenes and gates \
                         are the main instance's"
                 .to_string());

@@ -29,7 +29,7 @@ pub mod template;
 pub mod tool;
 
 pub use chain::{ChainSource, NoChains};
-pub use contribution::{EngineContribution, ForeignHook};
+pub use contribution::EngineContribution;
 pub use credentials::Secret;
 pub use events::{Completion, DaemonEventKind, EngineEvent, Fragment, Joins, Prompt, SessionEventKind, Waiting};
 pub use link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus, EVENT_CAPACITY};

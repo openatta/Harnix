@@ -37,8 +37,6 @@ proc = ["first-party", "dep:harnix-ext-packages", "dep:harnix-carrier-proc", "de
 # `<product> ext-proc --probe`: what the process's sandbox lets it reach, for tests. Never in a
 # product's build.
 proc-probe = ["proc", "harnix-proc/probe"]
-# `harnix::agix`: Agix's own types, for what `harnix::engine` does not say. Not stable.
-agix = ["dep:harnix-engine", "harnix-engine/agix"]
 # `harnix::testing`: a product's route table without starting it, and a process started without
 # its listener. Not stable.
 testing = []
@@ -68,8 +66,6 @@ harnix-carrier-wasm      = { workspace = true, optional = true }
 harnix-carrier-proc      = { workspace = true, optional = true }
 # The extension process's code (`proc`).
 harnix-proc       = { workspace = true, optional = true }
-# Only for `harnix::agix`.
-harnix-engine     = { workspace = true, optional = true }
 async-trait = { workspace = true }
 anyhow      = { workspace = true }
 axum        = { workspace = true }

@@ -1387,7 +1387,6 @@ dependencies = [
  "harnix-carrier-proc",
  "harnix-carrier-wasm",
  "harnix-contract",
- "harnix-engine",
  "harnix-engine-api",
  "harnix-ext",
  "harnix-ext-devices",

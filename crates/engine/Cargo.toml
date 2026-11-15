@@ -7,11 +7,6 @@ license      = "Apache-2.0"
 publish      = false
 description  = "Agix, behind Harnix's engine interface: the one crate that links the engine"
 
-[features]
-default = []
-# `harnix_engine::agix`: Agix's own types, for what the engine interface does not say. Not stable.
-agix = []
-
 [dependencies]
 harnix-contract = { workspace = true }
 harnix-engine-api = { workspace = true }

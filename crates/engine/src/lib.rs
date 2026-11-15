@@ -26,13 +26,9 @@ pub mod settings;
 pub mod timeline;
 mod translate;
 
-#[cfg(feature = "agix")]
-pub mod agix;
-
 pub use daemon_link::{Connection, DaemonLink, Endpoint, Refusal, Taken};
 pub use gate::WakeGate;
 pub use engine::{active_scenes, build, Chains, Engine, EngineConfig};
-pub use hooks::RawHook;
 pub use inproc::InProcessLink;
 pub use replay_link::{Recorder, Recording, ReplayLink};
 pub use serve::serve_daemon;
