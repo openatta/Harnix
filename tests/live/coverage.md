@@ -9,7 +9,7 @@
 |---|---|---|---|---|
 | 握手与连接 | `connection` | 39 | 3 | — |
 | 授权与设备 | `authz` | 22 | 2 | — |
-| 会话与轮次 | `sessions` | 91 | 32 | — |
+| 会话与轮次 | `sessions` | 91 | 33 | — |
 | 无头会话 | `headless` | 4 | 1 | — |
 | 实例层 | `instances` | 27 | — 实例层没有自己的界面；界面上看实例是系统 space 的事（system） | — |
 | 扩展契约 | `modules` | 20 | 1 | — |
@@ -31,7 +31,7 @@
 | 扩展包后端的闲置休眠（on-demand、冷启动、并发唤醒只起一个实例、订阅与定时器保持常驻、系统 space 的扩展包页签） | `packages-idle` | 6 | 1 | 7 |
 | 应用构建 | `build` | — 在脚本层检查（check-pins、check-lock、sync-app-deps），不经协议 | — 构建没有界面 | — |
 | 桌面壳 | `desktop` | — 桌面壳不加协议面：webview 加载的就是服务端的页面 | — 桌面壳是模板（templates/desktop）：它不调 IPC 由 check-no-ipc.mjs 在 offline 层查，本机模式由它的 --smoke 查 | — |
-| **合计** | | **405** | **205** | **96** |
+| **合计** | | **405** | **206** | **96** |
 
 ## 已知缺口（`@gap`）
 
@@ -42,3 +42,4 @@
 | `authz` | api | api/audit.spec.ts › audit › deleting a session takes its audit entry with it | a durable sink for harnix.session.delete that is not the deleted transcript (crates/assembly/src/audit_log.rs) |
 | `sessions` | api | api/host-events.spec.ts › host-events › an MCP server that fails as the engine starts is announced to no one | Harnix: once a link is taken, announce the failures `engine.mcp.status` already holds — they happen before the link subscribes to the engine's events |
 | `instances` | api | api/instances-daemon.spec.ts › reap_on_stop: a daemon killed outright leaves its session's processes running when it is restarted (ipdrun-07) | Harnix: a spawned daemon keeps the engine's list of its commands' process groups (agix::process::orphans::persist_to) and stops a previous run's on start (reap_previous) |
+| `system` | ui | ui/system.spec.ts › system-ops: a model switched from the system space is not named in the pane until the session is rebuilt | Agix: `session.inspectContext` names the model `session.setModel` chose for the next turn |
