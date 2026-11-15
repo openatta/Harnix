@@ -12,7 +12,6 @@ use std::sync::Arc;
 
 use harnix_contract::sync::{lock, read, write};
 use harnix_contract::{RpcError, SkillSource};
-use harnix_engine_api::link::InstanceCarrier;
 use harnix_engine_api::ops::EngineOps;
 use harnix_engine_api::SessionInfo;
 use serde_json::{json, Value};
@@ -41,12 +40,12 @@ impl Hub {
     }
 
     /// The directories a session of `space` on `instance` lists: nothing for an engine that is
-    /// attached (it may not be on this machine), an extension's own engine only its own package's,
+    /// not on this machine (an attached daemon may be anywhere), an extension's own engine only its own package's,
     /// the system space all of them. Otherwise the packages that declared `space` come first, then
     /// those that declared none: of two skills of one name the first listed is the one seen.
     pub(crate) fn skill_dirs_for(&self, instance: &str, space: &str) -> Vec<PathBuf> {
         let own = self.slot(instance).and_then(|slot| slot.extension).map(|id| id.as_str().to_string());
-        let attached = self.linked(instance).is_some_and(|l| l.link.carrier() == InstanceCarrier::Attach);
+        let attached = self.linked(instance).is_some_and(|l| !l.link.on_this_machine());
         let crosses = lock(&self.spaces).crosses(space);
         let all: Vec<SkillSource> = read(&self.skills).values().flatten().cloned().collect();
         pick(&all, own.as_deref(), attached, crosses, space)

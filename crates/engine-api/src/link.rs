@@ -103,6 +103,12 @@ pub trait EngineControl: Send + Sync + 'static {
 
     fn carrier(&self) -> InstanceCarrier;
 
+    /// Whether the engine runs on this machine, so that a path of this one's is a path of its.
+    /// An engine somebody else runs may be anywhere.
+    fn on_this_machine(&self) -> bool {
+        self.carrier() != InstanceCarrier::Attach
+    }
+
     /// The process carrying the engine, when it is not this one and this one started it.
     fn pid(&self) -> Option<u32> {
         None
