@@ -293,22 +293,26 @@ async fn set_provider(call: &Call, params: Value) -> Rpc<Value> {
     let Some(path) = tier_path(call, "global", None, None)? else {
         return Err(RpcError::new(codes::INTERNAL_ERROR, "no global tier"));
     };
-    let mut document = read_document(&path)?;
-    patch_providers(
-        &mut document,
-        &provider_id,
-        delete,
-        params.get("config"),
-        params.get("default_provider").and_then(Value::as_str),
-    )?;
-    // What the engine will read is the entry as patched, not the patch: a `null` in the patch
-    // removes a key, and is not a value the engine's provider takes.
-    if let (false, Some(entry)) = (delete, params.get("config").and(document["providers"].get(&provider_id))) {
-        main_engine(call)?
-            .validate_provider(entry)?
-            .map_err(RpcError::invalid_params)?;
+    {
+        // Read, patch and write under the tier's directory lock, which the engine takes too.
+        let _held = lock_tier(&path)?;
+        let mut document = read_document(&path)?;
+        patch_providers(
+            &mut document,
+            &provider_id,
+            delete,
+            params.get("config"),
+            params.get("default_provider").and_then(Value::as_str),
+        )?;
+        // What the engine will read is the entry as patched, not the patch: a `null` in the patch
+        // removes a key, and is not a value the engine's provider takes.
+        if let (false, Some(entry)) = (delete, params.get("config").and(document["providers"].get(&provider_id))) {
+            main_engine(call)?
+                .validate_provider(entry)?
+                .map_err(RpcError::invalid_params)?;
+        }
+        write_document(&path, &document)?;
     }
-    write_document(&path, &document)?;
 
     let reloaded = call.call("engine.config.reload", json!({})).await;
     let providers = call.call("engine.config.getProvider", json!({})).await.unwrap_or(json!({}));
@@ -479,6 +483,7 @@ fn patch_providers(
 
 /// Set one key in a tier's settings.json, keeping everything else in it.
 fn set_in_file(path: &std::path::Path, key: &str, value: Value) -> Result<(), RpcError> {
+    let _held = lock_tier(path)?;
     let mut document = read_document(path)?;
     set_path(&mut document, key, value);
     write_document(path, &document)
@@ -504,6 +509,12 @@ fn read_document(path: &std::path::Path) -> Result<Value, RpcError> {
             format!("could not read {}: {e}", path.display()),
         )),
     }
+}
+
+/// The directory lock of the tier a settings file is in, the one Agix's writers take.
+fn lock_tier(path: &std::path::Path) -> Result<harnix_contract::dir_lock::DirLock, RpcError> {
+    let dir = path.parent().unwrap_or(std::path::Path::new("."));
+    harnix_contract::dir_lock::DirLock::acquire(dir).map_err(io_error)
 }
 
 /// Replace a tier's settings.json atomically.
@@ -581,6 +592,22 @@ mod tests {
 
     /// A tier that cannot be read is an error, and the file is left as it
     /// was — not replaced by a document holding only the key being set.
+    #[test]
+    fn a_write_waits_while_the_tier_s_directory_is_held() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let held = harnix_contract::dir_lock::DirLock::acquire(dir.path()).unwrap();
+        let writer = {
+            let path = path.clone();
+            std::thread::spawn(move || set_in_file(&path, "model.max_tokens", json!(4000)).unwrap())
+        };
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert!(!path.exists(), "written while another writer held the tier");
+        drop(held);
+        writer.join().unwrap();
+        assert_eq!(read_document(&path).unwrap(), json!({"model": {"max_tokens": 4000}}));
+    }
+
     #[test]
     fn an_unreadable_tier_is_not_overwritten() {
         let dir = tempfile::tempdir().unwrap();

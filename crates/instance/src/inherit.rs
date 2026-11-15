@@ -22,6 +22,9 @@ pub(crate) const RECORD: &str = ".inherited-providers.json";
 /// Bring one instance's global tier in line with `main`'s providers. `Ok(true)` when it changed.
 pub(crate) fn merge(system_root: &Path, instance_root: &Path) -> std::io::Result<bool> {
     let upstream = read(&system_root.join("settings.json"))?;
+    // The instance's own tier is written by its engine too, under this lock: the read and the
+    // writes below are one hold.
+    let _held = harnix_contract::dir_lock::DirLock::acquire(instance_root)?;
     let settings_path = instance_root.join("settings.json");
     let record_path = instance_root.join(RECORD);
     let mut settings = read(&settings_path)?;

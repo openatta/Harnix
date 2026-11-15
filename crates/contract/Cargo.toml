@@ -11,6 +11,7 @@ description  = "The types the kernel's four parts pass across each other's bound
 async-trait = { workspace = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }
+libc        = { workspace = true }
 ts-rs       = { workspace = true, optional = true }
 
 [features]

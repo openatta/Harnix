@@ -12,6 +12,7 @@ name = "harnix_ext_settings"
 
 [dependencies]
 harnix-ext  = { workspace = true }
+harnix-contract = { workspace = true }
 async-trait = { workspace = true }
 serde_json  = { workspace = true }
 tracing     = { workspace = true }
