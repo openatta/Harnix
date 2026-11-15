@@ -27,4 +27,4 @@ libc        = { workspace = true }
 [dev-dependencies]
 tempfile    = { workspace = true }
 # Agix's own settings loader, to see that what is written is what the engine reads.
-harnix-engine = { workspace = true, features = ["agix"] }
+harnix-engine = { workspace = true }

@@ -84,7 +84,7 @@ pub type Rpc<T> = Result<T, RpcError>;
 pub mod engine {
     pub use harnix_engine_api::readers;
     pub use harnix_engine_api::{
-        AttachTo, BaseKind, BuiltinArgs, Cancel, CancelGuard, CredentialSource, Delivery, EngineContribution,
+        AttachTo, BaseKind, BuiltinArgs, Cancel, CancelGuard, Delivery, EngineContribution,
         EngineProfile, HookDecision, InstanceTemplate, Interaction, Permission, Progress, PromptDecision,
         PromptFacts, PromptGate, PromptText, SceneBase, SceneFacts, SceneLayer, Secret, SessionFacts,
         TemplateCarrier, Tool, ToolCallFacts, ToolCx, ToolError, ToolHook, ToolOutput, ToolProvider, ToolSpec,

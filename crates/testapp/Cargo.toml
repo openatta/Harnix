@@ -14,7 +14,7 @@ path = "src/main.rs"
 [dependencies]
 # `agix`: the native templates' marked system prompt is a raw session hook.
 # `axum`: `probe`'s route is an `axum::Router`.
-harnix      = { workspace = true, features = ["agix", "axum"] }
+harnix      = { workspace = true, features = ["axum"] }
 harnix-ext-flow = { workspace = true }
 # `fakehost` registers a package through the host's registrar, as the `packages` component does.
 harnix-host-api = { workspace = true }

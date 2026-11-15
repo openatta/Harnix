@@ -8,8 +8,7 @@ use harnix_engine_api::{
     EngineContribution, PromptDecision, PromptFacts, PromptGate, SessionFacts, Tool, ToolHook, ToolProvider,
 };
 
-/// `from`'s, after what `into` has. The first credential source stays; a second is ignored with
-/// a warning, as when one contribution is offered two.
+/// `from`'s, after what `into` has.
 pub(crate) fn merge(into: &mut EngineContribution, from: &EngineContribution) {
     for layer in from.scenes() {
         into.scene(layer.clone());
@@ -20,14 +19,8 @@ pub(crate) fn merge(into: &mut EngineContribution, from: &EngineContribution) {
     for gate in from.prompt_gates() {
         into.prompt_gate(gate.clone());
     }
-    for hook in from.foreign_hooks() {
-        into.foreign_hook(hook.hook().clone());
-    }
     for pattern in from.admitted() {
         into.admit_everywhere(pattern);
-    }
-    if let Some(source) = from.credential_source() {
-        into.credentials(source.clone());
     }
 }
 
@@ -45,14 +38,8 @@ pub(crate) fn gated(c: &EngineContribution, enabled: Arc<AtomicBool>) -> EngineC
     for inner in c.prompt_gates() {
         out.prompt_gate(Arc::new(Gated { inner: inner.clone(), enabled: enabled.clone() }));
     }
-    for hook in c.foreign_hooks() {
-        out.foreign_hook_while(hook.hook().clone(), enabled.clone());
-    }
     for pattern in c.admitted() {
         out.admit_everywhere(pattern);
-    }
-    if let Some(source) = c.credential_source() {
-        out.credentials(source.clone());
     }
     out
 }
@@ -135,18 +122,16 @@ mod tests {
     #[tokio::test]
     async fn a_gated_contribution_does_nothing_while_it_is_off() {
         let mut c = EngineContribution::new();
-        c.provider(Arc::new(One)).prompt_gate(Arc::new(Refuse)).foreign_hook(Arc::new(7u8));
+        c.provider(Arc::new(One)).prompt_gate(Arc::new(Refuse));
         let enabled = Arc::new(AtomicBool::new(true));
         let c = gated(&c, enabled.clone());
         let facts = SessionFacts::new("s", "/p", "harnix", 0);
         let message = PromptFacts::new("s", "t", "hi", Delivery::Turn);
         assert_eq!(c.providers()[0].hooks(&facts).len(), 1);
         assert_eq!(c.prompt_gates()[0].inspect(&message).await, PromptDecision::Block("no".into()));
-        assert!(c.foreign_hooks()[0].is_enabled());
         enabled.store(false, Ordering::Release);
         assert!(c.providers()[0].hooks(&facts).is_empty());
         assert_eq!(c.prompt_gates()[0].inspect(&message).await, PromptDecision::Proceed);
-        assert!(!c.foreign_hooks()[0].is_enabled());
         assert_eq!(c.providers()[0].name(), "one");
     }
 

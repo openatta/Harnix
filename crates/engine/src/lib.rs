@@ -1,7 +1,7 @@
 //! Agix, behind Harnix's engine interface: the one crate that links the engine.
 //!
 //! What extensions give an engine is written in `harnix-engine-api`'s terms — tools, providers,
-//! hooks, scene layers, prompt gates, a credential source. This crate turns each into Agix's own
+//! hooks, scene layers, prompt gates. This crate turns each into Agix's own
 //! (`adapt`), and stands the engine up in this process
 //! ([`build`]) or serves it as a daemon ([`serve_daemon`]).
 //!
@@ -26,13 +26,9 @@ pub mod settings;
 pub mod timeline;
 mod translate;
 
-#[cfg(feature = "agix")]
-pub mod agix;
-
 pub use daemon_link::{Connection, DaemonLink, Endpoint, Refusal, Taken};
 pub use gate::WakeGate;
 pub use engine::{active_scenes, build, Chains, Engine, EngineConfig};
-pub use hooks::RawHook;
 pub use inproc::InProcessLink;
 pub use replay_link::{Recorder, Recording, ReplayLink};
 pub use serve::serve_daemon;

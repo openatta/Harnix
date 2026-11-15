@@ -1,15 +1,12 @@
 //! What an extension gives an instance's engine.
 
-use std::any::Any;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use crate::credentials::CredentialSource;
 use crate::gate::PromptGate;
 use crate::provider::ToolProvider;
 use crate::scene::SceneLayer;
 
-/// Scenes, tool providers, prompt gates, a credential source and tool names every scene admits:
+/// Scenes, tool providers, prompt gates and tool names every scene admits:
 /// what one extension, or several gathered in order, give an engine.
 #[non_exhaustive]
 #[derive(Default, Clone)]
@@ -17,9 +14,7 @@ pub struct EngineContribution {
     scenes: Vec<SceneLayer>,
     providers: Vec<Arc<dyn ToolProvider>>,
     prompt_gates: Vec<Arc<dyn PromptGate>>,
-    credentials: Option<Arc<dyn CredentialSource>>,
     admitted: Vec<String>,
-    foreign_hooks: Vec<ForeignHook>,
 }
 
 impl EngineContribution {
@@ -45,17 +40,6 @@ impl EngineContribution {
         self
     }
 
-    /// Provider keys a provider's settings leave unset. The first source given wins; a second
-    /// is ignored with a warning.
-    pub fn credentials(&mut self, source: Arc<dyn CredentialSource>) -> &mut Self {
-        if self.credentials.is_some() {
-            tracing::warn!("a second credential source was offered; keeping the first");
-        } else {
-            self.credentials = Some(source);
-        }
-        self
-    }
-
     /// Tool names every scene of the instance lets into its sessions besides its own list
     /// (`prefix*` or exact) — the engine's own scenes and other extensions' included: what a
     /// provider gives every session would otherwise be removed again by a scene with a list.
@@ -63,21 +47,6 @@ impl EngineContribution {
         if !self.admitted.iter().any(|p| p == pattern) {
             self.admitted.push(pattern.to_string());
         }
-        self
-    }
-
-    /// A hook in the engine's own terms, which only the engine adapter can read: what
-    /// `harnix::agix`'s `raw_hook` gives (not stable). One the adapter does not recognise is
-    /// left out with a warning.
-    pub fn foreign_hook(&mut self, hook: Arc<dyn Any + Send + Sync>) -> &mut Self {
-        self.foreign_hooks.push(ForeignHook { hook, enabled: None });
-        self
-    }
-
-    /// [`EngineContribution::foreign_hook`], applied only while `enabled`: how the host keeps a
-    /// hook of an extension that stopped from reaching sessions built after. Not stable, like it.
-    pub fn foreign_hook_while(&mut self, hook: Arc<dyn Any + Send + Sync>, enabled: Arc<AtomicBool>) -> &mut Self {
-        self.foreign_hooks.push(ForeignHook { hook, enabled: Some(enabled) });
         self
     }
 
@@ -93,16 +62,8 @@ impl EngineContribution {
         &self.prompt_gates
     }
 
-    pub fn credential_source(&self) -> Option<&Arc<dyn CredentialSource>> {
-        self.credentials.as_ref()
-    }
-
     pub fn admitted(&self) -> &[String] {
         &self.admitted
-    }
-
-    pub fn foreign_hooks(&self) -> &[ForeignHook] {
-        &self.foreign_hooks
     }
 }
 
@@ -112,29 +73,7 @@ impl std::fmt::Debug for EngineContribution {
             .field("scenes", &self.scenes.iter().map(|s| s.id().to_string()).collect::<Vec<_>>())
             .field("providers", &self.providers.iter().map(|p| p.name().to_string()).collect::<Vec<_>>())
             .field("prompt_gates", &self.prompt_gates.len())
-            .field("credentials", &self.credentials.is_some())
             .field("admitted", &self.admitted)
-            .field("foreign_hooks", &self.foreign_hooks.len())
             .finish()
-    }
-}
-
-/// A hook [`EngineContribution::foreign_hook`] was given, and whether it applies now.
-#[non_exhaustive]
-#[derive(Clone)]
-pub struct ForeignHook {
-    hook: Arc<dyn Any + Send + Sync>,
-    enabled: Option<Arc<AtomicBool>>,
-}
-
-impl ForeignHook {
-    pub fn hook(&self) -> &Arc<dyn Any + Send + Sync> {
-        &self.hook
-    }
-
-    /// False while the extension it came with is switched off
-    /// ([`EngineContribution::foreign_hook_while`]).
-    pub fn is_enabled(&self) -> bool {
-        self.enabled.as_ref().is_none_or(|e| e.load(Ordering::Acquire))
     }
 }

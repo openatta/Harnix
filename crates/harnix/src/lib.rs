@@ -125,14 +125,6 @@ pub mod testing {
     pub use harnix_assembly::testing::{describe, Kernel};
 }
 
-/// Agix itself, for what [`engine`] does not say: its crates, a raw session customizer
-/// (`agix::RawHooks::raw_hook`), an Agix scene as a layer's base (`agix::RawScenes::raw`).
-/// **Not stable**: it changes with Agix, outside every promise this crate makes.
-#[cfg(feature = "agix")]
-pub mod agix {
-    pub use harnix_engine::agix::*;
-}
-
 pub use async_trait::async_trait;
 pub use axum;
 

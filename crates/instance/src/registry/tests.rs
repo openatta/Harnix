@@ -333,9 +333,9 @@ async fn an_adopted_engine_records_and_replays_as_the_process_does() {
 /// settings, and through a merge of `main`'s providers.
 #[tokio::test]
 async fn an_engine_in_the_hosts_sandbox_has_its_own_command_sandbox_off() {
-    use harnix_engine::agix::base::settings::Settings;
     let disabled = |root: &std::path::Path| {
-        Settings::load(root.to_path_buf(), root.join("scenes/code"), root.join("work/.agix"), "code", "m").sandbox.dangerously_disable_sandbox
+        let settings: Value = serde_json::from_slice(&std::fs::read(root.join("settings.json")).unwrap()).unwrap();
+        settings["sandbox"]["dangerously_disable_sandbox"].as_bool().unwrap_or(false)
     };
     let dir = tempfile::tempdir().unwrap();
     let (registry, _) = registry(dir.path());
