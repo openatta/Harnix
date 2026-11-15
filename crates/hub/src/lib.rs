@@ -470,6 +470,22 @@ pub(crate) fn without_instance(mut params: Value) -> Value {
     params
 }
 
+/// Session options only the hub fills, by the space and the preset: a caller (device, extension,
+/// application) giving one is refused, by name.
+const HUB_OWNED_OPTIONS: [&str; 5] = ["host_tools", "skill_dirs", "attended", "auto_name", "prompt"];
+
+pub(crate) fn refuse_hub_owned_options(params: &Value) -> Result<(), RpcError> {
+    let Some(options) = params.get("options").and_then(Value::as_object) else {
+        return Ok(());
+    };
+    match HUB_OWNED_OPTIONS.iter().find(|key| options.contains_key(**key)) {
+        Some(key) => Err(RpcError::refused(format!(
+            "session option `{key}` is the hub's to set, from the space and the preset: a caller does not give it"
+        ))),
+        None => Ok(()),
+    }
+}
+
 pub(crate) fn notification(method: &str, params: Value) -> String {
     serde_json::to_string(&json!({"jsonrpc": "2.0", "method": method, "params": params}))
         .unwrap_or_else(|_| String::from("{}"))
@@ -564,5 +580,22 @@ mod sending_tests {
             s.await.unwrap();
         }
         assert_eq!(*lock(&slow.seen), ["f0", "f1", "f2"]);
+    }
+}
+
+#[cfg(test)]
+mod options_tests {
+    use super::*;
+
+    #[test]
+    fn options_the_hub_owns_are_refused_by_name_and_the_rest_pass() {
+        for key in HUB_OWNED_OPTIONS {
+            let refused = refuse_hub_owned_options(&json!({"options": {"model": "m", key: true}})).unwrap_err();
+            assert_eq!(refused.code, codes::REFUSED);
+            assert!(refused.message.contains(key), "{}", refused.message);
+        }
+        let allowed = json!({"options": {"model": "m", "permission_mode": "default", "recorder": {"name": "r"}}});
+        assert!(refuse_hub_owned_options(&allowed).is_ok());
+        assert!(refuse_hub_owned_options(&json!({})).is_ok());
     }
 }

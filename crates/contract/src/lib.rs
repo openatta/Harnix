@@ -10,6 +10,7 @@
 //! Nothing here executes anything. It is types, two traits and a version —
 //! and [`sync`], the one way the kernel takes a lock.
 
+pub mod dir_lock;
 pub mod ext_id;
 pub mod frame;
 pub mod handshake;
