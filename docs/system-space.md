@@ -90,7 +90,8 @@
 出的合计）、模型用时、在跑的这一轮已经多久（`turn_started_ms`）或离最近活动多久。列表窄时（看的是列表自己的宽度）先收起
 模型用时和最近两列，再收起状态的文字（状态点还在）和 token。会话的信任是 `extension` 的（收养的实例上的），名字照不受信内容画。
 
-- 用量来自 `observability.usage {instance, session_ids}`（一次至多 200 个），读的是录像：没有录像的会话、或者产品没链 `observability`，这几格是「—」。
+- 用量来自 `observability.usage {instance, session_ids}`（一次至多 200 个），读的是录像，只覆盖会话最近一次运行（daemon 重启后录像重写），不是总数；没有录像的会话、或者产品没链 `observability`，这几格是「—」。
+  每个会话的结果带 `run`（这次运行从何时起，`earlier_run` 为真表示之前的运行不在里面）与 `stale`：休眠的模式 3 进程不为读用量叫醒，给读过的旧数并标 `stale`，界面据此标注。
   行的推送变了就重读；有一行在跑或有任务时，跟着页面共用的 3 秒节拍重读（右栏的概况也在这个节拍上读，两边不各起一个钟）。
   时间格自己每秒走，不重画整张列表。
 - 目标来自会话行的 `goal`；中枢还没听到过的，对已加载的会话问一次 `system.goal`。
@@ -277,7 +278,7 @@ space `system`（界面一侧 `@harnix/system` 把它画成 `center: "hidden"`�
 - `system.instances.stop`、`restart`、`create`、`templates`：以自己的身份、凭 `instances.admin` 做设备做不到的实例操作——停、重启别的拥有者的实例，按任何模板建，列出全部模板
   （设备经 `harnix.instances.templates` 只看得到 `ui` 模板）。仍然只能是启动时定下的模板；内核拥有的实例谁都不能停。
 - `system.process`：方法与主题，有人订时每 5 秒算一次，数据凭 `process.observe` 从宿主拿。
-- 录像与用量不在这里：调用、每轮、用量是 `observability` 的（凭 `recordings.read`）。
+- 录像与用量不在这里：调用、每轮、用量是 `observability` 的（凭 `recordings.read`），经引擎的协议读。调用页签的列表只有概况与工具调用的名字、字数，输入与结果点开详情才取；整棵会话树（含子 Agent）在根会话的一份录像里。
 
 **跨 space**：声称 `system` 的调用可以观看、操作任何 space 的会话，每一次跨 space 的操作都写审计；在系统 space 里看别的 space
 的会话是「观看」，不改归属。`cross_space()` 是**防误**的标志：同页的代码能声称任何 space。真正的跨 space 读写权力是上面那几项能力，它们不对设备与扩展包开放。

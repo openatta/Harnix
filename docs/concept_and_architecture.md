@@ -389,7 +389,7 @@ spawn 的看护在 `harnix-supervise`：等它就绪；stdin 一断它就退出�
 钩子与门（模板的原生贡献与扩展包的工具，工具集变了由 `ToolProvider::changes()` 通知，登记随连接，重连重登）；继承 provider 的模板要把 `main` 的 provider 写进新实例的
 设置——这些都由实例层在建实例时写进它的数据根，之后集合变了也由它跟上。
 
-**扩展拿不到引擎链接。** 扩展拿到的是一台实例的只读视图（`EngineView`：场景、模型、实例的信任，凭能力才有的读者），所有会话调用仍然经过中枢和路由表。
+**扩展拿不到引擎链接。** 扩展拿到的是一台实例的只读视图（`EngineView`：场景、模型、实例的信任，凭能力才有的读者；读者经引擎的协议读，不读文件），所有会话调用仍然经过中枢和路由表。
 扩展要是能直接对一台实例发 `run_turn`，「中枢先订阅」这条不变量就有了旁路。
 
 **daemon 的语义。** daemon 对一条通过认证的连接完全信任，没有逐方法授权。所以：
@@ -704,7 +704,7 @@ fn main() -> anyhow::Result<()> {
 
 `ExtensionContext` 给扩展：自己的配置节（profile 的 `[ext.<id>]`，密钥只写引用，值由 `Credentials` 提供）、自己的数据目录（`ext/<id>/data/`）、凭据、
 以自己的身份调方法（和设备走同一张路由表）、服务端会话（§3.2）、实例（按自己的模板建、确保、等就绪、停）、发布与订阅主题、
-一台实例的只读视图与凭能力才有的读者（录像、转录）、进程信息（凭 `process.observe`）、大负载、运行期发布的界面条目，以及有名字的宿主服务（§4.4）。
+一台实例的只读视图与凭能力才有的读者（录像、转录；经引擎的协议读，每台实例各一套）、进程信息（凭 `process.observe`）、大负载、运行期发布的界面条目，以及有名字的宿主服务（§4.4）。
 **拿不到中枢、引擎链接、路由表、授予表，也拿不到数据根的路径。** 每一项服务在调用时查能力，缺了答 `REFUSED` 并写明缺哪一项。
 
 迁移：Harnix 只管**什么时候迁、失败了怎么办**（按顺序、失败只停用这个扩展），不管**用什么迁**。数据库
@@ -730,7 +730,7 @@ fn main() -> anyhow::Result<()> {
 | `engine.plugins` | Agix 插件的装、卸、启停、重读 | ✔ | | plugins、packages |
 | `engine.export` | 导出会话 | ✔ | | harnix-app |
 | `engine.mcp` | 给引擎加 MCP 服务器 | ✔ | | — |
-| `recordings.read` · `transcripts.read` | 录像与用量的读者 · 转录的读者 | ✔ | | observability · harnix-app |
+| `recordings.read` · `transcripts.read` | 录像与用量的读者 · 转录的读者；都经引擎的协议读（`session.calls`、`call`、`callBlob`、`search`），每台实例各有一套，实例连不上读者返回 `Unavailable` | ✔ | | observability · harnix-app |
 | `process.observe` | 版本、运行时长、内存、线程、已连接的客户端 | ✔ | | system |
 | `devices.manage` | 配对码、列设备、撤销设备 | ✔ | | devices |
 | `extensions.manage` | 拿宿主组件接口：运行期登记扩展、拉起扩展进程、收养扩展进程的引擎 | ✔ | | packages |
@@ -1120,6 +1120,7 @@ space 自己的会话。这件事错一次就是把消息发进了别的产品�
 是别的扩展的，它们注册进来；系统 space 不在，它们就挂到别处或不出现——挂在哪由点有没有定义决定，不按 id（§5.6）。
 
 **录像里有完整的系统提示词，敏感级别和 transcript 相同**（§6.4），所以只能经要能力的方法读（`observability.*` 要 `recordings.read`），录像目录永不经 HTTP 暴露。
+录像存哪由链路定：建会话时问引擎生效的 `recorder.root`（没配用 `<数据根>/recordings`），写进会话的 `recorder.dir`；整棵会话树在根会话的一份录像里。它只覆盖最近一次运行，所以用量也只算这次运行，读用量的结果标 `run`/`earlier_run`；休眠的模式 3 进程不为读用量叫醒，给旧数并标 `stale`。
 产品不要系统 space，就不链 `system`，或者 `[extensions] off = ["system"]`：它的方法连同授予一起没有，声称 `system` 的调用一律 `SPACE_MISMATCH`——**撤的是方法，不只是不画**。
 
 **Agix 没给的，不画假的。** 页签或按钮在 Agix 补上之前不出现，而不是做成灰的或者在 Harnix 侧模拟。
@@ -1384,7 +1385,8 @@ transcript、会话记忆、录像（每次模型调用的完整输入，含系�
 实例数据根、同一套文件权限下。
 
 三条规则：录像默认开，因为没有它就无法回答「模型到底看见了什么」（系统 space 的「调用」页签就靠它）；录像目录
-**永不经 HTTP 暴露**，只能经要 `recordings.read` 的读者读，转录只能经要 `transcripts.read` 的读者读；删除会话连带删除它的录像，关闭会话不删——会话还能重开。
+**永不经 HTTP 暴露**，只能经要 `recordings.read` 的读者读，转录只能经要 `transcripts.read` 的读者读；删除会话连带删除它的录像（侧链与分叉的也一起删），关闭会话不删——会话还能重开。
+attach 的实例是别人的 daemon，不给目录、不删录像；回放不录。
 扩展拿到的是读者，不是数据根的路径。
 
 ### 6.5 审计
@@ -1571,7 +1573,7 @@ Linux 照同一条。所以沙箱开着时，产品收养它的引擎时在它�
 | crate | 是什么 | 谁用 |
 |---|---|---|
 | `harnix-engine-api` | **没有 Agix 依赖的引擎词汇**。给扩展的：`Tool`、`ToolSpec`、`ToolProvider`、`ToolHook`、`SceneLayer`、`SceneBase`、`PromptGate`、`EngineContribution`、模板声明、录像与转录的读者。给中枢与实例层的：引擎链接（控制的一半与整条）、一样一个方法的引擎操作、有类型的引擎事件 | 扩展（经 `harnix::engine`）、中枢、实例层 |
-| `harnix-engine` | **唯一依赖 Agix 的 crate**：Agix 的 JSON-RPC 与有类型的操作、事件之间的翻译（Agix 的方法名与事件种类只在这一份）；daemon 链路（进程内的内存双工与 socket 同一份）与回放链路；`embed.rs` 里经 `agix::embed` 起引擎与 daemon 的服务；链路上登记的宿主工具、钩子与门；读者的实现；provider 的校验 | 实例层、扩展进程 |
+| `harnix-engine` | **唯一依赖 Agix 的 crate**：Agix 的 JSON-RPC 与有类型的操作、事件之间的翻译（Agix 的方法名与事件种类只在这一份）；daemon 链路（进程内的内存双工与 socket 同一份）与回放链路；`embed.rs` 里经 `agix::embed` 起引擎与 daemon 的服务；链路上登记的宿主工具、钩子与门；读者的实现（经协议读，不解析录像文件，也不依赖 transcript 存储）；provider 的校验 | 实例层、扩展进程 |
 
 - **中枢只认引擎词汇**：不编译 Agix，不拼 Agix 的方法名，不认 Agix 的事件种类（层次规则从翻译里的常量生成名单去查中枢的源码）。
 - **扩展只见 Harnix 的工具与场景类型。** `SceneLayer` 只说要改的几样（追加的系统块、工具、交互方式、是否要项目、命名），其余照底版；
