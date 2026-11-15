@@ -314,6 +314,8 @@ export const AskCard = memo(function AskCard({ block, controller }: { block: Blo
     allow: strings.permDecisionAllow,
     deny: strings.permDecisionDeny,
     timeout: strings.permDecisionTimeout,
+    withdrawn: strings.permDecisionWithdrawn,
+    answered: strings.permDecisionElsewhere,
   };
   const state = block.answered ? (block.answered === "timeout" ? "expired" : "answered") : "pending";
 

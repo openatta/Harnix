@@ -42,14 +42,20 @@ pub enum SessionEventKind {
     ToolResult { id: String, is_error: bool },
     /// A question for a person: a permission, or an answer the model asked for.
     Asked(Prompt),
+    /// A question stopped waiting, as the engine says: answered (here or elsewhere), or
+    /// withdrawn on its timeout or by a cancel.
+    AskResolved { prompt_id: String, answered: bool },
     /// The session's goal, as it now is (`Null`: none).
     GoalChanged { goal: Value },
     /// Where one of the session's teams stands.
     TeamProgress { team_id: String },
     /// One of the session's tasks started (or finished): work that outlives the turn. `session`
     /// is the sub-agent's own session, when the task runs one: a session the engine made, whose
-    /// parent this session is.
-    Task { task_id: String, started: bool, session: Option<String> },
+    /// parent this session is. `live`: it counts as running work now (a standing member between
+    /// two messages is idle, and does not).
+    Task { task_id: String, started: bool, session: Option<String>, live: bool },
+    /// A task that had started changed: it is running or waiting now, or idle, as `live` says.
+    TaskChanged { task_id: String, live: bool },
     /// The turn compacted the transcript, which is shorter for it.
     Compacted,
     /// The turn ended, as the engine says.

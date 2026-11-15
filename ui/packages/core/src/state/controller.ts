@@ -41,6 +41,10 @@ export interface SessionStrings {
   stopReason(reason: string): string;
   /** 人的话被拒收（ipdrun-13）：理由，及被拒的那句（steer 时）。缺省只显示理由。 */
   messageRefused?(reason: string, text?: string): string;
+  /** 引擎退回的话（本轮在读到它之前结束）：原话。缺省只显示原话。 */
+  steerReturned?(text: string): string;
+  /** 别的连接发起的一轮没写进日志。缺省不说。 */
+  turnUnrecorded?: string;
   interrupted: string;
   turnFailed(reason: string): string;
   sendFailed(reason: string): string;
@@ -257,6 +261,8 @@ export class SessionController {
       resultLabel: this.strings.result,
       stopReasonText: this.strings.stopReason,
       refusedText: this.strings.messageRefused?.bind(this.strings),
+      returnedText: this.strings.steerReturned?.bind(this.strings),
+      unrecordedText: this.strings.turnUnrecorded,
       interruptedText: this.strings.interrupted,
     };
   }

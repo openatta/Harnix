@@ -34,8 +34,9 @@ pub const TITLE_MAX: usize = 200;
 /// naming, and its prompt.
 pub const HUB_OWNED_OPTIONS: [&str; 5] = ["host_tools", "skill_dirs", "attended", "auto_name", "prompt"];
 
-/// The turn states a session can be in.
-const TURN_STATES: &[&str] = &["idle", "running"];
+/// The turn states a session can be in: a turn is running, or the engine holds the session to
+/// rebuild it or to operate on its context.
+const TURN_STATES: &[&str] = &["idle", "running", "rebuilding", "operating"];
 
 #[async_trait::async_trait]
 pub trait EngineOps: Send + Sync {
@@ -138,6 +139,12 @@ impl SessionInfo {
     /// Nothing is running in it.
     pub fn idle(&self) -> bool {
         self.turn_state() == Some("idle")
+    }
+
+    /// The engine holds it with no turn to interrupt: it is rebuilding in place, or an operation
+    /// on its context has it alone.
+    pub fn held(&self) -> bool {
+        matches!(self.turn_state(), Some("rebuilding" | "operating"))
     }
 
     fn turn_state(&self) -> Option<&str> {
@@ -271,5 +278,26 @@ pub struct Entry {
 impl Entry {
     pub fn new(ns: impl Into<String>, event: impl Into<String>, payload: Value) -> Self {
         Self { ns: ns.into(), event: event.into(), payload }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn hardened(state: &str) -> SessionInfo {
+        let mut info = SessionInfo::new(json!({"turn_state": state}));
+        info.harden();
+        info
+    }
+
+    #[test]
+    fn a_session_the_engine_holds_is_neither_running_nor_free() {
+        let rebuilding = hardened("rebuilding");
+        assert!(rebuilding.held() && !rebuilding.running() && !rebuilding.idle());
+        assert!(hardened("operating").held());
+        assert!(!hardened("running").held());
+        assert!(!hardened("weird").held() && hardened("weird").value()["turn_state"].is_null());
     }
 }

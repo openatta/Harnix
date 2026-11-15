@@ -86,6 +86,7 @@ pub(super) fn admit(
             "contribution_api": harnix_contract::CONTRIB_API_VERSION,
             "protocol": harnix_contract::PROTOCOL_VERSION,
         }),
+        instances: behind.instances.clone(),
         extensions: RwLock::new(Vec::new()),
         dynamic: OnceLock::new(),
         router: OnceLock::new(),

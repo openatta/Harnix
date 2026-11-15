@@ -85,11 +85,19 @@ pub struct EngineIdentity {
     pub protocol_version: Option<u64>,
     /// What it says it can do, as it says it.
     pub capabilities: Value,
+    /// The modules its build has, as it says them: what a method that answers "not found" would
+    /// need.
+    pub modules: Vec<String>,
 }
 
 impl EngineIdentity {
     pub fn new(version: Option<String>, protocol_version: Option<u64>, capabilities: Value) -> Self {
-        Self { version, protocol_version, capabilities }
+        Self { version, protocol_version, capabilities, modules: Vec::new() }
+    }
+
+    pub fn modules(mut self, modules: Vec<String>) -> Self {
+        self.modules = modules;
+        self
     }
 }
 

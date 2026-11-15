@@ -1,10 +1,8 @@
 // Settings: what the three tiers say, and what happens when they are written.
 //
-// The engine memoizes resolved settings per (project, scene) and only
-// refreshes its own pair on reload, so the effective value it reports can lag
-// a write. Harnix computes the tiers itself and hands back the engine's answer
-// alongside — so when they disagree, the interface can say so instead of
-// showing one of them and being wrong half the time.
+// The value a field shows is the engine's own for the (project, scene) asked about, re-read after a
+// write; `source` is the highest tier whose file wrote it, and `withheld` says the project tier
+// wrote a value the engine does not use (an untrusted project can only tighten).
 
 import { METHOD_NOT_FOUND, REFUSED } from "@harnix/core/protocol";
 import { assert, defineSuite } from "@harnix/testkit";

@@ -321,7 +321,8 @@ impl<'a> Sessions<'a> {
 
     /// [`Sessions::send`] with attachments and session references. A message with attachments is
     /// never steered into a running turn: with [`OnBusy::Steer`] it waits for the next one, as
-    /// from the interface.
+    /// from the interface. A steer the engine turns into a turn of its own (the running turn is
+    /// past its last step boundary) is out of the hub's hands: an interrupt does not stop it.
     pub async fn send_with(&self, session: &SessionRef, message: &str, options: SendOptions) -> Rpc<Value> {
         self.cx.call("harnix.session.send", self.claim(options.params(session, message))).await
     }

@@ -56,7 +56,9 @@ export function isPlainText(content: unknown): boolean {
 
 export function taskLabel(task: Task): string {
   const d = task.detail ?? {};
-  const text = d.description ?? d.command ?? d.prompt ?? d.member ?? d.cron ?? task.task_id;
+  // An MCP task has no description of its own: it is the call of one server's tool.
+  const call = typeof d.tool === "string" && d.tool ? `${typeof d.server === "string" ? d.server : ""} ${d.tool}`.trim() : undefined;
+  const text = d.description ?? d.command ?? d.prompt ?? d.member ?? d.cron ?? call ?? task.task_id;
   return clip(String(text), 120);
 }
 

@@ -338,6 +338,11 @@ impl InstanceRegistry {
         self.slots().iter().map(|s| s.facts()).collect()
     }
 
+    /// What one instance's engine says it is, when it is listed.
+    pub fn identity(&self, id: &str) -> Option<harnix_engine_api::EngineIdentity> {
+        self.slot(id).map(|slot| slot.control.identity())
+    }
+
     /// What each instance says it is, for `hello`: carrier, how far its engine is trusted, status,
     /// and the protocol it speaks.
     pub fn identities(&self) -> Vec<Value> {

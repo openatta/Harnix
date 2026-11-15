@@ -178,7 +178,9 @@ impl Hub {
     /// Give a message to the running turn. The engine answers at once when
     /// it took it; a turn already past its last step boundary turns the
     /// steer into a queued turn of its own, whose call then lasts that
-    /// turn — so the answer is waited for briefly and the call left to run.
+    /// turn — so the answer is waited for briefly and the call left to run. That queued turn is
+    /// the engine's: an interrupt does not reach it (the engine has no cancel for it), and its
+    /// start comes as `turn_started` from the engine like any turn begun elsewhere.
     async fn steer(self: &Arc<Self>, key: &SessionKey, item: QueueItem) -> Result<Value, RpcError> {
         // The running turn reads it, so the turn is on behalf of its calls too.
         self.turns.join(&key.0, &key.1, &item.chain);
@@ -337,6 +339,10 @@ impl Hub {
                 "error": {"code": error.code, "message": error.message},
             }),
         };
+        // The engine's account of a failure (its kind, whether a retry may work) rides along.
+        if let (Err(RpcError { data: Some(data), .. }), Some(error)) = (&outcome, params.get_mut("error")) {
+            error["data"] = data.clone();
+        }
         // How the turn ended, as the engine said when it completed: here too, so a watcher that
         // missed that frame (a tap that fell behind) still has it (ipdrun-17).
         if let Some((complete, answer)) = complete {
