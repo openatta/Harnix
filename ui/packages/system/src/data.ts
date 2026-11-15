@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { t, type HostApi, type HostSessionRef as SessionKey } from "@harnix/react";
 
 import { LIVE, RUNNING_USAGE_EVERY, USAGE_BATCH } from "./constants.ts";
-import type { AgentRow, AgentUsage, Context, Goal, InstanceRow, SessionRowView, Task, TurnRow } from "./types.ts";
+import type { AgentRow, AgentUsage, Context, Goal, InstanceRow, SessionRowView, Task, TurnRow, UsageNote } from "./types.ts";
 import { useTick, type View } from "./view.ts";
 
 /** Every instance's main Agents, kept current by the instances' session lists. */
@@ -70,10 +70,13 @@ export function stateSignature(row: AgentRow): string {
  * What each of these sessions' Agents has used. Read when a row first shows, and again for a row
  * whose pushed state changed (a turn began or ended, a task, a question). While a turn runs its
  * calls land in the recording one by one with nothing pushed for each, so a running row is read
- * again on the shared three-second beat — the one the Agent pane reads on too.
+ * again on the shared three-second beat — the one the Agent pane reads on too. The figures cover
+ * the latest run of each session (`notes` says which, and that an instance asleep gave what was
+ * read before).
  */
-export function useUsage(host: HostApi, rows: AgentRow[]): Record<string, AgentUsage[]> {
+export function useUsage(host: HostApi, rows: AgentRow[]): { usage: Record<string, AgentUsage[]>; notes: Record<string, UsageNote> } {
   const [usage, setUsage] = useState<Record<string, AgentUsage[]>>({});
+  const [notes, setNotes] = useState<Record<string, UsageNote>>({});
   const seen = useRef(new Map<string, string>());
   const joined = rows.map(signature).join(",");
   const running = rows.some((row) => row.running || row.tasks);
@@ -96,12 +99,17 @@ export function useUsage(host: HostApi, rows: AgentRow[]): Record<string, AgentU
       for (const [instance, ids] of by) {
         for (let at = 0; at < ids.length; at += USAGE_BATCH) {
           void host
-            .call<{ sessions: Record<string, { agents: AgentUsage[] }> }>("observability.usage", { instance, session_ids: ids.slice(at, at + USAGE_BATCH) })
+            .call<{ sessions: Record<string, { agents: AgentUsage[] } & UsageNote> }>("observability.usage", { instance, session_ids: ids.slice(at, at + USAGE_BATCH) })
             .then((answer) => {
               if (!alive.current) return;
               setUsage((now) => {
                 const next = { ...now };
                 for (const [id, value] of Object.entries(answer.sessions)) next[`${instance}/${id}`] = value.agents;
+                return next;
+              });
+              setNotes((now) => {
+                const next = { ...now };
+                for (const [id, value] of Object.entries(answer.sessions)) next[`${instance}/${id}`] = { run: value.run ?? null, stale: value.stale ?? false };
                 return next;
               });
             })
@@ -111,7 +119,7 @@ export function useUsage(host: HostApi, rows: AgentRow[]): Record<string, AgentU
     };
     load();
   }, [host, joined, tick]);
-  return usage;
+  return { usage, notes };
 }
 
 

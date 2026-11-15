@@ -44,7 +44,7 @@ pub mod templates;
 
 pub use daemon::{DaemonSpec, SpawnOptions, SpawnSpec, Supervised};
 /// The engine itself, started in this process: `harnix-engine`'s.
-pub use harnix_engine::{Endpoint, Engine, EngineConfig, HistoryStore, Recording};
+pub use harnix_engine::{Endpoint, Engine, EngineConfig, Recording};
 pub use factory::{Built, Facts, Factory};
 pub use link::DownLink;
 pub use profile::{EngineProfile, InstanceDecl, InstanceSections, TemplateDecl};

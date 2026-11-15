@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Disclosure, clip, useT, Glyph, type HostSessionRef as SessionKey } from "@harnix/react";
 
-import { Failure, locateInConversation, messageText, usageText, type Observed, type TraceCall } from "./shared.tsx";
+import { Failure, RunNote, locateInConversation, messageText, usageText, type Observed, type Run, type TraceCall } from "./shared.tsx";
 
 type Filter = "all" | "failed" | "tools";
 
+/** What a tool call got back is in the call's detail: the list knows only that the call failed. */
 function failed(call: TraceCall): boolean {
-  return call.outcome?.status === "error" || call.tools.some((tool) => tool.is_error);
+  return call.status === "error";
 }
 
 export function CallsTab({ observed, session, tool }: { observed: Observed; session: SessionKey; tool?: string }) {
@@ -17,6 +18,7 @@ export function CallsTab({ observed, session, tool }: { observed: Observed; sess
   // A jump from the conversation names a tool call: the call that asked for it is picked out.
   const [focus] = useState(() => tool ?? null);
   const [calls, setCalls] = useState<TraceCall[] | null>(null);
+  const [run, setRun] = useState<Run | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
@@ -28,8 +30,8 @@ export function CallsTab({ observed, session, tool }: { observed: Observed; sess
     let alive = true;
     const load = () =>
       host
-        .call<{ calls?: TraceCall[] }>("observability.trace", { instance: session.instance, session_id: session.sessionId })
-        .then((r) => alive && (setCalls(r.calls ?? []), setError(null)))
+        .call<{ calls?: TraceCall[]; run?: Run | null }>("observability.trace", { instance: session.instance, session_id: session.sessionId })
+        .then((r) => alive && (setCalls(r.calls ?? []), setRun(r.run ?? null), setError(null)))
         .catch((e) => alive && setError(e ?? "error"));
     void load();
     const off = host.events.onTurnSettled((e) => {
@@ -50,7 +52,8 @@ export function CallsTab({ observed, session, tool }: { observed: Observed; sess
   if (!calls) return null;
   if (open !== null) {
     const previous = calls.filter((c) => c.index < open && !c.purpose).pop() ?? null;
-    return <CallDetail observed={observed} session={session} call={calls.find((c) => c.index === open)!} previous={previous} onBack={() => setOpen(null)} />;
+    const opened = calls.find((c) => c.index === open)!;
+    return <CallDetail observed={observed} session={session} call={opened} ordinal={calls.indexOf(opened) + 1} previous={previous} onBack={() => setOpen(null)} />;
   }
   if (!calls.length) return <div className="empty">{tr("system.noCalls")}</div>;
   const needle = query.trim().toLowerCase();
@@ -96,6 +99,7 @@ export function CallsTab({ observed, session, tool }: { observed: Observed; sess
           </button>
         ) : null}
       </div>
+      <RunNote run={run} />
       <Timeline calls={calls} range={range} onRange={setRange} />
       {!shown.length ? <div className="note" data-testid="calls-none">{tr("system.noMatchingCalls")}</div> : null}
       {turns.map((turn) => (
@@ -107,10 +111,10 @@ export function CallsTab({ observed, session, tool }: { observed: Observed; sess
               <div key={call.index}>
                 <button
                   type="button"
-                  className={`step k-model${failed(call) && call.outcome?.status === "error" ? " bad" : ""}${focus && call.tools.some((tool) => tool.id === focus) ? " on" : ""}`}
+                  className={`step k-model${failed(call) ? " bad" : ""}${focus && call.tools.some((tool) => tool.id === focus) ? " on" : ""}`}
                   data-call={call.index}
                   data-testid="system-call"
-                  data-state={failed(call) && call.outcome?.status === "error" ? "failed" : undefined}
+                  data-state={failed(call) ? "failed" : undefined}
                   data-located={focus && call.tools.some((tool) => tool.id === focus) ? "true" : undefined}
                   onClick={() => {
                     scroll.current = list.current?.scrollTop ?? 0;
@@ -119,11 +123,11 @@ export function CallsTab({ observed, session, tool }: { observed: Observed; sess
                 >
                   <div className="l1">
                     <span className="kd2">{call.purpose ? call.purpose : tr("system.step.model")}</span>
-                    <b>#{call.index + 1}</b>
+                    <b>#{calls.indexOf(call) + 1}</b>
                     <span className="r">
                       {call.model} · {usageText(call.usage)} · {call.duration_ms != null ? `${(call.duration_ms / 1000).toFixed(1)}s` : "—"}
                       {call.timing?.ttft_ms != null ? <span data-testid="call-ttft"> · {tr("system.ttft", { ms: call.timing.ttft_ms })}</span> : null}
-                      {call.timing?.tokens_per_s != null ? ` · ${tr("system.rate", { rate: call.timing.tokens_per_s })}` : ""} · {call.stop_reason ?? call.outcome?.status}
+                      {call.timing?.tokens_per_s != null ? ` · ${tr("system.rate", { rate: call.timing.tokens_per_s })}` : ""} · {call.stop_reason ?? call.status}
                     </span>
                   </div>
                   <div className="l2">
@@ -135,21 +139,15 @@ export function CallsTab({ observed, session, tool }: { observed: Observed; sess
                 {call.tools.map((tool) => (
                   <div
                     key={tool.id}
-                    className={`step k-tool nested${tool.is_error ? " bad" : ""}${tool.id === focus ? " on" : ""}`}
+                    className={`step k-tool nested${tool.id === focus ? " on" : ""}`}
                     data-testid="system-call-tool"
                     data-tool={tool.id}
-                    data-state={tool.is_error ? "failed" : undefined}
                     data-located={tool.id === focus ? "true" : undefined}
                   >
                     <div className="l1">
                       <span className="kd2">{tr("system.step.tool")}</span>
                       <b>{tool.name}</b>
-                      <span className="r">{tool.result_chars != null ? `${tool.result_chars} chars` : tr("system.noResultYet")}</span>
-                    </div>
-                    <div className="l2">
-                      <span className="in">{tool.input}</span>
-                      <span className="arrow">→</span>
-                      <span className="out">{tool.result ?? "…"}</span>
+                      <span className="r">{tr("system.toolDetailHint")}</span>
                     </div>
                   </div>
                 ))}
@@ -161,9 +159,9 @@ export function CallsTab({ observed, session, tool }: { observed: Observed; sess
   );
 }
 
-/** What a search over the calls looks in: the answer, the model, what it was for, its tool calls. */
+/** What a search over the calls looks in: the model, what it was for, the names of its tool calls. */
 function searchable(call: TraceCall): string {
-  return [call.output.text, call.model, call.purpose ?? "", ...call.tools.flatMap((tool) => [tool.name, tool.input, tool.result ?? ""])].join("\n").toLowerCase();
+  return [call.model, call.purpose ?? "", ...call.tools.map((tool) => tool.name)].join("\n").toLowerCase();
 }
 
 /** A call's stretch of time: from being sent to its end. */
@@ -252,9 +250,10 @@ function Timeline({ calls, range, onRange }: { calls: TraceCall[]; range: [numbe
 }
 
 function callOut(call: TraceCall, tr: (k: string, v?: Record<string, unknown>) => string): string {
-  if (call.outcome?.status === "error") return `${tr("system.error")}: ${call.outcome.message ?? call.outcome.error ?? ""}`;
+  if (call.status === "error") return `${tr("system.error")}: ${call.error?.message ?? call.error?.kind ?? ""}`;
   const tools = call.tools.map((tool) => `tool_use: ${tool.name}`).join(", ");
-  return [clip(call.output.text, 80), tools].filter(Boolean).join(" · ") || "—";
+  const text = call.output.chars ? tr("system.callOutChars", { chars: call.output.chars }) : "";
+  return [text, tools].filter(Boolean).join(" · ") || "—";
 }
 
 interface CallDetailData {
@@ -266,12 +265,16 @@ interface CallDetailData {
     max_tokens: number;
     thinking_mode?: unknown;
     provider?: string;
+    effort?: unknown;
   };
   output: {
     text: string;
     thinking_chars: number;
     tool_uses: { id: string; name: string; input: unknown }[];
-    outcome: unknown;
+    /** What each tool call got back, as the session's next call sent it; empty until that call is made. */
+    tool_results?: { id: string; text: string; chars: number; is_error: boolean }[];
+    status?: string;
+    error?: unknown;
     stop_reason?: string | null;
     usage?: unknown;
     duration_ms?: number | null;
@@ -279,7 +282,7 @@ interface CallDetailData {
 }
 
 /** One call in full, inside the right column: what went in, what came out, what changed. */
-function CallDetail({ observed, session, call, previous, onBack }: { observed: Observed; session: SessionKey; call: TraceCall; previous: TraceCall | null; onBack: () => void }) {
+function CallDetail({ observed, session, call, ordinal, previous, onBack }: { observed: Observed; session: SessionKey; call: TraceCall; ordinal: number; previous: TraceCall | null; onBack: () => void }) {
   const tr = useT();
   const [side, setSide] = useState<"input" | "output">("input");
   const [data, setData] = useState<CallDetailData | null>(null);
@@ -305,7 +308,7 @@ function CallDetail({ observed, session, call, previous, onBack }: { observed: O
         <button type="button" className="ib back" data-testid="call-back" title={tr("common.back")} onClick={onBack}>
           <Glyph name="chevronRight" className="glyph flip" />
         </button>
-        <b>#{call.index + 1}</b>
+        <b>#{ordinal}</b>
         <span className="muted">{call.model}</span>
         <span className="sp" />
         {previous ? (
@@ -321,7 +324,8 @@ function CallDetail({ observed, session, call, previous, onBack }: { observed: O
         </button>
       </div>
       <div className="cd-stats">
-        {usageText(call.usage)} · {call.duration_ms != null ? `${(call.duration_ms / 1000).toFixed(1)}s` : "—"} · {call.stop_reason ?? call.outcome?.status}
+        {usageText(call.usage)} · {call.duration_ms != null ? `${(call.duration_ms / 1000).toFixed(1)}s` : "—"} · {call.stop_reason ?? call.status}
+        {failed(call) ? <span data-testid="call-failure"> · {call.error?.message ?? call.error?.kind}</span> : null}
       </div>
       <div className="stabs" role="tablist">
         {(["input", "output"] as const).map((s) => (
@@ -349,7 +353,7 @@ function CallDetail({ observed, session, call, previous, onBack }: { observed: O
             </Disclosure>
           ))}
           <div className="label">{tr("system.config")}</div>
-          <pre className="hx-pre">{JSON.stringify({ model: data.input.model, max_tokens: data.input.max_tokens, thinking_mode: data.input.thinking_mode, provider: data.input.provider }, null, 2)}</pre>
+          <pre className="hx-pre">{JSON.stringify({ model: data.input.model, max_tokens: data.input.max_tokens, thinking_mode: data.input.thinking_mode, effort: data.input.effort, provider: data.input.provider }, null, 2)}</pre>
         </div>
       ) : null}
       {data && side === "output" ? (
@@ -362,16 +366,19 @@ function CallDetail({ observed, session, call, previous, onBack }: { observed: O
               <pre className="hx-pre">{JSON.stringify(tool.input, null, 2)}</pre>
             </div>
           ))}
-          {call.tools.map((tool) => (
-            <div key={tool.id} className={tool.is_error ? "bad" : ""}>
-              <div className="label">
-                tool_result · {tool.name} {tool.is_error ? `· ${tr("system.error")}` : ""}
+          {data.output.tool_uses.map((tool) => {
+            const result = data.output.tool_results?.find((r) => r.id === tool.id);
+            return (
+              <div key={tool.id} className={result?.is_error ? "bad" : ""}>
+                <div className="label">
+                  tool_result · {tool.name} {result?.is_error ? `· ${tr("system.error")}` : ""}
+                </div>
+                <pre className="hx-pre scroll" data-testid="call-tool-result">{result ? result.text : tr("system.noResultYet")}</pre>
               </div>
-              <pre className="hx-pre scroll">{tool.result ?? tr("system.noResultYet")}</pre>
-            </div>
-          ))}
+            );
+          })}
           <div className="label">{tr("system.end")}</div>
-          <pre className="hx-pre">{JSON.stringify({ outcome: data.output.outcome, stop_reason: data.output.stop_reason, usage: data.output.usage, duration_ms: data.output.duration_ms }, null, 2)}</pre>
+          <pre className="hx-pre">{JSON.stringify({ status: data.output.status, error: data.output.error, stop_reason: data.output.stop_reason, usage: data.output.usage, duration_ms: data.output.duration_ms }, null, 2)}</pre>
         </div>
       ) : null}
     </div>

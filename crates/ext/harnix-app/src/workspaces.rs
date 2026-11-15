@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use harnix_ext::engine::readers::SearchLimits;
+use harnix_ext::engine::readers::{ReadError, SearchLimits};
 use harnix_ext::{codes, Call, RpcError, MAIN_INSTANCE};
 use serde_json::{json, Value};
 
@@ -188,7 +188,7 @@ impl App {
     /// Content search across sessions.
     ///
     /// Ordering comes from `engine.session.list` (most recent first); the scan itself
-    /// is the engine's transcript reader, which does not page `engine.session.history`.
+    /// is the engine's `session.search`.
     pub(crate) async fn search(&self, call: &Call, params: Value) -> Result<Value, RpcError> {
         let query = require_str(&params, "query")?;
         let transcripts = call
@@ -213,7 +213,10 @@ impl App {
         if let Some(limit) = params.get("limit").and_then(Value::as_u64) {
             limits = limits.hits(limit as usize);
         }
-        let outcome = transcripts.search(&sessions, &query, &limits).await;
+        let outcome = transcripts.search(&sessions, &query, &limits).await.map_err(|e| match e {
+            ReadError::Unavailable(m) => RpcError::new(codes::INSTANCE_UNAVAILABLE, m),
+            other => RpcError::new(codes::INTERNAL_ERROR, other.to_string()),
+        })?;
 
         // The session's title is the engine's name for it, in the list read above.
         let titles: HashMap<String, Value> = listed
@@ -235,6 +238,7 @@ impl App {
                     "role": hit.role,
                     "snippet": hit.snippet,
                     "ts": hit.ts,
+                    "seq": hit.seq,
                 })
             })
             .collect();

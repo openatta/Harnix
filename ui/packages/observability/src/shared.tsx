@@ -29,22 +29,50 @@ export interface TurnRow {
   context_delta?: number | null;
 }
 
-/** One `observability.trace` row: a model call, what went in and what came out. */
+/** Which run of the session a reading covers: its recording starts over when the process running the session first calls the model. */
+export interface Run {
+  created_at: string;
+  generation: number;
+  /** An earlier run of this recording went since it was first read here. */
+  earlier_run?: boolean;
+}
+
+/** One `observability.trace` row: a model call, what went in and what came out (its tool calls' inputs and results are in the call's detail). */
 export interface TraceCall {
+  /** Its place in the recording of the session's root: not always one more than the call before. */
   index: number;
+  session_id: string;
+  parent_session_id?: string | null;
+  agent_type?: string | null;
   turn: number;
   step: number;
   purpose?: string | null;
   model: string;
   input: { system: { source?: string | null; chars: number }[]; tools: number; messages: number };
-  output: { text: string; chars: number; thinking_chars: number; tool_uses: number };
-  tools: { id: string; name: string; input: string; result?: string | null; result_chars?: number | null; is_error?: boolean | null }[];
-  outcome: { status: string; error?: string; message?: string };
+  output: { chars: number; thinking_chars: number; tool_uses: number };
+  tools: { id: string; name: string }[];
+  /** `ok`, `cancelled`, `error`, `in_flight` or `unfinished`. */
+  status: string;
+  error?: { kind?: string; message?: string } | null;
   stop_reason?: string | null;
   usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | null;
-  /** When it was sent, how long to its first chunk, how long it streamed; absent without the times. */
+  /** When it was sent, how long to its first chunk, how long it streamed after it; absent without the times. */
   timing?: { sent_at: number; ttft_ms?: number | null; generate_ms?: number | null; tokens_per_s?: number | null } | null;
   duration_ms?: number | null;
+}
+
+/** What the page says of the run a reading covers: since when, and that an earlier one is gone. */
+export function RunNote({ run, testId = "run-note" }: { run?: Run | null; testId?: string }) {
+  const tr = useT();
+  if (!run) return null;
+  const at = new Date(run.created_at);
+  const since = Number.isNaN(at.getTime()) ? run.created_at : at.toLocaleString();
+  return (
+    <div className="note" data-testid={testId} data-earlier={run.earlier_run ? "true" : undefined}>
+      {tr("system.runSince", { at: since })}
+      {run.earlier_run ? ` ${tr("system.earlierRunGone")}` : ""}
+    </div>
+  );
 }
 
 /** One call's tokens in and out. */

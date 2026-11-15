@@ -8,11 +8,8 @@
  * its own: the session there is another space's, which is the case the system space is for.
  */
 
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-
 import { INVALID_PARAMS, METHOD_NOT_FOUND, NOT_FOUND, REFUSED, SPACE_MISMATCH } from "@harnix/core/protocol";
-import { type Backend, RECORDINGS, type TestClient, connect, expect, test } from "@harnix/testkit";
+import { type Backend, type TestClient, connect, expect, modelMode, test } from "@harnix/testkit";
 
 import { until } from "./instances";
 import { startTestApp } from "./testapp";
@@ -129,38 +126,19 @@ test.describe("on", () => {
   test("observability.usage: what each Agent of a session used this run — the session first, then its sub-agents with their parents", TAGS, async () => {
     const s = await oneTurn(api, "sessions");
     const usage = async () => (await api.call("observability.usage", { instance: s.instance, session_ids: [s.session_id] })).sessions[s.session_id];
-    // A replayed session writes no recording of its own.
-    expect(await usage()).toEqual({ recording: false, agents: [] });
-
-    // One written by hand: the session's own two turns, a sub-agent's call, and a title call beside them.
-    const dir = join(backend.scratch, "agix", "recordings", s.session_id);
-    mkdirSync(dir, { recursive: true });
-    const lines = [
-      { type: "recording", version: 1, session_id: s.session_id },
-      { type: "call", seq: 1, ts: 1000, session_id: s.session_id, turn: 0, step: 0, params: { model: "big" } },
-      { type: "end", seq: 2, ts: 1400, call: 1, outcome: { status: "ok" }, usage: { input_tokens: 10, cache_read_input_tokens: 90, output_tokens: 5 }, duration_ms: 400 },
-      { type: "call", seq: 3, ts: 1500, session_id: "SUB", parent_session_id: s.session_id, turn: 0, step: 0, params: { model: "small" } },
-      { type: "end", seq: 4, ts: 1600, call: 3, outcome: { status: "ok" }, usage: { input_tokens: 20, output_tokens: 3 }, duration_ms: 100 },
-      { type: "call", seq: 5, ts: 2000, session_id: s.session_id, turn: 1, step: 0, params: { model: "big" } },
-      { type: "end", seq: 6, ts: 2300, call: 5, outcome: { status: "error" }, usage: {}, duration_ms: 300 },
-      { type: "call", seq: 7, ts: 2400, session_id: s.session_id, turn: 1, purpose: "title", params: { model: "small" } },
-    ];
-    const write = (records: object[]) => writeFileSync(join(dir, "calls.jsonl"), records.map((r) => JSON.stringify(r)).join("\n") + "\n");
-    write(lines);
-    const first = await usage();
-    expect(first.recording).toBe(true);
-    expect(first.agents.map((a: any) => [a.session_id, a.parent_session_id])).toEqual([[s.session_id, null], ["SUB", s.session_id]]);
-    expect(first.agents[0]).toMatchObject({
-      calls: 2, auxiliary: 1, turns: 2, models: ["big", "small"],
-      input_tokens: 10, cache_read_tokens: 90, cache_write_tokens: 0, output_tokens: 5,
-      model_ms: 700, errors: 1, first_at: 1000, last_at: 2400,
-    });
-    expect(first.agents[1]).toMatchObject({ calls: 1, turns: 1, models: ["small"], input_tokens: 20, output_tokens: 3, model_ms: 100, errors: 0 });
-
-    // The recording grew: read again, not served from before.
-    write([...lines, { type: "call", seq: 8, ts: 3000, session_id: "SUB", parent_session_id: s.session_id, turn: 1, params: { model: "small" } },
-      { type: "end", seq: 9, ts: 3050, call: 8, outcome: { status: "ok" }, usage: { output_tokens: 7 }, duration_ms: 50 }]);
-    expect((await usage()).agents[1]).toMatchObject({ calls: 2, output_tokens: 10, model_ms: 150 });
+    const read = await usage();
+    if (modelMode() === "live") {
+      // A recorded run: the session's own figures first, and which run they cover. The folding
+      // itself (sub-agents under their parents, errors, models, times) is a unit test of the reader.
+      expect(read.recording).toBe(true);
+      expect(read.run.created_at).toBeTruthy();
+      expect(read.agents[0]).toMatchObject({ session_id: s.session_id, parent_session_id: null });
+      expect(read.agents[0].calls).toBeGreaterThan(0);
+      expect(read.agents[0].output_tokens).toBeGreaterThan(0);
+    } else {
+      // A replayed session writes no recording of its own.
+      expect(read).toMatchObject({ recording: false, agents: [] });
+    }
 
     expect((await api.refused("observability.usage", { instance: s.instance }))?.code).toBe(INVALID_PARAMS);
     const many = Array.from({ length: 201 }, (_, i) => `s${i}`);
@@ -207,32 +185,37 @@ test.describe("on", () => {
 
   test("a session's model calls: its envelopes, every call with its tool calls, one in full", TAGS, async () => {
     const s = await oneTurn(api, "sessions");
-    // Nothing recorded yet is an answer, not an error.
-    expect(await api.call("observability.trace", s)).toEqual({ recording: false, calls: [] });
-    expect((await api.call("observability.calls", s)).recording).toBe(false);
-
-    // A replayed session writes no recording of its own: give it the one its fixture was made from,
-    // where `main`'s engine keeps them.
-    cpSync(join(RECORDINGS, "spawns-agent"), join(backend.scratch, "agix", "recordings", s.session_id), { recursive: true });
-    const trace = await api.call("observability.trace", s);
-    expect(trace.recording).toBe(true);
-    expect(trace.calls.length).toBeGreaterThan(1);
-    expect(trace.calls.map((c: any) => c.index)).toEqual(trace.calls.map((_: any, i: number) => i));
-    const agent = trace.calls.find((c: any) => c.tools.some((t: any) => t.name === "Agent"));
-    expect(agent, "the call that started the sub-agent").toBeTruthy();
-    expect(agent.output.tool_uses).toBeGreaterThan(0);
-
-    const full = await api.call("observability.trace.call", { ...s, index: agent.index });
-    expect(full.index).toBe(agent.index);
-    expect(full.input.messages.length).toBe(agent.input.messages);
-    expect(full.input.model).toBe(agent.model);
-    expect((await api.refused("observability.trace.call", s))?.code).toBe(INVALID_PARAMS);
-    // A thing that is not there is NOT_FOUND, not "there is no such method".
-    expect((await api.refused("observability.trace.call", { ...s, index: 10_000 }))?.code).toBe(NOT_FOUND);
     const fresh = await api.call("harnix.session.create", { space: "sessions" });
     const unrecorded = { instance: fresh.instance, session_id: fresh.session_id };
+    // Nothing recorded yet is an answer, not an error.
+    expect(await api.call("observability.trace", unrecorded)).toMatchObject({ recording: false, calls: [], run: null });
+    expect((await api.call("observability.calls", unrecorded)).recording).toBe(false);
+    expect((await api.refused("observability.trace.call", s))?.code).toBe(INVALID_PARAMS);
     expect((await api.refused("observability.trace.call", { ...unrecorded, index: 0 }))?.code, "no recording yet").toBe(NOT_FOUND);
-    expect((await api.call("observability.trace", unrecorded)).recording).toBe(false);
+
+    // A replayed session writes no recording of its own; a live one does, through the engine, and
+    // the reader reads it through the engine's protocol.
+    const trace = await api.call("observability.trace", s);
+    if (modelMode() !== "live") {
+      expect(trace.recording).toBe(false);
+      return;
+    }
+    expect(trace.recording).toBe(true);
+    expect(trace.calls.length).toBeGreaterThan(0);
+    expect(trace.run.created_at).toBeTruthy();
+    expect(trace.calls.every((c: any) => c.session_id === s.session_id)).toBe(true);
+    // The index is the call's place in the recording of the whole tree: it rises, with gaps where a sub-agent called.
+    const indexes = trace.calls.map((c: any) => c.index);
+    expect(indexes).toEqual([...indexes].sort((a: number, b: number) => a - b));
+    expect(new Set(indexes).size).toBe(indexes.length);
+    const first = trace.calls[0];
+    const full = await api.call("observability.trace.call", { ...s, index: first.index });
+    expect(full.index).toBe(first.index);
+    expect(full.input.messages.length).toBe(first.input.messages);
+    expect(full.input.model).toBe(first.model);
+    expect(full.input.session_id).toBe(s.session_id);
+    // A thing that is not there is NOT_FOUND, not "there is no such method".
+    expect((await api.refused("observability.trace.call", { ...s, index: 10_000 }))?.code).toBe(NOT_FOUND);
 
     const calls = await api.call("observability.calls", s);
     expect(calls.recording).toBe(true);
@@ -276,37 +259,23 @@ test.describe("on", () => {
 
   test("each call's time to first token and output rate, and a turn's model and tool time, read off the recording", TAGS, async () => {
     const s = await oneTurn(api, "sessions");
-    cpSync(join(RECORDINGS, "calls-a-tool"), join(backend.scratch, "agix", "recordings", s.session_id), { recursive: true });
-    // What the recording says, worked out here independently: each call's send, first chunk, last chunk.
-    const records = readFileSync(join(RECORDINGS, "calls-a-tool", "calls.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
-    const sent = records.filter((r) => r.type === "call");
-    const times = sent.map((call) => {
-      const chunks = records.filter((r) => r.call === call.seq && r.type !== "end");
-      const starts = chunks.map((r) => r.ts0 ?? r.ts);
-      const ends = chunks.map((r) => (r.ts0 != null ? r.ts0 + (r.dt ?? []).reduce((a: number, b: number) => a + b, 0) : r.ts));
-      const end = records.find((r) => r.type === "end" && r.call === call.seq);
-      return { sent: call.ts, first: Math.min(...starts), last: Math.max(...ends), duration: end.duration_ms };
-    });
-
-    const { calls } = await api.call("observability.trace", s);
-    expect(calls).toHaveLength(times.length);
-    calls.forEach((call: any, i: number) => {
-      expect(call.timing.sent_at, `call ${i}`).toBe(times[i]!.sent);
-      expect(call.timing.ttft_ms, `call ${i}`).toBe(times[i]!.first - times[i]!.sent);
-      expect(call.timing.generate_ms, `call ${i}`).toBe(times[i]!.last - times[i]!.first);
-    });
-
+    // The sums and times are worked out from the recording's rows by the reader's unit tests; here
+    // only that a recorded run answers in that shape. A replayed session has no recording.
+    const { calls, recording } = await api.call("observability.trace", s);
     const { turns } = await api.call("observability.turns", s);
-    expect(turns).toHaveLength(1);
-    const [turn] = turns;
-    expect(turn.calls).toEqual([0, 1]);
-    expect(turn.model_ms).toBe(times[0]!.duration + times[1]!.duration);
-    expect(turn.tool_ms).toBe(times[1]!.sent - (times[0]!.sent + times[0]!.duration));
-    expect(turn.ttft_ms).toBe(calls[0].timing.ttft_ms);
-    // The turn's own calls: a recording also holds the calls beside it (its title, the memory extraction).
-    const out = turn.calls.reduce((n: number, i: number) => n + (calls[i].usage?.output_tokens ?? 0), 0);
-    expect(turn.output_tokens).toBe(out);
-    expect(turn.cache_hit === null || (turn.cache_hit >= 0 && turn.cache_hit <= 1)).toBe(true);
+    if (modelMode() !== "live") {
+      expect(recording).toBe(false);
+      expect(turns).toEqual([]);
+    } else {
+      expect(calls.length).toBeGreaterThan(0);
+      for (const call of calls) {
+        expect(call.timing.sent_at).toBeGreaterThan(0);
+        if (call.timing.generate_ms != null) expect(call.timing.generate_ms).toBeLessThanOrEqual(call.duration_ms);
+        if (call.timing.ttft_ms != null) expect(call.timing.ttft_ms).toBeLessThanOrEqual(call.duration_ms);
+      }
+      expect(turns.length).toBeGreaterThan(0);
+      expect(turns[0].model_ms).toBeGreaterThan(0);
+    }
     expect((await api.refused("observability.turns", {}))?.code).toBe(INVALID_PARAMS);
   });
 

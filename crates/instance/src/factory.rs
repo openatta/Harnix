@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use harnix_engine::{Chains, Endpoint, Engine, EngineConfig, HostSide, InProcessEngine, Recording, ReplayLink};
+use harnix_engine_api::readers::Readers;
 use harnix_engine_api::{EngineContribution, EngineControl, EngineLink, SceneLayers};
 
 use crate::daemon::{DaemonSpec, SpawnOptions, SpawnSpec, Supervised};
@@ -19,8 +20,6 @@ use crate::templates::{InstanceTemplate, TemplateCarrier};
 #[derive(Clone, Default)]
 pub struct Facts {
     pub data_root: PathBuf,
-    pub recordings_root: Option<PathBuf>,
-    pub history: Option<Arc<dyn harnix_engine::HistoryStore>>,
     pub active_scenes: Vec<String>,
     /// The scene `session.create` uses when it names none.
     pub scene: Option<String>,
@@ -41,8 +40,6 @@ impl From<&Engine> for Facts {
     fn from(engine: &Engine) -> Self {
         Self {
             data_root: engine.data_root.clone(),
-            recordings_root: Some(engine.recordings_root.clone()),
-            history: engine.history.clone(),
             active_scenes: engine.active_scenes.clone(),
             scene: Some(engine.scene.clone()),
             model: Some(engine.model.clone()),
@@ -60,17 +57,27 @@ pub struct Built {
     pub link: Arc<dyn EngineLink>,
     pub control: Arc<dyn EngineControl>,
     pub facts: Facts,
+    /// The readers of what its engine writes down, through its link: its recordings and
+    /// transcripts. `None` for an instance that was never built (listed down).
+    pub readers: Option<Readers>,
 }
 
 impl Built {
-    /// A link that is its own control.
+    /// A link that is its own control, with nothing to read through.
     pub fn new(link: Arc<dyn EngineLink>, facts: Facts) -> Self {
         let control: Arc<dyn EngineControl> = link.clone();
-        Self { link, control, facts }
+        Self { link, control, facts, readers: None }
+    }
+
+    /// Readers of what the engine writes down, through the link it is reached by.
+    pub fn read_through(mut self, readers: Readers) -> Self {
+        self.readers = Some(readers);
+        self
     }
 
     fn supervised(daemon: Arc<Supervised>, facts: Facts) -> Self {
-        Self { link: daemon.link(), control: daemon, facts }
+        let readers = daemon.readers();
+        Self { link: daemon.link(), control: daemon, facts, readers: Some(readers) }
     }
 }
 
@@ -152,8 +159,9 @@ impl Factory {
         let engine = Engine::start(EngineConfig::from_profile(&profile, &data_root)).await?;
         let facts = Facts::from(&engine);
         let here = InProcessEngine::start(engine, id, host).await?;
-        let recorder = self.recording.of(id, facts.recordings_root.clone());
-        Ok(Built { link: ReplayLink::daemon(here.link().clone(), recorder), control: here, facts })
+        let recorder = self.recording.of(id, Some(data_root.join("recordings")));
+        let readers = here.link().readers();
+        Ok(Built { link: ReplayLink::daemon(here.link().clone(), recorder), control: here, facts, readers: Some(readers) })
     }
 
     pub async fn build(
@@ -234,8 +242,9 @@ impl Factory {
                 if let Err(e) = crate::servers::forget(&data_root) {
                     tracing::warn!(instance = id, error = %e, "the MCP servers 0.4.3 wrote were not taken out");
                 }
-                // Where a daemon writes its recordings is its own: a deleted session's stays.
-                options.recorder = Some(self.recording.of(id, None));
+                // Its sessions record where its settings say, or under its data root, as the ones of
+                // an engine in this process do.
+                options.recorder = Some(self.recording.of(id, Some(data_root.join("recordings"))));
                 options.host = Some(host);
                 let daemon = Supervised::start_with(DaemonSpec {
                     endpoint: Endpoint::Unix(socket),
@@ -279,6 +288,7 @@ impl Factory {
                     }
                     _ => anyhow::bail!("attach takes exactly one of `socket` and `tcp`"),
                 };
+                // Somebody else's daemon records where it likes: no directory is named and none removed.
                 let options = SpawnOptions { recorder: Some(self.recording.of(id, None)), ..SpawnOptions::default() };
                 let daemon = Supervised::start_with(DaemonSpec { endpoint, spawn: None }, options);
                 Ok(Built::supervised(daemon, Facts { data_root, ..Facts::default() }))

@@ -28,6 +28,7 @@ use harnix_contract::{codes, RpcError};
 use harnix_kernel::instances::{holding, holds, Holding, Side};
 use harnix_engine::ReplayLink;
 use harnix_engine_api::link::{EngineControl, EngineLink, LinkStatus};
+use harnix_engine_api::readers::Readers;
 use harnix_kernel::{GrantBook, InstanceBook, InstanceObserver, InstanceTrust, Listed, Rpc};
 use serde_json::{json, Value};
 use tokio::sync::watch;
@@ -82,10 +83,12 @@ pub struct InstanceFacts {
 }
 
 /// One instance: what it is, and what stops it. Its link is the hub's to use: the slot keeps only
-/// the link's control half, which reaches no session.
+/// the link's control half, which reaches no session — and the readers of its recordings and
+/// transcripts, which read only those, under `recordings.read` and `transcripts.read`.
 pub(crate) struct Slot {
     id: String,
     control: Arc<dyn EngineControl>,
+    readers: Option<Readers>,
     trust: InstanceTrust,
     facts: Facts,
     template: Option<String>,
@@ -327,6 +330,11 @@ impl InstanceRegistry {
     }
 
     /// Facts about one listed instance. The hub asks this holding none of its locks.
+    /// The readers of what `id`'s engine writes down, while it is listed and built.
+    pub fn readers(&self, id: &str) -> Option<Readers> {
+        self.slot(id)?.readers.clone()
+    }
+
     pub fn facts(&self, id: &str) -> Option<InstanceFacts> {
         debug_assert!(!holds(Side::Hub), "the hub calls the registry holding its own lock");
         self.slot(id).map(|s| s.facts())
@@ -371,7 +379,7 @@ impl InstanceRegistry {
 
     /// [`Self::show`], for the product's own engine, or for an extension's adopted one.
     async fn show_as(&self, id: &str, built: Built, record: Record, handover: Handover, providers: u64, adopted: Option<(InstanceTrust, Arc<Adoption>)>) {
-        let Built { link, control, facts } = built;
+        let Built { link, control, facts, readers } = built;
         let (trust, adopted) = match adopted {
             Some((trust, adoption)) => (trust, Some(adoption)),
             None => (InstanceTrust::Product, None),
@@ -385,6 +393,7 @@ impl InstanceRegistry {
         let slot = Arc::new(Slot {
             id: id.to_string(),
             control,
+            readers,
             trust,
             facts,
             template: record.template,
@@ -450,8 +459,9 @@ impl InstanceRegistry {
         self.factory.turns.watch(&id, adoption.clone());
         // Handed to the hub as any daemon's link is: the hub alone takes its events, and its calls
         // go through the process's recorder, so its sessions record — or, in replay, play back.
-        let link = ReplayLink::daemon(adoption.link(), self.factory.recording.of(&id, None));
-        let built = Built { link, control: Arc::new(adopt::AdoptedControl(adoption.clone())), facts };
+        let readers = adoption.link().readers();
+        let link = ReplayLink::daemon(adoption.link(), self.factory.recording.of(&id, Some(spec.data_root.join("recordings"))));
+        let built = Built { link, control: Arc::new(adopt::AdoptedControl(adoption.clone())), facts, readers: Some(readers) };
         let providers = self.state().providers;
         let record = Record::fixed(Owner::Module(spec.ext.to_string()));
         let trust = InstanceTrust::Extension(spec.ext.clone());

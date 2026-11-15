@@ -5,9 +5,9 @@ import { clip, useT, compact, millis, since, Glyph, rowKeys } from "@harnix/reac
 
 import { LIVE, PAGE } from "./constants.ts";
 import { isActive, stateOf, useAgentRows, useGoals, useUsage } from "./data.ts";
-import { goalState, taskDuration, taskLabel, tokenTip, totalTokens } from "./format.ts";
+import { goalState, taskDuration, taskLabel, tokenTip, tokenTitle, totalTokens } from "./format.ts";
 import { TeamBoard } from "./pane/tasks.tsx";
-import type { AgentRow, AgentUsage, Goal, InstanceRow, Scope, Task, Team } from "./types.ts";
+import type { AgentRow, AgentUsage, Goal, InstanceRow, Scope, Task, Team, UsageNote } from "./types.ts";
 import { useIsSelected, useRunning, useTick, useTopic, useTopicIf, type AgentListState, type View } from "./view.ts";
 
 /**
@@ -42,7 +42,7 @@ export function Agents({ view, scope }: { view: View; scope: Scope }) {
   const rank = (row: AgentRow) => stateOf(row, turns, view.isUnread(row.key)).rank;
   const sorted = [...chosen].sort((a, b) => rank(a) - rank(b) || (b.last_active ?? "").localeCompare(a.last_active ?? ""));
   const shown = scope === "all" ? sorted.slice(0, limit) : sorted;
-  const usage = useUsage(view.host, shown);
+  const { usage, notes } = useUsage(view.host, shown);
   // A goal is the engine's, in memory: asked of the loaded Agents on the active tab.
   const goals = useGoals(view.host, shown);
   return (
@@ -76,7 +76,7 @@ export function Agents({ view, scope }: { view: View; scope: Scope }) {
             <span className="el" role="columnheader" title={tr("system.agents.col.lastTip")}>{tr("system.agents.col.last")}</span>
           </div>
           {shown.map((row) => (
-            <AgentItem key={row.key} view={view} row={row} usage={usage[row.key]} goal={goals[row.key] ?? null} turning={turns.has(row.key)} scope={scope} />
+            <AgentItem key={row.key} view={view} row={row} usage={usage[row.key]} note={notes[row.key]} goal={goals[row.key] ?? null} turning={turns.has(row.key)} scope={scope} />
           ))}
         </div>
       ) : (
@@ -133,6 +133,7 @@ interface AgentItemProps {
   view: View;
   row: AgentRow;
   usage?: AgentUsage[];
+  note?: UsageNote;
   goal: Goal | null;
   /** Whether a turn of it is running, as the shell's own status says. */
   turning: boolean;
@@ -140,7 +141,7 @@ interface AgentItemProps {
 }
 
 /** One main Agent's row, and opened, what is under it. Drawn again only when what it shows changed. */
-const AgentItem = memo(function AgentItem({ view, row, usage, goal, turning, scope }: AgentItemProps) {
+const AgentItem = memo(function AgentItem({ view, row, usage, note, goal, turning, scope }: AgentItemProps) {
   const tr = useT();
   const selected = useIsSelected(view, { kind: "session", instance: row.instance, sessionId: row.session_id });
   // Picked, it is seen: read when it is drawn, which picking it does.
@@ -209,7 +210,7 @@ const AgentItem = memo(function AgentItem({ view, row, usage, goal, turning, sco
         <span className="stat" role="gridcell" data-stat="tasks" title={tr("system.stat.tasks")}>
           {taskCount}
         </span>
-        <span className="stat" role="gridcell" data-stat="tokens" title={usage ? tokenTip(usage) : tr("system.stat.noRecording")}>
+        <span className="stat" role="gridcell" data-stat="tokens" title={usage ? tokenTitle(usage, note) : tr("system.stat.noRecording")}>
           {usage ? compact(tokens) : "—"}
         </span>
         <span className="stat" role="gridcell" data-stat="time" title={usage ? tr("system.stat.time") : tr("system.stat.noRecording")}>
