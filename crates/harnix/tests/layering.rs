@@ -1239,7 +1239,7 @@ mod rules {
         // Written: `agix::` is `embed.rs`'s alone.
         let mut offenders = Vec::new();
         for (path, text) in sources(ENGINE) {
-            if path.ends_with("src/embed.rs") || path.file_name().is_some_and(|n| n.to_string_lossy().ends_with("tests.rs")) {
+            if path.ends_with("src/embed.rs") {
                 continue;
             }
             if lex(&text, false).contains("agix::") {
@@ -1443,9 +1443,7 @@ mod rules {
         assert!(needles.len() > 40, "{} names to look for", needles.len());
         let mut offenders = Vec::new();
         for (path, text) in sources(ENGINE) {
-            // Test modules are declared `#[cfg(test)] mod tests;` from outside the file.
-            let is_tests = path.file_name().is_some_and(|n| n.to_string_lossy().ends_with("tests.rs"));
-            if path.ends_with("src/translate.rs") || is_tests {
+            if path.ends_with("src/translate.rs") {
                 continue;
             }
             let code = lex(&text, true);

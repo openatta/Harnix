@@ -1,5 +1,7 @@
 //! The readers against an engine that answers from a script.
 
+#![cfg(test)]
+
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 

@@ -15,7 +15,6 @@ mod trace;
 mod usage;
 mod wire;
 
-#[cfg(test)]
 mod tests;
 
 use std::collections::BTreeMap;
