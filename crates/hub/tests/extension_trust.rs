@@ -573,7 +573,7 @@ fn sub_agent(child: &str) -> EngineEvent {
     EngineEvent::Session {
         session: "s1".into(),
         turn_id: "t".into(),
-        kind: SessionEventKind::Task { task_id: "k".into(), started: true, session: Some(child.into()) },
+        kind: SessionEventKind::Task { task_id: "k".into(), started: true, session: Some(child.into()), live: true },
         event: json!({"kind": "task_started", "task": {"task_id": "k", "detail": {"agent_session_id": child}}}),
     }
 }

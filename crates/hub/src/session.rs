@@ -173,6 +173,9 @@ pub(crate) async fn route_event(
         SessionEventKind::TeamProgress { team_id } => {
             state.teams.insert(team_id.clone(), event.clone());
         }
+        SessionEventKind::AskResolved { prompt_id, .. } => {
+            state.pending_prompts.retain(|p| p.prompt_id.as_deref() != Some(prompt_id.as_str()));
+        }
         // Answered, or refused on its timeout: the tool went on either way.
         SessionEventKind::ToolResult { id, .. } => {
             state.pending_prompts.retain(|p| p.tool_use_id.as_deref() != Some(id.as_str()));
@@ -403,3 +406,35 @@ pub(crate) fn client_of(cx: &CallContext) -> Result<ClientId, RpcError> {
     })
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use harnix_engine_api::events::Waiting;
+
+    fn asked(id: &str) -> SessionEventKind {
+        SessionEventKind::Asked(Prompt::new(json!({"prompt_id": id}), Some(id.into()), None, Waiting::Approval))
+    }
+
+    /// A question the engine says stopped waiting is no longer pending; the others stay.
+    #[tokio::test]
+    async fn a_resolved_question_is_not_pending_any_more() {
+        let inner = Arc::new(InnerLock::default());
+        let key = ("main".to_string(), "s".to_string());
+        for id in ["p1", "p2"] {
+            route_event(&inner, "main", "s", "t", &asked(id), json!({"kind": "prompt"}), false).await;
+        }
+        let pending = |inner: &Arc<InnerLock>| {
+            let inner = inner.clone();
+            let key = key.clone();
+            async move {
+                let guard = inner.lock().await;
+                guard.sessions[&key].pending_prompts.iter().map(|p| p.prompt_id.clone().unwrap()).collect::<Vec<_>>()
+            }
+        };
+        assert_eq!(pending(&inner).await, ["p1", "p2"]);
+        let resolved = SessionEventKind::AskResolved { prompt_id: "p1".into(), answered: false };
+        route_event(&inner, "main", "s", "t", &resolved, json!({"kind": "prompt_resolved"}), false).await;
+        assert_eq!(pending(&inner).await, ["p2"]);
+    }
+}

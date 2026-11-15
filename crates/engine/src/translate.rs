@@ -68,10 +68,12 @@ const TOOL_ARGS_DELTA: &str = "tool_args_delta";
 const TOOL_USE: &str = "tool_use";
 const TOOL_RESULT: &str = "tool_result";
 const PROMPT: &str = "prompt";
+const PROMPT_RESOLVED: &str = "prompt_resolved";
 const GOAL_CHANGED: &str = "goal_changed";
 const TEAM_PROGRESS: &str = "team_progress";
 const TASK_STARTED: &str = "task_started";
 const TASK_FINISHED: &str = "task_finished";
+const TASK_UPDATED: &str = "task_updated";
 const COMPACT: &str = "compact";
 const TURN_COMPLETE: &str = "turn_complete";
 const SUBSCRIPTION_DROPPED: &str = "subscription_dropped";
@@ -192,7 +194,7 @@ impl EngineOps for AgixOps {
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
-            .filter(|t| matches!(t.get("status").and_then(Value::as_str), Some("running" | "waiting" | "pending")))
+            .filter(|t| task_is_live(t))
             .filter_map(|t| t.get("task_id").and_then(Value::as_str).map(str::to_string))
             .collect();
         Ok(Tasks::new(value, live))
@@ -262,6 +264,11 @@ pub(crate) fn event(frame: Value) -> Option<EngineEvent> {
     }
 }
 
+/// Whether a task row is work in progress: a standing member between two messages is `idle`.
+fn task_is_live(task: &Value) -> bool {
+    matches!(task.get("status").and_then(Value::as_str), Some("running" | "waiting" | "pending"))
+}
+
 fn session_event(mut params: Value) -> Option<EngineEvent> {
     let session = params.get("session_id").and_then(Value::as_str)?.to_string();
     let event = params.get_mut("event").map(Value::take).unwrap_or(Value::Null);
@@ -283,6 +290,13 @@ fn session_event(mut params: Value) -> Option<EngineEvent> {
             is_error: event.get("is_error").and_then(Value::as_bool).unwrap_or(false),
         },
         PROMPT => SessionEventKind::Asked(prompt(event.clone())),
+        PROMPT_RESOLVED => match event.get("prompt_id").and_then(Value::as_str) {
+            Some(id) => SessionEventKind::AskResolved {
+                prompt_id: id.to_string(),
+                answered: event.get("resolution").and_then(Value::as_str) == Some("answered"),
+            },
+            None => SessionEventKind::Other,
+        },
         GOAL_CHANGED => SessionEventKind::GoalChanged { goal: event.get("goal").cloned().unwrap_or(Value::Null) },
         TEAM_PROGRESS => match event.get("team_id").and_then(Value::as_str) {
             Some(team) => SessionEventKind::TeamProgress { team_id: team.to_string() },
@@ -294,6 +308,7 @@ fn session_event(mut params: Value) -> Option<EngineEvent> {
                 Some(id) => SessionEventKind::Task {
                     task_id: id.to_string(),
                     started: kind_name == TASK_STARTED,
+                    live: kind_name == TASK_STARTED && task.is_some_and(task_is_live),
                     session: task
                         .and_then(|t| t.pointer("/detail/agent_session_id"))
                         .and_then(Value::as_str)
@@ -302,6 +317,16 @@ fn session_event(mut params: Value) -> Option<EngineEvent> {
                 None => SessionEventKind::Other,
             }
         }
+        TASK_UPDATED => match event.pointer("/task/task_id").and_then(Value::as_str) {
+            Some(id) => SessionEventKind::TaskChanged {
+                task_id: id.to_string(),
+                live: event.get("task").is_some_and(task_is_live),
+            },
+            None => SessionEventKind::Other,
+        },
+        // A trim swaps old tool results for a placeholder and keeps every message: the
+        // transcript is not shorter for it.
+        COMPACT if event.get("trim").and_then(Value::as_bool) == Some(true) => SessionEventKind::Other,
         COMPACT => SessionEventKind::Compacted,
         TURN_COMPLETE => SessionEventKind::TurnComplete(completion(&event)),
         _ => SessionEventKind::Other,
@@ -631,12 +656,25 @@ mod tests {
         assert_eq!(args, SessionEventKind::Fragment(Fragment::new(Joins::ToolArgs("c".into()), "partial_json", "{")));
         assert_eq!(
             kind_of(json!({"kind": "task_finished", "task": {"task_id": "k"}})),
-            SessionEventKind::Task { task_id: "k".into(), started: false, session: None }
+            SessionEventKind::Task { task_id: "k".into(), started: false, session: None, live: false }
         );
         assert_eq!(
             kind_of(json!({"kind": "task_started", "task": {"task_id": "k", "detail": {"agent_session_id": "sub"}}})),
-            SessionEventKind::Task { task_id: "k".into(), started: true, session: Some("sub".into()) }
+            SessionEventKind::Task { task_id: "k".into(), started: true, session: Some("sub".into()), live: false }
         );
+        let member = json!({"kind": "task_started", "task": {"task_id": "member-1", "status": "idle"}});
+        assert_eq!(
+            kind_of(member),
+            SessionEventKind::Task { task_id: "member-1".into(), started: true, session: None, live: false }
+        );
+        let running = json!({"kind": "task_started", "task": {"task_id": "k", "status": "running"}});
+        assert!(matches!(kind_of(running), SessionEventKind::Task { live: true, .. }));
+        let updated = |status: &str| json!({"kind": "task_updated", "task": {"task_id": "k", "status": status}});
+        assert_eq!(kind_of(updated("running")), SessionEventKind::TaskChanged { task_id: "k".into(), live: true });
+        assert_eq!(kind_of(updated("idle")), SessionEventKind::TaskChanged { task_id: "k".into(), live: false });
+        assert_eq!(kind_of(json!({"kind": "task_updated"})), SessionEventKind::Other);
+        assert_eq!(kind_of(json!({"kind": "compact", "strategy": "MicroCompact", "trim": true})), SessionEventKind::Other);
+        assert_eq!(kind_of(json!({"kind": "compact", "strategy": "Summary"})), SessionEventKind::Compacted);
         assert_eq!(kind_of(json!({"kind": "assistant_message"})), SessionEventKind::Other);
     }
 
@@ -654,6 +692,15 @@ mod tests {
         assert_eq!((p.prompt_id.as_deref(), p.tool_use_id.as_deref(), p.waiting), (Some("p"), Some("u"), Waiting::Approval));
         assert_eq!(asked(json!({"kind": "prompt", "prompt_type": "question"})).waiting, Waiting::Answer);
         assert_eq!(asked(json!({"kind": "prompt", "tool_name": "ExitPlanMode"})).waiting, Waiting::Plan);
+        assert_eq!(
+            kind_of(json!({"kind": "prompt_resolved", "prompt_id": "p", "resolution": "withdrawn", "reason": "timed_out"})),
+            SessionEventKind::AskResolved { prompt_id: "p".into(), answered: false }
+        );
+        assert_eq!(
+            kind_of(json!({"kind": "prompt_resolved", "prompt_id": "p", "resolution": "answered"})),
+            SessionEventKind::AskResolved { prompt_id: "p".into(), answered: true }
+        );
+        assert_eq!(kind_of(json!({"kind": "prompt_resolved"})), SessionEventKind::Other);
     }
 
     #[test]

@@ -329,6 +329,15 @@ impl Wire {
             identity.get("version").and_then(Value::as_str).map(str::to_string),
             Some(theirs),
             capabilities,
+        )
+        .modules(
+            identity
+                .get("modules")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|m| m.as_str().map(str::to_string))
+                .collect(),
         );
         self.call(translate::DAEMON_SUBSCRIBE_EVENTS, json!({}))
             .await
