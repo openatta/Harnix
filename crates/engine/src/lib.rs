@@ -18,7 +18,6 @@ mod embed;
 mod gate;
 mod host;
 mod host_hooks;
-#[cfg(test)]
 mod host_tests;
 mod host_tools;
 mod presets;

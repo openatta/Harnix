@@ -2,6 +2,8 @@
 //! ready, called and answered on the link without the hub seeing the calls, registered again on
 //! the next connection and after a change.
 
+#![cfg(test)]
+
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
