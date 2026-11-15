@@ -106,7 +106,7 @@ export function SessionOverview({ view, session }: { view: View; session: Sessio
           [tr("system.fact.session"), session.sessionId],
           [tr("system.fact.name"), row?.name ?? ""],
           [tr("system.fact.space"), space],
-          [tr("system.fact.scene"), row?.scene ?? ""],
+          [tr("system.fact.scene"), row?.scene_layer ?? row?.scene ?? ""],
           [tr("system.fact.model"), model],
           [tr("system.fact.project"), row?.project_root ?? ""],
           [tr("system.fact.startedBy"), row?.started_by === "harnix" ? tr("system.startedBy.harnix") : tr("system.startedBy.user")],

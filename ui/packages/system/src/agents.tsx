@@ -36,7 +36,7 @@ export function Agents({ view, scope }: { view: View; scope: Scope }) {
   const q = query.trim().toLowerCase();
   const matches = (row: AgentRow) =>
     (who === "all" || (row.started_by ?? "user") === who) &&
-    (!q || [row.name, row.session_id, row.space, row.instance, row.scene, row.project_root].some((v) => v && String(v).toLowerCase().includes(q)));
+    (!q || [row.name, row.session_id, row.space, row.instance, row.scene_layer, row.scene, row.project_root].some((v) => v && String(v).toLowerCase().includes(q)));
   const inScope = scope === "active" ? rows.filter((row) => isActive(row, turns)) : rows;
   const chosen = inScope.filter(matches);
   const rank = (row: AgentRow) => stateOf(row, turns, view.isUnread(row.key)).rank;
@@ -170,7 +170,7 @@ const AgentItem = memo(function AgentItem({ view, row, usage, goal, turning, sco
         tabIndex={0}
         data-row=""
         data-testid="system-agent"
-        title={[row.name || tr("sidebar.untitled"), state.label, `${row.instance} · ${row.space ?? view.host.defaults.space ?? ""} · ${row.scene ?? ""}`, row.project_root ?? "", row.session_id, row.last_active ?? ""].filter(Boolean).join("\n")}
+        title={[row.name || tr("sidebar.untitled"), state.label, `${row.instance} · ${row.space ?? view.host.defaults.space ?? ""} · ${row.scene_layer ?? row.scene ?? ""}`, row.project_root ?? "", row.session_id, row.last_active ?? ""].filter(Boolean).join("\n")}
         onClick={select}
         onKeyDown={rowKeys(select, { open: expanded, set: setOpen })}
       >

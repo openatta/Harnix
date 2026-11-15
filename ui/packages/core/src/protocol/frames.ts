@@ -49,6 +49,9 @@ export interface Scene {
   description?: string;
   active?: boolean;
   requires_project?: boolean;
+  /** 场景层的一行：它跑在引擎的哪个场景上。 */
+  base?: string;
+  scene_layer?: boolean;
   [key: string]: unknown;
 }
 
@@ -155,7 +158,11 @@ export interface SessionRow {
   session_id: string;
   name?: string | null;
   preview?: string | null;
+  /** 引擎跑的场景（它自己的）；会话建在场景层里时，`scene_layer` 是那一层，显示用它。 */
   scene?: string | null;
+  scene_layer?: string | null;
+  /** 调用方自己加在系统提示词末尾的文字（`harnix.session.setPrompt`）。 */
+  prompt_append?: string | null;
   project_root?: string | null;
   status?: string;
   running?: boolean;
