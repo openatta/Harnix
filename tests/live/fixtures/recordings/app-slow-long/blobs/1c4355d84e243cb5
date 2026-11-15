@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_00_WRWBZyFzXV1GEOsMcNmu0742","content":"example.showcase: the package's call exceeded its timeout","is_error":true}]}
