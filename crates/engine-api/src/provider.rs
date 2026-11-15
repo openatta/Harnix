@@ -65,6 +65,16 @@ impl ToolsWatch {
     pub async fn changed(&mut self) -> bool {
         self.0.changed().await.is_ok()
     }
+
+    /// Whether a change came that this watch has not heard yet.
+    pub fn pending(&self) -> bool {
+        self.0.has_changed().unwrap_or(false)
+    }
+
+    /// Hear every change so far, without waiting for one.
+    pub fn hear(&mut self) {
+        self.0.borrow_and_update();
+    }
 }
 
 /// Asked before a tool call runs.

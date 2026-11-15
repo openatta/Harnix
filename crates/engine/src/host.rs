@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
-use harnix_engine_api::{Cancel, ChainSource, EngineContribution, NoChains, PromptGate, SceneLayers, Tool, ToolProvider};
+use harnix_engine_api::{Cancel, ChainSource, EngineContribution, NoChains, PromptGate, SceneLayers, Tool, ToolProvider, ToolsWatch};
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio::task::AbortHandle;
@@ -84,6 +84,9 @@ pub struct HostSide {
     projects: StdMutex<HashMap<String, PathBuf>>,
     /// A registration as a connection is taken and one after a change are one at a time.
     registering: tokio::sync::Mutex<()>,
+    /// Every provider's changes as of the last registration: one pending is a set of tools the
+    /// daemon has not been told yet (`catch_up`).
+    unheard: StdMutex<Vec<ToolsWatch>>,
     tasks: StdMutex<Vec<AbortHandle>>,
 }
 
@@ -116,6 +119,7 @@ impl HostSide {
             calls: StdMutex::default(),
             projects: StdMutex::default(),
             registering: tokio::sync::Mutex::new(()),
+            unheard: StdMutex::new(contrib.providers().iter().flat_map(|p| p.changes()).map(|c| c.watch()).collect()),
             tasks: StdMutex::default(),
         }))
     }
@@ -170,6 +174,9 @@ impl HostSide {
     /// stop. After a change, a failure is logged and the last registration stands.
     pub(crate) async fn register(&self, wire: &dyn Wired, connecting: bool) -> Result<(), Refusal> {
         let _one = self.registering.lock().await;
+        for watch in lock(&self.unheard).iter_mut() {
+            watch.hear();
+        }
         let failed = |what: String| -> Result<(), Refusal> {
             if connecting {
                 Err(Refusal::Retry(what))
@@ -330,6 +337,15 @@ impl HostSide {
                 }
                 Ok(_) => return,
             }
+        }
+    }
+
+    /// Declare again now if a provider changed since the last registration, rather than after the
+    /// change settles: a session made just after a package started has its tools
+    /// (harnix-ext-package.md §5).
+    pub(crate) async fn catch_up(&self, wire: &dyn Wired) {
+        if lock(&self.unheard).iter().any(ToolsWatch::pending) {
+            let _ = self.register(wire, false).await;
         }
     }
 

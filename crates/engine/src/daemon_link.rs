@@ -137,6 +137,9 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(300);
 /// Calls that last as long as the turn they run: no link-level timeout. A turn that ends is
 /// reported on the event stream too, and a link that is lost drains them with the rest.
 const LASTS_A_TURN: &[&str] = &[translate::SESSION_RUN_TURN];
+/// Calls that may build a session, which takes the tools the connection declared then: a change
+/// a provider made just before is declared first (`HostSide::catch_up`).
+const MAKES_A_SESSION: &[&str] = &[translate::SESSION_CREATE, translate::SESSION_FORK, translate::SESSION_RESUME, translate::SESSION_RUN_TURN];
 
 type Pending = HashMap<u64, oneshot::Sender<Result<Value, RpcError>>>;
 
@@ -471,6 +474,9 @@ impl Rpc for Wire {
         let status = self.status.borrow().clone();
         if !status.is_ready() {
             return Err(status.unavailable());
+        }
+        if MAKES_A_SESSION.contains(&method) {
+            self.host.catch_up(self).await;
         }
         Wire::call(self, method, params).await
     }
