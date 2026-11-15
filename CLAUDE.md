@@ -2,7 +2,7 @@
 
 ## 版本与发布
 
-版本标识的形式是 `Harnix-v<x.y.z>-<YYYYMMDD><NN>`，例如 `Harnix-v0.3.2-2026102501`：
+版本标识的形式是 `Harnix-v<x.y.z>-<YYYYMMDD><NN>`：
 
 - `x.y.z`：每次发布只升 `z`；`x`、`y` 只有维护者明确要求时才升。
 - `YYYYMMDD`：发布当天的日期。
@@ -22,7 +22,7 @@ crate 自己的 `Cargo.toml` 里，不从 workspace 继承（应用把这些 cra
 2. `scripts/set-version.sh x.y.z-YYYYMMDDNN` 改所有 crate 的版本号，它会顺带 `cargo update -w`。
 3. `scripts/check.sh` 通过（跑不了的层要说明，不能当作通过）。
 4. 版本号改动单独一个提交。
-5. 在这个提交上打附注标签（标签名就是完整的版本标识，标签消息第一行写对应的 Agix 标签，如 `Agix: Agix-v0.3.8-2026110801`，
+5. 在这个提交上打附注标签（标签名就是完整的版本标识，标签消息第一行写对应的 Agix 标签，即 `Agix: Agix-v<x.y.z>-<YYYYMMDD><NN>`，
    再写本次发布的要点），和分支一起推送。
 
 ### 开发分支
@@ -34,7 +34,7 @@ crate 自己的 `Cargo.toml` 里，不从 workspace 继承（应用把这些 cra
 - 什么时候合回 `main`、合回时是否升 `x.y`，由维护者定；合回之后照上面的步骤从 `main` 发布。
 - 并行的子任务可以各开一条从开发分支拉出的短分支（`harnix-apps-<部分>`），做完合回开发分支再删。
 
-改名为 Harnix 之前的标签（`v0.3.0` 及更早、`nest-v0.3.1-2026102501`）保留原样，不改名。
+改名为 Harnix 之前的标签（`v…`、`nest-v…`）保留原样，不改名。
 
 ## 开发
 
@@ -47,7 +47,7 @@ crate 自己的 `Cargo.toml` 里，不从 workspace 继承（应用把这些 cra
   版本迁移写在 `docs/migrations/<x.y.z>.md`（要应用动手的版本各写一份，登记在 `docs/migrations/README.md` 的表里）：只在本地，
   已在 `.gitignore`，不提交。
   过程（计划、进度、设计记录）不进 `docs/`。下游项目的需求在 GitHub issue 里记（每个项目一个标签），
-  `docs/issues/README.md` 只是代码里的编号与 issue 的对照表。0.4 的设计记录与路线已从仓库移出，在 git 历史里；
+  `docs/issues/README.md` 只是代码里的编号与 issue 的对照表。以前的设计记录与路线已从仓库移出，在 git 历史里；
   代码注释不引用它们，也不引用审查的轮次：写一行理由，或指向这里的文档（`concept §3.2`、`harnix-ext.md §17.6`），
   `tests/style-lint.mjs` 拦「设计 §」「design §」「review #」「review G2」这类审查编号、「roadmap M」。
 - 改了 `README.md` 或 `docs/README.zh-CN.md`，两边一起改，再 `node tests/readme-pairing.mjs --write`。
