@@ -1,23 +1,22 @@
 //! A package's agent side, put in place and switched with it, through the agent engine: its
-//! agent package installed into each instance its manifest names (`[agent] install_into`), its
-//! skills placed in each one's skills directory, and both switched on and off with the
-//! package. Where those instances are is the [`Agent`]'s business: the product's own, for an
-//! package embedded in its process; the package's own process's, otherwise.
+//! agent package installed into each instance its manifest names (`[agent] install_into`), and
+//! switched on and off with the package. Where those instances are is the [`Agent`]'s business:
+//! the product's own, for an package embedded in its process; the package's own process's,
+//! otherwise. Its skills are not placed in an instance: they are a directory of the package's
+//! (`docs/harnix-ext-package.md`), listed to the sessions of the spaces that see them.
 
-use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
 use harnix_package::acquire::{internal, no_such_instance, refused};
 use harnix_package::package;
-use harnix_wasm_port::{AgentInstall, AgentRef, AgentSwitch, Agent, RpcError, Skills};
+use harnix_wasm_port::{AgentInstall, AgentRef, AgentSwitch, Agent, RpcError};
 use serde_json::{json, Value};
 
 /// What installing put in place, as the record keeps it (its `parts`).
 #[derive(Default)]
 pub(crate) struct Placed {
     pub(crate) agent: Option<(String, String, Vec<String>)>,
-    pub(crate) skills: BTreeMap<String, Vec<String>>,
     /// The engine's disclosure of the agent package, for the installer to show.
     pub(crate) disclosure: Value,
 }
@@ -34,7 +33,6 @@ impl Placed {
             "agent": self.agent.as_ref().map(|(package, version, instances)| json!({
                 "package": package, "version": version, "instances": instances,
             })),
-            "skills": self.skills,
         })
     }
 
@@ -48,27 +46,11 @@ impl Placed {
                 strings(&agent["instances"]),
             ));
         }
-        if let Some(skills) = parts.get("skills").and_then(Value::as_object) {
-            for (instance, names) in skills {
-                placed.skills.insert(instance.clone(), strings(names));
-            }
-        }
         placed
     }
 
     /// Take it all back, as far as it goes.
     pub(crate) async fn undo(&self, engine: &dyn Agent, id: &str) {
-        for (instance, names) in &self.skills {
-            let _ = engine
-                .remove_skills(Skills {
-                    app: id.to_string(),
-                    instance: instance.clone(),
-                    source: Default::default(),
-                    names: names.clone(),
-                })
-                .await;
-            reload(engine, instance).await;
-        }
         if let Some((package, version, instances)) = &self.agent {
             for instance in instances {
                 let agent = AgentRef {
@@ -85,16 +67,9 @@ impl Placed {
     }
 }
 
-/// An instance re-reads its configuration — its skills directory included.
-async fn reload(engine: &dyn Agent, instance: &str) {
-    if let Err(e) = engine.reload_instance(instance.to_string()).await {
-        tracing::warn!(%instance, error = %e.message, "the instance did not reload");
-    }
-}
-
 /// Put the package unpacked at `root` in place: its agent package into each instance it goes
-/// into, its skills into each one's skills directory. What was put where is written to `placed` as
-/// it is done, so that a failure takes back exactly that.
+/// into. What was put where is written to `placed` as it is done, so that a failure takes back
+/// exactly that.
 ///
 /// Which instances, the carrier says (`instances`): given, they are the agent engine's own, and
 /// the manifest's `install_into` — the product's instances, which get only the package's tools —
@@ -169,32 +144,14 @@ pub(crate) async fn place(
             return Err(e);
         }
     }
-    if !inspected.skills.is_empty() {
-        for target in targets {
-            // Recorded before it is done: undoing removes only what is marked as ours.
-            placed
-                .skills
-                .insert(target.clone(), inspected.skills.clone());
-            engine
-                .place_skills(Skills {
-                    app: id.clone(),
-                    instance: target.clone(),
-                    source: root.join("agent").join("skills"),
-                    names: inspected.skills.clone(),
-                })
-                .await?;
-            reload(engine.as_ref(), target).await;
-        }
-    }
     Ok(())
 }
 
-/// The agent package and skills, in the instances the install put them in: switched on (or off)
-/// with the package.
+/// The agent package, in the instances the install put it in: switched on (or off) with the
+/// package.
 pub(crate) async fn switch(
     engine: &dyn Agent,
     id: &str,
-    root: &Path,
     parts: &Value,
     on: bool,
 ) -> Result<(), RpcError> {
@@ -216,22 +173,6 @@ pub(crate) async fn switch(
                 }
                 tracing::warn!(app = %id, %instance, error = %e.message, "the agent package was not switched off");
             }
-        }
-    }
-    if let Some(skills) = parts.get("skills").filter(|s| s.is_object()) {
-        for (instance, names) in skills.as_object().into_iter().flatten() {
-            let skills = Skills {
-                app: id.to_string(),
-                instance: instance.clone(),
-                source: root.join("agent").join("skills"),
-                names: strings(names),
-            };
-            if on {
-                engine.place_skills(skills).await?;
-            } else {
-                let _ = engine.remove_skills(skills).await;
-            }
-            reload(engine, instance).await;
         }
     }
     Ok(())

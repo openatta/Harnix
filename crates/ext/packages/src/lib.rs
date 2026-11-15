@@ -228,11 +228,9 @@ impl Extension for Packages {
             .title("Packages")
             .disclosure(
                 "扩展包：读写安装记录（<状态目录>/ext/<包 id>/），安装、启停、更新、卸载扩展包；把每个启用的包\
-                 登记成扩展；把包的 agent 包装进实例、技能写进实例的技能目录",
+                 登记成扩展；把包的 agent 包装进实例、技能写进 <状态目录>/ext/<包 id>/skills/",
             )
             .requires([caps::EXTENSIONS_MANAGE, caps::ENGINE_PLUGINS])
-            // Placing a package's skills has the instance re-read its configuration.
-            .optional([caps::ENGINE_CONFIG_WRITE])
     }
 
     fn register(&self, r: &mut Registrar<'_, Config>) {
@@ -399,7 +397,7 @@ mod tests {
     fn it_asks_for_what_registering_and_placing_packages_take() {
         let manifest = Packages::new().manifest();
         assert_eq!(manifest.required(), [caps::EXTENSIONS_MANAGE, caps::ENGINE_PLUGINS]);
-        assert_eq!(manifest.optionals(), [caps::ENGINE_CONFIG_WRITE]);
+        assert!(manifest.optionals().is_empty());
     }
 
     #[test]

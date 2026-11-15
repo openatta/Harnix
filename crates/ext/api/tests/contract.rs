@@ -254,9 +254,6 @@ async fn an_extension_reaches_the_process_through_the_interface_alone() {
     assert!(!main.trust().is_extension());
     main.recordings().expect("granted recordings.read");
     main.transcripts().expect("granted transcripts.read");
-    let refused = main.skills().unwrap_err();
-    assert_eq!(refused.code, codes::REFUSED);
-    assert_eq!(refused.data.unwrap()["capability"], "engine.plugins");
     assert!(cx.engine("nowhere").is_none());
 
     // The process, uploads, interface entries, devices, a service.

@@ -212,21 +212,6 @@ impl Agent for FakePlatform {
         self.say(format!("switch_agent {} {}", s.name, if s.on { "on" } else { "off" }));
         Ok(())
     }
-    async fn place_skills(&self, s: Skills) -> Result<(), RpcError> {
-        for name in &s.names {
-            assert!(s.source.join(name).join("SKILL.md").is_file(), "no skill {name}");
-        }
-        self.say(format!("place_skills {}", s.names.join(",")));
-        Ok(())
-    }
-    async fn remove_skills(&self, s: Skills) -> Result<(), RpcError> {
-        self.say(format!("remove_skills {}", s.names.join(",")));
-        Ok(())
-    }
-    async fn reload_instance(&self, instance: String) -> Result<(), RpcError> {
-        self.say(format!("reload {instance}"));
-        Ok(())
-    }
     async fn expose_tools(&self, offer: Offer) -> Result<(), RpcError> {
         self.say(format!("expose_tools {}", offer.tools.len()));
         lock(&self.offers).push(offer);

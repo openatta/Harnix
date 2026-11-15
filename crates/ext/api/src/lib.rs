@@ -47,7 +47,7 @@ pub const EXT_API_VERSION: u32 = 1;
 pub use bulk::{Bulk, UploadGrant};
 pub use call::{Call, Deadline};
 pub use context::{
-    ConfigError, ConfigFiles, Devices, EngineView, ExtensionContext, GrantsView, Listen, ProcessInfo, Service, SkillsDir,
+    ConfigError, ConfigFiles, Devices, EngineView, ExtensionContext, GrantsView, Listen, ProcessInfo, Service,
 };
 pub use credentials::{CredentialRef, Credentials, EnvCredentials};
 pub use descriptor::{

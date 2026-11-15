@@ -21,6 +21,7 @@ mod host_hooks;
 #[cfg(test)]
 mod host_tests;
 mod host_tools;
+mod legacy;
 mod presets;
 pub mod readers;
 mod replay_link;
@@ -30,6 +31,7 @@ pub use daemon_link::{Connection, DaemonLink, Endpoint, Refusal, Taken};
 pub use embed::{serve_daemon, Engine, EngineConfig, InProcessEngine};
 pub use gate::WakeGate;
 pub use host::{Chains, HostSide};
+pub use legacy::strip_package_skills;
 pub use presets::{active_scenes, Presets};
 pub use replay_link::{Recorder, Recording, ReplayLink};
 pub use translate::REQUIRED_CAPABILITIES;
