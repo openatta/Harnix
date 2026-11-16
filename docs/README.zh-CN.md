@@ -89,12 +89,12 @@ crates/supervise       子进程：fork + exec、沙箱、收割
 crates/ext/api         harnix-ext，扩展接口（S1）
 crates/host-api        宿主组件的接口（S3）：载体、拉起进程、收养
 crates/ext/<id>        Harnix 自己的扩展：system、harnix-app、settings、plugins、
-                       observability、devices、flow（可选）、packages
+                       observability、devices、flow 与 schedule（可选）、packages
 crates/carrier/*       扩展包的两个载体：wasm（模式 2）、proc（模式 3），以及它们共用的部分
 crates/package、wasm-port、wasm-host、wasm、proc
                        扩展包：清单、签名与商店、端口、宿主核心、wasmtime（唯一链它的地方）、扩展进程
 crates/client          应用自己的工具链接的轻量客户端
-crates/cli             `harnix` 二进制：全部第一方扩展，带流程扩展
+crates/cli             `harnix` 二进制：全部第一方扩展，带流程与定时
 crates/testapp         给测试用的应用
 ui/packages/           @harnix/core（协议、客户端、会话状态）、@harnix/react（宿主 API、贡献注册表、i18n、tokens）、
                        @harnix/shell（外壳核心）、每个第一方扩展一个 UI 包（@harnix/system、harnix-app……）、

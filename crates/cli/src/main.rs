@@ -1,4 +1,4 @@
-//! `harnix` — the Harnix app: Harnix's own extensions, flows, and packages in this process.
+//! `harnix` — the Harnix app: Harnix's own extensions, flows, schedules, and packages in this process.
 //!
 //! An application's own binary is Harnix's extensions with its own added (`templates/app`); an
 //! application that wants flows registers `harnix_ext_flow::Flow` itself, as this one does, and
@@ -13,6 +13,9 @@
 //! built-in scenes wrapped — `flow-harnix`, `flow-code`, `flow-mini` — and a run's main session is
 //! on `flow-harnix` unless its flow names another, in a directory of the run's own. Run under
 //! `--replay-dir`, the flow sessions replay recordings named after their run or flow.
+//!
+//! Schedules (`harnix::first_party::Schedules`) are kept in their extension's data directory and run
+//! while this process does: turns in sessions, new sessions, tasks of a flow in a project.
 //!
 //! With no profile named, a session starts in the `harnix` scene and `code` is served beside it
 //! ([`default_engine`]), so the new-session dialog offers both.
@@ -70,6 +73,8 @@ pub fn extensions() -> harnix::ExtensionSet {
     let set = harnix::first_party::standard();
     #[cfg(feature = "flow")]
     let set = set.with(flow(), harnix::first_party::FLOW_GRANTS);
+    #[cfg(feature = "schedule")]
+    let set = set.with(harnix::first_party::Schedules::new(), harnix::first_party::SCHEDULE_GRANTS);
     #[cfg(any(feature = "wasm", feature = "proc"))]
     let set = set.with(harnix::first_party::packages(), harnix::first_party::PACKAGES_GRANTS);
     set

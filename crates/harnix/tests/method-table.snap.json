@@ -573,6 +573,40 @@
         "requires": [
           "engine.control"
         ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.schedule.delete",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "engine.inspect"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.schedule.list",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "engine.control"
+        ],
         "scope": "session"
       },
       "kind": "method",
@@ -1129,7 +1163,9 @@
     {
       "access": {
         "device": true,
-        "extensions": [],
+        "extensions": [
+          "schedule"
+        ],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -1389,7 +1425,9 @@
     {
       "access": {
         "device": true,
-        "extensions": [],
+        "extensions": [
+          "schedule"
+        ],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -1839,6 +1877,21 @@
       "kind": "method",
       "name": "harnix.hello",
       "owner": "kernel:assembly"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "harnix.inbox",
+      "owner": "kernel:hub"
     },
     {
       "access": {
@@ -2673,6 +2726,176 @@
     {
       "access": {
         "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "schedule.manage"
+        ],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "schedule.create",
+      "owner": "ext:schedule"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "schedule.manage"
+        ],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "schedule.delete",
+      "owner": "ext:schedule"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "schedule.manage"
+        ],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "schedule.disable",
+      "owner": "ext:schedule"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "schedule.manage"
+        ],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "schedule.enable",
+      "owner": "ext:schedule"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "schedule.manage"
+        ],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "schedule.get",
+      "owner": "ext:schedule"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "schedule.manage"
+        ],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "schedule.history",
+      "owner": "ext:schedule"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "schedule.manage"
+        ],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "schedule.list",
+      "owner": "ext:schedule"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "schedule.manage"
+        ],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "schedule.model.delete",
+      "owner": "ext:schedule"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "schedule.manage"
+        ],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "schedule.runNow",
+      "owner": "ext:schedule"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "schedule.manage"
+        ],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "schedule.update",
+      "owner": "ext:schedule"
+    },
+    {
+      "access": {
+        "device": true,
         "extensions": [],
         "hub_owned": false,
         "refused": null,
@@ -3254,6 +3477,21 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
+        "scope": "space"
+      },
+      "kind": "topic",
+      "name": "harnix.inbox",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
         "scope": "open"
       },
       "kind": "topic",
@@ -3360,6 +3598,23 @@
       "kind": "topic",
       "name": "packages.progress",
       "owner": "ext:packages"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "schedule.manage"
+        ],
+        "scope": "open"
+      },
+      "kind": "topic",
+      "name": "schedule.list",
+      "owner": "ext:schedule"
     },
     {
       "access": {

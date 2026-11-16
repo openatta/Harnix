@@ -686,7 +686,12 @@ phase?: Phase | null, };
 /**
  * Where the flow a pack offers under a name comes from.
  */
-export type Origin = "builtin" | "override" | "user";
+export type Origin = "builtin" | "override" | "user" | "project";
+
+/**
+ * Why a flow the packs have is not offered (`Packs::withheld_flows`).
+ */
+export type Withheld = "untrusted" | "unreadable";
 
 /**
  * How a session task hands in its output.
@@ -704,7 +709,8 @@ station?: string | null, message: string, };
  */
 export type DefRow = { name: string, title: string, description?: string, digest: string, 
 /**
- * Where it comes from: built in, saved over a built-in one, or saved here.
+ * Where it comes from: built in, saved over a built-in one, saved here, or the project's own
+ * (listed for a project: `flow.defs {project}`).
  */
 origin: Origin, 
 /**
@@ -712,6 +718,12 @@ origin: Origin,
  * started.
  */
 valid: boolean, 
+/**
+ * Why it is not valid without being read, when that is so: `untrusted` — the project's
+ * own, waiting on the project being trusted (title, digest and inputs are not read until
+ * then); `unreadable` — its file is not a definition of this name.
+ */
+reason?: Withheld, 
 /**
  * What a run of it is started with, as one JSON Schema of the `inputs` object
  * (`FlowDef::inputs_schema`): a form can be drawn from it.

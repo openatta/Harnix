@@ -68,6 +68,9 @@ pub mod first_party {
     #[cfg(feature = "flow")]
     pub use harnix_ext_flow::Flow;
 
+    #[cfg(feature = "schedule")]
+    pub use harnix_ext_schedule::Schedules;
+
     #[cfg(any(feature = "wasm", feature = "proc"))]
     pub use harnix_ext_packages::Packages;
 
@@ -103,6 +106,11 @@ pub mod first_party {
     pub fn standard_with_flow(flow: Flow) -> ExtensionSet {
         standard().with(flow, FLOW_GRANTS)
     }
+
+    /// What the schedule extension is granted: listing the jobs models made in the engines and
+    /// deleting one (`docs/harnix-app.md` §9).
+    #[cfg(feature = "schedule")]
+    pub const SCHEDULE_GRANTS: [harnix_ext::Capability; 2] = harnix_ext_schedule::GRANTS;
 
     /// Every first-party extension, in the order they register: the flow extension is the
     /// product's to configure and add ([`standard_with_flow`]).

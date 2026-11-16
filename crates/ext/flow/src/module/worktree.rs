@@ -74,7 +74,7 @@ pub(crate) async fn make(engine: &Engine, root: &str, flow: &str) -> crate::Resu
         tracing::warn!(root, error = %e, "the project's .harnix/.gitignore not written");
     }
     for _ in 0..TRIES {
-        let id = engine.alloc_id(flow).await?;
+        let id = engine.alloc_id(flow, Some(root)).await?;
         let path = worktree_dir(root, &id);
         let branch = worktree_branch(&id);
         let (p, b, head, project) = (path.clone(), branch.clone(), repo.head.clone(), project.clone());
@@ -241,7 +241,7 @@ mod tests {
             workspace: ws,
             ..Default::default()
         };
-        let o = super::super::project::start(e, input, by()).await?;
+        let o = super::super::project::start(&crate::module::shared::Shared::for_tests(), e, input, by()).await?;
         Ok(o.value["run"].as_str().unwrap().to_string())
     }
 
@@ -361,7 +361,7 @@ mod tests {
             output_dir: Some("../outside".into()),
             ..Default::default()
         };
-        assert!(super::super::project::start(&e, input, by()).await.is_err());
+        assert!(super::super::project::start(&crate::module::shared::Shared::for_tests(), &e, input, by()).await.is_err());
         assert_eq!(std::fs::read_dir(p.join(".harnix/worktrees")).unwrap().count(), 0);
         assert_eq!(git_out(p, &["branch", "--list", "harnix/*"]), "");
     }

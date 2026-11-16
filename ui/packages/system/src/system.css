@@ -460,6 +460,22 @@
   background: var(--surface);
 }
 
+/* A count that leads to the list it counts. */
+.system-console .kpi.link {
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.system-console .kpi.link:hover {
+  border-color: var(--accent-line);
+  background: var(--interactive-hover);
+}
+
+.system-console .kpi.link .l {
+  text-decoration: underline dotted;
+}
+
 .system-console .kpi .v {
   font-family: var(--font-serif);
   font-size: 18px;

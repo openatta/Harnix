@@ -3,10 +3,10 @@
 import { useRef, useState, type ReactNode } from "react";
 import { Contributed, clock, since, useContributions, useRoving, useT, type Registry } from "@harnix/react";
 
-import { CONSOLE_TAB } from "./constants.ts";
+import { CONSOLE_TAB, METRICS_LINK } from "./constants.ts";
 import { Agents } from "./agents.tsx";
 import { isActive, useAgentRows, useRunningTasks } from "./data.ts";
-import type { Connection, ConsoleTab, ConsoleTabId, InstanceRow, Process } from "./types.ts";
+import type { Connection, ConsoleTab, ConsoleTabId, InstanceRow, MetricsLink, Process } from "./types.ts";
 import { useRunning, useTick, useTopic, type View } from "./view.ts";
 
 /** The tabs other packages put on the console (`system.console.tab`), by `order`. */
@@ -125,13 +125,43 @@ function Strip({ view }: { view: View }) {
   const busy = rows.filter((row) => row.tasks).map((row) => row.key);
   const tasks = useRunningTasks(view, [...new Set([...turns, ...busy])]);
   const users = process?.connections ?? [];
-  const kpi = (id: string, value: string | ReactNode, label: string, extra?: ReactNode) => (
-    <div className={`kpi${extra ? " has-tip" : ""}`} data-kpi={id} title={typeof value === "string" ? value : undefined}>
-      <div className="v">{typeof value === "string" && (id === "harnix" || id === "agix") ? value.split("-")[0] : value}</div>
-      <div className="l">{label}</div>
-      {extra}
-    </div>
-  );
+  // A cell another package leads somewhere (the waiting count to the list it counts): a button.
+  const links = useContributions<MetricsLink>(METRICS_LINK, view.registry);
+  const kpi = (id: string, value: string | ReactNode, label: string, extra?: ReactNode) => {
+    const link = links.find((l) => l.metric === id);
+    const body = (
+      <>
+        <div className="v">{typeof value === "string" && (id === "harnix" || id === "agix") ? value.split("-")[0] : value}</div>
+        <div className="l">{label}</div>
+        {extra}
+      </>
+    );
+    if (link) {
+      let title = label;
+      try {
+        title = link.title();
+      } catch {
+        // A link whose words fail is named by the cell's own.
+      }
+      const open = () => {
+        try {
+          void Promise.resolve(link.open()).catch((e: unknown) => view.registry.fail(METRICS_LINK, link, e));
+        } catch (e) {
+          view.registry.fail(METRICS_LINK, link, e);
+        }
+      };
+      return (
+        <button type="button" className="kpi link" data-kpi={id} data-testid="system-kpi-link" title={title} onClick={open}>
+          {body}
+        </button>
+      );
+    }
+    return (
+      <div className={`kpi${extra ? " has-tip" : ""}`} data-kpi={id} title={typeof value === "string" ? value : undefined}>
+        {body}
+      </div>
+    );
+  };
   return (
     <div className="strip" data-testid="system-strip">
       {kpi("harnix", process?.harnix ?? "—", "Harnix")}

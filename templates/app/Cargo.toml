@@ -36,6 +36,7 @@ harnix-ext-harnix-app = { path = "harnix/crates/ext/harnix-app" }
 harnix-ext-observability = { path = "harnix/crates/ext/observability" }
 harnix-ext-packages = { path = "harnix/crates/ext/packages" }
 harnix-ext-plugins = { path = "harnix/crates/ext/plugins" }
+harnix-ext-schedule = { path = "harnix/crates/ext/schedule" }
 harnix-ext-settings = { path = "harnix/crates/ext/settings" }
 harnix-ext-system  = { path = "harnix/crates/ext/system" }
 harnix-host-api  = { path = "harnix/crates/host-api" }

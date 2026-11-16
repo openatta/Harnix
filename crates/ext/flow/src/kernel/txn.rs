@@ -218,13 +218,15 @@ impl<'e> Txn<'e> {
             self.load(&p.run).await?;
             up = self.get(&p.run).parent.clone();
         }
-        let made = match self.eng.packs.flow(&flow) {
+        // A child run works in its parent's project, with that project's packs.
+        let packs = self.eng.packs_for(self.get(&parent.run).project_root.as_deref());
+        let made = match packs.flow(&flow) {
             _ if depth > MAX_SUBFLOW_DEPTH => Err(format!(
                 "child runs nest deeper than {MAX_SUBFLOW_DEPTH}: {flow} is not started"
             )),
             None => Err(format!("no flow {flow}")),
             Some((def, digest)) => {
-                let problems = validate(&def, self.eng.packs.as_ref());
+                let problems = validate(&def, packs.as_ref());
                 if !problems.is_empty() {
                     Err(format!(
                         "flow {flow} is not valid: {}",
@@ -240,7 +242,7 @@ impl<'e> Txn<'e> {
                         Ok(inputs) => {
                             let id = self.eng.store.alloc_id(&flow).await?;
                             let title = format!("{} / {}", parent.run, parent.task);
-                            let parts = super::parts::pin(&def, self.eng.packs.as_ref());
+                            let parts = super::parts::pin(&def, packs.as_ref());
                             let mut child = new_record(
                                 id,
                                 def,
@@ -643,14 +645,15 @@ impl<'a> M<'a> {
 
         let work = st.work();
         let specs = work.clone().into_specs();
+        let packs = self.eng.packs_for(self.rec.project_root.as_deref());
         for skill in specs.iter().filter_map(|t| t.skill.as_ref()) {
-            if let Some((_, digest)) = self.eng.packs.skill(skill) {
+            if let Some((_, digest)) = packs.skill(skill) {
                 self.st(sid).skill_digest.insert(skill.clone(), digest);
             }
         }
         self.st(sid).rule_digest.clear();
         for rule in super::parts::rules_of(&self.rec.def, &st) {
-            if let Some((_, digest)) = self.eng.packs.rule(&rule) {
+            if let Some((_, digest)) = packs.rule(&rule) {
                 self.st(sid).rule_digest.insert(rule, digest);
             }
         }

@@ -30,7 +30,25 @@ describe("the system space's points", () => {
     const { r } = registered();
     expect(r.isDefined("system.console.tab")).toBe(true);
     expect(r.isDefined("system.inspector.tab")).toBe(true);
+    expect(r.isDefined("system.metrics.link")).toBe(true);
     expect(r.at("session.action").map((a) => a.id)).toEqual(["system.open", "system.output", "system.tool"]);
+  });
+
+  it("leads the waiting count where another package says, and leaves the other counts as they are", async () => {
+    const { r, space } = registered();
+    const opened: string[] = [];
+    r.register("system.metrics.link", { id: "other.inbox", metric: "waiting", title: () => "Waiting for you", open: () => void opened.push("inbox") }, "other");
+    r.settle();
+    render(<RegistryProvider registry={r}>{space().center!.overview!()}</RegistryProvider>);
+    const waiting = document.querySelector('[data-testid="system-strip"] [data-kpi="waiting"]') as HTMLElement;
+    expect(waiting.tagName).toBe("BUTTON");
+    expect(waiting.getAttribute("title")).toBe("Waiting for you");
+    expect(document.querySelector('[data-kpi="sessions"]')!.tagName).toBe("DIV");
+    await act(async () => {
+      waiting.click();
+      await tick();
+    });
+    expect(opened).toEqual(["inbox"]);
   });
 
   it("draws another package's console tab among the Agents tabs, by its order", async () => {

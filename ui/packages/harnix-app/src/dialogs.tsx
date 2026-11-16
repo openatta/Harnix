@@ -496,7 +496,7 @@ function TrustForm({ host, store, root, name, status, close }: { host: HostApi; 
 
 /** No longer trust a project: tightening needs no confirmation. A glob or the default in the global
  *  settings may still trust it, which is said. */
-async function untrust(host: HostApi, store: AppStore, root: string, name: string): Promise<void> {
+export async function untrust(host: HostApi, store: AppStore, root: string, name: string): Promise<void> {
   await attempt(
     host,
     async () => {

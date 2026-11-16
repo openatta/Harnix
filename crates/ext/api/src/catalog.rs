@@ -213,6 +213,14 @@ pub const EXTENSION_POINTS: &[ExtensionPoint] = &[
         frequency: Frequency::PerInteraction,
     },
     ExtensionPoint {
+        owner: "system",
+        id: "system.metrics.link",
+        kind: PointKind::Register,
+        what: "系统 space 指标条上一格数字去哪（`{id, metric, title(), open()}`）：`metric: \"waiting\"` 的「等你处理」打开待我处理",
+        when: "指标条画出时、点那一格时",
+        frequency: Frequency::PerInteraction,
+    },
+    ExtensionPoint {
         owner: "harnix-app",
         id: "harnix-app.project.items",
         kind: PointKind::Register,
@@ -226,6 +234,14 @@ pub const EXTENSION_POINTS: &[ExtensionPoint] = &[
         kind: PointKind::Render,
         what: "项目概况页的一个区块（`{id, title(), order?, render(context)}`）",
         when: "项目的概况页画出时",
+        frequency: Frequency::PerInteraction,
+    },
+    ExtensionPoint {
+        owner: "harnix-app",
+        id: "harnix-app.inbox",
+        kind: PointKind::Register,
+        what: "待我处理的一个来源（`{id, items(), subscribe(fn), open(item)}`）：中枢的提问、流程的确认、hold、外部任务",
+        when: "来源的 `subscribe` 说变了时、点一项时",
         frequency: Frequency::PerInteraction,
     },
 ];
@@ -287,8 +303,8 @@ mod tests {
             assert!(p.id.starts_with(&format!("{}.", p.owner)), "{} is not under {}", p.id, p.owner);
             assert!(point(p.id).is_none(), "{} is one of the shell's", p.id);
         }
-        assert_eq!(points_of("system").count(), 2);
-        assert_eq!(points_of("harnix-app").count(), 2);
+        assert_eq!(points_of("system").count(), 3);
+        assert_eq!(points_of("harnix-app").count(), 3);
     }
 
     /// Eleven, and adding one is a decision (concept §5.6).

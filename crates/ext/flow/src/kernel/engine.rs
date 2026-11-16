@@ -98,13 +98,7 @@ impl Place {
 /// root absolute (kept as given, but for trailing `/`s), a workspace in the project only with one
 /// (the start's, else the flow's, else the project itself).
 fn placement(input: &CreateIn, by: &Actor, def: &FlowDef, worktree: Option<WorktreeRec>) -> Result<Place> {
-    let project_root = match input.project_root.as_deref().map(str::trim) {
-        None | Some("") => None,
-        Some(r) if !std::path::Path::new(r).is_absolute() => {
-            return invalid(format!("project_root {r:?} is not an absolute path"))
-        }
-        Some(r) => Some(super::run::trim_root(r).to_string()),
-    };
+    let project_root = project_root_of(input)?;
     let workspace = Workspace::chosen(input.workspace, def.workspace, project_root.as_deref());
     if workspace.in_project() && project_root.is_none() {
         return invalid(format!("workspace {} needs a project_root", workspace.as_str()));
@@ -116,6 +110,15 @@ fn placement(input: &CreateIn, by: &Actor, def: &FlowDef, worktree: Option<Workt
         trigger: input.trigger.clone().unwrap_or_else(|| Trigger::manual(by.clone())),
         worktree: worktree.filter(|_| workspace == Workspace::Worktree),
     })
+}
+
+/// A start's project as the run will hold it: absolute, kept as given but for trailing `/`s.
+fn project_root_of(input: &CreateIn) -> Result<Option<String>> {
+    match input.project_root.as_deref().map(str::trim) {
+        None | Some("") => Ok(None),
+        Some(r) if !std::path::Path::new(r).is_absolute() => invalid(format!("project_root {r:?} is not an absolute path")),
+        Some(r) => Ok(Some(super::run::trim_root(r).to_string())),
+    }
 }
 
 /// The kernel. Cheap to share behind an `Arc`; it holds no state of its own.
@@ -299,6 +302,24 @@ impl Engine {
         &self.packs
     }
 
+    /// The packs a run in `project_root` sees: the project's own over these when the packs
+    /// bring them (`Packs::project`); these without a project.
+    pub fn packs_for(&self, project_root: Option<&str>) -> Arc<dyn Packs> {
+        project_root
+            .map(str::trim)
+            .filter(|r| !r.is_empty())
+            .and_then(|r| self.packs.project(r))
+            .unwrap_or_else(|| self.packs.clone())
+    }
+
+    /// [`Engine::packs_for`] the project a run works in (these, for a run not found).
+    pub async fn packs_for_run(&self, run: &str) -> Arc<dyn Packs> {
+        match self.store.load(run).await {
+            Ok(Some(rec)) => self.packs_for(rec.project_root.as_deref()),
+            _ => self.packs.clone(),
+        }
+    }
+
     pub fn clock(&self) -> &Arc<dyn Clock> {
         &self.clock
     }
@@ -355,6 +376,11 @@ impl Engine {
     /// text with any problem is not saved, and the problems are the error. Runs already started
     /// keep the definition they pinned. `value`: `{name, digest, origin}`.
     pub async fn save_flow(&self, yaml: &str, by: Actor) -> Result<Value> {
+        self.save_flow_in(self.packs.as_ref(), yaml, by).await
+    }
+
+    /// [`Engine::save_flow`] in other packs: a project's ([`Engine::packs_for`]).
+    pub async fn save_flow_in(&self, packs: &dyn Packs, yaml: &str, by: Actor) -> Result<Value> {
         let def = FlowDef::parse(yaml)
             .map_err(|e| FlowError::Invalid(format!("not a flow definition: {e}")))?;
         self.authorize(
@@ -364,27 +390,32 @@ impl Engine {
             &by,
             None,
         )?;
-        if !self.packs.writable() {
+        if !packs.writable() {
             return invalid("the flow packs are read-only");
         }
-        check_def(&def, self.packs.as_ref())?;
-        let digest = self.packs.save_flow(yaml).map_err(FlowError::Invalid)?;
-        Ok(json!({"name": def.name, "digest": digest, "origin": self.packs.origin(&def.name)}))
+        check_def(&def, packs)?;
+        let digest = packs.save_flow(yaml).map_err(FlowError::Invalid)?;
+        Ok(json!({"name": def.name, "digest": digest, "origin": packs.origin(&def.name)}))
     }
 
     /// Delete a saved definition: a user's flow is gone, an override gives way to the built-in
     /// one. A built-in flow cannot be deleted. `value`: `{name, origin}` (`origin` of what is
     /// offered under the name now, `null` when nothing is).
     pub async fn delete_flow(&self, name: &str, by: Actor) -> Result<Value> {
+        self.delete_flow_in(self.packs.as_ref(), name, by).await
+    }
+
+    /// [`Engine::delete_flow`] in other packs: a project's.
+    pub async fn delete_flow_in(&self, packs: &dyn Packs, name: &str, by: Actor) -> Result<Value> {
         self.authorize(&Op::EditFlow { flow: name.into() }, &by, None)?;
-        if !self.packs.writable() {
+        if !packs.writable() {
             return invalid("the flow packs are read-only");
         }
-        if self.packs.flow_text(name).is_none() && self.packs.flow(name).is_none() {
+        if packs.flow_text(name).is_none() && packs.flow(name).is_none() {
             return Err(FlowError::NotFound(format!("flow {name}")));
         }
-        self.packs.delete_flow(name).map_err(FlowError::Invalid)?;
-        let origin = self.packs.flow(name).map(|_| self.packs.origin(name));
+        packs.delete_flow(name).map_err(FlowError::Invalid)?;
+        let origin = packs.flow(name).map(|_| packs.origin(name));
         Ok(json!({"name": name, "origin": origin}))
     }
 
@@ -393,22 +424,31 @@ impl Engine {
     /// `value`: `{kind, name, digest, origin, broken: [{flow, problems}]}` — `broken`, the flows
     /// using it that are not valid now.
     pub async fn save_part(&self, kind: PartKind, name: &str, text: &str, by: Actor) -> Result<Value> {
+        self.save_part_in(self.packs.as_ref(), kind, name, text, by).await
+    }
+
+    /// [`Engine::save_part`] in other packs: a project's.
+    pub async fn save_part_in(
+        &self,
+        packs: &dyn Packs,
+        kind: PartKind,
+        name: &str,
+        text: &str,
+        by: Actor,
+    ) -> Result<Value> {
         self.authorize(&Op::EditPart { kind, name: name.into() }, &by, None)?;
-        if !self.packs.writable() {
+        if !packs.writable() {
             return invalid("the flow packs are read-only");
         }
-        let problems = super::validate::part_problems(kind, name, text, self.packs.as_ref());
+        let problems = super::validate::part_problems(kind, name, text, packs);
         if !problems.is_empty() {
             return invalid(format!("{kind} {name}: {}", problems.join("; ")));
         }
-        let digest = self
-            .packs
-            .save_part(kind, name, text)
-            .map_err(FlowError::Invalid)?;
+        let digest = packs.save_part(kind, name, text).map_err(FlowError::Invalid)?;
         Ok(json!({
             "kind": kind, "name": name, "digest": digest,
-            "origin": self.packs.part_origin(kind, name),
-            "broken": self.broken_by(kind, name),
+            "origin": packs.part_origin(kind, name),
+            "broken": broken_by(packs, kind, name),
         }))
     }
 
@@ -416,35 +456,21 @@ impl Engine {
     /// `value`: `{kind, name, origin, broken}` (`origin` of what is offered under the name now,
     /// `null` when nothing is).
     pub async fn delete_part(&self, kind: PartKind, name: &str, by: Actor) -> Result<Value> {
-        self.authorize(&Op::EditPart { kind, name: name.into() }, &by, None)?;
-        if !self.packs.writable() {
-            return invalid("the flow packs are read-only");
-        }
-        if self.packs.part(kind, name).is_none() {
-            return Err(FlowError::NotFound(format!("{kind} {name}")));
-        }
-        self.packs.delete_part(kind, name).map_err(FlowError::Invalid)?;
-        let origin = self
-            .packs
-            .part(kind, name)
-            .map(|_| self.packs.part_origin(kind, name));
-        Ok(json!({"kind": kind, "name": name, "origin": origin, "broken": self.broken_by(kind, name)}))
+        self.delete_part_in(self.packs.as_ref(), kind, name, by).await
     }
 
-    /// The flows that use a part and are not valid.
-    fn broken_by(&self, kind: PartKind, name: &str) -> Vec<Value> {
-        self.packs
-            .flows()
-            .into_iter()
-            .filter_map(|f| self.packs.flow(&f))
-            .filter(|(def, _)| super::parts::uses(def, kind, name))
-            .filter_map(|(def, _)| {
-                let problems = super::validate::validate(&def, self.packs.as_ref());
-                (!problems.is_empty()).then(|| {
-                    json!({"flow": def.name, "problems": problems.iter().map(ToString::to_string).collect::<Vec<_>>()})
-                })
-            })
-            .collect()
+    /// [`Engine::delete_part`] in other packs: a project's.
+    pub async fn delete_part_in(&self, packs: &dyn Packs, kind: PartKind, name: &str, by: Actor) -> Result<Value> {
+        self.authorize(&Op::EditPart { kind, name: name.into() }, &by, None)?;
+        if !packs.writable() {
+            return invalid("the flow packs are read-only");
+        }
+        if packs.part(kind, name).is_none() {
+            return Err(FlowError::NotFound(format!("{kind} {name}")));
+        }
+        packs.delete_part(kind, name).map_err(FlowError::Invalid)?;
+        let origin = packs.part(kind, name).map(|_| packs.part_origin(kind, name));
+        Ok(json!({"kind": kind, "name": name, "origin": origin, "broken": broken_by(packs, kind, name)}))
     }
 
     // ── runs ─────────────────────────────────────────────────────────────────
@@ -464,9 +490,9 @@ impl Engine {
 
     /// An id for a run of `flow` not started yet: for a host that makes something under it first
     /// ([`Prepared`]). An id never used is skipped, never handed out again.
-    pub async fn alloc_id(&self, flow: &str) -> Result<String> {
+    pub async fn alloc_id(&self, flow: &str, project_root: Option<&str>) -> Result<String> {
         let (def, _) = self
-            .packs
+            .packs_for(project_root)
             .flow(flow)
             .ok_or_else(|| FlowError::NotFound(format!("flow {flow}")))?;
         Ok(self.store.alloc_id(&def.name).await?)
@@ -482,11 +508,12 @@ impl Engine {
     /// a worktree is started with.
     pub async fn create_prepared(&self, input: CreateIn, by: Actor, prepared: Prepared) -> Result<Outcome> {
         self.may_create(&input, &by)?;
-        let (def, digest) = self
-            .packs
+        // In a project, its own flows and parts over the application's.
+        let packs = self.packs_for(project_root_of(&input)?.as_deref());
+        let (def, digest) = packs
             .flow(&input.flow)
             .ok_or_else(|| FlowError::NotFound(format!("flow {}", input.flow)))?;
-        check_def(&def, self.packs.as_ref())?;
+        check_def(&def, packs.as_ref())?;
         let inputs = apply_inputs(&def, &input.inputs).map_err(FlowError::Invalid)?;
         let place = placement(&input, &by, &def, prepared.worktree.clone())?;
         transact!(self, by.clone(), |t| {
@@ -497,7 +524,7 @@ impl Engine {
             let mut rec = new_record(
                 id.clone(),
                 def.clone(),
-                super::parts::pin(&def, self.packs.as_ref()),
+                super::parts::pin(&def, packs.as_ref()),
                 digest.clone(),
                 input.title.clone().unwrap_or_default(),
                 input.subject.clone(),
@@ -1369,6 +1396,22 @@ impl Engine {
 }
 
 /// A definition that fails validation cannot start a run.
+/// The flows of `packs` that use a part and are not valid.
+fn broken_by(packs: &dyn Packs, kind: PartKind, name: &str) -> Vec<Value> {
+    packs
+        .flows()
+        .into_iter()
+        .filter_map(|f| packs.flow(&f))
+        .filter(|(def, _)| super::parts::uses(def, kind, name))
+        .filter_map(|(def, _)| {
+            let problems = super::validate::validate(&def, packs);
+            (!problems.is_empty()).then(|| {
+                json!({"flow": def.name, "problems": problems.iter().map(ToString::to_string).collect::<Vec<_>>()})
+            })
+        })
+        .collect()
+}
+
 fn check_def(def: &FlowDef, packs: &dyn Packs) -> Result<()> {
     let problems = validate(def, packs);
     if problems.is_empty() {

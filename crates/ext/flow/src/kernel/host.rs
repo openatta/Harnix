@@ -127,6 +127,9 @@ pub enum Origin {
     Override,
     /// Only in the writable layer.
     User,
+    /// The project's own, in `<project>/.harnix/flows/`: offered to runs in that project, over
+    /// every other layer, and read only while the project is trusted.
+    Project,
 }
 
 /// Where flows and the other parts of a pack (skills, rules, policies, gates, hooks) come from.
@@ -212,6 +215,31 @@ pub trait Packs: Send + Sync {
     fn delete_part(&self, _kind: PartKind, _name: &str) -> Result<(), String> {
         Err("read-only".into())
     }
+
+    // ── a project's own packs ────────────────────────────────────────────────
+
+    /// The packs a run in the project at `root` sees, when the project brings packs of its own
+    /// (`<project>/.harnix/flows/`): its layer over these. `None`: these, as everywhere else.
+    fn project(&self, _root: &str) -> Option<std::sync::Arc<dyn Packs>> {
+        None
+    }
+    /// The flows these packs have but do not offer, and why: a project's own while it is not
+    /// trusted (named by their files alone, unread), or one whose file is not a definition of
+    /// that name. Each hides a flow of the same name below it.
+    fn withheld_flows(&self) -> Vec<(String, Withheld)> {
+        vec![]
+    }
+}
+
+/// Why a flow the packs have is not offered (`Packs::withheld_flows`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum Withheld {
+    /// The project is not trusted: its own flows are not read, nor run, until it is.
+    Untrusted,
+    /// Its file is not a flow definition, or defines a flow of another name than the file's.
+    Unreadable,
 }
 
 /// Hex SHA-256 of a text: the digest pinned for definitions and skills.

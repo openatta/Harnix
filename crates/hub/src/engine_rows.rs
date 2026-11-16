@@ -107,6 +107,15 @@ const PROJECT_TRUST: &[(&str, Capability)] = &[
     ("engine.project.trust", caps::ENGINE_CONTROL),
 ];
 
+/// The engine's own schedule: jobs a model made with its cron tools, each a turn in its session,
+/// in UTC (`docs/harnix-app.md` §9). Read by an extension holding `engine.inspect`, a job deleted by
+/// one holding `engine.control`; a device sees and deletes them through the extension that lists
+/// them beside its own schedules. Nobody makes one through here: making them is the model's.
+const ENGINE_SCHEDULE: &[(&str, Capability)] = &[
+    ("engine.schedule.list", caps::ENGINE_INSPECT),
+    ("engine.schedule.delete", caps::ENGINE_CONTROL),
+];
+
 /// The engine methods that change credentials, repoint model endpoints, or hand the caller the
 /// process itself. Refused to devices always, with the reason written out — the engine trusts
 /// whoever reaches its dispatch, and in this process that is the hub (concept §3.4). The kernel may
@@ -263,6 +272,10 @@ pub(crate) fn rows(hub: &HubCell) -> Vec<HubRow> {
     }));
     rows.extend(PROJECT_TRUST.iter().map(|(name, cap)| {
         let through = Through { after: After::Nothing, checked: false, settings: true };
+        engine(hub, name, Access::capability(cap.clone()), through)
+    }));
+    rows.extend(ENGINE_SCHEDULE.iter().map(|(name, cap)| {
+        let through = Through { after: After::Nothing, checked: false, settings: false };
         engine(hub, name, Access::capability(cap.clone()), through)
     }));
     rows.extend(ENGINE_REFUSALS.iter().map(|(name, why, cap)| {

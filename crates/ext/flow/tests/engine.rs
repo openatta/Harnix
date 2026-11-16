@@ -1257,7 +1257,7 @@ async fn runs_are_listed_by_project() {
 async fn a_child_run_works_where_its_parent_does() {
     let h = h();
     // The worktree the host made for the run, under the id it allocated for it.
-    let id = h.eng.alloc_id("parent").await.unwrap();
+    let id = h.eng.alloc_id("parent", Some("/work/app")).await.unwrap();
     let worktree = WorktreeRec {
         path: format!("/work/app/.harnix/worktrees/{id}"),
         prefix: "sub".into(),

@@ -32,12 +32,16 @@ export function useRunView(module: string, run: string | null): RunView | undefi
   return live ?? fetched.value;
 }
 
-/** The flows, live: the `defs` topic, and the `defs` method until the topic has a value. */
-export function useDefs(module: string): { list: DefSummary[]; loaded: boolean; error: string | null } {
+/**
+ * The flows, live: the `defs` topic, and the `defs` method until the topic has a value. With a
+ * `project`, the flows a task of that project may run (`defs {project}`: the project's own over
+ * the rest, an untrusted project's listed with why), read again whenever the topic moves.
+ */
+export function useDefs(module: string, project?: string | null): { list: DefSummary[]; loaded: boolean; error: string | null } {
   const live = useTopic<unknown>(defsTopic(module), {});
-  const fetched = useMethod<unknown>(module, "defs", live === undefined ? {} : null);
-  const value = live ?? fetched.value;
-  return { list: defsOf(value), loaded: value !== undefined, error: live === undefined ? fetched.error : null };
+  const fetched = useMethod<unknown>(module, "defs", project ? { project } : live === undefined ? {} : null, project ? live : undefined);
+  const value = project ? fetched.value : (live ?? fetched.value);
+  return { list: defsOf(value), loaded: value !== undefined, error: project || live === undefined ? fetched.error : null };
 }
 
 /** The dry runs kept, live: the `dry_runs` topic, and `dry_run.list` until the topic has a value. */

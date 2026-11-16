@@ -7,13 +7,18 @@
  * "+" menu (`NewTask.tsx`), and a row opened as its main session in the middle with the 流程 tab
  * (`TaskTab.tsx`) in the right column.
  *
+ * The project's waiting tasks are also a source of the Harnix app's 待我处理 (`harnix-app.inbox`):
+ * a run waiting on a confirm, a hold or an external task, opened as a task is; and the project's
+ * overview has a block of its tasks (`harnix-app.project.panels`): how many run, wait and are over,
+ * the latest, and "新任务".
+ *
  * Where the main session opens: it belongs to the flow's backend space, and a call claiming the
  * projects space's would be refused (concept §5.4, `SPACE_MISMATCH`), so the task is entered the
  * way the system console enters a run — the flow's interface space brought to the front on it
  * (`FlowSpaceState.enter`), remembering where it came from for the way back.
  */
 
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { t, useT, type HostApi, type HostSessionRef as SessionRef, type Registry } from "@harnix/react";
 
 import { useDefs, useRunView } from "./hooks";
@@ -25,6 +30,12 @@ import type { RunSummary, RunView } from "./types";
 
 /** The projects space's point for what a project holds besides its conversations. */
 export const PROJECT_ITEMS = "harnix-app.project.items";
+/** The projects space's point for a block of a project's overview. */
+export const PROJECT_PANELS = "harnix-app.project.panels";
+/** The Harnix app's point for a source of what waits on a person. */
+export const INBOX = "harnix-app.inbox";
+/** Why a run waits that is a person's to act on: a confirm, a hold, an external task to claim. */
+export const WAITING_ON_A_PERSON = ["confirm", "held", "external"] as const;
 /** This package's kind there. */
 export const TASK_KIND = "flow.task";
 /** The right column's page type for a task: `openTab("flow", { params: { run } })`. */
@@ -49,6 +60,51 @@ export interface ItemContext {
 export function activityOf(r: RunSummary): number | null {
   const at = Number(r.finished_at ?? r.created_at ?? NaN);
   return Number.isFinite(at) ? at : null;
+}
+
+/** A row of the Harnix app's 待我处理, as `harnix-app.inbox` takes it. */
+export interface WaitingItem {
+  id: string;
+  kind: string;
+  label: string;
+  title: string;
+  detail?: string | null;
+  project_root?: string | null;
+  data?: unknown;
+}
+
+/** The runs waiting on a person, as items of 待我处理: why, the task, its flow and the stations. Dry runs left out. */
+export function waitingItems(runs: RunSummary[]): WaitingItem[] {
+  return runs.flatMap((r) => {
+    const phase = phaseOf(r);
+    const reason = phase.reason ?? "";
+    if (r.dry || isDryRun(r.id) || phase.state !== "waiting" || !(WAITING_ON_A_PERSON as readonly string[]).includes(reason)) return [];
+    const stations = phase.stations?.length ? phase.stations.join(", ") : null;
+    return [
+      {
+        id: r.id,
+        kind: reason,
+        label: t(`flowui.inbox.${reason}`),
+        title: r.title || r.subject || r.id,
+        detail: stations ? `${r.flow} · ${stations}` : r.flow,
+        project_root: r.project_root ?? null,
+        data: r,
+      },
+    ];
+  });
+}
+
+/** How many of a project's tasks run, wait and are over. */
+export function taskCounts(runs: RunSummary[], root: string): { running: number; waiting: number; finished: number } {
+  const counts = { running: 0, waiting: 0, finished: 0 };
+  for (const r of runs) {
+    if (!sameRoot(r.project_root, root) || r.dry || isDryRun(r.id)) continue;
+    const state = phaseOf(r).state;
+    if (state === "waiting") counts.waiting += 1;
+    else if (state === "finished" || state === "cancelled") counts.finished += 1;
+    else counts.running += 1;
+  }
+  return counts;
 }
 
 /** The tasks of a project among the runs: those of its root, dry runs left out; newest activity first. */
@@ -241,5 +297,82 @@ export function registerTaskItems(r: Registry, host: HostApi, module: string, sp
     owner,
     { orElse: () => undefined },
   );
+  // What waits on a person among the runs, beside the hub's asks in the Harnix app's list.
+  r.register(
+    INBOX,
+    {
+      id: "flow.waiting",
+      items: () => waitingItems(tasks.all()),
+      subscribe: tasks.subscribe,
+      open: async (item: WaitingItem) => {
+        const view = space();
+        if (view) await openTask(host, r, view, item.id, (item.data as RunSummary | undefined)?.flow ?? "");
+      },
+    },
+    owner,
+    { orElse: () => undefined },
+  );
+  // The project's tasks on its overview, between its conversations and its recent changes.
+  r.register(
+    PROJECT_PANELS,
+    {
+      id: "flow.tasks",
+      order: 30,
+      title: () => t("flowui.task.kind"),
+      render: (context: ItemContext) => (
+        <TasksPanel
+          tasks={tasks}
+          module={module}
+          root={context.root}
+          open={async (run) => {
+            const view = space();
+            if (view) await openTask(host, r, view, run.id, run.flow);
+          }}
+          create={() =>
+            newTaskDialog(host, module, { root: context.root, runs: () => tasks.all() }, async (run, flow) => {
+              const view = space();
+              if (view) await openTask(host, r, view, run, flow);
+            })
+          }
+        />
+      ),
+    },
+    owner,
+    { orElse: () => undefined },
+  );
   return tasks;
+}
+
+/** The runs, as the `runs` topic last said them, while a component is drawn. */
+function useRuns(tasks: ProjectTasks): RunSummary[] {
+  return useSyncExternalStore(tasks.subscribe, () => tasks.all());
+}
+
+/** A project's tasks on its overview: how many run, wait and are over; the latest few, each opening; "新任务". */
+export function TasksPanel({ tasks, module, root, open, create }: { tasks: ProjectTasks; module: string; root: string; open(run: RunSummary): void | Promise<void>; create(): void | Promise<void> }) {
+  const t = useT();
+  const runs = useRuns(tasks);
+  const rows = taskRows(runs, root).slice(0, 5);
+  const counts = taskCounts(runs, root);
+  return (
+    <div className="hx-flow-tasks-panel" data-testid="overview-tasks">
+      {rows.length ? (
+        <>
+          <div className="hx-flow-tasks-counts" data-testid="overview-tasks-counts" data-running={counts.running} data-waiting={counts.waiting} data-finished={counts.finished}>
+            {t("flowui.panel.counts", counts)}
+          </div>
+          {rows.map((row) => (
+            <button type="button" key={row.id} className="hx-flow-tasks-row" data-testid="overview-task" data-run={row.id} onClick={() => void open(row.data as RunSummary)}>
+              <TaskRow run={row.data as RunSummary} module={module} tasks={tasks} />
+            </button>
+          ))}
+        </>
+      ) : (
+        <div className="hx-flow-tasks-none">{t("flowui.panel.none")}</div>
+      )}
+      <button type="button" className="btn sm ghost" data-testid="overview-task-new" onClick={() => void create()}>
+        {t("flowui.task.new")}
+      </button>
+    </div>
+  );
 }
