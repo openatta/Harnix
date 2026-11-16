@@ -4,7 +4,7 @@
 //! - **Its names are the product's to register.** Before its process is started, its descriptor is
 //!   made here from its manifest and its consent — each `[[method]]` forwarded to the process
 //!   (`ctl.call_method`), its topics published by it, its spaces, its tools from `[[tool]]`, its
-//!   interface's files and its tool endpoint as routes — and registered through the component's
+//!   interface's files as a route — and registered through the component's
 //!   registrar, marked starting. The process's `proc.register` only says what it runs: it must be
 //!   within what was registered, with the digest of the manifest consented to, or it is refused
 //!   and the process is ended ([`Connection::violation`]). Its `proc.withdraw` is counted and
@@ -41,7 +41,7 @@ use serde_json::{json, Value};
 use tokio::sync::{mpsc, watch};
 
 use crate::registry::Registry;
-use harnix_carrier_shared::{McpEndpoint, UiFiles};
+use harnix_carrier_shared::UiFiles;
 use harnix_carrier_shared::sync::lock;
 
 /// What a process says, as the audit names a refusal of it.
@@ -198,7 +198,6 @@ pub(crate) fn descriptor(
         d.tool(spec);
     }
     d.route("ui", Access::device(), UiFiles::new(registry.clone()));
-    d.route("mcp", Access::engine(), McpEndpoint::new(registry.clone()));
     Ok(d.build())
 }
 
@@ -482,13 +481,14 @@ impl Kernel for Connection {
             Some(body) => Some(base64::engine::general_purpose::STANDARD.decode(body).map_err(|e| RpcError::invalid_params(e.to_string()))?),
             None => None,
         };
-        if let Err(why) = egress::allowed(&self.net, &f.url) {
-            // Its own host checks first: a request past it is a process not to be taken at its word.
+        let url = egress::allowed(&self.net, &f.url).map_err(|why| {
+            // Its own host checks first, by the same rule: a request past it is a process not to
+            // be taken at its word.
             tracing::warn!(package = %self.app, %why, "an extension process asked for a host outside its `net`");
             self.handle.refused(FETCH, "a host outside its net");
-            return Err(refused(why));
-        }
-        let request = Request { method: f.method, url: f.url, headers: f.headers, body };
+            refused(why)
+        })?;
+        let request = Request { method: f.method, url, headers: f.headers, body };
         let response = self.egress.send(request).await.map_err(refused)?;
         Ok(Fetched {
             status: response.status,

@@ -64,7 +64,8 @@ async function converse(page: Page, fixture: string, flow: string | null): Promi
     return app.snapshot.current.sessionId as string;
   }, fixture);
   await expect(page.getByTestId("conv-input")).toBeEnabled();
-  const scene = await page.evaluate(async (session_id) => (await (window as any).harnix.app.call("engine.session.get", { session_id, space: "flow" })).scene, id);
+  // The engine runs it on the layer's base scene; the hub names the layer.
+  const scene = await page.evaluate(async (session_id) => (await (window as any).harnix.app.call("engine.session.get", { session_id, space: "flow" })).scene_layer, id);
   expect(scene).toBe("flow-author");
   if (flow) {
     await page.evaluate(async ({ session_id, flow }) => (window as any).harnix.app.call("flow.focus", { instance: "main", session_id, flow }), { session_id: id, flow });

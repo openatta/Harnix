@@ -5,7 +5,7 @@
 //! something else: decisions written into the **session timeline**, in order
 //! with every other entry, surviving load, fork and resume.
 //!
-//! Agix already has exactly that seam, and reusing it rather than
+//! The engine already has exactly that seam (`session.appendEntry`), and reusing it rather than
 //! building a second log buys one specific thing: **an unknown namespace is
 //! inert, never an error.** The kernel never parses an extension entry's
 //! payload, so a session whose log contains entries from something that is no
@@ -22,7 +22,9 @@
 //! extension installed. Routine allows stay in the ring.
 
 use harnix_authz::{AuditEntry, AuditSink};
-use harnix_engine::timeline::Timeline;
+use std::sync::Arc;
+
+use harnix_hub::Hub;
 
 /// The namespace these entries are filed under. One key, opaque to the
 /// engine, and the thing that makes them skippable by anything that does not
@@ -39,12 +41,16 @@ pub struct TimelineAudit {
     /// the ring alone when there is not — a device being paired belongs to no
     /// conversation, and inventing one for it would be worse than not having
     /// it in a transcript.
-    timeline: Timeline,
+    hub: Arc<Hub>,
+    /// The runtime the writes are spawned on.
+    handle: tokio::runtime::Handle,
 }
 
 impl TimelineAudit {
-    pub fn new(timeline: Timeline) -> Self {
-        Self { timeline }
+    /// On the runtime this is called on. Entries go to the `main` instance's engine: a session
+    /// elsewhere is kept in the ring only.
+    pub fn new(hub: Arc<Hub>) -> Self {
+        Self { hub, handle: tokio::runtime::Handle::current() }
     }
 }
 
@@ -54,10 +60,10 @@ impl AuditSink for TimelineAudit {
         if entry.decision == "allow" && !is_consequential(&entry.method) {
             return;
         }
-        // A session id that does not parse is one that was never real — a typo in a call that
-        // was refused, most likely. There is nowhere to file that, and inventing somewhere would
-        // be worse than the ring. The write is fire and forget: an audit write must never be able
-        // to fail a call, and it must never be able to slow one down either.
+        // A session id the engine does not know — a typo in a call that was refused, most likely —
+        // is refused by it, and that lands in the log only. The write is fire and forget: an
+        // audit write must never be able to fail a call, and it must never be able to slow one
+        // down either.
         let Some(session) = entry.session.as_deref() else {
             return;
         };
@@ -66,7 +72,12 @@ impl AuditSink for TimelineAudit {
             "method": entry.method,
             "reason": entry.reason,
         });
-        self.timeline.append(session, NS, entry.decision, payload);
+        let (hub, session, event) = (self.hub.clone(), session.to_string(), entry.decision);
+        self.handle.spawn(async move {
+            if let Err(e) = hub.append_entry_to(harnix_hub::MAIN, &session, NS, event, payload).await {
+                tracing::warn!(error = %e.message, "entry not written to the timeline");
+            }
+        });
     }
 }
 

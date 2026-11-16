@@ -49,6 +49,7 @@
 
 mod methods;
 mod records;
+mod skills;
 mod snapshot;
 mod starting;
 
@@ -228,11 +229,9 @@ impl Extension for Packages {
             .title("Packages")
             .disclosure(
                 "扩展包：读写安装记录（<状态目录>/ext/<包 id>/），安装、启停、更新、卸载扩展包；把每个启用的包\
-                 登记成扩展；把包的 agent 包装进实例、技能写进实例的技能目录",
+                 登记成扩展；把包的 agent 包装进实例、技能写进 <状态目录>/ext/<包 id>/skills/",
             )
             .requires([caps::EXTENSIONS_MANAGE, caps::ENGINE_PLUGINS])
-            // Placing a package's skills has the instance re-read its configuration.
-            .optional([caps::ENGINE_CONFIG_WRITE])
     }
 
     fn register(&self, r: &mut Registrar<'_, Config>) {
@@ -242,16 +241,13 @@ impl Extension for Packages {
         }
         r.topic(LIST_TOPIC).access(person());
         r.topic(PROGRESS_TOPIC).access(person());
-        // What the carrier gives every engine built in this process: its tools, in every session.
+        // What the carrier gives every engine this process builds or spawns: its tools, in every session.
         let Ok(carrier) = self.chosen(r.config()) else { return };
         let mut c = CarrierRegistrar::new(self.settings(r.config()));
         carrier.register(&mut c);
         let everywhere = r.engine_everywhere();
         for provider in c.providers() {
             everywhere.provider(provider.clone());
-        }
-        for pattern in c.admitted() {
-            everywhere.admit_everywhere(pattern);
         }
     }
 
@@ -295,6 +291,12 @@ impl Extension for Packages {
         for id in state.sections.keys().filter(|id| !installed.contains(id.as_str())) {
             tracing::warn!(package = %id, "[ext.\"{id}\"] configures a package that is not installed");
         }
+        // Each package's skills are where they should be, whether it is on or off; then the hub
+        // is told which are on.
+        for record in &records {
+            skills::settle(&state, record);
+        }
+        skills::publish(&state);
         // The enabled ones, started where they were left. One that does not start is reported by
         // `packages.list` and the rest go on: a package is not the process.
         for record in records.into_iter().filter(|r| r.enabled) {
@@ -330,6 +332,8 @@ impl Extension for Packages {
 /// pushed now rather than at the next move of the carrier's generation.
 pub(crate) async fn changed(state: &State, id: Option<&str>) {
     state.forget(id);
+    // Who sees which skills moves with what is installed, switched on or removed.
+    skills::publish(state);
     snapshot::push(state).await;
 }
 
@@ -402,7 +406,7 @@ mod tests {
     fn it_asks_for_what_registering_and_placing_packages_take() {
         let manifest = Packages::new().manifest();
         assert_eq!(manifest.required(), [caps::EXTENSIONS_MANAGE, caps::ENGINE_PLUGINS]);
-        assert_eq!(manifest.optionals(), [caps::ENGINE_CONFIG_WRITE]);
+        assert!(manifest.optionals().is_empty());
     }
 
     #[test]

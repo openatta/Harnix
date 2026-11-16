@@ -194,6 +194,9 @@ async fn stream_for(
     };
     // When the stream goes, its handshake is still in use as of now: the
     // idle clock starts here, not at the last `/rpc`.
+    if face == Face::Host {
+        state.hub.host_face_opened(established.client).await;
+    }
     let open = Touch(established);
     let stream = ReceiverStream::new(receiver).map(move |payload| {
         let _ = &open;

@@ -13,15 +13,14 @@ use std::time::Duration;
 use harnix_contract::s1::{Capability, ExtId, Subject};
 use harnix_contract::{Channel, Frame, FrameSink, SessionRef};
 use harnix_engine_api::readers::{Recordings, Transcripts};
-use harnix_engine_api::Secret;
-use harnix_kernel::seat::{DeviceAdmin, InstanceView, Listening, Seat, Seated};
+use harnix_kernel::seat::{DeviceAdmin, InstanceView, Listening, Seat, Seated, Unserved};
 use harnix_kernel::{CallContext, Handler, TopicSource};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 use crate::call::{Call, Deadline};
 use crate::context::{ExtensionContext, GrantsView, Listen};
-use crate::credentials::Credentials;
+use crate::credentials::{Credentials, Secret};
 use crate::descriptor::{ExtensionDescriptor, MethodDecl, TopicDecl, TopicKind};
 use crate::sessions::{Reattach, Tap};
 use crate::topics::{TopicStream, TopicValue};
@@ -165,10 +164,6 @@ impl Ports {
         self.seat.instances.view(id).map(View)
     }
 
-    pub(crate) fn validate_provider(&self, entry: &Value) -> Result<(), String> {
-        self.seat.instances.validate_provider(entry)
-    }
-
     pub(crate) fn process(&self) -> Value {
         self.seat.process.process()
     }
@@ -185,8 +180,13 @@ impl Ports {
         self.seat.devices.as_ref()
     }
 
-    pub(crate) fn service(&self, ext: &ExtId, name: &str) -> Option<Arc<dyn Any + Send + Sync>> {
-        self.seat.services.service(ext, name)
+    /// A named service, as its provider answers: refused as any capability is when the extension
+    /// lacks the one the provider says it takes.
+    pub(crate) fn service(&self, ext: &ExtId, name: &str) -> Rpc<Arc<dyn Any + Send + Sync>> {
+        self.seat.services.service(ext, name).map_err(|why| match why {
+            Unserved::Unknown => RpcError::missing(format!("this process has no service `{name}`")),
+            Unserved::Lacks(cap) => crate::lacks(&cap),
+        })
     }
 
     pub(crate) fn projects_dir(&self) -> &std::path::Path {

@@ -2,7 +2,7 @@
 name = "harnix"
 version      = "0.4.3-2026111501"
 edition      = "2021"
-rust-version = "1.87"
+rust-version = "1.88"
 license      = "Apache-2.0"
 publish      = false
 description  = "Agix, assembled into a product — the crate an application depends on"
@@ -37,22 +37,18 @@ proc = ["first-party", "dep:harnix-ext-packages", "dep:harnix-carrier-proc", "de
 # `<product> ext-proc --probe`: what the process's sandbox lets it reach, for tests. Never in a
 # product's build.
 proc-probe = ["proc", "harnix-proc/probe"]
-# `harnix::agix`: Agix's own types, for what `harnix::engine` does not say. Not stable.
-agix = ["dep:harnix-engine", "harnix-engine/agix"]
 # `harnix::testing`: a product's route table without starting it, and a process started without
 # its listener. Not stable.
 testing = []
-# `harnix::ext::http::axum`: an `axum::Router` as an extension's route. Not stable.
-axum = ["harnix-ext/axum"]
+# `harnix::ext::http::axum`: an `axum::Router` as an extension's route, and `harnix::axum`, the crate
+# it takes it from. Not stable: bound to axum's major version.
+axum = ["harnix-ext/axum", "dep:axum"]
 
 [dependencies]
 harnix-assembly       = { workspace = true }
-# The extension interface, re-exported as `harnix::ext`.
+# The extension interface, re-exported as `harnix::ext`, with the engine interface as `harnix::engine`
+# and the contract's S1 types at the root: every re-export here is one of these two crates' (l24).
 harnix-ext       = { workspace = true }
-harnix-contract  = { workspace = true }
-# What a module gives the engine, re-exported as `harnix::engine`: an application names only this
-# crate.
-harnix-engine-api = { workspace = true }
 # Harnix's own extensions (`first-party`).
 harnix-ext-harnix-app    = { workspace = true, optional = true }
 harnix-ext-system        = { workspace = true, optional = true }
@@ -68,11 +64,13 @@ harnix-carrier-wasm      = { workspace = true, optional = true }
 harnix-carrier-proc      = { workspace = true, optional = true }
 # The extension process's code (`proc`).
 harnix-proc       = { workspace = true, optional = true }
-# Only for `harnix::agix`.
-harnix-engine     = { workspace = true, optional = true }
 async-trait = { workspace = true }
 anyhow      = { workspace = true }
-axum        = { workspace = true }
+axum        = { workspace = true, optional = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }
 
+
+[dev-dependencies]
+# `tests/tool_names.rs` holds the host's copy of the tool-naming rule to the package crate's.
+harnix-package = { workspace = true }

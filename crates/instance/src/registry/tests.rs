@@ -173,7 +173,12 @@ fn engine(sessions: Value) -> (std::os::unix::net::UnixStream, Arc<Mutex<Vec<Val
         while let Ok(Some(line)) = lines.next_line().await {
             let request: Value = serde_json::from_str(&line).unwrap();
             lock(&kept).push(request.clone());
-            let result = json!({"protocol_version": harnix_engine::protocol_version(), "sessions": sessions, "session_id": "s1"});
+            let result = json!({
+                "protocol_version": harnix_engine::AGIX_PROTOCOL,
+                "capabilities": harnix_engine::REQUIRED_CAPABILITIES,
+                "sessions": sessions,
+                "session_id": "s1",
+            });
             let reply = json!({"jsonrpc": "2.0", "id": request["id"], "result": result});
             if w.write_all(format!("{reply}\n").as_bytes()).await.is_err() {
                 break;
@@ -315,7 +320,7 @@ async fn an_adopted_engine_records_and_replays_as_the_process_does() {
     adoption.attach(stream).await.unwrap();
     let link = lock(&seen.links).get("proc.acme.board").cloned().expect("the hub has its link");
 
-    link.ops().create(json!({"options": {"recorder": {"name": "says-ready"}}})).await.unwrap();
+    link.ops().create(json!({"options": {"recorder": {"name": "says-ready"}}}), Default::default()).await.unwrap();
     let created = lock(&asked).iter().find(|r| r["params"]["options"]["recorder"].is_object()).cloned().expect("a create");
     let recorder = &created["params"]["options"]["recorder"];
     assert_eq!((recorder["mode"].as_str(), recorder["name"].as_str()), (Some("replay"), Some("says-ready")), "{created}");
@@ -333,9 +338,9 @@ async fn an_adopted_engine_records_and_replays_as_the_process_does() {
 /// settings, and through a merge of `main`'s providers.
 #[tokio::test]
 async fn an_engine_in_the_hosts_sandbox_has_its_own_command_sandbox_off() {
-    use harnix_engine::agix::base::settings::Settings;
     let disabled = |root: &std::path::Path| {
-        Settings::load(root.to_path_buf(), root.join("scenes/code"), root.join("work/.agix"), "code", "m").sandbox.dangerously_disable_sandbox
+        let settings: Value = serde_json::from_slice(&std::fs::read(root.join("settings.json")).unwrap()).unwrap();
+        settings["sandbox"]["dangerously_disable_sandbox"].as_bool().unwrap_or(false)
     };
     let dir = tempfile::tempdir().unwrap();
     let (registry, _) = registry(dir.path());

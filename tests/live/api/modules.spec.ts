@@ -105,6 +105,10 @@ test("the diagnostics page says what is there and what is not", TAGS, async () =
   expect(report.versions.ext_api).toBe(1);
   expect(report.versions.app.name).toBe("harnix-testapp");
   expect(report.versions.agix.version).toBeTruthy();
+  // The engine's own account of itself, from `main`'s handshake: what it can do and its modules.
+  expect(report.versions.agix.protocol_version).toBeTruthy();
+  expect(typeof report.versions.agix.capabilities).toBe("object");
+  expect(Array.isArray(report.versions.agix.modules)).toBe(true);
   const settings = report.modules.find((m: any) => m.id === "settings");
   expect(settings).toMatchObject({ trust: "origin", carrier: "native" });
   expect(settings.granted).toContain("engine.config.write");

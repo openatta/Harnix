@@ -1,66 +1,58 @@
 //! Agix, behind Harnix's engine interface: the one crate that links the engine.
 //!
-//! What extensions give an engine is written in `harnix-engine-api`'s terms — tools, providers,
-//! hooks, scene layers, prompt gates, a credential source. This crate turns each into Agix's own
-//! (`adapt`), and stands the engine up in this process
-//! ([`build`]) or serves it as a daemon ([`serve_daemon`]).
+//! The engine is Agix's, started through its embedding entry ([`Engine`]): in this process behind
+//! an in-memory stream ([`InProcessEngine`]), or as `harnix daemon` on a socket
+//! ([`serve_daemon`]). Nothing of Harnix's is built into it: what extensions give an engine —
+//! tools, hooks around a tool call, gates on a message, written in `harnix-engine-api`'s terms —
+//! is registered on the link to it and answered there ([`HostSide`]); a scene layer is one of the
+//! engine's own scenes with what the hub creates its sessions with, its own tools answered on the
+//! link that created them.
 //!
-//! It also carries the links the hub reaches an engine through — [`InProcessLink`] for one in
-//! this process, [`DaemonLink`] for one at the other end of a stream, and the [`ReplayLink`] that
-//! records or replays what either creates — and the translation between Agix's protocol and the
-//! engine interface's (`translate.rs`), the one place that names Agix's methods and events. The
-//! instance layer builds the links; the hub only ever holds them as `EngineLink`s.
+//! It also carries the link the hub reaches an engine through — [`DaemonLink`], on a stream to a
+//! daemon in another process or to an engine in this — and the [`ReplayLink`] that records or
+//! replays what it creates, and the translation between Agix's protocol and the engine
+//! interface's (`translate.rs`), the one place that names Agix's methods and events. The
+//! instance layer builds the links; the hub only ever holds them as `EngineLink`s. What an engine
+//! writes down — a session's recording and transcript — is read back through the same link
+//! ([`DaemonLink::readers`]), by the engine's own protocol.
 
-mod adapt;
-pub mod assemble;
+mod activity;
 mod daemon_link;
-pub mod engine;
+mod embed;
 mod gate;
-mod hooks;
-mod inproc;
+mod host;
+mod host_hooks;
+mod host_tests;
+mod host_tools;
+mod permits;
+mod legacy;
 pub mod readers;
 mod replay_link;
-pub mod scenes;
-mod serve;
-pub mod settings;
-pub mod timeline;
 mod translate;
 
-#[cfg(feature = "agix")]
-pub mod agix;
-
 pub use daemon_link::{Connection, DaemonLink, Endpoint, Refusal, Taken};
+pub use embed::{active_scenes, serve_daemon, Engine, EngineConfig, InProcessEngine};
 pub use gate::WakeGate;
-pub use engine::{active_scenes, build, Chains, Engine, EngineConfig};
-pub use hooks::RawHook;
-pub use inproc::InProcessLink;
+pub use host::{Chains, HostSide};
+pub use legacy::strip_package_skills;
 pub use replay_link::{Recorder, Recording, ReplayLink};
-pub use serve::serve_daemon;
+pub use translate::REQUIRED_CAPABILITIES;
 
-/// Where an engine keeps its transcripts, for readers that would otherwise page the protocol to
-/// get at text.
-pub use history::store::HistoryStore;
+/// The Agix this build links, as its manifest says (`build.rs`): for what asks before an engine
+/// is up. A running engine says it itself, in `daemon.ping`.
+pub const AGIX_VERSION: &str = env!("HARNIX_AGIX_VERSION");
 
-use harnix_engine_api::EngineIdentity;
+/// The protocol that Agix's daemon speaks: what a daemon this links to must speak too, and what
+/// `hello.engine_protocol` reports.
+pub const AGIX_PROTOCOL: u64 = parse_u64(env!("HARNIX_AGIX_PROTOCOL"));
 
-/// What the engine this build links says it is: the version, and the protocol a daemon of it
-/// speaks — the one `hello.engine_protocol` reports.
-pub fn identity() -> EngineIdentity {
-    let about = about();
-    EngineIdentity::new(
-        about.get("version").and_then(serde_json::Value::as_str).map(str::to_string),
-        Some(protocol_version()),
-        about.get("capabilities").cloned().unwrap_or(serde_json::Value::Null),
-    )
-}
-
-/// The protocol a daemon of the engine this build links speaks: what a daemon this links to must
-/// speak too.
-pub fn protocol_version() -> u64 {
-    about().get("protocol_version").and_then(serde_json::Value::as_u64).unwrap_or(0)
-}
-
-/// Everything the engine says about itself, as it says it: for a diagnostics page.
-pub fn about() -> serde_json::Value {
-    daemon::discovery::identity()
+const fn parse_u64(s: &str) -> u64 {
+    let bytes = s.as_bytes();
+    let mut n = 0u64;
+    let mut i = 0;
+    while i < bytes.len() {
+        n = n * 10 + (bytes[i] - b'0') as u64;
+        i += 1;
+    }
+    n
 }

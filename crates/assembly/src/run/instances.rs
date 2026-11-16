@@ -6,10 +6,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use harnix_router::RouteTable;
-use harnix_engine_api::InstanceCarrier;
-use harnix_instance::{
-    Built, DownLink, EngineConfig, Factory, Facts, HistoryStore, Ledger, Owner, Recording, RegistryConfig,
-};
+use harnix_engine_link::InstanceCarrier;
+use harnix_instance::{Built, DownLink, Factory, Facts, Ledger, Owner, Recording, RegistryConfig};
 use harnix_ext::Credentials;
 
 use crate::host::{lifecycle, Record};
@@ -22,8 +20,6 @@ pub(super) struct Instances {
     pub registry: RegistryConfig,
     /// The main instance, built in this process from the profile's `[engine]`.
     pub main: Built,
-    /// The main instance's history: where audit entries are filed.
-    pub history: Option<Arc<dyn HistoryStore>>,
     /// The profile's `[[instances]]`, each built or down with its reason.
     pub fixed: Vec<(String, Built)>,
 }
@@ -31,8 +27,6 @@ pub(super) struct Instances {
 /// What the instances share with the rest of the process.
 pub(super) struct Wiring<'a> {
     pub credentials: &'a Arc<dyn Credentials>,
-    /// What a daemon this process spawns presents when it calls back.
-    pub engines: &'a Arc<harnix_authz::EngineCredentials>,
     pub recording: Arc<Recording>,
     pub grants: Arc<dyn harnix_kernel::GrantBook>,
 }
@@ -46,35 +40,20 @@ pub(super) async fn build(
 ) -> anyhow::Result<Instances> {
     let mut registry = registry(profile, roots, records, table, wiring)?;
 
-    let engine_profile = &profile.instances.engine;
-    let engine = harnix_instance::build_engine(EngineConfig {
-        scene: engine_profile.scene.clone(),
-        scenes: engine_profile.scenes.clone(),
-        model: engine_profile.model.clone(),
-        max_tokens: engine_profile.max_tokens,
-        session_cap: engine_profile.session_cap,
-        session_idle_timeout_secs: engine_profile.session_idle_timeout_secs,
-        permission_prompt_timeout_secs: engine_profile.permission_prompt_timeout_secs,
-        data_root: roots.engine.clone(),
-        cwd: None,
-        instance: harnix_contract::MAIN_INSTANCE.to_string(),
-        chains: registry.factory.chains(),
-        contrib: lifecycle::main_contribution(records),
-    })
-    .await?;
+    let main = registry
+        .factory
+        .in_process(harnix_hub::MAIN, &profile.instances.engine, roots.engine.clone(), lifecycle::main_contribution(records))
+        .await?;
     tracing::info!(
-        scenes = ?engine.active_scenes,
-        model = %engine.model,
+        scenes = ?main.facts.active_scenes,
+        model = main.facts.model.as_deref().unwrap_or_default(),
         "engine ready (in-process)"
     );
-    let history = engine.history.clone();
-    let main = registry.factory.in_process(harnix_hub::MAIN, engine).await;
 
     let fixed = fixed(profile, &mut registry).await?;
     Ok(Instances {
         registry,
         main,
-        history,
         fixed,
     })
 }
@@ -89,7 +68,7 @@ fn registry(
     table: &mut RouteTable,
     wiring: Wiring<'_>,
 ) -> anyhow::Result<RegistryConfig> {
-    let Wiring { credentials, engines, recording, grants } = wiring;
+    let Wiring { credentials, recording, grants } = wiring;
     let resolve = {
         let credentials = credentials.clone();
         Arc::new(move |name: &str| credentials.get(name).ok().map(|s| s.expose().to_string()))
@@ -98,12 +77,8 @@ fn registry(
     // A template that inherits providers inherits the main instance's.
     factory.providers_from = Some(roots.engine.clone());
     factory.recording = recording;
-    // What the extensions give every engine built in this process.
-    let (providers, admitted) = lifecycle::everywhere(records);
-    factory.providers.extend(providers);
-    factory.admitted.extend(admitted);
-    // A daemon reaches the packages' tools over HTTP, presenting a credential of its own.
-    factory.servers.issue_with(Arc::new(EngineTokens(engines.clone())));
+    // What the extensions give every engine this process builds or spawns.
+    factory.providers.extend(lifecycle::everywhere(records));
     let mut registry = RegistryConfig {
         templates: BTreeMap::new(),
         ledger: Ledger::load(roots.state.join("kernel").join("instances.json"))?,
@@ -184,20 +159,6 @@ fn instance_root(instances_dir: &Path, data_root: Option<&str>, id: &str) -> std
 fn down(carrier: InstanceCarrier, reason: String) -> Built {
     tracing::error!(%reason, "instance not built");
     Built::new(DownLink::new(carrier, reason), Facts::default())
-}
-
-/// What issues and revokes the credential each daemon this process spawns presents at a package's
-/// tool endpoint, as its instance's engine.
-struct EngineTokens(Arc<harnix_authz::EngineCredentials>);
-
-impl harnix_instance::ServerTokens for EngineTokens {
-    fn issue(&self, instance: &str) -> String {
-        self.0.issue_engine(instance)
-    }
-
-    fn revoke(&self, token: &str) {
-        self.0.revoke(token)
-    }
 }
 
 #[cfg(test)]

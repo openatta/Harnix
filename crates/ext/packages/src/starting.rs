@@ -3,7 +3,7 @@
 //!
 //! **Installing**: the package is read and its signatures verified before anything of it is
 //! unpacked; it is unpacked to `<ext>/<id>/<version>/`; its carrier starts it — putting its agent
-//! package and skills in place, registering it as an extension, starting its VM; then its record
+//! package in place, registering it as an extension, starting its VM; then its record
 //! is written. A step that fails undoes every step before it, and the package is not installed.
 //!
 //! **Updating**: the new package is verified first; the installed version is stopped and what it
@@ -48,6 +48,19 @@ fn instances_named(state: &State, manifest: &Manifest) -> Rpc<()> {
         Some(target) => Err(no_such_instance(&manifest.app.id, target)),
         None => Ok(()),
     }
+}
+
+/// What the installed packages' tools leave room for: no name another package's already has once
+/// mapped (`harnix_package::tool_name`), and at most 64 in all. A record whose files do not read
+/// is skipped. `manifest`'s own package, when installed, is replaced rather than counted.
+fn tools_named(state: &State, manifest: &Manifest) -> Rpc<()> {
+    let (records, _) = crate::records::read_all(&state.dir);
+    let others: Vec<Manifest> = records
+        .iter()
+        .filter(|r| r.id != manifest.app.id)
+        .filter_map(|r| harnix_package::acquire::manifest_in(&state.package_dir(&r.id).join(&r.version)).ok())
+        .collect();
+    harnix_package::check_tools_beside(manifest, &others).map_err(refused)
 }
 
 /// The manifest unpacked at `root`, as JSON for the carrier.
@@ -176,6 +189,7 @@ pub(crate) async fn install(state: &State, path: &Path, disclosed: &Disclosure, 
     // Before a byte of it is written.
     let verified = state.admission.admit_zip(path, &inspected.manifest)?;
     instances_named(state, &inspected.manifest)?;
+    tools_named(state, &inspected.manifest)?;
     let app = &inspected.manifest.app;
     let app_dir = state.package_dir(&app.id);
     std::fs::create_dir_all(&app_dir).map_err(|e| internal(format!("{}: {e}", app_dir.display())))?;
@@ -190,6 +204,8 @@ pub(crate) async fn install(state: &State, path: &Path, disclosed: &Disclosure, 
     let started = async {
         package::extract(path, &app_dir.join(&app.version)).map_err(refused)?;
         record.digest = Some(manifest_digest(&app_dir.join(&app.version))?);
+        // Before its carrier starts it: a process of its own reads them from its sandbox.
+        crate::skills::sync(&app_dir, &app_dir.join(&app.version))?;
         state.carrier.start(&*state.host, &state.cx, installed(state, &record, Some(&verified))?).await
     }
     .await;
@@ -236,6 +252,7 @@ pub(crate) async fn update(state: &State, record: &InstallRecord, path: &Path, d
     let verified = state.admission.admit_zip(path, &inspected.manifest)?;
     // Before the installed version is taken down.
     instances_named(state, &inspected.manifest)?;
+    tools_named(state, &inspected.manifest)?;
     let version = inspected.manifest.app.version.clone();
     if version == record.version {
         return Err(refused(format!("`{}` {version} is the version installed", record.id)));
@@ -261,6 +278,7 @@ pub(crate) async fn update(state: &State, record: &InstallRecord, path: &Path, d
     let started = async {
         package::extract(path, &new_root).map_err(refused)?;
         next.digest = Some(manifest_digest(&new_root)?);
+        crate::skills::sync(&app_dir, &new_root)?;
         state.carrier.start(&*state.host, &state.cx, installed(state, &next, Some(&verified))?).await
     }
     .await;
@@ -291,6 +309,9 @@ pub(crate) async fn update(state: &State, record: &InstallRecord, path: &Path, d
         Err(e) => {
             tracing::warn!(package = %record.id, error = %e.message, "the update failed; putting the installed version back");
             let _ = std::fs::remove_dir_all(&new_root);
+            if let Err(again) = crate::skills::sync(&app_dir, &old_root) {
+                tracing::warn!(package = %record.id, error = %again.message, "the installed version's skills were not put back");
+            }
             let back = InstallRecord { parts: parts(Value::Null, record.trust(), "store"), ..record.clone() };
             let restored = match installed(state, &back, None) {
                 Ok(old) => match state.carrier.start(&*state.host, &state.cx, old).await {

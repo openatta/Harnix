@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { useT, compact, rowKeys, type HostApi, type HostSessionRef as SessionKey } from "@harnix/react";
 
-import { Failure, usageText, type TraceCall, type TurnRow } from "./shared.tsx";
+import { Failure, RunNote, usageText, type Run, type TraceCall, type TurnRow } from "./shared.tsx";
 
 /**
  * Per turn (DSH's statistics, for the system space): a row per turn — its calls, time to first
@@ -13,7 +13,7 @@ import { Failure, usageText, type TraceCall, type TurnRow } from "./shared.tsx";
  */
 export function TurnsTab({ host, session }: { host: HostApi; session: SessionKey }) {
   const tr = useT();
-  const [data, setData] = useState<{ turns: TurnRow[]; calls: TraceCall[] } | null>(null);
+  const [data, setData] = useState<{ turns: TurnRow[]; calls: TraceCall[]; run: Run | null } | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
   const [mode, setMode] = useState<"delta" | "total">("delta");
   const [open, setOpen] = useState<Set<number>>(new Set());
@@ -21,8 +21,8 @@ export function TurnsTab({ host, session }: { host: HostApi; session: SessionKey
     let alive = true;
     const target = { instance: session.instance, session_id: session.sessionId };
     const load = () =>
-      Promise.all([host.call<{ turns?: TurnRow[] }>("observability.turns", target), host.call<{ calls?: TraceCall[] }>("observability.trace", target)])
-        .then(([t, c]) => alive && (setData({ turns: t.turns ?? [], calls: c.calls ?? [] }), setFailure(null)))
+      Promise.all([host.call<{ turns?: TurnRow[]; run?: Run | null }>("observability.turns", target), host.call<{ calls?: TraceCall[] }>("observability.trace", target)])
+        .then(([t, c]) => alive && (setData({ turns: t.turns ?? [], calls: c.calls ?? [], run: t.run ?? null }), setFailure(null)))
         .catch((e) => alive && setFailure(e ?? "error"));
     void load();
     const off = host.events.onTurnSettled((e) => {
@@ -47,6 +47,7 @@ export function TurnsTab({ host, session }: { host: HostApi; session: SessionKey
   });
   return (
     <div className="system-pane turns" data-testid="system-turns">
+      <RunNote run={data.run} testId="turns-run-note" />
       <div className="tools-row">
         {(["delta", "total"] as const).map((m) => (
           <button type="button" key={m} className={`btn sm outline${mode === m ? " on" : ""}`} data-testid={`turns-${m}`} onClick={() => setMode(m)}>

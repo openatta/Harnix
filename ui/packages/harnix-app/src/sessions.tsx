@@ -120,7 +120,7 @@ export function SessionRow({ host, store, session, nested = false }: { host: Hos
   const running = s.running[keyOf(instance, session.session_id)];
   const tooltip = [
     session.name || t("sidebar.untitled"),
-    session.scene || session.status || "",
+    session.scene_layer || session.scene || session.status || "",
     session.message_count ? t("sidebar.messageCount", { count: session.message_count }) : "",
     session.archived ? t("sidebar.archivedTag") : "",
   ]

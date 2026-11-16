@@ -2,8 +2,8 @@
 //!
 //! What the model was sent and what came back, call by call, summed per turn, what each Agent of
 //! a session has used, and the request envelope's changes. The engine writes every call to a
-//! recording; its reader (`harnix_ext::engine::readers`) parses it, and these methods answer with
-//! what it read. The system space's inspector tabs are the first reader of them.
+//! recording; its reader (`harnix_ext::engine::readers`) reads it through the engine's protocol, and
+//! these methods answer with what it read. The system space's inspector tabs are the first reader of them.
 
 use std::sync::Arc;
 
@@ -32,14 +32,14 @@ impl Extension for Observability {
     fn register(&self, r: &mut Registrar<'_, ()>) {
         r.method("trace")
             .access(Access::device())
-            .describe("every model call of a session's current run, oldest first, with its tool calls and their results")
+            .describe("every model call of a session's current run, oldest first, with the tool calls each asked for")
             .raw(|call, params| async move {
                 let (reader, session) = recording_of(&call, &params)?;
                 answer(reader.calls(&session).await)
             });
         r.method("trace.call")
             .access(Access::device())
-            .describe("one model call in full: the system blocks, the tool catalog, the messages as sent, the answer")
+            .describe("one model call in full: the system blocks, the tool catalog, the messages as sent, the answer, and what its tool calls got back")
             .raw(|call, params| async move {
                 let (reader, session) = recording_of(&call, &params)?;
                 let index = params
@@ -57,7 +57,7 @@ impl Extension for Observability {
             });
         r.method("usage")
             .access(Access::device())
-            .describe("what each Agent of each session has used")
+            .describe("what each Agent of each session has used this run (the latest, not a total); a sleeping instance is not woken, and what it read before is marked stale")
             .raw(|call, params| async move { usage(&call, &params).await });
         r.method("calls")
             .access(Access::device())
@@ -69,8 +69,8 @@ impl Extension for Observability {
     }
 }
 
-/// `{instance?, session_ids}` → `{instance, sessions: {<id>: {recording, agents}}}`; `agents` is
-/// the session's own figures first, then each sub-agent's with its parent.
+/// `{instance?, session_ids}` → `{instance, sessions: {<id>: {recording, agents, run, stale?}}}`;
+/// `agents` is the session's own figures first, then each sub-agent's with its parent.
 async fn usage(call: &Call, params: &Value) -> Rpc<Value> {
     let instance = instance_of(params);
     let ids: Vec<String> = params
@@ -131,6 +131,7 @@ fn read_error(e: ReadError) -> RpcError {
     match e {
         ReadError::Missing(m) => RpcError::missing(m),
         ReadError::Unreadable(m) => RpcError::new(codes::INTERNAL_ERROR, m),
+        ReadError::Unavailable(m) => RpcError::new(codes::INSTANCE_UNAVAILABLE, m),
         other => RpcError::new(codes::INTERNAL_ERROR, other.to_string()),
     }
 }

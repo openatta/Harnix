@@ -22,20 +22,9 @@ import { RECORDED, backendFor, play } from "./recorded";
 
 const TAGS = { tag: ["@feature:sessions", "@layer:api", "@strict"] };
 
-/**
- * Recordings known not to replay strictly, and why. A sub-agent does not inherit its parent session's
- * Environment, so its prompt carries today's date, not the recording's (openatta/Agix#44). Remove an
- * entry when the Agix that fixes it comes in: `test.fail` then fails the run that passes.
- */
-const KNOWN_FAILING: Record<string, string> = {
-  "spawns-agent": "a sub-agent's prompt carries today's date, not the recording's (openatta/Agix#44)",
-  "app-subagent": "a sub-agent's prompt carries today's date, not the recording's (openatta/Agix#44)",
-};
-
 for (const entry of RECORDED.filter((r) => !r.varies)) {
   test(`${entry.name} replays strictly: every request is the recorded one`, TAGS, async () => {
     test.skip(process.platform !== "darwin", "recorded on macOS, and the prompt names the operating system");
-    test.fail(entry.name in KNOWN_FAILING, KNOWN_FAILING[entry.name]);
     const backend = await backendFor(entry, launchFor("replay", { replayStrict: true, fixedScratch: join(STRICT_ROOT, entry.name) }), startHarnix);
     try {
       const api = await connect(backend);

@@ -3,8 +3,8 @@
  * (xops-02 §1–2, xops-04 §3), in `harnix-testapp`.
  *
  * The flow module there has two templates of its own: `flow.local` (in process) and
- * `flow.remote` (a spawned daemon); both engines have `structured-harnix`, Agix's harnix scene with
- * `StructuredOutput` allowed, as a native contribution. A station names the template (and its
+ * `flow.remote` (a spawned daemon); both engines run Agix's harnix scene, where a session with an
+ * `output_schema` always has `StructuredOutput`. A station names the template (and its
  * space, its model); the module makes the instance ready, opens the session there with the
  * station's contract as its `output_schema` and an `ask` permission rule for each guarded tool,
  * answers each question from the task's permissions, and submits each turn's structured output.

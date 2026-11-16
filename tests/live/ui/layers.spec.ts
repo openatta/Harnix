@@ -279,6 +279,28 @@ test("a turn is not stopped by one Escape too many: the first says what the seco
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("conv-note").last()).toContainText(/已中断|interrupted/i, { timeout: 20_000 });
   await expect(page.getByTestId("conv-esc-hint")).toHaveCount(0);
+  // The ask the stopped turn was waiting on is closed by the engine's word that it was withdrawn.
+  await expect(page.getByTestId("conv-ask")).toHaveAttribute("data-answer", "withdrawn", { timeout: 10_000 });
+  await expect(page.getByTestId("conv-ask-allow")).toHaveCount(0);
+});
+
+test("an ask answered on another page closes on this one, saying it was answered elsewhere", SESSIONS, async ({ page, context }) => {
+  await open(page, URL);
+  await asking(page);
+  const sid = await page.evaluate(() => (window as any).harnix.app.snapshot.current?.sessionId as string);
+  const other = await context.newPage();
+  try {
+    await open(other, URL);
+    await other.evaluate((sid) => (window as any).harnix.app.open({ instance: "main", sessionId: sid }), sid);
+    const there = other.getByTestId("conv-ask");
+    await expect(there).toHaveAttribute("data-state", "pending", { timeout: 15_000 });
+    await there.getByTestId("conv-ask-allow").click();
+    await expect(there).toHaveAttribute("data-answer", "allow");
+    await expect(page.getByTestId("conv-ask")).toHaveAttribute("data-answer", "answered", { timeout: 10_000 });
+    await expect(page.getByTestId("conv-ask-allow")).toHaveCount(0);
+  } finally {
+    await other.close();
+  }
 });
 
 test("the banner is a live region, and its notices queue", SHELL, async ({ page }) => {

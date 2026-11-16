@@ -6,11 +6,10 @@
  * looks once a second, to see it awake in between.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { type Backend, connect, expect, test, topology } from "@harnix/testkit";
+import { type Backend, connect, expect, scratchDir, test, topology } from "@harnix/testkit";
 
 import { SHOWCASE_ID, showcasePackage, startApps, variant } from "../api/packages-host";
 import { appsTestApp } from "../api/packages-store";
@@ -26,7 +25,7 @@ test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
   test.setTimeout(600_000);
   showcasePackage();
-  scratch = mkdtempSync(join(tmpdir(), "hx-idle-ui-"));
+  scratch = scratchDir("hx-idle-ui-");
   const path = variant(join(scratch, "idle.hxext"), (e) => {
     const manifest = e.get("harnix-ext.toml")!.toString().replace("watch_sessions = true", "watch_sessions = false");
     e.set("harnix-ext.toml", Buffer.from(`${manifest}\n[backend]\nresident = "on-demand"\n`));

@@ -1,15 +1,19 @@
 //! A scene as a layer over another: only what changes is said, the rest is the base's.
 //!
-//! A layer names its base ([`SceneBase`]) and what it changes — its id and name, a system block
-//! added after the base's, tools added to the scene and to its tool list, names let into a tool
-//! list, a tool taken off the disallowed list, whether someone answers, whether a project is
-//! needed, whether the session is named by a model call. Whatever it does not say is answered by
-//! the base, method by method.
+//! A layer names its base ([`SceneBase`]) and what it changes — its id and name, a block added at
+//! the end of the system prompt, tools of its own, whether someone answers, whether a project is
+//! needed, whether the session is named by a model call. Whatever it does not say is the base's.
+//!
+//! The engine serves only its own scenes. A layer is not built into it: the hub expands the one a
+//! session is created in into the engine's scene it runs on and what the session is created
+//! with (`harnix-engine-link`), and the session's own tools are answered on the link that created
+//! it. A layer's own tools are named `^[A-Za-z][A-Za-z0-9_]{0,63}$`, not `ext__…` or `mcp__…`, at
+//! most 64 to a session, and a tool by one name is one object shared by every layer that has it:
+//! the expansion refuses what breaks that.
 //!
 //! An id, a name or a description may say `{base}`, which is replaced by the base's own:
-//! `structured-{base}`, `"{base} (flow)"`.
+//! `flow-{base}`, `"{base} (flow)"`.
 
-use std::any::Any;
 use std::sync::Arc;
 
 use crate::tool::Tool;
@@ -24,17 +28,10 @@ pub struct SceneLayer {
     description: Option<String>,
     prompts: Vec<PromptText>,
     tools: Vec<Arc<dyn Tool>>,
-    admitted: Vec<String>,
-    undisallowed: Vec<String>,
     interactive: Option<bool>,
     requires_project: Option<bool>,
     auto_name: Option<bool>,
-    name_prompt: Option<Option<String>>,
-    session_context: Option<SessionContext>,
 }
-
-/// What [`SceneLayer::session_context`] keeps.
-pub type SessionContext = Arc<dyn Fn(&SceneFacts) -> String + Send + Sync>;
 
 impl SceneLayer {
     /// A scene served as `id` (`{base}` is the base's id), and the base's in everything else.
@@ -46,13 +43,9 @@ impl SceneLayer {
             description: None,
             prompts: Vec::new(),
             tools: Vec::new(),
-            admitted: Vec::new(),
-            undisallowed: Vec::new(),
             interactive: None,
             requires_project: None,
             auto_name: None,
-            name_prompt: None,
-            session_context: None,
         }
     }
 
@@ -66,40 +59,33 @@ impl SceneLayer {
         self
     }
 
-    /// A system block after the base's.
+    /// A block at the end of the system prompt, after the base layer's. A sub-agent of the
+    /// session does not have it.
     pub fn prompt(mut self, text: PromptText) -> Self {
         self.prompts.push(text);
         self
     }
 
-    /// A tool of the scene's own: registered in its sessions, and let through its tool list.
+    /// A tool of the scene's own, in its sessions alone. Its name is `^[A-Za-z][A-Za-z0-9_]{0,63}$`,
+    /// not `ext__…` or `mcp__…`, and one session has at most 64.
+    ///
+    /// The link answers a call by the tool's name, without asking which scene the session is in:
+    /// a tool by the same name in two layers an instance has — of one extension or of two — must
+    /// be the same object (one `Arc`, shared), or the instance does not start.
     pub fn tool(mut self, tool: Arc<dyn Tool>) -> Self {
         self.tools.push(tool);
         self
     }
 
-    /// Names let through the base's tool list (`prefix*` or exact). A base that lists no tools
-    /// lets every tool through already, and is left so.
-    pub fn admit(mut self, pattern: &str) -> Self {
-        if !self.admitted.iter().any(|p| p == pattern) {
-            self.admitted.push(pattern.to_string());
-        }
-        self
-    }
-
-    /// Takes `tool` off the base's disallowed list, and lets it through.
-    pub fn undisallow(mut self, tool: &str) -> Self {
-        self.undisallowed.push(tool.to_string());
-        self
-    }
-
     /// Whether someone answers the session's questions and permission asks. An unattended
-    /// scene's asks are refused before anyone sees them.
+    /// scene's asks are refused before anyone sees them, so its own tools run unasked.
     pub fn interactive(mut self, on: bool) -> Self {
         self.interactive = Some(on);
         self
     }
 
+    /// Whether a session needs a project. `true` refuses a session created with none; `false`
+    /// cannot loosen a base of the engine's that needs one.
     pub fn requires_project(mut self, on: bool) -> Self {
         self.requires_project = Some(on);
         self
@@ -112,18 +98,6 @@ impl SceneLayer {
         self
     }
 
-    /// The prompt that names a session (`{message}` is its first message); `None`: none.
-    pub fn name_prompt(mut self, prompt: Option<&str>) -> Self {
-        self.name_prompt = Some(prompt.map(str::to_string));
-        self
-    }
-
-    /// Text added to the facts the base sends once at the start of a session.
-    pub fn session_context(mut self, f: impl Fn(&SceneFacts) -> String + Send + Sync + 'static) -> Self {
-        self.session_context = Some(Arc::new(f));
-        self
-    }
-
     /// The id this layer declares, `{base}` unreplaced.
     pub fn id(&self) -> &str {
         &self.id
@@ -133,7 +107,7 @@ impl SceneLayer {
         &self.base
     }
 
-    /// Everything the layer says, for the engine to build it from.
+    /// Everything the layer says.
     pub fn parts(&self) -> LayerParts<'_> {
         LayerParts {
             id: &self.id,
@@ -142,13 +116,9 @@ impl SceneLayer {
             description: self.description.as_deref(),
             prompts: &self.prompts,
             tools: &self.tools,
-            admitted: &self.admitted,
-            undisallowed: &self.undisallowed,
             interactive: self.interactive,
             requires_project: self.requires_project,
             auto_name: self.auto_name,
-            name_prompt: self.name_prompt.as_ref().map(Option::as_deref),
-            session_context: self.session_context.as_ref(),
         }
     }
 }
@@ -162,14 +132,9 @@ pub struct LayerParts<'a> {
     pub description: Option<&'a str>,
     pub prompts: &'a [PromptText],
     pub tools: &'a [Arc<dyn Tool>],
-    pub admitted: &'a [String],
-    pub undisallowed: &'a [String],
     pub interactive: Option<bool>,
     pub requires_project: Option<bool>,
     pub auto_name: Option<bool>,
-    /// `Some(None)`: no naming prompt, whatever the base's.
-    pub name_prompt: Option<Option<&'a str>>,
-    pub session_context: Option<&'a SessionContext>,
 }
 
 /// The scene a layer changes.
@@ -181,7 +146,6 @@ pub struct SceneBase(Base);
 enum Base {
     Builtin { id: String, args: BuiltinArgs },
     Named(String),
-    Foreign { id: String, scene: Arc<dyn Any + Send + Sync> },
 }
 
 impl SceneBase {
@@ -195,22 +159,15 @@ impl SceneBase {
         Self(Base::Builtin { id: id.to_string(), args })
     }
 
-    /// Whatever the instance serves as `id` when the layer is built — a scene contributed before
-    /// this one, or the engine's own. One it does not have stops the instance from starting.
+    /// Whatever the instance serves as `id` — a layer contributed before this one, or else one of
+    /// the engine's own scenes.
     pub fn named(id: &str) -> Self {
         Self(Base::Named(id.to_string()))
     }
 
-    /// A scene in the engine's own terms, which only the engine adapter can read: what
-    /// `harnix::agix`'s `SceneBase::raw` makes (not stable). A value the adapter does not
-    /// recognise stops the instance from starting.
-    pub fn foreign(id: &str, scene: Arc<dyn Any + Send + Sync>) -> Self {
-        Self(Base::Foreign { id: id.to_string(), scene })
-    }
-
     pub fn id(&self) -> &str {
         match &self.0 {
-            Base::Builtin { id, .. } | Base::Named(id) | Base::Foreign { id, .. } => id,
+            Base::Builtin { id, .. } | Base::Named(id) => id,
         }
     }
 
@@ -218,7 +175,6 @@ impl SceneBase {
         match &self.0 {
             Base::Builtin { id, args } => BaseKind::Builtin { id, args },
             Base::Named(id) => BaseKind::Named(id),
-            Base::Foreign { scene, .. } => BaseKind::Foreign(scene),
         }
     }
 }
@@ -228,7 +184,6 @@ impl SceneBase {
 pub enum BaseKind<'a> {
     Builtin { id: &'a str, args: &'a BuiltinArgs },
     Named(&'a str),
-    Foreign(&'a Arc<dyn Any + Send + Sync>),
 }
 
 /// How a built-in scene is made.
@@ -243,7 +198,8 @@ impl BuiltinArgs {
         Self::default()
     }
 
-    /// `code`'s: whether its prompt counts on someone being there.
+    /// Whether someone answers its sessions — what [`SceneLayer::interactive`] says when the
+    /// layers over it do not; `code`'s prompt is chosen by it too.
     pub fn interaction(mut self, interaction: Interaction) -> Self {
         self.interaction = Some(interaction);
         self
@@ -261,7 +217,7 @@ pub enum Interaction {
     Unattended,
 }
 
-/// A system block a layer adds.
+/// A block a layer adds to the system prompt.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PromptText {
@@ -270,7 +226,8 @@ pub struct PromptText {
 }
 
 impl PromptText {
-    /// A block the provider may cache: the same on every call.
+    /// A block the same on every call. From 0.4.4 the mark does nothing: a session's added text
+    /// carries no cache mark of its own.
     pub fn cached(text: impl Into<String>) -> Self {
         Self { text: text.into(), cached: true }
     }
@@ -285,48 +242,5 @@ impl PromptText {
 
     pub fn is_cached(&self) -> bool {
         self.cached
-    }
-}
-
-/// What a session is started with, for [`SceneLayer::session_context`].
-#[non_exhaustive]
-#[derive(Debug, Clone, Default)]
-pub struct SceneFacts {
-    cwd: String,
-    os: String,
-    shell: String,
-    date: String,
-    model: String,
-}
-
-impl SceneFacts {
-    pub fn new(cwd: &str, os: &str, shell: &str, date: &str, model: &str) -> Self {
-        Self {
-            cwd: cwd.to_string(),
-            os: os.to_string(),
-            shell: shell.to_string(),
-            date: date.to_string(),
-            model: model.to_string(),
-        }
-    }
-
-    pub fn cwd(&self) -> &str {
-        &self.cwd
-    }
-
-    pub fn os(&self) -> &str {
-        &self.os
-    }
-
-    pub fn shell(&self) -> &str {
-        &self.shell
-    }
-
-    pub fn date(&self) -> &str {
-        &self.date
-    }
-
-    pub fn model(&self) -> &str {
-        &self.model
     }
 }

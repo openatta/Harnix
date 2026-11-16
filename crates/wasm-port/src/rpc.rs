@@ -150,9 +150,6 @@ bare_wire!(Agent, AgentClient, serve_agent, {
     install_agent(AgentInstall) -> Value;
     uninstall_agent(AgentRef) -> ();
     switch_agent(AgentSwitch) -> ();
-    place_skills(Skills) -> ();
-    remove_skills(Skills) -> ();
-    reload_instance(String) -> ();
     expose_tools(Offer) -> ();
 });
 
@@ -311,15 +308,6 @@ mod tests {
             Ok(())
         }
         async fn switch_agent(&self, _: AgentSwitch) -> Result<(), RpcError> {
-            Ok(())
-        }
-        async fn place_skills(&self, _: Skills) -> Result<(), RpcError> {
-            Ok(())
-        }
-        async fn remove_skills(&self, _: Skills) -> Result<(), RpcError> {
-            Ok(())
-        }
-        async fn reload_instance(&self, _: String) -> Result<(), RpcError> {
             Ok(())
         }
         async fn expose_tools(&self, o: Offer) -> Result<(), RpcError> {

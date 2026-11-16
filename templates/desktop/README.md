@@ -40,7 +40,7 @@ templates/desktop/
 
 ## 先跑起来
 
-要 Rust ≥ 1.87。Linux 另需 webkit2gtk-4.1 等系统包（见 Tauri 文档的 Prerequisites）。
+要 Rust ≥ 1.88。Linux 另需 webkit2gtk-4.1 等系统包（见 Tauri 文档的 Prerequisites）。
 
 ```sh
 cd templates/desktop/src-tauri

@@ -224,6 +224,7 @@ impl Hub {
                         }),
                     );
                 }
+                lock(&self.spaces).decorate(&key, &mut row);
                 row
             })
             .collect();

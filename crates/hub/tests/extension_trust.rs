@@ -21,9 +21,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use harnix_contract::{codes, ExtId, Frame, FrameSink, RpcError, SpaceDecl, Subject};
-use harnix_engine_api::events::{Completion, DaemonEventKind, EngineEvent, Fragment, Joins, SessionEventKind};
-use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
-use harnix_engine_api::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, Subscribed, Tasks, TurnInput};
+use harnix_engine_link::events::{Completion, DaemonEventKind, EngineEvent, Fragment, Joins, SessionEventKind};
+use harnix_engine_link::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
+use harnix_engine_link::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
 use harnix_hub::{Hub, HubCell, HubConfig, HubRow, Spaces};
 use harnix_kernel::{CallContext, Handler, InstanceBook, InstanceObserver, InstanceTrust, Listed, Rpc};
 use serde_json::{json, Value};
@@ -86,7 +86,7 @@ impl EngineLink for FakeLink {
 
 #[async_trait::async_trait]
 impl EngineOps for FakeLink {
-    async fn create(&self, _: Value) -> Answer<SessionCreated> {
+    async fn create(&self, _: Value, _: SessionSetup) -> Answer<SessionCreated> {
         Ok(SessionCreated::new(json!({"session_id": "s1"})))
     }
     async fn get(&self, session: &str) -> Answer<SessionInfo> {
@@ -132,6 +132,12 @@ impl EngineOps for FakeLink {
         Ok(described(session))
     }
     async fn set_model(&self, session: &str, _: &str, _: Option<&str>) -> Answer<Value> {
+        Ok(described(session))
+    }
+    async fn set_prompt(&self, session: &str, _: Option<Option<String>>, _: Option<Option<String>>) -> Answer<Value> {
+        Ok(described(session))
+    }
+    async fn set_skill_dirs(&self, session: &str, _: &[std::path::PathBuf]) -> Answer<Value> {
         Ok(described(session))
     }
     async fn passthrough(&self, method: &str, params: Value) -> Answer<Value> {
@@ -573,7 +579,7 @@ fn sub_agent(child: &str) -> EngineEvent {
     EngineEvent::Session {
         session: "s1".into(),
         turn_id: "t".into(),
-        kind: SessionEventKind::Task { task_id: "k".into(), started: true, session: Some(child.into()) },
+        kind: SessionEventKind::Task { task_id: "k".into(), started: true, session: Some(child.into()), live: true },
         event: json!({"kind": "task_started", "task": {"task_id": "k", "detail": {"agent_session_id": child}}}),
     }
 }

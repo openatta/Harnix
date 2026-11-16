@@ -78,8 +78,8 @@ printf '[ext.packages]\ndev = true\n' > dev.toml
 | 崩溃、资源、文件 | 波及整个产品；虚拟机记账 | 只影响它；进程记账；操作系统沙箱 |
 | 延迟 | 进程内 | 每次多一跳 |
 
-**扩展包相对原生扩展不能做的**（描述里不许有，登记时按结构检查、违反就整个拒绝）：引擎贡献（场景层、原生工具、`PromptGate`、凭据源）、实例模板、
-任意 HTTP 处理者（只有 `static_dir` 与载体给的 `ui`、`mcp`）、定义贡献点或能力、`cross_space()`、编译进外壳的 UI 包；进页面的 ES 模块只对 `trusted` 发布者。
+**扩展包相对原生扩展不能做的**（描述里不许有，登记时按结构检查、违反就整个拒绝）：引擎贡献（场景层、原生工具、`PromptGate`）、实例模板、
+任意 HTTP 处理者（只有 `static_dir` 与载体给的 `ui`）、定义贡献点或能力、`cross_space()`、编译进外壳的 UI 包；进页面的 ES 模块只对 `trusted` 发布者。
 理由与完整的「各载体能做什么」表见 [概念与架构](concept_and_architecture.md)；原生一侧见 [原生扩展](harnix-ext.md)。
 
 ### 虚拟机里有什么
@@ -93,7 +93,7 @@ printf '[ext.packages]\ndev = true\n' > dev.toml
 | 调用 Store（工具与事件） | 每次工具调用、每次事件新建一个，用完即弃：并发安全，坏一次不连累后端；看不到后端的内存，要状态就 `host.call` 自己后端的方法 |
 | 资源账 | 内存、单次调用的时间、存储按包记账；一个工具连续出错只停那个工具，后端重建后再崩才置于一旁整台 |
 
-spawn 出来的 daemon 实例不起虚拟机：它的会话经这个包的 MCP 端点（`/ext/<id>/mcp`）回到那一台执行。所以一个包只有一台虚拟机、一份状态。
+spawn 出来的 daemon 实例不起虚拟机：这个包的工具由主进程在 daemon 的 socket 上提供（同每台进程内实例一样登记），在那一台虚拟机里执行。所以一个包只有一台虚拟机、一份状态。
 
 **数据只走 Harnix 的通道。** 包的界面和它的虚拟机之间没有自己的连接：
 
@@ -111,7 +111,7 @@ spawn 出来的 daemon 实例不起虚拟机：它的会话经这个包的 MCP �
 | 界面调自己的方法 | iframe `call("acme.notes.notes.list")` → 桥 → 外壳 → 页面的连接 → 准入 → `backend.handle` | 外壳按清单过滤名字；路由器按设备准入、按范围收窄、记审计 |
 | 包推界面 | `host.publish("notes", v)` → 主题 `acme.notes.notes` → 外壳 → 桥 → iframe | 只能推自己声明的主题 |
 | 包驱动 Agent | `host.call("harnix.session.create" / "harnix.session.send", …)` → 准入 → 中枢 → 引擎 | 主体 `ext:<id>`，只到同意记录的 `calls`，且收窄到它自己的 space |
-| Agent 用包的工具 | 模型调 `ext__<id>__<tool>` → 引擎的权限（一律先问人）→ 新建调用实例；spawn 的实例经 MCP | 权限照常；宿主函数按能力查 |
+| Agent 用包的工具 | 模型调 `ext__<id>__<tool>` → 引擎的权限（一律先问人）→ 新建调用实例；spawn 的实例同样，工具由父进程在 socket 上提供 | 权限照常；宿主函数按能力查 |
 | 包听引擎的动静 | `host.subscribe("harnix.sessions.status")` → `backend.on-topic`；要否决工具调用，用 `events` | 可订的主题按 `calls`；`events` 缺省只看到自己工具的调用（`[events]`） |
 
 **会话不直接调 `<id>.*`。** Agent 用的是包的工具；工具要后端的状态，就 `host.call` 自己的方法。
@@ -178,6 +178,9 @@ fs = ["${data}", "${project}"]   # ${data}：自己的数据目录 /data，读�
 - **`net` 可以写本机或局域网的地址**（`127.0.0.1`、`localhost`、`*.local`、私网段），但那到的不是互联网，而是 Harnix 旁边的服务
   （包括 Harnix 自己的监听）：披露里这一行换一种说法（「它能访问这台机器或局域网上的服务」，`net_local`），商店也不副署这样的包。
   **模式 3 的网络出口由产品侧判**（`proc.fetch`，先于出口策略）：沙箱本身不拦网络，进程直接开的连接不在这条防线里，威胁模型写在 [应用开发](app-development.md) 的安全性一节。
+- **`net` 怎么判**：请求的 URL 照真正发送时的规则（WHATWG）解析一次，只许 `http`/`https`，按解析出的主机（不分大小写，不看端口，
+  userinfo 不算主机）对 `net` 精确匹配，发出去的就是这次解析的结果——不另外按字符串切一遍（`\`、`@` 一类写法骗不过去）。
+  包的宿主在请求离开它之前判一次，产品在发送处用同一个函数再判一次（`harnix_package::egress::allowed`）。
 
 ### 3.3 `[[component]]`、`[[tool]]` 与 `[backend]`
 
@@ -189,7 +192,7 @@ memory_mb = 64                   # 1–4096，缺省 64
 timeout_ms = 30000               # 100–600000，缺省 30000
 
 [[tool]]                         # 组件提供的每一个工具，也只有它们
-name = "search"                  # 字母、数字、_、-；包内唯一；会话里叫 ext__<id>__search，全名至多 64 个字符
+name = "search"                  # 字母、数字、_、-；包内唯一；会话里叫 ext__<id>__search（`.`、`-` 换成 `_`），全名至多 64 个字符
 description = "Search the notes" # 一行：每次都进模型的工具表
 doc = "…"                        # 可选：长的用法，按需取
 read_only = true                 # 可选，缺省 false：只用于调度
@@ -215,7 +218,8 @@ tools = "own"                    # own（缺省）：只有它自己的工具；
   `packages.list` 显示 `hibernating`。「拿着它」是：有订阅、有定时器、有排队的投递、有在途的调用（方法、工具调用、事件钩子都算）。
   工具调用本来就各在自己的调用 Store 里，不受影响。模式 3 里闲置满同一个时限（产品设置只能缩短它）整个进程回收，下一次调用重新拉起。
 - `[events] tools = "all"` 是一项能力：它会看到每一次工具调用的名字与参数（`Bash` 的命令、`Write` 的文件内容……），装的时候进披露。
-  缺省的 `own` 只看到自己工具的调用，不算能力，不进披露。
+  缺省的 `own` 只看到自己工具的调用，不算能力，不进披露。同意了 `all` 就授予 `events.all_tools`；看到哪些调用由产品在把调用交给包之前判
+  （没有 `events` 导出的包一次也不给；`own` 只给它声明的工具；`all` 要有这项授予才给全部，没有就当 `own`），模式 3 下不该看的调用不过扩展线。
 
 ### 3.4 `[[method]]`、`[[topic]]`、`[[space]]`
 
@@ -401,28 +405,34 @@ export!(Ext);
 
 ## 5. Agent 部分
 
-下面是模式 2 的样子：Agix 插件装进产品的实例。模式 3 里它装在包自己的进程里，产品的实例经 MCP 用它的工具（§1 的差异表）。
+下面是模式 2 的样子：Agix 插件装进产品的实例。模式 3 里它装在包自己的进程里，产品的实例用它的工具时，调用经扩展线到它的进程（§1 的差异表）。
 
 - **`agent/` 是一个 Agix 插件**：`plugin.toml` 加 skill、agent 类型、场景、QuickJS 脚本。安装时打包成一个 zip，经引擎的
   `engine.plugin.install` 装进 `[agent] install_into` 列出的每台实例，随包启停（`engine.plugin.enable` / `disable`），卸载时撤掉。
-  所以包的安装方（`packages`）要持 `engine.plugins`；放 skill 之后让实例重读设置要可选的 `engine.config.write`。
-- **skill**：`agent/skills/<名字>/` 拷进实例数据根的 `skills/<名字>/`，带一个标记文件说它是哪个包的；同名的、不是这个包的 skill
-  已经在那里，就拒。拷完让实例重读设置。
+  所以包的安装方（`packages`）要持 `engine.plugins`。
+- **skill**：`agent/skills/<名字>/` 不进实例，而是装、升级时拷到 `<状态目录>/ext/<包 id>/skills/`，由中枢按会话列给引擎
+  （会话选项 `skill_dirs`）。声明了 `[[space]]` 的包，skill 只在自己的 space 里；没声明的，每个 space 都有；系统 space 看全部。
+  `[agent] install_into` 只管 agent 包，不管 skill。attach 的实例不给目录（外面的 daemon 不一定在这台机器上）。包停用、卸载后，
+  内存里的会话立刻不再列它，冷会话在下次被打开时对上；会话 `move` 到别的 space 时目录跟着换。这个目录归 `packages` 写，升级时在目录里逐项
+  替换而不换目录本身（引擎监视的是这个目录）；模式 3 的沙箱放行它的读。引擎拒绝的位置（项目里、可写目录里）会被略去，会话照建。
+  包的 skill 的信任同 Agix 插件包（来源是包的签名），`allowed-tools` 只认收窄的写法；会话自己的同名 skill 优先——用户层与受信项目里的同名 skill 把它遮住。
 - **QuickJS 脚本**挂在 Agix 的扩展点上，没有 I/O，和包的虚拟机之间**没有通道**：要有逻辑的钩子，写成 WASM 的 `events`。QuickJS 只限资源，
   不是隔离边界：它的信任来自签名（§7），不来自沙箱。
-- **工具名**：会话里叫 `ext__<id>__<tool>`，id 里的 `.` 换成 `_`（模型 API 的工具名只收字母、数字、`_`、`-`，id 里没有 `_`，所以一一对应），
-  例如 `ext__acme_notes__search`；全名至多 64 个字符。spawn 的 daemon 经 MCP 看到的是 `mcp__ext-<id>__<tool>`（同样换 `_`）。
+- **工具名**：会话里叫 `ext__<id>__<tool>`，id 里的 `.` 与 `-`、工具名里的 `-` 都换成 `_`（引擎的工具名只收字母、数字与 `_`，且以字母开头），
+  例如 `ext__acme_notes__search`；全名至多 64 个字符。这个映射不是一一对应的（`a-b` 与 `a_b` 都成 `a_b`），所以装包时查：
+  一个包的工具名映射后撞了包内或已装包的，装不上；一个提供者的包工具合起来超过 64 个，也装不上。清单里 `[[tool]] name` 的字符规则不变。
+  进程内与 spawn 的 daemon 里是同一个名字。
 - **每会话登记**：载体的 `ToolProvider` 在每个进程内会话建起时登记当下在跑的包的工具（子 Agent、团队成员、后台任务都算）。新装的包，新会话马上有；已有的会话在
   下次重建时才有。模式 3 的工具也到所有进程内实例，每次调用走扩展线（`ctl.call_tool`）到它的进程。
 - **权限**：包的工具每次调用都先问人（「扩展包 X 想跑它的工具 Y」），引擎的权限处理照常。
-- **`events`**：包的事件钩子包在会话的工具调用外面（`tool.before`），可以放行、拒绝、加一段可归属的话；钩子自己失败时放行。
+- **`events`**：包的事件钩子在会话的工具调用之前（`tool.before`），**在权限检查之前**就看到调用，可以放行、拒绝、加一段可归属的话；钩子自己失败时放行。
   它看到哪些调用由清单的 `[events]` 定：缺省只有它自己的工具；`tools = "all"` 是每一次（连同输入），装的时候披露。
-  加的话只挂在它自己工具的结果上，至多 2000 字：下载来的包不能往模型调的每个工具的结果里写东西。
+  加的话（add-context）在模型下一步之前作为 system-reminder 交给它，只对它自己的工具，至多 2000 字，前面带 `[<id>]`：下载来的包不能往模型调的每个工具后面写东西。
   事件名与 payload 的形状见 §15。
 - **进度**：工具调用里的 `host.progress(call-id, text)` 推到主题 `packages.progress`，界面在那一行工具上显示。
-- **spawn 的 daemon**：经 `/ext/<id>/mcp` 用包的工具。端点只答本机的对端（监听开在网络上时，别处来的请求有令牌也答 403），
-  再看 daemon 的凭据：每个 spawn 出来的 daemon 进程一个，起它之前发，只写进它自己的 MCP 配置；进程一走凭据即作废——实例停了、重启了（新的链路，新的凭据），链路彻底起不来，或者进程退出、链路要把它再拉起来：再起来的进程读到的是一个新凭据，起它之前就写好。
-  那边没有 `/project`、没有进度、没有事件钩子；daemon 的引擎照常在每次调用前问人。
+- **spawn 的 daemon**：包的工具由父进程在 daemon 的 socket 上提供，同每台进程内实例一样登记（连接级：daemon 连上时问一次，包启停时再通知），
+  所以会话里叫同一个名字，`/project`、进度与事件钩子都有，权限照常（每次调用先问人）。daemon 没有回头调本进程 HTTP 端点的路径，也就没有给它发的凭据。
+  attach 的 daemon 是别人的，什么都不登记。
 
 ## 6. 界面
 
@@ -689,7 +699,7 @@ Harnix 自己怎么测扩展包（两个载体各跑一遍的 `--carrier`、契�
 | `… world` | string | 必填 | `harnix:ext/tools-ext@1.0.0` 或 `harnix:ext/backend-ext@1.0.0` |
 | `… memory_mb` | int | 64 | 1–4096 |
 | `… timeout_ms` | int | 30000 | 100–600000 |
-| `[[tool]] name` | string | 必填 | 字母、数字、`_`、`-`，包内唯一；`ext__<id 的 . 换成 _>__<name>` 至多 64 字符；只在有 `[[component]]` 时 |
+| `[[tool]] name` | string | 必填 | 字母、数字、`_`、`-`，包内唯一；`ext__<id 与 name 的 . 、- 换成 _>__<name>` 至多 64 字符，映射后不撞别的工具；只在有 `[[component]]` 时 |
 | `… description` | string | 必填 | 一行，非空 |
 | `… doc` | string | 无 | 长的用法 |
 | `… input_schema` | 表 | 必填 | JSON Schema，对象（写成 TOML） |
@@ -761,7 +771,7 @@ interface host {
 
 | `event` | 什么时候 | `payload-json` | 答 |
 |---|---|---|---|
-| `tool.before` | 会话的一次工具调用执行之前（模式 2：在产品的进程内实例里；模式 3：在它自己的引擎里，产品实例上的过线；spawn 的 daemon 里没有，§5） | `{tool, input, session_id, depth}`：`tool` 是会话里的名字（自己的是 `ext__<id>__<工具>`）；`input` 是调用的参数；`depth` 是子 Agent 的层数（0 是会话自己） | `proceed` 照常；`block(理由)` 这次调用不执行，模型收到「refused by the package `<id>`: 理由」；`add-context(话)` 照常执行，话（至多 2000 字）附在结果后面，只对它自己的工具。钩子陷阱、超时都当 `proceed` |
+| `tool.before` | 会话的一次工具调用执行之前、权限检查之前（模式 2：产品的进程内实例与 spawn 的 daemon 里都有；模式 3：在它自己的引擎里，产品实例上的过线，§5） | `{tool, input, session_id, depth}`：`tool` 是会话里的名字（自己的是 `ext__<id>__<工具>`）；`input` 是调用的参数；`depth` 是子 Agent 的层数（0 是会话自己） | `proceed` 照常；`block(理由)` 这次调用不执行，模型收到「refused by the package `<id>`: 理由」；`add-context(话)` 照常执行，话（至多 2000 字）在模型的下一步之前作为 system-reminder 交给它，只对它自己的工具。钩子陷阱、超时都当 `proceed` |
 
 `[events] tools = "own"`（缺省）只给它自己工具的调用；`"all"` 给每个会话的每一次工具调用，是一项要进披露的能力（§3.3、§9）。今天只有这一个事件；
 以后加的事件名照样列在这里，所以组件对不认识的事件答 `proceed`。
@@ -779,10 +789,10 @@ interface host {
 | `install` | `id`，`version?`，`consent?` | 第一次（或同意过期）：`{id, version, consent: "required", digest, disclosure, changed}`；同意对得上：`{id, version, title, enabled: true, trust, source: "store", installed}` | 已装就拒（用 `update`）；全有或全无 |
 | `update` | `id`，`version?`，`consent?`，`allow_downgrade?` | 已是最新：`{id, version, latest, up_to_date: true}`；多要能力或降级：同 `install` 的第一步；否则 `{id, version, from, downgrade, title, enabled, trust, updated}` | 数据保留，失败放回原版本；降级要 `allow_downgrade: true` |
 | `enable` / `disable` | `id` | `{id, enabled, registered, withdrawn, runtime, started}` | 启用时起不来：记录退回停用，答错误；对被置于一旁（`faulted`、`failed`）的包，`enable` 先停再从头起 |
-| `uninstall` | `id` | `{id, uninstalled: true, removed: {agent: {package, instances} \| null, skills}}` | |
+| `uninstall` | `id` | `{id, uninstalled: true, removed: {agent: {package, instances} \| null}}` | |
 | `clearData` | `id` | `{id, cleared_bytes, data_bytes, restarted, started}` | 记进审计 |
 
-`installed` / `updated` 是 `{fingerprint, trust, agent: {package, instances, disclosure} | null, skills, started}`。`instances` 是 agent 包装进的实例：
+`installed` / `updated` 是 `{fingerprint, trust, agent: {package, instances, disclosure} | null, started}`。`instances` 是 agent 包装进的实例：
 模式 2 是 `install_into` 列的产品实例，模式 3 是它自己的引擎 `proc.<id>`；`disclosure` 是那台引擎说这个 agent 包放到模型面前的东西，两种载体一样给。没装的 id 答 `INVALID_PARAMS`。
 
 **快照**（`list` 的答，也是主题 `packages.list` 的值）：
@@ -807,7 +817,7 @@ interface host {
 ```text
 { state, reason, carrier?, resident, idle_ms, world, methods, topics, spaces,
   calls, tools: [{ name, tool, description }], health,
-  ui, frames, surfaces, ui_rev, mcp, inline, process? }
+  ui, frames, surfaces, ui_rev, inline, process? }
 ```
 
 | 字段 | 是什么 |
@@ -819,7 +829,6 @@ interface host {
 | `tools` | 会话里的名字（`ext__…`）、组件里的名字、说明 |
 | `ui`、`frames`、`surfaces` | 进页面的模块（`/ext/<id>/ui/<模块>`）、是否进 iframe、面（`<点>:<id>`） |
 | `ui_rev` | 开发模式下 `ui/` 的版本，变了外壳重新加载 iframe |
-| `mcp` | `/ext/<id>/mcp` |
 | `inline` | 清单的 `[inline]`，外壳照它画 |
 | `process` | 只模式 3：进程的状态（pid、运行了多久、重启次数、`stderr` 最后几行：至多 40 行 / 4 KB，每行 512 B 截断） |
 
@@ -922,8 +931,7 @@ greeting = "hi"
 后端自己答的错误（`ext-error`）原样转给调用方：`code`、`message`、`data`。参数不符 schema 答 `INVALID_PARAMS`。包的 `host.call` 越权答
 `REFUSED`（-31000），`data.reason` 是 `capability`（缺哪项）、`outside_calls` 或 `scope`。
 
-**工具**：进程内被取消的调用是引擎的取消；别的失败是一条错误结果「`<id>: <消息>`」（被放在一旁的工具：「the tool `<名>` of `<id>` is set aside: …」）。
-经 MCP：取消是 -32800，别的失败是 `isError: true`；不是本机的对端答 HTTP 403。
+**工具**：被取消的调用是引擎的取消；别的失败是一条错误结果「`<id>: <消息>`」（被放在一旁的工具：「the tool `<名>` of `<id>` is set aside: …」）。进程内与 spawn 的 daemon 里一样。
 
 **桥**：`error.code` 是 `refused`（外壳不替这个包做：清单没列的名字、别的 space 的会话、不许开的链接）、`failed`（做了，失败了；后端的错误是消息）、
 `unknown`（没有这个请求）、`invalid`（参数不对）、`closed`（答案回来之前桥没了）、`timeout`（SDK 自己的连接超时）。SDK 里是 `BridgeError`。
@@ -935,9 +943,7 @@ greeting = "hi"
 | 包 id、扩展 id | `<发布者>.<名字>`，例如 `acme.notes`；第一段是保留字（`harnix`、`engine`、`ext`、`topic`、`route`、`proc`、`ctl`、`agix`）、第一方扩展的 id（`system`、`harnix-app`、`settings`、`plugins`、`observability`、`devices`、`flow`、`packages`）或产品链进的原生扩展 id，装的时候就拒 |
 | 方法、主题 | `<id>.<名字>`，例如 `acme.notes.notes.list`；名字的所有者是已登记的、整段前缀匹配的最长 id：原生与包跨类重叠一律拒，原生优先，包标 `failed: namespace_taken` |
 | 后端 space、界面 space | `<id>` 或 `<id>.<名字>` |
-| 会话里的工具 | `ext__<id 的 . 换成 _>__<工具>`，例如 `ext__acme_notes__search` |
-| spawn 的 daemon 里的工具 | `mcp__ext-<id 的 . 换成 _>__<工具>` |
-| MCP 端点 | `POST /ext/<id>/mcp`（只答本机的对端；`Authorization: Bearer <daemon 的凭据>`；`initialize`、`ping`、`tools/list`、`tools/call`） |
+| 会话里的工具（进程内与 spawn 的 daemon 里一样） | `ext__<id 与工具名里的 . 与 - 换成 _>__<工具>`，例如 `ext__acme_notes__search` |
 | 界面文件 | `/ext/<id>/ui/<路径>` |
 | 详情项的种类 | `<id>.<名字>` |
 | 扩展条目的命名空间 | `<id>` |

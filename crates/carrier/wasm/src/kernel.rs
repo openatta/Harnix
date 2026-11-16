@@ -4,7 +4,7 @@
 //! - **Its names**: when the host starts a package it registers it here, and this is where its
 //!   descriptor is made — each `[[method]]` a method answered by [`Control::call_method`], its
 //!   topics published by its backend, its spaces, its tools from `[[tool]]`, its interface's files
-//!   and its tool endpoint as routes, trusted by the consent its component recorded — and
+//!   as a route, trusted by the consent its component recorded — and
 //!   registered through that component's registrar: on the record as the component's, by the
 //!   same host path a native extension takes.
 //! - **What it does as itself** — `host.call`, `publish`, `subscribe` — goes through its handle,
@@ -32,7 +32,7 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 use crate::registry::Registry;
-use harnix_carrier_shared::{McpEndpoint, UiFiles};
+use harnix_carrier_shared::UiFiles;
 
 pub(crate) struct CarrierKernel {
     /// The component's context, from the first package it started.
@@ -86,15 +86,15 @@ impl CarrierKernel {
         lock(&self.pending).remove(app);
     }
 
-    /// Whether `app`, whose `net` is `net`, may send `url`. Its VM checks first: one past it is
-    /// on the record as refused.
-    pub(crate) fn allowed(&self, app: &str, net: &[String], url: &str) -> Result<(), String> {
-        let Err(why) = egress::allowed(net, url) else { return Ok(()) };
-        tracing::warn!(package = %app, %why, "a package's request past its VM's check of `net`");
-        if let Ok(handle) = self.handle(app) {
-            handle.refused("proc.fetch", "a host outside its net");
-        }
-        Err(why)
+    /// Whether `app`, whose `net` is `net`, may send `url`: what is sent, when it may. Its host
+    /// checks first, by the same rule: one past it is on the record as refused.
+    pub(crate) fn allowed(&self, app: &str, net: &[String], url: &str) -> Result<egress::Allowed, String> {
+        egress::allowed(net, url).inspect_err(|why| {
+            tracing::warn!(package = %app, %why, "a package's request past its host's check of `net`");
+            if let Ok(handle) = self.handle(app) {
+                handle.refused("proc.fetch", "a host outside its net");
+            }
+        })
     }
 
     pub(crate) fn handle(&self, app: &str) -> Result<ExtensionHandle, RpcError> {
@@ -245,7 +245,6 @@ impl Kernel for CarrierKernel {
             d.tool(spec);
         }
         d.route("ui", Access::device(), UiFiles::new(self.registry.clone()));
-        d.route("mcp", Access::engine(), McpEndpoint::new(self.registry.clone()));
         let host = self.cx()?.service::<HostServices>()?;
         let handle = host.registrar().register(d.build(), installed.capabilities().to_vec()).await?;
         handle.mark(Availability::Ready);
@@ -283,12 +282,12 @@ impl Kernel for CarrierKernel {
     /// A package's request, sent only to the hosts its `net` lists: decided here.
     async fn fetch(&self, _meta: CallMeta, f: Fetch) -> Result<Fetched, RpcError> {
         let net = self.registry.net(&f.app).ok_or_else(|| refused(format!("`{}` is not running", f.app)))?;
-        self.allowed(&f.app, &net, &f.url).map_err(refused)?;
+        let url = self.allowed(&f.app, &net, &f.url).map_err(refused)?;
         let body = match f.body_b64 {
             Some(body) => Some(base64::engine::general_purpose::STANDARD.decode(body).map_err(|e| RpcError::invalid_params(e.to_string()))?),
             None => None,
         };
-        let request = Request { method: f.method, url: f.url, headers: f.headers, body };
+        let request = Request { method: f.method, url, headers: f.headers, body };
         let response = self.egress.send(request).await.map_err(refused)?;
         Ok(Fetched {
             status: response.status,

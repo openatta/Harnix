@@ -6,16 +6,15 @@
  * the showcase application (`examples/packages/showcase`).
  *
  * The model's tool calls are hand-made recordings (`fixtures/recordings/app-*`). A daemon this
- * process spawns runs no VM: it reaches the same tools over the application's MCP endpoint, and
- * the call runs here.
+ * process spawns runs no VM: it reaches the same tools over its own socket — this process registers
+ * them there, and the call runs here.
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { REFUSED } from "@harnix/core/protocol";
-import { type Backend, type TestClient, carrier, connect, expect, modelMode, runTurn, sleep, test, topology } from "@harnix/testkit";
+import { INSTANCE_UNAVAILABLE, REFUSED } from "@harnix/core/protocol";
+import { type Backend, type TestClient, carrier, connect, expect, modelMode, runTurn, scratchDir, sleep, test, topology } from "@harnix/testkit";
 
 import { SHOWCASE_ID, provideModel, showcasePackage, startApps, variant } from "./packages-host";
 
@@ -23,7 +22,6 @@ const TAGS = { tag: ["@feature:packages", "@layer:api"] };
 
 const TOOL = (name: string) => `ext__example_showcase__${name}`;
 const TOOLS = ["echo", "count", "config", "read_project", "slow", "vetoed", "crash", "board"].map(TOOL);
-const MCP_SERVER = "ext-example_showcase";
 const BLOCK_MARKER = "showcase-block-7d21";
 /**
  * Where its agent package and skill go: the in-process carrier puts them in `main`, the process
@@ -68,6 +66,22 @@ async function agentSession(api: TestClient, recording: string): Promise<Session
   return s;
 }
 
+/**
+ * The commands (skills among them) a new session of the showcase's space has, where its agent
+ * package is. The package declares spaces, so its skill is listed only to sessions of those
+ * (harnix-ext-package.md §5); a session elsewhere, `main`'s default space included, does not see it.
+ */
+async function spaceCommands(api: TestClient): Promise<string> {
+  const created = await api.call("harnix.session.create", { space: SHOWCASE_ID });
+  return JSON.stringify(await api.call("engine.commands.list", { ...AGENT_AT, session_id: created.session_id }));
+}
+
+/** The commands a new session of `main`'s default space has. */
+async function mainCommands(api: TestClient): Promise<string> {
+  const created = await api.call("harnix.session.create", { instance: "main", project_root: api.project });
+  return JSON.stringify(await api.call("engine.commands.list", { instance: "main", session_id: created.session_id }));
+}
+
 /** What a new session where its agent package is would send the model, as text. */
 async function agentContext(api: TestClient): Promise<string> {
   if (!ON_PROCESS) return (await context(api)).text;
@@ -85,7 +99,7 @@ test.describe("an application, installed from a file", () => {
   test.beforeAll(async () => {
     // Before the backend: building and packing is the slow part, and has nothing to do with it.
     showcasePackage();
-    scratch = mkdtempSync(join(tmpdir(), "hx-apps-"));
+    scratch = scratchDir("hx-apps-");
     backend = await startApps({
       profile: `
 [ext."${SHOWCASE_ID}"]
@@ -155,8 +169,10 @@ carrier = "spawn"
     expect(installed.installed).toMatchObject({
       fingerprint,
       agent: { package: "example-showcase", instances: [AGENT_IN] },
-      skills: { [AGENT_IN]: ["showcase-tour"] },
     });
+    // Its skills are not placed in an engine: they are its own directory, listed to sessions.
+    expect(installed.installed.skills).toBeUndefined();
+    expect(existsSync(join(backend.state, "ext", SHOWCASE_ID, "skills", "showcase-tour", "SKILL.md"))).toBe(true);
     const listed = (await api.call("packages.list")).packages;
     expect(listed).toHaveLength(1);
     expect(listed[0]).toMatchObject({ id: SHOWCASE_ID, enabled: true, runtime: { state: "running" } });
@@ -195,12 +211,9 @@ carrier = "spawn"
     const { text, tools } = await context(api);
     for (const tool of TOOLS) expect(tools.length ? tools : text, tool).toContain(tool);
     expect(await agentContext(api), "the QuickJS prompt.block").toContain(BLOCK_MARKER);
-    const commands = JSON.stringify(await api.call("engine.commands.list", AGENT_AT));
-    expect(commands, "the skill").toContain("showcase-tour");
-    if (ON_PROCESS) {
-      expect(text, "the QuickJS prompt.block is its own engine's").not.toContain(BLOCK_MARKER);
-      expect(JSON.stringify(await api.call("engine.commands.list", { instance: "main" })), "its skill too").not.toContain("showcase-tour");
-    }
+    expect(await spaceCommands(api), "the skill, in its space").toContain("showcase-tour");
+    expect(await mainCommands(api), "its skill is its spaces' only").not.toContain("showcase-tour");
+    if (ON_PROCESS) expect(text, "the QuickJS prompt.block is its own engine's").not.toContain(BLOCK_MARKER);
   });
 
   test("each tool asks first, and answers once permitted", TAGS, async () => {
@@ -353,74 +366,50 @@ carrier = "spawn"
     }
   });
 
-  test("a spawned instance reaches the tools over the application's MCP endpoint", TAGS, async () => {
-    // The daemon is told of the endpoint once this process listens; it connects in the background.
+  test("a spawned instance has the package's tools under their own names", TAGS, async () => {
+    // Registered on the daemon's socket as its link is taken: in every session built after.
     await expect
-      .poll(async () => JSON.stringify(await api.call("engine.mcp.status", { instance: "far" }).catch((e) => e)), { timeout: 60_000, intervals: [500] })
-      .toContain(`"name":"${MCP_SERVER}","tool_count":${TOOLS.length}`);
-    const s = await session(api, "app-mcp-echo", "far");
-    const { settled, asks } = await runTurn(api, s, "Use the showcase's echo tool over MCP");
+      .poll(async () => (await context(api, "far")).tools, { timeout: 60_000, intervals: [500] })
+      .toContain(TOOL("echo"));
+    const s = await session(api, "app-spawn-echo", "far");
+    const { settled, asks } = await runTurn(api, s, "Use the showcase's echo tool");
     expect(settled.params.error, JSON.stringify(settled.params.error)).toBeUndefined();
     expect(asks.length, "the daemon asked first").toBeGreaterThanOrEqual(1);
     expect(results(api, s)).toContain("showcase-over-mcp");
 
-    // The endpoint opens to a spawned daemon's credential alone: not the page's token.
+    // No package serves its tools over HTTP any more.
     const url = `${backend.url.replace(/\/$/, "")}/ext/${SHOWCASE_ID}/mcp`;
-    const anonymous = await fetch(url, {
+    const posted = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${backend.token}` },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
     });
-    expect(anonymous.status, "the page's token opened the MCP endpoint").toBe(401);
-    // Who asks is decided before how: without a credential a GET is refused as anyone else is.
-    expect((await fetch(url)).status).toBe(401);
+    expect(posted.status, "a package's MCP endpoint is still served").toBe(404);
   });
 
-  test("a spawned daemon's credential is its own, and stops opening the endpoint when the daemon goes or is started again", TAGS, async () => {
-    const url = `${backend.url.replace(/\/$/, "")}/ext/${SHOWCASE_ID}/mcp`;
-    const list = (authorization: string) =>
-      fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-      });
-    const { instances } = await api.call("harnix.instances.list");
-    const root = instances.find((i: any) => i.id === "far").data_root;
-    const bearer = (): string | undefined => {
-      const settings = JSON.parse(readFileSync(join(root, "settings.json"), "utf8"));
-      return settings.mcp_servers?.[MCP_SERVER]?.headers?.Authorization;
-    };
-    const before = bearer();
-    expect(before).toMatch(/^Bearer [0-9a-f]{64}$/);
-    expect(before, "the daemon was given the page's token").not.toBe(`Bearer ${backend.token}`);
-    expect((await list(before!)).status).toBe(200);
-    // A POST endpoint: the daemon's own credential gets no further with a GET.
-    expect((await fetch(url, { headers: { authorization: before! } })).status).toBe(405);
-
-    // Restarted: the daemon that held it is gone, and with it what it presented.
+  test("a spawned daemon started again has the tools again", TAGS, async () => {
+    // Until its new process is up, a session there is refused as unavailable ("the instance is
+    // starting"): asked again, not a failure.
+    const has = async () =>
+      context(api, "far").then(
+        (c) => c.tools,
+        (e) => {
+          if (e?.code !== INSTANCE_UNAVAILABLE) throw e;
+          return [] as string[];
+        },
+      );
+    // Restarted: a new link, which registers them before it is ready.
     await api.call("system.instances.restart", { instance: "far", space: "system" });
-    expect((await list(before!)).status, "a daemon that is gone still opened the endpoint").toBe(401);
-    const after = bearer();
-    expect(after).toMatch(/^Bearer [0-9a-f]{64}$/);
-    expect(after).not.toBe(before);
-    expect((await list(after!)).status).toBe(200);
+    await expect.poll(has, { timeout: 60_000, intervals: [500] }).toContain(TOOL("echo"));
 
-    // Killed: its link starts another process, which reads a credential of its own; the killed
-    // one's opens nothing any more.
+    // Killed: its link starts another process and registers them on the new connection.
     // Restarted, its process may not be listed yet.
     const farPid = async () => (await api.call("harnix.instances.list")).instances.find((i: any) => i.id === "far").pid ?? 0;
     await expect.poll(farPid, { timeout: 60_000, intervals: [250] }).toBeGreaterThan(0);
     const pid = await farPid();
     process.kill(pid, "SIGKILL");
-    await expect.poll(() => bearer(), { timeout: 60_000, intervals: [250] }).not.toBe(after);
-    const again = bearer();
-    expect(again).toMatch(/^Bearer [0-9a-f]{64}$/);
-    expect((await list(after!)).status, "a killed daemon's credential still opened the endpoint").toBe(401);
-    expect((await list(again!)).status).toBe(200);
-    // And the new daemon reaches the tools with it.
-    await expect
-      .poll(async () => JSON.stringify(await api.call("engine.mcp.status", { instance: "far" }).catch((e) => e)), { timeout: 60_000, intervals: [500] })
-      .toContain(`"name":"${MCP_SERVER}","tool_count":${TOOLS.length}`);
+    await expect.poll(farPid, { timeout: 60_000, intervals: [250] }).not.toBe(pid);
+    await expect.poll(has, { timeout: 60_000, intervals: [500] }).toContain(TOOL("echo"));
   });
 
   test("disabled: a new session has none of it, and enabled it is back", TAGS, async () => {
@@ -429,19 +418,24 @@ carrier = "spawn"
     const { text, tools } = await context(api);
     for (const tool of TOOLS) expect(tools.length ? tools : [text], tool).not.toContain(tool);
     expect(text).not.toContain(BLOCK_MARKER);
-    expect(JSON.stringify(await api.call("engine.commands.list", { instance: "main" }))).not.toContain("showcase-tour");
+    if (!ON_PROCESS) expect(await spaceCommands(api), "its skill, off").not.toContain("showcase-tour");
     expect((await fetch(`${backend.url.replace(/\/$/, "")}/ext/${SHOWCASE_ID}/ui/showcase.js`)).status).toBe(404);
     const plugin = (await api.call("engine.plugin.list")).plugins.find((p: any) => p.name === "example-showcase");
     expect(plugin?.enabled).toBe(ON_PROCESS ? undefined : false);
+    // The spawned daemon is offered the new set too: its next session has none of them.
     await expect
-      .poll(async () => JSON.stringify(await api.call("engine.mcp.status", { instance: "far" }).catch(() => "")), { timeout: 60_000, intervals: [500] })
-      .not.toContain(MCP_SERVER);
+      .poll(async () => (await context(api, "far")).tools, { timeout: 60_000, intervals: [500] })
+      .not.toContain(TOOL("echo"));
 
     const on = await api.call("packages.enable", { id: SHOWCASE_ID });
     expect(on).toMatchObject({ enabled: true, runtime: { state: "running" } });
     const back = await context(api);
     expect(back.tools.length ? back.tools : back.text).toContain(TOOL("echo"));
+    await expect
+      .poll(async () => (await context(api, "far")).tools, { timeout: 60_000, intervals: [500] })
+      .toContain(TOOL("echo"));
     expect(await agentContext(api)).toContain(BLOCK_MARKER);
+    expect(await spaceCommands(api), "its skill, on again").toContain("showcase-tour");
     expect((await fetch(`${backend.url.replace(/\/$/, "")}/ext/${SHOWCASE_ID}/ui/showcase.js`)).status).toBe(200);
   });
 
@@ -450,7 +444,7 @@ carrier = "spawn"
     expect(removed).toMatchObject({ id: SHOWCASE_ID, uninstalled: true, removed: { agent: { package: "example-showcase" } } });
     expect((await api.call("packages.list")).packages).toEqual([]);
     expect((await api.call("engine.plugin.list")).plugins.map((p: any) => p.name)).not.toContain("example-showcase");
-    expect(JSON.stringify(await api.call("engine.commands.list", { instance: "main" }))).not.toContain("showcase-tour");
+    expect(await mainCommands(api)).not.toContain("showcase-tour");
     const { text, tools } = await context(api);
     expect(tools.length ? tools : [text]).not.toContain(TOOL("echo"));
     expect(text).not.toContain(BLOCK_MARKER);
@@ -547,7 +541,7 @@ test.describe("its event hook, as far as its manifest's [events]", () => {
 
   test.beforeAll(async () => {
     showcasePackage();
-    scratch = mkdtempSync(join(tmpdir(), "hx-apps-events-"));
+    scratch = scratchDir("hx-apps-events-");
     // Its hook told to refuse a built-in tool: what it may not see, it cannot refuse.
     backend = await startApps({ profile: `\n[ext."${SHOWCASE_ID}"]\nblocked_tool = "Bash"\n` });
   });

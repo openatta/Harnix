@@ -10,12 +10,11 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { Topology } from "@harnix/core/protocol";
 
-import { RECORDINGS, ROOT, sleep } from "./env.ts";
+import { RECORDINGS, ROOT, SCRATCH_ROOT, sleep } from "./env.ts";
 
 export interface LaunchOptions {
   /** Which binary: `harnix` (the Harnix app), another bin of this workspace, or an absolute
@@ -103,6 +102,12 @@ export function makeProject(scratch: string): string {
   writeFileSync(join(project, "Cargo.toml"), '[package]\nname = "fixture"\nversion = "0.1.0"\n');
   writeFileSync(join(project, "README.md"), "A project for the tests to run in.\n");
   return project;
+}
+
+/** A new, empty directory under `SCRATCH_ROOT`, named `<prefix>XXXXXX`, by its real path. */
+export function scratchDir(prefix: string): string {
+  mkdirSync(SCRATCH_ROOT, { recursive: true });
+  return realpathSync(mkdtempSync(join(SCRATCH_ROOT, prefix)));
 }
 
 const built = new Map<string, string>();
@@ -294,13 +299,12 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
     rmSync(options.fixedScratch, { recursive: true, force: true });
     mkdirSync(options.fixedScratch, { recursive: true });
   }
-  // The real path: on macOS `tmpdir()` is `/var/…`, a link to `/private/var/…`, and the engine's
-  // working directory is the real one. Handing it the other spelling of the same folder made it read
-  // that project's history twice, and list every session past its in-memory cap twice (an Agix
-  // `engine.session.list` defect, openatta/Agix#23).
+  // The real path: the engine's working directory, and the system prompt that names it, is the
+  // real one; strict replay matches that prompt, so `/tmp/…` (on macOS a link to `/private/tmp/…`)
+  // must not leak in.
   const scratch =
     options.scratch ??
-    realpathSync(options.fixedScratch ?? mkdtempSync(join(tmpdir(), "harnix-live-")));
+    (options.fixedScratch ? realpathSync(options.fixedScratch) : scratchDir("harnix-live-"));
   if (!reused) options.seed?.(scratch);
   const project = makeProject(scratch);
   const home = join(scratch, "home");
@@ -338,12 +342,15 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
   // starts, not after: removed after, it could take the new process's token with it, and the wait
   // below would wait for a file that never comes back.
   if (reused) rmSync(tokenFile, { force: true });
+  const scratchRoot = existsSync(SCRATCH_ROOT) ? realpathSync(SCRATCH_ROOT) : null;
+  const ceiling = scratchRoot && scratch.startsWith(`${scratchRoot}/`) ? scratchRoot : null;
   const child: ChildProcess = spawn(bin, args, {
     cwd: project,
     env: {
       ...process.env,
       HOME: home,
       ...(options.fixedScratch ? { SHELL: "/bin/zsh" } : {}),
+      ...(ceiling ? { GIT_CEILING_DIRECTORIES: ceiling } : {}),
       ...options.env,
       RUST_LOG: process.env.HARNIX_TEST_LOG || "warn",
     },
@@ -420,7 +427,7 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
       }
       // A file the exiting process writes while the tree is walked fails the last `rmdir` with
       // ENOTEMPTY — on a loaded machine often enough to matter. Not waiting is the point of
-      // `stop()`, so what it leaves behind stays in the temp directory.
+      // `stop()`, so what it leaves behind stays under `SCRATCH_ROOT`.
       try {
         rmSync(scratch, { recursive: true, force: true });
       } catch (e: any) {

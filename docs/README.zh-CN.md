@@ -10,7 +10,7 @@ Web 服务、应用自己的原生扩展和界面编译在一起。这类产品�
 ![Harnix](images/harnix.png)
 
 0.4.3。只有一个概念，**扩展**，有三种载体：原生（编进二进制的 Rust）、产品进程里的 WebAssembly、独立进程里的 WebAssembly。
-从 0.4.3 起扩展接口与协议只增不改；依赖某个版本就钉住它的标签（`Harnix-v<x.y.z>-<日期><n>`）。
+从 0.4.4 起扩展接口与协议只增不改；依赖某个版本就钉住它的标签（`Harnix-v<x.y.z>-<日期><n>`）。
 
 ## 快速开始
 
@@ -22,7 +22,7 @@ cargo build --release
 ./target/release/harnix                              # → http://127.0.0.1:4080/
 ```
 
-需要 Rust 1.87 以上、Node 和 pnpm。`--recurse-submodules` 不能少：Agix 在 `agix/`。跑起来的是 Harnix app 与系统 space：
+需要 Rust 1.88 以上、Node 和 pnpm。`--recurse-submodules` 不能少：Agix 在 `agix/`。跑起来的是 Harnix app 与系统 space：
 会话、项目，以及带着流程的系统，还有扩展包的宿主（模式 2，进程内）。
 
 不需要任何环境变量。没配模型也能启动，页面会提示：**配置模型**（或头像 → **设置 → 模型与凭据**）添加 provider——
@@ -80,7 +80,8 @@ crates/authz           准入与审计
 crates/transport       通道语义、拓扑、握手、静态面、/ext/<id>/…
 crates/hub             会话中枢
 crates/instance        实例登记表：一条链路后面的 Agix 实例
-crates/engine-api      不带 Agix 的引擎词汇：Tool、SceneLayer、PromptGate……
+crates/engine-api      扩展用的引擎词汇，不带 Agix（S1）：Tool、SceneLayer、PromptGate……
+crates/engine-link     骨架眼里的引擎（S3）：链路、问它什么、它主动说什么
 crates/engine          唯一用 Agix 的 crate
 crates/supervise       子进程：fork + exec、沙箱、收割
 crates/ext/api         harnix-ext，扩展接口（S1）

@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use harnix_contract::s1::{caps, Capability, ExtId, Trust};
 use harnix_engine_api::{EngineContribution, ToolProvider};
-use harnix_ext::{ErasedExtension, ExtensionDescriptor, Manifest, MigrateContext};
+use harnix_ext::{ExtensionDescriptor, Manifest, MigrateContext};
 use harnix_kernel::seat::Seated;
 use harnix_kernel::GrantTable;
 use harnix_router::{IdKind, Row, RouteTable};
@@ -101,6 +101,7 @@ pub(crate) fn register(
             config: sections.get(&raw).cloned().unwrap_or(Value::Null),
             data_dir,
             enabled: Arc::new(AtomicBool::new(true)),
+            changed: harnix_engine_api::ToolsChanged::new(),
             installed: false,
         };
         let id = match ExtId::native(&raw) {
@@ -154,13 +155,9 @@ pub(crate) fn register(
 /// instance's — and its routes share one access, since the router decides them as one row.
 fn check_native(d: &ExtensionDescriptor) -> Result<(), String> {
     if let Some(everywhere) = d.engine_everywhere() {
-        if !everywhere.scenes().is_empty()
-            || !everywhere.prompt_gates().is_empty()
-            || everywhere.credential_source().is_some()
-            || !everywhere.foreign_hooks().is_empty()
-        {
-            return Err("what it gives every engine is tool providers and admitted tool names; scenes, gates, \
-                        credentials and hooks are the main instance's"
+        if !everywhere.scenes().is_empty() || !everywhere.prompt_gates().is_empty() {
+            return Err("what it gives every engine is tool providers and admitted tool names; scenes and gates \
+                        are the main instance's"
                 .to_string());
         }
     }
@@ -214,30 +211,28 @@ pub(crate) async fn migrate(records: &mut [Record], table: &mut RouteTable) {
 
 /// What the enabled extensions give the `main` instance, in order. Each is switched off with its
 /// extension: one that fails to start after the instance was built keeps its scenes there until
-/// the next start, and stops reaching sessions built after.
+/// the next start; its tools are withdrawn from sessions built after, and its hooks and gates let
+/// everything through from then on.
 pub(crate) fn main_contribution(records: &[Record]) -> EngineContribution {
     let mut all = EngineContribution::new();
     for record in records.iter().filter(|r| r.is_enabled()) {
         let Some(d) = &record.descriptor else { continue };
         for c in [d.engine(), d.engine_everywhere()].into_iter().flatten() {
-            super::contribution::merge(&mut all, &super::contribution::gated(c, record.enabled.clone()));
+            super::contribution::merge(&mut all, &super::contribution::gated(c, record.enabled.clone(), record.changed.clone()));
         }
     }
     all
 }
 
-/// What the enabled extensions give every engine built in this process: tool providers, and
-/// the tool names every scene admits.
-pub(crate) fn everywhere(records: &[Record]) -> (Vec<Arc<dyn ToolProvider>>, Vec<String>) {
+/// What the enabled extensions give every engine this process builds or spawns: tool providers.
+pub(crate) fn everywhere(records: &[Record]) -> Vec<Arc<dyn ToolProvider>> {
     let mut providers = Vec::new();
-    let mut admitted = Vec::new();
     for record in records.iter().filter(|r| r.is_enabled()) {
         let Some(c) = record.descriptor.as_ref().and_then(|d| d.engine_everywhere()) else { continue };
-        let c = super::contribution::gated(c, record.enabled.clone());
+        let c = super::contribution::gated(c, record.enabled.clone(), record.changed.clone());
         providers.extend(c.providers().iter().cloned());
-        admitted.extend(c.admitted().iter().cloned());
     }
-    (providers, admitted)
+    providers
 }
 
 /// Start each enabled extension, in order, seated first. One that fails is disabled with the
@@ -255,7 +250,7 @@ pub(crate) async fn start(records: &mut [Record], seats: &Seats) -> Vec<String> 
             if !record.status.scenes.is_empty() {
                 record.status.note = Some(format!(
                     "its scenes ({}) stay in the main instance until the next start; \
-                     its tool providers and gates no longer reach new sessions",
+                     its tools are withdrawn from new sessions, and its hooks and gates answer no more",
                     record.status.scenes.join(", ")
                 ));
             }
@@ -269,25 +264,6 @@ pub(crate) async fn stop(records: &[Record]) {
     for record in records.iter().rev().filter(|r| r.is_enabled()) {
         record.ext.stop().await;
     }
-}
-
-/// A spawned daemon's native contributions: the template `id` names, found among the product's
-/// extensions in order — their declarations read, nothing started.
-pub(crate) fn native_of(entries: &[&dyn ErasedExtension], id: &str) -> Result<EngineContribution, String> {
-    for e in entries {
-        let manifest = e.manifest();
-        let Ok(ext) = ExtId::native(manifest.id()) else { continue };
-        if !id.starts_with(&format!("{ext}.")) {
-            continue;
-        }
-        let d = e.register(&ext, &Value::Null).map_err(|e| e.to_string())?;
-        if let Some(template) = d.templates().iter().find(|t| t.id == id) {
-            return template
-                .contribution()
-                .ok_or_else(|| format!("the template `{id}` has no native contributions to build"));
-        }
-    }
-    Err(format!("this binary declares no template `{id}`"))
 }
 
 #[cfg(test)]

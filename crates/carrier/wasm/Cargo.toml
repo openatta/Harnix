@@ -2,15 +2,15 @@
 name = "harnix-carrier-wasm"
 version      = "0.4.3-2026111501"
 edition      = "2021"
-rust-version = "1.87"
+rust-version = "1.88"
 license      = "Apache-2.0"
 publish      = false
 description  = "Packages in the product's process: each one's WebAssembly in a VM here, registered as an extension, its tools in every session"
 
 # The carrier the `packages` component runs packages on in this process (mode 2): the host core
 # (`harnix-wasm-host`) and its port lent over the package's extension handle and the component's
-# context, the tool provider every engine built here carries, and the package's routes
-# (`/ext/<id>/ui`, `/ext/<id>/mcp`). Only a build with the `wasm` feature links it, and through it
+# context, the tool provider every engine this process builds or spawns carries, and the package's
+# route (`/ext/<id>/ui`). Only a build with the `wasm` feature links it, and through it
 # the WebAssembly engine.
 [dependencies]
 harnix-wasm-host  = { workspace = true }

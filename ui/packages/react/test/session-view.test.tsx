@@ -357,6 +357,42 @@ describe("一轮", () => {
     expect(screen.getByTestId("conv-ask").textContent).not.toContain("ext__acme__echo");
   });
 
+  it("the permission card shows a host tool's own question before the engine's line", async () => {
+    render(
+      <HarnixUiProvider client={server.asClient()}>
+        <SessionView sessionId="S1" />
+      </HarnixUiProvider>,
+    );
+    await settle();
+    act(() => {
+      server.event("S1", {
+        kind: "prompt", prompt_type: "permission", prompt_id: "p1", tool_name: "flow_update", tool_use_id: "u1",
+        message: "Allow the host's tool flow_update?", tool_question: "Let the agent change the flow `demo`?",
+      });
+    });
+    const card = screen.getByTestId("conv-ask");
+    expect(card.textContent).toContain("Let the agent change the flow `demo`?");
+    expect(card.textContent).not.toContain("Allow the host's tool");
+  });
+
+  it("a question the engine says is resolved leaves the card answered, buttons gone", async () => {
+    render(
+      <HarnixUiProvider client={server.asClient()}>
+        <SessionView sessionId="S1" />
+      </HarnixUiProvider>,
+    );
+    await settle();
+    act(() => {
+      server.event("S1", { kind: "prompt", prompt_type: "permission", prompt_id: "p1", tool_name: "Bash", tool_use_id: "b1" });
+    });
+    expect(screen.getByTestId("conv-ask").dataset.state).toBe("pending");
+    act(() => {
+      server.event("S1", { kind: "prompt_resolved", prompt_id: "p1", resolution: "answered" });
+    });
+    expect(screen.getByTestId("conv-ask").dataset.state).toBe("answered");
+    expect(within(screen.getByTestId("conv-ask")).queryAllByRole("button")).toHaveLength(0);
+  });
+
   it("插话：运行中发送进队列；队列整值替换；可撤回", async () => {
     server.handlers["harnix.session.attach"] = () => attached("S1", { running_turn: "t1" });
     server.handlers["harnix.session.send"] = (p) => ({ queued: true, item: { item_id: "q1", message: p.message } });

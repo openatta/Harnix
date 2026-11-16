@@ -7,12 +7,13 @@
 //! process's instances). What is running is in a [`Registry`] the rest of the process reaches
 //! through what the carrier hands out:
 //!
-//! - [`WasmTools`], the tool provider the component gives every engine built in this process: the
-//!   running packages' tools in each session, and their `events` as a hook before its tool calls;
-//! - each package's routes, in its descriptor (`routes.rs`): `/ext/<id>/ui/` (its interface's files,
-//!   under their CSP) and `/ext/<id>/mcp` (its tools, for an engine this process spawned);
-//! - the component's interface entries (`frames.rs`) and the tool endpoints every spawned daemon is
-//!   configured with, told the host again after every change;
+//! - [`WasmTools`], the tool provider the component gives every engine this process builds or
+//!   spawns: the running packages' tools in each session, and their `events` as a hook before its
+//!   tool calls — registered on each engine's link, so a call from a spawned daemon's session runs
+//!   here too;
+//! - each package's route, in its descriptor (`routes.rs`): `/ext/<id>/ui/` (its interface's files,
+//!   under their CSP);
+//! - the component's interface entries (`frames.rs`), told the host again after every change;
 //! - a generation number ([`Carrier::changed`]) that moves whenever what the status says may have.
 //!
 //! A package's HTTP is decided here too: its host lends it this process's network only for
@@ -32,10 +33,10 @@ use std::time::Duration;
 use async_trait::async_trait;
 use harnix_carrier_shared::sync::lock;
 use harnix_carrier_shared::frames;
-use harnix_carrier_shared::DEFAULT_TIMEOUT;
+use harnix_carrier_shared::{EventScope, DEFAULT_TIMEOUT};
 use harnix_ext::{ExtId, ExtensionContext, PackageCarrier, Rpc};
 use harnix_host_api::{
-    Carrier, CarrierRegistrar, CarrierSettings, HostApi, HostServices, Installed, Running, StopReason, ToolEndpoint,
+    Carrier, CarrierRegistrar, CarrierSettings, HostApi, HostServices, Installed, Running, StopReason,
 };
 use harnix_package::acquire::internal;
 use harnix_package::egress::{Egress, Request};
@@ -45,7 +46,7 @@ use harnix_wasm_port::{CallMeta, Control, Place, Start, Stop, Unplace};
 use serde_json::{json, Value};
 use tokio::sync::watch;
 
-pub use harnix_carrier_shared::{server_name, tool_name, Loaded, FRAME_CSP, TOOL_PATTERN};
+pub use harnix_carrier_shared::{tool_name, Loaded, FRAME_CSP};
 pub use registry::Registry;
 pub use tools::{WasmTools, MAX_NOTE, NAME as TOOLS_NAME};
 
@@ -127,28 +128,15 @@ impl Inner {
         self.settings.get().is_some_and(CarrierSettings::is_dev) && app.trust == Trust::Unsigned
     }
 
-    /// Tell the host what runs now: the page's interface entries, and every spawned daemon's tool
-    /// endpoints (once this process listens).
+    /// Tell the host what runs now: the page's interface entries.
     fn refresh(&self, cx: &ExtensionContext) {
         let Ok(host) = cx.service::<HostServices>() else { return };
-        let loaded = self.registry.loaded();
-        host.publish_ui(loaded.iter().flat_map(|app| frames::ui_entries(app)).collect());
-        if let Some(listen) = cx.listen() {
-            let base = listen.url().trim_end_matches('/').to_string();
-            let endpoints = loaded
-                .iter()
-                .filter(|app| !app.tools.is_empty())
-                .map(|app| ToolEndpoint::new(&server_name(&app.id), &format!("{base}/ext/{}/mcp", app.id)))
-                .collect();
-            if let Err(e) = host.share_tools(endpoints) {
-                tracing::warn!(error = %e.message, "the packages' tool endpoints were not shared");
-            }
-        }
+        host.publish_ui(self.registry.loaded().iter().flat_map(|app| frames::ui_entries(app)).collect());
         self.moved();
     }
 
-    /// From the first start on: a tool call's progress on the component's topic, the endpoints
-    /// again once the listener is up, and the host's generation followed.
+    /// From the first start on: a tool call's progress on the component's topic, and the host's
+    /// generation followed.
     fn follow(self: &Arc<Self>, cx: &ExtensionContext) {
         if self.following.set(()).is_err() {
             return;
@@ -160,14 +148,6 @@ impl Inner {
                 let _ = cx.topics().publish("progress", json!({}), value).await;
             });
         }));
-        let me = Arc::downgrade(self);
-        let listening = cx.clone();
-        tokio::spawn(async move {
-            listening.listening().await;
-            if let Some(me) = me.upgrade() {
-                me.refresh(&listening);
-            }
-        });
         let me = Arc::downgrade(self);
         tokio::spawn(async move {
             let mut last = None;
@@ -207,7 +187,6 @@ impl Inner {
                 "ui_rev".into(),
                 json!(self.watches_ui(&app).then(|| format!("{:016x}", harnix_carrier_shared::ui_stamp(&app.root.join("ui"))))),
             );
-            map.insert("mcp".into(), json!(format!("/ext/{id}/mcp")));
             map.insert("inline".into(), app.inline.clone());
         }
         status
@@ -232,7 +211,6 @@ fn summary(fingerprint: &str, parts: &Value, disclosure: &Value, started: Value)
         "agent": parts.get("agent").filter(|a| !a.is_null()).map(|agent| json!({
             "package": agent["package"], "instances": agent["instances"], "disclosure": disclosure,
         })),
-        "skills": parts.get("skills").cloned().unwrap_or(json!({})),
         "started": started,
     })
 }
@@ -254,7 +232,6 @@ impl Carrier for WasmCarrier {
     fn register(&self, r: &mut CarrierRegistrar<'_>) {
         let _ = self.0.settings.set(r.settings().clone());
         r.provider(Arc::new(WasmTools::new(self.0.registry.clone())));
-        r.admit(TOOL_PATTERN);
     }
 
     async fn start(&self, _host: &dyn HostApi, cx: &ExtensionContext, app: Installed) -> Rpc<Running> {
@@ -321,6 +298,7 @@ impl Carrier for WasmCarrier {
             title: manifest.app.title.clone(),
             root: pkg_dir,
             component: offer.as_ref().is_some_and(|o| o.component),
+            events: EventScope::of(started.events, &manifest, app.capabilities()),
             tools: offer.map(|o| o.tools).unwrap_or_default(),
             ui: manifest.ui.clone(),
             interface: manifest.interface.clone(),
@@ -392,8 +370,8 @@ impl HttpFetcher for Fetcher {
         let Some(net) = self.registry.net(app) else {
             return Err(format!("`{app}` is not running"));
         };
-        self.kernel.allowed(app, &net, &request.url)?;
-        let request = Request { method: request.method, url: request.url, headers: request.headers, body: request.body };
+        let url = self.kernel.allowed(app, &net, &request.url)?;
+        let request = Request { method: request.method, url, headers: request.headers, body: request.body };
         let response = self.egress.send(request).await?;
         Ok(HttpResponse { status: response.status, headers: response.headers, body: response.body })
     }

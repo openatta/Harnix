@@ -9,15 +9,13 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 use harnix_contract::s1::ExtId;
 use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
-use harnix_engine::readers::{RecordingsDir, TranscriptStore};
-use harnix_engine_api::readers::{Recordings, Transcripts};
 use harnix_ext::Service;
-use harnix_host_api::{HostApi, HostServices};
+use harnix_host_api::{HostApi, HostServices, SettingsFiles, SettingsTiers};
 use harnix_hub::Hub;
 use harnix_instance::InstanceRegistry;
 use harnix_kernel::seat::{
     BulkGrants, CredentialLookup, DeviceAdmin, InstanceService, InstanceView, Listening, ProcessInfo, Seat,
-    ServiceRegistry, TopicPublisher, UiBoard,
+    ServiceRegistry, TopicPublisher, UiBoard, Unserved,
 };
 use harnix_kernel::{ClientRegistry, Dispatch, GrantBook, Rpc, TopicChanged};
 use serde_json::Value;
@@ -82,17 +80,14 @@ impl TopicPublisher for HubTopics {
 }
 
 /// Instances as facts: what the instance registry knows of each, and the readers of what its
-/// engine writes down.
+/// engine writes down — the instance's own, kept with it, so what a reader read is kept too.
 pub(crate) struct InstanceViews {
     instances: Arc<InstanceRegistry>,
-    /// One recordings reader per root, kept: what a reader folded (the usage figures) is kept
-    /// until a recording changes, and a reader made for every view would keep nothing.
-    readers: Mutex<HashMap<PathBuf, Arc<RecordingsDir>>>,
 }
 
 impl InstanceViews {
     pub fn new(instances: Arc<InstanceRegistry>) -> Self {
-        Self { instances, readers: Mutex::new(HashMap::new()) }
+        Self { instances }
     }
 }
 
@@ -100,27 +95,17 @@ impl InstanceService for InstanceViews {
     fn view(&self, id: &str) -> Option<InstanceView> {
         let listed = self.instances.facts(id)?;
         let (facts, trust) = (listed.engine, listed.trust);
-        let root = facts.recordings_root.clone().unwrap_or_else(|| facts.data_root.join("recordings"));
-        let recordings: Arc<dyn Recordings> =
-            lock(&self.readers).entry(root.clone()).or_insert_with(|| Arc::new(RecordingsDir::new(root))).clone();
-        let transcripts = facts
-            .history
-            .clone()
-            .map(|store| Arc::new(Arc::new(TranscriptStore::new(store)) as Arc<dyn Transcripts>) as Arc<dyn Any + Send + Sync>);
+        let readers = self.instances.readers(id);
+        let recordings = readers.as_ref().map(|r| Arc::new(r.recordings.clone()) as Arc<dyn Any + Send + Sync>);
+        let transcripts = readers.map(|r| Arc::new(r.transcripts) as Arc<dyn Any + Send + Sync>);
         Some(InstanceView {
             id: id.to_string(),
             active_scenes: facts.active_scenes.clone(),
             model: facts.model.clone().unwrap_or_default(),
             trust,
-            skills_dir: facts.data_root.join("skills"),
-            settings_root: facts.data_root.clone(),
-            recordings: Some(Arc::new(recordings)),
+            recordings,
             transcripts,
         })
-    }
-
-    fn validate_provider(&self, entry: &Value) -> Result<(), String> {
-        harnix_engine::settings::check_provider(entry)
     }
 }
 
@@ -208,25 +193,56 @@ impl CredentialLookup for Secrets {
     }
 }
 
-/// The host's named services: one, the host components' pipes, made for whoever asks.
-#[derive(Default)]
+/// The host's named services: the host components' pipes, and where an instance's engine reads
+/// its settings tiers. Each is made for an extension that holds what it takes, and the capability
+/// is this side's, by the name asked for: the type an extension asks through is its own to write,
+/// and says nothing.
 pub(crate) struct HostServicesRegistry {
+    grants: Arc<dyn GrantBook>,
     host: OnceLock<Weak<super::dynamic::DynamicHost>>,
+    instances: Arc<InstanceRegistry>,
 }
 
 impl HostServicesRegistry {
+    pub fn new(grants: Arc<dyn GrantBook>, instances: Arc<InstanceRegistry>) -> Self {
+        Self { grants, host: OnceLock::new(), instances }
+    }
+
     pub fn set(&self, host: &Arc<super::dynamic::DynamicHost>) {
         let _ = self.host.set(Arc::downgrade(host));
     }
 }
 
 impl ServiceRegistry for HostServicesRegistry {
-    fn service(&self, ext: &ExtId, name: &str) -> Option<Arc<dyn Any + Send + Sync>> {
-        if name != HostServices::NAME {
-            return None;
+    fn service(&self, ext: &ExtId, name: &str) -> Result<Arc<dyn Any + Send + Sync>, Unserved> {
+        let capability = match name {
+            HostServices::NAME => HostServices::CAPABILITY,
+            SettingsTiers::NAME => SettingsTiers::CAPABILITY,
+            _ => return Err(Unserved::Unknown),
+        };
+        if !self.grants.holds(ext, &capability) {
+            return Err(Unserved::Lacks(capability));
         }
-        let host = self.host.get()?.upgrade()?;
-        let api: Arc<dyn HostApi> = Arc::new(super::dynamic::HostFor::new(host, ext.clone()));
-        Some(Arc::new(api))
+        if name == HostServices::NAME {
+            // None before the host is made, and in a process that runs no extension host.
+            let host = self.host.get().and_then(Weak::upgrade).ok_or(Unserved::Unknown)?;
+            let api: Arc<dyn HostApi> = Arc::new(super::dynamic::HostFor::new(host, ext.clone()));
+            return Ok(Arc::new(api));
+        }
+        let files: Arc<dyn SettingsFiles> = Arc::new(TiersOf(self.instances.clone()));
+        Ok(Arc::new(files))
+    }
+}
+
+/// The settings tiers of each instance's engine, under its data root: the engine's own layout.
+struct TiersOf(Arc<InstanceRegistry>);
+
+impl SettingsFiles for TiersOf {
+    fn global(&self, instance: &str) -> Option<PathBuf> {
+        Some(self.0.facts(instance)?.engine.data_root.join("settings.json"))
+    }
+
+    fn scene(&self, instance: &str, scene: &str) -> Option<PathBuf> {
+        Some(self.0.facts(instance)?.engine.data_root.join("scenes").join(scene).join("settings.json"))
     }
 }

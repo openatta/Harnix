@@ -4,12 +4,11 @@
 // All of it registers through the contribution registry, so exercising it
 // here also exercises that path.
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 
 import type { SessionRow } from "@harnix/core/protocol";
-import { assert, defineSuite, finish, inconclusive } from "@harnix/testkit";
+import { assert, defineSuite, finish, inconclusive, scratchDir } from "@harnix/testkit";
 
 /** A row of `harnix-app.workspaces.list`. */
 interface Workspace {
@@ -51,7 +50,7 @@ defineSuite("workspaces", { feature: "session-space" }, {
         const ids: string[] = [];
         const dirs: string[] = [];
         for (const name of ["reorder-a", "reorder-b", "reorder-c"]) {
-          const dir = mkdtempSync(join(tmpdir(), `harnix-${name}-`));
+          const dir = scratchDir(`harnix-${name}-`);
           dirs.push(dir);
           const made = await client.call("harnix-app.workspaces.create", { path: dir, title: name });
           assert(made.existed === false, `${name} reused an existing workspace`);

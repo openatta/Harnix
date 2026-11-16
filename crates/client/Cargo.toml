@@ -2,7 +2,7 @@
 name = "harnix-client"
 version      = "0.4.3-2026111501"
 edition      = "2021"
-rust-version = "1.87"
+rust-version = "1.88"
 license      = "Apache-2.0"
 publish      = false
 description  = "A light client of a running Harnix process: handshake, /rpc, launch links and the event streams, over plain HTTP"

@@ -7,19 +7,17 @@
  * `asks-permission`.
  */
 
-import { cpSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { dropSessions, expect, RECORDINGS, ROOT, test } from "@harnix/testkit";
+import { dropSessions, expect, launchFor, ROOT, startHarnix, test } from "@harnix/testkit";
 
-import { connected, newSession, open, reply, say, watchConsole } from "./page";
+import { connected, newSession, open, recorded, reply, say, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:sessions", "@layer:ui"] };
 
 let URL = "";
-let SCRATCH = "";
 test.beforeEach(({ harnix }) => {
   URL = harnix.url;
-  SCRATCH = harnix.scratch;
 });
 // The worker's backend is shared by every file that uses it: a test leaves no session behind
 // for the next one to count.
@@ -147,19 +145,23 @@ test("a call that fails says so in a banner, which goes when dismissed", TAGS, a
 
 test("what the model was sent apart from the messages is a row of its own, read at length beside the conversation", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
-  await open(page, URL);
-  const id = await oneTurn(page);
-  // A replayed session records nothing of its own: the envelope is read from a recording put in its place.
-  cpSync(join(RECORDINGS, "calls-a-tool"), join(SCRATCH, "agix", "recordings", id), { recursive: true });
-  await page.reload();
-  await connected(page);
-  await page.evaluate((sid) => (window as any).harnix.app.open({ instance: "main", sessionId: sid }), id);
-  const row = page.getByTestId("conv-request").first();
-  await expect(row).toBeVisible({ timeout: 15_000 });
-  await row.getByTestId("conv-request-toggle").click();
-  await row.getByTestId("open-in-details").click();
-  const details = page.getByTestId("details-request");
-  await expect(details).toBeVisible();
-  await expect(details).toContainText("Bash");
-  expect(errors).toEqual([]);
+  // A replayed session records nothing: the envelope is read from a recording, on a backend whose
+  // sessions record (`recorded`).
+  const recorder = await startHarnix(launchFor("none"));
+  try {
+    const id = await recorded(page, recorder, { fixture: "calls-a-tool" });
+    await page.reload();
+    await connected(page);
+    await page.evaluate((sid) => (window as any).harnix.app.open({ instance: "main", sessionId: sid }), id);
+    const row = page.getByTestId("conv-request").first();
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await row.getByTestId("conv-request-toggle").click();
+    await row.getByTestId("open-in-details").click();
+    const details = page.getByTestId("details-request");
+    await expect(details).toBeVisible();
+    await expect(details).toContainText("Bash");
+    expect(errors).toEqual([]);
+  } finally {
+    await recorder.dispose();
+  }
 });

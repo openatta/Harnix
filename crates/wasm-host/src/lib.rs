@@ -16,18 +16,18 @@
 //! own, with the kernel carried over a link and an agent engine of its own; its tests run it
 //! through `harnix_wasm_port::rpc::Loopback`.
 //!
-//! A package's own HTTP (`host.http-request`, already checked against its `net`) goes out
-//! from wherever the host runs ([`http`]).
+//! A package's own HTTP (`host.http-request`) is judged against its `net` here, and handed to
+//! the product to send (`http.rs`).
 
 mod bridge;
 mod host;
-pub mod http;
+mod http;
 mod idle;
 mod placement;
 
 pub use bridge::Stats;
 pub use host::{Host, HostOptions};
-/// What a package's HTTP is handed to, for a product that sends it itself.
+/// What a package's HTTP is handed to, once judged here: the product's, which sends it.
 pub use harnix_wasm::{HttpFetcher, HttpRequest, HttpResponse};
 /// The engine every VM of a host runs on (`Host::engine`).
 pub use harnix_wasm::WasmEngine;

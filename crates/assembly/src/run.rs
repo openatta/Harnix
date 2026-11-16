@@ -84,18 +84,15 @@ pub(crate) async fn start_process(app: AppBuilder, cli: &Cli, basis: &Basis) -> 
     // back as this says.
     let recording = harnix_instance::Recording::new(cli.replay_dir.clone());
     recording.set_strict(cli.replay_strict);
-    // What a daemon this process spawns presents when it calls back: issued before any is.
-    let engines = Arc::new(harnix_authz::EngineCredentials::default());
     let instances = instances::build(
         profile,
         &basis.roots,
         &mut records,
         &mut table,
-        instances::Wiring { credentials: &credentials, engines: &engines, recording, grants: grants.clone() },
+        instances::Wiring { credentials: &credentials, recording, grants: grants.clone() },
     )
     .await?;
-    let servers = instances.registry.factory.servers.clone();
-    let hub::Assembled { hub, instances, ui, history, brand_icon } =
+    let hub::Assembled { hub, instances, ui, brand_icon } =
         hub::assemble(cli, profile, &basis.roots, (&name, &version), &records, instances, &behind).await?;
     // The hub's rows have been in the route table since registration; from here they answer.
     let _ = behind.hub.set(hub.clone());
@@ -107,19 +104,16 @@ pub(crate) async fn start_process(app: AppBuilder, cli: &Cli, basis: &Basis) -> 
         table,
         grants,
         &behind,
-        history,
         admission::Parts {
             ui: ui.clone(),
             devices: held.devices.clone(),
             credentials: credentials.clone(),
-            servers,
             state_root: basis.roots.state.clone(),
             projects_root: basis.roots.projects.clone(),
             dynamic,
             runtime_modules: profile.ui.runtime_modules,
             package_sections,
             unsandboxed: crate::host::spawn::unsandboxed(&records),
-            engines,
         },
         admission::Identity { name: &name, version: &version },
     );
@@ -138,7 +132,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
         .try_init();
 
     let cli = cli::parse(&app.name, &app.version, app.args.clone());
-    if let Some(done) = subcommand(&cli, &app).await {
+    if let Some(done) = subcommand(&cli).await {
         return done;
     }
 
@@ -252,23 +246,14 @@ async fn shut_down(
 
 /// What a subcommand does instead of serving: `ui export`, and `daemon` (a spawned instance's
 /// process). `None` is no subcommand.
-async fn subcommand(cli: &Cli, app: &AppBuilder) -> Option<anyhow::Result<()>> {
+async fn subcommand(cli: &Cli) -> Option<anyhow::Result<()>> {
     match &cli.command {
         Some(Command::Ui(UiCommand::Export { dir })) => Some(
             harnix_transport::StaticFace::export(dir)
                 .map(|count| println!("\n  {count} files → {}\n", dir.display()))
                 .map_err(Into::into),
         ),
-        Some(Command::Daemon(daemon)) => {
-            let contrib = match &daemon.template {
-                None => harnix_engine_api::EngineContribution::default(),
-                Some(id) => match lifecycle::native_of(&app.entries.iter().map(|e| e.ext.as_ref()).collect::<Vec<_>>(), id) {
-                    Ok(contrib) => contrib,
-                    Err(reason) => harnix_instance::refuse_daemon(&daemon.socket, &reason),
-                },
-            };
-            Some(harnix_instance::serve_daemon_with(daemon.args(), contrib).await)
-        }
+        Some(Command::Daemon(daemon)) => Some(harnix_instance::serve_daemon(daemon.args()).await),
         None => None,
     }
 }

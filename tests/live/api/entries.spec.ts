@@ -107,5 +107,9 @@ test("a device writes no entries, and a module none outside its namespace", TAGS
     params: { ...s, ns: "app.other", event: "claimed", payload: {} },
   });
   const { entries } = await api.call("engine.session.entries", s);
-  expect(entries.map((e: any) => [e.ns, e.event])).toEqual([["probe", "claimed"]]);
+  // What callers wrote: the module's one, in its own namespace. The device's call was refused at the
+  // router, and the refusal is the audit's to note, in the hub's own namespace.
+  const written = entries.filter((e: any) => e.ns !== "harnix.audit");
+  expect(written.map((e: any) => [e.ns, e.event])).toEqual([["probe", "claimed"]]);
+  expect(entries.filter((e: any) => e.ns === "harnix.audit").map((e: any) => e.event)).toEqual(["refuse"]);
 });

@@ -31,7 +31,7 @@ something.
 | `asks-permission` | A `Bash` call that needs permission (`rm -f /tmp/harnix-fixture-probe`) — the ask, the broadcast, the answer. Recorded |
 | `spawns-agent` | An `Agent` call: a sub-agent that is a task of its session, not a session in the list. Recorded, the sub-agent's calls as a second session |
 | `sets-a-goal` | A `GoalCreate` call (objective "Keep the fixture tests green"), then "Goal set.": a session with a goal. The engine opens the next round itself; the recording has nothing for it, the round fails and the goal is left ongoing but disarmed. Made from `calls-a-tool` by hand: the tool, its input and the text differ |
-| `runs-a-team` | Two sessions: the parent calls `TeamCreate` (team `ui-team`, one stage, member `alpha` — a `code`-scene tool, shown only with `execution.team_enabled`, found with `ToolSearch` first), the member says "alpha here", the parent "Team done.". Replay binds live sessions to recorded ones in the order they first call, so the member is a session of its own here. Recorded; by position only (its task ids) |
+| `runs-a-team` | Two sessions: the parent calls `TeamCreate` (team `ui-team`, one stage, member `alpha` — a `code`-scene tool, shown only with `team.enabled` in the global tier, found with `ToolSearch` first), the member says "alpha here", the parent "Team done.". Replay binds live sessions to recorded ones in the order they first call, so the member is a session of its own here. Recorded; by position only (its task ids) |
 | `messages-a-subagent` | Two sessions: the parent starts a background `Agent`, which runs ten seconds of Bash (`perl`, as in `runs-a-while`) and then says "sub-agent done"; the parent says "Started it in the background.". A sub-agent still in its turn, to be told something (`messageTask`). Recorded; by position only (its task id) |
 | `leaves-a-process` | A `Bash` call that leaves a `tail -f /dev/null` in the background and prints its pid (ipdrun-07), then "started". Recorded; by position only (the pid) |
 | `calls-a-native-tool` | A call to `ProbeFixed`, the tool `harnix-testapp`'s native scene contributes (ipdrun-10). Made from `calls-a-tool` by hand: only the tool input and the text differ |
@@ -53,7 +53,7 @@ something.
 | `app-crash` | The showcase's `crash {}` three times in one turn — a tool that traps, until it is set aside — then a line of text. Recorded |
 | `app-board` | The showcase's `board {}`: its tool that asks the backend for its state with `host.call` (`tests/live/api/packages-backend.spec.ts`), then a line of text. Recorded |
 | `app-backend-session` | One call, text only: "The showcase's backend started this conversation." — the session the showcase's backend creates and prompts (`session.start`). Made from `app-echo`'s first request by a script |
-| `app-mcp-echo` | A spawned daemon's session calls `mcp__ext-example_showcase__echo {text: showcase-over-mcp}` — the showcase's tool over its MCP endpoint — then a line of text. Made the same way |
+| `app-spawn-echo` | A spawned daemon's session calls `ext__example_showcase__echo {text: showcase-over-mcp}` — the showcase's tool, registered on the daemon's socket by this process — then a line of text. Made the same way |
 | `thinks-first` | "fixture ready" after a line of thinking that names it: the thinking row. The `says-ready` of before it was recorded again (Agix 0.1.0, the `code` scene), kept as it was because the provider of the recorded ones streams no thinking text. Hand-made in that sense: its requests are another scene's |
 | `says-markdown` | A reply in markdown: a `sh` code block, a table and a link — what the conversation draws of a reply. Recorded |
 
@@ -66,7 +66,7 @@ something.
   recording; a real recording would hold that round.
 - `streams-output`: the Monitor's lines go back to the model as turns of their own, as many as the
   timing makes, so no two recordings are alike; the hand-made one keeps the one call the suites expect.
-- `calls-a-native-tool`, the `flow-*` ones, `app-mcp-echo`, `app-backend-session`: the session is not
+- `calls-a-native-tool`, the `flow-*` ones, `app-spawn-echo`, `app-backend-session`: the session is not
   one `record-fixture.mjs` makes — it lives on a template instance or a spawned daemon, or a flow's
   station or the showcase's backend creates and prompts it — and the flows' calls (`flow_submit` with
   given findings) are what the suites assert.

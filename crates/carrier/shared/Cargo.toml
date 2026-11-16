@@ -2,15 +2,15 @@
 name = "harnix-carrier-shared"
 version      = "0.4.3-2026111501"
 edition      = "2021"
-rust-version = "1.87"
+rust-version = "1.88"
 license      = "Apache-2.0"
 publish      = false
-description  = "What the two package carriers share: the roster of running packages, their interface entries, their tools' shape and the /ext/<id>/ routes"
+description  = "What the two package carriers share: the roster of running packages, their interface entries, their tools' shape and the /ext/<id>/ui/ route"
 
 # What `harnix-carrier-wasm` (packages in this process) and `harnix-carrier-proc` (packages in
 # processes of their own) do the same way: what a running package is, the roster of them and
 # whose progress is heard, what the page is told of an interface, how a tool and its reply look to
-# a session, and the two routes under `/ext/<id>/`. What differs (how a call reaches the package)
+# a session, and the route under `/ext/<id>/`. What differs (how a call reaches the package)
 # stays in each carrier. Names no VM, no process and neither carrier.
 [dependencies]
 harnix-wasm-port  = { workspace = true }
@@ -18,8 +18,6 @@ harnix-package    = { workspace = true }
 harnix-ext        = { workspace = true }
 async-trait = { workspace = true }
 http        = { workspace = true }
-http-body-util = { workspace = true }
 serde_json  = { workspace = true }
 tokio       = { workspace = true }
 tracing     = { workspace = true }
-uuid        = { workspace = true }

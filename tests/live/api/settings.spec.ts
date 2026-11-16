@@ -1,10 +1,8 @@
 // Settings: what the three tiers say, and what happens when they are written.
 //
-// The engine memoizes resolved settings per (project, scene) and only
-// refreshes its own pair on reload, so the effective value it reports can lag
-// a write. Harnix computes the tiers itself and hands back the engine's answer
-// alongside — so when they disagree, the interface can say so instead of
-// showing one of them and being wrong half the time.
+// The value a field shows is the engine's own for the (project, scene) asked about, re-read after a
+// write; `source` is the highest tier whose file wrote it, and `withheld` says the project tier
+// wrote a value the engine does not use (an untrusted project can only tighten).
 
 import { METHOD_NOT_FOUND, REFUSED } from "@harnix/core/protocol";
 import { assert, defineSuite } from "@harnix/testkit";
@@ -80,6 +78,38 @@ defineSuite("settings", { feature: "settings" }, {
       await client.call("settings.setProvider", { provider_id: id, delete: true });
       const after = await client.call("settings.describe", {});
       assert(!after.providers?.providers?.[id], "the provider was not removed");
+    },
+
+    "a looser value in an untrusted project's tier is withheld, and said so": async ({ client }) => {
+      // A project is untrusted unless something trusted it, and an untrusted project tier may only
+      // tighten: the engine does not take `bypassPermissions` from it.
+      const at = { project_root: client.project };
+      const field = async () =>
+        (await client.call("settings.describe", at)).fields.find((f: { key: string }) => f.key === "permission_mode");
+      assert((await field()).withheld === false, "withheld before anything was written");
+      await client.call("settings.set", { tier: "project", key: "permission_mode", value: "bypassPermissions", ...at });
+      try {
+        const written = await field();
+        assert(written.tiers.project === "bypassPermissions" && written.source === "project", JSON.stringify(written));
+        assert(written.withheld === true && written.effective !== "bypassPermissions", JSON.stringify(written));
+      } finally {
+        await client.call("settings.set", { tier: "project", key: "permission_mode", value: null, ...at });
+      }
+      assert((await field()).withheld === false, "still withheld once the project tier gave it back");
+    },
+
+    "an OpenAI Responses provider is taken as written": async ({ client }) => {
+      const id = "test-openai-responses";
+      await client.call("settings.setProvider", {
+        provider_id: id,
+        config: { api_type: "openai_responses", base_url: "https://example.invalid/v1", api_key: "sk-secret-value", default_model: "m-1" },
+      });
+      try {
+        const provider = (await client.call("settings.describe", {})).providers?.providers?.[id];
+        assert(provider?.api_type === "openai_responses", `read back as ${JSON.stringify(provider)}`);
+      } finally {
+        await client.call("settings.setProvider", { provider_id: id, delete: true });
+      }
     },
 
     "a provider of an unknown API type is refused": async ({ client }) => {

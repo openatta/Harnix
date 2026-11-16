@@ -2,7 +2,7 @@
 name = "harnix-wasm"
 version      = "0.4.3-2026111501"
 edition      = "2021"
-rust-version = "1.87"
+rust-version = "1.88"
 license      = "Apache-2.0"
 publish      = false
 description  = "The WebAssembly runtime for Harnix packages: one wasmtime engine, one VM per package"

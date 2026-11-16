@@ -1,11 +1,8 @@
 /**
  * Past the engine's in-memory cap (`session_cap`, 32), every session is listed once.
  *
- * The engine lists the sessions it holds, then reads the rest from each project's history it has
- * served, and does not skip what that reading already gave. A project reached under two spellings
- * of one folder — macOS's `/var/…` and `/private/var/…` — was read twice, so each session it had
- * let go of came back twice (openatta/Agix#23). The testkit
- * now hands the engine real paths; this keeps it so.
+ * The interface does not de-duplicate, so a list that came back with a session twice would draw it
+ * twice.
  */
 
 import { connect, expect, launchFor, startHarnix, test } from "@harnix/testkit";

@@ -18,7 +18,9 @@ harnix-wasm-host = { path = "harnix/crates/wasm-host" }
 harnix-package   = { path = "harnix/crates/package" }
 harnix-proc      = { path = "harnix/crates/proc" }
 harnix-wasm-port = { path = "harnix/crates/wasm-port" }
+harnix-carrier-shared = { path = "harnix/crates/carrier/shared" }
 harnix-carrier-wasm = { path = "harnix/crates/carrier/wasm" }
+harnix-carrier-proc = { path = "harnix/crates/carrier/proc" }
 harnix-instance  = { path = "harnix/crates/instance" }
 harnix-supervise = { path = "harnix/crates/supervise" }
 harnix-authz     = { path = "harnix/crates/authz" }
@@ -26,6 +28,7 @@ harnix-client    = { path = "harnix/crates/client" }
 harnix-contract  = { path = "harnix/crates/contract" }
 harnix-engine    = { path = "harnix/crates/engine" }
 harnix-engine-api = { path = "harnix/crates/engine-api" }
+harnix-engine-link = { path = "harnix/crates/engine-link" }
 harnix-ext       = { path = "harnix/crates/ext/api" }
 harnix-ext-devices = { path = "harnix/crates/ext/devices" }
 harnix-ext-flow    = { path = "harnix/crates/ext/flow" }
@@ -41,19 +44,14 @@ harnix-kernel    = { path = "harnix/crates/kernel" }
 harnix-router    = { path = "harnix/crates/router" }
 harnix-transport = { path = "harnix/crates/transport" }
 harnix-wasm      = { path = "harnix/crates/wasm" }
-daemon    = { path = "harnix/agix/daemon" }
-base      = { path = "harnix/agix/crates/core" }
-model     = { path = "harnix/agix/crates/model" }
-history   = { path = "harnix/agix/crates/history" }
-scene     = { path = "harnix/agix/crates/scene" }
-telemetry = { path = "harnix/agix/crates/telemetry" }
-runtime   = { path = "harnix/agix/crates/runtime" }
+agix = { path = "harnix/agix/crates/agix" }
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["full"] }
 tokio-stream = "0.1"
 futures = "0.3"
 async-trait = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+url = "2.5"
 bytes = "1"
 http = "1"
 http-body-util = "0.1"

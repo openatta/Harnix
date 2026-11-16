@@ -1,10 +1,12 @@
-//! `WasmTools`: the running packages' tools in every session an in-process instance builds.
+//! `WasmTools`: the running packages' tools in every session of an instance this process builds
+//! or spawns.
 //!
-//! A tool provider (`harnix_ext::engine::ToolProvider`) the component gives every engine built in
-//! this process (`engine_everywhere`). The engine asks it each time it builds a session —
-//! sub-agents, team members and background tasks included — and it registers what is running
-//! *then*: a package enabled now is in the next session built, and one disabled now is not (a
-//! session already built keeps what it was built with until it is rebuilt). Per package:
+//! A tool provider (`harnix_ext::engine::ToolProvider`) the component gives every engine this
+//! process builds or spawns (`engine_everywhere`). Its tools are offered on the instance's link to
+//! the engine — sub-agents, team members and background tasks have them too — and offered again
+//! each time a package starts or stops: a package enabled now is in the next session built, and one
+//! disabled now is not (a session already built keeps what it was built with until it is rebuilt).
+//! Per package:
 //!
 //! - each tool the host offered for it, as `ext__<id>__<tool>`. A call runs in an instance of its
 //!   own (`Control::call_tool`), with the calling session's project as its read-only `/project`
@@ -14,20 +16,22 @@
 //!   own word, so it schedules calls and decides nothing about permission.
 //! - its `events` export, as a hook before each of the session's tool calls: offered
 //!   `tool.before` with the tool's name and input — for its own tools' calls only, unless its
-//!   manifest asks for every one (`[events] tools = "all"`, which the installer is told; the host
-//!   decides) — it may let the call through, refuse it, or add a note to its result. A note goes
-//!   on the result of one of its own tools only, and only so long ([`MAX_NOTE`]): a downloaded
-//!   package does not get to write into the result of every tool the model calls. It cannot change
-//!   the call. A hook that fails lets the call through: a package's fault is not the user's.
+//!   manifest asks for every one (`[events] tools = "all"`, which the installer is told) and it
+//!   was granted `events.all_tools`; none without the export. Decided here, before the call is
+//!   sent ([`offered`]) — it may let the call through, refuse it, or add a note, which the model
+//!   is handed as a reminder before its next step. A hook is asked before the engine checks the call or asks
+//!   about it. A note is about one of its own tools only, and only so long ([`MAX_NOTE`]): a
+//!   downloaded package does not get to write into what the model reads of every tool it calls. It
+//!   cannot change the call. A hook that fails lets the call through: a package's fault is not the
+//!   user's.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
-use harnix_carrier_shared::tools::{cancellable, hook_decision, permission, tool_output, tool_spec};
+use harnix_carrier_shared::tools::{cancellable, hook_decision, offered, permission, tool_output, tool_spec, EventScope};
 use harnix_carrier_shared::Loaded;
 use harnix_ext::engine::{
-    HookDecision, Permission, SessionFacts, Tool, ToolCallFacts, ToolCx, ToolError, ToolHook, ToolOutput, ToolProvider,
-    ToolSpec,
+    HookDecision, Permission, Tool, ToolCallFacts, ToolCx, ToolError, ToolHook, ToolOutput, ToolProvider, ToolSpec,
+    ToolsChanged,
 };
 use harnix_wasm_port::{CallMeta, HookCall, HookReply, ToolDef};
 use serde_json::{json, Value};
@@ -47,8 +51,8 @@ impl WasmTools {
         Self { registry }
     }
 
-    /// The tools a session in `project` is given now: what the engine registers.
-    pub fn tools_for(&self, project: &std::path::Path) -> Vec<Arc<dyn Tool>> {
+    /// The tools the engine's sessions are given now.
+    pub fn tools(&self) -> Vec<Arc<dyn Tool>> {
         let mut tools: Vec<Arc<dyn Tool>> = Vec::new();
         for app in self.registry.loaded() {
             if !app.component {
@@ -61,26 +65,21 @@ impl WasmTools {
                     def: def.clone(),
                     app: app.clone(),
                     registry: self.registry.clone(),
-                    project: project.to_path_buf(),
                 }));
             }
         }
         tools
     }
 
-    /// The hooks for one session: each running package's `events`.
-    pub fn hooks_for(&self, session_id: &str, depth: u32) -> Vec<Arc<dyn ToolHook>> {
+    /// The hooks before every session's tool calls: each running package's `events`, when it is
+    /// offered any.
+    pub fn hooks(&self) -> Vec<Arc<dyn ToolHook>> {
         self.registry
             .loaded()
             .into_iter()
-            .filter(|app| app.component)
+            .filter(|app| app.component && app.events != EventScope::None)
             .map(|app| {
-                Arc::new(AppEvents {
-                    app,
-                    registry: self.registry.clone(),
-                    session_id: session_id.to_string(),
-                    depth,
-                }) as Arc<dyn ToolHook>
+                Arc::new(AppEvents { app, registry: self.registry.clone() }) as Arc<dyn ToolHook>
             })
             .collect()
     }
@@ -91,12 +90,16 @@ impl ToolProvider for WasmTools {
         NAME
     }
 
-    fn tools(&self, session: &SessionFacts) -> Vec<Arc<dyn Tool>> {
-        self.tools_for(session.project())
+    fn tools(&self) -> Vec<Arc<dyn Tool>> {
+        WasmTools::tools(self)
     }
 
-    fn hooks(&self, session: &SessionFacts) -> Vec<Arc<dyn ToolHook>> {
-        self.hooks_for(session.session_id(), session.depth())
+    fn hooks(&self) -> Vec<Arc<dyn ToolHook>> {
+        WasmTools::hooks(self)
+    }
+
+    fn changes(&self) -> Vec<ToolsChanged> {
+        vec![self.registry.changed()]
     }
 }
 
@@ -106,8 +109,6 @@ struct AppTool {
     def: ToolDef,
     app: Arc<Loaded>,
     registry: Arc<Registry>,
-    /// The session's project: `/project`, for a manifest that asks for `${project}`.
-    project: PathBuf,
 }
 
 #[async_trait::async_trait]
@@ -155,7 +156,7 @@ impl Tool for AppTool {
             tool: self.def.name.clone(),
             input,
             call_id: call_id.clone(),
-            project: Some(self.project.clone()),
+            project: (!cx.project().as_os_str().is_empty()).then(|| cx.project().to_path_buf()),
             progress: true,
         };
         // On behalf of the session's turn: what the tool calls carries the turn's chain.
@@ -170,21 +171,23 @@ impl Tool for AppTool {
 struct AppEvents {
     app: Arc<Loaded>,
     registry: Arc<Registry>,
-    session_id: String,
-    depth: u32,
 }
 
 #[async_trait::async_trait]
 impl ToolHook for AppEvents {
     async fn before(&self, call: &ToolCallFacts) -> HookDecision {
+        // What it was not granted to see, its host is not handed.
+        if !offered(&self.app, call.name()) {
+            return HookDecision::Proceed;
+        }
         let Some(control) = self.registry.control() else {
             return HookDecision::Proceed;
         };
         let payload = json!({
             "tool": call.name(),
             "input": call.input(),
-            "session_id": self.session_id,
-            "depth": self.depth,
+            "session_id": call.session_id(),
+            "depth": call.depth(),
         });
         let call_id = uuid::Uuid::new_v4().simple().to_string();
         let hook = HookCall {

@@ -57,7 +57,7 @@ free_port() {
   node -e 'const s=require("net").createServer();s.listen(0,"127.0.0.1",()=>{const p=s.address().port;s.close(()=>console.log(p))})'
 }
 
-CRATES=(-p harnix -p harnix-cli -p harnix-assembly -p harnix-instance -p harnix-engine -p harnix-engine-api -p harnix-authz -p harnix-kernel -p harnix-router
+CRATES=(-p harnix -p harnix-cli -p harnix-assembly -p harnix-instance -p harnix-engine -p harnix-engine-api -p harnix-engine-link -p harnix-authz -p harnix-kernel -p harnix-router
         -p harnix-client -p harnix-contract -p harnix-ext-flow -p harnix-hub -p harnix-transport
         -p harnix-testapp -p harnix-wasm -p harnix-package -p harnix-wasm-port -p harnix-wasm-host
         -p harnix-carrier-shared -p harnix-carrier-wasm -p harnix-carrier-proc -p harnix-ext-packages -p harnix-supervise -p harnix-proc -p harnix-ext -p harnix-host-api

@@ -3,8 +3,8 @@
 //! A **host component** is written in an extension's shape and comes in through the same
 //! registration and grants — the host component that installs packages is one, and so is each
 //! carrier a package runs on — but needs a few pipes an ordinary extension must not see:
-//! registering extensions while the process runs, starting an extension process, configuring a
-//! spawned daemon's tool endpoints, adopting an extension process's engine. Those are here, and
+//! registering extensions while the process runs, starting an extension process, adopting an
+//! extension process's engine. Those are here, and
 //! an extension reaches them as one service, [`HostServices`], which takes `extensions.manage`.
 //!
 //! This is not the extension interface: it is the seam between the skeleton and its host
@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use harnix_contract::s1::{caps, CallMeta, Capability, ExtId, PackageCarrier};
 use harnix_contract::ChainLink;
+pub use harnix_contract::SkillSource;
 use harnix_engine_api::ToolProvider;
 use harnix_ext::http::RouteHandler;
 use harnix_ext::{ExtensionContext, ExtensionDescriptor, Rpc, Service};
@@ -28,10 +29,42 @@ use tokio::sync::{mpsc, watch};
 /// `extensions.manage`: `cx.service::<HostServices>()`.
 pub struct HostServices;
 
+impl HostServices {
+    /// What the host that provides it checks the asking extension for.
+    pub const CAPABILITY: Capability = caps::EXTENSIONS_MANAGE;
+}
+
 impl Service for HostServices {
     const NAME: &'static str = "harnix.host";
-    const CAPABILITY: Capability = caps::EXTENSIONS_MANAGE;
     type Handle = dyn HostApi;
+}
+
+/// Where an instance's engine reads its settings tiers from, as the service a context hands out
+/// to an extension granted `engine.config.write`: `cx.service::<SettingsTiers>()`.
+///
+/// **Transitional.** The layout is the engine's (`<data root>/settings.json`, and
+/// `scenes/<scene>/settings.json` for a scene's tier), and the one extension that writes those
+/// files is Harnix's own `settings`, because the engine takes no write to its global tier over its
+/// protocol yet. Once it does, this service goes with it; which is why it is here (S3) and not in
+/// the extension interface.
+pub struct SettingsTiers;
+
+impl SettingsTiers {
+    /// What the host that provides it checks the asking extension for.
+    pub const CAPABILITY: Capability = caps::ENGINE_CONFIG_WRITE;
+}
+
+impl Service for SettingsTiers {
+    const NAME: &'static str = "harnix.settings-tiers";
+    type Handle = dyn SettingsFiles;
+}
+
+/// The settings files of one instance's engine. `None`: no such instance here.
+pub trait SettingsFiles: Send + Sync {
+    /// The global tier's `settings.json`.
+    fn global(&self, instance: &str) -> Option<PathBuf>;
+    /// One scene's tier's `settings.json`.
+    fn scene(&self, instance: &str, scene: &str) -> Option<PathBuf>;
 }
 
 /// What the host does for one host component. Every registration and every process it starts
@@ -50,10 +83,6 @@ pub trait HostApi: Send + Sync {
     /// what its list says of them.
     fn child_sandbox(&self) -> ChildSandbox;
 
-    /// The tool endpoints every daemon this process spawns is configured with: replaces what this
-    /// component shared before.
-    fn share_tools(&self, entries: Vec<ToolEndpoint>) -> Rpc<()>;
-
     /// Adopt an extension process's own engine as the instance `proc.<id>`, before its process
     /// first starts: listed, as an extension's engine, starting until a run of the process hands
     /// over its engine's stream ([`AdoptedEngine::attach`]). Only for an extension this component
@@ -68,31 +97,15 @@ pub trait HostApi: Send + Sync {
     /// component published before, and pushes `harnix.ui`.
     fn publish_ui(&self, entries: Vec<Value>);
 
+    /// The skills directories of the packages this component runs, and the spaces each declared:
+    /// listed to the sessions that see them. Replaces what this component published before; the
+    /// hub brings the sessions in memory up to date.
+    fn skill_sources(&self, sources: Vec<SkillSource>);
+
     /// The profile's `[ext."<id>"]` sections no linked extension owns and whose id is a package's:
     /// each package's configuration over its manifest's `[config]`. One for a package that is not
     /// installed is this component's to report.
     fn package_sections(&self) -> BTreeMap<String, Value>;
-}
-
-/// One MCP endpoint a spawned daemon is configured with: its server name, and its URL.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ToolEndpoint {
-    name: String,
-    url: String,
-}
-
-impl ToolEndpoint {
-    pub fn new(name: &str, url: &str) -> Self {
-        Self { name: name.to_string(), url: url.to_string() }
-    }
-
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn url(&self) -> &str {
-        &self.url
-    }
 }
 
 /// The operating-system sandbox an extension process is started in. The component's own section
@@ -701,13 +714,12 @@ impl CarrierSettings {
     }
 }
 
-/// What a carrier gives every engine built in this process, and the routes it serves under its
+/// What a carrier gives every engine this process builds or spawns, and the routes it serves under its
 /// component's id: gathered by the host component, which declares them as its own.
 #[derive(Default)]
 pub struct CarrierRegistrar<'a> {
     settings: CarrierSettings,
     providers: Vec<Arc<dyn ToolProvider>>,
-    admitted: Vec<String>,
     routes: Vec<(String, Arc<dyn RouteHandler>)>,
     _carrier: std::marker::PhantomData<&'a ()>,
 }
@@ -722,19 +734,13 @@ impl CarrierRegistrar<'_> {
         &self.settings
     }
 
-    /// Tools for every session of every engine built in this process.
+    /// Tools for every session of every engine this process builds or spawns.
     pub fn provider(&mut self, provider: Arc<dyn ToolProvider>) -> &mut Self {
         self.providers.push(provider);
         self
     }
 
-    /// Tool names every scene of those engines lets in besides its own list (`prefix*`).
-    pub fn admit(&mut self, pattern: &str) -> &mut Self {
-        self.admitted.push(pattern.to_string());
-        self
-    }
-
-    /// A route under the component's id: the packages' tool endpoints, for one.
+    /// A route under the component's id.
     pub fn route(&mut self, prefix: &str, handler: Arc<dyn RouteHandler>) -> &mut Self {
         self.routes.push((prefix.to_string(), handler));
         self
@@ -742,10 +748,6 @@ impl CarrierRegistrar<'_> {
 
     pub fn providers(&self) -> &[Arc<dyn ToolProvider>] {
         &self.providers
-    }
-
-    pub fn admitted(&self) -> &[String] {
-        &self.admitted
     }
 
     pub fn routes(&self) -> &[(String, Arc<dyn RouteHandler>)] {

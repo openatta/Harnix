@@ -142,10 +142,16 @@ pub(crate) fn spawn(children: &Arc<ChildBindings>, id: &ExtId, req: ChildRequest
 
 /// What the process reaches of the state: its run directory, read and written (its data, kv, own
 /// engine, `HOME`, `TMPDIR`), and its package, read. Not the directory both are in, which holds
-/// its consent record. The program and what any program needs are the sandbox's to add. In replay,
-/// the recordings too, read: its own engine plays them back as every other engine of the product.
+/// its consent record. The program and what any program needs are the sandbox's to add. Its skills
+/// directory (beside its package's), read, when it has one: its own engine lists it, and the rules
+/// are made from the paths that exist as it starts — a package that gets skills is restarted. In
+/// replay, the recordings too, read: its own engine plays them back as every other engine of the
+/// product.
 fn sandbox_spec(pkg: &Path, run: &Path, replay: Option<&Path>) -> SandboxSpec {
-    let spec = SandboxSpec::new().read_write(run).read_only(pkg);
+    let mut spec = SandboxSpec::new().read_write(run).read_only(pkg);
+    if let Some(skills) = pkg.parent().map(|dir| dir.join("skills")).filter(|dir| dir.is_dir()) {
+        spec = spec.read_only(skills);
+    }
     match replay {
         Some(dir) => spec.read_only(dir),
         None => spec,
@@ -284,6 +290,17 @@ mod tests {
         let spec = sandbox_spec(Path::new("/s/ext/acme.notes/1.0.0"), Path::new("/s/ext/acme.notes/run"), Some(Path::new("/fixtures/recordings")));
         assert_eq!(spec.read_write, [Path::new("/s/ext/acme.notes/run")]);
         assert_eq!(spec.read_only, [Path::new("/s/ext/acme.notes/1.0.0"), Path::new("/fixtures/recordings")]);
+    }
+
+    #[test]
+    fn it_also_reads_its_skills_directory_when_it_has_one() {
+        let state = std::env::current_exe().unwrap().ancestors().nth(3).unwrap().join("tmp");
+        std::fs::create_dir_all(&state).unwrap();
+        let state = tempfile::tempdir_in(state).unwrap();
+        let (pkg, run) = (state.path().join("1.0.0"), state.path().join("run"));
+        assert_eq!(sandbox_spec(&pkg, &run, None).read_only, std::slice::from_ref(&pkg));
+        std::fs::create_dir_all(state.path().join("skills")).unwrap();
+        assert_eq!(sandbox_spec(&pkg, &run, None).read_only, [pkg.clone(), state.path().join("skills")]);
     }
 
     #[test]

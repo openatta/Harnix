@@ -12,12 +12,11 @@
  * `AppBuilder` knob).
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 
 import { REFUSED } from "@harnix/core/protocol";
-import { type Backend, type TestClient, connect, expect, test, topology } from "@harnix/testkit";
+import { type Backend, type TestClient, connect, expect, scratchDir, test, topology } from "@harnix/testkit";
 
 import { SHOWCASE_ID, showcasePackage, startApps, variant } from "./packages-host";
 import { appsTestApp } from "./packages-store";
@@ -60,7 +59,7 @@ test.describe("an application whose backend idles", () => {
   test.beforeAll(async () => {
     test.setTimeout(600_000);
     showcasePackage();
-    scratch = mkdtempSync(join(tmpdir(), "hx-idle-"));
+    scratch = scratchDir("hx-idle-");
     backend = await startApps({ bin: appsTestApp(), env: { HARNIX_TESTAPP_APP_IDLE_MS: String(IDLE_MS) } });
   });
   test.afterAll(async () => {

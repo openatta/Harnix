@@ -47,8 +47,7 @@ impl RowScope {
 pub struct Access {
     device: bool,
     extensions: Reach,
-    engine: bool,
-    /// What an extension (or the engine) must hold besides being let in. A device holds nothing.
+    /// What an extension must hold besides being let in. A device holds nothing.
     requires: Option<Capability>,
     scope: RowScope,
     /// Why it is refused to whoever it is not open to, when that is on purpose.
@@ -62,7 +61,6 @@ impl Access {
         Self {
             device: false,
             extensions: Reach::Only(BTreeSet::new()),
-            engine: false,
             requires: None,
             scope: RowScope::Open,
             refused: None,
@@ -94,11 +92,6 @@ impl Access {
     /// The kernel, and an extension holding `cap`. Never a device.
     pub fn capability(cap: Capability) -> Self {
         Self::extensions().requiring(cap)
-    }
-
-    /// A spawned daemon calling back to a tool endpoint, and the kernel.
-    pub fn engine() -> Self {
-        Self::closed().with_engine()
     }
 
     /// The kernel alone, with a reason everyone else is told.
@@ -133,11 +126,6 @@ impl Access {
         self
     }
 
-    pub fn with_engine(mut self) -> Self {
-        self.engine = true;
-        self
-    }
-
     pub fn requiring(mut self, cap: Capability) -> Self {
         self.requires = Some(cap);
         self
@@ -169,10 +157,6 @@ impl Access {
             Reach::Any => true,
             Reach::Only(ids) => ids.contains(ext),
         }
-    }
-
-    pub fn opens_engine(&self) -> bool {
-        self.engine
     }
 
     pub fn requirement(&self) -> Option<&Capability> {

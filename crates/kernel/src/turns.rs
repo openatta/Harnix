@@ -2,7 +2,7 @@
 //!
 //! The hub writes it — a turn's chain is the chain of the queue item that started it, steered
 //! messages' joined in — and clears it when the turn settles. What reads it is the engine's tool
-//! adapter, through `harnix_engine_api::ChainSource` (the instance layer hands one over as it builds
+//! adapter, through `harnix_engine_link::ChainSource` (the instance layer hands one over as it builds
 //! each engine in this process), and a carrier that tells an extension process of the turns on its
 //! own engine: that one watches its instance's turns ([`TurnChains::watch`]) and is told each as it
 //! starts, grows and settles.

@@ -2,8 +2,7 @@
 
 use std::path::PathBuf;
 
-use harnix_contract::s1::{Access, ExtId};
-use harnix_contract::SpaceDecl;
+use harnix_contract::s1::{Access, ExtId, SpaceDecl};
 use harnix_engine_api::{EngineContribution, InstanceTemplate, ToolSpec};
 
 use crate::descriptor::{DescriptorBuilder, MethodBuilder, TopicBuilder};
@@ -73,14 +72,13 @@ impl<'a, C> Registrar<'a, C> {
         self.builder.ui()
     }
 
-    /// What it gives the `main` instance's engine: scenes, tool providers, prompt gates, a
-    /// credential source.
+    /// What it gives the `main` instance's engine: scenes, tool providers, prompt gates.
     pub fn engine(&mut self) -> &mut EngineContribution {
         self.builder.engine()
     }
 
-    /// What it gives every engine built in this process: tool providers, and the tool names
-    /// every scene admits.
+    /// What it gives every engine this process builds or spawns: tool providers, registered on
+    /// each one's link. An attached daemon is somebody else's and gets none.
     pub fn engine_everywhere(&mut self) -> &mut EngineContribution {
         self.builder.engine_everywhere()
     }

@@ -15,7 +15,7 @@ system space among them.
 
 0.4.3. There is one concept, the **extension**, with three carriers: native (Rust in the binary),
 WebAssembly in the product's process, WebAssembly in a process of its own. The extension interface
-and the protocol only grow from 0.4.3 on; pin a tag (`Harnix-v<x.y.z>-<date><n>`) if you depend on one.
+and the protocol only grow from 0.4.4 on; pin a tag (`Harnix-v<x.y.z>-<date><n>`) if you depend on one.
 
 ## Quick start
 
@@ -27,7 +27,7 @@ cargo build --release
 ./target/release/harnix                              # → http://127.0.0.1:4080/
 ```
 
-Rust 1.87 or newer, Node with pnpm. `--recurse-submodules` matters: Agix lives at `agix/`. What runs
+Rust 1.88 or newer, Node with pnpm. `--recurse-submodules` matters: Agix lives at `agix/`. What runs
 is the Harnix app and the system space: sessions, projects, and the system with the flows in it, and the
 host for extension packages (mode 2, in-process).
 
@@ -101,7 +101,8 @@ crates/authz           admission and audit
 crates/transport       channel semantics, topologies, handshake, static face, /ext/<id>/…
 crates/hub             the session hub
 crates/instance        the instance registry: Agix instances behind one link
-crates/engine-api      the engine vocabulary without Agix: Tool, SceneLayer, PromptGate, …
+crates/engine-api      the engine vocabulary an extension uses, without Agix (S1): Tool, SceneLayer, PromptGate, …
+crates/engine-link     the engine as the skeleton reaches it (S3): the link, what it is asked, what it says
 crates/engine          the one crate that uses Agix
 crates/supervise       child processes: fork + exec, sandbox, reaping
 crates/ext/api         harnix-ext, the extension interface (S1)

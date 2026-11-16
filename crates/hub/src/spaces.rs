@@ -13,7 +13,8 @@
 //! (`main`, the instance's scene). A module declares one to give it a default instance or scene.
 //!
 //! The same ledger records which sessions Harnix itself started — a module's or the kernel's,
-//! rather than a person's at a device — so the system space can mark them.
+//! rather than a person's at a device — so the system space can mark them; and, for a session
+//! created in a scene layer, which layer, and the prompt text its caller added (`prompt.rs`).
 //!
 //! A call that claims a space (`params.space`) is checked against the record: a session of another
 //! space is refused with `SPACE_MISMATCH`, naming the space it does belong to. A space declared
@@ -50,6 +51,12 @@ struct Ledger {
     /// `instance/session` of every session a module or the kernel started.
     #[serde(default)]
     harnix: BTreeSet<String>,
+    /// `instance/session` → the scene layer it was created in, for one that was.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    layers: BTreeMap<String, String>,
+    /// `instance/session` → the system-prompt text its caller added (`harnix.session.setPrompt`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    prompts: BTreeMap<String, String>,
 }
 
 pub struct Spaces {
@@ -230,8 +237,65 @@ impl Spaces {
     fn unbind(&mut self, key: &SessionKey) {
         let bound = self.ledger.bindings.remove(&slot(key)).is_some();
         let started = self.ledger.harnix.remove(&slot(key));
-        if bound || started {
+        let layer = self.ledger.layers.remove(&slot(key)).is_some();
+        let prompt = self.ledger.prompts.remove(&slot(key)).is_some();
+        if bound || started || layer || prompt {
             self.save();
+        }
+    }
+
+    /// The session was created in the scene layer `layer`.
+    pub(crate) fn note_layer(&mut self, key: &SessionKey, layer: &str) {
+        if self.ledger.layers.insert(slot(key), layer.to_string()).as_deref() != Some(layer) {
+            self.save();
+        }
+    }
+
+    /// The scene layer the session was created in, when it was.
+    pub(crate) fn layer_of(&self, key: &SessionKey) -> Option<&str> {
+        self.ledger.layers.get(&slot(key)).map(String::as_str)
+    }
+
+    /// The prompt text the session's caller added; `None` clears it.
+    pub(crate) fn set_prompt(&mut self, key: &SessionKey, own: Option<String>) {
+        let changed = match own {
+            Some(text) => self.ledger.prompts.insert(slot(key), text.clone()).as_deref() != Some(text.as_str()),
+            None => self.ledger.prompts.remove(&slot(key)).is_some(),
+        };
+        if changed {
+            self.save();
+        }
+    }
+
+    pub(crate) fn prompt_of(&self, key: &SessionKey) -> Option<&str> {
+        self.ledger.prompts.get(&slot(key)).map(String::as_str)
+    }
+
+    /// A session made from `from` (a fork) has its layer and its caller's prompt text too.
+    pub(crate) fn copy_session(&mut self, from: &SessionKey, to: &SessionKey) {
+        let layer = self.ledger.layers.get(&slot(from)).cloned();
+        let prompt = self.ledger.prompts.get(&slot(from)).cloned();
+        if layer.is_none() && prompt.is_none() {
+            return;
+        }
+        if let Some(layer) = layer {
+            self.ledger.layers.insert(slot(to), layer);
+        }
+        if let Some(prompt) = prompt {
+            self.ledger.prompts.insert(slot(to), prompt);
+        }
+        self.save();
+    }
+
+    /// What the hub adds to a session's description: the scene layer it was created in, and its
+    /// caller's own prompt text.
+    pub(crate) fn decorate(&self, key: &SessionKey, row: &mut Value) {
+        let Some(obj) = row.as_object_mut() else { return };
+        if let Some(layer) = self.layer_of(key) {
+            obj.insert("scene_layer".into(), json!(layer));
+        }
+        if let Some(own) = self.prompt_of(key) {
+            obj.insert("prompt_append".into(), json!(own));
         }
     }
 
@@ -397,14 +461,11 @@ impl Hub {
             return Ok(());
         }
         if bound != claimed {
-            return Err(RpcError {
-                code: codes::SPACE_MISMATCH,
-                message: format!(
-                    "session `{}` on instance `{}` belongs to the space `{bound}`, not `{claimed}`",
-                    key.1, key.0
-                ),
-                data: Some(json!({"space": bound, "instance": key.0, "session_id": key.1})),
-            });
+            return Err(RpcError::with_data(
+                codes::SPACE_MISMATCH,
+                format!("session `{}` on instance `{}` belongs to the space `{bound}`, not `{claimed}`", key.1, key.0),
+                json!({"space": bound, "instance": key.0, "session_id": key.1}),
+            ));
         }
         Ok(())
     }
@@ -460,6 +521,7 @@ impl Hub {
                     name
                 }
             },
+            other => return Err(RpcError::new(codes::INTERNAL_ERROR, format!("the space `{space}` lands on `{other}`, which this hub cannot build"))),
         };
         if let Some(obj) = params.as_object_mut() {
             obj.insert("instance".into(), json!(instance));
@@ -474,12 +536,6 @@ impl Hub {
     /// must be a space the session's instance may serve (as for a new session there); one reaching
     /// across spaces is nobody's home.
     pub(crate) async fn move_session(self: &std::sync::Arc<Self>, cx: &CallContext, params: Value) -> Result<Value, RpcError> {
-        if matches!(cx.subject, Subject::Device { .. }) {
-            return Err(RpcError::new(
-                codes::REFUSED,
-                "which space a session belongs to is the application's to change, not a device's",
-            ));
-        }
         let key = self.key_of(&params)?;
         let space = params
             .get("space")
@@ -504,7 +560,14 @@ impl Hub {
         }
         self.bind_space(&key, &space);
         self.refresh("harnix.instances.sessions", json!({"instance": key.0}));
-        Ok(json!({"space": space, "from": from, "moved": true}))
+        let mut moved = json!({"space": space, "from": from, "moved": true});
+        // The skills it lists follow its space; a failure is said, and the next subscription
+        // makes it right.
+        if let Err(e) = self.list_skill_dirs(self.engine(&key.0)?.ops(), &key.1, &self.skill_dirs_for(&key.0, &space)).await {
+            tracing::warn!(instance = %key.0, session = %key.1, error = %e.message, "the moved session's skill directories were not updated");
+            moved["skill_dirs"] = json!(format!("not updated: {}", e.message));
+        }
+        Ok(moved)
     }
 
     /// What the system space creates is its own.
@@ -605,10 +668,7 @@ impl Hub {
             .map(|d| {
                 json!({
                     "id": d.id,
-                    "instance": match &d.instance {
-                        DefaultInstance::Fixed(id) => id.clone(),
-                        DefaultInstance::Template(t) => format!("template:{t}"),
-                    },
+                    "instance": d.instance.to_string(),
                     "built": spaces.ledger.instances.get(&d.id),
                     "scene": d.scene,
                     "cross_space": d.cross_space,
@@ -743,6 +803,30 @@ mod tests {
         s.adopt_child(&inside, &own);
         assert_eq!(s.bound(&own), "x");
         assert!(!s.ledger.bindings.contains_key(&slot(&own)));
+    }
+
+    /// What a session was created in, and what its caller added to its prompt, are kept across a
+    /// restart, copied to a fork, and forgotten with the session.
+    #[test]
+    fn a_sessions_layer_and_prompt_are_kept_copied_and_forgotten() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = spaces(dir.path());
+        let (a, b) = (key("main", "a"), key("main", "b"));
+        s.note_layer(&a, "flow-author");
+        s.set_prompt(&a, Some("mine".into()));
+        let again = Spaces::load(dir.path().join("spaces.json"), Vec::new(), Default::default()).unwrap();
+        assert_eq!((again.layer_of(&a), again.prompt_of(&a)), (Some("flow-author"), Some("mine")));
+        let mut row = json!({"session_id": "a", "scene": "harnix"});
+        again.decorate(&a, &mut row);
+        assert_eq!(row, json!({"session_id": "a", "scene": "harnix", "scene_layer": "flow-author", "prompt_append": "mine"}));
+        s.copy_session(&a, &b);
+        assert_eq!((s.layer_of(&b), s.prompt_of(&b)), (Some("flow-author"), Some("mine")));
+        s.set_prompt(&b, None);
+        assert_eq!(s.prompt_of(&b), None);
+        s.unbind(&a);
+        assert_eq!((s.layer_of(&a), s.prompt_of(&a)), (None, None));
+        let again = Spaces::load(dir.path().join("spaces.json"), Vec::new(), Default::default()).unwrap();
+        assert_eq!((again.layer_of(&a), again.layer_of(&b)), (None, Some("flow-author")));
     }
 
     /// With no parent known, a session on an instance that is a space's is that space's; one on

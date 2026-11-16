@@ -56,10 +56,6 @@ pub(crate) struct DaemonCommand {
     /// How long to wait for that lock, in seconds.
     #[arg(long, default_value = "10")]
     pub lock_wait: u64,
-    /// The template whose native contributions this daemon builds again: an id as the process
-    /// that spawned it knows it (`<module>.<template>`). Unknown, the daemon refuses to start.
-    #[arg(long)]
-    pub template: Option<String>,
 }
 
 impl DaemonCommand {
@@ -219,7 +215,7 @@ pub(crate) fn child_entry(app: &crate::AppBuilder) -> Option<anyhow::Result<()>>
 
 /// What `--version` prints: every version a bug report needs.
 pub(crate) fn versions(_app: &str, app_version: &str) -> (String, String) {
-    let agix = harnix_engine::identity().version.unwrap_or_else(|| "?".to_string());
+    let agix = harnix_engine::AGIX_VERSION;
     let short = app_version.to_string();
     let long = format!(
         "{app_version}\n\

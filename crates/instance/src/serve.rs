@@ -3,7 +3,8 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::factory::engine_config;
+use harnix_engine::EngineConfig;
+
 use crate::profile::EngineProfile;
 
 #[derive(Debug, Clone)]
@@ -21,16 +22,9 @@ pub struct DaemonArgs {
     pub lock_wait: std::time::Duration,
 }
 
+/// Serve the engine `args` describe. What a template contributes natively is not built here: the
+/// process that spawned this one offers it on its link.
 pub async fn serve_daemon(args: DaemonArgs) -> anyhow::Result<()> {
-    serve_daemon_with(args, harnix_engine_api::EngineContribution::default()).await
-}
-
-/// [`serve_daemon`], with native contributions: a template's, built again in this process from
-/// its `native` (ipdrun-10).
-pub async fn serve_daemon_with(
-    args: DaemonArgs,
-    contrib: harnix_engine_api::EngineContribution,
-) -> anyhow::Result<()> {
     std::fs::create_dir_all(&args.data_root)?;
     // Held to the end of this function: past the engine's own shutdown, which is what writes last.
     let _lock = match &args.instance {
@@ -47,8 +41,8 @@ pub async fn serve_daemon_with(
         }
         None => None,
     };
-    let config = engine_config(args.instance.as_deref().unwrap_or_default(), &args.engine, &args.data_root, contrib);
-    harnix_engine::serve_daemon(config, &args.socket, args.exit_with_stdin).await
+    let config = EngineConfig { socket: Some(args.socket.clone()), ..EngineConfig::from_profile(&args.engine, &args.data_root) };
+    harnix_engine::serve_daemon(config, args.exit_with_stdin).await
 }
 
 /// The exit status of a daemon that refused what it was started with, and will refuse it again
@@ -60,12 +54,4 @@ pub fn refusal_path(socket: &Path) -> PathBuf {
     let mut name = socket.as_os_str().to_owned();
     name.push(".refused");
     PathBuf::from(name)
-}
-
-/// Refuse to serve: write `reason` where the link reads it, say it on stderr, and exit with
-/// [`REFUSED_EXIT`].
-pub fn refuse_daemon(socket: &Path, reason: &str) -> ! {
-    let _ = std::fs::write(refusal_path(socket), reason);
-    eprintln!("daemon: {reason}");
-    std::process::exit(REFUSED_EXIT)
 }

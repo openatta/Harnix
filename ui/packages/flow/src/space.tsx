@@ -174,8 +174,8 @@ function conversationParts(state: FlowSpaceState, tabs: FlowTabs, options: FlowS
 
 /** The conversation's own rows and blocks, under `space`'s ids. */
 function registerBlocks(registry: Registry, space: string, module: string, owner: string): void {
-  // A call of the conversation's tools that changes something, named by what it acts on: the
-  // permission card under it cannot say (it reads "Allow flow_update?").
+  // A call of the conversation's tools that changes something, named by what it acts on, in the
+  // row as well as in the permission card under it.
   registry.register(
     "tool.row",
     {

@@ -33,10 +33,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use harnix::agix::RawHooks;
 use harnix::axum::routing::get;
 use harnix::engine::{
-    EngineContribution, Permission, PromptDecision, PromptFacts, PromptGate, SceneBase, SceneLayer, Tool, ToolCx,
+    EngineContribution, Permission, PromptDecision, PromptFacts, PromptGate, PromptText, SceneBase, SceneLayer, Tool, ToolCx,
     ToolError, ToolOutput, ToolSpec,
 };
 use harnix::prelude::*;
@@ -170,10 +169,10 @@ impl Extension for Probe {
             .access(device())
             .describe("writes an entry into a session's log, and lists this extension's")
             .raw(|call, p| async move {
-                let session = SessionRef {
-                    instance: p["instance"].as_str().unwrap_or(harnix::MAIN_INSTANCE).to_string(),
-                    session_id: p["session_id"].as_str().unwrap_or_default().to_string(),
-                };
+                let session = SessionRef::new(
+                    p["instance"].as_str().unwrap_or(harnix::MAIN_INSTANCE),
+                    p["session_id"].as_str().unwrap_or_default(),
+                );
                 let sessions = call.ext().sessions();
                 let written = sessions
                     .append_entry(&session, Entry::new(p["event"].as_str().unwrap_or("note"), p["payload"].clone()))
@@ -511,7 +510,7 @@ impl Extension for Fleet {
         r.method("tap").access(device()).describe("opens a tap on a session and does not read it").handler(
             |call: Call, p: TapParams| async move {
                 let state = call.state::<FleetState>()?;
-                let session = SessionRef { instance: p.instance, session_id: p.session_id };
+                let session = SessionRef::new(p.instance, p.session_id);
                 let tap = call.ext().sessions().tap_with_capacity(&session, p.capacity).await?;
                 *state.tap.lock().await = Some(tap);
                 Ok(json!({"open": true}))
@@ -662,32 +661,24 @@ const NATIVE_ANSWER: &str = "probe-native-answer-7f3a";
 const NATIVE_MARKER: &str = "probe-native-marker-51c2";
 
 /// `fleet`'s templates' native contributions (ipdrun-10): built in this process for the in-process
-/// one, and again in the daemon's for the spawned one. The marked system block is a raw hook: the
-/// engine interface has no prompt registry of its own.
+/// one, and again in the daemon's for the spawned one.
 fn native(e: &mut EngineContribution) {
     e.scene(
         SceneLayer::new(NATIVE_SCENE, SceneBase::builtin("harnix"))
             .name("probe native")
             .description("the harnix scene with a tool of its own")
             .tool(Arc::new(FixedTool::new()))
+            .prompt(PromptText::plain(NATIVE_MARKER))
             // Naming the session is a model call no recording has.
             .auto_name(false),
     );
-    e.raw_hook(Arc::new(|b: harnix::agix::Builder, _cx: &harnix::agix::SessionCtx<'_>| {
-        use harnix::agix::base::interface::prompt_registry::{InMemoryPromptRegistry, PromptRegistry, RegisteredBlock};
-        let blocks = InMemoryPromptRegistry::new();
-        let _ = PromptRegistry::register_block(
-            blocks.as_ref(),
-            RegisteredBlock::system("probe-native", 100_000, NATIVE_MARKER),
-        );
-        b.prompt_registry(blocks)
-    }));
     e.prompt_gate(Arc::new(Blocklist));
 }
 
-/// The engine of `fleet`'s native templates: their scene is active beside the default one.
+/// The engine of `fleet`'s native templates: the engine's own scenes; [`NATIVE_SCENE`] is a layer
+/// over one, which the hub sets a session up from.
 fn native_engine() -> EngineProfile {
-    EngineProfile::new().scenes([NATIVE_SCENE])
+    EngineProfile::new()
 }
 
 /// Answers [`NATIVE_ANSWER`], whatever it is asked.

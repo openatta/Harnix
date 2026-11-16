@@ -14,13 +14,13 @@ by name (`tests/live/api/packages-store.spec.ts`, `tests/live/ui/packages-store.
 | Tools | `component/`, `tools` | `echo`, `count` (key-value storage), `config` (`host.config()`), `read_project` (the session's project, read-only), `slow` (progress, cancellation), `vetoed`, `crash` (a trap: three in a row set that tool aside, and only it), `board` (the backend's state, asked for with `host.call`: a tool's instance cannot see the backend's memory) |
 | Event hook | `component/` (`events`, `[events]`) | refuses the tool its configuration names (`blocked_tool`); offered the calls of its own tools only, as `[events] tools = "own"` says |
 | Agent package | `agent/plugin.toml` | a QuickJS `prompt.block` (`scripts/block.js`) and an agent type, `showcase-guide` |
-| Skill | `agent/skills/showcase-tour/` | copied into each instance the package goes to, and taken out with it |
+| Skill | `agent/skills/showcase-tour/` | put in the package's own skills directory, which the sessions of its spaces read, and taken out with it |
 | Interface, in the page | `ui/showcase.js` (`[[ui]]`) | a `home.card`, and the showcase's space: the board, which calls the backend's methods and draws what its topics push — over the page's own connection, on the shell's React, with its own strings. Runs only when a publisher this Harnix trusts signed the package |
 | Interface, in frames | `ui/frame/` (`[interface]`, `[[surface]]`) | the same, and more, in isolated frames: every surface the shell offers — the space's centre (the board), its left column, a right-column tab, its second panel, a details panel, a home card, a settings section, a modal — drawn by one page on `@harnix/ext-sdk` and `@harnix/ext-kit`, through the shell's bridge only; and a second space, `example.showcase.chats`, with no page: the conversation in its centre, and the shell's session list, grouped, on its left. How it runs when it is store-signed or unsigned (see below) |
 
 A session sees the tools as `ext__example_showcase__<tool>`; each one asks before it runs. A
-daemon this Harnix spawned sees them as `mcp__ext-example_showcase__<tool>`, over the
-package's MCP endpoint: it runs no WebAssembly of its own, and the call runs in this process.
+daemon this Harnix spawned sees them by the same names: this process registers them on the
+daemon's socket, and the call runs here — the daemon runs no WebAssembly of its own.
 
 ## Drawn by the shell: `[inline]`
 

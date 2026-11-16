@@ -4,16 +4,11 @@
  *
  * `harnix-testapp`'s `fleet` has two templates with one `native` closure — a scene with a tool of
  * its own, a block at the end of the system prompt, a middleware that refuses `blocked-word` — one
- * in process, one spawned. The spawned daemon builds the closure again in its own process, from
- * `--template`. `probe` gives the same middleware to every session of `main`.
+ * in process, one spawned. The spawned daemon's are offered by this process on its link to the
+ * daemon. `probe` gives the same middleware to every session of `main`.
  */
 
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
-import { type Backend, type TestClient, binary, connect, expect, test } from "@harnix/testkit";
+import { type Backend, type TestClient, connect, expect, test } from "@harnix/testkit";
 
 import { startTestApp } from "./testapp";
 
@@ -139,22 +134,4 @@ test("system: a steered message the middleware refuses arrives as user_message_r
   expect(settled.params.error).toBeUndefined();
   const history = await api.call("engine.session.history", s);
   expect(JSON.stringify(history.messages)).not.toContain("steered blocked-word");
-});
-
-test("a daemon asked for a template this binary does not declare refuses to start, saying so (ipdrun-10)", TAGS, () => {
-  const dir = mkdtempSync(join(tmpdir(), "hx-tpl-"));
-  try {
-    const socket = join(dir, "d.sock");
-    const run = spawnSync(
-      binary("harnix-testapp"),
-      ["daemon", "--data-root", join(dir, "data"), "--socket", socket, "--template", "fleet.nowhere"],
-      { encoding: "utf8", timeout: 30_000 },
-    );
-    expect(run.status).toBe(78);
-    expect(run.stderr).toContain("fleet.nowhere");
-    expect(readFileSync(`${socket}.refused`, "utf8")).toContain("no template `fleet.nowhere`");
-    expect(existsSync(socket), "it listened anyway").toBe(false);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
 });

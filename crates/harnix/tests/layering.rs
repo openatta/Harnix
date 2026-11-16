@@ -142,7 +142,7 @@ fn the_hub_does_not_know_about_connections() {
     );
     // Nor does it name the engine's crate: it reaches an instance through an `EngineLink`, and
     // the engine's error codes it tells apart come with the link's interface
-    // (`harnix_engine_api::ops::codes`).
+    // (`harnix_engine_link::ops::codes`).
     assert_ignorant_of(
         "hub",
         &["daemon"],
@@ -157,7 +157,7 @@ fn the_hub_does_not_know_about_connections() {
 /// depends on that layer and `Carrier` is one of its types; the hub's code can.
 #[test]
 fn the_hub_names_no_carrier_and_opens_no_data_root() {
-    let forbidden = ["Carrier::", "DaemonLink", "InProcessLink", "data_root"];
+    let forbidden = ["Carrier::", "DaemonLink", "InProcessEngine", "data_root"];
     let dir = workspace_root().join("crates/hub/src");
     let mut offenders = Vec::new();
     for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
@@ -493,7 +493,7 @@ fn normal_dependencies(crate_dir: &str) -> std::collections::BTreeMap<String, bo
 }
 
 /// Agix's crates, by the names Harnix's crates know them by.
-const AGIX: &[&str] = &["daemon", "base", "model", "history", "scene", "telemetry", "runtime", "plugin"];
+const AGIX: &[&str] = &["agix", "daemon", "base", "model", "history", "scene", "telemetry", "runtime", "plugin"];
 
 /// Extension packages are four layers, and each knows only those below it:
 ///
@@ -663,6 +663,7 @@ fn every_harnix_dependency_resolves() {
         "contract",
         "engine",
         "engine-api",
+        "engine-link",
         "ext/api",
         "ext/devices",
         "ext/flow",
@@ -734,6 +735,7 @@ mod rules {
         pub const HUB: &str = "harnix-hub";
         pub const INSTANCE: &str = "harnix-instance";
         pub const ENGINE_API: &str = "harnix-engine-api";
+        pub const ENGINE_LINK: &str = "harnix-engine-link";
         pub const ENGINE: &str = "harnix-engine";
         pub const SUPERVISE: &str = "harnix-supervise";
         pub const ASSEMBLY: &str = "harnix-assembly";
@@ -765,7 +767,7 @@ mod rules {
         ];
         /// Every crate the workspace may have (C12).
         pub const ALL: &[&str] = &[
-            CONTRACT, KERNEL, AUTHZ, ROUTER, TRANSPORT, HUB, INSTANCE, ENGINE_API, ENGINE, SUPERVISE,
+            CONTRACT, KERNEL, AUTHZ, ROUTER, TRANSPORT, HUB, INSTANCE, ENGINE_API, ENGINE_LINK, ENGINE, SUPERVISE,
             ASSEMBLY, EXT, HOST_API, PACKAGES, CARRIER_SHARED, CARRIER_WASM, CARRIER_PROC, PROC, PACKAGE, WASM_PORT,
             WASM_HOST, WASM, CLIENT, FACADE, CLI, TESTAPP,
             "harnix-ext-system",
@@ -778,7 +780,7 @@ mod rules {
         ];
         /// The skeleton: what no first-party extension, carrier or extension process is part of.
         pub const SKELETON: &[&str] = &[
-            CONTRACT, KERNEL, AUTHZ, ROUTER, TRANSPORT, HUB, INSTANCE, ENGINE_API, ENGINE, SUPERVISE,
+            CONTRACT, KERNEL, AUTHZ, ROUTER, TRANSPORT, HUB, INSTANCE, ENGINE_API, ENGINE_LINK, ENGINE, SUPERVISE,
             ASSEMBLY,
         ];
     }
@@ -849,13 +851,14 @@ mod rules {
         out
     }
 
-    /// A crate's production source: `src/**/*.rs`, each file up to its `#[cfg(test)]`.
+    /// A crate's production source: `src/**/*.rs`, each file up to its `#[cfg(test)]`; a file that
+    /// is a test module as a whole (`#![cfg(test)]`) is none of it.
     fn sources(name: &str) -> Vec<(PathBuf, String)> {
         files_under(&crate_dir(name).join("src"), &["rs"])
             .into_iter()
             .map(|path| {
                 let text = std::fs::read_to_string(&path).unwrap_or_default();
-                let end = text.find("#[cfg(test)]").unwrap_or(text.len());
+                let end = if text.contains("#![cfg(test)]") { 0 } else { text.find("#[cfg(test)]").unwrap_or(text.len()) };
                 (path, text[..end].to_string())
             })
             .collect()
@@ -1074,29 +1077,40 @@ mod rules {
 
     #[test]
     fn l05_transport() {
-        let forbidden = agix_and(&[ROUTER, HUB, INSTANCE, ENGINE, ENGINE_API]);
+        let forbidden = agix_and(&[ROUTER, HUB, INSTANCE, ENGINE, ENGINE_API, ENGINE_LINK]);
         depends(TRANSPORT, &[CONTRACT, KERNEL, AUTHZ], &forbidden, &[]);
     }
 
     #[test]
     fn l06_hub() {
         let forbidden = agix_and(&[INSTANCE, ENGINE, "axum", "bytes", "futures"]);
-        depends(HUB, &[CONTRACT, KERNEL, ENGINE_API], &forbidden, &[]);
+        depends(HUB, &[CONTRACT, KERNEL, ENGINE_API, ENGINE_LINK], &forbidden, &[]);
     }
 
     #[test]
     fn l07_instance() {
-        depends(INSTANCE, &[CONTRACT, KERNEL, ENGINE_API, ENGINE, SUPERVISE], &agix_and(&["axum"]), &[]);
+        depends(INSTANCE, &[CONTRACT, KERNEL, ENGINE_API, ENGINE_LINK, ENGINE, SUPERVISE], &agix_and(&["axum"]), &[]);
     }
 
     #[test]
     fn l08_engine_api() {
-        depends(ENGINE_API, &[CONTRACT], &agix_and(&["axum"]), &[]);
+        // The extension's half of the engine vocabulary (S1): it never names the skeleton's half.
+        depends(ENGINE_API, &[CONTRACT], &agix_and(&["axum", ENGINE_LINK]), &[]);
+    }
+
+    #[test]
+    fn l08_engine_link() {
+        // The skeleton's half (S3): the link, what the engine is asked, what it says unasked. It
+        // builds on the extension's half and on the contract, and on nothing of Agix.
+        depends(ENGINE_LINK, &[CONTRACT, ENGINE_API], &agix_and(&["axum"]), &[]);
     }
 
     #[test]
     fn l09_engine() {
-        depends(ENGINE, &[CONTRACT, ENGINE_API], &["axum"], &[]);
+        // Of Agix's crates, the facade `agix` and no other.
+        let others: Vec<&str> = AGIX.iter().copied().filter(|c| *c != "agix").chain(["axum"]).collect();
+        depends(ENGINE, &[CONTRACT, ENGINE_API, ENGINE_LINK], &others, &[]);
+        assert!(normal(ENGINE).iter().any(|(dep, _)| dep == "agix"), "`{ENGINE}` does not depend on the `agix` facade");
     }
 
     #[test]
@@ -1107,19 +1121,22 @@ mod rules {
     #[test]
     fn l11_assembly() {
         let allowed = [
-            CONTRACT, KERNEL, AUTHZ, ROUTER, TRANSPORT, HUB, INSTANCE, ENGINE_API, ENGINE, EXT, HOST_API, SUPERVISE,
+            CONTRACT, KERNEL, AUTHZ, ROUTER, TRANSPORT, HUB, INSTANCE, ENGINE_API, ENGINE_LINK, ENGINE, EXT, HOST_API,
+            SUPERVISE,
         ];
         depends(ASSEMBLY, &allowed, &agix_and(&[]), &[]);
     }
 
     #[test]
     fn l12_ext() {
-        depends(EXT, &[CONTRACT, KERNEL, ENGINE_API], &agix_and(&[ENGINE, "wasmtime"]), &["axum"]);
+        // The extension interface names the extension's half of the engine vocabulary and never
+        // the skeleton's: an extension cannot reach an engine link.
+        depends(EXT, &[CONTRACT, KERNEL, ENGINE_API], &agix_and(&[ENGINE, ENGINE_LINK, "wasmtime"]), &["axum"]);
     }
 
     #[test]
     fn l13_host_api() {
-        depends(HOST_API, &[CONTRACT, EXT, ENGINE_API], &agix_and(&[KERNEL, ENGINE]), &[]);
+        depends(HOST_API, &[CONTRACT, EXT, ENGINE_API], &agix_and(&[KERNEL, ENGINE, ENGINE_LINK]), &[]);
     }
 
     #[test]
@@ -1127,7 +1144,11 @@ mod rules {
         let members = first_party_members();
         assert!(!members.is_empty(), "there is no first-party extension crate (`harnix-ext-<id>`) yet");
         for name in members {
-            depends(&name, &[EXT], &agix_and(&[]), &["axum"]);
+            // The settings extension writes the engine's settings tiers, whose place the host says
+            // through a transitional service of the host API (docs/harnix-ext.md §17.8); every other
+            // first-party extension is written against the extension interface alone.
+            let allowed: &[&str] = if name == "harnix-ext-settings" { &[EXT, HOST_API] } else { &[EXT] };
+            depends(&name, allowed, &agix_and(&[]), &["axum"]);
         }
     }
 
@@ -1156,7 +1177,7 @@ mod rules {
 
     #[test]
     fn l18_proc() {
-        depends(PROC, &[WASM_HOST, WASM, WASM_PORT, PACKAGE, ENGINE_API, ENGINE], &[], &[]);
+        depends(PROC, &[WASM_HOST, WASM, WASM_PORT, PACKAGE, ENGINE_API, ENGINE_LINK, ENGINE], &[], &[]);
     }
 
     #[test]
@@ -1199,18 +1220,32 @@ mod rules {
 
     #[test]
     fn l24_facade() {
-        // Always: the assembly, the extension interface, the engine's, and the contract's types it
-        // re-exports (`caps`, `RpcError`, `Subject`). Optionally: the
-        // engine, every first-party extension and host component, both carriers, the process.
-        let always = [ASSEMBLY, EXT, ENGINE_API, CONTRACT];
+        // Always: the assembly and the extension interface, and nothing else of Harnix — what the
+        // facade re-exports (`engine`, `caps`, `RpcError`, …) it takes from the extension interface,
+        // so the interface has one source and the facade cannot reach the engine's link, the
+        // contract's root or the kernel. Optionally: every first-party extension and host
+        // component, both carriers, the process. Of the web framework, only behind its feature.
+        let always = [ASSEMBLY, EXT];
         for (dep, optional) in normal(FACADE) {
-            if !is_harnix(&dep) || always.contains(&dep.as_str()) {
+            if always.contains(&dep.as_str()) {
                 continue;
             }
-            let may_be_optional =
-                dep == ENGINE || dep.starts_with(FIRST_PARTY_PREFIX) || dep.starts_with("harnix-carrier-") || dep == PROC;
+            if dep == "axum" {
+                assert!(optional, "`{FACADE}` depends on `axum`, and only behind the `axum` feature");
+                continue;
+            }
+            if !is_harnix(&dep) {
+                continue;
+            }
+            let may_be_optional = dep.starts_with(FIRST_PARTY_PREFIX) || dep.starts_with("harnix-carrier-") || dep == PROC;
             assert!(may_be_optional, "`{FACADE}` depends on `{dep}`; of Harnix it names {always:?} and optional extras");
             assert!(optional, "`{FACADE}` depends on `{dep}`, and only optionally");
+        }
+        for (dep, _) in normal(FACADE) {
+            assert!(
+                ![CONTRACT, KERNEL, ENGINE_API, ENGINE_LINK, ENGINE].contains(&dep.as_str()),
+                "`{FACADE}` depends on `{dep}`: what it re-exports of it comes through `{EXT}`"
+            );
         }
         let _ = package(ASSEMBLY);
     }
@@ -1225,6 +1260,28 @@ mod rules {
                 }
             }
         }
+    }
+
+    #[test]
+    fn l25_only_the_facade_is_named_and_only_the_embedding_file_writes_it() {
+        // Declared: the one dependency on Agix is the facade (`l09_engine` bars the rest).
+        let agix: Vec<String> = normal(ENGINE).into_iter().map(|(d, _)| d).filter(|d| AGIX.contains(&d.as_str())).collect();
+        assert_eq!(agix, ["agix"], "`{ENGINE}` names Agix's crates by the facade alone");
+        // Written: `agix::` is `embed.rs`'s alone.
+        let mut offenders = Vec::new();
+        for (path, text) in sources(ENGINE) {
+            if path.ends_with("src/embed.rs") {
+                continue;
+            }
+            if lex(&text, false).contains("agix::") {
+                offenders.push(rel(&path));
+            }
+        }
+        assert!(offenders.is_empty(), "only `embed.rs` writes `agix::`:\n{}", offenders.join("\n"));
+        assert!(
+            sources(ENGINE).iter().any(|(p, t)| p.ends_with("src/embed.rs") && lex(t, false).contains("agix::")),
+            "`embed.rs` is where the engine is embedded"
+        );
     }
 
     #[test]
@@ -1254,9 +1311,20 @@ mod rules {
 
     #[test]
     fn l25_the_host_api_is_the_assemblys_and_the_host_components() {
-        // And the test application's, whose fake host registers a package as `packages` does.
-        only_used_by(HOST_API, &[ASSEMBLY, PACKAGES, CARRIER_WASM, CARRIER_PROC, TESTAPP], &[]);
+        // And the test application's, whose fake host registers a package as `packages` does; and
+        // the settings extension's, for the transitional service that says where the engine's
+        // settings tiers are (l14).
+        only_used_by(HOST_API, &[ASSEMBLY, PACKAGES, CARRIER_WASM, CARRIER_PROC, TESTAPP, "harnix-ext-settings"], &[]);
         assert!(member_names().iter().any(|n| n == HOST_API), "`{HOST_API}` does not exist (yet)");
+    }
+
+    #[test]
+    fn l25_the_engine_link_is_the_skeletons_and_the_extension_processs() {
+        // The hub holds links, the instance layer builds them, the engine implements them, the
+        // assembly asks a carrier's kind, and the extension process builds a link to its own
+        // engine. No extension, host component or carrier: that is what makes it S3.
+        only_used_by(ENGINE_LINK, &[HUB, INSTANCE, ENGINE, ASSEMBLY, PROC], &[]);
+        assert!(member_names().iter().any(|n| n == ENGINE_LINK), "`{ENGINE_LINK}` does not exist (yet)");
     }
 
     #[test]
@@ -1396,13 +1464,38 @@ mod rules {
     fn c04_the_hub_knows_no_carrier_no_data_root_and_no_agix_name() {
         says_nothing_of(
             &[HUB],
-            &["Carrier", "DaemonLink", "InProcessLink", "data_root", "InstanceRegistry::", "EngineContribution::"],
+            &["Carrier", "DaemonLink", "InProcessEngine", "data_root", "InstanceRegistry::", "EngineContribution::"],
             false,
             &nobody,
         );
         let quoted: Vec<String> = agix_names().into_iter().map(|n| format!("\"{n}\"")).collect();
         let needles: Vec<&str> = quoted.iter().map(String::as_str).collect();
         says_nothing_of(&[HUB], &needles, true, &nobody);
+    }
+
+    /// The names of Agix's methods and frames are `translate.rs`'s: the engine's other files
+    /// speak of them through its constants and functions. The list is the constants' own
+    /// literals, bar the ones that are plain words or a model API's block types.
+    #[test]
+    fn c04_agix_methods_and_frames_are_named_in_the_translation_table_alone() {
+        const PLAIN: &[&str] = &["prompt", "permission", "question", "compact", "withdrawn", "tool_use", "tool_result"];
+        let quoted: Vec<String> =
+            agix_names().into_iter().filter(|n| !PLAIN.contains(&n.as_str())).map(|n| format!("\"{n}\"")).collect();
+        let needles: Vec<&str> = quoted.iter().map(String::as_str).collect();
+        assert!(needles.len() > 40, "{} names to look for", needles.len());
+        let mut offenders = Vec::new();
+        for (path, text) in sources(ENGINE) {
+            if path.ends_with("src/translate.rs") {
+                continue;
+            }
+            let code = lex(&text, true);
+            for needle in &needles {
+                if code.contains(needle) {
+                    offenders.push(format!("{} says `{needle}`", rel(&path)));
+                }
+            }
+        }
+        assert!(offenders.is_empty(), "\n{}", offenders.join("\n"));
     }
 
     #[test]
@@ -1446,6 +1539,11 @@ mod rules {
         assert_interface_crate_is_clean(EXT);
     }
 
+    #[test]
+    fn c06_the_engine_link_names_no_agix() {
+        says_nothing_of(&[ENGINE_LINK], &["agix::"], false, &nobody);
+    }
+
     fn host_components_and_first_party() -> Vec<String> {
         let mut scope = first_party_members();
         scope.extend([PACKAGES, CARRIER_SHARED, CARRIER_WASM, CARRIER_PROC].iter().map(|s| s.to_string()));
@@ -1458,49 +1556,6 @@ mod rules {
         let scope: Vec<&str> = owned.iter().map(String::as_str).collect();
         assert!(first_party_members().len() >= FIRST_PARTY.len(), "the first-party extensions are not all crates yet");
         says_nothing_of(&scope, &["agix::", "harnix_kernel", "harnix_engine::"], false, &nobody);
-    }
-
-    #[test]
-    fn c08_the_agix_escape_hatch_is_in_two_places_behind_one_feature() {
-        let gated = |text: &str| {
-            let code = lex(text, true);
-            let lines: Vec<&str> = code.lines().collect();
-            lines.iter().enumerate().filter(|(_, l)| l.contains("pub mod agix")).map(|(i, _)| {
-                i > 0 && lines[i - 1].replace(' ', "").contains("cfg(feature=\"agix\")")
-            }).collect::<Vec<bool>>()
-        };
-        let mut seen = Vec::new();
-        for name in member_names() {
-            for (path, text) in sources(&name) {
-                for ok in gated(&text) {
-                    assert!(ok, "{} has `pub mod agix` outside `cfg(feature = \"agix\")`", rel(&path));
-                    seen.push(name.clone());
-                }
-            }
-        }
-        seen.sort();
-        let mut expected = vec![ENGINE.to_string(), FACADE.to_string()];
-        expected.sort();
-        assert_eq!(seen, expected, "`pub mod agix` is in the engine and the facade, and nowhere else");
-    }
-
-    /// The engine interface's two unstable doors — an engine's own scene as a layer's base, an
-    /// engine's own hook — are opened by the `agix` escape hatch alone; the extension host passes
-    /// on hooks it was given, switched off with their extension, and opens nothing.
-    #[test]
-    fn c08_the_engine_interfaces_unstable_doors_are_the_escape_hatchs() {
-        let allowed = ["crates/engine/src/agix.rs", "crates/assembly/src/host/contribution.rs"];
-        let mut offenders = Vec::new();
-        for name in member_names() {
-            for (path, text) in sources(&name) {
-                let code = lex(&text, false).replace(' ', "");
-                let opens = ["SceneBase::foreign(", ".foreign_hook(", ".foreign_hook_while("].iter().any(|n| code.contains(n));
-                if opens && !allowed.iter().any(|a| rel(&path) == *a) {
-                    offenders.push(format!("{} opens an unstable door of the engine interface", rel(&path)));
-                }
-            }
-        }
-        assert!(offenders.is_empty(), "\n{}", offenders.join("\n"));
     }
 
     #[test]
@@ -1814,6 +1869,46 @@ mod rules {
             "an `aliases.rs` is left"
         );
         assert!(members.iter().any(|n| n == ASSEMBLY), "`{ASSEMBLY}` does not exist (yet)");
+    }
+
+    /// The S1 crates name the contract's types through `s1` alone, so that what they re-export is
+    /// what c14 and c15 check; and the facade re-exports Harnix through the extension interface
+    /// and the assembly alone, so the extension interface has one source.
+    #[test]
+    fn c19_the_s1_crates_re_export_the_contract_through_s1_alone() {
+        let mut offenders = Vec::new();
+        for name in [EXT, ENGINE_API] {
+            for (path, text) in sources(name) {
+                let code = lex(&text, true);
+                for (i, line) in code.lines().enumerate() {
+                    let flat = line.replace(' ', "");
+                    if flat.contains("pubuseharnix_contract::") && !flat.contains("pubuseharnix_contract::s1::") {
+                        offenders.push(format!("{}:{} re-exports the contract outside `s1`", rel(&path), i + 1));
+                    }
+                }
+            }
+        }
+        for (path, text) in sources(FACADE) {
+            let code = lex(&text, true);
+            for (i, line) in code.lines().enumerate() {
+                let words: Vec<&str> = line.split_whitespace().collect();
+                let Some(rest) = (words.len() > 2 && words[0] == "pub" && words[1] == "use").then(|| words[2]) else { continue };
+                let Some(rest) = rest.strip_prefix("harnix_") else { continue };
+                let krate: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+                if !(krate == "ext" || krate.starts_with("ext_") || krate == "assembly") {
+                    offenders.push(format!("{}:{} re-exports Harnix outside `harnix_ext` and `harnix_assembly`", rel(&path), i + 1));
+                }
+            }
+        }
+        assert!(offenders.is_empty(), "\n{}", offenders.join("\n"));
+    }
+
+    /// The skeleton's half of the engine vocabulary is not in the extension interface, its host
+    /// API or the facade, by dependency (l12, l13, l24) and by name.
+    #[test]
+    fn c19_the_engine_link_is_not_named_by_the_extension_interface_or_the_facade() {
+        let names = ["harnix_engine_link", "EngineLink", "EngineOps", "EngineControl", "EngineEvent", "SceneLayers", "ExpandedScene"];
+        says_nothing_of(&[EXT, HOST_API, FACADE], &names, false, &nobody);
     }
 
     #[test]

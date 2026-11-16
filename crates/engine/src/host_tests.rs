@@ -1,0 +1,779 @@
+//! A link's tools, hooks and gates against a daemon that is a test: registered before the link is
+//! ready, called and answered on the link without the hub seeing the calls, registered again on
+//! the next connection and after a change.
+
+#![cfg(test)]
+
+use std::sync::{Arc, Mutex as StdMutex};
+use std::time::Duration;
+
+use harnix_contract::sync::lock;
+use harnix_engine_api::{
+    EngineContribution, HookDecision, Permission, PromptDecision, PromptFacts, PromptGate, SceneBase, SceneLayer, Tool,
+    ToolCallFacts, ToolCx, ToolError, ToolHook, ToolOutput, ToolProvider, ToolSpec, ToolsChanged,
+};
+use harnix_engine_link::link::{EngineControl, EngineLink, EventReceiver, InstanceCarrier};
+use harnix_engine_link::{EngineEvent, SessionEventKind};
+use serde_json::{json, Value};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream, ReadHalf, WriteHalf};
+
+use crate::daemon_link::{Connection, DaemonLink, Refusal, Taken};
+use crate::host::{Chains, HostSide};
+use crate::translate;
+
+const WAIT: Duration = Duration::from_secs(5);
+
+/// The daemon's end of a link's connection: what it was asked, and what it answers or pushes.
+struct HostFake {
+    lines: tokio::io::Lines<BufReader<ReadHalf<DuplexStream>>>,
+    writer: WriteHalf<DuplexStream>,
+}
+
+impl HostFake {
+    /// The next request: its id, method and params.
+    async fn next(&mut self) -> (u64, String, Value) {
+        let line = tokio::time::timeout(WAIT, self.lines.next_line()).await.expect("a request in time").unwrap().expect("a request");
+        let v: Value = serde_json::from_str(&line).unwrap();
+        (v["id"].as_u64().unwrap(), v["method"].as_str().unwrap().to_string(), v["params"].clone())
+    }
+
+    async fn expect(&mut self, method: &str) -> (u64, Value) {
+        let (id, got, params) = self.next().await;
+        assert_eq!(got, method, "{params}");
+        (id, params)
+    }
+
+    async fn write(&mut self, frame: Value) {
+        self.writer.write_all(format!("{frame}\n").as_bytes()).await.unwrap();
+    }
+
+    async fn answer(&mut self, id: u64, result: Value) {
+        self.write(json!({"jsonrpc": "2.0", "id": id, "result": result})).await;
+    }
+
+    async fn fail(&mut self, id: u64, code: i32, message: &str) {
+        self.write(json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})).await;
+    }
+
+    /// A session event, unasked.
+    async fn push(&mut self, session: &str, event: Value) {
+        self.write(json!({"jsonrpc": "2.0", "method": "session.event", "params": {"session_id": session, "turn_id": "t1", "event": event}}))
+            .await;
+    }
+
+    /// Answer the ping with `capabilities`, and the subscription.
+    async fn greet(&mut self, capabilities: &[&str]) {
+        let (id, _) = self.expect(translate::DAEMON_PING).await;
+        self.answer(id, json!({"version": "x", "protocol_version": crate::AGIX_PROTOCOL, "capabilities": capabilities})).await;
+        let (id, _) = self.expect(translate::DAEMON_SUBSCRIBE_EVENTS).await;
+        self.answer(id, json!({})).await;
+    }
+
+    /// Take the registration a link with tools, tool hooks and a gate makes, accepting it.
+    async fn registered(&mut self) -> (Value, Value) {
+        let (id, tools) = self.expect(translate::DAEMON_SET_HOST_TOOLS).await;
+        let names: Vec<Value> = tools["host_tools"].as_array().unwrap().iter().map(|t| t["name"].clone()).collect();
+        self.answer(id, json!({"host_tools": names, "refused": []})).await;
+        let (id, hooks) = self.expect(translate::DAEMON_SET_HOOKS).await;
+        self.answer(id, json!({"hooks": [], "refused": []})).await;
+        (tools, hooks)
+    }
+}
+
+fn pair() -> (Connection, HostFake) {
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let (r, w) = tokio::io::split(ours);
+    let (fr, fw) = tokio::io::split(theirs);
+    (Connection::new(r, w), HostFake { lines: BufReader::new(fr).lines(), writer: fw })
+}
+
+fn taking(link: &Arc<DaemonLink>, connection: Connection) -> tokio::task::JoinHandle<Result<Taken, Refusal>> {
+    let link = link.clone();
+    tokio::spawn(async move { link.take(connection, None).await })
+}
+
+/// Says back its session, project and input; fails, is missing, reports progress or waits to
+/// be cancelled when its input says so.
+struct Echo(ToolSpec);
+
+#[async_trait::async_trait]
+impl Tool for Echo {
+    fn spec(&self) -> &ToolSpec {
+        &self.0
+    }
+    fn permission(&self, input: &Value) -> Permission {
+        match input["perm"].as_str() {
+            Some("deny") => Permission::Deny("not that".into()),
+            Some("ask") => Permission::Ask("Really run it?".into()),
+            Some("panic") => panic!("a permission check that breaks"),
+            _ => Permission::Allow,
+        }
+    }
+    async fn call(&self, cx: ToolCx, input: Value) -> Result<ToolOutput, ToolError> {
+        if input["fail"].as_bool() == Some(true) {
+            return Err(ToolError::Failed("it broke".into()));
+        }
+        if input["missing"].as_bool() == Some(true) {
+            return Err(ToolError::NotFound("nothing there".into()));
+        }
+        if input["panic"].as_bool() == Some(true) {
+            panic!("a tool that breaks");
+        }
+        if input["wait"].as_bool() == Some(true) {
+            cx.cancel().cancelled().await;
+            return Err(ToolError::Cancelled);
+        }
+        if input["progress"].as_bool() == Some(true) {
+            for step in ["one", "two", "three"] {
+                cx.progress().send(step);
+            }
+        }
+        let said = format!("{} {} {} {}", cx.session_id(), cx.project().display(), cx.depth(), input["text"]);
+        Ok(ToolOutput::text(said).with_structured(Some(json!(1))))
+    }
+}
+
+fn echo(name: &str) -> Arc<dyn Tool> {
+    Arc::new(Echo(ToolSpec::new(name, "says it back", json!({"type": "object"})).doc("at length")))
+}
+
+struct Note(HookDecision);
+
+#[async_trait::async_trait]
+impl ToolHook for Note {
+    async fn before(&self, call: &ToolCallFacts) -> HookDecision {
+        assert_eq!((call.name(), call.session_id(), call.cwd()), ("Bash", "s1", std::path::Path::new("/w")));
+        self.0.clone()
+    }
+}
+
+struct Panics;
+
+#[async_trait::async_trait]
+impl ToolHook for Panics {
+    async fn before(&self, _: &ToolCallFacts) -> HookDecision {
+        panic!("a hook that breaks")
+    }
+}
+
+struct Provider {
+    tools: StdMutex<Vec<Arc<dyn Tool>>>,
+    hooks: Vec<Arc<dyn ToolHook>>,
+    changed: ToolsChanged,
+}
+
+impl ToolProvider for Provider {
+    fn name(&self) -> &str {
+        "test"
+    }
+    fn tools(&self) -> Vec<Arc<dyn Tool>> {
+        lock(&self.tools).clone()
+    }
+    fn hooks(&self) -> Vec<Arc<dyn ToolHook>> {
+        self.hooks.clone()
+    }
+    fn changes(&self) -> Vec<ToolsChanged> {
+        vec![self.changed.clone()]
+    }
+}
+
+struct Words;
+
+#[async_trait::async_trait]
+impl PromptGate for Words {
+    async fn inspect(&self, message: &PromptFacts) -> PromptDecision {
+        if message.content().contains("panic-word") {
+            panic!("a gate that breaks");
+        }
+        if message.content().contains("blocked-word") {
+            PromptDecision::Block("not that word".into())
+        } else {
+            PromptDecision::Proceed
+        }
+    }
+}
+
+fn provider(hooks: Vec<HookDecision>) -> Arc<Provider> {
+    Arc::new(Provider {
+        tools: StdMutex::new(vec![echo("echo")]),
+        hooks: hooks.into_iter().map(|d| Arc::new(Note(d)) as Arc<dyn ToolHook>).collect(),
+        changed: ToolsChanged::new(),
+    })
+}
+
+fn host(provider: &Arc<Provider>) -> Arc<HostSide> {
+    let mut contrib = EngineContribution::new();
+    contrib.provider(provider.clone()).prompt_gate(Arc::new(Words));
+    contrib.scene(SceneLayer::new("probe", SceneBase::builtin("harnix")).tool(echo("layer_echo")));
+    HostSide::new("main", Chains::default(), &contrib).unwrap()
+}
+
+/// A link that has taken a connection, its tools and hooks registered, and its hub's events.
+async fn ready(provider: &Arc<Provider>) -> (Arc<DaemonLink>, HostFake, Taken, EventReceiver) {
+    let link = DaemonLink::with_host(InstanceCarrier::InProcess, "test", host(provider));
+    let events = link.take_events().unwrap();
+    let (connection, mut fake) = pair();
+    let taken = taking(&link, connection);
+    fake.greet(crate::REQUIRED_CAPABILITIES).await;
+    fake.registered().await;
+    let taken = taken.await.unwrap().map_err(|r| format!("{r:?}")).unwrap();
+    (link, fake, taken, events)
+}
+
+async fn first_event(events: &mut EventReceiver) -> EngineEvent {
+    tokio::time::timeout(WAIT, events.recv()).await.expect("an event in time").expect("an event")
+}
+
+fn tool_call(call_id: &str, input: Value) -> Value {
+    json!({"kind": "host_tool_call", "call_id": call_id, "tool_use_id": "u1", "name": "echo", "input": input,
+           "timeout_ms": 600000, "task_id": null, "agent_session_id": null})
+}
+
+#[tokio::test]
+async fn a_link_with_tools_declares_them_before_it_is_ready() {
+    let provider = provider(vec![HookDecision::Proceed]);
+    let link = DaemonLink::with_host(InstanceCarrier::InProcess, "test", host(&provider));
+    let (connection, mut fake) = pair();
+    let taken = taking(&link, connection);
+    fake.greet(crate::REQUIRED_CAPABILITIES).await;
+    let (id, tools) = fake.expect(translate::DAEMON_SET_HOST_TOOLS).await;
+    assert!(!link.status().borrow().is_ready(), "ready before its tools were declared");
+    let decl = &tools["host_tools"][0];
+    assert_eq!((&decl["name"], &decl["description"]), (&json!("echo"), &json!("says it back\n\nat length")));
+    assert_eq!((&decl["timeout_ms"], &decl["subagents"]), (&json!(600000), &json!(true)));
+    fake.answer(id, json!({"host_tools": ["echo"], "refused": []})).await;
+    let (id, hooks) = fake.expect(translate::DAEMON_SET_HOOKS).await;
+    assert!(!link.status().borrow().is_ready(), "ready before its hooks were registered");
+    let hooks = hooks["hooks"].as_array().unwrap().clone();
+    assert_eq!(hooks.len(), 2);
+    assert_eq!((&hooks[0]["events"], &hooks[0]["tools"], &hooks[0]["on_error"]), (&json!(["PreToolUse"]), &json!(["*"]), &json!("allow")));
+    assert_eq!((&hooks[1]["events"], &hooks[1]["on_error"]), (&json!(["UserPromptSubmit"]), &json!("block")));
+    assert!(hooks.iter().all(|h| h["timeout_ms"] == 30000));
+    fake.answer(id, json!({"hooks": [], "refused": []})).await;
+    let _taken = taken.await.unwrap().map_err(|r| format!("{r:?}")).unwrap();
+    assert!(link.status().borrow().is_ready());
+}
+
+#[tokio::test]
+async fn a_host_tool_call_is_answered_by_its_tool_and_not_handed_to_the_hub() {
+    let (_link, mut fake, _taken, mut events) = ready(&provider(vec![])).await;
+    fake.push("s1", tool_call("c1", json!({"text": "hi"}))).await;
+    fake.push("s1", json!({"kind": "text_delta", "text": "after"})).await;
+    let (id, asked) = fake.expect(translate::SESSION_GET).await;
+    assert_eq!(asked["session_id"], "s1");
+    fake.answer(id, json!({"session_id": "s1", "project_root": "/p"})).await;
+    let (id, answer) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
+    assert_eq!((&answer["session_id"], &answer["call_id"]), (&json!("s1"), &json!("c1")));
+    assert_eq!(answer["result"], json!({"content": "s1 /p 0 \"hi\"", "is_error": false}), "the structured part is left out");
+    fake.answer(id, json!({"call_id": "c1"})).await;
+    match first_event(&mut events).await {
+        EngineEvent::Session { kind: SessionEventKind::Fragment(f), .. } => assert_eq!(f, harnix_engine_link::Fragment::new(harnix_engine_link::Joins::Answer, "text", "after")),
+        other => panic!("the hub was handed {other:?} first"),
+    }
+}
+
+/// A session's own tool, from the scene layer it was created in, is not declared on the connection
+/// and is answered on the link as the connection's are.
+#[tokio::test]
+async fn a_scene_layers_tool_is_answered_on_the_link() {
+    let provider = provider(vec![]);
+    let (link, mut fake, _taken, mut events) = ready(&provider).await;
+    assert!(link.scene_layers().get("probe").is_some());
+    let mut call = tool_call("c1", json!({"text": "own"}));
+    call["name"] = json!("layer_echo");
+    fake.push("s1", call).await;
+    fake.push("s1", json!({"kind": "text_delta", "text": "after"})).await;
+    let (id, _) = fake.expect(translate::SESSION_GET).await;
+    fake.answer(id, json!({"project_root": "/p"})).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
+    assert_eq!(answer["result"]["content"], "s1 /p 0 \"own\"");
+    assert!(matches!(first_event(&mut events).await, EngineEvent::Session { kind: SessionEventKind::Fragment(_), .. }), "the hub saw the call");
+}
+
+/// A delegate's call is the delegate's session's, one deep, and is answered for the root.
+#[tokio::test]
+async fn a_delegates_call_is_its_own_and_answered_for_the_root() {
+    let (_link, mut fake, _taken, _events) = ready(&provider(vec![])).await;
+    let mut call = tool_call("c1", json!({"text": "hi"}));
+    call["agent_session_id"] = json!("sub");
+    fake.push("s1", call).await;
+    let (id, _) = fake.expect(translate::SESSION_GET).await;
+    fake.answer(id, json!({"project_root": "/p"})).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
+    assert_eq!(answer["session_id"], "s1");
+    assert_eq!(answer["result"]["content"], "sub /p 1 \"hi\"");
+}
+
+#[tokio::test]
+async fn a_tool_that_fails_or_is_missing_answers_as_the_engine_reads_it() {
+    let (_link, mut fake, _taken, mut events) = ready(&provider(vec![])).await;
+    fake.push("s1", tool_call("c1", json!({"fail": true}))).await;
+    let (id, _) = fake.expect(translate::SESSION_GET).await;
+    fake.answer(id, json!({"project_root": "/p"})).await;
+    let (_, failed) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
+    assert_eq!(failed["result"], json!({"content": "it broke", "is_error": true}));
+    // The project is asked once per session.
+    fake.push("s1", tool_call("c2", json!({"missing": true}))).await;
+    let (_, missing) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
+    assert_eq!(missing["error"], json!({"message": "nothing there"}));
+    assert!(missing.get("result").is_none());
+
+    // One that panics fails its call, rather than leave the turn waiting for it.
+    fake.push("s1", tool_call("c4", json!({"panic": true}))).await;
+    let (_, panicked) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
+    assert_eq!(panicked["result"], json!({"content": "the tool `echo` failed; the host's log says where", "is_error": true}));
+
+    // One the session was made with that is offered no more is answered as not there, not left
+    // to time out; the hub does not see it.
+    let mut gone = tool_call("c3", json!({}));
+    gone["name"] = json!("not_ours");
+    fake.push("s1", gone).await;
+    fake.push("s1", json!({"kind": "text_delta", "text": "after"})).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
+    assert_eq!((&answer["call_id"], &answer["error"]["message"]), (&json!("c3"), &json!("this host offers no tool `not_ours`")));
+    assert!(answer.get("result").is_none());
+    assert!(fragment(&first_event(&mut events).await).is_some(), "the hub saw the call");
+}
+
+/// A link that offers nothing only looks on: a tool's call it does not know is another host's,
+/// and goes to the hub unanswered.
+#[tokio::test]
+async fn a_link_that_offers_nothing_leaves_a_call_to_its_host() {
+    let link = DaemonLink::new(InstanceCarrier::Adopted, "test");
+    let mut events = link.take_events().unwrap();
+    let (connection, mut fake) = pair();
+    let taken = taking(&link, connection);
+    fake.greet(crate::REQUIRED_CAPABILITIES).await;
+    let _taken = taken.await.unwrap().map_err(|r| format!("{r:?}")).unwrap();
+    fake.push("s1", tool_call("c1", json!({}))).await;
+    match first_event(&mut events).await {
+        EngineEvent::Session { kind: SessionEventKind::Other, event, .. } => assert_eq!(event["call_id"], "c1"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn progress_goes_to_report_tool_progress() {
+    let (_link, mut fake, _taken, _events) = ready(&provider(vec![])).await;
+    fake.push("s1", tool_call("c1", json!({"progress": true}))).await;
+    let (id, _) = fake.expect(translate::SESSION_GET).await;
+    fake.answer(id, json!({"project_root": "/p"})).await;
+    let (mut reports, mut answered) = (Vec::new(), false);
+    while !(answered && reports.last() == Some(&json!("three"))) {
+        let (id, method, params) = fake.next().await;
+        match method.as_str() {
+            translate::SESSION_REPORT_TOOL_PROGRESS => {
+                assert_eq!((&params["session_id"], &params["call_id"]), (&json!("s1"), &json!("c1")));
+                reports.push(params["message"].clone());
+            }
+            translate::SESSION_RESPOND_TOOL_CALL => answered = true,
+            other => panic!("{other}"),
+        }
+        fake.answer(id, json!({"call_id": "c1"})).await;
+    }
+    assert!(!reports.is_empty() && reports.len() <= 3, "{reports:?}");
+}
+
+#[tokio::test]
+async fn a_withdrawn_call_cancels_the_tool() {
+    let (_link, mut fake, _taken, _events) = ready(&provider(vec![])).await;
+    fake.push("s1", tool_call("c1", json!({"wait": true}))).await;
+    let (id, _) = fake.expect(translate::SESSION_GET).await;
+    fake.answer(id, json!({"project_root": "/p"})).await;
+    fake.push("s1", json!({"kind": "host_tool_call_resolved", "call_id": "c1", "resolution": "withdrawn", "reason": "cancelled"})).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
+    assert_eq!(answer["error"], json!({"message": "cancelled"}));
+}
+
+fn hook_call(call_id: &str, event: &str, input: Value) -> Value {
+    json!({"kind": "hook_call", "call_id": call_id, "hook_event": event, "input": input, "timeout_ms": 30000,
+           "task_id": null, "agent_session_id": null})
+}
+
+fn bash() -> Value {
+    json!({"hook_event_name": "PreToolUse", "session_id": "s1", "cwd": "/w", "tool_name": "Bash", "tool_input": {"command": "ls"}})
+}
+
+#[tokio::test]
+async fn a_pre_tool_use_hook_blocks_or_adds_context() {
+    let (_link, mut fake, _taken, mut events) =
+        ready(&provider(vec![HookDecision::AddContext("  look first ".into()), HookDecision::Proceed])).await;
+    fake.push("s1", hook_call("h1", "PreToolUse", bash())).await;
+    fake.push("s1", json!({"kind": "text_delta", "text": "after"})).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_HOOK).await;
+    assert_eq!(answer, json!({"session_id": "s1", "call_id": "h1", "decision": "proceed", "additional_context": "look first"}));
+    assert!(matches!(first_event(&mut events).await, EngineEvent::Session { kind: SessionEventKind::Fragment(_), .. }), "the hub saw the hook");
+
+    let (_link, mut fake, _taken, _events) =
+        ready(&provider(vec![HookDecision::Block("not here".into()), HookDecision::AddContext("unseen".into())])).await;
+    fake.push("s1", hook_call("h2", "PreToolUse", bash())).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_HOOK).await;
+    assert_eq!((&answer["decision"], &answer["message"]), (&json!("block"), &json!("not here")));
+    assert!(answer.get("additional_context").is_none());
+}
+
+#[tokio::test]
+async fn a_prompt_gate_answers_user_prompt_submit() {
+    let (_link, mut fake, _taken, _events) = ready(&provider(vec![])).await;
+    let said = |text: &str| json!({"hook_event_name": "UserPromptSubmit", "session_id": "s1", "user_prompt": text, "delivery": "turn"});
+    fake.push("s1", hook_call("h1", "UserPromptSubmit", said("a blocked-word here"))).await;
+    let (_, blocked) = fake.expect(translate::SESSION_RESPOND_HOOK).await;
+    assert_eq!((&blocked["decision"], &blocked["message"]), (&json!("block"), &json!("not that word")));
+    fake.push("s1", hook_call("h2", "UserPromptSubmit", said("hello"))).await;
+    let (_, passed) = fake.expect(translate::SESSION_RESPOND_HOOK).await;
+    assert_eq!(passed["decision"], "proceed");
+}
+
+#[tokio::test]
+async fn a_reconnection_registers_again_before_the_hub_hears_of_it() {
+    let provider = provider(vec![HookDecision::Proceed]);
+    let (link, fake, taken, mut events) = ready(&provider).await;
+    drop(fake);
+    taken.lost().await;
+    link.disconnect().await;
+    link.degrade("the connection closed".into());
+    let (connection, mut fake) = pair();
+    let taking = taking(&link, connection);
+    fake.greet(crate::REQUIRED_CAPABILITIES).await;
+    let (id, tools) = fake.expect(translate::DAEMON_SET_HOST_TOOLS).await;
+    assert_eq!(tools["host_tools"][0]["name"], "echo");
+    assert!(events.try_recv().is_err(), "the hub heard of the reconnection before the tools were back");
+    fake.answer(id, json!({"host_tools": ["echo"], "refused": []})).await;
+    let (id, _) = fake.expect(translate::DAEMON_SET_HOOKS).await;
+    fake.answer(id, json!({"hooks": [], "refused": []})).await;
+    let _taken = taking.await.unwrap().map_err(|r| format!("{r:?}")).unwrap();
+    assert!(matches!(first_event(&mut events).await, EngineEvent::Reconnected));
+}
+
+/// The hub hears of a reconnection once the link takes calls again: what it does on hearing it
+/// (asking the engine of each session it had) is not refused as the instance being unavailable.
+/// The hub reads its events on a thread of its own, and checks the moment it hears.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_hub_hears_of_a_reconnection_once_the_link_takes_calls() {
+    const ROUNDS: usize = 300;
+    let link = DaemonLink::new(InstanceCarrier::InProcess, "test");
+    let mut events = link.take_events().unwrap();
+    let (connection, mut fake) = pair();
+    let taking_first = taking(&link, connection);
+    fake.greet(crate::REQUIRED_CAPABILITIES).await;
+    let mut taken = taking_first.await.unwrap().map_err(|r| format!("{r:?}")).unwrap();
+    // Whether the link took calls when the hub heard, once for each reconnection.
+    let (said, mut heard) = tokio::sync::mpsc::unbounded_channel();
+    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let hub = {
+        let (link, done) = (link.clone(), done.clone());
+        std::thread::spawn(move || {
+            while !done.load(std::sync::atomic::Ordering::Relaxed) {
+                match events.try_recv() {
+                    Ok(EngineEvent::Reconnected) => {
+                        let _ = said.send(link.status().borrow().is_ready());
+                    }
+                    Ok(_) => {}
+                    Err(_) => std::hint::spin_loop(),
+                }
+            }
+        })
+    };
+    let mut refused = 0;
+    for _ in 0..ROUNDS {
+        drop(fake);
+        taken.lost().await;
+        link.disconnect().await;
+        link.degrade("the connection closed".into());
+        let (connection, next) = pair();
+        fake = next;
+        let again = taking(&link, connection);
+        fake.greet(crate::REQUIRED_CAPABILITIES).await;
+        taken = again.await.unwrap().map_err(|r| format!("{r:?}")).unwrap();
+        // Heard before the next round loses the connection again.
+        let ready = tokio::time::timeout(WAIT, heard.recv()).await.expect("heard in time").unwrap();
+        refused += usize::from(!ready);
+    }
+    done.store(true, std::sync::atomic::Ordering::Relaxed);
+    hub.join().unwrap();
+    assert_eq!(refused, 0, "of {ROUNDS} reconnections, the hub heard of {refused} before the link took calls");
+}
+
+#[tokio::test]
+async fn a_change_declares_the_tools_again() {
+    let provider = provider(vec![]);
+    let (_link, mut fake, _taken, _events) = ready(&provider).await;
+    lock(&provider.tools).push(echo("second"));
+    provider.changed.notify();
+    let (id, tools) = fake.expect(translate::DAEMON_SET_HOST_TOOLS).await;
+    let names: Vec<&str> = tools["host_tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
+    assert_eq!(names, ["echo", "second"]);
+    fake.answer(id, json!({"host_tools": names, "refused": []})).await;
+}
+
+#[tokio::test]
+async fn a_session_made_just_after_a_change_has_the_tools_as_they_are_now() {
+    let provider = provider(vec![]);
+    let (link, mut fake, _taken, _events) = ready(&provider).await;
+    lock(&provider.tools).push(echo("second"));
+    provider.changed.notify();
+    let rpc = link.rpc();
+    let create = tokio::spawn(async move { rpc.call(translate::SESSION_CREATE, json!({})).await });
+    // Declared before the session is made, not after the change settles.
+    let (id, tools) = fake.expect(translate::DAEMON_SET_HOST_TOOLS).await;
+    assert_eq!(tools["host_tools"].as_array().unwrap().len(), 2);
+    fake.answer(id, json!({"host_tools": ["echo", "second"], "refused": []})).await;
+    let (id, _) = fake.expect(translate::DAEMON_SET_HOOKS).await;
+    fake.answer(id, json!({"hooks": [], "refused": []})).await;
+    let (id, _) = fake.expect(translate::SESSION_CREATE).await;
+    fake.answer(id, json!({"session_id": "s1"})).await;
+    create.await.unwrap().unwrap();
+}
+
+/// A change the engine did not take is not taken as heard: it is declared again before the next
+/// session is made.
+#[tokio::test]
+async fn a_change_the_engine_did_not_take_is_declared_again_before_a_session() {
+    let provider = provider(vec![]);
+    let (link, mut fake, _taken, _events) = ready(&provider).await;
+    lock(&provider.tools).push(echo("second"));
+    provider.changed.notify();
+    let (id, _) = fake.expect(translate::DAEMON_SET_HOST_TOOLS).await;
+    fake.fail(id, -32603, "not now").await;
+    let (id, _) = fake.expect(translate::DAEMON_SET_HOOKS).await;
+    fake.answer(id, json!({"hooks": [], "refused": []})).await;
+    let rpc = link.rpc();
+    let create = tokio::spawn(async move { rpc.call(translate::SESSION_CREATE, json!({})).await });
+    let (id, tools) = fake.expect(translate::DAEMON_SET_HOST_TOOLS).await;
+    assert_eq!(tools["host_tools"].as_array().unwrap().len(), 2);
+    fake.answer(id, json!({"host_tools": ["echo", "second"], "refused": []})).await;
+    let (id, _) = fake.expect(translate::DAEMON_SET_HOOKS).await;
+    fake.answer(id, json!({"hooks": [], "refused": []})).await;
+    let (id, _) = fake.expect(translate::SESSION_CREATE).await;
+    fake.answer(id, json!({"session_id": "s1"})).await;
+    create.await.unwrap().unwrap();
+
+    // Taken this time: the next session is made without declaring again.
+    let rpc = link.rpc();
+    let create = tokio::spawn(async move { rpc.call(translate::SESSION_CREATE, json!({})).await });
+    let (id, _) = fake.expect(translate::SESSION_CREATE).await;
+    fake.answer(id, json!({"session_id": "s2"})).await;
+    create.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn a_daemon_without_the_capabilities_is_refused_for_good() {
+    let link = DaemonLink::with_host(InstanceCarrier::InProcess, "test", host(&provider(vec![])));
+    let (connection, mut fake) = pair();
+    let taken = taking(&link, connection);
+    let lacking: Vec<&str> = crate::REQUIRED_CAPABILITIES.iter().copied().filter(|c| *c != "host_hooks").collect();
+    let (id, _) = fake.expect(translate::DAEMON_PING).await;
+    fake.answer(id, json!({"version": "x", "protocol_version": crate::AGIX_PROTOCOL, "capabilities": lacking})).await;
+    match taken.await.unwrap() {
+        Err(Refusal::Fatal(why)) => assert!(why.contains("host_hooks"), "{why}"),
+        other => panic!("{:?}", other.map(|_| ())),
+    }
+    assert!(!link.status().borrow().is_ready());
+}
+
+#[tokio::test]
+async fn a_refused_gate_hook_refuses_the_connection() {
+    let link = DaemonLink::with_host(InstanceCarrier::InProcess, "test", host(&provider(vec![])));
+    let (connection, mut fake) = pair();
+    let taken = taking(&link, connection);
+    fake.greet(crate::REQUIRED_CAPABILITIES).await;
+    let (id, _) = fake.expect(translate::DAEMON_SET_HOST_TOOLS).await;
+    fake.answer(id, json!({"host_tools": ["echo"], "refused": []})).await;
+    let (id, _) = fake.expect(translate::DAEMON_SET_HOOKS).await;
+    fake.fail(id, -32602, "eight connections have hooks already").await;
+    assert!(matches!(taken.await.unwrap(), Err(Refusal::Retry(_))));
+    assert!(!link.status().borrow().is_ready());
+}
+
+/// A link that offers nothing asks nothing beyond the handshake.
+#[tokio::test]
+async fn a_link_that_offers_nothing_registers_nothing() {
+    let link = DaemonLink::new(InstanceCarrier::InProcess, "test");
+    let (connection, mut fake) = pair();
+    let taken = taking(&link, connection);
+    fake.greet(crate::REQUIRED_CAPABILITIES).await;
+    let _taken = taken.await.unwrap().map_err(|r| format!("{r:?}")).unwrap();
+    assert!(link.status().borrow().is_ready());
+    link.shutdown().await;
+}
+
+fn tool_use(id: &str, input: Value) -> Value {
+    json!({"kind": "tool_use", "id": id, "name": "echo", "input": input})
+}
+
+fn permission_ask(prompt: &str, tool_use_id: &str) -> Value {
+    json!({"kind": "prompt", "prompt_type": "permission", "prompt_id": prompt, "tool_name": "echo",
+           "message": "Allow the host's tool echo?", "paths": [], "tool_use_id": tool_use_id})
+}
+
+/// The next event the hub is handed that is not a tool's call.
+async fn next_but_calls(events: &mut EventReceiver) -> EngineEvent {
+    loop {
+        match first_event(events).await {
+            EngineEvent::Session { kind: SessionEventKind::ToolCall { .. }, .. } => continue,
+            other => return other,
+        }
+    }
+}
+
+fn fragment(e: &EngineEvent) -> Option<String> {
+    match e {
+        EngineEvent::Session { kind: SessionEventKind::Fragment(_), event, .. } => event["text"].as_str().map(str::to_string),
+        _ => None,
+    }
+}
+
+/// A host tool that lets its call through is permitted by the link, and neither the ask nor its
+/// resolution reaches the hub; one that refuses it is refused, with its reason.
+#[tokio::test]
+async fn a_host_tools_ask_is_answered_by_the_tool() {
+    let (_link, mut fake, _taken, mut events) = ready(&provider(vec![])).await;
+    fake.push("s1", tool_use("u1", json!({}))).await;
+    fake.push("s1", permission_ask("p1", "u1")).await;
+    let (id, answer) = fake.expect(translate::SESSION_RESPOND).await;
+    assert_eq!(answer, json!({"session_id": "s1", "prompt_id": "p1", "prompt_type": "permission", "decision": {"type": "permit"}}));
+    fake.answer(id, json!({"prompt_id": "p1"})).await;
+    fake.push("s1", json!({"kind": "prompt_resolved", "prompt_id": "p1", "resolution": "answered"})).await;
+    fake.push("s1", json!({"kind": "text_delta", "text": "after"})).await;
+    assert_eq!(fragment(&next_but_calls(&mut events).await).as_deref(), Some("after"), "the hub saw the ask");
+
+    fake.push("s1", tool_use("u2", json!({"perm": "deny"}))).await;
+    fake.push("s1", permission_ask("p2", "u2")).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND).await;
+    assert_eq!(answer["decision"], json!({"type": "deny", "reason": "not that"}));
+}
+
+/// An ask whose answer the engine does not take goes to the person, and its resolution to the
+/// hub; one resolved before the answer was turned away is over, and goes nowhere.
+#[tokio::test]
+async fn an_ask_whose_answer_does_not_go_is_handed_to_the_person() {
+    let (_link, mut fake, _taken, mut events) = ready(&provider(vec![])).await;
+    fake.push("s1", tool_use("u1", json!({}))).await;
+    fake.push("s1", permission_ask("p1", "u1")).await;
+    // The first try and every one after it, turned away for too many in flight.
+    for _ in 0..4 {
+        let (id, _) = fake.expect(translate::SESSION_RESPOND).await;
+        fake.fail(id, crate::embed::TOO_MANY_IN_FLIGHT, "too many requests in flight").await;
+    }
+    match next_but_calls(&mut events).await {
+        EngineEvent::Session { kind: SessionEventKind::Asked(prompt), .. } => assert_eq!(prompt.prompt_id.as_deref(), Some("p1")),
+        other => panic!("{other:?}"),
+    }
+    fake.push("s1", json!({"kind": "prompt_resolved", "prompt_id": "p1", "resolution": "withdrawn", "reason": "timed_out"})).await;
+    match next_but_calls(&mut events).await {
+        EngineEvent::Session { event, .. } => assert_eq!((&event["kind"], &event["prompt_id"]), (&json!("prompt_resolved"), &json!("p1"))),
+        other => panic!("{other:?}"),
+    }
+
+    fake.push("s1", tool_use("u2", json!({}))).await;
+    fake.push("s1", permission_ask("p2", "u2")).await;
+    let (id, _) = fake.expect(translate::SESSION_RESPOND).await;
+    fake.push("s1", json!({"kind": "prompt_resolved", "prompt_id": "p2", "resolution": "withdrawn", "reason": "timed_out"})).await;
+    fake.fail(id, -32602, "no prompt p2 is waiting").await;
+    fake.push("s1", json!({"kind": "text_delta", "text": "after"})).await;
+    assert_eq!(fragment(&next_but_calls(&mut events).await).as_deref(), Some("after"), "the hub saw p2");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(events.try_recv().is_err(), "the hub saw p2");
+}
+
+/// A permission check, a tool hook or a gate that panics is taken as failed — the call refused, the
+/// hook's call let through, the message blocked — and the link goes on reading.
+#[tokio::test]
+async fn a_check_that_panics_is_taken_as_failed_and_the_link_reads_on() {
+    let provider = Arc::new(Provider {
+        tools: StdMutex::new(vec![echo("echo")]),
+        hooks: vec![Arc::new(Panics), Arc::new(Note(HookDecision::AddContext("still asked".into())))],
+        changed: ToolsChanged::new(),
+    });
+    let (_link, mut fake, _taken, mut events) = ready(&provider).await;
+
+    // On the reader: the ask is refused for the tool.
+    fake.push("s1", tool_use("u1", json!({"perm": "panic"}))).await;
+    fake.push("s1", permission_ask("p1", "u1")).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND).await;
+    assert_eq!(answer["decision"], json!({"type": "deny", "reason": "its permission check failed; the host's log says where"}));
+    fake.push("s1", json!({"kind": "text_delta", "text": "after"})).await;
+    assert_eq!(fragment(&next_but_calls(&mut events).await).as_deref(), Some("after"), "the link stopped reading");
+
+    // At the call: refused, not run.
+    fake.push("s1", tool_call("c1", json!({"perm": "panic"}))).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
+    assert_eq!(answer["result"]["content"], "refused: its permission check failed; the host's log says where");
+
+    // The hook that panics lets the call through; the one after it is still asked.
+    fake.push("s1", hook_call("h1", "PreToolUse", bash())).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_HOOK).await;
+    assert_eq!((&answer["decision"], &answer["additional_context"]), (&json!("proceed"), &json!("still asked")));
+
+    // The gate that panics blocks the message.
+    let said = json!({"hook_event_name": "UserPromptSubmit", "session_id": "s1", "user_prompt": "a panic-word here", "delivery": "turn"});
+    fake.push("s1", hook_call("h2", "UserPromptSubmit", said)).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_HOOK).await;
+    assert_eq!((&answer["decision"], &answer["message"]), (&json!("block"), &json!("a check on messages failed; the host's log says where")));
+
+    fake.push("s1", json!({"kind": "text_delta", "text": "still"})).await;
+    assert_eq!(fragment(&next_but_calls(&mut events).await).as_deref(), Some("still"));
+}
+
+/// A tool that asks has its ask handed to the person, with its own question beside the engine's.
+#[tokio::test]
+async fn a_host_tool_that_asks_is_asked_with_its_own_question() {
+    let (_link, mut fake, _taken, mut events) = ready(&provider(vec![])).await;
+    fake.push("s1", tool_use("u1", json!({"perm": "ask"}))).await;
+    fake.push("s1", permission_ask("p1", "u1")).await;
+    match next_but_calls(&mut events).await {
+        EngineEvent::Session { kind: SessionEventKind::Asked(prompt), .. } => {
+            assert_eq!(prompt.value["tool_question"], "Really run it?");
+            assert_eq!(prompt.value["message"], "Allow the host's tool echo?");
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// An ask that comes before its call waits for it; one whose call never comes goes to the person
+/// as it is.
+#[tokio::test]
+async fn an_ask_before_its_call_waits_for_it() {
+    let (_link, mut fake, _taken, mut events) = ready(&provider(vec![])).await;
+    fake.push("s1", permission_ask("p1", "u1")).await;
+    fake.push("s1", tool_use("u1", json!({}))).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND).await;
+    assert_eq!(answer["decision"]["type"], "permit");
+
+    fake.push("s1", permission_ask("p2", "nowhere")).await;
+    let started = std::time::Instant::now();
+    match next_but_calls(&mut events).await {
+        EngineEvent::Session { kind: SessionEventKind::Asked(prompt), .. } => {
+            assert_eq!(prompt.prompt_id.as_deref(), Some("p2"));
+            assert!(prompt.value.get("tool_question").is_none());
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(started.elapsed() >= crate::permits::HOLD - Duration::from_millis(100), "it did not wait");
+}
+
+/// A call its tool refuses does not run, whatever let the engine make it.
+#[tokio::test]
+async fn a_call_its_tool_refuses_does_not_run() {
+    let (_link, mut fake, _taken, _events) = ready(&provider(vec![])).await;
+    fake.push("s1", tool_call("c1", json!({"perm": "deny", "text": "x"}))).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
+    assert_eq!(answer["result"], json!({"content": "refused: not that", "is_error": true}));
+}
+
+/// In an unattended layer, a call its tool would ask about has nobody to ask, and does not run.
+#[tokio::test]
+async fn an_unattended_layers_tool_that_would_ask_does_not_run() {
+    let mut contrib = EngineContribution::new();
+    contrib.scene(SceneLayer::new("quiet", SceneBase::builtin("code")).tool(echo("quiet_echo")).interactive(false));
+    let link = DaemonLink::with_host(InstanceCarrier::InProcess, "test", HostSide::new("main", Chains::default(), &contrib).unwrap());
+    let (connection, mut fake) = pair();
+    let taken = taking(&link, connection);
+    fake.greet(crate::REQUIRED_CAPABILITIES).await;
+    let _taken = taken.await.unwrap().map_err(|r| format!("{r:?}")).unwrap();
+    let mut call = tool_call("c1", json!({"perm": "ask"}));
+    call["name"] = json!("quiet_echo");
+    fake.push("s1", call).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
+    assert!(answer["result"]["content"].as_str().unwrap().contains("nobody is there"), "{answer}");
+}

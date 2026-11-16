@@ -9,7 +9,7 @@
 import type { EngineEvent, Hello } from "./frames.ts";
 
 /** 这一层读得懂的引擎协议版本（`hello.engine_protocol`）。 */
-export const ENGINE_PROTOCOLS: readonly number[] = [3];
+export const ENGINE_PROTOCOLS: readonly number[] = [4];
 
 /** 不认识的引擎协议：为什么拒绝；认识（或没说）时 null。 */
 export function engineProtocolRefusal(hello: Pick<Hello, "engine_protocol"> | null | undefined): string | null {
@@ -27,8 +27,10 @@ export type ParsedSessionEvent =
   | { kind: "tool_called"; toolUseId: string; tool: string; input: unknown }
   | { kind: "tool_result"; toolUseId: string; isError: boolean }
   | { kind: "prompt"; promptId: string }
+  | { kind: "prompt_resolved"; promptId: string; resolution: string }
+  | { kind: "notification"; message: string; status: string | null }
   | { kind: "turn_complete"; stopReason: string | null }
-  | { kind: "error"; message: string }
+  | { kind: "error"; message: string; code: string; retryable: boolean }
   | { kind: "other"; raw: string };
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
@@ -52,10 +54,14 @@ export function parseSessionEvent(raw: EngineEvent | unknown): ParsedSessionEven
       return { kind, toolUseId: str(e.id), isError: e.is_error === true };
     case "prompt":
       return { kind, promptId: str(e.prompt_id) };
+    case "prompt_resolved":
+      return { kind, promptId: str(e.prompt_id), resolution: str(e.resolution) };
+    case "notification":
+      return { kind, message: str(e.message), status: typeof e.status === "string" ? e.status : null };
     case "turn_complete":
       return { kind, stopReason: typeof e.stop_reason === "string" ? e.stop_reason : null };
     case "error":
-      return { kind, message: str(e.message) };
+      return { kind, message: str(e.message), code: str(e.code), retryable: e.retryable === true };
     default:
       return { kind: "other", raw: kind };
   }

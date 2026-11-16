@@ -39,9 +39,12 @@ mod clients;
 mod engine_rows;
 mod lifecycle;
 mod links;
+mod prompt;
 mod replay;
 mod rows;
+mod scenes;
 mod session;
+mod skills;
 mod spaces;
 mod topics;
 mod turns;
@@ -61,7 +64,7 @@ use std::sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock, Weak};
 
 use harnix_contract::sync::{lock, read, write};
 use harnix_contract::{codes, FrameSink, RpcError, Subject};
-use harnix_engine_api::ops::Entry;
+use harnix_engine_link::ops::Entry;
 use harnix_kernel::instances::{holding, holds, Holding, Side};
 use harnix_kernel::{InstanceBook, Listed, TopicSource, TurnChains};
 use serde_json::{json, Value};
@@ -95,6 +98,9 @@ struct Inner {
     dispatch: clients::Dispatch,
     sessions: HashMap<SessionKey, SessionState>,
     topics: topics::Topics,
+    /// The MCP servers an engine could not connect, as the host event said it: a client that
+    /// connects later is told too, since the failure happened before it came.
+    failed_servers: HashMap<(String, String), Value>,
 }
 
 /// The hub's lock, marked held while it is, so that a call into the instance registry can assert
@@ -158,10 +164,14 @@ pub struct Hub {
     /// is not listed.
     described: StdMutex<BTreeMap<ClientId, Value>>,
     spaces: StdMutex<Spaces>,
+    /// The skills directories the host components published, by component ([`Hub::set_skill_sources`]).
+    skills: StdRwLock<BTreeMap<String, Vec<harnix_contract::SkillSource>>>,
     audit: StdRwLock<Option<AuditHook>>,
     /// Which calls each running turn is on behalf of: written as turns start and settle, read by
     /// the tools their sessions call.
     pub(crate) turns: Arc<TurnChains>,
+    /// One `harnix.session.setPrompt` at a time (`prompt.rs`).
+    prompting: Mutex<()>,
 }
 
 pub struct HubConfig {
@@ -201,8 +211,10 @@ impl Hub {
                 answerers: StdMutex::new(VecDeque::new()),
                 described: StdMutex::new(BTreeMap::new()),
                 spaces: StdMutex::new(config.spaces),
+                skills: StdRwLock::new(BTreeMap::new()),
                 audit: StdRwLock::new(None),
                 turns: config.turns.clone(),
+                prompting: Mutex::new(()),
             }
         });
         hub
@@ -307,9 +319,28 @@ impl Hub {
     }
 
     /// One engine method of an instance, its answer as the engine gives it: for the assembly's
-    /// own reads of the engine (`hello`), which name a row of the hub's.
+    /// own reads of the engine (`hello`), which name a row of the hub's. The scene list has the
+    /// instance's scene layers in it, as the row's does.
     pub async fn passthrough(&self, instance: &str, method: &str, params: Value) -> Result<Value, RpcError> {
-        self.engine(instance)?.ops().passthrough(method, params).await
+        let linked = self.engine(instance)?;
+        let answer = linked.ops().passthrough(method, params).await?;
+        Ok(match method {
+            engine_rows::SCENE_LIST => scenes::listed(&linked.link.scene_layers(), answer),
+            _ => answer,
+        })
+    }
+
+    /// File an entry under `ns` and `event` in the log of `session` on `instance`, through its
+    /// engine's link: for the assembly's own entries (the audit), which belong to no extension.
+    pub async fn append_entry_to(
+        &self,
+        instance: &str,
+        session: &str,
+        ns: &str,
+        event: &str,
+        payload: Value,
+    ) -> Result<Value, RpcError> {
+        self.engine(instance)?.ops().append_entry(session, Entry::new(ns, event, payload)).await
     }
 
     /// Return once every frame the instance sent before this call has been
@@ -347,7 +378,19 @@ impl Hub {
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         );
         self.inner.lock().await.clients.insert(id, sink);
+        self.tell_held_failures(id).await;
         id
+    }
+
+    /// The MCP servers that failed before this client could hear of it, told to it now.
+    async fn tell_held_failures(&self, id: ClientId) {
+        let guard = self.inner.lock().await;
+        let told: Vec<_> = guard
+            .failed_servers
+            .values()
+            .map(|event| guard.clients.to_many(&[id], harnix_contract::Frame::host(notification("harnix.host_event", event.clone()))))
+            .collect();
+        send_after(guard, told).await;
     }
 
     /// What a client is, as the transport saw it at handshake: shown in the system space.
@@ -388,11 +431,8 @@ impl Hub {
     /// `harnix.session.answerer {session_id, tool_use_id}`: the device that answered that tool's
     /// permission prompt, once (it is forgotten on reading); `null` when no device answered it
     /// (the session's permission mode let it run) or the answer was pushed out. For the
-    /// application's audit; a device cannot ask (helm-01).
-    pub(crate) fn answerer(&self, subject: &Subject, params: &Value) -> Result<Value, RpcError> {
-        if matches!(subject, Subject::Device { .. }) {
-            return Err(RpcError::new(codes::REFUSED, "answerers are for the application's audit"));
-        }
+    /// application's audit; its row is not a device's to ask.
+    pub(crate) fn answerer(&self, params: &Value) -> Result<Value, RpcError> {
         let field = |k: &str| {
             params
                 .get(k)
@@ -423,12 +463,9 @@ impl Hub {
                 .and_then(Value::as_str)
                 .map(str::to_string)
                 .ok_or_else(|| RpcError::invalid_params("the kernel names an entry's ns"))?,
-            _ => {
-                return Err(RpcError::new(
-                    codes::REFUSED,
-                    "entries are an extension's; a device speaks through harnix.session.send",
-                ))
-            }
+            // The row is closed to every other subject; a person's words are
+            // `harnix.session.send`.
+            _ => return Err(RpcError::new(codes::REFUSED, "entries are an extension's")),
         };
         let event = params
             .get("event")
@@ -459,6 +496,10 @@ impl harnix_kernel::ClientRegistry for Hub {
     async fn remove_client(&self, id: ClientId) {
         Hub::remove_client(self, id).await
     }
+
+    async fn host_face_opened(&self, id: ClientId) {
+        self.tell_held_failures(id).await
+    }
 }
 
 /// The engine has no notion of instances or spaces; the names are Harnix's.
@@ -468,6 +509,21 @@ pub(crate) fn without_instance(mut params: Value) -> Value {
         obj.remove("space");
     }
     params
+}
+
+
+/// A caller (device, extension, application) giving one of the options only the hub fills is
+/// refused, by name.
+pub(crate) fn refuse_hub_owned_options(params: &Value) -> Result<(), RpcError> {
+    let Some(options) = params.get("options").and_then(Value::as_object) else {
+        return Ok(());
+    };
+    match harnix_engine_link::HUB_OWNED_OPTIONS.iter().find(|key| options.contains_key(**key)) {
+        Some(key) => Err(RpcError::refused(format!(
+            "session option `{key}` is the hub's to set, from the space and the preset: a caller does not give it"
+        ))),
+        None => Ok(()),
+    }
 }
 
 pub(crate) fn notification(method: &str, params: Value) -> String {
@@ -564,5 +620,22 @@ mod sending_tests {
             s.await.unwrap();
         }
         assert_eq!(*lock(&slow.seen), ["f0", "f1", "f2"]);
+    }
+}
+
+#[cfg(test)]
+mod options_tests {
+    use super::*;
+
+    #[test]
+    fn options_the_hub_owns_are_refused_by_name_and_the_rest_pass() {
+        for key in harnix_engine_link::HUB_OWNED_OPTIONS {
+            let refused = refuse_hub_owned_options(&json!({"options": {"model": "m", key: true}})).unwrap_err();
+            assert_eq!(refused.code, codes::REFUSED);
+            assert!(refused.message.contains(key), "{}", refused.message);
+        }
+        let allowed = json!({"options": {"model": "m", "permission_mode": "default", "recorder": {"name": "r"}}});
+        assert!(refuse_hub_owned_options(&allowed).is_ok());
+        assert!(refuse_hub_owned_options(&json!({})).is_ok());
     }
 }

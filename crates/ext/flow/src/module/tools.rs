@@ -1,8 +1,8 @@
 //! The scenes flow sessions run in, and the tools they add.
 //!
 //! An application's scene is offered as `flow-<id>`: the same prompt, budget and tools, plus
-//! three native tools. A tool finds the task it serves by the caller's session id; a session
-//! that serves none is told so.
+//! three native tools — one set, shared by every `flow-*` scene. A tool finds the task it serves
+//! by the caller's session id; a session that serves none is told so.
 //!
 //! | tool | does |
 //! |---|---|
@@ -18,7 +18,6 @@ use serde_json::{json, Value};
 
 use super::dispatch;
 use super::shared::{Binding, Shared};
-use crate::kernel::protocol::STRUCTURED_OUTPUT_TOOL;
 use crate::kernel::run::Actor;
 use crate::kernel::FlowError;
 
@@ -30,49 +29,43 @@ pub(crate) fn wrapped_id(base: &str) -> String {
     format!("flow-{base}")
 }
 
+/// The flow's three tools, made once: a tool by one name is one object in every scene that has it.
+#[derive(Clone)]
+pub(crate) struct FlowTools {
+    state: Arc<dyn Tool>,
+    submit: Arc<dyn Tool>,
+    propose: Arc<dyn Tool>,
+}
+
+impl FlowTools {
+    pub(crate) fn new(sh: Arc<Shared>) -> Self {
+        Self {
+            state: Arc::new(StateTool::new(sh.clone())),
+            submit: Arc::new(SubmitTool::new(sh.clone())),
+            propose: Arc::new(ProposeTool::new(sh)),
+        }
+    }
+}
+
 /// An application's scene with the flow's tools added, offered as `flow-<id>`.
 ///
 /// Attended whatever the base scene says: the module answers this session's permission asks (from
 /// its task's permissions, or by asking a person in the flow space), so they must reach the host
 /// rather than be refused as no one's to answer. And no model call outside its task: naming the
 /// session would be one (and, under replay, one that is not recorded and goes to the network).
-pub(crate) fn flow_scene(base: SceneBase, sh: Arc<Shared>, requires_project: Option<bool>) -> SceneLayer {
+pub(crate) fn flow_scene(base: SceneBase, tools: &FlowTools, requires_project: Option<bool>) -> SceneLayer {
     let layer = SceneLayer::new("flow-{base}", base)
         .name("{base} (flow)")
         .description("{base} — working on a flow task, with flow_state, flow_submit and flow_propose")
-        .tool(Arc::new(StateTool::new(sh.clone())))
-        .tool(Arc::new(SubmitTool::new(sh.clone())))
-        .tool(Arc::new(ProposeTool::new(sh)))
+        .tool(tools.state.clone())
+        .tool(tools.submit.clone())
+        .tool(tools.propose.clone())
         .interactive(true)
-        .auto_name(false)
-        .name_prompt(None);
+        .auto_name(false);
     match requires_project {
         Some(on) => layer.requires_project(on),
         None => layer,
     }
-}
-
-/// The id [`structured_scene`] gives a base scene: `structured-<id>`.
-pub fn structured_id(base: &str) -> String {
-    format!("structured-{base}")
-}
-
-/// A scene whose sessions can hand a flow task in by structured output: the base scene with the
-/// engine's `StructuredOutput` tool in its whitelist, offered as `structured-<id>`.
-///
-/// The engine gives a session with an `output_schema` that tool only where its scene permits
-/// it, and Agix's harnix scene does not. Register it where a station's session runs — in a
-/// template's native contributions (`InstanceTemplate::native`, which a spawned daemon builds
-/// again in its own process) and that template's `EngineProfile.scenes`. It holds no state of
-/// the module's, so it works in any process. Attended and unnamed, as [`flow_scene`]'s are.
-pub fn structured_scene(base: SceneBase) -> SceneLayer {
-    SceneLayer::new("structured-{base}", base)
-        .name("{base} (structured output)")
-        .admit(STRUCTURED_OUTPUT_TOOL)
-        .undisallow(STRUCTURED_OUTPUT_TOOL)
-        .interactive(true)
-        .auto_name(false)
-        .name_prompt(None)
 }
 
 /// The task a calling session serves, or what to tell it.
@@ -371,30 +364,25 @@ mod tests {
 
     #[test]
     fn the_wrapped_scene_adds_the_flow_tools_and_is_attended_and_unnamed() {
-        let layer = flow_scene(SceneBase::builtin("harnix"), sh(), None);
+        let tools = FlowTools::new(sh());
+        let layer = flow_scene(SceneBase::builtin("harnix"), &tools, None);
         let p = layer.parts();
         assert_eq!(p.id, "flow-{base}");
         let names: Vec<&str> = p.tools.iter().map(|t| t.spec().name()).collect();
         assert_eq!(names, [TOOL_STATE, TOOL_SUBMIT, TOOL_PROPOSE]);
-        assert_eq!((p.interactive, p.auto_name, p.name_prompt), (Some(true), Some(false), Some(None)));
-        assert_eq!(p.requires_project, None, "the base says, unless the application does");
-        let p = flow_scene(SceneBase::builtin("code"), sh(), Some(true));
-        assert_eq!(p.parts().requires_project, Some(true));
-    }
-
-    #[test]
-    fn the_structured_scene_lets_a_session_hand_in_by_structured_output() {
-        let layer = structured_scene(SceneBase::builtin("harnix"));
-        let p = layer.parts();
-        assert_eq!((p.id, p.name), ("structured-{base}", Some("{base} (structured output)")));
-        assert_eq!((p.admitted, p.undisallowed), (&[STRUCTURED_OUTPUT_TOOL.to_string()][..], &[STRUCTURED_OUTPUT_TOOL.to_string()][..]));
         assert_eq!((p.interactive, p.auto_name), (Some(true), Some(false)));
-        assert!(p.tools.is_empty());
+        assert_eq!(p.requires_project, None, "the base says, unless the application does");
+        let code = flow_scene(SceneBase::builtin("code"), &tools, Some(true));
+        assert_eq!(code.parts().requires_project, Some(true));
+        // One set of tools in every wrapped scene: a tool by one name is one object.
+        for (a, b) in p.tools.iter().zip(code.parts().tools) {
+            assert!(Arc::ptr_eq(a, b), "{}", a.spec().name());
+        }
     }
 
     #[test]
     fn its_tools_touch_nothing_and_ask_nothing() {
-        let layer = flow_scene(SceneBase::builtin("harnix"), sh(), None);
+        let layer = flow_scene(SceneBase::builtin("harnix"), &FlowTools::new(sh()), None);
         for tool in layer.parts().tools {
             assert!(tool.spec().is_read_only(), "{}", tool.spec().name());
             assert_eq!(tool.permission(&json!({})), Permission::Allow);
@@ -403,7 +391,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_session_that_serves_no_task_is_told_so() {
-        let layer = flow_scene(SceneBase::builtin("harnix"), sh(), None);
+        let layer = flow_scene(SceneBase::builtin("harnix"), &FlowTools::new(sh()), None);
         let out = layer.parts().tools[0].call(ToolCx::new("nobody", "t"), json!({})).await.unwrap();
         assert!(out.is_error() && out.content().contains("not working on a flow task"));
     }

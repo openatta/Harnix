@@ -8,50 +8,72 @@ use serde_json::Value;
 use crate::tool::{Cancel, Tool};
 
 /// What hands each session of an instance its tools — sub-agents, team members and background
-/// tasks included. Asked each time a session is built, so what it gives is what is there then.
+/// tasks included. Asked as the instance's engine is connected to, and again whenever one of its
+/// [`ToolProvider::changes`] fires: a session built after has what it gave then.
 pub trait ToolProvider: Send + Sync + 'static {
     /// Unique among an instance's providers.
     fn name(&self) -> &str;
 
-    fn tools(&self, session: &SessionFacts) -> Vec<Arc<dyn Tool>>;
+    /// Every tool it gives the instance's sessions now. Asked again each time one of `changes`
+    /// fires; a session built after that has the new set, one built before keeps its own.
+    fn tools(&self) -> Vec<Arc<dyn Tool>>;
 
-    /// Asked before each tool call of the session, in the order given.
-    fn hooks(&self, _session: &SessionFacts) -> Vec<Arc<dyn ToolHook>> {
+    /// Asked before each tool call of every session, in the order given.
+    fn hooks(&self) -> Vec<Arc<dyn ToolHook>> {
+        Vec::new()
+    }
+
+    /// What tells the engine `tools` or `hooks` would answer something else now. None: never.
+    fn changes(&self) -> Vec<ToolsChanged> {
         Vec::new()
     }
 }
 
-/// The session a provider is giving tools to.
+/// Fired by a provider whose tools or hooks changed (a package started or stopped).
 #[non_exhaustive]
-#[derive(Debug, Clone)]
-pub struct SessionFacts {
-    session_id: String,
-    project: PathBuf,
-    scene: String,
-    depth: u32,
+#[derive(Clone)]
+pub struct ToolsChanged(Arc<tokio::sync::watch::Sender<u64>>);
+
+impl Default for ToolsChanged {
+    fn default() -> Self {
+        Self(Arc::new(tokio::sync::watch::channel(0).0))
+    }
 }
 
-impl SessionFacts {
-    pub fn new(session_id: &str, project: impl Into<PathBuf>, scene: &str, depth: u32) -> Self {
-        Self { session_id: session_id.to_string(), project: project.into(), scene: scene.to_string(), depth }
+impl ToolsChanged {
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    pub fn session_id(&self) -> &str {
-        &self.session_id
+    /// Say the set changed.
+    pub fn notify(&self) {
+        self.0.send_modify(|n| *n = n.wrapping_add(1));
     }
 
-    /// The session's project root.
-    pub fn project(&self) -> &Path {
-        &self.project
+    /// Hear each change after now.
+    pub fn watch(&self) -> ToolsWatch {
+        ToolsWatch(self.0.subscribe())
+    }
+}
+
+/// What hears a [`ToolsChanged`].
+#[non_exhaustive]
+pub struct ToolsWatch(tokio::sync::watch::Receiver<u64>);
+
+impl ToolsWatch {
+    /// The next change; `false` once nothing can fire it any more.
+    pub async fn changed(&mut self) -> bool {
+        self.0.changed().await.is_ok()
     }
 
-    pub fn scene(&self) -> &str {
-        &self.scene
+    /// Whether a change came that this watch has not heard yet.
+    pub fn pending(&self) -> bool {
+        self.0.has_changed().unwrap_or(false)
     }
 
-    /// 0 for a session a host created, one more for each delegate down.
-    pub fn depth(&self) -> u32 {
-        self.depth
+    /// Hear every change so far, without waiting for one.
+    pub fn hear(&mut self) {
+        self.0.borrow_and_update();
     }
 }
 
@@ -68,11 +90,48 @@ pub struct ToolCallFacts {
     name: String,
     input: Value,
     cancel: Cancel,
+    session_id: String,
+    depth: u32,
+    cwd: PathBuf,
 }
 
 impl ToolCallFacts {
+    /// No session, depth 0, no working directory: `with_session` and `with_cwd` say them.
     pub fn new(name: &str, input: Value, cancel: Cancel) -> Self {
-        Self { name: name.to_string(), input, cancel }
+        Self {
+            name: name.to_string(),
+            input,
+            cancel,
+            session_id: String::new(),
+            depth: 0,
+            cwd: PathBuf::new(),
+        }
+    }
+
+    pub fn with_session(mut self, session_id: &str, depth: u32) -> Self {
+        self.session_id = session_id.to_string();
+        self.depth = depth;
+        self
+    }
+
+    pub fn with_cwd(mut self, cwd: impl Into<PathBuf>) -> Self {
+        self.cwd = cwd.into();
+        self
+    }
+
+    /// The session that made the call: a delegate's own id for a delegate's call.
+    pub fn session_id(&self) -> &str {
+        &self.session_id
+    }
+
+    /// 0 for a session a host created, more for a delegate.
+    pub fn depth(&self) -> u32 {
+        self.depth
+    }
+
+    /// The calling session's working directory, as the engine has it.
+    pub fn cwd(&self) -> &Path {
+        &self.cwd
     }
 
     pub fn name(&self) -> &str {
@@ -97,6 +156,32 @@ pub enum HookDecision {
     Proceed,
     /// It does not run; the model is told this instead, as a failed call.
     Block(String),
-    /// It runs, and this is appended to the text of its answer.
+    /// It runs; this text is handed to the model as a system reminder before its next step,
+    /// once the call is let through.
     AddContext(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_calls_facts_say_its_session_depth_and_cwd() {
+        let bare = ToolCallFacts::new("t", Value::Null, Cancel::new());
+        assert_eq!((bare.session_id(), bare.depth(), bare.cwd()), ("", 0, Path::new("")));
+        let facts = bare.with_session("s1", 1).with_cwd("/p");
+        assert_eq!((facts.session_id(), facts.depth(), facts.cwd()), ("s1", 1, Path::new("/p")));
+    }
+
+    #[tokio::test]
+    async fn a_change_is_heard_after_it_is_watched() {
+        let changed = ToolsChanged::new();
+        changed.notify();
+        let mut watch = changed.watch();
+        changed.notify();
+        assert!(watch.changed().await);
+        let mut gone = changed.watch();
+        drop(changed);
+        assert!(!gone.changed().await);
+    }
 }

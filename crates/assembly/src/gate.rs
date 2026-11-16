@@ -28,6 +28,8 @@ pub(crate) struct Behind {
 /// What this process is made of and what did not take: `harnix.diagnostics`, `harnix.extensions`.
 pub(crate) struct Diagnostics {
     pub versions: Value,
+    /// Where the main instance's engine says what it is.
+    pub instances: harnix_instance::RegistryCell,
     pub extensions: RwLock<Vec<ExtensionStatus>>,
     /// The extensions registered while the process runs.
     pub dynamic: OnceLock<Arc<crate::package_table::PackageTable>>,
@@ -41,10 +43,30 @@ impl Diagnostics {
         self.router.get().and_then(Weak::upgrade)
     }
 
+    /// The versions, with the engine's own account of itself in `agix` once the main instance has
+    /// answered its handshake: its capabilities and modules besides the compiled-in pair.
+    fn versions(&self) -> Value {
+        let mut versions = self.versions.clone();
+        let identity = self.instances.get().and_then(|r| r.identity(harnix_contract::MAIN_INSTANCE));
+        if let (Some(identity), Some(agix)) = (identity, versions.get_mut("agix")) {
+            if let Some(version) = identity.version {
+                agix["version"] = json!(version);
+            }
+            if let Some(protocol) = identity.protocol_version {
+                agix["protocol_version"] = json!(protocol);
+            }
+            if !identity.capabilities.is_null() {
+                agix["capabilities"] = identity.capabilities;
+                agix["modules"] = json!(identity.modules);
+            }
+        }
+        versions
+    }
+
     pub(crate) fn report(&self) -> Value {
         let extensions = read(&self.extensions).clone();
         json!({
-            "versions": self.versions,
+            "versions": self.versions(),
             "modules": extensions,
             "table": self.table(),
             // Over the single-duplex in-flight cap a request is answered `BUSY`; a notification has

@@ -29,9 +29,9 @@
 //!   the hub runs on it, with the calls it runs on behalf of.
 //!
 //! What runs is in a [`Registry`] the rest of the process reaches through what the carrier hands
-//! out, as with the in-process carrier: [`ProcTools`], the tool provider every engine built in this
-//! process gets (each call over the package's wire); each package's routes (`/ext/<id>/ui/`,
-//! `/ext/<id>/mcp`); the component's interface entries; a generation number that moves whenever
+//! out, as with the in-process carrier: [`ProcTools`], the tool provider every engine this process
+//! builds or spawns gets (each call over the package's wire); each package's route
+//! (`/ext/<id>/ui/`); the component's interface entries; a generation number that moves whenever
 //! the status may have.
 
 mod kernel;
@@ -48,7 +48,7 @@ use async_trait::async_trait;
 use harnix_ext::{codes, ExtId, ExtensionContext, PackageCarrier, Rpc, RpcError};
 use harnix_host_api::{
     AdoptSpec, Availability, Carrier, CarrierRegistrar, CarrierSettings, ChildRequest, HostApi, HostServices, Installed,
-    Running, StopReason, ToolEndpoint,
+    Running, StopReason,
 };
 use harnix_package::egress::Egress;
 use harnix_package::signature::Trust;
@@ -56,13 +56,13 @@ use harnix_wasm_port::socket::Hello;
 use serde_json::{json, Value};
 use tokio::sync::{oneshot, watch};
 
-pub use harnix_carrier_shared::{server_name, tool_name, Loaded, FRAME_CSP, TOOL_PATTERN};
+pub use harnix_carrier_shared::{tool_name, Loaded, FRAME_CSP};
 pub use registry::Registry;
 pub use tools::{ProcTools, MAX_NOTE, NAME as TOOLS_NAME};
 
 use crate::process::{Package, Phase, Wakes};
 use harnix_carrier_shared::sync::{lock, read, write};
-use harnix_carrier_shared::{frames, DEFAULT_TIMEOUT};
+use harnix_carrier_shared::{frames, EventScope, DEFAULT_TIMEOUT};
 
 /// How long a package's process has, from its start, to say hello, register and start.
 pub const READY_WITHIN: Duration = Duration::from_secs(30);
@@ -174,29 +174,16 @@ impl Inner {
         record.len() >= CRASHES
     }
 
-    /// Tell the host what runs now: the page's interface entries, and every spawned daemon's tool
-    /// endpoints (once this process listens).
+    /// Tell the host what runs now: the page's interface entries.
     pub(crate) fn refresh(&self) {
         let Some(cx) = self.cx() else { return };
         let Ok(host) = cx.service::<HostServices>() else { return };
-        let loaded = self.registry.loaded();
-        host.publish_ui(loaded.iter().flat_map(|app| frames::ui_entries(app)).collect());
-        if let Some(listen) = cx.listen() {
-            let base = listen.url().trim_end_matches('/').to_string();
-            let endpoints = loaded
-                .iter()
-                .filter(|app| !app.tools.is_empty())
-                .map(|app| ToolEndpoint::new(&server_name(&app.id), &format!("{base}/ext/{}/mcp", app.id)))
-                .collect();
-            if let Err(e) = host.share_tools(endpoints) {
-                tracing::warn!(error = %e.message, "the packages' tool endpoints were not shared");
-            }
-        }
+        host.publish_ui(self.registry.loaded().iter().flat_map(|app| frames::ui_entries(app)).collect());
         self.moved();
     }
 
-    /// From the first start on: a tool call's progress on the component's topic, and the
-    /// endpoints again once the listener is up.
+    /// From the first start on: a tool call's progress on the component's topic, and an unsigned
+    /// package's interface files followed.
     fn follow(self: &Arc<Self>, cx: &ExtensionContext) {
         if self.following.set(()).is_err() {
             return;
@@ -208,14 +195,6 @@ impl Inner {
                 let _ = cx.topics().publish("progress", json!({}), value).await;
             });
         }));
-        let me = Arc::downgrade(self);
-        let listening = cx.clone();
-        tokio::spawn(async move {
-            listening.listening().await;
-            if let Some(me) = me.upgrade() {
-                me.refresh();
-            }
-        });
         // An unsigned package's interface files, in developer mode: a change moves the generation.
         let me = Arc::downgrade(self);
         tokio::spawn(async move {
@@ -279,7 +258,6 @@ impl Inner {
             "ui_rev".into(),
             json!(self.watches_ui(app).then(|| format!("{:016x}", harnix_carrier_shared::ui_stamp(&app.root.join("ui"))))),
         );
-        map.insert("mcp".into(), json!(format!("/ext/{id}/mcp")));
         map.insert("inline".into(), app.inline.clone());
         status
     }
@@ -304,7 +282,6 @@ fn summary(fingerprint: &str, parts: &Value, disclosure: &Value, started: Value)
         "agent": parts.get("agent").filter(|a| !a.is_null()).map(|agent| json!({
             "package": agent["package"], "instances": agent["instances"], "disclosure": disclosure,
         })),
-        "skills": parts.get("skills").cloned().unwrap_or(json!({})),
         "started": started,
     })
 }
@@ -332,7 +309,6 @@ impl Carrier for ProcCarrier {
     fn register(&self, r: &mut CarrierRegistrar<'_>) {
         let _ = self.0.settings.set(r.settings().clone());
         r.provider(Arc::new(ProcTools::new(self.0.registry.clone())));
-        r.admit(TOOL_PATTERN);
     }
 
     async fn start(&self, host: &dyn HostApi, cx: &ExtensionContext, app: Installed) -> Rpc<Running> {
@@ -401,6 +377,9 @@ impl Carrier for ProcCarrier {
             title: manifest.app.title.clone(),
             root: app.pkg_dir().clone(),
             component: manifest.component.is_some(),
+            // What its process says when it starts may narrow this to none
+            // (`process::loaded_as_started`), never widen it.
+            events: EventScope::of(true, &manifest, app.capabilities()),
             tools: expected.tools.clone(),
             ui: manifest.ui.clone(),
             interface: manifest.interface.clone(),
@@ -485,7 +464,7 @@ impl Carrier for ProcCarrier {
     /// What it placed is in its process's engine, and goes with it: nothing to take out here.
     async fn unplace(&self, _cx: &ExtensionContext, app: &Installed) -> Rpc<Value> {
         let placed = placed_of(app);
-        Ok(json!({"agent": placed.get("agent").cloned().unwrap_or(Value::Null), "skills": placed.get("skills").cloned().unwrap_or(json!({}))}))
+        Ok(json!({"agent": placed.get("agent").cloned().unwrap_or(Value::Null)}))
     }
 
     async fn status(&self, id: &ExtId) -> Value {

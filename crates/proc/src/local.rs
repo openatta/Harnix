@@ -3,41 +3,36 @@
 //! chains the product told of, and a tool call's progress to the session that made it.
 //!
 //! The engine is the process's own, served to the product on the stream it inherited
-//! (`harnix_engine::assemble::serve_stream`); it is built from an `EngineProfile` on `run/engine/`,
+//! (`harnix_engine::Engine::serve`); it is started from an `EngineProfile` on `run/engine/`,
 //! with provider settings the product wrote there beforehand. Nothing of the product's engine
 //! policy is in it.
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use async_trait::async_trait;
 use base64::Engine as _;
-use harnix_engine::InProcessLink;
-use harnix_engine_api::ops::EngineOps;
+use harnix_engine::DaemonLink;
+use harnix_engine_link::ops::EngineOps;
 use harnix_engine_api::{
-    Cancel, ChainLink, ChainSource, EngineControl, EngineLink, HookDecision, Permission, SessionFacts, SessionRef, Tool, ToolCallFacts,
-    ToolCx, ToolError, ToolHook, ToolOutput, ToolProvider, ToolSpec,
+    Cancel, ChainLink, HookDecision, Permission, SessionRef, Tool, ToolCallFacts, ToolCx, ToolError, ToolHook,
+    ToolOutput, ToolProvider, ToolSpec, ToolsChanged,
 };
-use harnix_package::acquire::{internal, refused};
-use harnix_package::{package, tool_name};
+use harnix_engine_link::{ChainSource, EngineLink};
+use harnix_package::acquire::refused;
+use harnix_package::tool_name;
 use harnix_wasm_host::{Host, HttpFetcher, HttpRequest, HttpResponse};
 use harnix_wasm_port::{
     codes, Agent, AgentInstall, AgentRef, AgentSwitch, CallAs, CallMeta, Control, Failure, Fetch, Fetched, HookCall,
-    HookReply, Kernel, Offer, Progress, Publish, Registration, RpcError, Skills, Subscription, ToolCall, ToolDef,
+    HookReply, Kernel, Offer, Progress, Publish, Registration, RpcError, Subscription, ToolCall, ToolDef,
     ToolReply, TurnChain, TurnRef,
 };
 use serde_json::{json, Value};
 
 /// The provider's name in every session.
 const NAME: &str = "harnix-extension";
-
-/// The longest note a package's hook may add to a tool's result, in characters.
-const MAX_NOTE: usize = 2000;
-
-/// What marks a skill directory as a package's, inside the skills directory.
-const SKILL_MARK: &str = ".harnix-app";
 
 /// Where one tool call's progress goes, by the call's id.
 type Listener = Arc<dyn Fn(&str) + Send + Sync>;
@@ -46,27 +41,29 @@ type Listener = Arc<dyn Fn(&str) + Send + Sync>;
 pub(crate) struct Local {
     /// The name its engine goes by: what a turn's chain is told under.
     instance: String,
-    skills: PathBuf,
     /// The wire's kernel, which what a package asks of the product goes to.
     wire: Arc<dyn Kernel>,
     host: OnceLock<Weak<Host>>,
-    link: OnceLock<Arc<InProcessLink>>,
+    link: OnceLock<Arc<DaemonLink>>,
     offers: Mutex<BTreeMap<String, Offer>>,
     listeners: Mutex<HashMap<String, Listener>>,
     hooks: AtomicU64,
+    /// Fired when an offer comes or goes: the tool provider answers another set then.
+    changed: ToolsChanged,
 }
 
 impl Local {
     pub(crate) fn new(ext: &str, data_root: &Path, wire: Arc<dyn Kernel>) -> Arc<Self> {
+        harnix_engine::strip_package_skills(data_root);
         Arc::new(Self {
             instance: format!("proc.{ext}"),
-            skills: data_root.join("skills"),
             wire,
             host: OnceLock::new(),
             link: OnceLock::new(),
             offers: Mutex::new(BTreeMap::new()),
             listeners: Mutex::new(HashMap::new()),
             hooks: AtomicU64::new(0),
+            changed: ToolsChanged::new(),
         })
     }
 
@@ -78,7 +75,7 @@ impl Local {
         let _ = self.host.set(Arc::downgrade(host));
     }
 
-    pub(crate) fn link_is(&self, link: Arc<InProcessLink>) {
+    pub(crate) fn link_is(&self, link: Arc<DaemonLink>) {
         let _ = self.link.set(link);
     }
 
@@ -202,56 +199,14 @@ impl Agent for Local {
         self.ops()?.passthrough(method, json!({"name": s.name})).await.map(|_| ())
     }
 
-    /// Copy `<source>/<name>/` into the skills directory, marked as the package's. A directory of
-    /// that name that is not the package's is somebody else's skill, and refuses it.
-    async fn place_skills(&self, s: Skills) -> Result<(), RpcError> {
-        for name in &s.names {
-            let target = self.skills.join(name);
-            if target.exists() && std::fs::read_to_string(target.join(SKILL_MARK)).ok().as_deref() != Some(s.app.as_str()) {
-                return Err(refused(format!("the engine has a skill `{name}` of its own; `{}` would replace it", s.app)));
-            }
-            let _ = std::fs::remove_dir_all(&target);
-            let source = s.source.join(name);
-            let mut files = Vec::new();
-            package::walk(&source, &source, &mut files).map_err(|e| internal(format!("{}: {e}", source.display())))?;
-            for (relative, path) in files {
-                let to = target.join(&relative);
-                if let Some(parent) = to.parent() {
-                    std::fs::create_dir_all(parent).map_err(|e| internal(format!("{}: {e}", parent.display())))?;
-                }
-                std::fs::copy(&path, &to).map_err(|e| internal(format!("{}: {e}", to.display())))?;
-            }
-            std::fs::write(target.join(SKILL_MARK), &s.app).map_err(|e| internal(e.to_string()))?;
-        }
-        Ok(())
-    }
-
-    /// Remove the skills marked as the package's, and nothing else.
-    async fn remove_skills(&self, s: Skills) -> Result<(), RpcError> {
-        for name in &s.names {
-            let target = self.skills.join(name);
-            if std::fs::read_to_string(target.join(SKILL_MARK)).ok().as_deref() == Some(s.app.as_str()) {
-                if let Err(e) = std::fs::remove_dir_all(&target) {
-                    tracing::warn!(package = %s.app, skill = %name, error = %e, "a skill was not removed");
-                }
-            }
-        }
-        Ok(())
-    }
-
-    async fn reload_instance(&self, _instance: String) -> Result<(), RpcError> {
-        match self.link.get() {
-            Some(link) => link.reload_settings().await,
-            None => Err(refused("this extension process's engine is not up")),
-        }
-    }
-
     async fn expose_tools(&self, offer: Offer) -> Result<(), RpcError> {
         let mut offers = self.offers.lock().unwrap_or_else(|e| e.into_inner());
         match offer.tools.is_empty() && !offer.component {
             true => offers.remove(&offer.app),
             false => offers.insert(offer.app.clone(), offer),
         };
+        drop(offers);
+        self.changed.notify();
         Ok(())
     }
 }
@@ -264,7 +219,7 @@ impl ToolProvider for LocalTools {
         NAME
     }
 
-    fn tools(&self, session: &SessionFacts) -> Vec<Arc<dyn Tool>> {
+    fn tools(&self) -> Vec<Arc<dyn Tool>> {
         let mut tools: Vec<Arc<dyn Tool>> = Vec::new();
         for offer in self.0.offered().into_iter().filter(|o| o.component) {
             for def in &offer.tools {
@@ -286,27 +241,25 @@ impl ToolProvider for LocalTools {
                     app: offer.app.clone(),
                     title: offer.title.clone(),
                     local: self.0.clone(),
-                    project: session.project().to_path_buf(),
                 }));
             }
         }
         tools
     }
 
-    fn hooks(&self, session: &SessionFacts) -> Vec<Arc<dyn ToolHook>> {
+    fn hooks(&self) -> Vec<Arc<dyn ToolHook>> {
         self.0
             .offered()
             .into_iter()
             .filter(|o| o.component)
             .map(|offer| {
-                Arc::new(AppEvents {
-                    app: offer.app,
-                    local: self.0.clone(),
-                    session_id: session.session_id().to_string(),
-                    depth: session.depth(),
-                }) as Arc<dyn ToolHook>
+                Arc::new(AppEvents { app: offer.app, local: self.0.clone() }) as Arc<dyn ToolHook>
             })
             .collect()
+    }
+
+    fn changes(&self) -> Vec<ToolsChanged> {
+        vec![self.0.changed.clone()]
     }
 }
 
@@ -331,8 +284,6 @@ struct AppTool {
     app: String,
     title: Option<String>,
     local: Arc<Local>,
-    /// The session's project: `/project`, for a manifest that asks for `${project}`.
-    project: PathBuf,
 }
 
 #[async_trait]
@@ -364,7 +315,7 @@ impl Tool for AppTool {
             tool: self.def.name.clone(),
             input,
             call_id: call_id.clone(),
-            project: Some(self.project.clone()),
+            project: (!cx.project().as_os_str().is_empty()).then(|| cx.project().to_path_buf()),
             progress: true,
         };
         // On behalf of the session's turn: what the tool calls carries the turn's chain.
@@ -388,22 +339,6 @@ impl Tool for AppTool {
 struct AppEvents {
     app: String,
     local: Arc<Local>,
-    session_id: String,
-    depth: u32,
-}
-
-/// What a note of the package `app` adds to the result of `tool`: nothing for a tool not its own,
-/// and at most [`MAX_NOTE`] characters, under its name.
-fn note_for(app: &str, tool: &str, note: &str) -> Option<String> {
-    if !tool.starts_with(&tool_name(app, "")) {
-        return None;
-    }
-    let cut = note.chars().count() > MAX_NOTE;
-    let mut note: String = note.chars().take(MAX_NOTE).collect();
-    if cut {
-        note.push('…');
-    }
-    Some(format!("\n\n[{app}] {note}"))
 }
 
 #[async_trait]
@@ -416,7 +351,7 @@ impl ToolHook for AppEvents {
         let hook = HookCall {
             app: self.app.clone(),
             event: "tool.before".into(),
-            payload: json!({"tool": call.name(), "input": call.input(), "session_id": self.session_id, "depth": self.depth}),
+            payload: json!({"tool": call.name(), "input": call.input(), "session_id": call.session_id(), "depth": call.depth()}),
             call_id: call_id.clone(),
         };
         let decision = cancellable(&control, &call_id, call.cancel(), control.hook(CallMeta::default(), hook))
@@ -428,7 +363,7 @@ impl ToolHook for AppEvents {
                 tracing::info!(package = %self.app, tool = %call.name(), %reason, "a package refused a tool call");
                 HookDecision::Block(format!("refused by the package `{}`: {reason}", self.app))
             }
-            HookReply::AddContext(note) => match note_for(&self.app, call.name(), &note) {
+            HookReply::AddContext(note) => match harnix_package::note_for(&self.app, call.name(), &note) {
                 Some(note) => HookDecision::AddContext(note),
                 None => HookDecision::Proceed,
             },
@@ -437,22 +372,5 @@ impl ToolHook for AppEvents {
                 HookDecision::Proceed
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_note_goes_on_its_own_tools_results_only_and_only_so_long() {
-        assert_eq!(note_for("acme.notes", "ext__acme_notes__search", "seen").as_deref(), Some("\n\n[acme.notes] seen"));
-        for tool in ["Bash", "ext__acme_other__search", "ext__acme_notesx__search"] {
-            assert_eq!(note_for("acme.notes", tool, "seen"), None, "{tool}");
-        }
-        let long = "x".repeat(MAX_NOTE + 10);
-        let note = note_for("acme.notes", "ext__acme_notes__search", &long).unwrap();
-        assert_eq!(note.chars().filter(|c| *c == 'x').count(), MAX_NOTE);
-        assert!(note.ends_with('…'));
     }
 }

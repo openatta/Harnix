@@ -32,8 +32,8 @@
 | 二进制 `harnix`（crate `harnix-cli`） | Harnix 自己发布的产品 |
 | `harnix-ext`、`harnix-ext-<id>`、`harnix-host-api` | 扩展接口、第一方扩展、宿主组件接口这几个 crate |
 | `harnix-ext.toml`、`.hxext` | 扩展包的清单与包 |
-| `/ext/<id>/…` | 一个扩展的 HTTP 路由、静态文件、工具端点 |
-| `ext__<id>__<工具>` | 扩展包的工具在会话里的名字（id 里的 `.` 换成 `_`） |
+| `/ext/<id>/…` | 一个扩展的 HTTP 路由、静态文件 |
+| `ext__<id>__<工具>` | 扩展包的工具在会话里的名字（id 里的 `.`、`-` 与工具名里的 `-` 都换成 `_`） |
 | `ext-proc` | 产品二进制拉起扩展进程用的子命令 |
 | `harnix-pack` | 扩展包作者与商店用的打包工具 |
 
@@ -43,7 +43,7 @@
 |---|---|---|
 | **实例** | `instance` | 一台 Agix 引擎（一个会话池）。**隔离单位**：数据根、设置、provider、MCP、Agix 插件、场景都是它自己的 |
 | **`main` 实例** | `main` | profile 的 `[engine]` 建的缺省实例，内核拥有，谁都不能停 |
-| **实例载体** | `InstanceCarrier` | 一台实例怎么跑：**进程内**（作为库链接）、**spawn**（Harnix 起子进程并看护）、**attach**（连一台只给这个 Harnix 用的 daemon）、**收养**（扩展进程里的引擎） |
+| **实例载体** | `InstanceCarrier` | 一台实例怎么跑：**进程内**（经 `agix::embed` 起在本进程里，经内存双工连）、**spawn**（Harnix 起子进程并看护）、**attach**（连一台只给这个 Harnix 用的 daemon）、**收养**（扩展进程里的引擎） |
 | **实例登记表** | `harnix-instance` | 建、确保、停、重启实例，模板、账本、拥有者都在这里；中枢只经 `InstanceBook` 问它 |
 | **模板** | `InstanceTemplate` | 建实例的规格：实例载体、场景、数据根规则、允许填的参数、能不能由界面用。扩展与界面都只能按模板建实例 |
 | **拥有者**（实例的） | `owner` | 实例归谁：`kernel`、某个扩展、某个 space（界面建的）。跨拥有者停、重启要能力 `instances.admin` |
@@ -54,7 +54,7 @@
 | **轮** | turn | 一次「用户消息 → 模型若干步 → 结束」 |
 | **步** | step | 一轮里的一次模型调用及其工具执行 |
 | **场景** | scene | Agix 的概念：一套系统提示词与工具集。会话创建时选定 |
-| **场景层** | `SceneLayer` | 原生扩展包装一个场景的写法：只说要改的几样（追加的系统块、工具、放行的名字……），其余照底版 |
+| **场景层** | `SceneLayer` | 原生扩展包装一个场景的写法：只说要改的几样（追加的系统块、工具、交互方式、是否要项目、命名），其余照底版；由中枢在建会话时展开 |
 
 **别混**：
 
@@ -134,7 +134,7 @@
 | **宿主 API** | `HostApi`、`useHost()` | 前端代码拿到的全部能力。拿不到 Harnix 自己的连接 |
 | **令牌覆盖** | `r.tokens` | 扩展改主题已有令牌的值；不能新增令牌名 |
 | **语言包** | `r.strings` | 扩展带的文案；key 以它的 owner 开头 |
-| **引擎贡献** | `EngineContribution`，`Registrar::engine()` / `engine_everywhere()` | 原生扩展交给进程内实例的东西：场景层、原生工具（`Tool`、`ToolProvider`）、`PromptGate`、凭据源、`admit_everywhere`。扩展包没有 |
+| **引擎贡献** | `EngineContribution`，`Registrar::engine()` / `engine_everywhere()` | 原生扩展交给进程内实例的东西：场景层、原生工具（`Tool`、`ToolProvider`）、`PromptGate`。扩展包没有 |
 | **扩展的 HTTP 路由** | `Registrar::route`、`static_dir`，`/ext/<id>/` | 原生扩展自己的 HTTP 路由与静态文件。同源、同一个准入，但不享受 Harnix 通道的保证 |
 | **扩展条目** | extension entry | 扩展往会话时间线写的、只给人看的条目，由 `flow.block` 画出来；命名空间是写它的扩展的 id |
 
@@ -153,9 +153,9 @@
 
 | 术语 | 代码 | 意思 |
 |---|---|---|
-| **主体** | `Subject` | 一次调用的调用方，四种：`kernel`（本二进制）、`device:<id>`（一个人）、`ext:<id>`（一个扩展以自己的身份）、`engine:<实例>`（一台 spawn 的 daemon 回连工具端点）。审计照这个写法记 |
+| **主体** | `Subject` | 一次调用的调用方，四种：`kernel`（本二进制）、`device:<id>`（一个人）、`ext:<id>`（一个扩展以自己的身份）、`engine:<实例>`（一个实例的引擎，审计记它做的事，如扩展的引擎发得太多；没有哪一行对它开）。审计照这个写法记 |
 | **设备** | `Device` | 一个配对过的客户端，或本机带令牌的页面。代表一个人。**设备永远不持有能力** |
-| **准入** | `harnix-authz`（`Devices`、`EngineCredentials`、`ChildBindings`） | 唯一的准入点：设备、本机令牌、启动链接、引擎凭据、扩展进程的绑定，状态都在这里，一处发、撤、审计 |
+| **准入** | `harnix-authz`（`Devices`、`ChildBindings`） | 唯一的准入点：设备、本机令牌、启动链接、扩展进程的绑定，状态都在这里，一处发、撤、审计 |
 | **路由表** | `harnix-router` | 方法、主题（`topic:<名>`）、路由（`route:<扩展 id>`）都是表里的一行：所有者、处理者、谁能用、要什么能力、范围。一次调用判定一次 |
 | **所有者**（名字的） | `Owner` | 已登记的、与一个名字整段前缀匹配的最长 id：内核（`harnix`）、引擎（`engine`）或某个扩展。只有所有者能登记它名下的名字 |
 | **访问** | `Access` | 一行对谁开放：只对设备（`Access::device()`，人经界面做的决定）；设备与扩展（`.with_extensions()`）；只对扩展；某一个扩展；持有某项能力的扩展；引擎主体；或谁都不行（中枢独占） |

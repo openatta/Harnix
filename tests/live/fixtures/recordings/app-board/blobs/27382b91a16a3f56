@@ -1,1 +1,0 @@
-{"role":"assistant","content":[{"type":"thinking","text":"The user asks to call the board tool with no arguments. But the system says each showcase tool asks before it runs. Let me just call it.","signature":"b6a1ad0d-e910-4f38-9135-5a4b2c2a57fc"},{"type":"tool_use","id":"call_00_E5Z2VjDvkfLx9X6TS7jP4287","name":"ext__example_showcase__board","input":{}}]}

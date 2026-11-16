@@ -49,6 +49,9 @@ export interface Scene {
   description?: string;
   active?: boolean;
   requires_project?: boolean;
+  /** 场景层的一行：它跑在引擎的哪个场景上。 */
+  base?: string;
+  scene_layer?: boolean;
   [key: string]: unknown;
 }
 
@@ -94,6 +97,9 @@ export interface Hello {
     providers?: EngineProviders | null;
     [key: string]: unknown;
   };
+  /** How long the engine waits for a person to answer a permission ask: the card counts down
+   *  from it (`permission_prompt_timeout_secs`, concept §21.2 of harnix-ext.md). */
+  permission_prompt_timeout_secs?: number;
   scenes: Scene[];
   commands: unknown[];
   /** What a client fills in when it names none. `space` is null until the product names one. */
@@ -122,7 +128,6 @@ export interface Hello {
     max_frame_bytes?: number;
     max_upload_bytes?: number;
     replay_max_frames?: number;
-    prompt_timeout_secs?: number;
     /** 单双向流上同时在途的请求上限；超额的回 `BUSY`（-31005）。客户端照它在本地排队。 */
     max_in_flight?: number;
   };
@@ -155,7 +160,11 @@ export interface SessionRow {
   session_id: string;
   name?: string | null;
   preview?: string | null;
+  /** 引擎跑的场景（它自己的）；会话建在场景层里时，`scene_layer` 是那一层，显示用它。 */
   scene?: string | null;
+  scene_layer?: string | null;
+  /** 调用方自己加在系统提示词末尾的文字（`harnix.session.setPrompt`）。 */
+  prompt_append?: string | null;
   project_root?: string | null;
   status?: string;
   running?: boolean;
@@ -169,7 +178,8 @@ export interface SessionRow {
 
 /** `engine.session.get` 的结果（attach 原样带回）。 */
 export interface SessionInfo extends SessionRow {
-  turn_state?: "idle" | "running" | string;
+  /** `rebuilding`（原地重建）与 `operating`（对上下文的操作独占）时没有轮可打断。 */
+  turn_state?: "idle" | "running" | "rebuilding" | "operating" | string;
   usage?: Usage | null;
   /** 最近一次调过模型的那一轮的上下文占用；会话在内存里、且至少有一轮调过模型时才有。 */
   context?: ContextUsage;
@@ -291,7 +301,7 @@ export interface UserMessageEvent {
   item_id?: string;
   /**
    * "steer"：交给了正在跑的这一轮，还没进对话——它不开新的一轮；进了对话时来一帧
-   * user_message_delivered，本轮在那之前结束则来 user_messages_returned（中枢把它排到队首）。
+   * user_message_delivered，本轮在那之前结束则来 user_messages_returned（话不在对话里，中枢不重发）。
    */
   delivery?: "steer";
 }
@@ -302,7 +312,7 @@ export interface UserMessageDeliveredEvent {
   content?: string;
   item_id?: string;
 }
-/** 运行中送来、但本轮结束前没读到的消息：不在 transcript 里；中枢把它们排回队首。 */
+/** 运行中送来、但本轮结束前没读到的消息：不在 transcript 里，引擎交还给客户端；中枢不重发，要不要再说由人决定。 */
 export interface UserMessagesReturnedEvent {
   kind: "user_messages_returned";
   messages: { message_id: string; content?: string }[];
@@ -378,6 +388,8 @@ export interface PromptEvent {
   paths?: string[];
   /** 被问的那次 tool_use。 */
   tool_use_id?: string;
+  /** 宿主工具自己的问句（Harnix 的链路附上的）：卡片优先显示它。 */
+  tool_question?: string;
 }
 /**
  * 本轮结束，transcript 已落盘。被 hook 拦下、被中断、被截停的轮同样以它结束；没调模型的轮（hook 拦下、本地命令）
@@ -403,8 +415,26 @@ export interface TurnCompleteEvent {
 /** 本轮出错结束。只发给发起这一轮之外的订阅者；发起者（中枢）从 run_turn 的错误应答得知，经 harnix.turn_settled 转告。 */
 export interface ErrorEvent {
   kind: "error";
-  code?: number;
+  /** 引擎的失败种类（`rate_limited`、`model_unavailable`、`session_closed`……）；不认识的按 `retryable` 处理。 */
+  code?: string;
   message?: string;
+  retryable?: boolean;
+  retry_after_ms?: number | null;
+  /** false：这一轮没写进日志（会话中途关闭、引擎中途退出）。 */
+  persisted?: boolean;
+}
+/** 一个提问不再悬着：被答了（在这里或别处），或被撤回（超时、取消）。 */
+export interface PromptResolvedEvent {
+  kind: "prompt_resolved";
+  prompt_id: string;
+  resolution: "answered" | "withdrawn" | string;
+  reason?: "timed_out" | "cancelled" | string;
+}
+/** 引擎的提示：模型要用户回来看，或引擎自己的提醒（例如「总是允许」没能写盘）。 */
+export interface NotificationEvent {
+  kind: "notification";
+  message?: string;
+  status?: "proactive" | string | null;
 }
 export interface SubagentProgressEvent {
   kind: "subagent_progress";
@@ -434,6 +464,8 @@ export type EngineEvent =
   | ToolUseEvent
   | ToolResultEvent
   | PromptEvent
+  | PromptResolvedEvent
+  | NotificationEvent
   | TurnCompleteEvent
   | ErrorEvent
   | SubagentProgressEvent
@@ -474,8 +506,9 @@ export interface InstanceRow {
 /** 一件任务（Agix `engine.session.tasks`）。 */
 export interface TaskRow {
   task_id: string;
-  kind: "agent" | "teammate" | "shell" | "monitor" | "cron" | "code";
-  status: "running" | "done" | "failed" | "stopped" | "waiting";
+  kind: "agent" | "teammate" | "member" | "mcp_task" | "shell" | "monitor" | "cron" | "code";
+  /** `idle`：只有常驻成员（`member`）有，活着、在两条消息之间。 */
+  status: "running" | "done" | "failed" | "stopped" | "waiting" | "idle";
   started_ms: number;
   ended_ms: number | null;
   detail: Record<string, unknown>;

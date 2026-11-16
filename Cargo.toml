@@ -18,6 +18,7 @@ members = [
     "crates/contract",
     "crates/engine",
     "crates/engine-api",
+    "crates/engine-link",
     "crates/ext/api",
     "crates/ext/devices",
     "crates/ext/flow",
@@ -42,8 +43,8 @@ members = [
 # of *its* workspace (docs/harnix-ext.md), and anything
 # inherited from a workspace would then be the application's — its licence
 # included. `scripts/set-version.sh` changes the version everywhere at once;
-# `tests/crate-metadata.mjs` checks they agree. The toolchain floor, 1.87, is
-# what `script-host` (the QuickJS carrier, on in `daemon`'s defaults) needs.
+# `tests/crate-metadata.mjs` checks they agree. The toolchain floor, 1.88, is
+# Agix's own.
 
 # ──────────────────────────────────────────────
 # Harnix's own crates
@@ -95,6 +96,7 @@ harnix-client    = { path = "crates/client" }
 harnix-contract  = { path = "crates/contract" }
 harnix-engine    = { path = "crates/engine" }
 harnix-engine-api = { path = "crates/engine-api" }
+harnix-engine-link = { path = "crates/engine-link" }
 harnix-ext       = { path = "crates/ext/api" }
 harnix-ext-devices = { path = "crates/ext/devices" }
 harnix-ext-flow    = { path = "crates/ext/flow" }
@@ -114,26 +116,20 @@ harnix-wasm      = { path = "crates/wasm" }
 # ──────────────────────────────────────────────
 # Agix (submodule at agix/)
 #
-# Linked in-process, as path dependencies — but **not** members of this
+# Linked in-process, as a path dependency — but **not** a member of this
 # workspace (`exclude` above). Each Agix crate resolves its own
 # `xxx = { workspace = true }` against Agix's own Cargo.toml, so this file does
 # not mirror Agix's dependency table and Agix adding a dependency needs no
-# change here. Only the entry crates Harnix's crates name directly are listed.
+# change here.
 #
-# `daemon` keeps its default features: the QuickJS script carrier (~1 MB) and
-# the package layer. Since Agix 0.3.9 that is the only carrier Agix has (its
-# WebAssembly one was removed), and Agent extensions are Agix's: Harnix links
-# no interpreter for them. An application's own WebAssembly (its backend and
+# Only the facade `agix` is named: the embedding entry and the types an
+# embedder reads. Its default features are agixd's — the QuickJS script
+# carrier and the package layer among them — without the WebSocket listener,
+# which Harnix does not use. An application's own WebAssembly (its backend and
 # tools) is Harnix's and runs in `harnix-wasm`, which only a build that
 # enables applications links.
 # ──────────────────────────────────────────────
-daemon    = { path = "agix/daemon" }
-base      = { path = "agix/crates/core" }
-model     = { path = "agix/crates/model" }
-history   = { path = "agix/crates/history" }
-scene     = { path = "agix/crates/scene" }
-telemetry = { path = "agix/crates/telemetry" }
-runtime   = { path = "agix/crates/runtime" }
+agix = { path = "agix/crates/agix" }
 
 # ──────────────────────────────────────────────
 # Third-party — what Harnix's own crates use.
@@ -144,6 +140,8 @@ tokio-stream = "0.1"
 futures = "0.3"
 async-trait = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+# reqwest's own: a package's egress parses a URL with it once and hands reqwest that parse.
+url = "2.5"
 bytes = "1"
 # The extension interface's HTTP routes are `http` 1.x, so axum's major version is not part of it.
 http = "1"

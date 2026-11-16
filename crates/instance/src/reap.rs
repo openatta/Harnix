@@ -7,6 +7,8 @@
 /// a `config.reload` reads them all again. Everything else in the file is left as it was.
 pub(crate) fn engine_reaps(data_root: &std::path::Path) -> std::io::Result<()> {
     use serde_json::{json, Value};
+    // The engine writes this file under the same lock: the read and the write are one hold.
+    let _held = harnix_contract::dir_lock::DirLock::acquire(data_root)?;
     let path = data_root.join("settings.json");
     let mut settings: Value = match std::fs::read_to_string(&path) {
         Ok(text) => serde_json::from_str(&text)
@@ -24,7 +26,6 @@ pub(crate) fn engine_reaps(data_root: &std::path::Path) -> std::io::Result<()> {
         settings["sandbox"] = json!({});
     }
     settings["sandbox"]["reap_process_groups"] = json!(true);
-    std::fs::create_dir_all(data_root)?;
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, serde_json::to_vec_pretty(&settings).unwrap_or_default())?;
     std::fs::rename(&tmp, &path)

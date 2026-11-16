@@ -8,8 +8,8 @@
 use std::sync::Arc;
 
 use harnix_contract::RpcError;
-use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
-use harnix_engine_api::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, Subscribed, Tasks, TurnInput};
+use harnix_engine_link::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
+use harnix_engine_link::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
 use serde_json::Value;
 use tokio::sync::watch;
 
@@ -75,7 +75,7 @@ impl EngineLink for DownLink {
 /// Every call answers that the instance is down.
 #[async_trait::async_trait]
 impl EngineOps for DownLink {
-    async fn create(&self, _: Value) -> Answer<SessionCreated> {
+    async fn create(&self, _: Value, _: SessionSetup) -> Answer<SessionCreated> {
         Err(self.unavailable())
     }
     async fn get(&self, _: &str) -> Answer<SessionInfo> {
@@ -121,6 +121,12 @@ impl EngineOps for DownLink {
         Err(self.unavailable())
     }
     async fn set_model(&self, _: &str, _: &str, _: Option<&str>) -> Answer<Value> {
+        Err(self.unavailable())
+    }
+    async fn set_prompt(&self, _: &str, _: Option<Option<String>>, _: Option<Option<String>>) -> Answer<Value> {
+        Err(self.unavailable())
+    }
+    async fn set_skill_dirs(&self, _: &str, _: &[std::path::PathBuf]) -> Answer<Value> {
         Err(self.unavailable())
     }
     async fn passthrough(&self, _: &str, _: Value) -> Answer<Value> {

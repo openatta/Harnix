@@ -2,7 +2,7 @@
 name = "harnix-instance"
 version      = "0.4.3-2026111501"
 edition      = "2021"
-rust-version = "1.87"
+rust-version = "1.88"
 license      = "Apache-2.0"
 publish      = false
 description  = "Agix instances: built in-process or reached as a daemon, behind one link"
@@ -13,6 +13,7 @@ harnix-kernel   = { workspace = true }
 harnix-supervise = { workspace = true }
 harnix-engine   = { workspace = true }
 harnix-engine-api = { workspace = true }
+harnix-engine-link = { workspace = true }
 tokio       = { workspace = true }
 tokio-util  = { workspace = true }
 anyhow      = { workspace = true }
@@ -27,4 +28,4 @@ libc        = { workspace = true }
 [dev-dependencies]
 tempfile    = { workspace = true }
 # Agix's own settings loader, to see that what is written is what the engine reads.
-harnix-engine = { workspace = true, features = ["agix"] }
+harnix-engine = { workspace = true }

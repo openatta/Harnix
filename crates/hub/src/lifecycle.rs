@@ -16,8 +16,8 @@
 use std::sync::Arc;
 
 use harnix_contract::{Frame, RpcError};
-use harnix_engine_api::events::{DaemonEventKind, EngineEvent, SessionEventKind};
-use harnix_engine_api::EventReceiver;
+use harnix_engine_link::events::{DaemonEventKind, EngineEvent, SessionEventKind};
+use harnix_engine_link::EventReceiver;
 use serde_json::{json, Value};
 
 use crate::{notification, Hub, SessionKey};
@@ -63,18 +63,20 @@ impl Hub {
         let relisted = matches!(
             kind,
             SessionEventKind::Asked(_)
+                | SessionEventKind::AskResolved { .. }
                 | SessionEventKind::ToolResult { .. }
                 | SessionEventKind::TurnComplete(_)
                 | SessionEventKind::GoalChanged { .. }
         );
         let task = match &kind {
-            SessionEventKind::Task { task_id, started, session } => {
+            SessionEventKind::Task { task_id, started, session, live } => {
                 // A sub-agent's session is the engine's making: it is its parent's space's.
                 if let (true, Some(child)) = (*started, session) {
                     self.child_session(&key, child);
                 }
-                Some((task_id.clone(), *started))
+                Some((task_id.clone(), *live))
             }
+            SessionEventKind::TaskChanged { task_id, live } => Some((task_id.clone(), *live)),
             _ => None,
         };
         let teams = matches!(kind, SessionEventKind::TeamProgress { .. });
@@ -85,11 +87,11 @@ impl Hub {
         if teams {
             self.refresh("harnix.session.tasks", tasks());
         }
-        if let Some((task_id, started)) = task {
+        if let Some((task_id, live_now)) = task {
             {
                 let mut guard = self.inner.lock().await;
                 let live = &mut guard.sessions.entry(key.clone()).or_default().live_tasks;
-                if started {
+                if live_now {
                     live.insert(task_id);
                 } else {
                     live.remove(&task_id);
@@ -128,6 +130,19 @@ impl Hub {
             }
             DaemonEventKind::Lagged => {
                 tokio::spawn(self.clone().reconcile(instance.to_string()));
+            }
+            DaemonEventKind::McpServer { ref server, failed } if !extension => {
+                let key = (instance.to_string(), server.clone());
+                let mut told = event.clone();
+                if let Some(obj) = told.as_object_mut() {
+                    obj.insert("instance".into(), json!(instance));
+                }
+                let mut guard = self.inner.lock().await;
+                if failed {
+                    guard.failed_servers.insert(key, told);
+                } else {
+                    guard.failed_servers.remove(&key);
+                }
             }
             _ => {}
         }
@@ -293,6 +308,7 @@ impl Hub {
         // not subscribed again hears of no task ending, so it lists none.
         let live_tasks = if had_watchers { self.live_tasks(&key).await } else { Default::default() };
         let running = info.running();
+        let held = info.held();
         let current = info.current_turn().map(str::to_string);
         let (watchers, settle, start_next) = {
             let mut guard = self.inner.lock().await;
@@ -306,12 +322,14 @@ impl Hub {
                     state.running_turn = current;
                     state.external = true;
                 }
+            } else if held {
+                // Neither running nor free: a turn of the hub's is not over for that.
             } else if let Some(turn) = state.running_turn.clone() {
                 // Finished while nobody was listening. There is no result to
                 // report; the transcript has it.
                 settle = Some(turn);
             }
-            let start_next = !running && settle.is_none() && !state.queue.is_empty();
+            let start_next = !running && !held && settle.is_none() && !state.queue.is_empty();
             (state.watchers(), settle, start_next)
         };
         self.fan_out(

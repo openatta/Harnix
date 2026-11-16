@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use harnix_contract::{ChainLink, SessionRef};
+use harnix_contract::s1::{ChainLink, SessionRef};
 use serde_json::Value;
 
 /// A tool a session can call.
@@ -16,6 +16,12 @@ pub trait Tool: Send + Sync + 'static {
 
     /// Whether a call with this input runs, is asked about, or is refused. Asked by default: a
     /// tool that touches nothing says [`Permission::Allow`] itself.
+    ///
+    /// The link answers the engine's permission ask for the tool by it: `Allow` is let through
+    /// and `Deny` refused without anyone seeing the ask; `Ask` goes to the person, its question
+    /// shown beside the engine's line. A call is asked again as it runs: one refused does not run
+    /// whatever let the engine make it, and nor does one that would be asked about in a session
+    /// nobody answers.
     fn permission(&self, _input: &Value) -> Permission {
         Permission::Ask(format!("Run the tool `{}`?", self.spec().name()))
     }

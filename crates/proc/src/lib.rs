@@ -40,9 +40,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context};
-use harnix_engine::assemble::{engine_config, serve_stream};
-use harnix_engine::{Chains, InProcessLink};
-use harnix_engine_api::{EngineContribution, EngineControl, EngineProfile};
+use harnix_engine::{Chains, Engine, EngineConfig, HostSide, InProcessEngine};
+use harnix_engine_api::{EngineContribution, EngineProfile};
+use harnix_engine_link::EngineControl;
 use harnix_wasm_host::{Host, HostOptions};
 use harnix_wasm_port::rpc::{KernelClient, Wire};
 use harnix_wasm_port::socket::{now_ms, CallMeta, CancellationToken, Hello, Options as WireOptions, SocketWire, HELLO};
@@ -139,7 +139,7 @@ pub fn this_build() -> Hello {
         wire: EXT_WIRE_VERSION,
         ext: String::new(),
         version: HARNIX_VERSION.to_string(),
-        agix_version: harnix_engine::identity().version,
+        agix_version: Some(harnix_engine::AGIX_VERSION.to_string()),
         engine: harnix_wasm_host::WasmEngine::this_build(),
         harnix_api: harnix_package::manifest::HARNIX_API,
         pid: 0,
@@ -249,20 +249,20 @@ where
 
 /// The process's own engine, built on `run/engine/` with the package's tools in its sessions, and
 /// served to the product on `stream` for as long as the stream stays open.
-async fn serve_engine(ext: &str, local: &Arc<Local>, run: &Path, stream: tokio::net::UnixStream) -> anyhow::Result<Arc<InProcessLink>> {
+async fn serve_engine(ext: &str, local: &Arc<Local>, run: &Path, stream: tokio::net::UnixStream) -> anyhow::Result<Arc<InProcessEngine>> {
     let root = run.join("engine");
     std::fs::create_dir_all(&root).with_context(|| format!("its engine's data root {}", root.display()))?;
+    let config = EngineConfig::from_profile(&EngineProfile::new(), &root);
+    let engine = Engine::start(config).await.with_context(|| format!("the engine of `{ext}`"))?;
+    // The package's tools are offered on this process's own link to its engine: the product's
+    // connection only reads and drives its sessions.
     let mut contrib = EngineContribution::new();
     contrib.provider(Arc::new(LocalTools(local.clone())));
-    contrib.admit_everywhere("ext__*");
-    let mut config = engine_config(local.instance(), &EngineProfile::new(), &root, contrib);
-    config.chains = Chains(local.clone());
-    let engine = harnix_engine::build(config).await.with_context(|| format!("the engine of `{ext}`"))?;
-    let server = engine.server.clone();
-    let link = InProcessLink::start(engine).await;
-    local.link_is(link.clone());
-    tokio::spawn(serve_stream(server, stream));
-    Ok(link)
+    let host = HostSide::new(local.instance(), Chains(local.clone()), &contrib).map_err(anyhow::Error::msg)?;
+    let here = InProcessEngine::start(engine, local.instance(), host).await?;
+    local.link_is(here.link().clone());
+    here.engine().serve(stream);
+    Ok(here)
 }
 
 /// Marks an error as one of setting the process up: [`entry`] exits [`EXIT_SETUP`] with it.

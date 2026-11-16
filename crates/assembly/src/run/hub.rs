@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use harnix_hub::{Hub, HubConfig};
 use harnix_instance::link::now_ms;
-use harnix_instance::{HistoryStore, InstanceRegistry, Owner, INSTANCES_TOPIC};
+use harnix_instance::{InstanceRegistry, Owner, INSTANCES_TOPIC};
 use serde_json::{json, Value};
 
 use super::instances::Instances;
@@ -25,8 +25,6 @@ pub(super) struct Assembled {
     pub instances: Arc<InstanceRegistry>,
     /// The interface modules a client is told of at hello, as packages come and go.
     pub ui: Arc<UiModules>,
-    /// The main instance's history: where audit entries are filed.
-    pub history: Option<Arc<dyn HistoryStore>>,
     /// The brand's icon on disk, resolved against the profile: what the transport serves at
     /// [`harnix_transport::BRAND_ICON_PATH`].
     pub brand_icon: Option<PathBuf>,
@@ -45,7 +43,6 @@ pub(super) async fn assemble(
     let Instances {
         registry,
         main,
-        history,
         fixed,
     } = instances;
     if let Some(dir) = &cli.replay_dir {
@@ -98,7 +95,7 @@ pub(super) async fn assemble(
     let process = json!({
         "app": { "name": name, "version": version },
         "harnix": crate::HARNIX_VERSION,
-        "agix": harnix_engine::identity().version,
+        "agix": harnix_engine::AGIX_VERSION,
         "started_ms": now_ms(),
     });
     let process = Arc::new(Process::new(process, hub.clone()));
@@ -122,7 +119,6 @@ pub(super) async fn assemble(
         hub,
         instances: registry,
         ui,
-        history,
         brand_icon,
     })
 }

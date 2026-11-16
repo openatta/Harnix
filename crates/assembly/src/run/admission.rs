@@ -33,8 +33,6 @@ pub(crate) struct Admission {
     /// The host components' pipes, when anything may register extensions while the process runs.
     /// Held here for as long as the process runs: what hands them out holds them weakly.
     pub dynamic: Option<Arc<DynamicHost>>,
-    /// The credentials of the engines this process spawned, which the transport admits.
-    pub engines: Arc<harnix_authz::EngineCredentials>,
     /// What `harnix.ui` tells: pushed again once every extension has started.
     pub ui: Arc<UiModules>,
 }
@@ -50,7 +48,6 @@ pub(super) struct Parts {
     pub ui: Arc<UiModules>,
     pub devices: Arc<DeviceBook>,
     pub credentials: Arc<dyn harnix_ext::Credentials>,
-    pub servers: Arc<harnix_instance::SharedServers>,
     pub state_root: PathBuf,
     /// Where projects live (`--data-dir`).
     pub projects_root: PathBuf,
@@ -62,7 +59,6 @@ pub(super) struct Parts {
     pub package_sections: std::collections::BTreeMap<String, serde_json::Value>,
     /// The components whose section turns their processes' sandbox off.
     pub unsandboxed: std::collections::BTreeSet<String>,
-    pub engines: Arc<harnix_authz::EngineCredentials>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -72,21 +68,21 @@ pub(super) fn admit(
     table: RouteTable,
     grants: Arc<harnix_kernel::GrantTable>,
     behind: &Behind,
-    history: Option<Arc<dyn harnix_instance::HistoryStore>>,
     parts: Parts,
     identity: Identity<'_>,
 ) -> Admission {
-    let audit = audit(hub, history);
+    let audit = audit(hub);
     let (short, _) = crate::cli::versions(identity.name, identity.version);
     let diagnostics = Arc::new(Diagnostics {
         versions: json!({
             "app": {"name": identity.name, "version": short},
             "harnix": crate::HARNIX_VERSION,
-            "agix": harnix_engine::about(),
+            "agix": {"version": harnix_engine::AGIX_VERSION, "protocol_version": harnix_engine::AGIX_PROTOCOL},
             "ext_api": harnix_ext::EXT_API_VERSION,
             "contribution_api": harnix_contract::CONTRIB_API_VERSION,
             "protocol": harnix_contract::PROTOCOL_VERSION,
         }),
+        instances: behind.instances.clone(),
         extensions: RwLock::new(Vec::new()),
         dynamic: OnceLock::new(),
         router: OnceLock::new(),
@@ -97,7 +93,7 @@ pub(super) fn admit(
     let (listen, listening) = tokio::sync::watch::channel(None);
     let listen = Arc::new(listen);
     let mut dynamic = None;
-    let services = Arc::new(HostServicesRegistry::default());
+    let services = Arc::new(HostServicesRegistry::new(grants.clone(), instances.clone()));
     // This process's uploads: a device's (`harnix.bulk.upload`) and each extension's.
     let uploads = Arc::new(HostUploads::new(parts.state_root.join("uploads").join(std::process::id().to_string())));
     let _ = behind.uploads.set(uploads.clone());
@@ -129,8 +125,8 @@ pub(super) fn admit(
             DynamicParts {
                 router: router.clone(),
                 instances: instances.clone(),
+                hub: hub.clone(),
                 seats: seats.clone(),
-                servers: parts.servers,
                 state_root: parts.state_root,
                 ui: parts.ui.clone(),
                 runtime_modules: parts.runtime_modules,
@@ -149,13 +145,12 @@ pub(super) fn admit(
         seats,
         listen,
         dynamic,
-        engines: parts.engines,
         ui: parts.ui,
     }
 }
 
 /// The audit: a ring for the diagnostics page, and a durable sink in the session timeline.
-fn audit(hub: &Arc<Hub>, history: Option<Arc<dyn harnix_instance::HistoryStore>>) -> Arc<Audit> {
+fn audit(hub: &Arc<Hub>) -> Arc<Audit> {
     let audit = Arc::new(Audit::default());
     {
         // The system space reaching across spaces: allowed, and on the record (concept §5.4). And
@@ -174,13 +169,9 @@ fn audit(hub: &Arc<Hub>, history: Option<Arc<dyn harnix_instance::HistoryStore>>
         }));
     }
     // Decisions worth going back for land in the session timeline, as engine
-    // extension entries — in order with everything else, and skippable by
+    // extension entries (`session.appendEntry` on the `main` instance's link) — in order with everything else, and skippable by
     // anything that does not know what they are (concept §6.5). The ring stays for
     // the diagnostics page.
-    if let Some(store) = history {
-        audit.set_sink(Box::new(audit_log::TimelineAudit::new(harnix_engine::timeline::Timeline::new(store))));
-    } else {
-        tracing::warn!("no history store; audit entries live only in memory");
-    }
+    audit.set_sink(Box::new(audit_log::TimelineAudit::new(hub.clone())));
     audit
 }

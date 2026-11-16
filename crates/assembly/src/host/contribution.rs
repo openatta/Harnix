@@ -5,11 +5,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use harnix_engine_api::{
-    EngineContribution, PromptDecision, PromptFacts, PromptGate, SessionFacts, Tool, ToolHook, ToolProvider,
+    EngineContribution, PromptDecision, PromptFacts, PromptGate, Tool, ToolHook, ToolProvider, ToolsChanged,
 };
 
-/// `from`'s, after what `into` has. The first credential source stays; a second is ignored with
-/// a warning, as when one contribution is offered two.
+/// `from`'s, after what `into` has.
 pub(crate) fn merge(into: &mut EngineContribution, from: &EngineContribution) {
     for layer in from.scenes() {
         into.scene(layer.clone());
@@ -20,39 +19,21 @@ pub(crate) fn merge(into: &mut EngineContribution, from: &EngineContribution) {
     for gate in from.prompt_gates() {
         into.prompt_gate(gate.clone());
     }
-    for hook in from.foreign_hooks() {
-        into.foreign_hook(hook.hook().clone());
-    }
-    for pattern in from.admitted() {
-        into.admit_everywhere(pattern);
-    }
-    if let Some(source) = from.credential_source() {
-        into.credentials(source.clone());
-    }
 }
 
 /// The same contribution, with its providers, gates and hooks doing nothing while `enabled` is
 /// false: an extension that fails after its instance was built cannot take its scenes back out of
 /// the engine, but it stops reaching sessions built after.
-pub(crate) fn gated(c: &EngineContribution, enabled: Arc<AtomicBool>) -> EngineContribution {
+pub(crate) fn gated(c: &EngineContribution, enabled: Arc<AtomicBool>, changed: ToolsChanged) -> EngineContribution {
     let mut out = EngineContribution::new();
     for layer in c.scenes() {
         out.scene(layer.clone());
     }
     for inner in c.providers() {
-        out.provider(Arc::new(Gated { inner: inner.clone(), enabled: enabled.clone() }));
+        out.provider(Arc::new(Gated { inner: inner.clone(), enabled: enabled.clone(), changed: changed.clone() }));
     }
     for inner in c.prompt_gates() {
-        out.prompt_gate(Arc::new(Gated { inner: inner.clone(), enabled: enabled.clone() }));
-    }
-    for hook in c.foreign_hooks() {
-        out.foreign_hook_while(hook.hook().clone(), enabled.clone());
-    }
-    for pattern in c.admitted() {
-        out.admit_everywhere(pattern);
-    }
-    if let Some(source) = c.credential_source() {
-        out.credentials(source.clone());
+        out.prompt_gate(Arc::new(Gated { inner: inner.clone(), enabled: enabled.clone(), changed: changed.clone() }));
     }
     out
 }
@@ -65,6 +46,8 @@ pub(crate) fn scene_ids(c: &EngineContribution) -> Vec<String> {
 struct Gated<T: ?Sized> {
     inner: Arc<T>,
     enabled: Arc<AtomicBool>,
+    /// Fired when the extension is switched off: what it gave is gone from the next registration.
+    changed: ToolsChanged,
 }
 
 impl<T: ?Sized> Gated<T> {
@@ -78,12 +61,18 @@ impl ToolProvider for Gated<dyn ToolProvider> {
         self.inner.name()
     }
 
-    fn tools(&self, session: &SessionFacts) -> Vec<Arc<dyn Tool>> {
-        if self.on() { self.inner.tools(session) } else { Vec::new() }
+    fn tools(&self) -> Vec<Arc<dyn Tool>> {
+        if self.on() { self.inner.tools() } else { Vec::new() }
     }
 
-    fn hooks(&self, session: &SessionFacts) -> Vec<Arc<dyn ToolHook>> {
-        if self.on() { self.inner.hooks(session) } else { Vec::new() }
+    fn hooks(&self) -> Vec<Arc<dyn ToolHook>> {
+        if self.on() { self.inner.hooks() } else { Vec::new() }
+    }
+
+    fn changes(&self) -> Vec<ToolsChanged> {
+        let mut all = self.inner.changes();
+        all.push(self.changed.clone());
+        all
     }
 }
 
@@ -106,10 +95,10 @@ mod tests {
         fn name(&self) -> &str {
             "one"
         }
-        fn tools(&self, _: &SessionFacts) -> Vec<Arc<dyn Tool>> {
+        fn tools(&self) -> Vec<Arc<dyn Tool>> {
             vec![]
         }
-        fn hooks(&self, _: &SessionFacts) -> Vec<Arc<dyn ToolHook>> {
+        fn hooks(&self) -> Vec<Arc<dyn ToolHook>> {
             vec![Arc::new(Never)]
         }
     }
@@ -135,29 +124,31 @@ mod tests {
     #[tokio::test]
     async fn a_gated_contribution_does_nothing_while_it_is_off() {
         let mut c = EngineContribution::new();
-        c.provider(Arc::new(One)).prompt_gate(Arc::new(Refuse)).foreign_hook(Arc::new(7u8));
+        c.provider(Arc::new(One)).prompt_gate(Arc::new(Refuse));
         let enabled = Arc::new(AtomicBool::new(true));
-        let c = gated(&c, enabled.clone());
-        let facts = SessionFacts::new("s", "/p", "harnix", 0);
+        let changed = ToolsChanged::new();
+        let mut heard = changed.watch();
+        let c = gated(&c, enabled.clone(), changed.clone());
         let message = PromptFacts::new("s", "t", "hi", Delivery::Turn);
-        assert_eq!(c.providers()[0].hooks(&facts).len(), 1);
+        assert_eq!(c.providers()[0].hooks().len(), 1);
         assert_eq!(c.prompt_gates()[0].inspect(&message).await, PromptDecision::Block("no".into()));
-        assert!(c.foreign_hooks()[0].is_enabled());
         enabled.store(false, Ordering::Release);
-        assert!(c.providers()[0].hooks(&facts).is_empty());
+        assert!(c.providers()[0].hooks().is_empty());
+        changed.notify();
+        assert!(c.providers()[0].changes().len() == 1);
+        assert!(heard.changed().await);
         assert_eq!(c.prompt_gates()[0].inspect(&message).await, PromptDecision::Proceed);
-        assert!(!c.foreign_hooks()[0].is_enabled());
         assert_eq!(c.providers()[0].name(), "one");
     }
 
     #[test]
-    fn contributions_add_up_in_order_and_admit_a_name_once() {
+    fn contributions_add_up_in_order() {
         let mut a = EngineContribution::new();
-        a.scene(SceneLayer::new("a", SceneBase::builtin("harnix"))).admit_everywhere("ext__*");
+        a.scene(SceneLayer::new("a", SceneBase::builtin("harnix")));
         let mut b = EngineContribution::new();
-        b.scene(SceneLayer::new("b-{base}", SceneBase::named("a"))).admit_everywhere("ext__*").admit_everywhere("x");
+        b.scene(SceneLayer::new("b-{base}", SceneBase::named("a"))).provider(Arc::new(One));
         merge(&mut a, &b);
         assert_eq!(scene_ids(&a), ["a", "b-{base}"]);
-        assert_eq!(a.admitted(), ["ext__*", "x"]);
+        assert_eq!(a.providers().len(), 1);
     }
 }

@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_00_s2VrkuuEOEiYybI6JpTA3783","content":"Blocked by PreToolUse hook: refused by the package `example.showcase`: `ext__example_showcase__vetoed` is refused by the showcase's event hook (its `blocked_tool`)","is_error":true}]}

@@ -17,7 +17,7 @@ export function SessionRow({ app, s, session, nested = false }: { app: App; s: S
   const running = s.running[keyOf(instance, session.session_id)];
   const tooltip = [
     session.name || t("sidebar.untitled"),
-    session.scene || session.status || "",
+    session.scene_layer || session.scene || session.status || "",
     session.message_count ? t("sidebar.messageCount", { count: session.message_count }) : "",
   ]
     .filter(Boolean)

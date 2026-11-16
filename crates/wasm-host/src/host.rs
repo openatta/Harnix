@@ -16,7 +16,7 @@
 //! A step that fails undoes every step before it, and why is kept for [`Control::status`].
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -46,16 +46,14 @@ use crate::placement::{self, Placed};
 /// [`Start`].
 #[derive(Default)]
 pub struct HostOptions {
-    /// Where packages' HTTP goes out, when the product decides their `net` on its side too;
-    /// this process's network otherwise.
+    /// Where packages' HTTP goes out, once this host has judged it against their `net`: the
+    /// product's, which judges it again where it sends. None: packages reach no network.
     pub http: Option<Arc<dyn HttpFetcher>>,
 }
 
 /// One package that is running.
 struct Running {
     version: String,
-    /// The unpacked package.
-    root: PathBuf,
     /// How far its package was trusted when it started.
     trust: Trust,
     vm: Option<AppVm>,
@@ -200,7 +198,7 @@ impl Host {
             engine: WasmEngine::new()?,
             kernel,
             agent,
-            http: options.http.unwrap_or_else(|| Arc::new(crate::http::Http::new())),
+            http: options.http.unwrap_or_else(|| Arc::new(harnix_wasm::NoNetwork)),
             running: RwLock::new(BTreeMap::new()),
             bridges: Mutex::new(BTreeMap::new()),
             failed: Mutex::new(BTreeMap::new()),
@@ -404,7 +402,6 @@ impl Host {
         let spec = AppSpec {
             id: id.clone(),
             capabilities: Capabilities {
-                net: caps.net.clone(),
                 env: caps.env.clone(),
                 storage_bytes: u64::from(start.limits.storage_mb) << 20,
                 fs: caps
@@ -430,7 +427,7 @@ impl Host {
         let services = harnix_wasm::Services {
             host: bridge,
             kv: Arc::new(kv),
-            http: self.http.clone(),
+            http: Arc::new(crate::http::Net::new(caps.net.clone(), self.http.clone())),
         };
         let vm = AppVm::start(&self.engine, &loaded, spec, services)
             .await
@@ -482,7 +479,7 @@ impl Host {
         }
         let (registration, methods) = Self::declare(&manifest, &root)?;
         let bytes = Self::component(&manifest, start, &root, self.engine.fingerprint())?;
-        placement::switch(self.agent.as_ref(), id, &root, &start.parts, true).await?;
+        placement::switch(self.agent.as_ref(), id, &start.parts, true).await?;
         let bridge = Bridge::new(
             id,
             manifest.topics.iter().map(|t| t.name.clone()),
@@ -498,7 +495,7 @@ impl Host {
             Ok(booted) => booted,
             Err(e) => {
                 lock(&self.bridges).remove(id);
-                placement::switch(self.agent.as_ref(), id, &root, &start.parts, false)
+                placement::switch(self.agent.as_ref(), id, &start.parts, false)
                     .await
                     .ok();
                 return Err(e);
@@ -506,6 +503,7 @@ impl Host {
         };
         let full = |name: &String| format!("{id}.{name}");
         let world = booted.vm.as_ref().map(|vm| world_name(vm.world()));
+        let events = booted.vm.as_ref().is_some_and(AppVm::exports_events);
         let backend = booted.vm.as_ref().filter(|vm| vm.world() == World::Backend);
         // Held to what the product keeps it to: an extension process's backend hibernates when
         // the product expects it to.
@@ -517,7 +515,6 @@ impl Host {
         }
         let running = Arc::new(Running {
             version: start.version.clone(),
-            root: root.clone(),
             trust,
             vm: booted.vm,
             tools: booted.tools.clone(),
@@ -555,6 +552,7 @@ impl Host {
             trust: trust.as_str().to_string(),
             world,
             tools: booted.tools,
+            events,
         })
     }
 
@@ -639,7 +637,6 @@ impl Control for Host {
         placed.undo(self.agent.as_ref(), &unplace.app).await;
         Ok(json!({
             "agent": placed.agent.as_ref().map(|(package, _, instances)| json!({"package": package, "instances": instances})),
-            "skills": placed.skills,
         }))
     }
 
@@ -651,6 +648,7 @@ impl Control for Host {
                 trust: running.trust.as_str().to_string(),
                 world,
                 tools: running.tools.clone(),
+                events: running.vm.as_ref().is_some_and(AppVm::exports_events),
             });
         }
         let outcome = match self.start_app(&meta, &start).await {
@@ -694,7 +692,7 @@ impl Control for Host {
         if let Some(vm) = &app.vm {
             vm.stop().await;
         }
-        placement::switch(self.agent.as_ref(), id, &app.root, &stop.parts, false)
+        placement::switch(self.agent.as_ref(), id, &stop.parts, false)
             .await
             .ok();
         tracing::info!(app = %id, "application stopped");
@@ -846,7 +844,9 @@ impl Control for Host {
         let Some(vm) = &app.vm else {
             return Ok(HookReply::Proceed);
         };
-        // `[events]`: what it was not granted, it is not shown — not even that it happened.
+        // `[events]`: what it was not granted, it is not shown — not even that it happened. The
+        // product decides this before it sends anything (`harnix_carrier_shared::tools::offered`,
+        // with what it granted); this is its manifest held to again, where the call arrives.
         if !app.events_all && !Self::about_own_tool(&app, &call) {
             return Ok(HookReply::Proceed);
         }

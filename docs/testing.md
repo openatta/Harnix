@@ -38,7 +38,7 @@ scripts/prune.sh                 # 清构建缓存：增量缓存全删，超过
 | `browser` | LIVE 的 `ui` project，两种拓扑（后端只给这一种，页面得自己走过去）；扩展包的套件在 `--carrier process` 下再跑一遍（`single_duplex`） | chromium（`pnpm install:browser`） |
 | `interface` | 起一个同时给两种拓扑的后端，`tests/topology-parity.mjs` 逐条比两边的答 | 模型 |
 | `remote` | 绑非回环、带 TLS，`tests/remote-smoke.mjs` 走配对 | `--with-remote` 与模型 |
-| `budget` | `tests/budget.mjs`：二进制体积（缺省构建带两种载体 ≤ 52 MB）、界面产物、冷启动、内存、延迟；扩展进程（带它自己的引擎，开着沙箱）的常驻、拉起到 `proc.hello`、`ctl.start` 到应答、启用与按需唤醒的冷启动；最后一个、单独跑 | 发布构建 |
+| `budget` | `tests/budget.mjs`：二进制体积（缺省构建带两种载体 ≤ 104 MB）、界面产物、冷启动、内存、延迟；扩展进程（带它自己的引擎，开着沙箱）的常驻、拉起到 `proc.hello`、`ctl.start` 到应答、启用与按需唤醒的冷启动；最后一个、单独跑 | 发布构建 |
 
 **跳过的层要说，不能当作通过。** 缺模型、缺 chromium、没给 `--with-remote` 的层报 `skipped` 和原因，汇总里看得到；一层没跑不是一层过了。
 层的输出写进临时文件，只有失败时才显示最后 30 行。
@@ -139,7 +139,7 @@ testkit 的 `carrier()` 读它，套件的 profile 里用 `onCarrier()` 把 `[ex
 回放缺省按位置、非严格：请求与录下的不一样照样放回去，只在后端日志里记一行 `diverges from recording`。严格回放
 （`harnix serve --replay-dir <目录> --replay-strict`、testkit 的 `replayStrict: true`、`pnpm live --strict` 即
 `HARNIX_REPLAY_STRICT=1`）让不一样的那次调用失败（ipdrun-45）。引擎给回放的会话按录像开录那天定日期（Agix ipdrun-06），
-日期不是问题；但拼出来的提示词写着工作目录、记忆与 scratchpad 的目录、操作系统和 shell，而每个后端都在自己的临时目录里，
+日期不是问题；但拼出来的提示词写着工作目录、记忆与 scratchpad 的目录、操作系统和 shell，而每个后端都在自己的临时目录里（`target/live/` 下；不用系统的临时目录，macOS 上那是会话可写的根，引擎会略去其下包的 skill 目录），
 所以对一般的用例，严格回放每一次调用都对不上。
 
 **真录的那几份照严格回放跑**：`api/strict-replay.spec.ts`（`@strict`）把 `record-fixture.mjs` 录的每一份
@@ -147,8 +147,7 @@ testkit 的 `carrier()` 读它，套件的 profile 里用 `onCarrier()` 把 `[ex
 请求里带着工具当场编出来的 pid、任务 id 的三份写明 `varies`，只按位置回放）照录的那样起后端，在录的那个目录
 （`/tmp/harnix-fixture/<名字>`，testkit 的 `STRICT_ROOT` 与 `fixedScratch`；目录旁边有锁，另一个检出的运行会等）、
 用录的那句话、`SHELL=/bin/zsh` 重放，强制严格。它在 `api` 层里，两种拓扑都跑；提示词写着操作系统，所以只在 macOS 上跑，
-别处跳过。**两份已知失败**：`spawns-agent` 与 `app-subagent`（`KNOWN_FAILING`，`test.fail`）——子 Agent 不继承父会话的 Environment，提示词里是跑测试那天的日期而不是录像的
-（Agix#44，维护者 2026-11-13 定）。它们是「预期失败」：修好的 Agix 一进来，这两条反而变红，那时去掉 `KNOWN_FAILING` 里的项。其余都得全过。
+别处跳过。子 Agent 的会话（`spawns-agent`、`app-subagent`）也一样严格：它继承父会话的 Environment，提示词里的日期是录像的。都得全过。
 它红了，就是这个构建发给模型的东西变了（提示词、工具表、场景参数）：照 §6 重录，再看用它的用例断言的东西还在不在。
 
 `HARNIX_REPLAY_REPORT=1`：任何一次回放的调用和录像对不上，就让它所在的用例失败（照样放回去、跑完）。在固定目录之外
@@ -171,7 +170,7 @@ ui/packages/shell/           @harnix/shell：界面本身；Vitest，构建到 u
 ui/packages/ext-sdk/         @harnix/ext-sdk：扩展包界面在隔离 iframe 里的一侧（桥 harnix-ui-bridge@2、mock 宿主）；Vitest
 ui/packages/ext-kit/          @harnix/ext-kit：iframe 里的外壳令牌与基础组件；Vitest
 ui/packages/testkit/         @harnix/testkit
-  src/launcher.ts            startHarnix：独立的 HOME、数据根、引擎根、项目、端口、拓扑、回放目录
+  src/launcher.ts            startHarnix：独立的 HOME、数据根、引擎根、项目、端口、拓扑、回放目录；都在 target/live/ 下（scratchDir）
   src/api.ts                 connect：基于 @harnix/core/client 的测试客户端；finish、inconclusive；覆盖计数
   src/fixtures.ts            Playwright 夹具：harnix（每个 worker 一个）、api（每个用例一个）、mode
   src/suite.ts               defineSuite：0.3 套件形状的适配
@@ -283,6 +282,11 @@ node tests/live/record-fixture.mjs --scene code <名字> "<提示词>"    # 别�
 方法或主题改名后，录像里说过旧名字的块（工具描述、`flow_guide` 返回的指南）要改写：`node scripts/rewrite-recordings.mjs`
 把块里的旧名字换成新名字，块按新内容重算摘要（文件名与 `calls.jsonl` 里的引用一起改）；`--check` 只查不写，有要改的就退出 1。
 
+**读录像的测试**（系统 space 的调用、轮、用量，对话里的请求信封）不能用回放的会话：回放的会话不录，读者经引擎的协议只读
+会话自己录下的那份。它们在一个录制的后端上（`launchFor("none")`：没有可回放的、也没有模型，所以不跑轮）建一个会话，把一份录像
+放到 `main` 录它的地方，录像里原来的会话 id 换成这个会话的（`ui/page.ts` 的 `recorded`）；会话的第一次调用才会重写录像，
+它一次也不调。手写的行要带引擎的读者要的字段（`recording` 行的 `name`，`call` 行的 `provider`、`params.thinking_mode`、`tools` 等）。
+
 录像按位置回放。每个后端都有自己的数据根、HOME 和项目，全局记忆与 telemetry 不会串进来（N-003）。
 隔离以后回放仍然错位（同一轮里可选的旁路调用时有时无），就向 Agix 提「按调用种类匹配」，不在
 Harnix 侧绕过。
@@ -294,8 +298,7 @@ Harnix 侧绕过。
 
 1. 拷一份结构相同的：一次工具调用加一句话的，从 `calls-a-native-tool` 或 `app-echo` 拷；两个会话的（子 Agent），从 `app-subagent` 拷。
 2. 改 `calls.jsonl` 里属于它自己的那几行：`tool_args_chunks` 的 `args`（工具输入的 JSON 文本）、`kind: "tool_use"` 那一块的 `name` 与 `input`、
-   `text_chunks` 的 `texts`（最后那句话）。扩展包的工具名是 `ext__<id 的 . 换成 _>__<工具>`，spawn 的实例里是
-   `mcp__ext-<id 的 . 换成 _>__<工具>`。
+   `text_chunks` 的 `texts`（最后那句话）。扩展包的工具名是 `ext__<id 与工具名里的 . 与 - 换成 _>__<工具>`，进程内与 spawn 的实例里一样。
 3. `blobs/` 里是请求的内容（按哈希存）。缺省回放按位置、不严格，请求和录下的不一样只记日志，所以 blob 可以原样留着。手做的录像
    严格回放过不了，也不进 `strict-replay.spec.ts`；要它也过，就得用 `record-fixture.mjs` 真录一份。
 4. 在 `recordings/README.md` 的表里加一行：它演示什么、从哪一份改出来、改了什么。
@@ -355,7 +358,7 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
 | 打包工具 `harnix-pack` | `cargo build --release -p harnix-package --features compile --bin harnix-pack --target-dir target/packages`；`scripts/check.sh` 编好（设了 `HARNIX_BIN` 时套件不再问 cargo），单跑时套件自己编 |
 | 带 `wasm,proc` 的 `harnix-testapp` | 同一个目录；信 mock 商店、能缩短休眠的只有它（见下面的两个构建方法） |
 | 示例包 | `examples/packages/showcase`：测试开始时编组件（`wasm32-wasip2`）、为这个引擎编译、打成 `.hxext`，按源码哈希缓存在 `target/packages/showcase/` |
-| mock 商店 | `tests/live/api/packages-store.ts` 在临时目录里用 `harnix-pack sign` / `countersign` / `index` 把 showcase 做成两个版本（0.2.0 多要几项能力）、写出 `index.json`，经 `[ext.packages] store = "file://…"` 给后端；mock 的发布者与商店密钥在 `tests/live/fixtures/store/`，只是测试钥 |
+| mock 商店 | `tests/live/api/packages-store.ts` 在 `target/live/` 下的临时目录里用 `harnix-pack sign` / `countersign` / `index` 把 showcase 做成两个版本（0.2.0 多要几项能力）、写出 `index.json`，经 `[ext.packages] store = "file://…"` 给后端；mock 的发布者与商店密钥在 `tests/live/fixtures/store/`，只是测试钥 |
 
 **Rust 这边**（载体与沙箱的测试见 §2.1）：
 

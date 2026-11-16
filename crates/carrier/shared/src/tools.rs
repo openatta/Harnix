@@ -8,12 +8,18 @@
 //! own tools only, and only so long ([`MAX_NOTE`]): a downloaded package does not get to write
 //! into the result of every tool the model calls. A hook that fails lets the call through: a
 //! package's fault is not the user's.
+//!
+//! **What a package's `events` is shown is decided here**, before anything is sent to it
+//! ([`EventScope`], [`offered`]): a call it was not granted to see does not leave the product —
+//! not its name, not its input, not that it happened. Its host holds it to its manifest as well;
+//! that is the second check, not the one that counts.
 
 use std::future::Future;
 use std::sync::Arc;
 
-use harnix_ext::codes;
 use harnix_ext::engine::{Cancel, HookDecision, Permission, ToolError, ToolOutput, ToolSpec};
+use harnix_ext::{caps, codes, Capability};
+use harnix_package::manifest::Manifest;
 use harnix_wasm_port::{CallMeta, Control, Failure, HookReply, RpcError, ToolDef, ToolReply};
 use serde_json::json;
 
@@ -22,8 +28,45 @@ use crate::registry::Loaded;
 /// The provider's name in every session.
 pub const NAME: &str = "harnix-packages";
 
-/// The longest note a package's hook may add to a tool's result, in characters.
-pub const MAX_NOTE: usize = 2000;
+pub use harnix_package::MAX_NOTE;
+
+/// Which of a session's tool calls a package's `events` export is offered, as the product decides
+/// it from what was consented to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventScope {
+    /// It exports no `events` (or has no component): offered nothing.
+    None,
+    /// The calls of its own tools: `[events] tools = "own"`, the default, or `"all"` without the
+    /// grant.
+    Own,
+    /// Every call of every session, by name and with its input: `[events] tools = "all"`, and
+    /// granted `events.all_tools`.
+    All,
+}
+
+impl EventScope {
+    /// For a package whose component exports `events` (as its host found it: `exports`), whose
+    /// manifest is `manifest`, granted `granted`.
+    pub fn of(exports: bool, manifest: &Manifest, granted: &[Capability]) -> Self {
+        if !exports || manifest.component.is_none() {
+            Self::None
+        } else if manifest.events.all() && granted.contains(&caps::EVENTS_ALL_TOOLS) {
+            Self::All
+        } else {
+            Self::Own
+        }
+    }
+}
+
+/// Whether `app`'s `events` is offered the call of `tool` (by the name a session calls it): asked
+/// before the call is sent to it, by either carrier.
+pub fn offered(app: &Loaded, tool: &str) -> bool {
+    match app.events {
+        EventScope::None => false,
+        EventScope::Own => app.tools.iter().any(|def| app.tool_name(&def.name) == tool),
+        EventScope::All => true,
+    }
+}
 
 /// Run `call` (a tool call or a hook named `call_id`), and cancel it in the host if `cancel` fires
 /// first. The call is polled first, so the host has its cancellation before it can be asked to.
@@ -91,7 +134,7 @@ pub fn hook_decision(app: &str, tool: &str, reply: HookReply) -> HookDecision {
             tracing::info!(package = %app, tool = %tool, %reason, "a package refused a tool call");
             HookDecision::Block(format!("refused by the package `{app}`: {reason}"))
         }
-        HookReply::AddContext(note) => match note_for(app, tool, &note) {
+        HookReply::AddContext(note) => match harnix_package::note_for(app, tool, &note) {
             Some(note) => HookDecision::AddContext(note),
             None => {
                 tracing::debug!(package = %app, tool = %tool, "a note for another's tool; left out");
@@ -105,36 +148,80 @@ pub fn hook_decision(app: &str, tool: &str, reply: HookReply) -> HookDecision {
     }
 }
 
-/// What a note of the package `app` adds to the result of `tool`: nothing for a tool not its own,
-/// and at most [`MAX_NOTE`] characters, under its name.
-fn note_for(app: &str, tool: &str, note: &str) -> Option<String> {
-    if !tool.starts_with(&crate::registry::tool_name(app, "")) {
-        return None;
-    }
-    let cut = note.chars().count() > MAX_NOTE;
-    let mut note: String = note.chars().take(MAX_NOTE).collect();
-    if cut {
-        note.push('…');
-    }
-    Some(format!("\n\n[{app}] {note}"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    use harnix_package::manifest::Interface;
+    use harnix_package::signature::Trust;
+    use serde_json::Value;
+
+    use crate::registry::DEFAULT_TIMEOUT;
+
+    fn manifest(events: &str) -> Manifest {
+        Manifest::parse(&format!(
+            "[app]\nid = \"acme.a\"\nversion = \"1.0.0\"\nharnix_api = {}\npublisher = \"acme\"\n\n\
+             [[component]]\nname = \"tools\"\nworld = \"harnix:ext/tools-ext@1.0.0\"\n{events}",
+            harnix_package::manifest::HARNIX_API
+        ))
+        .unwrap()
+    }
+
+    fn search() -> ToolDef {
+        ToolDef {
+            name: "search".into(),
+            description: "d".into(),
+            doc: None,
+            input_schema: "{}".into(),
+            read_only: true,
+            concurrency_safe: true,
+        }
+    }
+
+    fn loaded(events: EventScope) -> Loaded {
+        Loaded {
+            id: "acme.a".into(),
+            version: "1.0.0".into(),
+            title: None,
+            root: PathBuf::new(),
+            component: true,
+            events,
+            tools: vec![search()],
+            ui: Vec::new(),
+            interface: Interface::default(),
+            surfaces: Vec::new(),
+            trust: Trust::parse("unsigned"),
+            backend_spaces: Vec::new(),
+            inline: Value::Null,
+            timeout: DEFAULT_TIMEOUT,
+        }
+    }
 
     #[test]
-    fn a_note_goes_on_its_own_tools_results_only_and_only_so_long() {
-        assert_eq!(
-            note_for("acme.notes", "ext__acme_notes__search", "seen").as_deref(),
-            Some("\n\n[acme.notes] seen")
-        );
-        for tool in ["Bash", "ext__acme_other__search", "ext__acme_notesx__search"] {
-            assert_eq!(note_for("acme.notes", tool, "seen"), None, "{tool}");
-        }
-        let long = "x".repeat(MAX_NOTE + 10);
-        let note = note_for("acme.notes", "ext__acme_notes__search", &long).unwrap();
-        assert_eq!(note.chars().filter(|c| *c == 'x').count(), MAX_NOTE);
-        assert!(note.ends_with('…'));
+    fn the_scope_is_what_the_manifest_asks_and_the_grant_allows() {
+        let own = manifest("");
+        let all = manifest("\n[events]\ntools = \"all\"\n");
+        let granted = [caps::EVENTS_ALL_TOOLS];
+        assert_eq!(EventScope::of(true, &own, &[]), EventScope::Own);
+        assert_eq!(EventScope::of(true, &own, &granted), EventScope::Own, "a grant it did not ask for shows it nothing more");
+        assert_eq!(EventScope::of(true, &all, &[]), EventScope::Own, "asked for, not granted");
+        assert_eq!(EventScope::of(true, &all, &granted), EventScope::All);
+        assert_eq!(EventScope::of(false, &all, &granted), EventScope::None, "no `events` export, nothing");
+    }
+
+    #[test]
+    fn a_package_is_offered_its_own_tools_calls_unless_granted_every_one() {
+        let own_tool = harnix_package::tool_name("acme.a", "search");
+        let another_s = harnix_package::tool_name("acme.b", "search");
+        let own = loaded(EventScope::Own);
+        assert!(offered(&own, &own_tool));
+        assert!(!offered(&own, "Bash"));
+        assert!(!offered(&own, &another_s));
+        assert!(!offered(&own, &harnix_package::tool_name("acme.a", "other")), "only a tool it declared");
+        let all = loaded(EventScope::All);
+        assert!(offered(&all, "Bash") && offered(&all, &another_s) && offered(&all, &own_tool));
+        let none = loaded(EventScope::None);
+        assert!(!offered(&none, &own_tool) && !offered(&none, "Bash"));
     }
 }

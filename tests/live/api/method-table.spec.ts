@@ -33,7 +33,7 @@ test("every row says who owns it and how far it is open, and the device's reach 
   for (const row of rows) {
     expect(row.owner, row.name).toMatch(/^(kernel:[a-z]+|ext:[a-z0-9.-]+|engine)$/);
     expect(Object.keys(row.access).sort(), row.name).toEqual(
-      ["device", "engine", "extensions", "hub_owned", "refused", "requires", "scope"],
+      ["device", "extensions", "hub_owned", "refused", "requires", "scope"],
     );
     // Refused to everyone, grants included: nothing may reach what the hub owns.
     if (row.access.hub_owned) {

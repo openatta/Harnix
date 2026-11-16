@@ -676,7 +676,7 @@ function Header({
   const space = spacesOf(app).find((c) => c.id === s.space);
   const row = s.current ? s.sessions.find((r) => r.session_id === s.current!.sessionId && r.instance === s.current!.instance) : null;
   const name = row?.name ?? session?.session?.name ?? null;
-  const scene = session?.session?.scene ?? row?.scene;
+  const scene = session?.session?.scene_layer ?? row?.scene_layer ?? session?.session?.scene ?? row?.scene;
   const overview = space?.center?.mode && space.center?.mode !== "chat" && !onBack;
   const registry = useRegistry(app.registry);
   const actions = space?.conversation?.headerActions
@@ -819,8 +819,11 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
   const ref = { instance: current.instance, sessionId: current.sessionId };
   const readOnly = space?.conversation?.readOnly ? ask(registry, space, () => space.conversation!.readOnly!(ref), undefined) : undefined;
   const pinned = space?.conversation?.pinned ? ask(registry, space, () => space.conversation!.pinned!(ref), null) : null;
-  // Nothing said yet in it: the space may say what this conversation is for.
-  const blank = !!sessionState && !sessionState.loading && !sessionState.failed && sessionState.blocks.length === 0 && !sessionState.turn && !sessionState.queue.length;
+  // Nothing said yet in it: the space may say what this conversation is for. An entry in its log is
+  // not something said (an audit decision is filed there whenever the session is read): it does
+  // not make the conversation any less empty.
+  const said = sessionState?.blocks.some((b) => !(b.kind === "custom" && b.type === "entry")) ?? false;
+  const blank = !!sessionState && !sessionState.loading && !sessionState.failed && !said && !sessionState.turn && !sessionState.queue.length;
   const emptyHint = blank && space?.center?.emptyConversation ? ask(registry, space, () => space.center!.emptyConversation!(ref), null) : null;
   const spaceNotice = space?.conversation?.composerNotice ? ask(registry, space, () => space.conversation!.composerNotice!(ref), null) : null;
   const ids = space?.conversation?.ids ? globalIds(app, space, ask(registry, space, () => space.conversation!.ids!(), undefined)) : undefined;

@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use harnix_ext::catalog::{Frequency, PointKind};
-use harnix_ext::engine::{EngineProfile, InstanceTemplate, SessionFacts, Tool, ToolProvider, ToolSpec};
+use harnix_ext::engine::{EngineProfile, InstanceTemplate, Tool, ToolProvider, ToolSpec};
 use harnix_ext::http::{full, Body, Request, Response, RouteContext, RouteHandler};
 use harnix_ext::ui::{ModuleDecl, PointDecl, SurfaceDecl, UiEntry};
 use harnix_ext::{
@@ -69,7 +69,7 @@ impl ToolProvider for Nothing {
         "probe"
     }
 
-    fn tools(&self, _: &SessionFacts) -> Vec<Arc<dyn Tool>> {
+    fn tools(&self) -> Vec<Arc<dyn Tool>> {
         Vec::new()
     }
 }
@@ -79,7 +79,6 @@ struct Absent;
 
 impl Service for Absent {
     const NAME: &'static str = "probe.absent";
-    const CAPABILITY: harnix_ext::Capability = caps::EXTENSIONS_MANAGE;
     type Handle = ();
 }
 
@@ -124,7 +123,6 @@ impl Extension for Probe {
             .module(ModuleDecl::new("home.card", "files/card.js"))
             .point(PointDecl::new("probe.panel", PointKind::Render, Frequency::PerInteraction).what("a panel"));
         r.ui().inline().command(json!({"trigger": "/", "name": "probe"}));
-        r.engine().admit_everywhere("probe__*");
         r.engine_everywhere().provider(Arc::new(Nothing));
         r.template(InstanceTemplate::in_process("side", EngineProfile::new()).ui());
     }
@@ -255,9 +253,6 @@ async fn an_extension_reaches_the_process_through_the_interface_alone() {
     assert!(!main.trust().is_extension());
     main.recordings().expect("granted recordings.read");
     main.transcripts().expect("granted transcripts.read");
-    let refused = main.skills().unwrap_err();
-    assert_eq!(refused.code, codes::REFUSED);
-    assert_eq!(refused.data.unwrap()["capability"], "engine.plugins");
     assert!(cx.engine("nowhere").is_none());
 
     // The process, uploads, interface entries, devices, a service.

@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use harnix::engine::{SessionFacts, Tool, ToolProvider};
+use harnix::engine::{Tool, ToolProvider};
 use harnix::engine::EngineContribution as EngineContrib;
 
 struct Quiet;
@@ -13,7 +13,7 @@ impl ToolProvider for Quiet {
         "quiet"
     }
 
-    fn tools(&self, _: &SessionFacts) -> Vec<Arc<dyn Tool>> {
+    fn tools(&self) -> Vec<Arc<dyn Tool>> {
         Vec::new()
     }
 }

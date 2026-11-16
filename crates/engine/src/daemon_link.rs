@@ -11,11 +11,16 @@
 //! knows every subscription it had is gone and resyncs. Turns on the far side keep running
 //! meanwhile (Agix §5.6).
 //!
+//! What the link offers the daemon — its tools, hooks and gates ([`HostSide`]) — is registered on
+//! each connection it takes before it says it is ready, and the hub hears of a reconnection only
+//! once the link is ready: they are back, and its calls are taken. The daemon's calls of them are
+//! answered by the link, never handed to the hub.
+//!
 //! The daemon trusts an authenticated connection completely and has no per-method authorization
 //! (Agix §5.1), so a daemon serves one Harnix: whoever hands this link a stream has made sure
 //! nobody else holds one.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -23,15 +28,18 @@ use std::time::Duration;
 
 use harnix_contract::sync::lock;
 use harnix_contract::{codes, RpcError};
-use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus, EVENT_CAPACITY};
-use harnix_engine_api::ops::EngineOps;
-use harnix_engine_api::EngineEvent;
+use harnix_engine_link::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus, EVENT_CAPACITY};
+use harnix_engine_link::ops::EngineOps;
+use harnix_engine_link::{EngineEvent, SceneLayers};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot, watch, Mutex};
 use tokio_util::sync::CancellationToken;
 
+use crate::activity::Activity;
 use crate::gate::{GatedOps, WakeGate};
+use crate::host::{HostSide, Wired};
+use crate::replay_link::RootCache;
 use crate::translate::{self, AgixOps, Rpc};
 
 /// Where a daemon listens.
@@ -129,6 +137,9 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(300);
 /// Calls that last as long as the turn they run: no link-level timeout. A turn that ends is
 /// reported on the event stream too, and a link that is lost drains them with the rest.
 const LASTS_A_TURN: &[&str] = &[translate::SESSION_RUN_TURN];
+/// Calls that may build a session, which takes the tools the connection declared then: a change
+/// a provider made just before is declared first (`HostSide::catch_up`).
+const MAKES_A_SESSION: &[&str] = &[translate::SESSION_CREATE, translate::SESSION_FORK, translate::SESSION_RESUME, translate::SESSION_RUN_TURN];
 
 type Pending = HashMap<u64, oneshot::Sender<Result<Value, RpcError>>>;
 
@@ -153,28 +164,49 @@ struct Wire {
     call_timeout: Duration,
     /// A connection was taken before: the next one is a reconnection.
     connected_before: AtomicBool,
+    /// What it offers on every connection it takes.
+    host: Arc<HostSide>,
+    /// What frames said of each session since this link was made: when its readers must ask again.
+    activity: Arc<Activity>,
+    /// Where the engine records, as it said when asked: forgotten when its settings are reloaded
+    /// and when a connection is taken, the two times it can have changed unannounced.
+    recorder_root: Arc<RootCache>,
+    /// The servers the engine announced as failed on this connection: what `mcp.status` need not
+    /// announce again.
+    mcp_announced: StdMutex<HashSet<String>>,
 }
 
 impl DaemonLink {
     /// A link that is `Starting` until it is given its first connection ([`DaemonLink::take`]).
     /// `label` says where the daemon is, for the log.
     pub fn new(carrier: InstanceCarrier, label: impl Into<String>) -> Arc<Self> {
-        Self::with_call_timeout(carrier, label, CALL_TIMEOUT)
+        Self::with_host(carrier, label, HostSide::none())
+    }
+
+    /// [`DaemonLink::new`], offering what `host` offers on every connection it takes.
+    pub fn with_host(carrier: InstanceCarrier, label: impl Into<String>, host: Arc<HostSide>) -> Arc<Self> {
+        Self::build(carrier, label.into(), CALL_TIMEOUT, None, host)
     }
 
     /// [`DaemonLink::new`], waiting `call_timeout` for a reply before calling the instance
     /// unavailable.
     pub fn with_call_timeout(carrier: InstanceCarrier, label: impl Into<String>, call_timeout: Duration) -> Arc<Self> {
-        Self::build(carrier, label.into(), call_timeout, None)
+        Self::build(carrier, label.into(), call_timeout, None, HostSide::none())
     }
 
     /// [`DaemonLink::new`] for a daemon that may be let go while idle: `gate` wakes it before a
     /// call that needs it, and keeps its session list for while it sleeps.
     pub fn gated(carrier: InstanceCarrier, label: impl Into<String>, gate: Arc<dyn WakeGate>) -> Arc<Self> {
-        Self::build(carrier, label.into(), CALL_TIMEOUT, Some(gate))
+        Self::build(carrier, label.into(), CALL_TIMEOUT, Some(gate), HostSide::none())
     }
 
-    fn build(carrier: InstanceCarrier, label: String, call_timeout: Duration, gate: Option<Arc<dyn WakeGate>>) -> Arc<Self> {
+    fn build(
+        carrier: InstanceCarrier,
+        label: String,
+        call_timeout: Duration,
+        gate: Option<Arc<dyn WakeGate>>,
+        host: Arc<HostSide>,
+    ) -> Arc<Self> {
         let (events_tx, events_rx) = mpsc::channel(EVENT_CAPACITY);
         let (status, _) = watch::channel(LinkStatus::Starting);
         let wire = Arc::new(Wire {
@@ -189,11 +221,27 @@ impl DaemonLink {
             cancel: CancellationToken::new(),
             call_timeout,
             connected_before: AtomicBool::new(false),
+            host,
+            activity: Arc::default(),
+            recorder_root: Arc::default(),
+            mcp_announced: StdMutex::new(HashSet::new()),
         });
+        let wired: Arc<dyn Wired> = wire.clone();
+        wire.host.watch(Arc::downgrade(&wired));
         let ops = GatedOps { agix: AgixOps(wire.clone()), gate };
         Arc::new(Self { ops, wire, events_rx: StdMutex::new(Some(events_rx)) })
     }
 
+
+    /// What the link has seen of each session: for its readers.
+    pub(crate) fn activity(&self) -> Arc<Activity> {
+        self.wire.activity.clone()
+    }
+
+    /// Where the engine records, as far as it was asked: for the recorder that creates its sessions.
+    pub(crate) fn recorder_root(&self) -> Arc<RootCache> {
+        self.wire.recorder_root.clone()
+    }
 
     /// What wakes it before a call, when it may be let go while idle ([`DaemonLink::gated`]).
     pub(crate) fn gate(&self) -> Option<Arc<dyn WakeGate>> {
@@ -207,17 +255,27 @@ impl DaemonLink {
         let Connection { reader, writer } = connection;
         *self.wire.writer.lock().await = Some(writer);
         let lost = CancellationToken::new();
+        lock(&self.wire.mcp_announced).clear();
         let reading = tokio::spawn(self.wire.clone().read(reader, lost.clone()));
         let taken = Taken { lost, reading };
         if let Err(refusal) = self.wire.handshake(token).await {
             self.disconnect().await;
             return Err(refusal);
         }
+        if let Err(refusal) = self.wire.host.register(&*self.wire, true).await {
+            self.disconnect().await;
+            return Err(refusal);
+        }
+        self.wire.activity.connected();
+        self.wire.recorder_root.forget();
+        // Ready before the hub hears: what it does on hearing — asking after every session it
+        // had — is calls, which a link that is not ready refuses.
+        self.wire.status.send_replace(LinkStatus::Ready);
         if self.wire.connected_before.swap(true, Ordering::Relaxed) {
             let _ = self.wire.events_tx.send(EngineEvent::Reconnected).await;
         }
-        self.wire.status.send_replace(LinkStatus::Ready);
         tracing::info!(daemon = %self.wire.label, "daemon link ready");
+        tokio::spawn(self.wire.clone().announce_mcp_failures());
         Ok(taken)
     }
 
@@ -260,12 +318,14 @@ impl DaemonLink {
     }
 }
 
-impl translate::Raw for DaemonLink {
-    fn rpc(&self) -> Arc<dyn Rpc> {
+impl DaemonLink {
+    /// Its calls, for what wraps it ([`crate::ReplayLink`]).
+    pub(crate) fn rpc(&self) -> Arc<dyn Rpc> {
         self.wire.clone()
     }
 
-    fn events(&self) -> Option<EventReceiver> {
+    /// The event stream, the first time it is asked for.
+    pub(crate) fn events(&self) -> Option<EventReceiver> {
         lock(&self.events_rx).take()
     }
 }
@@ -282,17 +342,34 @@ impl Wire {
             .await
             .map_err(|e| Refusal::Retry(format!("daemon.ping failed: {}", e.message)))?;
         let theirs = identity.get("protocol_version").and_then(Value::as_u64).unwrap_or(0);
-        let ours = crate::protocol_version();
+        let ours = crate::AGIX_PROTOCOL;
         if theirs != ours {
             return Err(Refusal::Fatal(format!(
                 "the daemon speaks protocol version {theirs} and this Harnix speaks {ours}; \
                  run a daemon built from the same Agix"
             )));
         }
+        let capabilities = identity.get("capabilities").cloned().unwrap_or(Value::Null);
+        let has: Vec<&str> = capabilities.as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+        let missing: Vec<&str> = translate::REQUIRED_CAPABILITIES.iter().copied().filter(|c| !has.contains(c)).collect();
+        if !missing.is_empty() {
+            return Err(Refusal::Fatal(format!(
+                "the daemon lacks {missing:?}; run a daemon built from the same Agix"
+            )));
+        }
         *lock(&self.identity) = EngineIdentity::new(
             identity.get("version").and_then(Value::as_str).map(str::to_string),
             Some(theirs),
-            identity.get("capabilities").cloned().unwrap_or(Value::Null),
+            capabilities,
+        )
+        .modules(
+            identity
+                .get("modules")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|m| m.as_str().map(str::to_string))
+                .collect(),
         );
         self.call(translate::DAEMON_SUBSCRIBE_EVENTS, json!({}))
             .await
@@ -300,15 +377,42 @@ impl Wire {
         Ok(())
     }
 
-    /// Route every line: replies to their callers, everything else to the event stream, in the
-    /// order read. A reply is therefore never handed over before the events the daemon wrote
-    /// ahead of it.
+    /// The engine connects its MCP servers as it starts, before this link has subscribed to its
+    /// events: a server that failed then was announced to no one. Once subscribed, ask what
+    /// failed and announce those the engine did not announce on this connection. Events come in
+    /// the order read, so those ahead of the answer are already counted.
+    async fn announce_mcp_failures(self: Arc<Self>) {
+        if !translate::has_mcp(&lock(&self.identity).modules) {
+            return;
+        }
+        let Ok(status) = self.call(translate::MCP_STATUS, json!({})).await else { return };
+        for (server, event) in translate::mcp_failures(&status) {
+            if !lock(&self.mcp_announced).insert(server) {
+                continue;
+            }
+            if self.events_tx.send(event).await.is_err() {
+                return;
+            }
+        }
+    }
+
+    /// Route every line: replies to their callers, the daemon's calls of what this link offers to
+    /// it, everything else to the event stream, in the order read. A reply is therefore never
+    /// handed over before the events the daemon wrote ahead of it, and a call of this link's never
+    /// waits behind the hub reading its events.
     async fn read(self: Arc<Self>, reader: Reader, lost: CancellationToken) {
+        let wired: Arc<dyn Wired> = self.clone();
         let mut lines = BufReader::new(reader).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
+        'reading: while let Ok(Some(line)) = lines.next_line().await {
             let Ok(frame) = serde_json::from_str::<Value>(&line) else {
                 continue;
             };
+            if let Some((session, stir)) = translate::stir(&frame) {
+                self.activity.saw(&session, stir);
+            }
+            if let Some(server) = translate::mcp_failed_server(&frame) {
+                lock(&self.mcp_announced).insert(server.to_string());
+            }
             match frame.get("id").and_then(Value::as_u64) {
                 Some(id) if frame.get("method").is_none() => {
                     let waiter = lock(&self.pending).remove(&id);
@@ -317,9 +421,17 @@ impl Wire {
                     }
                 }
                 _ => {
-                    let Some(event) = translate::event(frame) else { continue };
-                    if self.events_tx.send(event).await.is_err() {
-                        break;
+                    if let Some(host_frame) = translate::host_frame(&frame) {
+                        if self.host.offer(host_frame, &wired) {
+                            continue;
+                        }
+                    }
+                    // A host tool's permission ask may be answered here, or wait for its call.
+                    for frame in self.host.screen(frame, &wired, &self.events_tx) {
+                        let Some(event) = translate::event(frame) else { continue };
+                        if self.events_tx.send(event).await.is_err() {
+                            break 'reading;
+                        }
                     }
                 }
             }
@@ -328,7 +440,13 @@ impl Wire {
     }
 
     async fn disconnect(&self) {
-        *self.writer.lock().await = None;
+        // Shut down rather than only dropped: the writer may be half of a stream whose other half
+        // the reader still holds (an in-memory one), and the far side should read the end now.
+        let writer = self.writer.lock().await.take();
+        if let Some(mut writer) = writer {
+            let _ = writer.shutdown().await;
+        }
+        self.host.lost();
         let waiting: Vec<_> = lock(&self.pending).drain().collect();
         let status = self.status.borrow().clone();
         for (_, waiter) in waiting {
@@ -337,6 +455,14 @@ impl Wire {
     }
 
     async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
+        let answer = self.send_call(method, params).await;
+        if method == translate::CONFIG_RELOAD {
+            self.recorder_root.forget();
+        }
+        answer
+    }
+
+    async fn send_call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         lock(&self.pending).insert(id, tx);
@@ -379,17 +505,32 @@ impl Rpc for Wire {
         if !status.is_ready() {
             return Err(status.unavailable());
         }
+        if MAKES_A_SESSION.contains(&method) {
+            self.host.catch_up(self).await;
+        }
         Wire::call(self, method, params).await
+    }
+}
+
+#[async_trait::async_trait]
+impl Wired for Wire {
+    async fn send(&self, method: &str, params: Value) -> Result<Value, RpcError> {
+        Wire::call(self, method, params).await
+    }
+
+    fn is_ready(&self) -> bool {
+        self.status.borrow().is_ready()
     }
 }
 
 fn reply(frame: Value) -> Result<Value, RpcError> {
     if let Some(error) = frame.get("error") {
-        return Err(RpcError {
-            code: error.get("code").and_then(Value::as_i64).unwrap_or(-32603) as i32,
-            message: error.get("message").and_then(Value::as_str).unwrap_or("").to_string(),
-            data: error.get("data").cloned(),
-        });
+        let mut e = RpcError::new(
+            error.get("code").and_then(Value::as_i64).unwrap_or(-32603) as i32,
+            error.get("message").and_then(Value::as_str).unwrap_or(""),
+        );
+        e.data = error.get("data").cloned();
+        return Err(e);
     }
     Ok(frame.get("result").cloned().unwrap_or(Value::Null))
 }
@@ -408,12 +549,17 @@ impl EngineControl for DaemonLink {
         self.wire.carrier
     }
 
+    fn scene_layers(&self) -> SceneLayers {
+        self.wire.host.layers().clone()
+    }
+
     async fn reload_settings(&self) -> Result<(), RpcError> {
         Rpc::call(&*self.wire, translate::CONFIG_RELOAD, json!({})).await.map(|_| ())
     }
 
     async fn shutdown(&self) {
         self.wire.cancel.cancel();
+        self.wire.host.shutdown();
         self.wire.disconnect().await;
         self.wire.status.send_replace(LinkStatus::Down { reason: "stopped".into() });
     }
@@ -426,7 +572,7 @@ impl EngineLink for DaemonLink {
     }
 
     fn take_events(&self) -> Option<EventReceiver> {
-        translate::Raw::events(self)
+        self.events()
     }
 
     /// Replies and events come off one socket in the order the daemon wrote them, and the reader
@@ -480,7 +626,7 @@ mod tests {
             for _ in 0..2 {
                 let (id, method) = self.request().await.unwrap();
                 let result = if method == translate::DAEMON_PING {
-                    json!({"version": "x", "protocol_version": crate::protocol_version()})
+                    json!({"version": "x", "protocol_version": crate::AGIX_PROTOCOL, "capabilities": crate::REQUIRED_CAPABILITIES})
                 } else {
                     json!({})
                 };
@@ -528,6 +674,56 @@ mod tests {
             link.degrade("the connection closed".into());
         }
         assert!(events.try_recv().is_err(), "the first connection is not a reconnection");
+    }
+
+    /// A server that failed before the link subscribed is announced once from `mcp.status`; one the
+    /// engine announced itself is not announced again.
+    #[tokio::test]
+    async fn a_server_that_failed_before_the_subscription_is_announced_once_from_the_status() {
+        let dir = tempfile::tempdir().unwrap();
+        let (link, listener, socket) = pair(dir.path(), CALL_TIMEOUT).await;
+        let mut events = link.take_events().unwrap();
+        let endpoint = Endpoint::Unix(socket);
+        let (taken, mut fake) = tokio::join!(
+            async { link.take(Connection::open(&endpoint).await.unwrap(), None).await },
+            async {
+                let mut fake = Fake::accept(&listener).await;
+                for _ in 0..2 {
+                    let (id, method) = fake.request().await.unwrap();
+                    let result = if method == translate::DAEMON_PING {
+                        json!({"version": "x", "protocol_version": crate::AGIX_PROTOCOL,
+                               "capabilities": crate::REQUIRED_CAPABILITIES, "modules": ["mcp"]})
+                    } else {
+                        json!({})
+                    };
+                    fake.answer(id, result).await;
+                }
+                fake
+            }
+        );
+        let _taken = taken.map_err(|r| format!("{r:?}")).unwrap();
+        let (id, method) = fake.request().await.unwrap();
+        assert_eq!(method, translate::MCP_STATUS);
+        // One failure the engine announced on this connection, one it did not.
+        let seen = json!({"method": "daemon.event", "params": {"kind": "mcp_connect_failed", "server": "seen", "error": "x"}});
+        fake.writer.write_all(format!("{seen}\n").as_bytes()).await.unwrap();
+        let servers = json!({"servers": [
+            {"name": "seen", "state": "failed", "error": "x"},
+            {"name": "up", "state": "connected"},
+            {"name": "early", "state": "failed", "error": "no such binary"},
+        ]});
+        fake.answer(id, servers).await;
+        let mut told = Vec::new();
+        while told.len() < 2 {
+            let Some(EngineEvent::Daemon { event, .. }) = events.recv().await else { panic!("not a daemon event") };
+            told.push(event);
+        }
+        assert_eq!(told[0]["server"], "seen");
+        assert_eq!(told[1], json!({"kind": "mcp_connect_failed", "server": "early", "error": "no such binary"}));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), events.recv()).await.is_err(),
+            "the one the engine announced is not announced again"
+        );
     }
 
     #[tokio::test]
@@ -586,7 +782,7 @@ mod tests {
             async {
                 let mut fake = Fake::accept(&listener).await;
                 let (id, _) = fake.request().await.unwrap();
-                fake.answer(id, json!({"protocol_version": crate::protocol_version() + 1})).await;
+                fake.answer(id, json!({"protocol_version": crate::AGIX_PROTOCOL + 1})).await;
             }
         );
         assert!(matches!(taken, Err(Refusal::Fatal(_))));

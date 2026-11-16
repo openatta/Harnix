@@ -12,8 +12,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use harnix_contract::s1::{Access, ExtId, Trust};
-use harnix_contract::SpaceDecl;
+use harnix_contract::s1::{Access, ExtId, SpaceDecl, Trust};
 use harnix_engine_api::{EngineContribution, InstanceTemplate, ToolSpec};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -219,7 +218,7 @@ impl ExtensionDescriptor {
         self.engine.as_ref()
     }
 
-    /// What it gives every engine built in this process. Native extensions only.
+    /// What it gives every engine this process builds or spawns. Native extensions only.
     pub fn engine_everywhere(&self) -> Option<&EngineContribution> {
         self.engine_everywhere.as_ref()
     }

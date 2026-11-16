@@ -1,6 +1,6 @@
 //! What the host does for a host component: registering extensions while the process runs,
-//! configuring spawned daemons' tool endpoints, telling the page what it runs, and — with the
-//! process carrier — starting and adopting extension processes.
+//! telling the page what it runs, and — with the process carrier — starting and adopting
+//! extension processes.
 //!
 //! A runtime registration takes the same host path a native extension's does: a descriptor,
 //! seated, its rows in the one table. What the host checks of it is its structure (a package's
@@ -18,9 +18,8 @@ use harnix_contract::{codes, RpcError};
 use harnix_ext::{ExtensionDescriptor, RouteDecl};
 use harnix_host_api::{
     AdoptSpec, AdoptedEngine, Availability, ChildHandle, ChildRequest, ChildSandbox, DynamicRegistrar, DynamicRegistry,
-    ExtensionSummary, HostApi, RegisteredExtension, TopicSink, ToolEndpoint, Withdrawn,
+    ExtensionSummary, HostApi, RegisteredExtension, TopicSink, Withdrawn,
 };
-use harnix_instance::SharedServers;
 use harnix_kernel::seat::Seated;
 use harnix_kernel::{CallContext, Chain, Handler, Rpc};
 use harnix_router::names::{full_name, valid_package_id};
@@ -31,15 +30,14 @@ use super::seat::Seats;
 use crate::kernel_rows::UiModules;
 use crate::package_table::{Package, PackageTable, PackageTopic};
 
-/// The prefixes a carrier serves a package under: its interface's files, and its tool endpoint.
-pub(crate) const CARRIER_ROUTES: &[&str] = &["ui", "mcp"];
+/// The prefixes a carrier serves a package under: its interface's files.
+pub(crate) const CARRIER_ROUTES: &[&str] = &["ui"];
 
 /// The host's side of every host component's pipes.
 pub(crate) struct DynamicHost {
     pub packages: Arc<PackageTable>,
     pub router: Arc<Router>,
     pub seats: Arc<Seats>,
-    pub servers: Arc<SharedServers>,
     /// Where a registered extension's directory is made.
     pub state_root: std::path::PathBuf,
     /// What `harnix.ui` tells; `false` when `[ui] runtime_modules` keeps packages' modules out.
@@ -54,16 +52,16 @@ pub(crate) struct DynamicHost {
     pub unsandboxed: BTreeSet<String>,
     /// Where an extension process's own engine is adopted.
     pub instances: Arc<harnix_instance::InstanceRegistry>,
-    /// What each component shares with every spawned daemon, merged.
-    shared: Mutex<BTreeMap<ExtId, Vec<ToolEndpoint>>>,
+    /// Told which packages' skills sessions list.
+    pub hub: Arc<harnix_hub::Hub>,
 }
 
 /// What [`DynamicHost`] is made of besides the packages' table.
 pub(crate) struct DynamicParts {
     pub router: Arc<Router>,
     pub instances: Arc<harnix_instance::InstanceRegistry>,
+    pub hub: Arc<harnix_hub::Hub>,
     pub seats: Arc<Seats>,
-    pub servers: Arc<SharedServers>,
     pub state_root: std::path::PathBuf,
     pub ui: Arc<UiModules>,
     pub runtime_modules: bool,
@@ -73,12 +71,11 @@ pub(crate) struct DynamicParts {
 
 impl DynamicHost {
     pub fn new(packages: Arc<PackageTable>, parts: DynamicParts) -> Arc<Self> {
-        let DynamicParts { router, instances, seats, servers, state_root, ui, runtime_modules, sections, unsandboxed } = parts;
+        let DynamicParts { router, instances, hub, seats, state_root, ui, runtime_modules, sections, unsandboxed } = parts;
         Arc::new(Self {
             packages,
             router,
             seats,
-            servers,
             state_root,
             ui,
             runtime_modules,
@@ -87,15 +84,15 @@ impl DynamicHost {
             children: Arc::default(),
             unsandboxed,
             instances,
-            shared: Mutex::new(BTreeMap::new()),
+            hub,
         })
     }
 }
 
 /// The packages' routes, by id: what the transport hands `/ext/<id>/…` for an id no native
 /// extension took. A package's are its carrier's — its interface's files, served as the page's
-/// own are, to frames that hold no credential; its tool endpoint, which admits only an engine this
-/// process spawned — and a directory of its files, which a device reaches.
+/// own are, to frames that hold no credential — and a directory of its files, which a device
+/// reaches.
 #[derive(Default)]
 pub(crate) struct PackageRoutes(RwLock<BTreeMap<String, Vec<RouteDecl>>>);
 
@@ -190,20 +187,6 @@ impl HostApi for HostFor {
         super::spawn::sandboxing(self.unsandboxed())
     }
 
-    fn share_tools(&self, entries: Vec<ToolEndpoint>) -> Rpc<()> {
-        let servers = {
-            let mut shared = lock(&self.host.shared);
-            shared.insert(self.by.clone(), entries);
-            shared
-                .values()
-                .flatten()
-                .map(|e| (e.name().to_string(), json!({"type": "streamable_http", "url": e.url()})))
-                .collect()
-        };
-        self.host.servers.set(servers);
-        Ok(())
-    }
-
     /// Only for an extension this component registered: the engine is that extension's. In the
     /// sandbox its process starts in, that sandbox is its commands' one boundary.
     async fn adopt(&self, id: &ExtId, spec: AdoptSpec) -> Rpc<Arc<dyn AdoptedEngine>> {
@@ -221,6 +204,10 @@ impl HostApi for HostFor {
     fn publish_ui(&self, entries: Vec<Value>) {
         let entries = if self.host.runtime_modules { entries } else { Vec::new() };
         self.host.ui.set_extension(self.by.as_str(), entries);
+    }
+
+    fn skill_sources(&self, sources: Vec<harnix_contract::SkillSource>) {
+        self.host.hub.set_skill_sources(self.by.as_str(), sources);
     }
 
     fn package_sections(&self) -> BTreeMap<String, Value> {
@@ -257,7 +244,7 @@ pub(crate) fn check(d: &ExtensionDescriptor, caps: &[Capability], router: &Route
         return Err(structure("a package gives no engine contribution and no instance template"));
     }
     if d.routes().iter().any(|r| r.static_dir().is_none() && !CARRIER_ROUTES.contains(&r.prefix().trim_matches('/'))) {
-        return Err(structure("a package's routes are a directory of its files and its carrier's (`ui`, `mcp`)"));
+        return Err(structure("a package's routes are a directory of its files and its carrier's (`ui`)"));
     }
     let table = router.table();
     for cap in caps {
@@ -290,9 +277,11 @@ pub(crate) fn check(d: &ExtensionDescriptor, caps: &[Capability], router: &Route
     Ok(())
 }
 
-/// A package's tool, as a session names it: its id's dots made underscores.
-fn session_tool_name(id: &str, tool: &str) -> String {
-    format!("ext__{}__{tool}", id.replace('.', "_"))
+/// A package's tool, as a session names it: the id's `.` and `-` and the tool's `-` made
+/// underscores. The same rule as `harnix_package::tool_name`, which the carriers name tools by; a
+/// second copy because this layer does not depend on the packages' crates (`layering.rs`, l11).
+pub(crate) fn session_tool_name(id: &str, tool: &str) -> String {
+    format!("ext__{}__{}", id.replace(['.', '-'], "_"), tool.replace('-', "_"))
 }
 
 #[async_trait::async_trait]

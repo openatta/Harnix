@@ -17,13 +17,17 @@
 //! Providers are written the same way, into the global tier. The engine's `engine.config.setProvider`
 //! writes the project tier of a working directory, which is wherever the process happened to be
 //! started — a provider added from the settings page would be gone the next time it was started
-//! from somewhere else — so the engine is asked only what it is good at here: whether it would
-//! read the entry (`EngineView::validate_provider`), and why not.
+//! from somewhere else — so the engine is asked only what it is good at here: whether it reads
+//! the entry. The file is written, the engine reloads, and `routing` in the answer says; a
+//! refusal puts the file back as it was.
 
 use std::path::PathBuf;
 
 use harnix_ext::{caps, codes, Access, Call, Extension, Manifest, Registrar, Rpc, RpcError, MAIN_INSTANCE};
+use harnix_host_api::SettingsTiers;
 use serde_json::{json, Map, Value};
+
+mod dir_lock;
 
 /// What a field accepts. Anything else is refused before a file is touched.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -108,19 +112,26 @@ fn require_str(params: &Value, key: &str) -> Rpc<String> {
         .ok_or_else(|| RpcError::invalid_params(format!("missing {key}")))
 }
 
-/// The instance whose settings these are, and where its tiers are written.
+/// The instance whose settings these are.
 fn main_engine(call: &Call) -> Rpc<harnix_ext::EngineView> {
     call.ext()
         .engine(MAIN_INSTANCE)
         .ok_or_else(|| RpcError::new(codes::INTERNAL_ERROR, "the engine has not started yet"))
 }
 
-/// The settings.json a tier writes to, if that tier exists here.
+/// The settings.json a tier writes to, if that tier exists here. The global and scene tiers are
+/// under the engine's data root, which the host says; the project tier is the project's own.
 fn tier_path(call: &Call, tier: &str, scene: Option<&str>, project_root: Option<&str>) -> Rpc<Option<PathBuf>> {
-    let files = main_engine(call)?.config_files()?;
+    let files = call.ext().service::<SettingsTiers>()?;
+    let under_main = |path: Option<PathBuf>| {
+        path.ok_or_else(|| RpcError::new(codes::INTERNAL_ERROR, "the engine has not started yet"))
+    };
     Ok(match tier {
-        "global" => Some(files.global()),
-        "scene" => scene.map(|scene| files.scene(scene)),
+        "global" => Some(under_main(files.global(MAIN_INSTANCE))?),
+        "scene" => match scene {
+            Some(scene) => Some(under_main(files.scene(MAIN_INSTANCE, scene))?),
+            None => None,
+        },
         "project" => project_root.map(|p| PathBuf::from(p).join(".agix").join("settings.json")),
         _ => None,
     })
@@ -168,12 +179,16 @@ async fn describe(call: &Call, params: Value) -> Rpc<Value> {
     if let Some(root) = &project_root {
         effective_request["project_root"] = json!(root);
     }
-    let effective = call
-        .call("engine.config.get", effective_request)
-        .await
-        .ok()
-        .and_then(|value| value.get("settings").cloned())
-        .unwrap_or(Value::Null);
+    // What the engine runs with: its layers merged, and what an untrusted project may not loosen
+    // already taken off. Re-read for this (project, scene) by `set` before it is asked.
+    let effective = match call.call("engine.config.get", effective_request).await {
+        Ok(value) => value.get("settings").cloned(),
+        Err(e) => {
+            tracing::warn!(error = %e.message, "the effective settings could not be read");
+            problems.push(json!({"tier": "effective", "error": e.message}));
+            None
+        }
+    };
 
     let fields: Vec<Value> = FIELDS
         .iter()
@@ -189,36 +204,8 @@ async fn describe(call: &Call, params: Value) -> Rpc<Value> {
                     ((*tier).to_string(), value)
                 })
                 .collect();
-
-            // What the files say, highest tier wins. Computed here rather than taken from
-            // `engine.config.get {tier:"effective"}` because that answer is memoized per (project,
-            // scene) and `apply_reloaded_settings` only swaps the pool's own pair — so for every
-            // other pair it keeps serving the value from before the reload, and a settings page
-            // that showed it would report that a write it just made did nothing. The engine's
-            // own answer rides along as `engine` for diagnostics.
-            let (source, from_files) = TIERS
-                .iter()
-                .rev()
-                .find_map(|tier| {
-                    per_tier
-                        .get(*tier)
-                        .filter(|value| !value.is_null())
-                        .map(|value| (json!(tier), value.clone()))
-                })
-                .unwrap_or((Value::Null, Value::Null));
-
-            json!({
-                "key": field.key,
-                "kind": kind_name(field.kind),
-                "options": match field.kind {
-                    Kind::Choice(options) => json!(options),
-                    _ => Value::Null,
-                },
-                "effective": from_files,
-                "source": source,
-                "engine": dig(&effective, field.key).cloned().unwrap_or(Value::Null),
-                "tiers": per_tier,
-            })
+            let engine = effective.as_ref().and_then(|settings| dig(settings, field.key));
+            field_view(field, per_tier, engine)
         })
         .collect();
 
@@ -241,6 +228,36 @@ async fn describe(call: &Call, params: Value) -> Rpc<Value> {
         },
         "providers": providers,
     }))
+}
+
+/// One field as the page gets it. `effective` is the engine's value (`None`: it could not be
+/// asked, and the files' highest tier stands in). `source` is the highest tier that wrote the
+/// field; `withheld` says the project tier wrote a value the engine does not use, which is what
+/// an untrusted project's looser setting looks like.
+fn field_view(field: &Field, per_tier: Map<String, Value>, engine: Option<&Value>) -> Value {
+    let written = TIERS
+        .iter()
+        .rev()
+        .find_map(|tier| per_tier.get(*tier).filter(|value| !value.is_null()).map(|value| (*tier, value.clone())));
+    let source = written.as_ref().map_or(Value::Null, |(tier, _)| json!(tier));
+    let effective = match engine {
+        Some(value) => value.clone(),
+        None => written.map_or(Value::Null, |(_, value)| value),
+    };
+    let project = per_tier.get("project").filter(|value| !value.is_null());
+    let withheld = engine.is_some() && project.is_some_and(|value| *value != effective);
+    json!({
+        "key": field.key,
+        "kind": kind_name(field.kind),
+        "options": match field.kind {
+            Kind::Choice(options) => json!(options),
+            _ => Value::Null,
+        },
+        "effective": effective,
+        "source": source,
+        "withheld": withheld,
+        "tiers": per_tier,
+    })
 }
 
 /// Write one whitelisted field into one tier, then make the engine re-read.
@@ -269,7 +286,16 @@ async fn set(call: &Call, params: Value) -> Rpc<Value> {
 
     set_in_file(&path, &key, value)?;
 
-    let reloaded = call.call("engine.config.reload", json!({})).await.is_ok();
+    // Re-read the pair `describe` asks about next: the engine keeps its settings per (project,
+    // scene), and a reload names the one it drops.
+    let mut reload = json!({});
+    if let Some(scene) = scene {
+        reload["scene"] = json!(scene);
+    }
+    if let Some(root) = project_root {
+        reload["project_root"] = json!(root);
+    }
+    let reloaded = call.call("engine.config.reload", reload).await.is_ok();
     let mut described = describe(call, params.clone()).await?;
     if let Some(object) = described.as_object_mut() {
         object.insert("written".into(), json!(path.display().to_string()));
@@ -293,24 +319,42 @@ async fn set_provider(call: &Call, params: Value) -> Rpc<Value> {
     let Some(path) = tier_path(call, "global", None, None)? else {
         return Err(RpcError::new(codes::INTERNAL_ERROR, "no global tier"));
     };
-    let mut document = read_document(&path)?;
-    patch_providers(
-        &mut document,
-        &provider_id,
-        delete,
-        params.get("config"),
-        params.get("default_provider").and_then(Value::as_str),
-    )?;
-    // What the engine will read is the entry as patched, not the patch: a `null` in the patch
-    // removes a key, and is not a value the engine's provider takes.
-    if let (false, Some(entry)) = (delete, params.get("config").and(document["providers"].get(&provider_id))) {
-        main_engine(call)?
-            .validate_provider(entry)?
-            .map_err(RpcError::invalid_params)?;
-    }
-    write_document(&path, &document)?;
+    let before = {
+        // Read, patch and write under the tier's directory lock, which the engine takes too.
+        let _held = lock_tier(&path)?;
+        let before = std::fs::read(&path).ok();
+        let mut document = read_document(&path)?;
+        patch_providers(
+            &mut document,
+            &provider_id,
+            delete,
+            params.get("config"),
+            params.get("default_provider").and_then(Value::as_str),
+        )?;
+        write_document(&path, &document)?;
+        before
+    };
 
     let reloaded = call.call("engine.config.reload", json!({})).await;
+    // What the engine reads is the entry as patched, not the patch: it says whether it can. A
+    // router it could not rebuild (`router_rebuilt: false`) is not a refusal; the shape not
+    // parsing (`routing.ok: false`), or the reload failing, is.
+    if !delete {
+        let refusal = match &reloaded {
+            Ok(answer) => routing_refusal(answer),
+            Err(e) => Some(e.message.clone()),
+        };
+        if let Some(why) = refusal {
+            {
+                let _held = lock_tier(&path)?;
+                restore(&path, before.as_deref())?;
+            }
+            if let Err(e) = call.call("engine.config.reload", json!({})).await {
+                tracing::warn!(error = %e.message, "the engine did not reload after a provider was put back");
+            }
+            return Err(RpcError::invalid_params(why));
+        }
+    }
     let providers = call.call("engine.config.getProvider", json!({})).await.unwrap_or(json!({}));
     // And to every instance whose template inherits `main`'s providers.
     let inherited = match call.call("harnix.instances.inheritProviders", json!({})).await {
@@ -398,7 +442,7 @@ fn valid_provider_id(id: &str) -> bool {
 }
 
 /// Apply one provider change to a settings document, refusing what a settings page may not write.
-/// Whether the engine can read the entry is its own to say: see `EngineView::validate_provider`.
+/// Whether the engine can read the entry is its own to say: see `set_provider`.
 fn patch_providers(
     document: &mut Value,
     provider_id: &str,
@@ -439,10 +483,10 @@ fn patch_providers(
             }
         }
         match entry.get("api_type").and_then(Value::as_str) {
-            Some("anthropic" | "openai_compatible") => {}
+            Some("anthropic" | "openai_compatible" | "openai_responses") => {}
             _ => {
                 return Err(RpcError::invalid_params(
-                    "config.api_type: `anthropic` or `openai_compatible`",
+                    "config.api_type: `anthropic`, `openai_compatible` or `openai_responses`",
                 ))
             }
         }
@@ -479,6 +523,7 @@ fn patch_providers(
 
 /// Set one key in a tier's settings.json, keeping everything else in it.
 fn set_in_file(path: &std::path::Path, key: &str, value: Value) -> Result<(), RpcError> {
+    let _held = lock_tier(path)?;
     let mut document = read_document(path)?;
     set_path(&mut document, key, value);
     write_document(path, &document)
@@ -506,6 +551,39 @@ fn read_document(path: &std::path::Path) -> Result<Value, RpcError> {
     }
 }
 
+/// The directory lock of the tier a settings file is in, the one Agix's writers take.
+fn lock_tier(path: &std::path::Path) -> Result<dir_lock::DirLock, RpcError> {
+    let dir = path.parent().unwrap_or(std::path::Path::new("."));
+    dir_lock::DirLock::acquire(dir).map_err(io_error)
+}
+
+/// Why the engine did not accept what `engine.config.reload` re-read, from its answer: `routing.ok` is
+/// whether the configuration parses. `None` when it did.
+fn routing_refusal(answer: &Value) -> Option<String> {
+    let routing = answer.get("routing")?;
+    if routing.get("ok").and_then(Value::as_bool) != Some(false) {
+        return None;
+    }
+    Some(
+        routing
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("the engine could not read the settings")
+            .to_string(),
+    )
+}
+
+/// Put a tier's settings.json back as it was: its bytes, or no file when there was none.
+fn restore(path: &std::path::Path, before: Option<&[u8]>) -> Result<(), RpcError> {
+    match before {
+        Some(bytes) => std::fs::write(path, bytes).map_err(io_error),
+        None => match std::fs::remove_file(path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(io_error(e)),
+            _ => Ok(()),
+        },
+    }
+}
+
 /// Replace a tier's settings.json atomically.
 fn write_document(path: &std::path::Path, document: &Value) -> Result<(), RpcError> {
     if let Some(parent) = path.parent() {
@@ -526,6 +604,14 @@ fn io_error(e: std::io::Error) -> RpcError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_routing_that_does_not_parse_is_a_refusal() {
+        let ok = json!({"routing": {"ok": true, "router_rebuilt": false, "router_error": "no client"}});
+        assert_eq!(routing_refusal(&ok), None);
+        let bad = json!({"routing": {"ok": false, "error": "providers.x: bad"}});
+        assert_eq!(routing_refusal(&bad).as_deref(), Some("providers.x: bad"));
+    }
 
     #[test]
     fn a_nested_write_creates_its_parents_and_keeps_siblings() {
@@ -574,9 +660,52 @@ mod tests {
     fn a_provider_the_engine_would_not_load_is_refused() {
         let mut document = json!({});
         assert!(patch_providers(&mut document, "a", false, Some(&json!({"api_type": "gemini"})), None).is_err());
+        let responses = json!({"api_type": "openai_responses", "base_url": "https://api.openai.com/v1"});
+        patch_providers(&mut document, "r", false, Some(&responses), None).unwrap();
         assert!(patch_providers(&mut document, "a", false, Some(&json!({"api_type": "anthropic", "shell": "x"})), None).is_err());
         assert!(patch_providers(&mut document, "a", false, Some(&json!({"api_type": "anthropic"})), Some("zz")).is_err());
         assert!(!valid_provider_id("a b"));
+    }
+
+    #[test]
+    fn a_field_is_the_engines_value_and_says_when_the_project_tier_was_not_taken() {
+        let field = &FIELDS[0];
+        let tiers = |global: Value, project: Value| {
+            let mut m = Map::new();
+            m.insert("global".into(), global);
+            m.insert("scene".into(), Value::Null);
+            m.insert("project".into(), project);
+            m
+        };
+        // Nothing written: the engine's default shows, from no tier.
+        let unset = field_view(field, tiers(Value::Null, Value::Null), Some(&json!("default")));
+        assert_eq!((&unset["effective"], &unset["source"], &unset["withheld"]), (&json!("default"), &Value::Null, &json!(false)));
+        // The project wrote it and the engine took it.
+        let taken = field_view(field, tiers(json!("a"), json!("b")), Some(&json!("b")));
+        assert_eq!((&taken["source"], &taken["withheld"]), (&json!("project"), &json!(false)));
+        // The project wrote it and the engine did not.
+        let withheld = field_view(field, tiers(json!("a"), json!("b")), Some(&json!("a")));
+        assert_eq!((&withheld["effective"], &withheld["source"], &withheld["withheld"]), (&json!("a"), &json!("project"), &json!(true)));
+        // The engine could not be asked: the files stand in, and nothing is called withheld.
+        let blind = field_view(field, tiers(json!("a"), json!("b")), None);
+        assert_eq!((&blind["effective"], &blind["withheld"]), (&json!("b"), &json!(false)));
+    }
+
+    /// A writer waits for whoever holds the tier's directory, the engine included.
+    #[test]
+    fn a_write_waits_while_the_tier_s_directory_is_held() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let held = dir_lock::DirLock::acquire(dir.path()).unwrap();
+        let writer = {
+            let path = path.clone();
+            std::thread::spawn(move || set_in_file(&path, "model.max_tokens", json!(4000)).unwrap())
+        };
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert!(!path.exists(), "written while another writer held the tier");
+        drop(held);
+        writer.join().unwrap();
+        assert_eq!(read_document(&path).unwrap(), json!({"model": {"max_tokens": 4000}}));
     }
 
     /// A tier that cannot be read is an error, and the file is left as it

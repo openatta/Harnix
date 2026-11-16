@@ -719,17 +719,22 @@ impl Manifest {
         if !self.tools.is_empty() && self.component.is_none() {
             return Err(format!("{MANIFEST}: `[[tool]]` is a component's: this one has none"));
         }
-        let mut seen = std::collections::BTreeSet::new();
+        let mut seen = std::collections::BTreeMap::new();
         for tool in &self.tools {
             let full = crate::tool_name(&self.app.id, &tool.name);
             let name_ok = !tool.name.is_empty()
                 && tool.name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-                && full.len() <= 64
-                && seen.insert(tool.name.as_str());
+                && crate::engine_tool_name(&full);
             if !name_ok {
                 return Err(format!(
                     "{MANIFEST}: the tool `{}` cannot be offered: a tool's name is letters, digits, \
-                     `_` and `-`, unique, `{full}` at most 64 characters",
+                     `_` and `-`, `{full}` at most 64 characters",
+                    tool.name
+                ));
+            }
+            if let Some(first) = seen.insert(full.clone(), tool.name.as_str()) {
+                return Err(format!(
+                    "{MANIFEST}: the tools `{first}` and `{}` are both `{full}` in a session",
                     tool.name
                 ));
             }
@@ -1105,7 +1110,11 @@ scene = "harnix"
         assert!(Manifest::parse(GOOD).unwrap().tools.is_empty());
 
         let cases: Vec<(String, &str)> = vec![
-            (format!("{GOOD}{TOOL}{TOOL}"), "cannot be offered"),
+            (format!("{GOOD}{TOOL}{TOOL}"), "are both `ext__acme_showcase__echo`"),
+            (
+                format!("{GOOD}{}{}", TOOL.replace("\"echo\"", "\"a-b\""), TOOL.replace("\"echo\"", "\"a_b\"")),
+                "`a-b` and `a_b` are both `ext__acme_showcase__a_b`",
+            ),
             (format!("{GOOD}{}", TOOL.replace("\"echo\"", "\"bad name\"")), "cannot be offered"),
             (format!("{GOOD}{}", TOOL.replace("\"Echo a text\"", "\"two\\nlines\"")), "one line"),
             (format!("{GOOD}{}", TOOL.replace("type = \"object\"", "type = 7")), "not a JSON Schema"),
@@ -1121,6 +1130,58 @@ scene = "harnix"
             let err = Manifest::parse(&text).err().unwrap_or_else(|| panic!("accepted: {says}"));
             assert!(err.contains(says), "wanted `{says}`, got: {err}");
         }
+    }
+
+    #[test]
+    fn tool_names_are_the_engines_and_do_not_meet() {
+        assert_eq!(crate::tool_name("acme.my-notes", "do-it"), "ext__acme_my_notes__do_it");
+        assert!(crate::engine_tool_name("ext__acme_my_notes__do_it"));
+        for bad in ["", "1a", "a-b", "a.b", &"a".repeat(65)] {
+            assert!(!crate::engine_tool_name(bad), "{bad}");
+        }
+        assert!(crate::engine_tool_name(&"a".repeat(64)));
+
+        let with = |id: &str, tools: &[&str]| {
+            let mut text = GOOD.replace("acme.showcase", id);
+            for t in tools {
+                text += &TOOL.replace("\"echo\"", &format!("\"{t}\""));
+            }
+            Manifest::parse(&text).unwrap()
+        };
+        // `acme.a-b`'s `x` and `acme.a.b`'s `x` are the same name in a session.
+        let first = with("acme.a-b", &["x"]);
+        let same = with("acme.a-b", &["x", "y"]);
+        let other = with("acme.a.b", &["x"]);
+        let apart = with("acme.c", &["x"]);
+        assert_eq!(
+            crate::tool_clashes(&other, [&first]),
+            [("ext__acme_a_b__x".to_string(), "acme.a-b".to_string())]
+        );
+        assert!(crate::tool_clashes(&apart, [&first]).is_empty());
+        // An update is its own package's replacement, not a clash.
+        assert!(crate::tool_clashes(&same, [&first]).is_empty());
+        assert_eq!(crate::tool_count(&same, [&first, &apart]), 3);
+        let err = crate::check_tools_beside(&other, [&first]).unwrap_err();
+        assert!(err.contains("ext__acme_a_b__x") && err.contains("acme.a-b"), "{err}");
+    }
+
+    #[test]
+    fn a_process_offers_at_most_64_package_tools() {
+        let many = |id: &str, n: usize| {
+            let mut text = GOOD.replace("acme.showcase", id);
+            for i in 0..n {
+                text += &TOOL.replace("\"echo\"", &format!("\"t{i}\""));
+            }
+            Manifest::parse(&text).unwrap()
+        };
+        let a = many("acme.a", 40);
+        let b = many("acme.b", 24);
+        assert!(crate::check_tools_beside(&b, [&a]).is_ok());
+        let c = many("acme.c", 25);
+        let err = crate::check_tools_beside(&c, [&a]).unwrap_err();
+        assert!(err.contains("at most 64") && err.contains("65"), "{err}");
+        // A disabled package counts too: the check sees only manifests.
+        assert!(crate::check_tools_beside(&many("acme.a", 64), [&a]).is_ok());
     }
 
     #[test]

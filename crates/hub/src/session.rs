@@ -4,8 +4,9 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 
 use harnix_contract::{Frame, RpcError};
-use harnix_engine_api::events::{Completion, Joins, Prompt, SessionEventKind};
-use harnix_engine_api::ops::SessionInfo;
+use harnix_engine_link::events::{Completion, Joins, Prompt, SessionEventKind};
+use harnix_contract::sync::lock;
+use harnix_engine_link::ops::{SessionInfo, SessionSetup};
 use harnix_kernel::CallContext;
 use serde_json::{json, Value};
 
@@ -173,6 +174,9 @@ pub(crate) async fn route_event(
         SessionEventKind::TeamProgress { team_id } => {
             state.teams.insert(team_id.clone(), event.clone());
         }
+        SessionEventKind::AskResolved { prompt_id, .. } => {
+            state.pending_prompts.retain(|p| p.prompt_id.as_deref() != Some(prompt_id.as_str()));
+        }
         // Answered, or refused on its timeout: the tool went on either way.
         SessionEventKind::ToolResult { id, .. } => {
             state.pending_prompts.retain(|p| p.tool_use_id.as_deref() != Some(id.as_str()));
@@ -227,6 +231,8 @@ impl Hub {
         self.ensure_subscribed(&key, &info).await?;
         let total = self.history_total(&key).await;
         let compactions = info.compactions();
+        let mut session = info.into_value();
+        lock(&self.spaces).decorate(&key, &mut session);
 
         let mut guard = self.inner.lock().await;
         let state = guard.sessions.entry(key).or_default();
@@ -255,7 +261,7 @@ impl Hub {
         };
         let mut attached = json!({
             "instance": instance,
-            "session": info.into_value(),
+            "session": session,
             "history_total": history_total,
             "replay": replay,
             "truncated": state.replay.truncated,
@@ -301,7 +307,7 @@ impl Hub {
             None => {
                 ops.resume(session_id, info).await?;
                 ops.subscribe(session_id).await?.ok_or_else(|| {
-                    RpcError::new(harnix_engine_api::ops::codes::SESSION_NOT_FOUND, "the session was resumed and is not there")
+                    RpcError::new(harnix_engine_link::ops::codes::SESSION_NOT_FOUND, "the session was resumed and is not there")
                 })?
             }
         };
@@ -311,6 +317,8 @@ impl Hub {
         // Replaced, not extended: after a resync these are the same asks
         // the hub already held.
         state.pending_prompts = subscribed.pending;
+        drop(guard);
+        self.reconcile_skill_dirs(key, info).await;
         Ok(subscribed.last_seq)
     }
 
@@ -342,28 +350,38 @@ impl Hub {
         self.refresh("harnix.instances.sessions", json!({"instance": key.0}));
     }
 
-    /// Intercepted for where the new session lands and who started it. It records as every
-    /// session does, by the link.
+    /// Intercepted for where the new session lands, who started it, and what it is set up with:
+    /// the scene layer it is created in, expanded (`scenes.rs`), and the skills its space sees. It
+    /// records as every session does, by the link.
     pub(crate) async fn create(
         self: &std::sync::Arc<Self>,
         cx: &harnix_kernel::CallContext,
         mut params: Value,
     ) -> Result<Value, RpcError> {
+        crate::refuse_hub_owned_options(&params)?;
         let subject = &cx.subject;
         let space = self.place(cx, &mut params).await?;
         let instance = self.instance_of(&params)?;
-        let created = self.engine(&instance)?.ops().create(without_instance(params)).await?;
+        let linked = self.engine(&instance)?;
+        let layer = crate::scenes::layer_for(&linked.link.scene_layers(), &params)?;
+        let setup = SessionSetup::new().scene(layer.clone()).skill_dirs(self.skill_dirs_for(&instance, &space));
+        let created = self.create_listing(linked.ops(), without_instance(params), setup).await?;
+        let mut value = created.value;
         if let Some(sid) = &created.session_id {
             let key = (instance.clone(), sid.clone());
             self.bind_space(&key, &space);
             self.note_starter(&key, subject);
+            let mut spaces = lock(&self.spaces);
+            if let Some(layer) = &layer {
+                spaces.note_layer(&key, &layer.id);
+            }
+            spaces.decorate(&key, &mut value);
         }
-        let mut created = created.value;
-        if let Some(obj) = created.as_object_mut() {
+        if let Some(obj) = value.as_object_mut() {
             obj.insert("instance".into(), json!(instance));
             obj.insert("space".into(), json!(space));
         }
-        Ok(created)
+        Ok(value)
     }
 
     /// How many times the engine has compacted the session.
@@ -402,3 +420,35 @@ pub(crate) fn client_of(cx: &CallContext) -> Result<ClientId, RpcError> {
     })
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use harnix_engine_link::events::Waiting;
+
+    fn asked(id: &str) -> SessionEventKind {
+        SessionEventKind::Asked(Prompt::new(json!({"prompt_id": id}), Some(id.into()), None, Waiting::Approval))
+    }
+
+    /// A question the engine says stopped waiting is no longer pending; the others stay.
+    #[tokio::test]
+    async fn a_resolved_question_is_not_pending_any_more() {
+        let inner = Arc::new(InnerLock::default());
+        let key = ("main".to_string(), "s".to_string());
+        for id in ["p1", "p2"] {
+            route_event(&inner, "main", "s", "t", &asked(id), json!({"kind": "prompt"}), false).await;
+        }
+        let pending = |inner: &Arc<InnerLock>| {
+            let inner = inner.clone();
+            let key = key.clone();
+            async move {
+                let guard = inner.lock().await;
+                guard.sessions[&key].pending_prompts.iter().map(|p| p.prompt_id.clone().unwrap()).collect::<Vec<_>>()
+            }
+        };
+        assert_eq!(pending(&inner).await, ["p1", "p2"]);
+        let resolved = SessionEventKind::AskResolved { prompt_id: "p1".into(), answered: false };
+        route_event(&inner, "main", "s", "t", &resolved, json!({"kind": "prompt_resolved"}), false).await;
+        assert_eq!(pending(&inner).await, ["p2"]);
+    }
+}

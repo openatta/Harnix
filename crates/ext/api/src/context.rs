@@ -137,37 +137,6 @@ impl ProcessInfo {
     }
 }
 
-/// An instance's skills directory: where a skill an extension places goes.
-#[derive(Debug, Clone)]
-pub struct SkillsDir {
-    path: PathBuf,
-}
-
-impl SkillsDir {
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-/// Where an instance's engine keeps the settings tiers an extension that edits them writes: the
-/// global tier and each scene's. The project tier is the project's own, `<project>/.agix/`.
-#[derive(Debug, Clone)]
-pub struct ConfigFiles {
-    root: PathBuf,
-}
-
-impl ConfigFiles {
-    /// The global tier's `settings.json`.
-    pub fn global(&self) -> PathBuf {
-        self.root.join("settings.json")
-    }
-
-    /// One scene's tier's `settings.json`.
-    pub fn scene(&self, scene: &str) -> PathBuf {
-        self.root.join("scenes").join(scene).join("settings.json")
-    }
-}
-
 /// A read-only view of one instance. Not a way to call it: that is a method, through
 /// [`ExtensionContext::call`].
 #[derive(Clone)]
@@ -208,25 +177,6 @@ impl EngineView {
             .transcripts()
             .ok_or_else(|| crate::RpcError::missing(format!("`{}`'s transcripts cannot be read here", self.instance())))
     }
-
-    /// Where its engine's settings tiers are written. Needs `engine.config.write`.
-    pub fn config_files(&self) -> Rpc<ConfigFiles> {
-        self.ext.require(&caps::ENGINE_CONFIG_WRITE)?;
-        Ok(ConfigFiles { root: self.view.0.settings_root.clone() })
-    }
-
-    /// Whether its engine can read `entry` as a provider: `Err` says why not, in the engine's own
-    /// words. Needs `engine.config.write`: it is the check before writing one.
-    pub fn validate_provider(&self, entry: &Value) -> Rpc<Result<(), String>> {
-        self.ext.require(&caps::ENGINE_CONFIG_WRITE)?;
-        Ok(self.ext.ports().validate_provider(entry))
-    }
-
-    /// Where its engine looks for skills. Needs `engine.plugins`.
-    pub fn skills(&self) -> Rpc<SkillsDir> {
-        self.ext.require(&caps::ENGINE_PLUGINS)?;
-        Ok(SkillsDir { path: self.view.0.skills_dir.clone() })
-    }
 }
 
 /// Paired devices: listing, pairing, revoking. The admission of a paired device stays the
@@ -257,11 +207,11 @@ impl Devices<'_> {
     }
 }
 
-/// A named service of the host, beyond what every context has: it says which capability it
-/// takes, and the context checks that before handing it out.
+/// A named service of the host, beyond what every context has: its name, and the type it is
+/// handed out as. What capability it takes is the host's that provides it, checked there against
+/// the asking extension's grants — never something a type declared on the asking side could say.
 pub trait Service: 'static {
     const NAME: &'static str;
-    const CAPABILITY: Capability;
     type Handle: ?Sized + Send + Sync + 'static;
 }
 
@@ -382,14 +332,10 @@ impl ExtensionContext {
         Ok(Devices { ext: self })
     }
 
-    /// A named service of the host, if this extension holds the capability it takes.
+    /// A named service of the host, if this extension holds the capability the host says it
+    /// takes: refused as any capability is (`data.capability`) when it does not.
     pub fn service<S: Service>(&self) -> Rpc<Arc<S::Handle>> {
-        self.require(&S::CAPABILITY)?;
-        let handle = self
-            .shared
-            .ports
-            .service(&self.shared.id, S::NAME)
-            .ok_or_else(|| crate::RpcError::missing(format!("this process has no service `{}`", S::NAME)))?;
+        let handle = self.shared.ports.service(&self.shared.id, S::NAME)?;
         handle
             .downcast_ref::<Arc<S::Handle>>()
             .cloned()

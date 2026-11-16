@@ -2,7 +2,7 @@
 name = "harnix-hub"
 version      = "0.4.3-2026111501"
 edition      = "2021"
-rust-version = "1.87"
+rust-version = "1.88"
 license      = "Apache-2.0"
 publish      = false
 description  = "The session hub: subscription, replay, seq, turn ownership, queue, projections"
@@ -11,6 +11,7 @@ description  = "The session hub: subscription, replay, seq, turn ownership, queu
 harnix-contract = { workspace = true }
 harnix-kernel   = { workspace = true }
 harnix-engine-api = { workspace = true }
+harnix-engine-link = { workspace = true }
 tokio       = { workspace = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }

@@ -56,7 +56,7 @@ pub use kv::{FileKv, KvError, KvStore, MemoryKv, MAX_KEY_BYTES};
 pub use services::{
     VmHost, HttpFetcher, HttpRequest, HttpResponse, NoNetwork, ProgressSink, Services,
 };
-pub use spec::{host_of, AppDirs, AppSpec, Capabilities, FsGrant, Limits};
+pub use spec::{AppDirs, AppSpec, Capabilities, FsGrant, Limits};
 /// How the files a quota counts are measured: for a host that reports what a package keeps
 /// while it is not running.
 pub use storage::dir_bytes;

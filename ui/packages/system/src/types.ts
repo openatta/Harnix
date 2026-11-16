@@ -31,6 +31,8 @@ export interface SessionRowView {
   instance?: string;
   name?: string | null;
   scene?: string | null;
+  /** The scene layer it was created in, when it was: what is shown in place of `scene`. */
+  scene_layer?: string | null;
   status?: string | null;
   space?: string;
   last_active?: string;
@@ -129,6 +131,12 @@ export interface AgentUsage {
   last_at?: number | null;
 }
 
+/** Which run the figures of a session cover, and whether the instance was asleep when they were last read (`observability.usage`). */
+export interface UsageNote {
+  run?: { created_at: string; generation: number; earlier_run?: boolean } | null;
+  stale?: boolean;
+}
+
 /** A session's goal (`engine.session.goal`): one aim the engine keeps opening turns for. */
 export interface Goal {
   objective: string;
@@ -163,9 +171,10 @@ export interface TraceCall {
   purpose?: string | null;
   model: string;
   input: { system: { source?: string | null; chars: number }[]; tools: number; messages: number };
-  output: { text: string; chars: number; thinking_chars: number; tool_uses: number };
-  tools: { id: string; name: string; input: string; result?: string | null; result_chars?: number | null; is_error?: boolean | null }[];
-  outcome: { status: string; error?: string; message?: string };
+  output: { chars: number; thinking_chars: number; tool_uses: number };
+  tools: { id: string; name: string }[];
+  status: string;
+  error?: { kind?: string; message?: string } | null;
   stop_reason?: string | null;
   usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | null;
   /** When it was sent, how long to its first chunk, how long it streamed; absent without the times. */

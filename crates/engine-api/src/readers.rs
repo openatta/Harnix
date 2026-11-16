@@ -6,7 +6,9 @@
 //! definition, a message, a call's usage) it is carried as JSON as the engine wrote it, and
 //! changes with the engine.
 //!
-//! The readers read files; their implementations do it off the async runtime.
+//! The readers read through the engine's protocol, one set per instance: what an instance
+//! records, they read from the instance, so one that is down cannot be read
+//! ([`ReadError::Unavailable`]).
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -23,12 +25,14 @@ pub enum ReadError {
     Missing(String),
     /// It is there and cannot be read; the message says why.
     Unreadable(String),
+    /// The instance cannot be reached now (down, restarting); the message says what the link said.
+    Unavailable(String),
 }
 
 impl std::fmt::Display for ReadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ReadError::Missing(m) | ReadError::Unreadable(m) => f.write_str(m),
+            ReadError::Missing(m) | ReadError::Unreadable(m) | ReadError::Unavailable(m) => f.write_str(m),
         }
     }
 }
@@ -38,15 +42,19 @@ impl std::error::Error for ReadError {}
 /// One instance's recordings, by session id.
 #[async_trait::async_trait]
 pub trait Recordings: Send + Sync {
-    /// Every model call of the session's current run, oldest first.
+    /// The model calls `session` made in its recording's current run, oldest first: the session's
+    /// own, not its sub-agents' (a sub-agent's id reads its own). `index` is the call's place in
+    /// the recording of the session's root, so it skips what other sessions of the tree made.
     async fn calls(&self, session: &str) -> Result<Trace, ReadError>;
-    /// One call in full.
+    /// One call in full, by its `index` in [`Recordings::calls`], with the results its tool calls
+    /// got.
     async fn call(&self, session: &str, index: usize) -> Result<CallDetail, ReadError>;
     /// The turn calls summed up per turn.
     async fn turns(&self, session: &str) -> Result<Turns, ReadError>;
     /// What the model was sent besides the messages, once per change, oldest first.
     async fn envelopes(&self, session: &str) -> Result<Envelopes, ReadError>;
-    /// What each Agent of each session (sub-agents too) has used.
+    /// What each Agent of each session used this run: the session first, then every sub-agent
+    /// under it. Never wakes an instance that sleeps: what was read before, marked `stale`.
     async fn usage(&self, sessions: &[String]) -> Result<BTreeMap<String, SessionUsage>, ReadError>;
 }
 
@@ -55,7 +63,27 @@ pub trait Recordings: Send + Sync {
 pub trait Transcripts: Send + Sync {
     /// A case-insensitive search of the messages of `sessions`, in that order (the caller's: most
     /// recent first), one hit per session, as far as `limits` let it go.
-    async fn search(&self, sessions: &[String], query: &str, limits: &SearchLimits) -> SearchResult;
+    async fn search(&self, sessions: &[String], query: &str, limits: &SearchLimits) -> Result<SearchResult, ReadError>;
+}
+
+/// Which run of the session a reading covers: its recording started over when the process running
+/// the session first called the model, so what an earlier process recorded is not in it.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecordingRun {
+    /// RFC 3339: when this run's recording began.
+    pub created_at: String,
+    /// Opaque; equal while it is the same recording.
+    pub generation: u64,
+    /// This reader saw an earlier run of the same recording go: figures from before are not in these.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub earlier_run: bool,
+}
+
+impl RecordingRun {
+    pub fn new(created_at: String, generation: u64, earlier_run: bool) -> Self {
+        Self { created_at, generation, earlier_run }
+    }
 }
 
 /// A session's calls.
@@ -68,11 +96,18 @@ pub struct Trace {
     /// Lines of the recording that could not be read: non-zero, it is read in part.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub damaged: Option<usize>,
+    /// The run these calls are of; `None` when there is no recording.
+    pub run: Option<RecordingRun>,
 }
 
 impl Trace {
     pub fn new(recording: bool, calls: Vec<CallSummary>, damaged: Option<usize>) -> Self {
-        Self { recording, calls, damaged }
+        Self { recording, calls, damaged, run: None }
+    }
+
+    pub fn run(mut self, run: Option<RecordingRun>) -> Self {
+        self.run = run;
+        self
     }
 }
 
@@ -80,7 +115,13 @@ impl Trace {
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CallSummary {
+    /// The call's place in the recording of the session's root.
     pub index: usize,
+    pub session_id: String,
+    /// Set for a sub-agent's call.
+    pub parent_session_id: Option<String>,
+    pub agent_type: Option<String>,
+    pub turn_id: Option<String>,
     pub turn: u32,
     pub step: u32,
     /// Set for a call beside the turns: a compaction, a memory extraction, a title.
@@ -91,8 +132,10 @@ pub struct CallSummary {
     pub input: CallInput,
     pub output: CallOutput,
     pub tools: Vec<ToolUseSummary>,
-    /// The engine's.
-    pub outcome: Value,
+    /// `ok`, `cancelled`, `error`, `in_flight` or `unfinished`.
+    pub status: String,
+    /// The engine's: `{kind, message, http_status, retry_after_ms}`.
+    pub error: Option<Value>,
     pub stop_reason: Option<String>,
     /// The engine's.
     pub usage: Option<Value>,
@@ -104,6 +147,10 @@ impl CallSummary {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         index: usize,
+        session_id: String,
+        parent_session_id: Option<String>,
+        agent_type: Option<String>,
+        turn_id: Option<String>,
         turn: u32,
         step: u32,
         purpose: Option<String>,
@@ -116,6 +163,10 @@ impl CallSummary {
     ) -> Self {
         Self {
             index,
+            session_id,
+            parent_session_id,
+            agent_type,
+            turn_id,
             turn,
             step,
             purpose,
@@ -125,7 +176,8 @@ impl CallSummary {
             input,
             output,
             tools,
-            outcome: Value::Null,
+            status: String::new(),
+            error: None,
             stop_reason: None,
             usage: None,
             duration_ms: None,
@@ -133,8 +185,16 @@ impl CallSummary {
         }
     }
 
-    pub fn ended(mut self, outcome: Value, stop_reason: Option<String>, usage: Option<Value>, duration_ms: Option<u64>) -> Self {
-        self.outcome = outcome;
+    pub fn ended(
+        mut self,
+        status: String,
+        error: Option<Value>,
+        stop_reason: Option<String>,
+        usage: Option<Value>,
+        duration_ms: Option<u64>,
+    ) -> Self {
+        self.status = status;
+        self.error = error;
         self.stop_reason = stop_reason;
         self.usage = usage;
         self.duration_ms = duration_ms;
@@ -176,47 +236,37 @@ impl BlockSize {
     }
 }
 
-/// What a call answered, clipped for a row.
+/// What a call answered, counted.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CallOutput {
-    pub text: String,
     pub chars: usize,
     pub thinking_chars: usize,
     pub tool_uses: usize,
 }
 
 impl CallOutput {
-    pub fn new(text: String, chars: usize, thinking_chars: usize, tool_uses: usize) -> Self {
-        Self { text, chars, thinking_chars, tool_uses }
+    pub fn new(chars: usize, thinking_chars: usize, tool_uses: usize) -> Self {
+        Self { chars, thinking_chars, tool_uses }
     }
 }
 
-/// A tool call a call asked for, and its result as the next turn call sent it back.
+/// A tool call a call asked for: its input and result are in the call's detail.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolUseSummary {
     pub id: String,
-    pub name: Value,
-    /// Its input as JSON, clipped.
-    pub input: String,
-    /// The first line of its result, clipped.
-    pub result: Option<String>,
-    pub result_chars: Option<usize>,
-    pub is_error: Option<bool>,
+    pub name: String,
 }
 
 impl ToolUseSummary {
-    pub fn new(id: String, name: Value, input: String, result: Option<(String, usize, bool)>) -> Self {
-        let (result, result_chars, is_error) = match result {
-            Some((r, n, e)) => (Some(r), Some(n), Some(e)),
-            None => (None, None, None),
-        };
-        Self { id, name, input, result, result_chars, is_error }
+    pub fn new(id: String, name: String) -> Self {
+        Self { id, name }
     }
 }
 
-/// When a call was sent, how long to its first chunk, how long it streamed, its output rate.
+/// When a call was sent, how long to its first chunk, how long it streamed after it (the engine
+/// gives the call's end, not its last chunk), its output rate.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Timing {
@@ -250,6 +300,7 @@ impl CallDetail {
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CallDetailInput {
+    pub session_id: String,
     pub system: Vec<SystemBlock>,
     /// The engine's tool definitions.
     pub tools: Vec<Value>,
@@ -259,6 +310,8 @@ pub struct CallDetailInput {
     pub max_tokens: u32,
     /// The engine's.
     pub thinking_mode: Value,
+    /// The engine's; `null` when none was set.
+    pub effort: Value,
     pub provider: String,
     pub purpose: Option<String>,
     pub turn: u32,
@@ -268,18 +321,20 @@ pub struct CallDetailInput {
 impl CallDetailInput {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        session_id: String,
         system: Vec<SystemBlock>,
         tools: Vec<Value>,
         messages: Vec<Value>,
         model: String,
         max_tokens: u32,
         thinking_mode: Value,
+        effort: Value,
         provider: String,
         purpose: Option<String>,
         turn: u32,
         step: u32,
     ) -> Self {
-        Self { system, tools, messages, model, max_tokens, thinking_mode, provider, purpose, turn, step }
+        Self { session_id, system, tools, messages, model, max_tokens, thinking_mode, effort, provider, purpose, turn, step }
     }
 }
 
@@ -290,23 +345,51 @@ pub struct CallDetailOutput {
     pub thinking_chars: usize,
     /// `{id, name, input}` each.
     pub tool_uses: Vec<Value>,
-    pub outcome: Value,
+    /// What the tool calls got back, as the next call of the same session sent it to the model;
+    /// empty when that call is not made yet.
+    pub tool_results: Vec<ToolResultView>,
+    pub status: String,
+    pub error: Option<Value>,
     pub stop_reason: Option<String>,
     pub usage: Option<Value>,
     pub duration_ms: Option<u64>,
 }
 
 impl CallDetailOutput {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         text: String,
         thinking_chars: usize,
         tool_uses: Vec<Value>,
-        outcome: Value,
+        status: String,
+        error: Option<Value>,
         stop_reason: Option<String>,
         usage: Option<Value>,
         duration_ms: Option<u64>,
     ) -> Self {
-        Self { text, thinking_chars, tool_uses, outcome, stop_reason, usage, duration_ms }
+        Self { text, thinking_chars, tool_uses, tool_results: Vec::new(), status, error, stop_reason, usage, duration_ms }
+    }
+
+    pub fn results(mut self, results: Vec<ToolResultView>) -> Self {
+        self.tool_results = results;
+        self
+    }
+}
+
+/// What one tool call got back, as the next call of the same session sent it to the model.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ToolResultView {
+    pub id: String,
+    /// Clipped; `chars` is the whole length.
+    pub text: String,
+    pub chars: usize,
+    pub is_error: bool,
+}
+
+impl ToolResultView {
+    pub fn new(id: String, text: String, chars: usize, is_error: bool) -> Self {
+        Self { id, text, chars, is_error }
     }
 }
 
@@ -334,11 +417,17 @@ impl SystemBlock {
 pub struct Turns {
     pub recording: bool,
     pub turns: Vec<TurnSummary>,
+    pub run: Option<RecordingRun>,
 }
 
 impl Turns {
     pub fn new(recording: bool, turns: Vec<TurnSummary>) -> Self {
-        Self { recording, turns }
+        Self { recording, turns, run: None }
+    }
+
+    pub fn run(mut self, run: Option<RecordingRun>) -> Self {
+        self.run = run;
+        self
     }
 }
 
@@ -395,11 +484,17 @@ pub struct Envelopes {
     pub calls: u64,
     pub auxiliary: u64,
     pub damaged: usize,
+    pub run: Option<RecordingRun>,
 }
 
 impl Envelopes {
     pub fn new(recording: bool, headers: Vec<Envelope>, calls: u64, auxiliary: u64, damaged: usize) -> Self {
-        Self { recording, headers, calls, auxiliary, damaged }
+        Self { recording, headers, calls, auxiliary, damaged, run: None }
+    }
+
+    pub fn run(mut self, run: Option<RecordingRun>) -> Self {
+        self.run = run;
+        self
     }
 }
 
@@ -438,17 +533,32 @@ impl Envelope {
     }
 }
 
-/// What one session has used, per Agent: its own figures first, then each sub-agent's.
+/// What one session has used this run, per Agent: its own figures first, then each sub-agent's.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionUsage {
     pub recording: bool,
     pub agents: Vec<AgentUsage>,
+    /// The run these figures cover: only the latest, not a total over runs.
+    pub run: Option<RecordingRun>,
+    /// The instance sleeps: these are the figures read before, not read now.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stale: bool,
 }
 
 impl SessionUsage {
     pub fn new(recording: bool, agents: Vec<AgentUsage>) -> Self {
-        Self { recording, agents }
+        Self { recording, agents, run: None, stale: false }
+    }
+
+    pub fn run(mut self, run: Option<RecordingRun>) -> Self {
+        self.run = run;
+        self
+    }
+
+    pub fn stale(mut self, stale: bool) -> Self {
+        self.stale = stale;
+        self
     }
 }
 
@@ -507,12 +617,20 @@ pub struct SearchHit {
     pub session_id: String,
     pub role: String,
     pub snippet: String,
+    /// RFC 3339.
     pub ts: String,
+    /// The message's place in the session's history, when the engine says.
+    pub seq: Option<usize>,
 }
 
 impl SearchHit {
     pub fn new(session_id: &str, role: &str, snippet: String, ts: String) -> Self {
-        Self { session_id: session_id.to_string(), role: role.to_string(), snippet, ts }
+        Self { session_id: session_id.to_string(), role: role.to_string(), snippet, ts, seq: None }
+    }
+
+    pub fn at(mut self, seq: usize) -> Self {
+        self.seq = Some(seq);
+        self
     }
 }
 

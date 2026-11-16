@@ -167,12 +167,12 @@ pub struct Watchlist;
 
 #[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
-struct Config {
+pub struct Config {
     db: String,
-    quote_api_key: CredentialRef,          // { credential = "helm/quote-api" }
+    quote_api_key: Option<CredentialRef>,  // { credential = "helm/quote-api" }；没有 Default，缺省要 Option
 }
 
-struct State { db: Db, key: harnix::engine::Secret }
+struct State { db: Db, key: Option<harnix::Secret> }
 
 #[derive(Deserialize)]
 struct ListParams { filter: Option<String> }
@@ -200,8 +200,10 @@ impl Extension for Watchlist {
 
     async fn start(&self, cx: ExtensionContext) -> anyhow::Result<()> {
         let cfg: Config = cx.config()?;                                  // [ext.watchlist]
-        let key = cx.credentials().get(&cfg.quote_api_key.credential)
-            .map_err(anyhow::Error::msg)?;
+        let key = match &cfg.quote_api_key {
+            Some(r) => Some(cx.credentials().get(&r.credential).map_err(anyhow::Error::msg)?),
+            None => None,
+        };
         let db = Db::open(cx.data_dir().join(&cfg.db))?;                // 数据目录是你自己的
         cx.provide(State { db, key });                                   // handler 里用 call.state::<State>()
         cx.topics().publish("groups", serde_json::json!({}), Vec::<Group>::new()).await?;
@@ -305,11 +307,10 @@ Harnix 只管什么时候迁、失败了怎么办，不管用什么迁。数据�
 | 要写什么 | 类型 |
 |---|---|
 | 原生工具 | `harnix::engine::Tool`（`spec()`、`permission()`、`call(ToolCx, Value)`）、`ToolSpec`、`ToolOutput`、`ToolError`、`Permission` |
-| 给每个会话提供工具（按会话定） | `harnix::engine::ToolProvider`（`tools(&SessionFacts)`、可选 `hooks`） |
-| 一次工具调用之前的拦截 | `harnix::engine::ToolHook`：`HookDecision::{Proceed, Block, AddContext}` |
-| 场景 | `harnix::engine::SceneLayer`（建在 `SceneBase::builtin("harnix")` 之类的底上：`.prompt(..)`、`.tool(..)`、`.admit(..)`） |
+| 给实例的每个会话提供工具 | `harnix::engine::ToolProvider`（`tools()`、可选 `hooks()`、可选 `changes()`，都不带参数：工具集是实例级的，不按会话定） |
+| 一次工具调用之前的拦截 | `harnix::engine::ToolHook`：`HookDecision::{Proceed, Block, AddContext}`；`ToolCallFacts` 带 `name()`、`input()`、`session_id()`、`depth()`、`cwd()` |
+| 场景 | `harnix::engine::SceneLayer`（建在 `SceneBase::builtin("harnix")` 之类的底上：`.prompt(..)`、`.tool(..)`、`.interactive(..)`、`.requires_project(..)`、`.auto_name(..)`） |
 | 拦截人的消息 | `harnix::engine::PromptGate`：`PromptDecision::{Proceed, Block}` |
-| 凭据源 | `harnix::engine::CredentialSource` |
 
 完整的例子是 `crates/testapp`。
 
@@ -320,12 +321,24 @@ fn register(&self, r: &mut Registrar<'_, ()>) {
 }
 ```
 
-多个扩展的贡献由 Harnix 按装配顺序组合。`r.engine_everywhere()` 是给**每一台进程内实例**的：只许工具提供者与放行的名字
-（`admit_everywhere`）；场景、门、凭据、钩子只属于 `main`。**引擎贡献是原生才有的**：扩展包不能给引擎贡献，只能经清单的 `[[tool]]`
+多个扩展的贡献由 Harnix 按装配顺序组合。`r.engine_everywhere()` 是给**每一台进程内实例**的：只许工具提供者；场景、门、钩子只属于 `main`。**引擎贡献是原生才有的**：扩展包不能给引擎贡献，只能经清单的 `[[tool]]`
 与 `agent/` 装进产品的实例（见 [扩展包](harnix-ext-package.md)）。
 
-写了需要 Agix 自己类型的东西（原始会话 customizer、Agix 的场景当底），走逃生口 `harnix::agix`（feature `agix`）：**不在稳定承诺里**，随 Agix 变；
-升 Harnix 时看发布说明里的 Agix 一行。
+没有 Agix 自己类型的逃生口：贡献只用上面这些词，引擎的变化由 Harnix 吸收。
+
+这些贡献都在**本进程**里执行：引擎（进程内的或 spawn 的 daemon）经它的 daemon 链路向 Harnix 要工具的执行、钩子与门的裁决，所以两种载体上行为一致。
+几条规则：
+
+- **工具集是实例级的**：`ToolProvider::tools()` 与 `hooks()` 不带会话；实例的引擎连上时问一次，之后每次 `changes()` 响了再问一次。
+  之后新建的会话有新的工具集，已有的会话保持原样。工具名要符合引擎的字母表（字母、数字、`_`、`-`），一个会话自己的工具至多 64 个。
+- **`ToolHook` 在权限检查之前就看到调用**；`ToolCallFacts` 带发起调用的会话（`session_id()`，子 Agent 的调用是它自己的 id）、`depth()`（人开的会话为 0）与 `cwd()`。
+  `HookDecision::AddContext` 的文字在这次调用放行之后、模型的下一步之前，作为 system-reminder 交给模型。
+- **宿主工具的权限**由链路按 `Tool::permission` 代答：`Allow` 与 `Deny` 直接生效，`Ask` 时把工具自己的问句（`Permission::Ask(text)`）附在转给界面的询问上，界面显示它。
+- **场景层由中枢在建会话时展开**：会话建在层的基场景上，再按层补上 `prompt.append`、这个会话自己的宿主工具、`attended`、`auto_name` 与 `permission_rules`。
+  `requires_project` 由中枢检查（没有项目的会话建不了）；`PromptText::cached` 保留但不起作用。
+  不同场景层里**同名的工具必须是同一个对象**（同一个 `Arc`）：宿主工具按连接登记，一个名字只有一个执行者；要在几层里共用，只造一份。
+- **会话的提示词**经 `harnix.session.setPrompt` 改（权限同 `setModel`）；`engine.session.setPrompt` 归中枢独占，因为中枢要让场景层的文字在前。
+- **中枢拒收调用方给的 `host_tools`、`skill_dirs`、`attended`、`auto_name`、`prompt`、`prompt_types`**：这些由中枢按场景层与会话所在的 space 自己填，会话 `options` 里写了就报错；认不出的字段同样报错。
 
 #### 拦截人的消息（`PromptGate`）
 
@@ -355,7 +368,7 @@ impl PromptGate for Policy {
 - steer 时拒收：那句话不进对话，这一轮照常跑完；客户端收到事件 `user_message_refused { message_id, content, message }`
   （经 `harnix.event`）。没有扩展拒收时它不会出现。
 - 外壳（`@harnix/core` 的会话状态）对两种拒收都在流里加一行说理由，steer 的那条从「待送达」里拿掉，不成一条人的话。
-- 载体：进程内实例的门跑在本进程。spawn 实例要同样生效，把它放进模板的 `contribute`（§6.2），它在 daemon 进程里再建一遍。
+- 载体：进程内实例与 spawn 实例的门都跑在本进程（经 daemon 链路）；spawn 实例要同样生效，把它放进模板的 `contribute`（§6.2）。attach 的 daemon 是别人的，什么都不登记。
 
 ### 6.2 给 space 一台独立、隔离的实例
 
@@ -373,7 +386,7 @@ fn register(&self, r: &mut Registrar<'_, ()>) {
             }),
     );
 
-    // daemon：崩溃与资源也隔离；要原生贡献也写 `.contribute(…)`（见下）
+    // daemon：崩溃与资源也隔离；要原生贡献也写 `.contribute(…)`（见下，工具与门仍在本进程执行）
     r.template(
         InstanceTemplate::spawn("sandbox", EngineProfile::new().scene("general"))
             .data_root("sandbox/{name}")
@@ -395,9 +408,8 @@ async fn start(&self, cx: ExtensionContext) -> anyhow::Result<()> {
   （数据根留着）。`ensure` 幂等，并发也只建一台，不用自己加锁。
 - **spawn 实例 `ensure` 之后不是马上可用**：daemon 要零点几秒才起来，这期间的会话调用答 `INSTANCE_UNAVAILABLE`。
   接着就要用它的，用 `ensure_ready`；已经建好、正在重启或重连的，用 `wait_ready`。会话类调用本身不等。
-- **原生贡献两种载体一致**：模板上写 `.contribute(|e| { … })`。spawn 的实例在 daemon 进程里再建一遍这些贡献：daemon 带 `--template <全名>` 起来，
-  照装配顺序重走各扩展的注册（**不调 `start`**，不开任何方法），找到这个模板再调闭包。所以 `register` 必须没有副作用、不依赖 `start`
-  之后的状态；闭包**不和扩展共享内存**，要扩展的状态经 Harnix 的方法或文件拿。
+- **原生贡献进程内与 spawn 一致**：模板上写 `.contribute(|e| { … })`。闭包在**本进程**里调一次，贡献经 daemon 链路登记给这台实例的引擎，
+  所以闭包可以和扩展共享内存，`register` 也没有「要能在另一个进程里重走」的限制。attach 的 daemon 是别人的：模板上的贡献不登记，只记一条警告。
 - **按模板建的实例有自己的数据根**，所以默认读不到「设置 → 模型」里配的 provider；要它们，模板上写 `.inherit_providers()`。
   会话起的进程要在实例停下时收干净，写 `.reap_on_stop()`。
 
@@ -680,7 +692,7 @@ r.strings('zh-CN', { 'hello-app.greeter': '问候' }, 'hello-app');
 
 ### 10.4 给外部 Agent 开 MCP
 
-Harnix 不提供 MCP 服务端和角色令牌（`/ext/<id>/mcp` 是 Harnix 给扩展包的工具端点，只给 Harnix 自己 spawn 的引擎）。
+Harnix 不提供 MCP 服务端和角色令牌。
 在那之前：在你的扩展 `start()` 里起**你自己的监听**（单独的端口），或挂一条自己的路由，用你自己的令牌解析。
 它不在 Harnix 的授权、审计与保证之内，安全由你负责。
 
@@ -692,8 +704,8 @@ Harnix 不提供 MCP 服务端和角色令牌（`/ext/<id>/mcp` 是 Harnix 给�
 - **一个钉**：`harnix/` 钉一个 Harnix 的标签（`Harnix-v<x.y.z>-<日期><序号>`），它带的东西随它一起钉死，所以引擎的版本从来不是
   你要选的。`check-pins` 查这个钉是真的（各脚本查什么见 §25）。
 - **升级 Harnix**：bump `harnix/` 子仓 → `git submodule update --init --recursive` → `sync-app-deps` →
-  `check-pins`、`check-lock` → 跑测试。从 0.4.3 起扩展接口与线上协议只做加法，升 z 不该打破你。
-- **从 0.4.2 及更早迁过来**：见 Harnix 仓库本地的 `docs/migrations/0.4.3.md`（维护者给）和 §14。
+  `check-pins`、`check-lock` → 跑测试。从 0.4.4 起扩展接口与线上协议只做加法，升 z 不该打破你。
+- **从 0.4.2 及更早迁过来**：见 Harnix 仓库本地的 `docs/migrations/0.4.3.md`（升到 0.4.4 的是 `0.4.4.md`，维护者给）和 §14。
 - **公共改动**：直接在你的 `harnix/` 子仓里开分支 → 回推 Harnix → 合并、打标签 → 你 bump 子仓。
   不许有长期补丁：子仓指针只能指向上游存在的提交。
 - **桌面壳**：复制 `harnix/templates/desktop`，改名字、图标，把你的二进制打成 sidecar。本机模式
@@ -734,7 +746,7 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 | 「只许设备」 | 只对后端成立 | 挡不住受信发布者的进页面模块，见 §10.1 |
 | 原生扩展是出身即信任 | — | 你的扩展能做的事就是这个进程能做的事；第三方代码不要做成原生扩展，做成扩展包（[扩展包](harnix-ext-package.md)），它在 WASM 沙箱里、按同意的能力行事 |
 | 系统 space | 不链它或 `[extensions] off` 时方法一起撤 | 产品里一般关掉；它能看到完整的系统提示词 |
-| 密钥 | — | 只在 profile 里写引用，值走 `CredentialSource` |
+| 密钥 | — | 只在 profile 里写引用，值走 `Credentials`（§17.5） |
 
 ## 14. 迁移现有代码
 
@@ -763,7 +775,7 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 ### 14.1 通用步骤
 
 1. 换布局：只留 `harnix/` 一个子仓（`git submodule update --init --recursive`）；workspace 收 `harnix/crates/*`、`harnix/crates/ext/*` 与 `harnix/crates/carrier/*`；
-   `sync-app-deps`、`check-pins`。代码里的引擎类型改从 `harnix::engine` 取（§6.1），要 Agix 自己的才走 `harnix::agix`。
+   `sync-app-deps`、`check-pins`。代码里的引擎类型改从 `harnix::engine` 取（§6.1）。
 2. 后端改成扩展：一个 space 的后端一个 `Extension`；领域方法挪到 `register` 里的 `r.method(..)`；授予写在 `main.rs`。
 3. 前端换成 React 包：每个 space 一个 `ui/` 包，`register()` 注册。
 4. 测试换成 `@harnix/testkit`。
@@ -786,17 +798,18 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 | 名字 | 现在 | 在哪 | 什么时候升 |
 |---|---|---|---|
 | Harnix 版本 | `0.4.3-2026111501` | 各 crate 的 `Cargo.toml`；`harnix::HARNIX_VERSION` | 每次发布（`scripts/set-version.sh` 连这一格一起改，`tests/crate-metadata.mjs` 查它和 crate 一致） |
-| 扩展 API | `1` | `harnix::ext::EXT_API_VERSION` | 写进文档、`--version` 打印的数，不做编译期检查：兼容靠 crate 的版本，从 0.4.3 起扩展接口只做加法（公开的结构与枚举都是 `non_exhaustive` 或只有私有字段，一个 feature 只加函数与模块）；破坏性的变化升它，也升 crate 的大版本。`harnix::ext::http::axum`（feature `axum`）、`harnix::testing` 与 `harnix::agix` 不在承诺内 |
+| 扩展 API | `1` | `harnix::ext::EXT_API_VERSION` | 写进文档、`--version` 打印的数，不做编译期检查：兼容靠 crate 的版本，从 0.4.4 起扩展接口只做加法（公开的结构与枚举都是 `non_exhaustive` 或只有私有字段，一个 feature 只加函数与模块）；破坏性的变化升它，也升 crate 的大版本。`harnix::ext::http::axum` 与 `harnix::axum`（feature `axum`）、`harnix::testing`（feature `testing`）不在承诺内 |
 | 贡献点 API | `3` | `harnix::CONTRIB_API_VERSION`；`harnix.hello` 里也有 | 贡献点的契约变了。2：运行期包的界面模块是预编译的 ES 模块，从页面的 import map 拿 React；**React 的大版本是它的一部分**。3：宿主 API `HostApi`/`useHost()`、第九个内核点 `session.action`、扩展自己定义的点（`definePoint`）、`space` 分组、按 `hello.extensions` 激活 |
 | 协议 | `5` | `harnix_contract::PROTOCOL_VERSION` | 握手比对，不一致拒绝（`HANDSHAKE_REFUSED`）。5：名字规整（内核 `harnix.<区域>.<动词>`、引擎直通 `engine.*`、扩展在自己的 id 下），默认实例叫 `main`，新增错误码 `CANCELLED`、`DEADLINE_EXCEEDED`、`EXTENSION_UNAVAILABLE`。`harnix.event` 帧里的事件负载与 `engine.*` 的答是 Agix 的形状，不在加法承诺里，由 `hello.engine_protocol` 标明 |
 | 扩展包接口 | `2` | `harnix-ext.toml` 的 `[app] harnix_api`；`harnix_package::HARNIX_API` | 扩展包的契约（WIT world 与清单）有破坏性变化。见 [扩展包](harnix-ext-package.md) |
 | 扩展线 | `1` | `harnix_wasm_port::EXT_WIRE_VERSION` | 产品与它自己的扩展进程之间那条线（`harnix-ext-wire`）的帧或方法改了形状。两端是同一次构建，扩展进程的 `proc.hello` 报的数不等就被拒绝；应用不直接用它 |
 
-`<app> --version` 打印上面全部，加上引擎的版本。从 0.4.3 起线上协议与扩展接口只做加法；`harnix::agix` 与契约里露出的 Agix 类型除外。
+`<app> --version` 打印上面全部，加上引擎的版本。从 0.4.4 起线上协议与扩展接口只做加法；契约里露出的 Agix 类型除外。
 这张表的六个数由 `tests/crate-metadata.mjs` 对着代码里的常量查。
 
-稳定的层次：S1（扩展接口：`harnix-ext`、`harnix-engine-api` 的 S1 部分、`harnix-contract` 的 S1 类型）与 S2（线上协议、扩展线、扩展包清单与 WIT、桥）
-是长期稳定的；S3（`harnix-kernel`、`harnix-host-api`、各骨架 crate 的内部接口）随骨架变，扩展作者不该用。层次规则由 `crates/harnix/tests/layering.rs` 守着。
+稳定的层次：S1（扩展接口：`harnix-ext`、`harnix-engine-api`、`harnix_contract::s1`，三者的**全部**公开项）与 S2（线上协议、扩展线、扩展包清单与 WIT、桥）
+是长期稳定的；S3（`harnix-kernel`、`harnix-engine-link`、`harnix-host-api`、各骨架 crate 的内部接口）随骨架变，扩展作者不该用。
+S1 与 S3 的界线是依赖图：`harnix-ext`、`harnix` 门面、`harnix-host-api` 不依赖 `harnix-engine-link`，写不出它的名字。层次规则由 `crates/harnix/tests/layering.rs` 守着。
 
 ---
 
@@ -808,14 +821,16 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 ```text
 harnix::{App, AppBuilder, ExtensionSlot, ExtensionStatus, HARNIX_VERSION, SHUTDOWN_GRACE,
          caps, codes, Capability, CapabilitySpec, ExtId, RpcError, Subject, MAIN_INSTANCE,
-         Access, Attachment, Call, CredentialRef, Credentials, DescriptorBuilder, Entry, EnvCredentials,
+         Access, Attachment, Call, CredentialRef, Credentials, Entry, EnvCredentials,
          Extension, ExtensionContext, ExtensionSet, Manifest, MigrateContext, MigrationReport,
-         OnBusy, Registrar, RowScope, SendOptions, SessionRef, SessionSpec, SpaceDecl, Tap, TapEvent,
+         OnBusy, Registrar, RowScope, Secret, SendOptions, SessionRef, SessionSpec, SpaceDecl, Tap, TapEvent,
          CONTRIB_API_VERSION, EXT_API_VERSION, SETTLED_HELD, TAP_CAPACITY,
-         ext, engine, first_party, agix（feature）, testing（feature）, async_trait, axum}
+         ext, engine, first_party, testing（feature）, async_trait, axum（feature）}
 ```
 
-`harnix::ext` 是扩展接口的整个模块（`harnix-ext`）；`harnix::engine` 是扩展给引擎的东西（`harnix-engine-api` 的 S1）。
+`harnix::ext` 是扩展接口的整个模块（`harnix-ext`）；`harnix::engine` 是扩展给引擎的东西与读引擎的读者，即 `harnix-engine-api` 的**全部**公开项，
+与 `harnix::ext::engine` 是同一张清单。门面只依赖 `harnix-assembly` 与 `harnix-ext`：根部的每一项都是这两个 crate 转出的，
+引擎链接、引擎操作、引擎事件（`harnix-engine-link`，S3）不在其中，应用拿不到也不该拿。
 
 ### 17.1 `App::builder()` → `AppBuilder`
 
@@ -824,7 +839,7 @@ harnix::{App, AppBuilder, ExtensionSlot, ExtensionStatus, HARNIX_VERSION, SHUTDO
 | `.name(name, version)` | 应用名与版本：`--version`、`--help` 用它。界面上的产品名、图标、产品 id 由 profile 的 `[brand]` 给 |
 | `.extensions(set)` | 加一组扩展（`ExtensionSet`），各带自己的授予。`harnix::first_party::standard()`：`harnix-app`、`system`、`observability`、`settings`、`plugins`、`devices`，各自带 Harnix 给它们的授予；`standard_with(packages)`、`standard_with_flow(flow)` 再加 `packages`、`flow` |
 | `.extension(e)` | 加一个扩展，返回 `ExtensionSlot`：`.grant([caps::…])` 或 `.ungranted()`。**顺序就是注册、`migrate`、`start` 的顺序**，也是引擎贡献的组合顺序 |
-| `.credentials(source)` | 换掉凭据源（默认 `EnvCredentials`：`helm/quote-api` → `$HARNIX_CREDENTIAL_HELM_QUOTE_API`） |
+| `.credentials(source)` | 换掉 `Credentials` 的实现（默认 `EnvCredentials`：`helm/quote-api` → `$HARNIX_CREDENTIAL_HELM_QUOTE_API`） |
 | `.profile_from_args()` / `.args(iter)` | 命令行从哪来；测试里用 `.args` |
 | `.child_entry(name, entry)` | 登记一个子命令入口（`harnix::App::builder()` 在 feature `proc` 时已登记 `ext-proc`，产品不用写） |
 | `.run()` | 跑起来，`anyhow::Result<()>` |
@@ -875,11 +890,11 @@ pub trait Extension: Send + Sync + 'static {
 | `SpaceDecl` | `SpaceDecl::new(id)`、`.instance("main" \| "<实例 id>" \| "template:<模板>")`、`.scene(scene)`、`.cross_space()`（声称它的设备调用可以观看、操作任何 space 的会话：防误的标志，只限原生，诊断与披露列出）、`.default_space()`（不声称 space 的设备调用按它检查；一个进程至多一个，`[extensions] default_space` 能盖过）。原生扩展可以声明任何没被占的 id；不声明：`main` 实例、实例的默认场景。只有界面没有后端的 space 不用声明 |
 | 路由 | `harnix::ext::http`：`Request`、`Response`、`RouteHandler`（稳定，只依赖 `http` 1.x）；`harnix::ext::http::axum::router(axum::Router)`（feature `axum`，绑 axum 0.8，**不在稳定承诺内**） |
 | `UiDecl`（`r.ui()`） | `.bundle(id)`（编进外壳的 UI 包认的扩展 id，缺省自己的 id）、`.surface(..)`、`.inline()`、`.module(..)`、`.point(PointDecl)`：扩展定义的贡献点，进生成的贡献点目录。后三项里的 `surface`、`inline` 是给扩展包的；原生扩展的界面是编进外壳的 UI 包，后端只声明哪个包是它的 |
-| `InstanceTemplate` | `InstanceTemplate::in_process(id, EngineProfile)` / `::spawn(id, EngineProfile)` / `::attach(id, AttachTo)`，再 `.data_root(pattern)`、`.param(name)`、`.ui()`、`.max(n)`、`.inherit_providers()`、`.reap_on_stop()`、`.contribute(\|e\| …)`。全名 `<扩展 id>.<模板 id>`。实例的 id 就是建它时给的 `name`，全进程唯一；名字和参数只能是字母、数字、`-`、`_`、`.`，不能以 `.` 开头。`data_root` 默认 `{name}`，可用 `{name}` 和声明过的参数，在 `~/.<product_id>/instances/` 下；建过的实例记在 `kernel/instances.json`。`.ui()`：界面能按它建（只填 `param` 放开的参数）。`.max(n)`：至多 n 台。`.inherit_providers()`：这个模板的实例也看得到 `main` 的 provider（设置页配的）——建实例时、以及每次 `settings.setProvider` 之后，Harnix 把它们并进实例数据根的 `settings.json`（0600）再让它 `engine.config.reload`；Harnix 写过哪些 id 记在 `.inherited-providers.json`，只动这些，实例自己配的同名 provider 不覆盖。`.reap_on_stop()`（缺省关）：停下或重启时收掉会话留下的进程。spawn 的 daemon 自成一个会话（`setsid`），它退出、被杀、崩溃或看护重启时，Harnix 把还留在这个会话里的进程 TERM、等 1.5 s、KILL；两种载体都在实例的全局设置层打开引擎的 `sandbox.reap_process_groups`（正常退出时引擎自己先收，进程内实例只有这一半）。daemon 在自己的会话里收不到终端的 Ctrl-C，退出照旧跟着 stdin 关闭走；自己 `setsid` 出去的进程收不到；实例视图带 `reap: true`。`.contribute(\|e\| …)`：两种载体都有的原生贡献。进程内模板把它并在载体自己的贡献之后；spawn 模板（`program` 为 `None`）的 daemon 带 `--template <全名>` 起来，照装配顺序重走各扩展的注册（不调 `start`、不开任何方法），在自己进程里再调一遍闭包；找不到这个模板以 78 退出、实例 `down`、理由写明。模板贡献的场景要在 `EngineProfile.scenes` 里列出才在实例上启用 |
+| `InstanceTemplate` | `InstanceTemplate::in_process(id, EngineProfile)` / `::spawn(id, EngineProfile)` / `::attach(id, AttachTo)`，再 `.data_root(pattern)`、`.param(name)`、`.ui()`、`.max(n)`、`.inherit_providers()`、`.reap_on_stop()`、`.contribute(\|e\| …)`。全名 `<扩展 id>.<模板 id>`。实例的 id 就是建它时给的 `name`，全进程唯一；名字和参数只能是字母、数字、`-`、`_`、`.`，不能以 `.` 开头。`data_root` 默认 `{name}`，可用 `{name}` 和声明过的参数，在 `~/.<product_id>/instances/` 下；建过的实例记在 `kernel/instances.json`。`.ui()`：界面能按它建（只填 `param` 放开的参数）。`.max(n)`：至多 n 台。`.inherit_providers()`：这个模板的实例也看得到 `main` 的 provider（设置页配的）——建实例时、以及每次 `settings.setProvider` 之后，Harnix 把它们并进实例数据根的 `settings.json`（0600）再让它 `engine.config.reload`；Harnix 写过哪些 id 记在 `.inherited-providers.json`，只动这些，实例自己配的同名 provider 不覆盖。`.reap_on_stop()`（缺省关）：停下或重启时收掉会话留下的进程。spawn 的 daemon 自成一个会话（`setsid`），它退出、被杀、崩溃或看护重启时，Harnix 把还留在这个会话里的进程 TERM、等 1.5 s、KILL；两种载体都在实例的全局设置层打开引擎的 `sandbox.reap_process_groups`（正常退出时引擎自己先收，进程内实例只有这一半）。daemon 在自己的会话里收不到终端的 Ctrl-C，退出照旧跟着 stdin 关闭走；自己 `setsid` 出去的进程收不到；实例视图带 `reap: true`。`.contribute(\|e\| …)`：两种载体都有的原生贡献。进程内模板把它并在载体自己的贡献之后；spawn 模板的贡献留在产品进程里：它的工具、钩子与门经通往 daemon 的链路提供、在这里作答，场景层的会话建在 daemon 的基础场景上并带上该层追加的东西；attach 的 daemon 没有。场景层不是引擎自己的场景，不列进 `EngineProfile.scenes`：列了的会被滤掉，当缺省场景则被拒 |
 | `TemplateCarrier` | `InProcess { engine }`（只有扩展的模板能带原生贡献）、`Spawn { engine, program: Option<PathBuf>, args }`（`None` = 本二进制的 `daemon` 子命令）、`Attach(AttachTo { socket \| tcp + token })` |
-| `EngineContribution`（`r.engine()`） | `.scene(SceneLayer)`、`.provider(Arc<dyn ToolProvider>)`、`.prompt_gate(Arc<dyn PromptGate>)`、`.credentials(Arc<dyn CredentialSource>)`（第一个给的生效）、`.admit_everywhere(pattern)`（这台实例的每个场景都放进会话的工具，不管场景自己的工具表：`prefix*` 或全名；带工具表的场景会把没放行的工具去掉）、`.foreign_hook(..)`（Agix 自己的钩子，逃生口） |
+| `EngineContribution`（`r.engine()`） | `.scene(SceneLayer)`、`.provider(Arc<dyn ToolProvider>)`、`.prompt_gate(Arc<dyn PromptGate>)` |
 | `engine::EngineProfile` | `scene = "harnix"`、`scenes = []`、`model = "claude-sonnet-4-6"`、`max_tokens = 2000`、`session_cap = 32`、`session_idle_timeout_secs = 3600`、`permission_prompt_timeout_secs = 300`（括号里是默认值）；builder：`EngineProfile::new().scene(..).scenes(..).model(..)` |
-| `engine::Tool` 等 | `Tool`、`ToolSpec::new(name, description, schema)`（`.doc`、`.source`、`.read_only`、`.concurrency_safe`、`.destructive`）、`ToolCx`（`session_id()`、`project()`、`chain()`、`cancel()`、`progress()`）、`ToolOutput`、`ToolError`、`Permission::{Allow, Ask, Deny}`、`ToolProvider`、`ToolHook`、`HookDecision`、`SceneLayer`、`SceneBase::{builtin, builtin_with, named, foreign}`、`PromptText::{cached, plain}`、`PromptGate`、`PromptFacts`、`PromptDecision`、`Delivery`、`CredentialSource`、`Secret`、读者 `engine::readers::{Recordings, Transcripts}` |
+| `engine::Tool` 等 | `Tool`、`ToolSpec::new(name, description, schema)`（`.doc`、`.source`、`.read_only`、`.concurrency_safe`、`.destructive`）、`ToolCx`（`session_id()`、`project()`、`chain()`、`cancel()`、`progress()`）、`ToolOutput`、`ToolError`、`Permission::{Allow, Ask, Deny}`、`ToolProvider`、`ToolHook`、`ToolCallFacts`、`HookDecision`、`SceneLayer`、`SceneBase::{builtin, builtin_with, named}`、`PromptText::{cached, plain}`、`PromptGate`、`PromptFacts`、`PromptDecision`、`Delivery`、读者 `engine::readers::{Recordings, Transcripts}` |
 
 ### 17.4 `Access`、能力、`Trust`、`Subject`
 
@@ -890,7 +905,7 @@ pub trait Extension: Send + Sync + 'static {
 | `Kernel` | 本二进制：装配、内核行的内部调用 |
 | `Device { id }` | 一台配对过的设备，或本机带令牌的页面：一个人 |
 | `Extension { id }` | 一个扩展以自己的身份：原生经 `ExtensionContext`；扩展包的后端经 `host.call`；扩展进程经扩展线 |
-| `Engine { instance }` | 一台 spawn 的 daemon 回连工具端点 `/ext/<id>/mcp` |
+| `Engine { instance }` | 一台实例的引擎，只在审计里出现（记它做的事，如扩展的引擎发得太多）；没有哪一行对它开，也没有引擎回头调本进程的 HTTP 端点 |
 
 标签：`kernel`、`device:<id>`、`ext:<id>`、`engine:<instance>`。0.4.2 的 `Principal` 不存在了：`Principal::Device` → `Access::device()`。
 
@@ -903,10 +918,9 @@ pub trait Extension: Send + Sync + 'static {
 | `Access::extensions()` | 只有扩展（与内核） |
 | `Access::only(id)` | 只有某一个扩展 |
 | `Access::capability(cap)` | 只有内核与持有 cap 的扩展；设备永远不在里面 |
-| `Access::engine()` | 引擎主体（工具端点） |
 | `Access::refused(why)` | 只有内核，对别人说明理由 |
 | `Access::hub_owned(why)` | 谁都不行、不能授予：绕过中枢的方法 |
-| `.with_device()`、`.with_extensions()`、`.with_extension(id)`、`.with_engine()`、`.requiring(cap)`、`.refusing(why)`、`.scoped(RowScope)` | 在上面的基础上加 |
+| `.with_device()`、`.with_extensions()`、`.with_extension(id)`、`.requiring(cap)`、`.refusing(why)`、`.scoped(RowScope)` | 在上面的基础上加 |
 
 `RowScope`：`Open`（与 space、会话无关）、`Space`（作用在一个 space 上）、`Session`（作用在一个会话上）；扩展包的调用按它收窄到自己的 space 与会话。
 
@@ -928,14 +942,14 @@ pub trait Extension: Send + Sync + 'static {
 | `instances.admin` | 停、重启任何非内核拥有的实例；按任何模板建实例、列出全部模板 | ✔ | | system |
 | `engine.inspect` | 读**任何**会话的内部：`inspectContext`、`tasks`、`taskOutput`、`goal`、`history` | ✔ | | system、flow |
 | `engine.control` | 改任何会话的内部：`stopTask`、`messageTask`、`dropMessages`、`editMessage`、`compact`、`clear`、`setModel`、`rename`、`setGoal`、`updateGoal` | ✔ | | system、flow |
-| `engine.config.read` / `engine.config.write` | 读 / 写引擎设置与 provider；后者含 `engine.config.reload`、`harnix.instances.inheritProviders`、`EngineView::config_files` | ✔ | | settings、packages（写，可选） |
+| `engine.config.read` / `engine.config.write` | 读 / 写引擎设置与 provider；后者含 `engine.config.reload`、`harnix.instances.inheritProviders`、宿主服务 `SettingsTiers`（§17.8） | ✔ | | settings、packages（写，可选） |
 | `engine.plugins` | Agix 插件的装、卸、启停、重读；往实例里放 skill | ✔ | | plugins、packages |
 | `engine.export` | `engine.session.export` | ✔ | | harnix-app |
 | `engine.mcp` | `engine.mcp.addServer` | ✔ | | — |
-| `recordings.read` · `transcripts.read` | 录像与用量的读者 · 转录的读者 | ✔ | | observability · harnix-app |
+| `recordings.read` · `transcripts.read` | 录像与用量的读者 · 转录的读者；都经引擎的协议读（`session.calls`、`call`、`callBlob`、`search`），每台实例各有一套，实例连不上读者返回 `Unavailable` | ✔ | | observability · harnix-app |
 | `process.observe` | 版本、运行时长、内存、线程、已连接的客户端 | ✔ | | system |
 | `devices.manage` | 配对码、列设备、撤销设备 | ✔ | | devices |
-| `extensions.manage` | 拿 `harnix-host-api` 的 `HostServices`：运行期登记扩展、拉起扩展进程、给 daemon 配工具端点、收养扩展进程的引擎 | ✔ | | packages |
+| `extensions.manage` | 拿 `harnix-host-api` 的 `HostServices`：运行期登记扩展、拉起扩展进程、收养扩展进程的引擎 | ✔ | | packages |
 | `ui.page` | 进页面的 ES 模块 | ✔ | 只 `trusted` 发布者 | — |
 | `events.all_tools` | 看到每个会话的每一次工具调用 | | ✔ | — |
 | `net:<主机>` · `env:<名字>` · `storage:<MB>` · `fs:data` · `fs:project` | 扩展包的资源能力 | | ✔ | — |
@@ -957,12 +971,13 @@ pub trait Extension: Send + Sync + 'static {
 | `call(method, params)` | 以 `ext:<id>` 的身份调任何方法（根调用），和设备走同一个准入点、同样审计 |
 | `sessions()` | `Sessions`，见 §17.6 |
 | `instances()` | `Instances`：`create(template, name, params)`、`ensure(template, name, params)`（幂等，并发调同名也只建一台，`start` 里用）、`ensure_ready(template, name, params, timeout)`（同上，等到 `ready` 再返回；`down` 或超时报 `INSTANCE_UNAVAILABLE`）、`wait_ready(instance, timeout)`、`stop(instance)`（数据根留着） |
-| `engine(instance)` | `Option<EngineView>`，一台实例的只读视图：`instance()`、`active_scenes()`、`model()`、`trust()`；要能力的：`recordings()`（`recordings.read`）、`transcripts()`（`transcripts.read`）、`skills()`（`engine.plugins`）、`config_files()` 与 `validate_provider(..)`（`engine.config.write`） |
+| `engine(instance)` | `Option<EngineView>`，一台实例的只读视图：`instance()`、`active_scenes()`、`model()`、`trust()`；要能力的：`recordings()`（`recordings.read`；`calls`、`call`、`turns`、`envelopes`、`usage`）、`transcripts()`（`transcripts.read`；`search`，返回 `Result`，实例连不上是 `ReadError::Unavailable`）。每台实例都有读者：`main`、进程内的模板实例、spawn、attach 的实例与 `proc.<id>`。
+录像按根会话存：整棵会话树（侧链、子 Agent）的调用在根会话的一份录像里，`calls` 的 `index` 是它在这份录像里的位置，行上有 `session_id` 与 `parent_session_id`。录像只覆盖最近一次运行（daemon 重启后第一次调用会把它重写），`calls`、`turns`、`envelopes`、`usage` 的结果带 `run`，读者见过上一次运行消失时标 `earlier_run`，用量不是跨运行的合计。`calls` 的列表只有每次调用的概况与工具调用的名字、字数，工具的输入与结果在 `call` 的详情里。`usage` 不叫醒休眠的模式 3 进程，给读过的旧数并标 `stale`，其余读者的调用会叫醒它 |
 | `process()` | `process.observe`：版本、运行时长、内存、线程、已连接的客户端 |
 | `bulk()` | 一次性上传凭据：`grant(max_bytes)`、`grant_named(name, max_bytes)`（文件名以清理过的 `name` 结尾，给按名字或后缀读它的，如 `plugins.upload`） |
 | `ui()` | `UiPublisher`：运行期发布的界面条目（`plugins` 发 Agix 包的 `[[ui]]`） |
 | `devices()` | `devices.manage`：`list`、`pair_begin`、`pair_complete`、`revoke` |
-| `service::<S>()` | 一个有名字的宿主服务；服务自己声明要什么能力。0.4.3 唯一的服务是 `harnix_host_api::HostServices`（`extensions.manage`），只有宿主组件用（§17.8） |
+| `service::<S>()` | 一个有名字的宿主服务；`S` 只给名字（`NAME`）和交出来的类型（`Handle`），要什么能力由提供它的宿主按名字定、按授予查——请求方自己写的类型说了不算。0.4.3 唯一的服务是 `harnix_host_api::HostServices`（`extensions.manage`），只有宿主组件用（§17.8） |
 | `listen()` / `listening().await` | 进程监听在哪：`Listen { addrs, url }`（`addrs` 是实际绑上的地址，`--port 0` 时是系统给的端口；`url` 是 `http(s)://<第一个地址>/`，不带令牌）。扩展的 `start` 在监听**之前**，所以 `start` 里 `listen()` 是 `None`；要写运行记录就 `tokio::spawn` 一个任务 `listening().await` |
 | `provide(v)` / `provide_arc(arc)` / `state::<T>()` | 扩展状态，handler 里用 `call.state::<T>()` 拿 |
 
@@ -989,11 +1004,12 @@ pub trait Extension: Send + Sync + 'static {
 | `in_space(space)` | 返回同样的句柄，经它的每个调用都声称那个 space（落在 create / open / send / send_with / interrupt / close / entries / append_entry；`move_to` 的 `space` 仍是目标）。用归 space 的实例时要它；`SessionRef` 不加字段：它是身份键 |
 
 没有记录的会话（引擎自己建的，如子 Agent 的）归 space 的顺序：引擎报了父会话就随父会话的 space；否则是它所在实例的 space（实例归 space 时）；再否则是缺省 space。
-`SessionRef { instance, session_id }`：会话的全名永远带实例。
+`SessionRef::new(instance, session_id)`（字段 `instance`、`session_id` 公开，`#[non_exhaustive]`，不会再加字段）：会话的全名永远带实例。
 
 ### 17.7 错误：`RpcError`、`harnix::codes`
 
-`RpcError::new(code, msg)`、`::invalid_params`、`::not_found`（没有这个**方法**，-32601）、`::missing`（`NOT_FOUND`）、`::conflict`（`CONFLICT`）、`::refused`。
+`RpcError::new(code, msg)`、`::with_data(code, msg, data)`、`::invalid_params`、`::not_found`（没有这个**方法**，-32601）、`::missing`（`NOT_FOUND`）、`::conflict`（`CONFLICT`）、`::refused`；
+字段 `code`、`message`、`data` 公开，结构 `#[non_exhaustive]`：读字段、`RpcError { data: Some(d), .. }` 模式都行，构造只经构造函数。
 
 | 码 | 名字 | 含义 |
 |---|---|---|
@@ -1018,6 +1034,10 @@ pub trait Extension: Send + Sync + 'static {
 那几样在 `harnix-host-api`（S3），经 `cx.service::<HostServices>()` 拿，要 `extensions.manage`。**应用的扩展用不到它**；测试应用的 `fakehost` 经它演示。
 接口（`HostApi`、`DynamicRegistrar`、`ExtensionHandle`、`Carrier`、`AdoptedEngine`……）与宿主对动态描述做的七项结构检查写在
 [扩展包](harnix-ext-package.md) 的接口清单里。S3 随骨架变，不在扩展接口的稳定承诺内。
+
+同一个 crate 里还有一个**过渡**服务 `SettingsTiers`（`cx.service::<SettingsTiers>()`，要 `engine.config.write`，句柄 `dyn SettingsFiles`：
+`global(instance)`、`scene(instance, scene)` 给出一台实例的引擎读的全局层与场景层 `settings.json` 在哪）。它是 Agix 设置目录的布局，只有第一方 `settings` 用——
+引擎接下全局层的写入（经协议）之后连它一起删；所以在 S3，不在 S1。
 
 ---
 
@@ -1126,7 +1146,7 @@ quote_api_key = { credential = "helm/quote-api" }
 | `--launch-link` | 同 `[transport] launch_link` |
 | `--exit-with-stdin`（隐藏） | stdin 关了就退出：桌面壳带走它的子进程 |
 | `ui export <dir>` | 把编进去的界面写出来，给 CDN / 反代 |
-| `daemon …`（隐藏） | spawn 的实例跑的就是它，开关取自模板的 `[engine]`：`--session-idle-timeout <秒>`、`--permission-prompt-timeout <秒>`（profile 里是带 `_secs` 的同名键）、`--lock-wait <秒>`，名字里不带单位，值都是秒。Harnix 起它时带 `--instance <id>` 与（有原生贡献时）`--template <全名>`：它在 `<数据根>/.daemon-<id>.lock` 上持独占锁（内容是 pid），先等同一台实例的旧 daemon 放手（最多 `--lock-wait` 秒，默认 10）再建引擎；等不到就非零退出，实例记为 `down`，理由「the data root is held by pid N」。模板写了 `program` 的不带这两个参数、不拿锁 |
+| `daemon …`（隐藏） | spawn 的实例跑的就是它，开关取自模板的 `[engine]`：`--session-idle-timeout <秒>`、`--permission-prompt-timeout <秒>`（profile 里是带 `_secs` 的同名键）、`--lock-wait <秒>`，名字里不带单位，值都是秒。Harnix 起它时带 `--instance <id>`：它在 `<数据根>/.daemon-<id>.lock` 上持独占锁（内容是 pid），先等同一台实例的旧 daemon 放手（最多 `--lock-wait` 秒，默认 10）再建引擎；等不到就非零退出，实例记为 `down`，理由「the data root is held by pid N」。模板写了 `program` 的不带这两个参数、不拿锁 |
 | `ext-proc …`（隐藏，feature `proc`） | 模式 3 的扩展进程：产品二进制自己以这个子命令重新执行；不读 profile、不拿状态目录的锁。用不到它——Harnix 拉起它 |
 
 | 环境变量 | 说明 |
@@ -1134,7 +1154,7 @@ quote_api_key = { credential = "helm/quote-api" }
 | `AGIX_CONFIG_HOME` | 引擎目录 |
 | `HARNIX_DATA_DIR` | 项目目录 |
 | `HARNIX_STATE_DIR` | 程序自己的目录，单独挪（§20） |
-| `HARNIX_CREDENTIAL_<名字>` | 默认凭据源读这里；名字是引用转大写、非字母数字转 `_` |
+| `HARNIX_CREDENTIAL_<名字>` | 默认的 `Credentials` 读这里；名字是引用转大写、非字母数字转 `_` |
 | `HARNIX_UI_MODULES`、`HARNIX_UI_FIRST_PARTY`、`HARNIX_UI_OUT` | 界面构建：应用的界面入口（逗号分隔绝对路径）、编进来的第一方 UI 包（不设是全部，空串是一个也不要）、输出目录（§22.5） |
 | `HARNIX_UI_DIST` | `cargo build` 时嵌进二进制的界面目录 |
 
@@ -1175,7 +1195,7 @@ quote_api_key = { credential = "helm/quote-api" }
 | `/pair`、`/challenge` | 设备配对 |
 | `/auth/link`、`/auth/{code}` | 启动链接 |
 | `/ext/plugins/ui/<包>/<模块>` | Agix 包的界面模块文件（要凭据；`[ext.plugins] ui_modules = false` 时不服务） |
-| `/ext/<包 id>/ui/…`、`/ext/<包 id>/mcp` | 扩展包的界面文件（公开：iframe 不带凭据）、工具端点（只给本进程 spawn 的引擎） |
+| `/ext/<包 id>/ui/…` | 扩展包的界面文件（公开：iframe 不带凭据） |
 | `/brand/icon.svg` | `[brand] icon` |
 | `/ext/<扩展 id>/…` | 扩展的自有路由与静态文件，同一个扩展的路由共用一种 `Access` |
 

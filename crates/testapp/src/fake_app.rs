@@ -19,7 +19,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use harnix::prelude::*;
-use harnix::{DescriptorBuilder, ExtId};
+use harnix::ext::DescriptorBuilder;
+use harnix::ExtId;
 use harnix_host_api::{ExtensionHandle, HostServices};
 use serde_json::{json, Value};
 

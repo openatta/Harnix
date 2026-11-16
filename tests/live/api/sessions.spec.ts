@@ -148,13 +148,12 @@ defineSuite("sessions", { feature: "sessions" }, {
         assert(info.permission_mode === undefined && info.options === undefined,
           `engine.session.get now reports the mode (${JSON.stringify(info.permission_mode)}) — assert it`);
 
-        // A mode the engine does not know is still accepted, because unknown
-        // `options` are dropped whole rather than refused. Same blind spot,
-        // seen from the other side: a typo in the dialog is silent.
-        const typo = await client.call("harnix.session.create",
-          { options: { permission_mode: "not-a-real-mode" } });
-        assert(typo.session_id, "an unknown permission mode broke session creation");
-        await finish(client, typo.session_id);
+        // A mode the engine does not know is refused, and the refusal says
+        // which option: the engine reads `options` strictly.
+        const err = await client.call("harnix.session.create",
+          { options: { permission_mode: "not-a-real-mode" } }).catch((e) => e);
+        assert(err?.code === -32602 && err.data?.invalid_options?.some((o: { field: string }) => o.field === "permission_mode"),
+          `an unknown permission mode was not refused by name: ${JSON.stringify(err)}`);
         await finish(client, created.session_id);
       },
 

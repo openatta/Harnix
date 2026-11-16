@@ -10,8 +10,11 @@
  * restyling the shell must not break a test whose behaviour did not change.
  */
 
+import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import type { Locator, Page } from "@playwright/test";
-import { expect } from "@harnix/testkit";
+import { type Backend, RECORDINGS, expect } from "@harnix/testkit";
 
 /** Console errors are failures: a page that throws while still looking right is the failure a
  *  screenshot cannot show. */
@@ -134,4 +137,39 @@ export async function flowReference(page: Page): Promise<void> {
   if ((await page.locator("#frame").getAttribute("data-details")) !== "open") await page.getByTestId("details-toggle").click();
   await tab(page.locator("#details"), "flow.reference").click();
   await expect(page.getByTestId("flow-reference-tab")).toBeVisible();
+}
+
+/**
+ * A session with a recording, for what reads one. A replayed session records nothing, and the
+ * readers read a session's recording through its engine (system-space.md §8): so `backend` is one
+ * whose sessions record (`launchFor("none")`: nothing to replay and no model, so nothing on it runs
+ * a turn). The session, on `main` in the session space, has run no turn; its recording is `lines`,
+ * or the fixture `fixture` with the id it was recorded under replaced by the session's, put where
+ * `main`'s engine records it. Nothing is written over it: a recording is rewritten by the session's
+ * first call, and this session makes none. Opens the page on `backend`.
+ */
+export async function recorded(
+  page: Page,
+  backend: Backend,
+  source: { fixture: string; edit?: (lines: string[]) => string[] } | { lines: (sid: string) => object[] },
+): Promise<string> {
+  await open(page, backend.url);
+  const sid = await page.evaluate(async () => {
+    const { app } = (window as unknown as { harnix: { app: any } }).harnix;
+    const created = await app.call("harnix.session.create", { instance: "main", space: "sessions", scene: "harnix" });
+    await app.call("harnix.session.attach", { instance: "main", session_id: created.session_id, space: "sessions" });
+    return created.session_id as string;
+  });
+  const dir = join(backend.scratch, "agix", "recordings", sid);
+  if ("fixture" in source) {
+    cpSync(join(RECORDINGS, source.fixture), dir, { recursive: true });
+    const text = readFileSync(join(dir, "calls.jsonl"), "utf8");
+    const was = (JSON.parse(text.slice(0, text.indexOf("\n"))) as { session_id: string }).session_id;
+    const lines = text.split(was).join(sid).trimEnd().split("\n");
+    writeFileSync(join(dir, "calls.jsonl"), (source.edit ? source.edit(lines) : lines).join("\n") + "\n");
+  } else {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "calls.jsonl"), source.lines(sid).map((l) => JSON.stringify(l)).join("\n") + "\n");
+  }
+  return sid;
 }

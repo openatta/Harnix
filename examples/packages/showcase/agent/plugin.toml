@@ -1,7 +1,7 @@
 # The showcase's agent side: an Agix package, installed into the instances the application's
 # manifest names (`[agent] install_into`). Agix reads this file; Harnix reads only its name and
-# version, to ask Agix to install it. `skills/` beside it is Harnix's: each `skills/<name>/` is
-# copied into those instances' skills directories, and taken back out with the application.
+# version, to ask Agix to install it. `skills/` beside it is Harnix's: put in the package's own
+# skills directory, which the sessions of its spaces read.
 
 [plugin]
 name = "example-showcase"

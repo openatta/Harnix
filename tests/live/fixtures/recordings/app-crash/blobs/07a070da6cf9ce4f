@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"thinking","text":"Second failed the same way. Third call now.","signature":"087d3850-9a20-4ee9-b512-58cc1259e603"},{"type":"tool_use","id":"call_00_D7mTBOPpPqKzfdtEcMhV3489","name":"ext__example_showcase__crash","input":{}}]}

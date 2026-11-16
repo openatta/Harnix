@@ -5,7 +5,8 @@
 //! The host fills a [`Seat`] with the kernel's services, each a trait here, and hands it to the
 //! extension's descriptor through [`Seated`]. Nothing here is the extension interface's own: an
 //! extension never sees a seat, only the context made from it, and capabilities are checked by
-//! that context against [`GrantBook`] before a service is reached.
+//! that context against [`GrantBook`] before a service is reached — a named service's by whoever
+//! provides it ([`ServiceRegistry`]).
 //!
 //! Values the kernel cannot name — the engine interface's readers, a host component's services —
 //! travel as `Arc<dyn Any + Send + Sync>`, each documented with what it holds; the extension
@@ -16,7 +17,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use harnix_contract::s1::{ExtId, InstanceTrust};
+use harnix_contract::s1::{Capability, ExtId, InstanceTrust};
 use serde_json::Value;
 use tokio::sync::watch;
 
@@ -44,22 +45,15 @@ pub struct InstanceView {
     pub active_scenes: Vec<String>,
     pub model: String,
     pub trust: InstanceTrust,
-    /// Where its engine looks for skills.
-    pub skills_dir: PathBuf,
-    /// Where its engine's global and scene settings tiers are written.
-    pub settings_root: PathBuf,
-    /// An `Arc<dyn harnix_engine_api::readers::Recordings>`, when the instance keeps recordings.
+    /// An `Arc<dyn harnix_engine_api::readers::Recordings>`, while the instance is built: through its link.
     pub recordings: Option<Arc<dyn Any + Send + Sync>>,
-    /// An `Arc<dyn harnix_engine_api::readers::Transcripts>`, when its transcripts can be read here.
+    /// An `Arc<dyn harnix_engine_api::readers::Transcripts>`, while the instance is built: through its link.
     pub transcripts: Option<Arc<dyn Any + Send + Sync>>,
 }
 
 /// The instances, as facts.
 pub trait InstanceService: Send + Sync {
     fn view(&self, id: &str) -> Option<InstanceView>;
-
-    /// Whether an engine can read `entry` as a provider: `Err` says why not, in the engine's words.
-    fn validate_provider(&self, entry: &Value) -> Result<(), String>;
 }
 
 /// This process: versions, uptime, memory, threads, who is connected.
@@ -98,8 +92,21 @@ pub trait CredentialLookup: Send + Sync {
 
 /// Named services beyond the kernel's own, by the extension asking: each an
 /// `Arc<Handle>` of the type the service is declared with, behind `Any`.
+///
+/// Who gets one is the provider's to decide: by the name asked for, it knows what capability that
+/// service takes and checks the asker's grants for it. Nothing the asker says — the type it asks
+/// through, a capability that type claims — goes into it.
 pub trait ServiceRegistry: Send + Sync {
-    fn service(&self, ext: &ExtId, name: &str) -> Option<Arc<dyn Any + Send + Sync>>;
+    fn service(&self, ext: &ExtId, name: &str) -> Result<Arc<dyn Any + Send + Sync>, Unserved>;
+}
+
+/// Why a named service was not handed out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Unserved {
+    /// This process provides none by that name.
+    Unknown,
+    /// It takes this capability, and the extension asking does not hold it.
+    Lacks(Capability),
 }
 
 /// Everything one extension's context reaches the process through.

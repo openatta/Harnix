@@ -298,7 +298,7 @@ const esc = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const oldWhole = new RegExp(`(?<![\\w.$@/-])(${OLD_NAMES.map(esc).join("|")})(?![\\w-]|\\.[A-Za-z_])`);
 const engineQuoted = new RegExp(`(?<=["'\`])(${ENGINE_NAMES.map(esc).join("|")})(?=["'\`])`);
 // The two suites that stand up a fake daemon answer Agix on its own wire, as those crates do.
-const agixFacing = /^crates\/(engine|engine-api|instance|builtin)\/|^crates\/hub\/src\/replay\.rs$|^tests\/live\/api\/instances-(daemon|ready)\.spec\.ts$/;
+const agixFacing = /^crates\/(engine|instance)\/|^crates\/hub\/src\/replay\.rs$|^tests\/live\/api\/instances-(daemon|ready)\.spec\.ts$/;
 const everything = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8", maxBuffer: 1 << 28 }).split("\0").filter(Boolean);
 const named = [];
 for (const file of everything) {

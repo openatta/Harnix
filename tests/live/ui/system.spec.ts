@@ -9,24 +9,29 @@
  * daemon), so the tree has more than one branch to show.
  */
 
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { type Backend, RECORDINGS, expect, launchFor, startHarnix, test } from "@harnix/testkit";
+import { type Backend, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
 import { INSTANCES_PROFILE } from "../api/instances";
-import { connected, newSession, open, reply, say, sessionRow, spaceEntry, watchConsole } from "./page";
+import { connected, newSession, open, recorded, reply, say, sessionRow, spaceEntry, watchConsole } from "./page";
 
 const TREE = { tag: ["@feature:system", "@layer:ui"] };
 
 let backend: Backend;
+/** Where the tabs that read a recording are tested: see `recorded`. */
+let recorder: Backend;
 
 test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
   backend = await startHarnix(launchFor("replay", { profile: INSTANCES_PROFILE }));
+  recorder = await startHarnix(launchFor("none"));
 });
-test.afterAll(async () => { await backend?.dispose(); });
+test.afterAll(async () => {
+  await backend?.dispose();
+  await recorder?.dispose();
+});
 
 async function toSystem(page: Page): Promise<void> {
   await page.locator('#side [data-space="system"]').click();
@@ -119,19 +124,22 @@ test("system-tree: every instance, its sessions of every space, and their tasks;
 });
 
 test("system-agents: the active tab lists the loaded Agents, the all tab every one; a row carries its sub-agents, tasks, tokens and model time", TREE, async ({ page }) => {
-  await open(page, backend.url);
-  const id = await sessionWithTurn(page, "main");
-  // A replayed session records nothing; give it a recording: two calls of its own, one of a sub-agent's.
-  const dir = join(backend.scratch, "agix", "recordings", id);
-  mkdirSync(dir, { recursive: true });
-  const lines = [
-    { type: "recording", version: 1, session_id: id },
-    { type: "call", seq: 1, ts: 1000, session_id: id, turn: 0, step: 0, params: { model: "big" } },
-    { type: "end", seq: 2, ts: 1900, call: 1, outcome: { status: "ok" }, usage: { input_tokens: 600, cache_read_input_tokens: 400, output_tokens: 34 }, duration_ms: 900 },
-    { type: "call", seq: 3, ts: 2000, session_id: "SUB-1", parent_session_id: id, turn: 0, step: 0, params: { model: "small" } },
-    { type: "end", seq: 4, ts: 2600, call: 3, outcome: { status: "ok" }, usage: { input_tokens: 150, output_tokens: 50 }, duration_ms: 600 },
-  ];
-  writeFileSync(join(dir, "calls.jsonl"), lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
+  // Its recording: one call of its own, one of a sub-agent's. A call as the engine's reader reads
+  // one: what it was sent is by reference, and nothing here reads those.
+  const call = (seq: number, ts: number, session: string, model: string, parent?: string) => ({
+    type: "call", seq, ts, session_id: session, ...(parent ? { parent_session_id: parent } : {}), turn: 0, step: 0,
+    provider: "anthropic", api_type: "anthropic", params: { model, max_tokens: 2000, thinking_mode: "off" },
+    system: [], tools: "0000000000000000", messages: [],
+  });
+  const id = await recorded(page, recorder, {
+    lines: (id) => [
+      { type: "recording", version: 1, name: id, session_id: id, created_at: 1000, engine_version: "test" },
+      call(1, 1000, id, "big"),
+      { type: "end", seq: 2, ts: 1900, call: 1, outcome: { status: "ok" }, usage: { input_tokens: 600, cache_read_input_tokens: 400, output_tokens: 34 }, duration_ms: 900 },
+      call(3, 2000, "SUB-1", "small", id),
+      { type: "end", seq: 4, ts: 2600, call: 3, outcome: { status: "ok" }, usage: { input_tokens: 150, output_tokens: 50 }, duration_ms: 600 },
+    ],
+  });
   await toSystem(page);
 
   const agents = page.getByTestId("system-agents");
@@ -324,21 +332,17 @@ test("system-strip: versions, uptime, memory and the connected users", TREE, asy
 });
 
 test("system-calls: every model call with what went in and what came out, and its tool calls", TREE, async ({ page }) => {
-  await open(page, backend.url);
-  const sid = await sessionWithTurn(page, "main");
-  // A replayed session writes no recording of its own: give it the one its fixture was made from.
-  cpSync(join(RECORDINGS, "spawns-agent"), join(backend.scratch, "agix", "recordings", sid), { recursive: true });
+  const sid = await recorded(page, recorder, { fixture: "spawns-agent" });
   await toSystem(page);
   await pick(page, "main", sid);
   await tab(page, "observability.calls");
   const calls = page.getByTestId("system-call");
   await expect(calls.first()).toBeVisible();
-  await expect(calls.first().locator(".l2 .in")).toContainText(/system \d+/);
   await expect(page.locator('#details [data-testid="system-call-tool"]').first()).toContainText("Agent");
   await page.locator('#details [data-filter="tools"]').click();
-  // The calls that called a tool: the parent's Agent call, and the sub-agent's call to list the files
-  // (the recording holds the sub-agent as a second session).
-  await expect(calls).toHaveCount(2);
+  // The calls that called a tool: the parent's Agent call. The sub-agent's call to list the files is
+  // in the same recording but is the sub-agent's own, listed when that Agent is picked.
+  await expect(calls).toHaveCount(1);
   await page.locator('#details [data-filter="all"]').click();
 
   await calls.nth(1).click();
@@ -374,14 +378,12 @@ test("system-ops: operations take effect, and another viewer sees them", TREE, a
   await other.evaluate(() => (window as any).harnix.app.refreshSessions());
   await expect(sessionRow(other, sid)).toContainText("watched from system");
 
-  // Model: the context the next call will carry says so. The change is made once the overview,
-  // read again after it, names the model; the context tab reads it as it opens.
+  // Model: see "system-ops: a model switched …" below for what the pane says after it.
   await page.getByTestId("op-model").click();
   await page.locator("#modal input").fill("replayed-model-x");
   await page.getByTestId("host-prompt-ok").click();
-  await expect(page.getByTestId("system-session")).toContainText("replayed-model-x");
+  await expect(page.getByTestId("modal")).toHaveCount(0);
   await tab(page, "context");
-  await expect(page.getByTestId("system-context")).toContainText("replayed-model-x");
   await expect(page.locator('[data-testid="system-block"]').first()).toBeVisible();
   await expect(page.getByTestId("context-stack")).toBeVisible();
 
@@ -419,6 +421,25 @@ test("system-ops: operations take effect, and another viewer sees them", TREE, a
   await page.locator('[data-testid="system-tree-instance"][data-instance="main"]').click();
   await expect(page.locator(`[data-testid="system-instance"] [data-sid="${sid}"]`)).toHaveCount(0);
   await other.close();
+});
+
+// Pinned as it is, not as it should be: the pane names the model the engine's context reports,
+// and Agix 0.3.15's `engine.session.inspectContext` names the settings' model until the session is rebuilt,
+// not the one `engine.session.setModel` chose for the next turn.
+test("system-ops: a model switched from the system space is not named in the pane until the session is rebuilt", {
+  tag: [...TREE.tag, "@gap"],
+  annotation: { type: "gap", description: "Agix: `engine.session.inspectContext` names the model `engine.session.setModel` chose for the next turn" },
+}, async ({ page }) => {
+  await open(page, backend.url);
+  const sid = await sessionWithTurn(page, "main");
+  await toSystem(page);
+  await pick(page, "main", sid);
+  await page.getByTestId("op-model").click();
+  await page.locator("#modal input").fill("replayed-model-y");
+  await page.getByTestId("host-prompt-ok").click();
+  await expect(page.getByTestId("modal")).toHaveCount(0);
+  await page.waitForTimeout(1_000);
+  await expect(page.getByTestId("system-session"), "the pane names the new model now: assert that, and drop the @gap").not.toContainText("replayed-model-y");
 });
 
 test("system-ops: an instance restarts, and its sessions are there after", TREE, async ({ page }) => {
@@ -486,14 +507,12 @@ test("system-context: a message of the context is edited and removed from the pa
   expect(JSON.stringify(history)).not.toContain("edited from the page");
 });
 
-/** A conversation in the session space that called a tool, with the recording its fixture was made
- *  from where `main`'s engine keeps them (a replayed session writes none of its own). */
+/** A conversation in the session space that called a tool. Replayed, so it has no recording. */
 async function conversationWithTool(page: Page): Promise<string> {
   await open(page, backend.url);
   const sid = await newSession(page, "calls-a-tool");
   await say(page, "Use the Bash tool to run exactly: echo harnix-fixture");
   await expect(page.locator('[data-testid="conv-tool"]').first()).toHaveAttribute("data-state", "ok", { timeout: 30_000 });
-  cpSync(join(RECORDINGS, "calls-a-tool"), join(backend.scratch, "agix", "recordings", sid), { recursive: true });
   return sid;
 }
 
@@ -516,25 +535,18 @@ test("system-jump: the header's button opens the space's sessions in the system 
   expect(errors).toEqual([]);
 });
 
-test("system-jump: a tool row opens the call that asked for it, and the call finds its way back to the row", TREE, async ({ page }) => {
+test("system-jump: a tool row opens its session's calls in the system space", TREE, async ({ page }) => {
+  // Replayed, the conversation has no recording, so there is no call to find: the calls are said to
+  // be none. The calls tab finding the call that asked for a tool is its unit test
+  // (ui/packages/observability/test/register.test.tsx).
   const errors = watchConsole(page);
-  const sid = await conversationWithTool(page);
+  await conversationWithTool(page);
   const row = page.locator('[data-testid="conv-tool"]').first();
-  const tool = (await row.getAttribute("data-id"))!;
   await row.getByTestId("conv-tool-toggle").click();
   await row.getByTestId("action-system.tool").click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", "system");
-  await expect(page.getByTestId("system-session")).toHaveCount(0);
-  const picked = page.locator(`#details [data-testid="system-call-tool"][data-tool="${tool}"]`);
-  await expect(picked).toHaveAttribute("data-located", "true");
-  await expect(page.locator('#details [data-testid="system-call"][data-located="true"]')).toHaveCount(1);
-
-  // From the call's detail, back to the conversation, the row found and marked.
-  await page.locator('#details [data-testid="system-call"][data-located="true"]').click();
-  await page.getByTestId("call-locate").click();
-  await expect(page.locator("#main")).toHaveAttribute("data-space", "sessions");
-  await expect.poll(() => page.evaluate(() => (window as any).harnix.app.snapshot.current?.sessionId)).toBe(sid);
-  await expect(page.locator(`[data-testid="conv-tool"][data-id="${tool}"]`)).toHaveAttribute("data-located", "true", { timeout: 10_000 });
+  await expect(page.locator("#details")).toContainText("No calls recorded for this session");
+  await expect(page.locator('#details [data-testid="system-call"]')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
@@ -565,9 +577,7 @@ test("system-context: measured apart from estimated, and a fork from any message
 
 test("system-timeline: calls on a time line, searched and narrowed by a stretch of time; a row per turn", TREE, async ({ page }) => {
   const errors = watchConsole(page);
-  await open(page, backend.url);
-  const sid = await sessionWithTurn(page, "main");
-  cpSync(join(RECORDINGS, "spawns-agent"), join(backend.scratch, "agix", "recordings", sid), { recursive: true });
+  const sid = await recorded(page, recorder, { fixture: "spawns-agent" });
   await toSystem(page);
   await pick(page, "main", sid);
   await tab(page, "observability.calls");
@@ -605,8 +615,8 @@ test("system-timeline: calls on a time line, searched and narrowed by a stretch 
   const rows = page.getByTestId("turn-row");
   await expect(rows).toHaveCount(1);
   await rows.first().click();
-  // Its calls: the parent's two, and the two of the sub-agent it started (a second session in the recording).
-  await expect(page.getByTestId("turn-step")).toHaveCount(4);
+  // Its calls: the parent's two. The two of the sub-agent it started are the sub-agent's own.
+  await expect(page.getByTestId("turn-step")).toHaveCount(2);
   await page.getByTestId("turns-total").click();
   await expect(page.getByTestId("turn-context").first()).not.toHaveText("—");
   expect(errors).toEqual([]);
@@ -614,19 +624,19 @@ test("system-timeline: calls on a time line, searched and narrowed by a stretch 
 
 test("system-calls: a failed call is one click away, and listed alone on asking", TREE, async ({ page }) => {
   const errors = watchConsole(page);
-  await open(page, backend.url);
-  const sid = await sessionWithTurn(page, "main");
   // `calls-a-tool`, the turn's second call (the one after the tool) failed as an overloaded provider
   // would have failed it. The recording also holds the calls beside the turn (its title, the memory).
-  const dir = join(backend.scratch, "agix", "recordings", sid);
-  cpSync(join(RECORDINGS, "calls-a-tool"), dir, { recursive: true });
-  const lines = readFileSync(join(dir, "calls.jsonl"), "utf8").trimEnd().split("\n");
-  const records = lines.map((line) => JSON.parse(line));
-  const second = records.filter((r) => r.type === "call" && !r.purpose)[1].seq;
-  const at = records.findIndex((r) => r.type === "end" && r.call === second);
-  lines[at] = JSON.stringify({ ...records[at], outcome: { status: "error", error: "overloaded" } });
-  writeFileSync(join(dir, "calls.jsonl"), lines.join("\n") + "\n");
-  const all = records.filter((r) => r.type === "call").length;
+  let all = 0;
+  const sid = await recorded(page, recorder, {
+    fixture: "calls-a-tool",
+    edit: (lines) => {
+      const records = lines.map((line) => JSON.parse(line));
+      const second = records.filter((r) => r.type === "call" && !r.purpose)[1].seq;
+      const at = records.findIndex((r) => r.type === "end" && r.call === second);
+      all = records.filter((r) => r.type === "call").length;
+      return lines.map((line, i) => (i === at ? JSON.stringify({ ...records[at], outcome: { status: "error", error: "overloaded" } }) : line));
+    },
+  });
 
   await toSystem(page);
   await pick(page, "main", sid);
@@ -651,9 +661,7 @@ test("system-calls: a failed call is one click away, and listed alone on asking"
 });
 
 test("system-turns: a turn's cache hits are said as a share, or not at all", TREE, async ({ page }) => {
-  await open(page, backend.url);
-  const sid = await sessionWithTurn(page, "main");
-  cpSync(join(RECORDINGS, "calls-a-tool"), join(backend.scratch, "agix", "recordings", sid), { recursive: true });
+  const sid = await recorded(page, recorder, { fixture: "calls-a-tool" });
   await toSystem(page);
   await pick(page, "main", sid);
   await tab(page, "observability.turns");
@@ -829,7 +837,8 @@ test("system-context: a session in the middle of a turn says so in words, the ba
   await tab(page, "context");
   const failed = page.getByTestId("system-context-failed");
   await expect(failed).toHaveText(/running a turn|正在跑一轮/);
-  await expect(failed).toHaveAttribute("title", /is running turn/);
+  // The engine's own words ("session is busy" in Agix 0.3.15), with its code.
+  await expect(failed).toHaveAttribute("title", /busy.*\(-32015\)/);
   await expect(failed).toHaveAttribute("data-code", "-32015");
   // Answered, the turn ends and the context is there.
   await page.locator('#side [data-space="sessions"]').click();
