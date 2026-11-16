@@ -15,6 +15,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, Weak};
 use std::time::Duration;
 
@@ -92,6 +93,9 @@ pub struct HostSide {
     /// Every provider's changes as of the last registration: one pending is a set of tools the
     /// daemon has not been told yet (`catch_up`).
     unheard: StdMutex<Vec<ToolsWatch>>,
+    /// The last registration failed in part: what was heard for it is not what the daemon has
+    /// (`catch_up`).
+    behind: AtomicBool,
     tasks: StdMutex<Vec<AbortHandle>>,
 }
 
@@ -136,6 +140,7 @@ impl HostSide {
             projects: StdMutex::default(),
             registering: tokio::sync::Mutex::new(()),
             unheard: StdMutex::new(contrib.providers().iter().flat_map(|p| p.changes()).map(|c| c.watch()).collect()),
+            behind: AtomicBool::new(false),
             tasks: StdMutex::default(),
         }))
     }
@@ -182,20 +187,15 @@ impl HostSide {
 
     /// Declare the tools and register the hooks on `wire`. Taking a connection (`connecting`), a
     /// registration that fails refuses it: a gate left off would let through what it is there to
-    /// stop. After a change, a failure is logged and the last registration stands.
+    /// stop. After a change, a failure is logged, and the registration made again before the next
+    /// session is.
     pub(crate) async fn register(&self, wire: &dyn Wired, connecting: bool) -> Result<(), Refusal> {
         let _one = self.registering.lock().await;
+        // Heard before the tools are read: a change after this is pending for the next one.
         for watch in lock(&self.unheard).iter_mut() {
             watch.hear();
         }
-        let failed = |what: String| -> Result<(), Refusal> {
-            if connecting {
-                Err(Refusal::Retry(what))
-            } else {
-                tracing::error!(instance = %self.instance, "{what}");
-                Ok(())
-            }
-        };
+        let mut whole = true;
 
         let tools = self.tools();
         let had = !lock(&self.declared).is_empty();
@@ -210,7 +210,10 @@ impl HostSide {
                     let declared = tools.into_iter().filter(|t| adopted.contains(t.spec().name())).map(|t| (t.spec().name().to_string(), t));
                     *lock(&self.declared) = Arc::new(declared.collect());
                 }
-                Err(e) => failed(format!("the tools were not declared: {}", e.message))?,
+                Err(e) => {
+                    whole = false;
+                    self.fell_short(connecting, format!("the tools were not declared: {}", e.message))?;
+                }
             }
         }
 
@@ -226,14 +229,38 @@ impl HostSide {
                     if refused.is_empty() {
                         *lock(&self.hooks_on) = want;
                     } else if want.1 {
-                        failed("the prompt gates' hook was not registered".into())?;
+                        whole = false;
+                        self.fell_short(connecting, "the prompt gates' hook was not registered".into())?;
                     }
                 }
-                Err(e) if want.1 => failed(format!("the prompt gates' hook was not registered: {}", e.message))?,
-                Err(e) => tracing::error!(instance = %self.instance, error = %e.message, "the tool hooks were not registered"),
+                Err(e) if want.1 => {
+                    whole = false;
+                    self.fell_short(connecting, format!("the prompt gates' hook was not registered: {}", e.message))?;
+                }
+                Err(e) => {
+                    // Not a reason to refuse a connection: a tool hook fails open anyway.
+                    whole = false;
+                    self.behind.store(true, Ordering::Release);
+                    tracing::error!(instance = %self.instance, error = %e.message, "the tool hooks were not registered");
+                }
             }
         }
+        if whole {
+            self.behind.store(false, Ordering::Release);
+        }
         Ok(())
+    }
+
+    /// A registration that fell short: taking a connection, it refuses it; after a change, it is
+    /// logged, and made again before the next session is (`catch_up`).
+    fn fell_short(&self, connecting: bool, what: String) -> Result<(), Refusal> {
+        self.behind.store(true, Ordering::Release);
+        if connecting {
+            Err(Refusal::Retry(what))
+        } else {
+            tracing::error!(instance = %self.instance, "{what}");
+            Ok(())
+        }
     }
 
     /// Every provider's tools now: the first by a name is kept, a name the engine would refuse is
@@ -370,11 +397,13 @@ impl HostSide {
         }
     }
 
-    /// Declare again now if a provider changed since the last registration, rather than after the
-    /// change settles: a session made just after a package started has its tools
-    /// (harnix-ext-package.md §5).
+    /// Declare again now if a provider changed since the last registration, or that one fell
+    /// short, rather than after the change settles: a session made just after a package started
+    /// has its tools (harnix-ext-package.md §5). A registration in flight is waited for: what it
+    /// declares is what the session gets.
     pub(crate) async fn catch_up(&self, wire: &dyn Wired) {
-        if lock(&self.unheard).iter().any(ToolsWatch::pending) {
+        drop(self.registering.lock().await);
+        if self.behind.load(Ordering::Acquire) || lock(&self.unheard).iter().any(ToolsWatch::pending) {
             let _ = self.register(wire, false).await;
         }
     }

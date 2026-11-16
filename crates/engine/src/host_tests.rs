@@ -503,6 +503,37 @@ async fn a_session_made_just_after_a_change_has_the_tools_as_they_are_now() {
     create.await.unwrap().unwrap();
 }
 
+/// A change the engine did not take is not taken as heard: it is declared again before the next
+/// session is made.
+#[tokio::test]
+async fn a_change_the_engine_did_not_take_is_declared_again_before_a_session() {
+    let provider = provider(vec![]);
+    let (link, mut fake, _taken, _events) = ready(&provider).await;
+    lock(&provider.tools).push(echo("second"));
+    provider.changed.notify();
+    let (id, _) = fake.expect(translate::DAEMON_SET_HOST_TOOLS).await;
+    fake.fail(id, -32603, "not now").await;
+    let (id, _) = fake.expect(translate::DAEMON_SET_HOOKS).await;
+    fake.answer(id, json!({"hooks": [], "refused": []})).await;
+    let rpc = link.rpc();
+    let create = tokio::spawn(async move { rpc.call(translate::SESSION_CREATE, json!({})).await });
+    let (id, tools) = fake.expect(translate::DAEMON_SET_HOST_TOOLS).await;
+    assert_eq!(tools["host_tools"].as_array().unwrap().len(), 2);
+    fake.answer(id, json!({"host_tools": ["echo", "second"], "refused": []})).await;
+    let (id, _) = fake.expect(translate::DAEMON_SET_HOOKS).await;
+    fake.answer(id, json!({"hooks": [], "refused": []})).await;
+    let (id, _) = fake.expect(translate::SESSION_CREATE).await;
+    fake.answer(id, json!({"session_id": "s1"})).await;
+    create.await.unwrap().unwrap();
+
+    // Taken this time: the next session is made without declaring again.
+    let rpc = link.rpc();
+    let create = tokio::spawn(async move { rpc.call(translate::SESSION_CREATE, json!({})).await });
+    let (id, _) = fake.expect(translate::SESSION_CREATE).await;
+    fake.answer(id, json!({"session_id": "s2"})).await;
+    create.await.unwrap().unwrap();
+}
+
 #[tokio::test]
 async fn a_daemon_without_the_capabilities_is_refused_for_good() {
     let link = DaemonLink::with_host(InstanceCarrier::InProcess, "test", host(&provider(vec![])));
