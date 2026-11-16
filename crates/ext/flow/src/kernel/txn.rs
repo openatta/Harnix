@@ -478,7 +478,7 @@ impl<'a> M<'a> {
 
     /// The run's reference context, its workspace included.
     fn ctx(&self, item: Option<&Value>, task: Option<&str>) -> Value {
-        let ws = self.eng.workspace(&self.rec.id);
+        let ws = self.eng.workspace_for(self.rec);
         context_in(self.rec, item, task, ws.as_ref().and_then(|p| p.to_str()))
     }
 

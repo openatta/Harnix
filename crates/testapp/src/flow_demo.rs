@@ -6,13 +6,13 @@
 //! | `demo-linear` | program → session → confirm: the shortest run that touches each kind of work |
 //! | `demo-review` | a program; a `foreach` session station over its list (two tasks); a gate-only checkpoint in parallel, joined later; a station `when` skips (input `mode`, `manual` by default); a `confirm` by `reviewer`; a closing station with a session task and an `external` one; `rework_to`, `on_unmet` |
 //!
-//! | `demo-propose` | a session that tries a write its station does not allow, proposes a rework, hands in |
+//! | `demo-propose` | a session that tries a write its station does not allow (`guard: strict`), proposes a rework, hands in |
 //! | `demo-shared` | two stations, one after the other, whose tasks share the run's session (`per_run`) |
 //! | `demo-placed` | xops-02: a station on an in-process template's instance in the `fleet` space with a model of its own, one on a spawned template's instance — both handing in by structured output — and a confirmation |
-//! | `demo-guarded` | xops-02: a session on a template's instance tries a write its station does not allow (refused by its permission rules), then hands in |
+//! | `demo-guarded` | xops-02: a session on a template's instance tries a write its station does not allow (`guard: strict`: refused by its permission rules), then hands in |
 //! | `demo-misplaced` | xops-02: a station whose template does not exist; the task fails, saying why |
 //! | `demo-bypassed` | xops-02: like `demo-guarded`, on an instance (`bypass-box`) whose settings a LIVE suite sets to `bypassPermissions` — the session asks for a mode that keeps its rules |
-//! | `demo-main` | xops-03: an external task, then two session stations without a scene — turns of the run's main session; the first tries a write no permission allows, the second one its permission allows — then a confirmation |
+//! | `demo-main` | xops-03: an external task, then two session stations without a scene — turns of the run's main session; the first tries a write no permission allows (`guard: strict`), the second one its permission allows — then a confirmation |
 //! | `demo-agent` | xops-03: a sub-agent station; the main session is on `flow-harnix` (it has the `Agent` tool), in a directory of the run's |
 //! | `demo-asked` | xops-04: a main-session station whose policy asks a person before the write; a rule; a tool gate and a command gate |
 //!
@@ -108,6 +108,7 @@ stations:
 
 pub const DEMO_PROPOSE: &str = r#"name: demo-propose
 title: "Demo: a session that proposes"
+guard: strict
 description: The session tries a write it may not make, proposes a rework, and hands in.
 stations:
   - id: propose
@@ -124,6 +125,7 @@ stations:
 
 pub const DEMO_MAIN: &str = r#"name: demo-main
 title: "Demo: the main Agent"
+guard: strict
 stations:
   - id: wait
     title: Wait for someone
@@ -235,6 +237,7 @@ stations:
 
 pub const DEMO_GUARDED: &str = r#"name: demo-guarded
 title: "Demo: a write refused on a template instance"
+guard: strict
 stations:
   - id: guarded
     title: Work without writing
@@ -249,6 +252,7 @@ stations:
 
 pub const DEMO_BYPASSED: &str = r#"name: demo-bypassed
 title: "Demo: a write refused on an instance that bypasses permissions"
+guard: strict
 stations:
   - id: bypassed
     title: Work without writing

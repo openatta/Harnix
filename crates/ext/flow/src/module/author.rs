@@ -332,8 +332,11 @@ that names them is told to keep — never enforced), **policies** (`policies/<na
 permissions), **gates** (`gates/<name>.yaml`: a check a `gate` exit names — `tool`, `command` or \
 `host`) and **hooks** (`hooks/<name>.yaml`: tell a URL about runs' events — no flow names them). \
 Flows and stations name `rules` and `policies` and may write `permissions` of their own: each tool \
-call of a task is judged against them, deny over ask over allow; `ask` waits for a person; a \
-guarded tool nothing allows is refused.\n\n\
+call of a task is judged against them, deny over ask over allow; `ask` waits for a person. Where \
+none speaks, the flow's `guard` decides: `auto` (the default) lets a task work freely inside its \
+project and refuses any path outside it (an `allow` whose `paths` name the place lets it through); \
+`strict` refuses a guarded tool nothing allows and asks a person about a path outside. A task asks \
+no questions: where a person must look, write a `confirm` station.\n\n\
 How to work:\n\
 - Read `flow_schema` before writing: the fields, the parts' shapes, and the names this application \
   offers (scenes, program steps, checks, tools, templates, and the parts on offer). Use only those.\n\

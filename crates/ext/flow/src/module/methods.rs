@@ -1094,6 +1094,9 @@ fn def_info(engine: &Engine, packs: &dyn Packs, name: &str) -> Answer {
                 gates: &pinned.gates,
                 delivery,
                 executor: Some(&t.executor),
+                guard: def.guard,
+                root: Some("<project>"),
+                output_dir: Some("<output_dir>"),
             });
             // What the session is told before its skill: the rules too.
             let rules: Vec<(String, String)> = crate::kernel::parts::rules_of(&def, s)

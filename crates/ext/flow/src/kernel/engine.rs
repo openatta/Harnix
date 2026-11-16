@@ -173,11 +173,20 @@ impl Engine {
         self
     }
 
-    /// A run's workspace, if the application keeps them.
+    /// A run's scratch directory, if the application keeps them: where a run of no project works.
     pub fn workspace(&self, run: &str) -> Option<std::path::PathBuf> {
         self.workspaces
             .as_ref()
             .map(|r| super::refs::workspace_of(r, run))
+    }
+
+    /// Where a run works (`${workspace}`): a task's project — its worktree's directory is the one
+    /// place that changes when a run works in one — else its scratch directory.
+    pub fn workspace_for(&self, rec: &RunRecord) -> Option<std::path::PathBuf> {
+        match (rec.workspace, &rec.project_root) {
+            (Workspace::Project | Workspace::Worktree, Some(root)) => Some(std::path::PathBuf::from(root)),
+            _ => self.workspace(&rec.id),
+        }
     }
 
     /// The scenes whose sessions hand their output in with the native tool `flow_submit` (the

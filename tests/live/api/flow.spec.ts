@@ -84,7 +84,13 @@ test("the module says what it offers: flows, a definition with its parts, the ca
   // The wrapped scenes (flow_submit) and the application's own, for its templates' sessions
   // (structured output, xops-02 §2).
   expect(catalog.scenes).toEqual(["flow-code", "flow-harnix", "flow-mini", "harnix"]);
-  expect(info.protocol.analyze).toContain("Refused unless a permission allows them: Bash, PowerShell, REPL, Write, Edit, NotebookEdit, TodoWrite");
+  // `guard: auto` (the default): no approvals inside the project, nothing outside it.
+  expect(info.protocol.analyze).toContain("work freely inside the project");
+  expect(info.protocol.analyze).not.toContain("Refused unless a permission allows them");
+  // `guard: strict`: the guarded tools are refused unless a permission allows them.
+  const strict = await api.call("flow.def", { name: "demo-propose" });
+  expect(strict.def.guard).toBe("strict");
+  expect(strict.protocol.propose).toContain("Refused unless a permission allows them: Bash, PowerShell, REPL, Write, Edit, NotebookEdit, TodoWrite");
   expect(catalog.steps).toEqual(["collect", "self-check"]);
   expect(catalog).toMatchObject({ checks: ["lint"], tools: ["open_high"], command_gates: true });
   expect(catalog.parts).toMatchObject({

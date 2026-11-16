@@ -33,7 +33,26 @@ policies?: Array<string>,
 /**
  * Permissions every station works under, written here.
  */
-permissions?: Array<Permission>, stations: Array<Station>, };
+permissions?: Array<Permission>, 
+/**
+ * How a call no permission speaks for is judged: `auto` (the default) lets it through inside
+ * the run's project and refuses it outside; `strict` refuses a guarded tool and asks a person
+ * about a path outside.
+ */
+guard?: Guard, 
+/**
+ * Where a run's deliverables go: a path relative to the project (a run of no project: to its
+ * own directory) that may say `${flow}`, `${date}` (`YYYYMMDD`), `${seq}` (two digits: one
+ * more than the highest already there), `${title}` and `${inputs.<k>}`. Absent:
+ * [`DEFAULT_OUTPUT_DIR`]. A start may give its own.
+ */
+output_dir?: string | null, stations: Array<Station>, };
+
+/**
+ * How a flow's tool calls are judged where no permission speaks for them. An explicit `ask`, a
+ * `confirm` and a `hold` wait for a person under both.
+ */
+export type Guard = "auto" | "strict";
 
 /**
  * The run's main session: what session tasks bound to `main` and sub-agent tasks work in.
