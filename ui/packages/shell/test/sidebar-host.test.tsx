@@ -204,7 +204,7 @@ describe("the column as drawn", () => {
     const Seen = () => {
       const { tab } = useTabInfo();
       return (
-        <div data-testid={`seen-${tab.kind}`} data-visible={String(tab.visible)} data-revision={tab.navigation.revision}>
+        <div data-testid={`seen-${tab.kind}`} data-visible={String(tab.visible)} data-revision={tab.navigation.revision} data-session={tab.session?.sessionId}>
           {JSON.stringify(tab.navigation.params)}
         </div>
       );
@@ -217,6 +217,8 @@ describe("the column as drawn", () => {
     const term = () => container.querySelector('[data-testid="seen-term"]');
     expect(term()!.getAttribute("data-visible")).toBe("true");
     expect(term()!.textContent).toBe('{"cols":80}');
+    // It knows whose surface it is in.
+    expect(term()!.getAttribute("data-session")).toBe("s1");
     act(() => void host.sidebar.openTab("plain"));
     expect(container.querySelector('[data-testid="seen-plain"]')!.getAttribute("data-visible")).toBe("true");
     expect(term()!.getAttribute("data-visible")).toBe("false");

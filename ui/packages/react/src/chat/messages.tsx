@@ -20,7 +20,7 @@ import { useStrings } from "../context";
 import { markdown } from "../markdown";
 import type { BlockOf, ToolStatus } from "@harnix/core/state";
 import { ToolDetails, toolDuration, useToolState } from "../components/blocks";
-import { chipifyHtml, clockTime, editOf, numberedDiff, splitIds, toolArgs, toolDisplayName, toolSummary } from "./format";
+import { chipifyHtml, clockTime, editOf, numberedDiff, splitIds, toolArgs, toolDisplayName, toolSummary, unifiedDiffRows, type DiffRow } from "./format";
 import { Icon } from "./icons";
 import { useChat, type ChatRole } from "./types";
 
@@ -309,9 +309,21 @@ export function DiffView({ path, pairs }: { path: string; pairs: { old: string; 
     const rows = numberedDiff(p.old, p.new);
     return i > 0 ? [{ op: "gap" as const, text: "…" }, ...rows] : rows;
   });
+  return <DiffFrame path={path} rows={lines} />;
+}
+
+/**
+ * 一段 unified diff（引擎报的一轮改动，`@harnix/core` 的 `FileChange.diff`），画成和工具行的 diff 一样的样子：
+ * 行号是文件里的行号（hunk 头给的），不是这段改动里的。
+ */
+export function UnifiedDiffView({ path, diff, testId }: { path: string; diff: string; testId?: string }) {
+  return <DiffFrame path={path} rows={unifiedDiffRows(diff)} testId={testId} />;
+}
+
+function DiffFrame({ path, rows: lines, testId = "conv-tool-diff" }: { path: string; rows: DiffRow[]; testId?: string }) {
   const shown = lines.slice(0, DIFF_MAX_LINES);
   return (
-    <div className="hx-cc-diff" data-testid="conv-tool-diff" onClick={(e) => e.stopPropagation()}>
+    <div className="hx-cc-diff" data-testid={testId} onClick={(e) => e.stopPropagation()}>
       <div className="hx-cc-dh">
         <Icon.file />
         <span>{path}</span>

@@ -58,6 +58,8 @@
       "flow.validate",
       "harnix-app.describe",
       "harnix-app.files",
+      "harnix-app.files.list",
+      "harnix-app.files.read",
       "harnix-app.listDirectory",
       "harnix-app.prefs.set",
       "harnix-app.projects.create",

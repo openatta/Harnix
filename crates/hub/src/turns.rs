@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use harnix_contract::{Frame, RpcError};
 use harnix_engine_link::events::Completion;
-use harnix_engine_link::ops::{codes as engine_codes, TurnInput};
+use harnix_engine_link::ops::{codes as engine_codes, Entry, TurnInput};
 use serde_json::{json, Value};
 
 use crate::session::{QueueItem, USER_MESSAGE};
@@ -305,7 +305,7 @@ impl Hub {
         let (instance, session_id) = (&key.0, key.1.as_str());
         let total_after = self.history_total(key).await;
         let compactions_after = self.compactions(key).await;
-        let (watchers, next, complete) = {
+        let (watchers, next, complete, wrote) = {
             let mut guard = self.inner.lock().await;
             let state = guard.sessions.entry(key.clone()).or_default();
             if state.running_turn.as_deref() != Some(turn_id) {
@@ -328,9 +328,22 @@ impl Hub {
                 state.replay.clear();
             }
             state.compacted = false;
-            let answer = std::mem::take(&mut state.answer);
-            (state.watchers(), state.queue.pop_front(), state.last_complete.take().map(|c| (c, answer)))
+            let mut answer = std::mem::take(&mut state.answer);
+            let wrote = std::mem::take(&mut answer.wrote);
+            (state.watchers(), state.queue.pop_front(), state.last_complete.take().map(|c| (c, answer)), wrote)
         };
+        // What the turn wrote goes into the session's log before the turn is told settled: a
+        // watcher that reads the log on settling finds it there.
+        if let Some(payload) = crate::changes::payload(turn_id, &wrote) {
+            let entry = Entry::new(crate::changes::NS, crate::changes::EVENT, payload);
+            let written = match self.engine(instance) {
+                Ok(linked) => linked.ops().append_entry(session_id, entry).await.map(|_| ()),
+                Err(e) => Err(e),
+            };
+            if let Err(e) = written {
+                tracing::warn!(error = %e.message, "a turn's changes not written to the log");
+            }
+        }
 
         let mut params = match &outcome {
             Ok(result) => json!({"instance": instance, "session_id": session_id, "turn_id": turn_id, "result": result}),
@@ -613,8 +626,8 @@ mod outcome_tests {
             text("Let me look. "),
             SessionEventKind::ToolCall { id: "tu1".into(), name: "Read".into() },
             SessionEventKind::ToolCall { id: "tu2".into(), name: "Bash".into() },
-            SessionEventKind::ToolResult { id: "tu1".into(), is_error: false },
-            SessionEventKind::ToolResult { id: "tu2".into(), is_error: true },
+            SessionEventKind::ToolResult { id: "tu1".into(), is_error: false, wrote: Vec::new() },
+            SessionEventKind::ToolResult { id: "tu2".into(), is_error: true, wrote: Vec::new() },
             SessionEventKind::Fragment(Fragment::new(Joins::Thinking, "text", "hmm")),
             text("Done."),
         ] {

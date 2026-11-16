@@ -15,6 +15,7 @@
 mod export;
 mod files;
 mod import;
+mod project;
 mod store;
 mod trust;
 mod workspaces;
@@ -67,7 +68,7 @@ impl Extension for HarnixApp {
     fn manifest(&self) -> Manifest {
         Manifest::new(ID, env!("CARGO_PKG_VERSION"))
             .title("Harnix")
-            .disclosure("会话 space：工作区、会话的归档、视图偏好、跨会话搜索、目录选择、文件引用、导出与导入；替设备读、改项目的信任")
+            .disclosure("会话 space：工作区、会话的归档、视图偏好、跨会话搜索、目录选择、文件引用、会话项目里的文件（只读）、导出与导入；替设备读、改项目的信任")
             .requires([caps::TRANSCRIPTS_READ, caps::ENGINE_EXPORT])
             // Reading and changing a project's trust (`engine.project.*`). Without it the projects
             // space shows no trust and offers none.
@@ -97,6 +98,14 @@ impl Extension for HarnixApp {
         r.method("prefs.set").access(open()).raw(|c, p| with(c, |a, _| async move { a.prefs_set(p).await }));
         r.method("search").access(open()).raw(|c, p| with(c, |a, c| async move { a.search(&c, p).await }));
         r.method("files").access(open()).raw(|c, p| with(c, |a, _| async move { a.files(p).await }));
+        r.method("files.list")
+            .access(session())
+            .describe("one directory of a session's project {session_id, path?, all?}: entries, the hidden count")
+            .raw(|c, p| with(c, |a, c| async move { a.files_list(&c, p).await }));
+        r.method("files.read")
+            .access(session())
+            .describe("one file of a session's project {session_id, path}: text, an image, or why neither")
+            .raw(|c, p| with(c, |a, c| async move { a.files_read(&c, p).await }));
         r.method("listDirectory").access(open()).raw(|c, p| with(c, |a, _| async move { a.list_directory(p).await }));
         r.method("recentProjects").access(open()).raw(|c, _| with(c, |a, c| async move { a.recent_projects(&c).await }));
         r.method("projects.create").access(open()).raw(|c, p| with(c, |a, _| async move { a.projects_create(p).await }));

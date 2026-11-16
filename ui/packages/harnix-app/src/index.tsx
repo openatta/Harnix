@@ -2,8 +2,9 @@
  * @harnix/harnix-app — the Harnix app's interface (the `harnix-app` extension's): the session
  * space and the projects space, which list the same conversations by time and by project; the
  * grouping by time; a session's archiving and export, offered on the shell's session menu; the
- * composer's `@` files of the open session's project; and a project's trust (its menu, its shield,
- * the banner over a conversation in a project that is not trusted).
+ * composer's `@` files of the open session's project; a project's trust (its menu, its shield,
+ * the banner over a conversation in a project that is not trusted); and the right column's files,
+ * preview and changes tabs, with the changes card a turn that wrote files leaves in the conversation.
  *
  * Only the host API: the sessions come from the hub (`harnix.sessions.list`, kept current by the
  * instance's pushed session list) and what this product notes about them from its own methods
@@ -16,10 +17,12 @@ import { t, type ActionTarget, type CommandCandidate, type Dispose, type HostApi
 import { exportDialog } from "./dialogs.tsx";
 import { ProjectsSidebar, TrustBanner } from "./projects.tsx";
 import { SessionsSidebar, byTime } from "./sessions.tsx";
+import { registerSidebar } from "./sidebar.tsx";
 import { AppStore, SESSIONS } from "./store.ts";
 
 export { AppStore, SESSIONS, type AppSession, type AppState, type TrustItem, type TrustStatus, type Workspace } from "./store.ts";
 export { byTime } from "./sessions.tsx";
+export { CHANGES_KIND, FILES_KIND, FILE_PATTERN, PREVIEW_KIND, fileOfCall, lineOf } from "./sidebar.tsx";
 
 /** The backend extension this is the interface of. */
 export const extension = "harnix-app";
@@ -129,6 +132,8 @@ export function register(r: Registry, host: HostApi): Dispose {
     },
     extension,
   );
+  // The right column's files, preview and changes, the changes card, and a file tool's path opening the file.
+  registerSidebar(r, host, store, extension);
   // Disabled: the store stops following the hub with everything it fed.
   return () => store.stop();
 }

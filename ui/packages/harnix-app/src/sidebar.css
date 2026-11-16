@@ -1,0 +1,236 @@
+/* The right column's files, preview and changes tabs, and the changes card in the conversation.
+ * Colours only from tokens. */
+
+.hx-files,
+.hx-preview,
+.hx-changes {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  font-size: 13px;
+}
+
+.hx-files-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0 8px;
+  color: var(--label-secondary);
+}
+
+.hx-files-head .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--label-primary);
+}
+
+.hx-files-head .at {
+  margin-inline-start: auto;
+  color: var(--label-caption);
+  font-size: 12px;
+}
+
+.hx-files-tree {
+  display: flex;
+  flex-direction: column;
+}
+
+.hx-files-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding-block: 3px;
+  padding-inline-end: 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--label-primary);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.hx-files-row:hover {
+  background: var(--interactive-hover);
+}
+
+.hx-files-row .glyph,
+.hx-changes-file .glyph,
+.hx-changes-card .glyph {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--label-tertiary);
+}
+
+.hx-files-row .glyph.faint {
+  color: var(--label-caption);
+}
+
+.hx-files-row .name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hx-files-row .size {
+  margin-inline-start: auto;
+  color: var(--label-caption);
+  font-size: 11px;
+}
+
+.hx-files-note {
+  padding: 4px 8px;
+  color: var(--label-caption);
+  font-size: 12px;
+}
+
+.hx-files-note.bad,
+.hx-preview .empty.bad,
+.hx-changes.empty.bad {
+  color: var(--state-error);
+}
+
+.hx-preview-body {
+  min-height: 0;
+  overflow: auto;
+}
+
+.hx-preview-code {
+  font-family: var(--font-code);
+  font-size: 12px;
+  line-height: 1.55;
+  background: var(--code-block);
+  border: 1px solid var(--border-l1);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+}
+
+.hx-preview-code .row {
+  display: flex;
+  min-width: max-content;
+}
+
+.hx-preview-code .row[data-state="hit"] {
+  background: var(--accent-soft);
+}
+
+.hx-preview-code .ln {
+  flex: none;
+  width: 44px;
+  padding-inline-end: 10px;
+  text-align: end;
+  color: var(--label-caption);
+  user-select: none;
+}
+
+.hx-preview-code code {
+  white-space: pre;
+  padding-inline-end: 12px;
+}
+
+.hx-preview-image {
+  max-width: 100%;
+  border: 1px solid var(--border-l1);
+  border-radius: var(--radius-sm);
+  background: var(--bg-layer-2);
+}
+
+.hx-changes-counts {
+  font-family: var(--font-code);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.hx-changes-counts .add {
+  color: var(--hx-diff-a-fg);
+}
+
+.hx-changes-counts .del {
+  color: var(--hx-diff-d-fg);
+}
+
+.hx-changes-turn {
+  margin-bottom: 14px;
+}
+
+.hx-changes-file {
+  margin-bottom: 6px;
+}
+
+.hx-changes-file .row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hx-changes-file .toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 3px 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--label-primary);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.hx-changes-file .toggle:hover {
+  background: var(--interactive-hover);
+}
+
+.hx-changes-file .name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-code);
+  font-size: 12px;
+}
+
+.hx-changes-card button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border-l1);
+  border-radius: var(--radius-card);
+  background: var(--bg-layer-1);
+  color: var(--label-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: start;
+  cursor: pointer;
+}
+
+.hx-changes-card button:hover {
+  background: var(--interactive-hover);
+}
+
+.hx-changes-card .files {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--label-tertiary);
+  font-family: var(--font-code);
+  font-size: 12px;
+}
+
+.hx-changes-card .at {
+  color: var(--label-caption);
+  font-size: 12px;
+}

@@ -1373,6 +1373,32 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix-app.files.list",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix-app.files.read",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
         "scope": "open"
       },
       "kind": "method",

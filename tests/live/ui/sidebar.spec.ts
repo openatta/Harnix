@@ -30,7 +30,8 @@ const details = (page: Page) => page.locator("#details");
 /** A session tab's chip, by the kind of its type. */
 const chip = (page: Page, kind: string) => page.locator(`#details [data-testid="sidebar-tab"][data-kind="${kind}"]`);
 
-/** A preview type claiming `harnix-resource://file/**`, and a page type with a guide entry, registered on the page. */
+/** A preview type claiming `harnix-resource://file/**`, and a page type with a guide entry, registered on the page as an
+ *  extension's are: over the product's own types of the same kinds. */
 async function registerTypes(page: Page): Promise<void> {
   await page.evaluate(async () => {
     const { app } = (window as any).harnix;
@@ -46,7 +47,8 @@ async function registerTypes(page: Page): Promise<void> {
       {
         id: "test.preview",
         kind: "preview",
-        priority: "builtin",
+        // Above the Harnix app's own preview (a fallback of the same kind): the page's wins while it is registered.
+        priority: "extension",
         patterns: ["harnix-resource://file/**"],
         title: (address: string | undefined) => (address ? address.split("/").pop() : "Preview"),
         render: () => body("test-preview"),
@@ -58,7 +60,7 @@ async function registerTypes(page: Page): Promise<void> {
       {
         id: "test.usage",
         kind: "usage",
-        priority: "builtin",
+        priority: "extension",
         guide: [{ id: "usage", title: () => "Usage", description: () => "What this session spent" }],
         render: () => body("test-usage"),
       },

@@ -38,8 +38,11 @@ pub enum SessionEventKind {
     Fragment(Fragment),
     /// A tool call, whole: the fragments its arguments came in are not needed any more.
     ToolCall { id: String, name: String },
-    /// A tool call's result. A question about that call is answered by it, either way.
-    ToolResult { id: String, is_error: bool },
+    /// A tool call's result. A question about that call is answered by it, either way. `wrote`:
+    /// the files it wrote, when the engine says (its file-editing tools do).
+    ToolResult { id: String, is_error: bool, wrote: Vec<FileWrite> },
+    /// Files a sub-agent's tool call wrote, from the parent's stream: the turn changed them too.
+    Wrote(Vec<FileWrite>),
     /// A question for a person: a permission, or an answer the model asked for.
     Asked(Prompt),
     /// A question stopped waiting, as the engine says: answered (here or elsewhere), or
@@ -156,6 +159,53 @@ impl Completion {
 
     pub fn with_message(mut self, message: Option<Value>) -> Self {
         self.message = message;
+        self
+    }
+}
+
+/// One file a tool call wrote, as the engine reported it beside the result: what a turn's changes
+/// are made of (harnix-app.md, the changes card). Opaque to the hub but for its size: it gathers a
+/// turn's into one entry in the session's log, so they are still there after a refresh.
+#[non_exhaustive]
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FileWrite {
+    /// The absolute path written.
+    pub path: String,
+    /// It did not exist before.
+    pub created: bool,
+    /// Lines added and removed, for the whole change even when the diff is cut.
+    pub added: u64,
+    pub removed: u64,
+    /// Its size after the write, when the engine measured it.
+    pub bytes: Option<u64>,
+    /// The change as a unified diff; `None` when the engine left it out, and `omitted` says why.
+    pub diff: Option<String>,
+    /// The diff was cut at a hunk boundary.
+    pub truncated: bool,
+    /// Why there is no diff: `too_large`, `binary`, `redacted` — the engine's word, passed on.
+    pub omitted: Option<String>,
+}
+
+impl FileWrite {
+    pub fn new(path: impl Into<String>, created: bool) -> Self {
+        Self { path: path.into(), created, ..Self::default() }
+    }
+
+    pub fn lines(mut self, added: u64, removed: u64) -> Self {
+        self.added = added;
+        self.removed = removed;
+        self
+    }
+
+    pub fn bytes(mut self, bytes: Option<u64>) -> Self {
+        self.bytes = bytes;
+        self
+    }
+
+    pub fn diff(mut self, diff: Option<String>, truncated: bool, omitted: Option<String>) -> Self {
+        self.diff = diff;
+        self.truncated = truncated;
+        self.omitted = omitted;
         self
     }
 }
