@@ -135,12 +135,12 @@ export type Decision =
 /** 一件任务（Agix `engine.session.tasks`）。 */
 export interface TaskRow {
   task_id: string;
-  kind: "agent" | "teammate" | "member" | "mcp_task" | "shell" | "monitor" | "cron" | "code";
-  /** `idle`：只有常驻成员（`member`）有，活着、在两条消息之间。 */
-  status: "running" | "done" | "failed" | "stopped" | "waiting" | "idle";
-  started_ms: number;
-  ended_ms: number | null;
-  detail: Record<string, unknown>;
+  kind: "agent" | "teammate" | "member" | "mcp_task" | "shell" | "monitor" | "cron" | "code" | (string & {});
+  /** `idle`：只有常驻成员（`member`）有，活着、在两条消息之间。引擎加了新的种类也要容忍。 */
+  status: "running" | "done" | "failed" | "stopped" | "waiting" | "idle" | (string & {});
+  started_ms?: number | null;
+  ended_ms?: number | null;
+  detail?: Record<string, unknown>;
   error?: string;
   usage?: Usage;
   /** 它在等的任务。 */
