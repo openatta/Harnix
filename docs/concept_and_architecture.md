@@ -1000,7 +1000,8 @@ IPDrun 已经有能对着 Harnix 协议跑的 React 对话组件，直接回流�
 | `@harnix/settings` · `@harnix/plugins` · `@harnix/devices` | React | 设置节：模型、场景、MCP · Agix 插件 · 设备 |
 | `@harnix/packages` | React | 设置节「扩展」（装、升、卸、同意、清数据）；系统 space 控制台的「扩展」页签 |
 | `@harnix/observability` | React | 对话区的「轨迹」视图（`conversation.view`）、右栏的「上下文」「用量」页签，以及系统 space 检查器的「轨迹」 |
-| `@harnix/flow` | React | 流程；注册进 `system.console.tab`，没人定义时注册自己的 space |
+| `@harnix/flow` | React | 流程；注册进 `system.console.tab`，没人定义时注册自己的 space；定义任务行的标记与另一种起法两个点 |
+| `@harnix/schedule` | React | 定时：会话菜单「定时…」、项目概况的区块、控制台页签、会话行与任务行的时钟、「定时运行这个流程…」；全经别的包定义的点 |
 | `@harnix/ext-sdk` · `@harnix/ext-kit` | 否 | 扩展包的页面在 iframe 里的一侧：桥的客户端与 mock 宿主 · 外壳的令牌与几样基础部件 |
 | `@harnix/testkit` | 否 | LIVE 测试的启动器、API 客户端、Playwright 夹具 |
 

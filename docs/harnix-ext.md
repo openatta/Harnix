@@ -1449,8 +1449,9 @@ r.register("settings.section", {
 `settings.write {tier, changes, revision?}` 整份校验、按版本号拒绝过期的写入（`CONFLICT`），路由到没配置的 provider 也拒绝。
 provider 的 `api_key` 到界面只有 `***` 加末 4 位。
 
-扩展定义的点（第一方）：`system.console.tab`、`system.inspector.tab`、`system.metrics.link`（[系统 space](system-space.md) §2、§11），`harnix-app.project.items`、`harnix-app.project.panels`
-（[Harnix app](harnix-app.md) §3.2）、`harnix-app.inbox`（同上 §3.3），不算进「12 个」。
+扩展定义的点（第一方）：`system.console.tab`、`system.inspector.tab`、`system.metrics.link`（[系统 space](system-space.md) §2、§11），`harnix-app.project.items`、`harnix-app.project.panels`、
+`harnix-app.session.badge`（[Harnix app](harnix-app.md) §3.2）、`harnix-app.inbox`（同上 §3.3），`flow.task.badge`、`flow.start.action`（同上 §3.2、§9.1；`@harnix/flow` 定义，
+定时的界面往里放下一次时间与「定时运行这个流程…」），不算进「12 个」。
 `space` 的分组（0.4.2 的 25 个平铺成员按画在哪分四组）：
 
 ```ts

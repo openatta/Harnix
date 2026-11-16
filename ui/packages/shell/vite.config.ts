@@ -86,9 +86,10 @@ const VIRTUAL = "virtual:harnix-modules";
 
 /**
  * Harnix's own UI packages, in the order they register: the settings sections in the order the
- * panel lists them, then the spaces, the system space before what fills its points.
+ * panel lists them, then the spaces, the system space before what fills its points; the schedules
+ * last, as they fill the flows' points too.
  */
-const FIRST_PARTY = ["settings", "plugins", "devices", "packages", "harnix-app", "system", "observability", "flow"];
+const FIRST_PARTY = ["settings", "plugins", "devices", "packages", "harnix-app", "system", "observability", "flow", "schedule"];
 
 const list = (value: string) =>
   value

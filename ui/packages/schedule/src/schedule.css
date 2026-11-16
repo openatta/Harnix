@@ -1,0 +1,291 @@
+/* Schedules: their rows (a session's list, a project's block, the console), the editor, and the
+ * clocks on the rows of sessions and tasks. Colours only from tokens. */
+
+.hx-sched-rows,
+.hx-sched-panel,
+.hx-sched-pane,
+.hx-sched-console,
+.hx-sched-history {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.hx-sched-console {
+  gap: 12px;
+}
+
+.hx-sched-panel > .btn {
+  align-self: flex-start;
+}
+
+.hx-sched-empty,
+.hx-sched-faint {
+  color: var(--label-caption);
+  font-size: 12px;
+}
+
+.hx-sched-error {
+  color: var(--state-error);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.hx-sched-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-l1);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  font-size: 13px;
+  min-width: 0;
+}
+
+.hx-sched-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.hx-sched-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--label-primary);
+  font-weight: 500;
+}
+
+.hx-sched-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--label-tertiary);
+}
+
+.hx-sched-dot.is-on {
+  background: var(--state-success);
+}
+
+.hx-sched-dot.is-paused {
+  background: var(--state-warn);
+}
+
+.hx-sched-chip {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--interactive-hover);
+  color: var(--label-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.hx-sched-chip.quiet {
+  background: none;
+  color: var(--label-caption);
+}
+
+.hx-sched-chip.is-delivered {
+  background: var(--state-info-soft);
+  color: var(--state-info);
+}
+
+.hx-sched-chip.is-skipped {
+  background: var(--state-warn-soft);
+  color: var(--state-warn-label);
+}
+
+.hx-sched-chip.is-failed {
+  background: var(--state-error-soft);
+  color: var(--state-error);
+}
+
+.hx-sched-line {
+  color: var(--label-secondary);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hx-sched-actions,
+.hx-sched-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.hx-sched-toolbar {
+  gap: 8px;
+  margin-top: 0;
+}
+
+.hx-sched-history {
+  gap: 4px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-l1);
+}
+
+.hx-sched-receipt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.hx-sched-when {
+  color: var(--label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.hx-sched-reason {
+  overflow-wrap: anywhere;
+}
+
+.hx-sched-section h3 {
+  margin: 0 0 4px;
+  color: var(--label-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hx-sched-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--state-info-soft);
+  color: var(--label-primary);
+  font-size: 12px;
+}
+
+.hx-sched-note.is-warn {
+  background: var(--state-warn-soft);
+  color: var(--state-warn-label);
+}
+
+/* The editor. */
+.hx-sched-editor .field {
+  margin-bottom: 14px;
+}
+
+.hx-sched-input {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.hx-sched-editor textarea.hx-sched-input {
+  width: 100%;
+}
+
+.hx-sched-editor input.hx-sched-input:not([type="number"]):not([type="time"]):not([type="date"]) {
+  width: 100%;
+}
+
+.hx-sched-number {
+  width: 7em;
+}
+
+.hx-sched-mono {
+  font-family: var(--font-code);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.hx-sched-seg {
+  flex-wrap: wrap;
+}
+
+.hx-sched-pair {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.hx-sched-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--label-tertiary);
+  font-size: 12px;
+}
+
+.hx-sched-grow {
+  flex: 1 1 16em;
+}
+
+.hx-sched-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--label-secondary);
+  font-size: 13px;
+}
+
+.hx-sched-weekdays {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.hx-sched-weekday {
+  padding: 5px 10px;
+  border: 1px solid var(--border-l2);
+  border-radius: var(--radius-pill);
+  background: var(--bg-base);
+  color: var(--label-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.hx-sched-weekday.on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.hx-sched-summary {
+  margin-top: 6px;
+  color: var(--label-primary);
+  font-size: 12px;
+}
+
+.hx-sched-zone {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* The clocks. */
+.hx-sched-clock {
+  display: inline-flex;
+  align-items: center;
+  color: var(--label-tertiary);
+}
+
+.hx-sched-glyph {
+  display: inline-flex;
+  width: 12px;
+  height: 12px;
+}
+
+.hx-sched-next {
+  color: var(--label-tertiary);
+  font-size: 11px;
+  white-space: nowrap;
+}
