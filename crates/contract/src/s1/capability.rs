@@ -113,7 +113,7 @@ pub mod caps {
     pub const ENGINE_MCP: Capability = Capability::new("engine.mcp");
     pub const RECORDINGS_READ: Capability = Capability::new("recordings.read");
     pub const TRANSCRIPTS_READ: Capability = Capability::new("transcripts.read");
-    /// Versions, uptime, memory, threads, the connected clients.
+    /// Versions, uptime, memory, threads, the connected clients; each extension's log.
     pub const PROCESS_OBSERVE: Capability = Capability::new("process.observe");
     pub const DEVICES_MANAGE: Capability = Capability::new("devices.manage");
     /// The host's services: registering extensions while the process runs.
@@ -133,7 +133,7 @@ pub mod caps {
         CapabilitySpec::new("engine.mcp", "给引擎加 MCP 服务器"),
         CapabilitySpec::new("recordings.read", "读模型调用录像与用量"),
         CapabilitySpec::new("transcripts.read", "读会话转录"),
-        CapabilitySpec::new("process.observe", "版本、运行时长、内存、线程、已连接的客户端"),
+        CapabilitySpec::new("process.observe", "版本、运行时长、内存、线程、已连接的客户端；各扩展的日志"),
         CapabilitySpec::new("devices.manage", "配对码、列设备、撤销设备"),
         CapabilitySpec::new("extensions.manage", "运行期登记扩展，用宿主的服务"),
         CapabilitySpec::new("ui.page", "进页面的 ES 模块").package(),

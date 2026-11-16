@@ -18,7 +18,7 @@
 | 栏 | 是什么 |
 |---|---|
 | 左 | 实例列表（§3） |
-| 中 | 控制台（`center: "hidden"`）：上面一条指标条（§2），下面一排页签：系统 space 自己的（活动、全部、诊断）与别的扩展经 `system.console.tab` 注册进来的（流程、扩展） |
+| 中 | 控制台（`center: "hidden"`）：上面一条指标条（§2），下面一排页签：系统 space 自己的（活动、全部、诊断、扩展日志）与别的扩展经 `system.console.tab` 注册进来的（流程、扩展） |
 | 右 | 选中项的检查器：只出现适用于它的页签（§8），其中一部分由别的扩展经 `system.inspector.tab` 注册；什么都没选时是「说明」页签，说控制台当前页签是什么 |
 
 外壳里它不和别的 space 排在一起：它声明 `place: "bottom"`，入口在左栏底部，角标是正在跑的会话数。还有两条路进来，都是它注册的 `session.action`：
@@ -170,6 +170,24 @@ scene 为 `flow-author` 的那个后端 space（缺省 `flow`，由 `flow` 扩�
 kv 加 `/data`）；模式 3 另有扩展进程 stderr 的最后几行（至多 40 行）；没起来或置于一旁的理由、最近一次错误、
 它的方法与主题、**最近被拒的调用**（方法 — 理由）。本页上它的界面面板是外壳的，在诊断里（§7）。
 
+### 6.1 扩展日志
+
+`@harnix/system` 自己往 `system.console.tab` 注册的页签（`system.extlog`，排在别的扩展的页签后面）：本进程记下的、属于各个扩展的日志——原生扩展在应答调用、
+计算主题、启动与停止时写的，WASM 扩展包自己的日志（`host::log`）与载体关于它的行，模式 3 扩展进程的 stderr，宿主关于某个扩展的行。怎么认一行是谁的见
+[原生扩展](harnix-ext.md) §17.9。进程只留最新的：每个扩展至多 500 行，全进程至多 4000 行，超出时先丢最旧的，页签上方说丢了多少。
+
+数据是 `system.extensions.log {extension?, level?, after?, limit?}`：`system` 凭 `process.observe` 读内核的 `harnix.extensions.log`，设备直接调后者被拒。
+
+| 控件 | 做什么 |
+|---|---|
+| 扩展 | 全部，或只看一个（每个扩展后面是它留着的行数）；换了就从头读 |
+| 级别 | 全部，或某一级及以上；换了就从头读 |
+| 实时 | 缺省开：每 2 秒读一次上次最后一行之后的，新行加在底下；读者往上翻时不把视图拉回底部。关掉就不再读 |
+| 复制 | 把显示着的行按 `时间 级别 扩展 [来源] 消息` 一行一条复制成文本 |
+
+每行：时间、级别（错误、警告着色）、扩展 id、来源（调用中 / 扩展包 / stderr / 宿主，悬停是 tracing 的 target）、消息（之后跟着事件的其余字段 `name=value`）。
+页面至多留 1000 行。
+
 ## 7. 诊断
 
 和设置 → 诊断是同一个面板（外壳核心的）：
@@ -251,6 +269,7 @@ kv 加 `/data`）；模式 3 另有扩展进程 stderr 的最后几行（至多 
 | `system.compact`、`system.clear`、`system.model`、`system.rename`、`system.messages.edit`、`system.messages.drop` | `system` | 会话的操作 |
 | `system.tasks.stop`、`system.tasks.message`、`system.tasks.output` | `system` | 任务 |
 | `system.instances.templates`、`system.instances.create`、`system.instances.restart`、`system.instances.stop` | `system` | 实例 |
+| `system.extensions.log` | `system` | 扩展日志 |
 | `observability.usage`、`observability.turns`、`observability.trace`、`observability.trace.call` | `observability` | Agent 页签的用量、概况、调用、每轮 |
 | `harnix.sessions.list`、`harnix.session.fork`、`harnix.session.interrupt`、`harnix.session.close`、`harnix.session.delete`、`harnix.session.attach`、`harnix.session.detach` | 中枢 | 会话，都带 `space: "system"` |
 | `engine.session.history` | 引擎直通 | 上下文、子 Agent 的消息 |
@@ -278,6 +297,8 @@ space `system`（界面一侧 `@harnix/system` 把它画成 `center: "hidden"`�
 - `system.instances.stop`、`restart`、`create`、`templates`：以自己的身份、凭 `instances.admin` 做设备做不到的实例操作——停、重启别的拥有者的实例，按任何模板建，列出全部模板
   （设备经 `harnix.instances.templates` 只看得到 `ui` 模板）。仍然只能是启动时定下的模板；内核拥有的实例谁都不能停。
 - `system.process`：方法与主题，有人订时每 5 秒算一次，数据凭 `process.observe` 从宿主拿。
+- `system.extensions.log`：转给内核的 `harnix.extensions.log`（要 `process.observe`），只传 `extension`、`level`、`after`、`limit`。日志里的行可能说出包作者没打算给别人看的东西，
+  所以内核那一行不对设备与扩展包开放，设备经这里读，每次读都进审计。
 - 录像与用量不在这里：调用、每轮、用量是 `observability` 的（凭 `recordings.read`），经引擎的协议读。调用页签的列表只有概况与工具调用的名字、字数，输入与结果点开详情才取；整棵会话树（含子 Agent）在根会话的一份录像里。
 
 **跨 space**：声称 `system` 的调用可以观看、操作任何 space 的会话，每一次跨 space 的操作都写审计；在系统 space 里看别的 space

@@ -42,6 +42,7 @@ const SYSTEM_METHODS = [
   "system.instances.restart",
   "system.instances.create",
   "system.instances.templates",
+  "system.extensions.log",
 ];
 
 /** A session in `space` that has had one turn, the user's message first. */

@@ -45,7 +45,7 @@ use harnix_contract::{RpcError, Subject};
 
 /// The span the host opens around everything one extension is asked to do — a call, a topic, its
 /// start and stop — with the extension's id in its `extension` field: what is logged inside it is
-/// that extension's log (`harnix-ext.md` §25).
+/// that extension's log (`harnix-ext.md` §17.9).
 pub const EXTENSION_SPAN: &str = "harnix.extension";
 
 /// Whether `subject` may reach the routes an extension serves under its id. The transport asks
