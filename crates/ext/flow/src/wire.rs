@@ -26,7 +26,9 @@ pub struct StartParams {
     /// Where it works; absent: the project when there is one, else a scratch directory.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<Workspace>,
-    /// Where its deliverables go: a path or a template, recorded as given.
+    /// Where its deliverables go: a template relative to the project (`${flow}`, `${date}`,
+    /// `${seq}`, `${title}`, `${inputs.<k>}`), or an absolute path inside it; absent: the flow's,
+    /// else `flows/${flow}-${date}${seq}`. Made at start; the run holds it resolved.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_dir: Option<String>,
     /// How it came to be started; absent: by the caller's hand. Only the kernel and extensions

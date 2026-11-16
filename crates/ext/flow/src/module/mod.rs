@@ -6,6 +6,7 @@
 //! shared.rs    what the module, its tools and its dispatcher share
 //! dispatch.rs  carrying out an Outcome: events, programs, and every work item handed on
 //! publish.rs   the topics: `run`, `runs`, `defs`, `focus`, `dry_runs`
+//! project.rs   a run's output directory and process directory in its project
 //! session.rs   a session task: placing, opening and binding its session
 //! turns.rs     a session task's turns: sending, judging, correcting, nudging, interrupting
 //! gate.rs      a gate's work item; `command` gates
@@ -40,6 +41,7 @@ mod gate;
 mod hooks;
 mod main;
 mod methods;
+mod project;
 mod publish;
 mod session;
 mod shared;

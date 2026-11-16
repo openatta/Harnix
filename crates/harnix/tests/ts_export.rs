@@ -232,7 +232,7 @@ fn flow(cfg: &Config) -> Generated {
             header(""),
             declarations![cfg;
                 // The definition, as written in YAML.
-                FlowDef, MainSession, InputDef, Station, TaskSpec, Executor, SessionBinding, Retry, OnUnmet,
+                FlowDef, Guard, MainSession, InputDef, Station, TaskSpec, Executor, SessionBinding, Retry, OnUnmet,
                 ExitCond, Assert,
                 // The parts of a pack: permissions, policies, gates, hooks.
                 PartKind, Effect, Permission, Granted, PolicyDef, GateKind, GateDef, HookKind, HookDef, Pinned,

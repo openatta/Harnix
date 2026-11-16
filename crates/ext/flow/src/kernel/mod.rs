@@ -6,6 +6,7 @@ pub mod def;
 pub mod engine;
 pub mod parts;
 pub mod host;
+pub mod output;
 pub mod protocol;
 pub mod refs;
 pub mod run;

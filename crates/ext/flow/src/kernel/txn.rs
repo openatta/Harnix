@@ -253,10 +253,11 @@ impl<'e> Txn<'e> {
                                 self.fx.now,
                                 Some(parent.clone()),
                             );
-                            // A child run works where its parent does.
+                            // A child run works where its parent does, and delivers there.
                             let up = self.get(&parent.run);
                             child.project_root = up.project_root.clone();
                             child.workspace = up.workspace;
+                            child.output_dir = up.output_dir.clone();
                             Ok(child)
                         }
                     }
@@ -478,7 +479,7 @@ impl<'a> M<'a> {
 
     /// The run's reference context, its workspace included.
     fn ctx(&self, item: Option<&Value>, task: Option<&str>) -> Value {
-        let ws = self.eng.workspace(&self.rec.id);
+        let ws = self.eng.workspace_for(self.rec);
         context_in(self.rec, item, task, ws.as_ref().and_then(|p| p.to_str()))
     }
 

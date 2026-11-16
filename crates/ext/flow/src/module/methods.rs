@@ -793,26 +793,23 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         sh,
         packs,
         "start",
-        "start a run: {flow, subject, inputs?, title?, project_root?, workspace?: project|worktree|scratch, output_dir?, trigger?: {kind: manual} | {kind: schedule, schedule, fire_at}} → {run}; with a project_root (an existing absolute directory) the run is a task of that project; only the kernel and extensions start one on a schedule",
+        "start a run: {flow, subject, inputs?, title?, project_root?, workspace?: project|worktree|scratch, output_dir?, trigger?: {kind: manual} | {kind: schedule, schedule, fire_at}} → {run}; with a project_root (an existing absolute directory) the run is a task of that project; output_dir (a template relative to the project, before the flow's and flows/${flow}-${date}${seq}) is made at start and must stay inside it; only the kernel and extensions start one on a schedule",
         |sh, _, cx, p: StartParams| async move {
             let by = caller(&cx);
             let trigger = start_trigger(cx.device().is_some(), p.trigger, &by)?;
-            let r = engine(&sh)?
-                .create(
-                    CreateIn {
-                        flow: p.flow,
-                        subject: p.subject,
-                        inputs: p.inputs,
-                        title: p.title,
-                        parent: None,
-                        project_root: project_dir(p.project_root)?,
-                        workspace: p.workspace,
-                        output_dir: p.output_dir,
-                        trigger: Some(trigger),
-                    },
-                    by,
-                )
-                .await;
+            let input = CreateIn {
+                flow: p.flow,
+                subject: p.subject,
+                inputs: p.inputs,
+                title: p.title,
+                parent: None,
+                project_root: project_dir(p.project_root)?,
+                workspace: p.workspace,
+                output_dir: p.output_dir,
+                trigger: Some(trigger),
+            };
+            let engine = engine(&sh)?;
+            let r = super::project::start(&engine, input, by).await;
             change(&sh, None, r).await
         },
     );
@@ -1094,6 +1091,9 @@ fn def_info(engine: &Engine, packs: &dyn Packs, name: &str) -> Answer {
                 gates: &pinned.gates,
                 delivery,
                 executor: Some(&t.executor),
+                guard: def.guard,
+                root: Some("<project>"),
+                output_dir: Some("<output_dir>"),
             });
             // What the session is told before its skill: the rules too.
             let rules: Vec<(String, String)> = crate::kernel::parts::rules_of(&def, s)
