@@ -46,7 +46,7 @@ function Root() {
   const locale = useLocale();
   const hello = app.snapshot.hello;
   return (
-    <HarnixUiProvider client={client} strings={locale === "en" ? en : zhCN} promptTimeoutSecs={hello?.limits?.prompt_timeout_secs}>
+    <HarnixUiProvider client={client} strings={locale === "en" ? en : zhCN} promptTimeoutSecs={hello?.permission_prompt_timeout_secs}>
       <HostProvider host={host}>
         <RegistryProvider registry={app.registry}>
           <Shell app={app} />

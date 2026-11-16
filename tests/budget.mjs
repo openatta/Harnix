@@ -33,9 +33,9 @@ const BUDGET = [
     unit: (n) => `${(n / MB).toFixed(1)} MB`,
     // `harnix-cli`'s default features carry packages on both carriers: in this process (`wasm`) and
     // each in a process of its own (`proc`, this same binary re-executed as `ext-proc`). Either
-    // brings the WebAssembly engine, runtime only — no compiler, which is what keeps it small (the
-    // build with the runtime measured 41.0 MB against 37.3 MB without, 2026-11-08). The build
-    // without a carrier's limit plus four megabytes: room for the runtime, and none for a compiler.
+    // brings the WebAssembly engine, runtime only — no compiler (the build with the runtime
+    // measured 41.0 MB against 37.3 MB without, 2026-11-08). The limit is no longer tight enough
+    // to notice a compiler; that is not what guards it.
     measure: () => statSync(join(root, "target", "release", "harnix")).size,
   },
   {
