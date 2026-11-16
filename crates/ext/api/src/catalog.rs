@@ -254,6 +254,14 @@ pub const EXTENSION_POINTS: &[ExtensionPoint] = &[
         when: "来源的 `subscribe` 说变了时、点一项时",
         frequency: Frequency::PerInteraction,
     },
+    ExtensionPoint {
+        owner: "observability",
+        id: "observability.usage.section",
+        kind: PointKind::Render,
+        what: "系统 space「用量」页签里的一个区块（`{id, title(), order?, render(context)}`，`context` 是 `{since, days}`）：流程按流程的用量",
+        when: "「用量」页签画出时",
+        frequency: Frequency::PerInteraction,
+    },
 ];
 
 /// The points `owner` defines.

@@ -119,6 +119,7 @@
       "observability.trace.call",
       "observability.turns",
       "observability.usage",
+      "observability.usage.daily",
       "packages.catalog",
       "packages.clearData",
       "packages.disable",

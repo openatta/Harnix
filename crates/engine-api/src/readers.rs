@@ -56,6 +56,13 @@ pub trait Recordings: Send + Sync {
     /// What each Agent of each session used this run: the session first, then every sub-agent
     /// under it. Never wakes an instance that sleeps: what was read before, marked `stale`.
     async fn usage(&self, sessions: &[String]) -> Result<BTreeMap<String, SessionUsage>, ReadError>;
+    /// What the whole tree of Agents under each session used this run, summed per day and model,
+    /// the days counted in `window`'s offset and none before its start. Never wakes an instance
+    /// that sleeps, as [`Recordings::usage`]. A reader that does not sum by day says so.
+    async fn usage_by_day(&self, sessions: &[String], window: &DayWindow) -> Result<BTreeMap<String, SessionDays>, ReadError> {
+        let _ = (sessions, window);
+        Err(ReadError::Unreadable("this reader does not sum usage by day".into()))
+    }
 }
 
 /// One instance's transcripts.
@@ -654,6 +661,80 @@ pub struct AgentUsage {
 impl AgentUsage {
     pub fn new(session_id: &str) -> Self {
         Self { session_id: session_id.to_string(), ..Self::default() }
+    }
+}
+
+/// Which days [`Recordings::usage_by_day`] sums: from the day `since_ms` falls on, a day running
+/// from midnight to midnight at `offset_minutes` east of UTC (the reader's clock, not the engine's).
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DayWindow {
+    pub since_ms: u64,
+    pub offset_minutes: i32,
+}
+
+impl DayWindow {
+    pub fn new(since_ms: u64, offset_minutes: i32) -> Self {
+        Self { since_ms, offset_minutes }
+    }
+}
+
+/// What the tree of Agents under one session used this run, per day and model.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct SessionDays {
+    pub recording: bool,
+    /// Oldest day first; within a day, by model.
+    pub days: Vec<DayUsage>,
+    /// The run these figures cover: only the latest, not a total over runs.
+    pub run: Option<RecordingRun>,
+    /// The instance sleeps: these are the figures read before, not read now.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stale: bool,
+}
+
+impl SessionDays {
+    pub fn new(recording: bool, days: Vec<DayUsage>) -> Self {
+        Self { recording, days, run: None, stale: false }
+    }
+
+    pub fn run(mut self, run: Option<RecordingRun>) -> Self {
+        self.run = run;
+        self
+    }
+
+    pub fn stale(mut self, stale: bool) -> Self {
+        self.stale = stale;
+        self
+    }
+}
+
+/// One day's calls to one model, by every Agent of a session's tree: a call counts on the day it
+/// was sent.
+#[non_exhaustive]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct DayUsage {
+    /// `YYYY-MM-DD`.
+    pub day: String,
+    /// As the recording names it; empty when it names none.
+    pub model: String,
+    /// The turns' calls.
+    pub calls: u64,
+    /// The calls beside the turns: compaction, memory, a title.
+    pub auxiliary: u64,
+    pub input_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub output_tokens: u64,
+    pub model_ms: u64,
+    pub errors: u64,
+}
+
+impl DayUsage {
+    pub fn new(day: String, model: String) -> Self {
+        Self { day, model, ..Self::default() }
     }
 }
 

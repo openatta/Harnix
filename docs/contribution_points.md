@@ -74,6 +74,7 @@ Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发
 | `harnix-app.project.items` | `harnix-app` | 注册 | 项目树里会话之外的一种条目（`{id, title(), rows(root), subscribe(fn), render(row), open(row), menu?(row), create?}`）：流程的任务 | 项目 space 的树画出时、条目的 `subscribe` 说变了时 | 每次交互(10⁰–10¹ 量级) |
 | `harnix-app.project.panels` | `harnix-app` | 呈现 | 项目概况页的一个区块（`{id, title(), order?, render(context)}`） | 项目的概况页画出时 | 每次交互(10⁰–10¹ 量级) |
 | `harnix-app.inbox` | `harnix-app` | 注册 | 待我处理的一个来源（`{id, items(), subscribe(fn), open(item)}`）：中枢的提问、流程的确认、hold、外部任务 | 来源的 `subscribe` 说变了时、点一项时 | 每次交互(10⁰–10¹ 量级) |
+| `observability.usage.section` | `observability` | 呈现 | 系统 space「用量」页签里的一个区块（`{id, title(), order?, render(context)}`，`context` 是 `{since, days}`）：流程按流程的用量 | 「用量」页签画出时 | 每次交互(10⁰–10¹ 量级) |
 <!-- END GENERATED EXTENSION TABLE -->
 
 上面两张表由 `harnix_ext::catalog` 生成，这份文件一旦和它对不上，
