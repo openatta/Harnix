@@ -1085,7 +1085,7 @@ const zhCN: Record<string, string> = {
   "system.agents.col.agent": "Agent",
   "system.agents.col.state": "状态",
   "system.agents.col.subagents": "子 Agent",
-  "system.agents.col.tasks": "任务",
+  "system.agents.col.tasks": "后台任务",
   "system.agents.col.tokens": "Token",
   "system.agents.col.tokensTip": "这次运行的 token，含子 Agent 的",
   "system.agents.col.time": "模型用时",
