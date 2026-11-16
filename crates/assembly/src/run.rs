@@ -29,6 +29,7 @@ use std::net::IpAddr;
 use std::sync::Arc;
 
 use harnix_ext::{Credentials, EnvCredentials};
+use harnix_instance::EngineProfile;
 
 use crate::cli::{self, Cli, Command, UiCommand};
 use crate::host::{lifecycle, Entry, ExtensionStatus, Record};
@@ -137,7 +138,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     }
 
     // ── 1. Profile ──────────────────────────────────────────────────────
-    let basis = Basis::read(&cli)?;
+    let basis = Basis::read(&cli, app.default_engine.as_ref())?;
     let started = start_process(app, &cli, &basis).await?;
 
     // ── 6. Serve ────────────────────────────────────────────────────────
@@ -271,8 +272,8 @@ pub(crate) struct Basis {
 }
 
 impl Basis {
-    pub(crate) fn read(cli: &Cli) -> anyhow::Result<Self> {
-        let profile = cli::resolve_profile(cli)?;
+    pub(crate) fn read(cli: &Cli, default_engine: Option<&EngineProfile>) -> anyhow::Result<Self> {
+        let profile = cli::resolve_profile(cli, default_engine)?;
         let host: IpAddr = profile.transport.host.parse().map_err(|e| {
             anyhow::anyhow!("[transport] host = {:?} is not an IP address: {e}", profile.transport.host)
         })?;

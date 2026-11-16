@@ -60,6 +60,7 @@ impl App {
             credentials: None,
             args: None,
             child_entries: Vec::new(),
+            default_engine: None,
         }
     }
 }
@@ -182,7 +183,7 @@ pub mod testing {
                 args.extend(["--profile".into(), path.into()]);
             }
             let cli = crate::cli::parse(&app.name, &app.version, Some(args));
-            let basis = crate::run::Basis::read(&cli)?;
+            let basis = crate::run::Basis::read(&cli, app.default_engine.as_ref())?;
             let started = crate::run::start_process(app, &cli, &basis).await?;
             Ok(Self { started, _basis: basis })
         }
@@ -228,6 +229,8 @@ pub struct AppBuilder {
     pub(crate) credentials: Option<Arc<dyn Credentials>>,
     pub(crate) args: Option<Vec<OsString>>,
     pub(crate) child_entries: Vec<(String, ChildEntry)>,
+    /// The `[engine]` of the profile used when the command line names none.
+    pub(crate) default_engine: Option<harnix_instance::EngineProfile>,
 }
 
 impl AppBuilder {
@@ -242,6 +245,15 @@ impl AppBuilder {
     /// Read the profile and flags from the command line. The default; here
     /// so a `main.rs` can say so.
     pub fn profile_from_args(self) -> Self {
+        self
+    }
+
+    /// The `[engine]` this product runs with when the command line names no profile: the
+    /// product's own defaults in place of the library's (`EngineProfile::default()`). A profile
+    /// given with `--profile` is read as written; `--scene`, `--scenes` and `--model` go on top
+    /// of either.
+    pub fn default_engine(mut self, engine: harnix_instance::EngineProfile) -> Self {
+        self.default_engine = Some(engine);
         self
     }
 

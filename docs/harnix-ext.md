@@ -844,6 +844,7 @@ harnix::{App, AppBuilder, ExtensionSlot, ExtensionStatus, HARNIX_VERSION, SHUTDO
 | `.credentials(source)` | 换掉 `Credentials` 的实现（默认 `EnvCredentials`：`helm/quote-api` → `$HARNIX_CREDENTIAL_HELM_QUOTE_API`） |
 | `.profile_from_args()` / `.args(iter)` | 命令行从哪来；测试里用 `.args` |
 | `.child_entry(name, entry)` | 登记一个子命令入口（`harnix::App::builder()` 在 feature `proc` 时已登记 `ext-proc`，产品不用写） |
+| `.default_engine(EngineProfile)` | 命令行没给 `--profile` 时用的 `[engine]`：产品自己的缺省，代替 `EngineProfile::default()`。给了 profile 就照 profile；`--scene`、`--scenes`、`--model` 照旧盖在两者上面。`harnix` 二进制用它把 `code` 列进可选场景（`scenes = ["code"]`，缺省场景仍是 `harnix`） |
 | `.run()` | 跑起来，`anyhow::Result<()>` |
 
 `harnix::first_party` 里还有每个第一方扩展的类型（`System`、`HarnixApp`、`Settings`、`Plugins`、`Observability`、`Devices`，以及按 feature 的 `Flow`、`Packages`）
@@ -1053,7 +1054,7 @@ pub trait Extension: Send + Sync + 'static {
 （改名会让应用的配置失效），没写单位的在旁边注明。
 
 ```toml
-[engine]                       # main 实例；字段同 EngineProfile（§17.3）
+[engine]                       # main 实例；字段同 EngineProfile（§17.3）；不写 profile 时是产品的 default_engine（§17.1）
 scene = "harnix"
 scenes = []
 model = "claude-sonnet-4-6"
