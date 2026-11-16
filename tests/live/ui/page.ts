@@ -173,3 +173,12 @@ export async function recorded(
   }
   return sid;
 }
+
+/**
+ * The page's Mod key: its shortcuts follow the platform the page reports (`shortcuts.platform`),
+ * which the emulated device sets, not the machine Playwright runs on — Desktop Chrome reports
+ * Windows on a Mac host, where `ControlOrMeta` would press ⌘.
+ */
+export async function modKey(page: Page): Promise<"Meta" | "Control"> {
+  return (await page.evaluate(() => (window as any).harnix.app.shortcuts.platform)) === "mac" ? "Meta" : "Control";
+}

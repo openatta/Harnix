@@ -74,7 +74,8 @@ test.describe("a provider that fails", () => {
   const CASES: [string, Fault, RegExp, string, boolean][] = [
     ["a key the service rejects", FAULTS.auth, /拒绝了密钥|rejected the key/, "invalid x-api-key", true],
     ["a model name it does not know", FAULTS.wrongModel, /模型名|model name/, "no-such-model", true],
-    ["a rate limit", FAULTS.rateLimited, /限流|rate limiting/, "rate limit exceeded", false],
+    // The engine keeps no body for a 429, only when to retry, so its own words are the kind.
+    ["a rate limit", FAULTS.rateLimited, /限流|rate limiting/, "rate_limited", false],
     ["a service that cannot be reached", FAULTS.drop, /连不上模型服务|Cannot reach the model service/, "", false],
   ];
   for (const [name, fault, words, raw, toSettings] of CASES) {

@@ -12,7 +12,7 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "@harnix/testkit";
 
-import { newSession, open, openSettings, say, sessionRow, spaceEntry } from "./page";
+import { modKey, newSession, open, openSettings, say, sessionRow, spaceEntry } from "./page";
 
 const SHELL = { tag: ["@feature:shell", "@layer:ui"] };
 const SESSIONS = { tag: ["@feature:sessions", "@layer:ui"] };
@@ -110,9 +110,10 @@ test("the shortcuts leave a dialog alone: ⌘K and ⌘/ do nothing while one is 
   await open(page, URL);
   const id = await newSession(page, "says-ready");
   const current = () => page.evaluate(() => (window as any).harnix.app.snapshot.current?.sessionId ?? null);
+  const key = await modKey(page);
   await openSettings(page);
-  await page.keyboard.press("ControlOrMeta+k");
-  await page.keyboard.press("ControlOrMeta+/");
+  await page.keyboard.press(`${key}+k`);
+  await page.keyboard.press(`${key}+/`);
   expect(await current()).toBe(id);
   expect(await focusIn(page, "#modal")).toBe(true);
   await expect(page.getByTestId("settings-nav")).toBeVisible();
@@ -120,9 +121,9 @@ test("the shortcuts leave a dialog alone: ⌘K and ⌘/ do nothing while one is 
   // Closed, they are the shell's again.
   await page.keyboard.press("Escape");
   await expect(page.locator("#modal")).toHaveCount(0);
-  await page.keyboard.press("ControlOrMeta+/");
+  await page.keyboard.press(`${key}+/`);
   expect(await focused(page)).toBe("conv-input");
-  await page.keyboard.press("ControlOrMeta+k");
+  await page.keyboard.press(`${key}+k`);
   await expect.poll(current).toBeNull();
 });
 
@@ -296,7 +297,11 @@ test("an ask answered on another page closes on this one, saying it was answered
     await expect(there).toHaveAttribute("data-state", "pending", { timeout: 15_000 });
     await there.getByTestId("conv-ask-allow").click();
     await expect(there).toHaveAttribute("data-answer", "allow");
-    await expect(page.getByTestId("conv-ask")).toHaveAttribute("data-answer", "answered", { timeout: 10_000 });
+    // The hub says what the answer was (`ask_answered`): this page draws it, noting it came from elsewhere.
+    const here = page.getByTestId("conv-ask");
+    await expect(here).toHaveAttribute("data-state", "answered", { timeout: 10_000 });
+    await expect(here).toHaveAttribute("data-answer", "allow");
+    await expect(here).toContainText(/别处|elsewhere/);
     await expect(page.getByTestId("conv-ask-allow")).toHaveCount(0);
   } finally {
     await other.close();

@@ -6,7 +6,7 @@
 
 import { dropSessions, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-import { connected, flowReference, newSession, open, openFlow, openSettings, reply, say, sessionRow, settingsSection, toFlows, watchConsole } from "./page";
+import { connected, flowReference, modKey, newSession, open, openFlow, openSettings, reply, say, sessionRow, settingsSection, toFlows, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:session-space", "@layer:ui"] };
 const SETTINGS = { tag: ["@feature:settings", "@layer:ui"] };
@@ -140,7 +140,7 @@ test("the sidebar collapses to a rail and back", TAGS, async ({ page }) => {
   await expect(page.locator("#frame")).toHaveAttribute("data-sidebar", "collapsed");
   await page.getByTestId("sidebar-toggle").click();
   await expect(page.locator("#frame")).toHaveAttribute("data-sidebar", "expanded");
-  await page.keyboard.press(process.platform === "darwin" ? "Meta+\\" : "Control+\\");
+  await page.keyboard.press(`${await modKey(page)}+\\`);
   await expect(page.locator("#frame")).toHaveAttribute("data-sidebar", "collapsed");
 });
 
