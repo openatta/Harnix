@@ -52,7 +52,7 @@ Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发
 | `details.panel` | 呈现 | 详情栏里的一页 | 选中项变化时 | 每次交互(10⁰–10¹ 量级) |
 | `flow.block` | 呈现 | 流里的一种新块 | 该块状态变化时 | 每次块状态变化(10¹ 量级) |
 | `sidebar.group` | 注册 | 会话列表的分组与排序 | 会话集合变化时 | 每次交互(10⁰–10¹ 量级) |
-| `command` | 注册 | 一条 `/` 命令或 `@` 引用的补全候选（`trigger` 选哪个菜单） | 命令面板打开时 | 每次交互(10⁰–10¹ 量级) |
+| `command` | 注册 | 一条 `/` 命令或 `@` 引用的补全候选（`trigger` 选哪个菜单；带 `submit` 的 `/` 候选收下发出的 `/<名> <参数>`） | 命令面板打开时 | 每次交互(10⁰–10¹ 量级) |
 | `settings.section` | 呈现 | 设置面板里的一节 | 设置页打开时 | 每次交互(10⁰–10¹ 量级) |
 | `session.action` | 注册 | 对一个会话、它里面一次工具调用或人的一条消息的动作（`at`：标题栏、会话菜单、工具行、工具行的参数、消息的菜单） | 标题栏、会话菜单、工具行、人的消息画出时 | 每次交互(10⁰–10¹ 量级) |
 | `sidebar.tab` | 注册 | 右栏的一种页签类型：按 `patterns` 认领 `harnix-resource://` 地址，或按 `kind` 打开的页；`guide` 进引导页 | 右栏打开一个地址或一种页时 | 每次交互(10⁰–10¹ 量级) |
@@ -71,7 +71,7 @@ Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发
 | `system.console.tab` | `system` | 注册 | 系统 space 控制台的一个页签（`{id, title(), render(), order?, about?()}`） | 系统 space 的控制台画出时 | 每次交互(10⁰–10¹ 量级) |
 | `system.inspector.tab` | `system` | 呈现 | 系统 space 右栏里选中会话的一页（`{id, title(target), match(target), render(target), tools?}`） | 右栏的选中项变化时 | 每次交互(10⁰–10¹ 量级) |
 | `system.metrics.link` | `system` | 注册 | 系统 space 指标条上一格数字去哪（`{id, metric, title(), open()}`）：`metric: "waiting"` 的「等你处理」打开待我处理 | 指标条画出时、点那一格时 | 每次交互(10⁰–10¹ 量级) |
-| `harnix-app.project.items` | `harnix-app` | 注册 | 项目树里会话之外的一种条目（`{id, title(), rows(root), subscribe(fn), render(row), open(row), menu?(row), create?}`）：流程的任务 | 项目 space 的树画出时、条目的 `subscribe` 说变了时 | 每次交互(10⁰–10¹ 量级) |
+| `harnix-app.project.items` | `harnix-app` | 注册 | 项目树里会话之外的一种条目（`{id, title(), rows(root), subscribe(fn), render(row), open(row), menu?(row), create?, projectMenu?(context)}`）：流程的任务 | 项目 space 的树画出时、条目的 `subscribe` 说变了时 | 每次交互(10⁰–10¹ 量级) |
 | `harnix-app.project.panels` | `harnix-app` | 呈现 | 项目概况页的一个区块（`{id, title(), order?, render(context)}`） | 项目的概况页画出时 | 每次交互(10⁰–10¹ 量级) |
 | `harnix-app.inbox` | `harnix-app` | 注册 | 待我处理的一个来源（`{id, items(), subscribe(fn), open(item)}`）：中枢的提问、流程的确认、hold、外部任务 | 来源的 `subscribe` 说变了时、点一项时 | 每次交互(10⁰–10¹ 量级) |
 | `observability.usage.section` | `observability` | 呈现 | 系统 space「用量」页签里的一个区块（`{id, title(), order?, render(context)}`，`context` 是 `{since, days}`）：流程按流程的用量 | 「用量」页签画出时 | 每次交互(10⁰–10¹ 量级) |

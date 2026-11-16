@@ -3,8 +3,9 @@
  * else a project holds besides its conversations, and what its overview page shows.
  *
  *   harnix-app.project.items   a kind of item in the project tree — its rows for a project root,
- *                              how a row is drawn and opened, and the entry it adds to the
- *                              project's "+" menu. The flows register their tasks here.
+ *                              how a row is drawn and opened, the entry it adds to the
+ *                              project's "+" menu, and what it adds to the project's own
+ *                              menu. The flows register their tasks here.
  *   harnix-app.project.panels  a block on a project's overview page.
  *
  * The projects space knows no item kind by name: it draws whatever is registered, interleaved
@@ -46,6 +47,19 @@ export interface ProjectItemContext {
   /** The backend space the projects space lists sessions of: where a kind shows a session it
    *  owns so that it opens here (`harnix.session.expose`). */
   space: string;
+  /** The project's trust as this space reads and asks for it (§3.1), for a kind that does
+   *  something the project's own files take part in. Absent where trust cannot be read. */
+  trust?: ProjectTrust;
+}
+
+/** A project's trust, for a kind (`ProjectItemContext.trust`). */
+export interface ProjectTrust {
+  /** Read again: `trusted`, `untrusted`, `none` (no project layer of its own, nothing to trust),
+   *  or null when it cannot be read. */
+  status(): Promise<"trusted" | "untrusted" | "none" | null>;
+  /** The "信任这个项目…" dialog, as the project's menu opens it; answers whether the project is
+   *  trusted once it closes. */
+  ask(): Promise<boolean>;
 }
 
 /** A kind of item in the project tree (`harnix-app.project.items`, a `register` point). */
@@ -66,6 +80,9 @@ export interface ProjectItemKind {
   menu?(row: ProjectItemRow, context: ProjectItemContext): MenuItem[];
   /** The entry in the project's "+" menu (and its own menu) that makes one: "新任务". */
   create?: { label(): string; icon?: string; run(context: ProjectItemContext): void | Promise<void> };
+  /** More entries of the project's own menu (its `⋯`, a right click on it), after `create`'s:
+   *  "为这个项目建流程". */
+  projectMenu?(context: ProjectItemContext): MenuItem[];
 }
 
 /** A block on a project's overview page (`harnix-app.project.panels`, a `render` point). */
@@ -129,6 +146,19 @@ export function useProjectItems(r: Registry, root: string | null): ProjectItem[]
       }
     });
   }, [r, ids, root, version]);
+}
+
+/** What the kinds add to the project's own menu besides making one (`projectMenu`), in order of registration. */
+export function projectMenuEntries(r: Registry, context: ProjectItemContext): MenuItem[] {
+  return r.list<ProjectItemKind>(PROJECT_ITEMS).flatMap((kind) => {
+    if (!kind.projectMenu) return [];
+    try {
+      return kind.projectMenu(context);
+    } catch (e) {
+      r.fail(PROJECT_ITEMS, kind, e);
+      return [];
+    }
+  });
 }
 
 /** The kinds that offer to make one, as entries of the project's "+" menu. */

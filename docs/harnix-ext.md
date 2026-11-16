@@ -1417,7 +1417,7 @@ export function register(r: Registry, host: HostApi): Dispose | void
 | `details.panel` | 右栏的详情，由 `host.reveal(item)` 打开 |
 | `flow.block` | 对话流里的块，先于内建的匹配；条目 `{ kind: "custom", type: "entry", data: { id, ns, event, payload, at } }` 用它认领 |
 | `sidebar.group` | 左栏的分组 |
-| `command` | `/` 与 `@` 的候选 |
+| `command` | `/` 与 `@` 的候选；`/` 候选带 `submit(args, ctx)` 时，输入框里发出的 `/<名> <参数>` 交给它（名字最长的那条接），不发给会话；答 `false` 时字留在输入框里。名字里可以带空格（`flow <流程>`）：打了空格之后菜单仍列接得上的候选 |
 | `settings.section` | 设置里的一节；`covers: ["models"]`：外壳要人去配模型时打开它 |
 | `session.action` | 对一个会话、它里面一次工具调用、或人的一条话的动作：外壳在标题栏、会话菜单、工具行上问它；`at: ["arg"]` 的是工具行上的参数——第一个认领这次调用的把参数变成链接（文件工具的路径打开预览）。工具的 `target` 带调用的 `input`。`at: ["message"]` 的进人的一条话下面的消息菜单，`target` 是 `{kind: "message", session, space, turnId, text}`（外壳自己的「回到这里」在这里，[Harnix app](harnix-app.md) §5.1）。可选的 `disabled(target)` 答一句话时，这一项画成灰的、悬停说这句话 |
 | `sidebar.tab` | 右栏的一种页签类型：按 `patterns` 认领 `harnix-resource://` 地址，或按 `kind` 打开的页；§22.7 |
@@ -1771,7 +1771,9 @@ Harnix 自己的二进制注册了它（`crates/cli/src/main.rs`）。
 
 主会话的 scene 需要项目时，扩展给每个运行建工作目录（扩展数据目录下 `workspaces/<run>`，也是引用 `${workspace}`），
 不往里写任何东西。`start` 的 `show_in_space` 让扩展把主会话展示到那个 space（`cx.sessions().expose`，可对话，§17.6）：项目 space 的「新任务」传它列会话的 space，
-任务就在项目 space 里打开；扩展不认识任何 space 的名字，展示失败只记日志，运行照跑。记录与 `flow.runs` 的行带 `show_in_space`。没写 `agent_type` 的子 Agent 站用引擎不带类型的子 Agent：跑在主会话的 scene 上、用它的工具。钩子是流程包里的文件（`hooks/`），扩展自己投递，没有 `Hooks` trait。
+任务就在项目 space 里打开；扩展不认识任何 space 的名字，展示失败只记日志，运行照跑。记录与 `flow.runs` 的行带 `show_in_space`。
+`start` 的 `from_session {instance?, session_id, space}` 是发起它的对话（`/flow`，[Harnix app](harnix-app.md) §3.2）：扩展声称那个 space、往对话里写一条条目
+`task_started {run, flow, flow_title, title, subject, project_root}`，界面把它画成链到任务的卡；对话本身不变成任务，写不进去只记日志，运行照跑。没写 `agent_type` 的子 Agent 站用引擎不带类型的子 Agent：跑在主会话的 scene 上、用它的工具。钩子是流程包里的文件（`hooks/`），扩展自己投递，没有 `Hooks` trait。
 
 方法 `flow.*`（设备调用）：读——`defs`、`def`、`list`、`get`、`history`、`catalog`、`schema`、`validate`、
 `parts {kind}`、`part`、`hooks`、`guide`、`sessions {run}`；写流程与件——`save`、`delete`、`part.save`、`part.delete`；

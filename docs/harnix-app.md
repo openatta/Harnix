@@ -116,7 +116,7 @@ Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方�
 | 选一个已有目录 | `harnix-app.workspaces.create {path}` | 目录要已经存在；同一个目录再加一次是幂等的 |
 | 浏览目录 | `harnix-app.listDirectory {path?}` | **选择器从 `projects_dir` 起**：不给 `path` 时打开它（还没有就建；建不了才退到 `$HOME`）；只在 `$HOME` 或项目根之内 |
 
-**项目菜单**：在这个项目里新建会话（打开新会话对话框，§4）、各条目类型的新建项（§3.2）、信任这个项目 / 不再信任这个项目（§3.1）、
+**项目菜单**：在这个项目里新建会话（打开新会话对话框，§4）、各条目类型的新建项和它们加的项（§3.2，如「为这个项目建流程」）、信任这个项目 / 不再信任这个项目（§3.1）、
 改名（`harnix-app.workspaces.update {id, title}`）、移除分组（`harnix-app.workspaces.remove`）。
 
 ### 3.1 项目信任
@@ -193,13 +193,16 @@ r.register("harnix-app.project.items", {
   open: (row, context) => openTask(…),              // 点了行
   menu: (row, context) => [{ id, label, run }],     // 可选：行的右键和「⋯」
   create: { label: () => "新任务", icon: "fork", run: (context) => newTaskDialog(…) },   // 可选：项目「＋」菜单和项目菜单里的一项
+  projectMenu: (context) => [{ id, label, run }],   // 可选：项目菜单（「⋯」、右键）里 create 之后的项：「为这个项目建流程」
 }, owner, { orElse: () => undefined });
 ```
 
 一行是 `{ id, title, at?, running?, session?, data? }`：`at` 是最近活动（毫秒或 ISO 时间，树按它和会话的 `last_active` 一起排，没有的排最后）；
 `running` 为真时收起的项目行上有活动点；`session` 是它在中区打开的会话，那个会话是当前会话时行标成当前；`data` 随行带给 `render`、`open`、`menu`。
-`context` 是 `{ root, workspace, space }`，`space` 是项目 space 列会话的后端 space（`sessions`）：一种条目要让自己拥有的会话在这里打开，就把会话展示到它
-（`harnix.session.expose`，[概念与架构](concept_and_architecture.md) §5.4 第 6 条）。`rows`、`subscribe`、`render`、`open`、`menu` 抛错只丢这一种条目、记进诊断。
+`context` 是 `{ root, workspace, space, trust? }`，`space` 是项目 space 列会话的后端 space（`sessions`）：一种条目要让自己拥有的会话在这里打开，就把会话展示到它
+（`harnix.session.expose`，[概念与架构](concept_and_architecture.md) §5.4 第 6 条）。`trust` 是项目的信任（§3.1），给要用到项目自己文件的条目：
+`status()` 每次重读，答 `trusted`、`untrusted`、`none` 或读不到时 `null`；`ask()` 打开和项目菜单同一个「信任这个项目…」对话框，关掉后答是否已受信。
+读不了信任的产品里没有这一项。`rows`、`subscribe`、`render`、`open`、`menu` 抛错只丢这一种条目、记进诊断。
 行在树里是 `[data-testid="project-item"][data-kind="<id>"][data-item="<row.id>"]`，和会话行一样是 `.srow`、树的一项；它的「⋯」是 `project-item-more`，
 项目的「＋」是 `project-new`。
 
@@ -233,6 +236,21 @@ r.register("harnix-app.project.items", {
 对象（必填）、标题、输出目录（留空用缺省 `flows/<流程>-<YYYYMMDD><NN>`，对话框预估当天序号，由扩展最终定）、在 worktree 里跑（见下）；
 项目里已有任务在跑时提示；流程不是 `guard: strict` 时写明「这个流程会直接修改项目文件」（在 worktree 里跑时改说「合回之后项目才会变」）。
 确认即 `flow.start {flow, subject, inputs?, title?, project_root, output_dir?, workspace?, show_in_space}`，然后打开这个任务。
+
+**对话里的 `/flow <流程> [主题]`**（`@harnix/flow` 的 `ui/packages/flow/src/slash.tsx`，一条 `command`，外壳不认识它）：在项目里的对话中，
+「/」菜单列出 `/flow` 和这个项目能启动的每个流程 `/flow <名>`（`flow.defs {project}`，对话的项目取会话列表那一行的 `project_root`）。
+发出的 `/flow …` 交给它（`submit`），不发给会话：
+- 带了主题、流程又没有必填而没有缺省的输入：直接 `flow.start {flow, subject, project_root, show_in_space, from_session}`；
+- 没带主题、或流程要填输入：打开上面的「新任务」对话框，停在这个流程上、主题已填好，确认时同样带 `from_session`；
+- `show_in_space` 和 `from_session.space` 都是对话所在的后端 space（会话列表那一行的 `space`），任务因此在项目 space 里打开；
+- 流程扩展往原对话里写一条条目 `task_started`，`@harnix/flow` 用 `flow.block` 画成一张卡（`flow-task-card`）：流程、主题、任务现在的状态和站，
+  「打开任务」照上面打开它（主会话在中区，右栏「流程」页签）。原对话不变成任务，也不跳走；
+- 对话没有项目：不启动，横幅说任务属于项目、要在项目里的对话中用；没有这个流程、或它不能启动（不合法、项目没受信）：横幅说明，输入框里的字留着。
+
+**为这个项目建流程**（项目菜单，`projectMenu`）：项目的流程存在项目里（`<项目>/.harnix/flows/`，§3.1 末），受信才读，所以先问信任：
+已受信就往下走；未受信先确认「先信任这个项目？」，再打开同一个信任对话框；`none`（没有自己的项目层）说明存不进去、不往下走；读不到信任的照样往下，
+由流程扩展在保存时拒绝并说明。然后把流程的界面带到前台（「返回」回项目 space），打开流程的通用对话，`flow.focus {instance, session_id, flow: null, project}`
+让它从此在这个项目里读写流程，输入框里放好一句写明项目路径的开头，人接着说要什么流程。编写对话的提示词不变。
 
 **在 worktree 里跑**：对话框先问 `flow.workspace_info {project_root}`：答 `{git: true, branch, prefix}` 时开关可用，起始状态照流程的 `workspace`；
 答 `{git: false, reason, detail}`（`reason` 是 `not_a_repository`、`bare`、`no_commit`、`no_git`）时开关不可用，下面写原因；流程本身要求 worktree 的，

@@ -137,7 +137,7 @@ pub const POINTS: &[Point] = &[
     Point {
         id: "command",
         kind: PointKind::Register,
-        what: "一条 `/` 命令或 `@` 引用的补全候选（`trigger` 选哪个菜单）",
+        what: "一条 `/` 命令或 `@` 引用的补全候选（`trigger` 选哪个菜单；带 `submit` 的 `/` 候选收下发出的 `/<名> <参数>`）",
         when: "命令面板打开时",
         frequency: Frequency::PerInteraction,
     },
@@ -234,7 +234,7 @@ pub const EXTENSION_POINTS: &[ExtensionPoint] = &[
         owner: "harnix-app",
         id: "harnix-app.project.items",
         kind: PointKind::Register,
-        what: "项目树里会话之外的一种条目（`{id, title(), rows(root), subscribe(fn), render(row), open(row), menu?(row), create?}`）：流程的任务",
+        what: "项目树里会话之外的一种条目（`{id, title(), rows(root), subscribe(fn), render(row), open(row), menu?(row), create?, projectMenu?(context)}`）：流程的任务",
         when: "项目 space 的树画出时、条目的 `subscribe` 说变了时",
         frequency: Frequency::PerInteraction,
     },

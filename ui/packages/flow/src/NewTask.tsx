@@ -1,5 +1,6 @@
 /**
- * The new-task dialog, from a project's "+" menu: a flow (every one on offer, its origin marked,
+ * The new-task dialog, from a project's "+" menu (or `/flow` in a conversation, on its flow and
+ * subject, `slash.tsx`): a flow (every one on offer, its origin marked,
  * one that does not validate disabled with why), a form drawn from the flow's `inputs` schema, the
  * subject, a title, the output directory (the default shown, as the module will resolve it), and
  * whether to run in a worktree (the flow's `workspace` to begin with; only for a project that is a
@@ -16,7 +17,7 @@ import { DialogBody, DialogFoot, Glyph, t, useHost, useT, type HostApi } from "@
 
 import { errorText, useDefs, useMethod } from "./hooks";
 import { defBlockedKey, methodName, runIdOf, runningIn, sameRoot } from "./model";
-import type { DefInfo, DefSummary, RunSummary, WorkspaceInfo } from "./types";
+import type { DefInfo, DefSummary, RunSummary, StartedFrom, WorkspaceInfo } from "./types";
 
 /**
  * What the dialog sends as `workspace`: nothing while the toggle was not touched (the flow's own
@@ -174,6 +175,10 @@ export interface NewTaskOptions {
   runs(): RunSummary[];
   /** The flow to start on, when there is one. */
   flow?: string;
+  /** The subject to start with (what `/flow <flow> <subject>` said). */
+  subject?: string;
+  /** The conversation it is started from (`/flow`): the module writes a card linking to the task there. */
+  from?: StartedFrom;
 }
 
 /** Open the dialog; `onStarted` is called with the run once it is. */
@@ -199,7 +204,7 @@ function NewTaskForm({ host, module, options, onStarted, close }: { host: HostAp
   const [texts, setTexts] = useState<Record<string, string>>({});
   // A flow picked: its fields start at their defaults.
   useEffect(() => setTexts(Object.fromEntries(fields.map((f) => [f.key, initialText(f)]))), [flow, schema]);
-  const [subject, setSubject] = useState("");
+  const [subject, setSubject] = useState(options.subject ?? "");
   const [title, setTitle] = useState("");
   const [outputDir, setOutputDir] = useState("");
   // Untouched (null): as the flow says.
@@ -233,6 +238,7 @@ function NewTaskForm({ host, module, options, onStarted, close }: { host: HostAp
         // Sent only when the toggle was touched in a git repository; the flow's own otherwise.
         workspace: workspaceParam(git, worktree),
         show_in_space: options.space || undefined,
+        from_session: options.from,
       };
       const run = runIdOf(await nest.call(methodName(module, "start"), params));
       if (!run) throw new Error(t("flowui.task.noRun"));

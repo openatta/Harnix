@@ -73,6 +73,11 @@ export interface ChatCommand {
   description?: string;
   /** 给了就选中即执行：不插入文字、不发送，输入框里已打的 `/xxx` 清掉 */
   run?: () => void | Promise<void>;
+  /**
+   * 给了就收参数：输入框里发出的 `/<name> <参数>` 交给它（参数去掉首尾空白，可以为空），不发送；
+   * 答 `false` 时输入框里的字留着，否则清掉。选中候选照旧插入 `/<name> `。
+   */
+  submit?: (args: string) => void | boolean | Promise<void | boolean>;
 }
 
 /**

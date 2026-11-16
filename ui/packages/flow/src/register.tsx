@@ -12,13 +12,16 @@
  *
  * And a task — a run in a project: the kind `flow.task` of the projects space's
  * `harnix-app.project.items` (`task.tsx`), where that point is defined, and the right column's
- * 流程 tab of a task's main session (`TaskTab.tsx`), a `sidebar.tab` of kind `flow`.
+ * 流程 tab of a task's main session (`TaskTab.tsx`), a `sidebar.tab` of kind `flow`. And
+ * `/flow` in a conversation, with the card it leaves there, and "为这个项目建流程" in a project's
+ * menu (`slash.tsx`).
  */
 
 import { t, type HostApi, type Registry } from "@harnix/react";
 
 import { registerFlowSpace, registerSystemFlows, type FlowSpace } from "./space";
-import { registerTaskItems, TASK_TAB_KIND } from "./task";
+import { registerSlashFlow, registerTaskCard } from "./slash";
+import { openTask, registerTaskItems, TASK_TAB_KIND } from "./task";
 import { TaskTab } from "./TaskTab";
 import { UsageByFlow } from "./UsageByFlow";
 
@@ -64,7 +67,18 @@ export function register(r: Registry, host: HostApi): void {
     },
     extension,
   );
-  registerTaskItems(r, host, MODULE, () => space, extension);
+  const tasks = registerTaskItems(r, host, MODULE, () => space, extension);
+  // `/flow <flow> [subject]` in a conversation of a project, and the card it leaves there.
+  registerSlashFlow(r, host, MODULE, () => tasks.all(), extension);
+  registerTaskCard(
+    r,
+    extension,
+    MODULE,
+    async (card) => {
+      if (space) await openTask(host, r, space, card.run, card.flow);
+    },
+    extension,
+  );
   // The 用量 tab (the observability package's) lists what the runs spent, by flow; without it, nothing.
   r.register(
     USAGE_SECTION,
