@@ -1379,5 +1379,12 @@ const zhCN: Record<string, string> = {
   "shortcuts.cmd.openSettings": "打开设置",
   "shortcuts.cmd.turnPrevious": "跳到上一轮",
   "shortcuts.cmd.turnNext": "跳到下一轮",
+  // The centre's views and the session header (the view switch, the status dot).
+  "view.switch": "视图",
+  "view.conversation": "对话",
+  "head.status.running": "正在跑一轮",
+  "head.status.waiting": "等你",
+  "head.status.failed": "打不开",
+  "head.status.idle": "空闲",
 };
 export default zhCN;

@@ -1381,5 +1381,12 @@ const en: Record<string, string> = {
   "shortcuts.cmd.openSettings": "Open the settings",
   "shortcuts.cmd.turnPrevious": "Go to the previous turn",
   "shortcuts.cmd.turnNext": "Go to the next turn",
+  // The centre's views and the session header (the view switch, the status dot).
+  "view.switch": "View",
+  "view.conversation": "Conversation",
+  "head.status.running": "Running a turn",
+  "head.status.waiting": "Waiting for you",
+  "head.status.failed": "Could not open",
+  "head.status.idle": "Idle",
 };
 export default en;

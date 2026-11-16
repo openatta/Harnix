@@ -23,6 +23,9 @@ export interface SessionRef {
   sessionId: string;
 }
 
+/** The centre's own view of a session: what `host.conversation.current()` answers when no view is chosen. */
+export const CONVERSATION_VIEW = "conversation";
+
 /** One line under the left column's brand that the application owns (`host.shell.context`,
  *  ipdrun-49): what it is working on right now. */
 export interface ShellContext {
@@ -79,8 +82,8 @@ export interface HostApi {
      * With `reveal`, once open and its transcript caught up, the entry with that key is scrolled to
      * the centre and highlighted (see `reveal`); the promise says whether it was found.
      */
-    open(ref: SessionRef, options: { switchSpace?: boolean; reveal: string }): Promise<boolean>;
-    open(ref: SessionRef, options?: { switchSpace?: boolean; reveal?: undefined }): void | Promise<void>;
+    open(ref: SessionRef, options: { switchSpace?: boolean; reveal: string; view?: string }): Promise<boolean>;
+    open(ref: SessionRef, options?: { switchSpace?: boolean; reveal?: undefined; view?: string }): void | Promise<void>;
     /**
      * In the open session's conversation, the entry with this key — an element with
      * `data-reveal="<key>"` (a `flow.block` renderer puts it on its block), else the block whose id is
@@ -109,6 +112,19 @@ export interface HostApi {
     switch(id: string): Promise<void>;
     /** The front space's id. */
     current(): string;
+  };
+  /**
+   * Which view of the centre the open session is shown in (harnix-ext.md §22.10): the
+   * conversation (`CONVERSATION_VIEW`), or a `conversation.view` registration's id. Each session
+   * remembers its own choice in this browser; `session.open(ref, { view })` opens with one.
+   */
+  conversation: {
+    /** The open session's view: `CONVERSATION_VIEW` while it is the conversation, or no session is open. */
+    current(): string;
+    /** Show the open session in this view; an id no registration has falls back to the conversation. */
+    show(view: string): void;
+    /** The open session's view changed — switched, or another session opened. Returns the unsubscribe. */
+    onChange(fn: (view: string) => void): () => void;
   };
   details: {
     /** Open the right column; with a tab, select it (one of the front space's tabs, or "details"). */

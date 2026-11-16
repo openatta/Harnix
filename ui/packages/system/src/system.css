@@ -50,33 +50,6 @@
 }
 
 /* ── the system space's inspector ───────────────────────────────────── */
-#details .facts {
-  margin: 0;
-  display: grid;
-  gap: 4px;
-}
-
-#details .fact {
-  display: grid;
-  grid-template-columns: 120px 1fr;
-  gap: 8px;
-  font-size: 12.5px;
-}
-
-#details .fact dt {
-  color: var(--label-caption);
-}
-
-#details .fact dd {
-  margin: 0;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-code);
-  font-size: 12px;
-}
-
 #details .btn.wide {
   width: 100%;
   margin-top: 10px;
@@ -952,54 +925,6 @@
 #details pre.scroll {
   max-height: 320px;
   overflow: auto;
-}
-
-#details .stack {
-  display: flex;
-  height: 14px;
-  margin: 8px 0 4px;
-  overflow: hidden;
-  border-radius: 6px;
-  background: var(--border-l1);
-}
-
-#details .stack i {
-  display: block;
-  height: 100%;
-}
-
-#details .stack .sys,
-#details .legend2 .sys::before {
-  background: var(--state-info);
-}
-
-#details .stack .tools,
-#details .legend2 .tools::before {
-  background: var(--state-warn);
-}
-
-#details .stack .msgs,
-#details .legend2 .msgs::before {
-  background: var(--state-success);
-}
-
-#details .legend2 {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 10px;
-  font-size: 12px;
-  color: var(--label-secondary);
-}
-
-#details .legend2 span::before {
-  content: "";
-  display: inline-block;
-  width: 9px;
-  height: 9px;
-  margin-right: 5px;
-  border-radius: 2px;
-  vertical-align: -1px;
 }
 
 /* A table of figures, in the right column or the centre. */

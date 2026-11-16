@@ -36,15 +36,6 @@ export function usageText(usage: TraceCall["usage"]): string {
   return `in ${compact(input)} · out ${compact(usage.output_tokens ?? 0)}`;
 }
 
-export function originLabel(origin: unknown): string {
-  if (typeof origin === "string") return origin;
-  if (origin && typeof origin === "object") {
-    const [kind, value] = Object.entries(origin as Record<string, unknown>)[0] ?? [];
-    return kind ? `${kind}:${String(value)}` : "";
-  }
-  return "";
-}
-
 export function messageText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";

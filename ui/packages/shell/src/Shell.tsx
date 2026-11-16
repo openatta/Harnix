@@ -26,7 +26,7 @@ import {
 } from "react";
 import { errorText } from "@harnix/core";
 import type { BlockOf, SessionController, SessionState } from "@harnix/core/state";
-import { ChatComposer, ChatPanel, Contributed, listenForLayers, modalUp, t, useLayer, useRegistry, useT, ComposerNote, askedTool, rowTitle, toolAsks, type Attached, type ChatIds, type ComposerApi, type MentionItem, type ModelOption, type SpaceContribution, type SpaceSecondary, type ToolRowContribution, Glyph, useDisplay } from "@harnix/react";
+import { CONVERSATION_VIEW, ChatComposer, ChatPanel, ContextRing, Contributed, listenForLayers, modalUp, ringValue, t, useLayer, useRegistry, useT, ComposerNote, askedTool, rowTitle, toolAsks, type Attached, type ChatIds, type ComposerApi, type MentionItem, type ModelOption, type SpaceContribution, type SpaceSecondary, type ToolRowContribution, Glyph, useDisplay } from "@harnix/react";
 
 import { ask, detailsWidthOf, keyOf, later, secondaryWidthOf, type App, type OpenModal, type ShellState, type Widths } from "./app.ts";
 import { useBrand } from "./brand.ts";
@@ -342,15 +342,60 @@ function Main({ app, s }: { app: App; s: ShellState }) {
     );
   }
   const empty = !s.current;
+  const views = app.viewsFor(s.current);
+  const view = app.conversationView(s.current);
+  const chosen = view === CONVERSATION_VIEW ? null : views.find((v) => v.id === view) ?? null;
   return (
-    <section id="main" className={empty ? "empty" : ""} data-space={s.space} data-state={empty ? "empty" : "open"}>
+    <section id="main" className={empty ? "empty" : ""} data-space={s.space} data-state={empty ? "empty" : "open"} data-view={s.current ? view : undefined}>
       <Header app={app} s={s} session={session} onBack={center !== "chat" ? () => setTalking(false) : null} onTalk={null} />
+      {s.current && views.length ? <ViewSwitch app={app} current={s.current} views={views} view={view} /> : null}
       {s.current ? (
-        <Conversation key={keyOf(s.current.instance, s.current.sessionId)} app={app} s={s} onController={setController} />
+        <>
+          {/* The conversation stays on the page under another view: the session stays attached, its composer bound, its stream followed. */}
+          <Conversation key={keyOf(s.current.instance, s.current.sessionId)} app={app} s={s} onController={setController} hidden={chosen !== null} />
+          {chosen ? (
+            <div className="centre-view" data-testid="conversation-view" data-view={chosen.id}>
+              <Contributed registry={app.registry} point="conversation.view" contribution={chosen}>
+                {chosen.render({ instance: s.current.instance, sessionId: s.current.sessionId })}
+              </Contributed>
+            </div>
+          ) : null}
+        </>
       ) : (
         <Hero app={app} />
       )}
     </section>
+  );
+}
+
+/**
+ * The views of the open session (`conversation.view`): the conversation first, then each
+ * registration that applies, as a tab strip at the top of the centre. The choice is the session's,
+ * kept in this browser.
+ */
+function ViewSwitch({ app, current, views, view }: { app: App; current: { instance: string; sessionId: string }; views: ReturnType<App["viewsFor"]>; view: string }) {
+  const t = useT();
+  const registry = useRegistry(app.registry);
+  // A title that throws costs that view its name, not the strip.
+  const titleOf = (v: ReturnType<App["viewsFor"]>[number]) => {
+    try {
+      return v.title();
+    } catch (e) {
+      later(() => registry.fail("conversation.view", v, e));
+      return v.id;
+    }
+  };
+  return (
+    <div className="view-switch" role="tablist" data-testid="view-switch" aria-label={t("view.switch")}>
+      <button type="button" role="tab" data-view={CONVERSATION_VIEW} aria-selected={view === CONVERSATION_VIEW} className={view === CONVERSATION_VIEW ? "on" : ""} onClick={() => app.setConversationView(current, CONVERSATION_VIEW)}>
+        {t("view.conversation")}
+      </button>
+      {views.map((v) => (
+        <button type="button" role="tab" key={v.id} data-view={v.id} aria-selected={view === v.id} className={view === v.id ? "on" : ""} onClick={() => app.setConversationView(current, v.id)}>
+          {titleOf(v)}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -644,6 +689,19 @@ function usagePills(t: (k: string, v?: Record<string, unknown>) => string, usage
   );
 }
 
+/**
+ * How the open session stands, for the dot at the head of its name: waiting on a person (an ask
+ * nobody answered), running a turn, failed to attach, or idle. Read off the session's own state —
+ * the same the conversation draws from.
+ */
+export function sessionStatus(session: SessionState | null, running: boolean): "waiting" | "running" | "failed" | "idle" | null {
+  if (!session) return null;
+  if (session.failed) return "failed";
+  if (session.blocks.some((b) => b.kind === "ask" && !b.answered)) return "waiting";
+  if (running || session.turn != null || session.session?.turn_state === "running") return "running";
+  return "idle";
+}
+
 function Header({
   app,
   s,
@@ -663,6 +721,9 @@ function Header({
   const name = row?.name ?? session?.session?.name ?? null;
   const scene = session?.session?.scene_layer ?? row?.scene_layer ?? session?.session?.scene ?? row?.scene;
   const overview = space?.center?.mode && space.center?.mode !== "chat" && !onBack;
+  const status = overview ? null : sessionStatus(session, Boolean(s.current && s.running[keyOf(s.current.instance, s.current.sessionId)]));
+  // The same ring the composer draws, from the same session state: the last call's context against the window.
+  const ring = overview || !session ? null : ringValue({}, session);
   const registry = useRegistry(app.registry);
   const actions = space?.conversation?.headerActions
     ? ask(registry, space, () => space.conversation!.headerActions!(s.current ? { instance: s.current.instance, sessionId: s.current.sessionId } : null), null)
@@ -674,6 +735,7 @@ function Header({
           <Glyph name="chevronRight" className="glyph flip" />
         </button>
       ) : null}
+      {status ? <span className={`head-dot ${status}`} data-testid="head-status" data-state={status} title={t(`head.status.${status}`)} aria-label={t(`head.status.${status}`)} /> : null}
       {row && !overview ? (
         <button
           type="button"
@@ -697,6 +759,7 @@ function Header({
           </span>
         ) : null}
         {!overview && scene ? <span className="pill">{scene}</span> : null}
+        {ring ? <ContextRing value={ring} testId="head-context-ring" open={false} onClick={() => app.toggleDetails(true)} /> : null}
         {!overview ? usagePills(t, session?.usage ?? null) : null}
       </div>
       <div className="spacer" />
@@ -736,7 +799,7 @@ function Header({
   );
 }
 
-function Conversation({ app, s, onController }: { app: App; s: ShellState; onController: (c: SessionController | null) => void }) {
+function Conversation({ app, s, onController, hidden = false }: { app: App; s: ShellState; onController: (c: SessionController | null) => void; hidden?: boolean }) {
   const t = useT();
   const registry = useRegistry(app.registry);
   const current = s.current!;
@@ -858,6 +921,7 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
   return (
     <>
       <ChatPanel
+        className={hidden ? "under-view" : undefined}
         sessionId={current.sessionId}
         instance={current.instance}
         space={app.claim(s.space)}
