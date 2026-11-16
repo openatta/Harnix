@@ -314,7 +314,7 @@ const SHAPE: { [P in Point]: string[] } = {
 const ACTION_PLACES: readonly string[] = ["header", "menu", "tool", "arg"];
 const SPACE_GROUPS = ["sidebar", "center", "conversation", "details", "store"] as const;
 
-const FIELD_TYPES: readonly string[] = ["toggle", "select", "number", "text", "secret", "list", "rules"];
+const FIELD_TYPES: readonly string[] = ["toggle", "select", "number", "text", "secret", "list", "rules", "route"];
 
 /** What is wrong with a settings section's `fields`; null when nothing. */
 function fieldsError(fields: unknown): string | null {

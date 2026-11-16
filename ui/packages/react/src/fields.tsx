@@ -11,13 +11,20 @@
  * may declare `fields` (and a `store`) instead of drawing itself.
  */
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { CONFLICT, errorText } from "@harnix/core";
 
 import { useT, type Translate } from "./i18n/index";
 import { SettingsRow, useSettingsVersion } from "./settings";
 
-export type FieldType = "toggle" | "select" | "number" | "text" | "secret" | "list" | "rules";
+export type FieldType = "toggle" | "select" | "number" | "text" | "secret" | "list" | "rules" | "route";
+
+/** A provider a `route` field may send to, and the models it names. */
+export interface FieldRoute {
+  provider: string;
+  default_model?: string | null;
+  models?: string[];
+}
 
 /** A column of a `rules` field: text that is not blank, or one of its options. */
 export interface FieldColumn {
@@ -53,6 +60,11 @@ export interface FieldDecl {
   min?: number;
   max?: number;
   columns?: FieldColumn[];
+  /** What a `text` field offers to pick from; a value not among them is accepted all the same. */
+  suggestions?: string[];
+  /** The providers a `route` field offers. Its value is a provider's id (its default model), or
+   *  `{provider, model}`. */
+  routes?: FieldRoute[];
   risk?: FieldRisk;
   /** The tiers that may write it (a tiered store's). */
   writable?: string[];
@@ -124,7 +136,27 @@ export function checkField(field: FieldDecl, value: unknown): { key: string; var
       }
       return null;
     }
+    case "route": {
+      if (text(value)) return null;
+      const route = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+      const ok =
+        route !== null &&
+        text(route.provider) &&
+        (route.model === undefined || route.model === null || text(route.model)) &&
+        Object.keys(route).every((k) => k === "provider" || k === "model");
+      return ok ? null : { key: "settings.invalid.route" };
+    }
   }
+}
+
+/** A route's provider and model; the model is null when it is the provider's default. */
+export function routeOf(value: unknown): { provider: string | null; model: string | null } {
+  if (typeof value === "string") return { provider: value, model: null };
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const route = value as Record<string, unknown>;
+    return { provider: typeof route.provider === "string" ? route.provider : null, model: typeof route.model === "string" ? route.model : null };
+  }
+  return { provider: null, model: null };
 }
 
 /** Whether writing `value` is one the page asks about first. */
@@ -418,6 +450,7 @@ function FieldRow({
 
   const notes: string[] = [];
   if (field.hint) notes.push(t(field.hint));
+  if (field.type === "route" && !field.routes?.length) notes.push(t("settings.routeNoProviders"));
   if (tiered) {
     notes.push(inherited ? t("settings.inherited") : t("settings.setHere"));
     if (field.source) notes.push(t("settings.sourceTier", { tier: name(field.source) }));
@@ -501,6 +534,10 @@ function shown(t: Translate, field: FieldDecl, value: unknown): string {
   if (field.type === "toggle") return value ? t("settings.on") : t("settings.off");
   if (field.type === "select" && typeof value === "string") return optionName(t, field, value);
   if (Array.isArray(value)) return field.type === "rules" ? t("settings.rulesCount", { count: value.length }) : value.join(", ");
+  if (field.type === "route") {
+    const { provider, model } = routeOf(value);
+    return model ? `${provider} · ${model}` : String(provider);
+  }
   return String(value);
 }
 
@@ -539,6 +576,8 @@ function Control({ field, value, disabled, commit }: { field: FieldState; value:
       return <ListControl key={JSON.stringify(value ?? null)} testId={testId} value={value} disabled={disabled} commit={commit} />;
     case "rules":
       return <RulesControl key={JSON.stringify(value ?? null)} testId={testId} field={field} value={value} disabled={disabled} commit={commit} />;
+    case "route":
+      return <RouteControl key={JSON.stringify(value ?? null)} testId={testId} field={field} value={value} disabled={disabled} commit={commit} />;
   }
 }
 
@@ -546,21 +585,80 @@ function Control({ field, value, disabled, commit }: { field: FieldState; value:
 function TextControl({ testId, field, value, disabled, commit }: { testId: string; field: FieldState; value: unknown; disabled: boolean; commit: (value: unknown) => void }) {
   const start = value === null || value === undefined ? "" : String(value);
   const [text, setText] = useState(start);
+  const list = useId();
   const number = field.type === "number";
+  const suggestions = number ? [] : (field.suggestions ?? []);
   return (
-    <input
-      type={number ? "number" : "text"}
-      data-testid={testId}
-      disabled={disabled}
-      value={text}
-      min={number ? field.min : undefined}
-      max={number ? field.max : undefined}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={() => {
-        if (text === start || !text.trim()) return;
-        commit(number ? Number(text) : text);
-      }}
-    />
+    <>
+      <input
+        type={number ? "number" : "text"}
+        data-testid={testId}
+        disabled={disabled}
+        value={text}
+        min={number ? field.min : undefined}
+        max={number ? field.max : undefined}
+        list={suggestions.length ? list : undefined}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => {
+          if (text === start || !text.trim()) return;
+          commit(number ? Number(text) : text);
+        }}
+      />
+      {suggestions.length ? <Suggestions id={list} names={suggestions} /> : null}
+    </>
+  );
+}
+
+function Suggestions({ id, names }: { id: string; names: readonly string[] }) {
+  return (
+    <datalist id={id}>
+      {names.map((name) => (
+        <option key={name} value={name} />
+      ))}
+    </datalist>
+  );
+}
+
+/**
+ * A provider, picked from the ones configured, and a model of it: typed or picked from the ones it
+ * names, blank for its default. Written as the provider's id alone when the model is its default.
+ */
+function RouteControl({ testId, field, value, disabled, commit }: { testId: string; field: FieldState; value: unknown; disabled: boolean; commit: (value: unknown) => void }) {
+  const t = useT();
+  const list = useId();
+  const routes = field.routes ?? [];
+  const { provider, model } = routeOf(value);
+  const [text, setText] = useState(model ?? "");
+  const known = routes.find((r) => r.provider === provider);
+  const ids = routes.map((r) => r.provider);
+  // A provider the options lack (gone since, or written by hand), or none: shown as it is.
+  const extra = provider === null ? [""] : ids.includes(provider) ? [] : [provider];
+  const to = (provider: string, model: string) => (model ? { provider, model } : provider);
+  return (
+    <span className="settings-route">
+      <select data-testid={testId} disabled={disabled || !routes.length} value={provider ?? ""} onChange={(e) => commit(e.target.value)}>
+        {[...extra, ...ids].map((id) => (
+          <option key={id} value={id} disabled={!ids.includes(id)}>
+            {id === "" ? t("common.none") : id}
+          </option>
+        ))}
+      </select>
+      <input
+        type="text"
+        data-testid={`${testId}-model`}
+        disabled={disabled || provider === null}
+        value={text}
+        placeholder={known?.default_model ?? t("settings.routeDefaultModel")}
+        list={known?.models?.length ? list : undefined}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => {
+          const next = text.trim();
+          if (provider === null || next === (model ?? "")) return;
+          commit(to(provider, next));
+        }}
+      />
+      {known?.models?.length ? <Suggestions id={list} names={known.models} /> : null}
+    </span>
   );
 }
 

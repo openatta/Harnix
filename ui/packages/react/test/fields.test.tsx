@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CONFLICT } from "@harnix/core";
 
-import { FieldForm, Registry, checkField, isRisky, localFieldStore, setLocale, type FieldDoc, type FieldState, type FieldStore } from "../src/index";
+import { FieldForm, Registry, checkField, isRisky, localFieldStore, routeOf, setLocale, type FieldDoc, type FieldState, type FieldStore } from "../src/index";
 
 afterEach(cleanup);
 setLocale("en");
@@ -310,5 +310,72 @@ describe("a settings section that declares fields", () => {
     render(<>{r.at("settings.section")[0]!.render()}</>);
     fireEvent.click(await screen.findByTestId("settings-wrap"));
     await waitFor(() => expect(localStorage.getItem("harnix.pref.ext.wrap")).toBe("true"));
+  });
+});
+
+describe("a model route", () => {
+  const route = (effective: unknown): FieldState => ({
+    key: "task_models.title",
+    type: "route",
+    effective,
+    routes: [
+      { provider: "deepseek", default_model: "deepseek-chat", models: ["deepseek-chat", "deepseek-reasoner"] },
+      { provider: "anthropic", default_model: null, models: [] },
+    ],
+  });
+
+  it("is a provider, or a provider and one model of it", () => {
+    const field = { key: "r", type: "route" as const };
+    expect(checkField(field, "deepseek")).toBeNull();
+    expect(checkField(field, { provider: "deepseek", model: "deepseek-chat" })).toBeNull();
+    expect(checkField(field, { provider: "deepseek", model: null })).toBeNull();
+    expect(checkField(field, { model: "m" })).toMatchObject({ key: "settings.invalid.route" });
+    expect(checkField(field, { provider: "a", model: " " })).not.toBeNull();
+    expect(checkField(field, { provider: "a", base_url: "http://x" })).not.toBeNull();
+    expect(checkField(field, "")).not.toBeNull();
+    expect(routeOf("a")).toEqual({ provider: "a", model: null });
+    expect(routeOf({ provider: "a", model: "m" })).toEqual({ provider: "a", model: "m" });
+    expect(routeOf(null)).toEqual({ provider: null, model: null });
+  });
+
+  it("is picked from the providers configured, its model typed or offered, blank for the default", async () => {
+    const m = memory({ fields: [route(null)], revision: "r1" });
+    render(<FieldForm store={m.store} />);
+    const provider = (await screen.findByTestId("settings-task_models.title")) as HTMLSelectElement;
+    expect([...provider.options].map((o) => [o.value, o.disabled])).toEqual([["", true], ["deepseek", false], ["anthropic", false]]);
+    // No provider yet: no model to name.
+    expect((screen.getByTestId("settings-task_models.title-model") as HTMLInputElement).disabled).toBe(true);
+    fireEvent.change(provider, { target: { value: "deepseek" } });
+    await waitFor(() => expect(m.saved).toEqual([{ changes: { "task_models.title": "deepseek" }, revision: "r1" }]));
+  });
+
+  it("writes a model as {provider, model}, and offers the provider's models", async () => {
+    const m = memory({ fields: [route("deepseek")], revision: "r1" });
+    render(<FieldForm store={m.store} />);
+    const model = (await screen.findByTestId("settings-task_models.title-model")) as HTMLInputElement;
+    expect(model.placeholder).toBe("deepseek-chat");
+    const offered = document.getElementById(model.getAttribute("list")!)!;
+    expect([...offered.querySelectorAll("option")].map((o) => o.getAttribute("value"))).toEqual(["deepseek-chat", "deepseek-reasoner"]);
+    fireEvent.change(model, { target: { value: "deepseek-reasoner" } });
+    fireEvent.blur(model);
+    await waitFor(() => expect(m.saved).toEqual([{ changes: { "task_models.title": { provider: "deepseek", model: "deepseek-reasoner" } }, revision: "r1" }]));
+  });
+
+  it("says so when no provider is configured", async () => {
+    const m = memory({ fields: [{ ...route(null), routes: [] }] });
+    render(<FieldForm store={m.store} />);
+    expect(((await screen.findByTestId("settings-task_models.title")) as HTMLSelectElement).disabled).toBe(true);
+    expect(screen.getByText(/No provider configured yet/)).toBeTruthy();
+  });
+
+  it("a text field offers the models it is given, and takes one it is not", async () => {
+    const m = memory({ fields: [{ key: "model.fallback_model", type: "text", effective: null, suggestions: ["a-1", "b-1"] }] });
+    render(<FieldForm store={m.store} />);
+    const input = (await screen.findByTestId("settings-model.fallback_model")) as HTMLInputElement;
+    const offered = document.getElementById(input.getAttribute("list")!)!;
+    expect([...offered.querySelectorAll("option")].map((o) => o.getAttribute("value"))).toEqual(["a-1", "b-1"]);
+    fireEvent.change(input, { target: { value: "not-offered" } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(m.saved).toEqual([{ changes: { "model.fallback_model": "not-offered" }, revision: undefined }]));
   });
 });

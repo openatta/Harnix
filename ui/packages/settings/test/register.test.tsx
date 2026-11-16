@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import type { HarnixClient } from "@harnix/core";
 import { HarnixUiProvider, Registry, en, type HostApi } from "@harnix/react";
 
-import { apiTypeOf, engineStore, extension, register } from "../src/index.tsx";
+import { apiTypeOf, engineStore, extension, maskedKey, register } from "../src/index.tsx";
 
 afterEach(cleanup);
 
@@ -25,7 +25,7 @@ describe("@harnix/settings", () => {
     r.activate(extension, () => register(r, host));
     expect(extension).toBe("settings");
     const sections = r.at("settings.section");
-    expect(sections.map((s) => s.id)).toEqual(["engine","scenes","models","mcp"]);
+    expect(sections.map((s) => s.id)).toEqual(["engine","scenes","models","task-models","mcp"]);
     expect(sections.every((s) => s.owner === "settings" && typeof s.label() === "string")).toBe(true);
     // Each draws, and reads what it shows through the host.
     // Not connected: what reads hello waits, the rest draws.
@@ -117,5 +117,80 @@ describe("@harnix/settings", () => {
     expect(apiTypeOf({ api_type: "anthropic" }).id).toBe("anthropic");
     expect(apiTypeOf({}).id).toBe("anthropic");
     expect(apiTypeOf({ api_type: "mystery" })).toMatchObject({ id: "mystery", label: "" });
+  });
+
+  it("a stored key is shown as its last four at most, whatever it is handed", () => {
+    expect(maskedKey("***abcd")).toBe("***abcd");
+    expect(maskedKey("***")).toBe("***");
+    expect(maskedKey("sk-0123456789abcd")).toBe("***abcd");
+    expect(maskedKey("short")).toBe("***");
+    expect(maskedKey("***0123456789abcd")).toBe("***abcd");
+    expect(maskedKey(null)).toBeNull();
+    expect(maskedKey("")).toBeNull();
+  });
+
+  /** The models section, over providers given here; `calls` is what it asked. */
+  function models(providers: Record<string, unknown>, calls: [string, Record<string, unknown>][] = []) {
+    const host = {
+      call: async (method: string, params: Record<string, unknown>) => {
+        calls.push([method, params]);
+        return method === "settings.describe" ? { paths: { global: "/g/settings.json" }, fields: [], providers: { providers, default_provider: Object.keys(providers)[0] } } : {};
+      },
+      session: { current: () => null, context: () => null },
+      shell: { notice: () => undefined },
+      dialogs: { confirm: async () => false },
+    } as unknown as HostApi;
+    const r = new Registry();
+    r.activate(extension, () => register(r, host));
+    const section = r.at("settings.section").find((s) => s.id === "models")!;
+    const client = { status: "closed", detail: undefined, onStatus: () => () => undefined, call: async () => ({}) } as unknown as HarnixClient;
+    return render(<HarnixUiProvider client={client} strings={en}>{section.render()}</HarnixUiProvider>);
+  }
+
+  it("a provider's key is shown masked, or as the environment variable it is read from", async () => {
+    const { container } = models({
+      stored: { api_type: "anthropic", api_key: "***wxyz" },
+      env: { api_type: "openai_compatible", api_key: null, api_key_env: "DEEPSEEK_API_KEY", base_url: "https://api.deepseek.com" },
+      none: { api_type: "anthropic", api_key: null },
+    });
+    await screen.findByTestId("providers");
+    const key = (id: string) => container.querySelector(`[data-provider="${id}"] [data-testid="provider-key"]`)!;
+    expect(key("stored").getAttribute("data-state")).toBe("stored");
+    expect(key("stored").textContent).toBe("key ***wxyz");
+    expect(key("env").getAttribute("data-state")).toBe("env");
+    expect(key("env").textContent).toBe("key from $DEEPSEEK_API_KEY");
+    expect(key("none").getAttribute("data-state")).toBe("missing");
+  });
+
+  it("an OpenAI-compatible provider's thinking switch and its key's variable are written with it", async () => {
+    const calls: [string, Record<string, unknown>][] = [];
+    const { container } = models({ ds: { api_type: "openai_compatible", base_url: "https://api.deepseek.com", api_key: "***abcd", default_model: "deepseek-chat" } }, calls);
+    await screen.findByTestId("providers");
+    fireEvent.click(container.querySelector('[data-provider="ds"] [data-testid="provider-edit"]')!);
+    const form = await screen.findByTestId("provider-form");
+    // The stored key is not shown, only its last four.
+    expect((form.querySelector('[data-testid="provider-api_key"]') as HTMLInputElement).placeholder).toContain("***abcd");
+    fireEvent.change(form.querySelector('[data-testid="provider-thinking_toggle"]')!, { target: { value: "deepseek" } });
+    fireEvent.click(form.querySelector('[data-testid="provider-reasoning_passback"]')!);
+    fireEvent.change(form.querySelector('[data-testid="provider-api_key_env"]')!, { target: { value: "DEEPSEEK_API_KEY" } });
+    fireEvent.click(form.querySelector('[data-testid="provider-save"]')!);
+    await waitFor(() => expect(calls.some(([m]) => m === "settings.setProvider")).toBe(true));
+    const [, params] = calls.find(([m]) => m === "settings.setProvider")!;
+    expect(params).toMatchObject({ provider_id: "ds", config: { thinking_toggle: "deepseek", reasoning_passback: true, api_key_env: "DEEPSEEK_API_KEY" } });
+    expect((params.config as Record<string, unknown>).api_key).toBeUndefined();
+  });
+
+  it("an Anthropic provider is not sent the OpenAI-compatible thinking fields", async () => {
+    const calls: [string, Record<string, unknown>][] = [];
+    const { container } = models({ a: { api_type: "anthropic", api_key: "***abcd", default_model: "m" } }, calls);
+    await screen.findByTestId("providers");
+    fireEvent.click(container.querySelector('[data-provider="a"] [data-testid="provider-edit"]')!);
+    const form = await screen.findByTestId("provider-form");
+    expect(form.querySelector('[data-testid="provider-thinking_toggle"]')).toBeNull();
+    fireEvent.click(form.querySelector('[data-testid="provider-save"]')!);
+    await waitFor(() => expect(calls.some(([m]) => m === "settings.setProvider")).toBe(true));
+    const config = calls.find(([m]) => m === "settings.setProvider")![1].config as Record<string, unknown>;
+    expect("thinking_toggle" in config || "reasoning_passback" in config).toBe(false);
+    expect(config.api_key_env).toBe("");
   });
 });

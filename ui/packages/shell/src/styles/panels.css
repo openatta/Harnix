@@ -459,6 +459,17 @@
   margin-top: 6px;
 }
 
+/* A model route: the provider, then a model of it. */
+.settings-route {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.settings-route input {
+  min-width: 12em;
+}
+
 /* A risky value waiting for its confirmation; a write over settings that changed; a review. */
 .settings-risk,
 .settings-conflict,
