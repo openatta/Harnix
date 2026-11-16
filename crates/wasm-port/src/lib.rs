@@ -382,6 +382,10 @@ pub struct Started {
     /// `tools` or `backend`; none without a component.
     pub world: Option<String>,
     pub tools: Vec<ToolDef>,
+    /// Its component exports `events`. Told so that a package without one is offered no tool
+    /// call at all; which calls one with it is offered is the product's to decide.
+    #[serde(default)]
+    pub events: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

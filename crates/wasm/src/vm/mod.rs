@@ -347,6 +347,12 @@ impl AppVm {
         self.inner.world
     }
 
+    /// Whether the component exports `events`: without it, [`AppVm::on_event`] answers
+    /// `Proceed` to everything.
+    pub fn exports_events(&self) -> bool {
+        self.inner.events.is_some()
+    }
+
     /// The tools the component exports. This is the authority, not the
     /// manifest: it is what will actually run.
     pub async fn list_tools(

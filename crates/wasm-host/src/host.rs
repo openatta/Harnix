@@ -503,6 +503,7 @@ impl Host {
         };
         let full = |name: &String| format!("{id}.{name}");
         let world = booted.vm.as_ref().map(|vm| world_name(vm.world()));
+        let events = booted.vm.as_ref().is_some_and(AppVm::exports_events);
         let backend = booted.vm.as_ref().filter(|vm| vm.world() == World::Backend);
         // Held to what the product keeps it to: an extension process's backend hibernates when
         // the product expects it to.
@@ -551,6 +552,7 @@ impl Host {
             trust: trust.as_str().to_string(),
             world,
             tools: booted.tools,
+            events,
         })
     }
 
@@ -646,6 +648,7 @@ impl Control for Host {
                 trust: running.trust.as_str().to_string(),
                 world,
                 tools: running.tools.clone(),
+                events: running.vm.as_ref().is_some_and(AppVm::exports_events),
             });
         }
         let outcome = match self.start_app(&meta, &start).await {
@@ -841,7 +844,9 @@ impl Control for Host {
         let Some(vm) = &app.vm else {
             return Ok(HookReply::Proceed);
         };
-        // `[events]`: what it was not granted, it is not shown — not even that it happened.
+        // `[events]`: what it was not granted, it is not shown — not even that it happened. The
+        // product decides this before it sends anything (`harnix_carrier_shared::tools::offered`,
+        // with what it granted); this is its manifest held to again, where the call arrives.
         if !app.events_all && !Self::about_own_tool(&app, &call) {
             return Ok(HookReply::Proceed);
         }

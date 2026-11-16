@@ -16,9 +16,10 @@
 //!   own word, so it schedules calls and decides nothing about permission.
 //! - its `events` export, as a hook before each of the session's tool calls: offered
 //!   `tool.before` with the tool's name and input — for its own tools' calls only, unless its
-//!   manifest asks for every one (`[events] tools = "all"`, which the installer is told; the host
-//!   decides) — it may let the call through, refuse it, or add a note, which the model is handed as
-//!   a reminder before its next step. A hook is asked before the engine checks the call or asks
+//!   manifest asks for every one (`[events] tools = "all"`, which the installer is told) and it
+//!   was granted `events.all_tools`; none without the export. Decided here, before the call is
+//!   sent ([`offered`]) — it may let the call through, refuse it, or add a note, which the model
+//!   is handed as a reminder before its next step. A hook is asked before the engine checks the call or asks
 //!   about it. A note is about one of its own tools only, and only so long ([`MAX_NOTE`]): a
 //!   downloaded package does not get to write into what the model reads of every tool it calls. It
 //!   cannot change the call. A hook that fails lets the call through: a package's fault is not the
@@ -26,7 +27,7 @@
 
 use std::sync::Arc;
 
-use harnix_carrier_shared::tools::{cancellable, hook_decision, permission, tool_output, tool_spec};
+use harnix_carrier_shared::tools::{cancellable, hook_decision, offered, permission, tool_output, tool_spec, EventScope};
 use harnix_carrier_shared::Loaded;
 use harnix_ext::engine::{
     HookDecision, Permission, Tool, ToolCallFacts, ToolCx, ToolError, ToolHook, ToolOutput, ToolProvider, ToolSpec,
@@ -70,12 +71,13 @@ impl WasmTools {
         tools
     }
 
-    /// The hooks before every session's tool calls: each running package's `events`.
+    /// The hooks before every session's tool calls: each running package's `events`, when it is
+    /// offered any.
     pub fn hooks(&self) -> Vec<Arc<dyn ToolHook>> {
         self.registry
             .loaded()
             .into_iter()
-            .filter(|app| app.component)
+            .filter(|app| app.component && app.events != EventScope::None)
             .map(|app| {
                 Arc::new(AppEvents { app, registry: self.registry.clone() }) as Arc<dyn ToolHook>
             })
@@ -174,6 +176,10 @@ struct AppEvents {
 #[async_trait::async_trait]
 impl ToolHook for AppEvents {
     async fn before(&self, call: &ToolCallFacts) -> HookDecision {
+        // What it was not granted to see, its host is not handed.
+        if !offered(&self.app, call.name()) {
+            return HookDecision::Proceed;
+        }
         let Some(control) = self.registry.control() else {
             return HookDecision::Proceed;
         };

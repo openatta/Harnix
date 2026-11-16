@@ -38,7 +38,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::kernel::{start_of, Connection, Parts};
 use crate::registry::Registry;
-use harnix_carrier_shared::Loaded;
+use harnix_carrier_shared::{EventScope, Loaded};
 use harnix_carrier_shared::sync::lock;
 use crate::{unavailable, Inner, CRASHES, CRASH_WINDOW, READY_WITHIN};
 
@@ -368,7 +368,7 @@ pub(crate) async fn keep(
                         me.moved();
                         match connect(&me, &package, wire, engine).await {
                             Ok((now, started)) => {
-                                me.registry.insert(package.loaded.clone(), now.control.clone());
+                                me.registry.insert(loaded_as_started(&package.loaded, &started), now.control.clone());
                                 package.handle.mark(Availability::Ready);
                                 package.set(|p| {
                                     p.state = "running";
@@ -724,6 +724,16 @@ async fn connect(
         "its extension process came up"
     );
     Ok((Up { wire, connection, control, violation, misses: 0 }, started))
+}
+
+/// What a session sees of it once its process is up: as consented to, but offered no tool call when
+/// its process says its component exports no `events`. The process's word only ever narrows
+/// what it is shown.
+fn loaded_as_started(loaded: &Arc<Loaded>, started: &Started) -> Arc<Loaded> {
+    if started.events || loaded.events == EventScope::None {
+        return loaded.clone();
+    }
+    Arc::new(Loaded { events: EventScope::None, ..Loaded::clone(loaded) })
 }
 
 /// Stop it in its process and ask the process to go, each within [`STOP_WITHIN`]; the wire closes

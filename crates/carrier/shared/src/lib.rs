@@ -16,5 +16,5 @@ pub use limits::limits;
 pub use harnix_package::tool_name;
 pub use registry::{Listener, Loaded, OnProgress, Roster, DEFAULT_TIMEOUT};
 pub use routes::{Hosted, UiFiles, FRAME_CSP};
-pub use tools::{MAX_NOTE, NAME as TOOLS_NAME};
+pub use tools::{EventScope, MAX_NOTE, NAME as TOOLS_NAME};
 pub use ui_stamp::ui_stamp;

@@ -33,7 +33,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use harnix_carrier_shared::sync::lock;
 use harnix_carrier_shared::frames;
-use harnix_carrier_shared::DEFAULT_TIMEOUT;
+use harnix_carrier_shared::{EventScope, DEFAULT_TIMEOUT};
 use harnix_ext::{ExtId, ExtensionContext, PackageCarrier, Rpc};
 use harnix_host_api::{
     Carrier, CarrierRegistrar, CarrierSettings, HostApi, HostServices, Installed, Running, StopReason,
@@ -298,6 +298,7 @@ impl Carrier for WasmCarrier {
             title: manifest.app.title.clone(),
             root: pkg_dir,
             component: offer.as_ref().is_some_and(|o| o.component),
+            events: EventScope::of(started.events, &manifest, app.capabilities()),
             tools: offer.map(|o| o.tools).unwrap_or_default(),
             ui: manifest.ui.clone(),
             interface: manifest.interface.clone(),
