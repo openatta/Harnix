@@ -1,7 +1,7 @@
 /**
  * The Harnix app's dialogs: a new session (scene, permission mode, project), adding a project, a
- * session's export, and the directory picker the first two share; and a project's menu, which
- * opens them. Each goes through the shell's layer (`host.dialogs`), so focus, Escape and the page
+ * session's export, trusting a project, and the directory picker the first two share; and a
+ * project's menu, which opens them. Each goes through the shell's layer (`host.dialogs`), so focus, Escape and the page
  * made inert under it are the shell's; a dialog draws its own body and buttons so the buttons can
  * read its state.
  */
@@ -10,7 +10,7 @@ import { useEffect, useState } from "react";
 import { errorText, type Scene } from "@harnix/core";
 import { DialogBody, DialogFoot, Glyph, t, useHello, useT, type HostApi } from "@harnix/react";
 
-import type { AppStore, Workspace } from "./store.ts";
+import type { AppStore, TrustItem, TrustStatus, Workspace } from "./store.ts";
 
 /** Run a call; a failure is said in the banner, in `failed`'s words when given. */
 async function attempt(host: HostApi, run: () => Promise<unknown>, failed?: (error: string) => string): Promise<boolean> {
@@ -324,12 +324,115 @@ function ExportForm({ host, target, close }: { host: HostApi; target: ExportTarg
   );
 }
 
+/* ── trusting a project ───────────────────────────────────────────────── */
+
+/** A kind of setting that waits on trust, in words. */
+export const trustCategory = (category: string) => t(`projects.trust.cat.${category}`);
+
+/** The kinds a status lists, in words, joined. */
+export const trustCategories = (status: TrustStatus) => status.categories.map(trustCategory).join(t("projects.trust.sep"));
+
+/**
+ * Trust a project: what it lets in is read again first and listed by kind, each with what it names
+ * (`harnix-app.projects.status`), and the project is trusted only once that is confirmed. A
+ * project already trusted, or one with no settings of its own, is said so and nothing is asked.
+ */
+export async function trustDialog(host: HostApi, store: AppStore, root: string, name: string): Promise<void> {
+  let status: TrustStatus | null;
+  try {
+    status = await store.loadTrust(root);
+  } catch (e) {
+    host.shell.notice(t("projects.trust.failed", { error: errorText(e) }), "error");
+    return;
+  }
+  if (!status) return;
+  if (status.trust === "trusted") return host.shell.notice(t("projects.trust.already", { name }));
+  if (status.trust === "none") return host.shell.notice(t("projects.trust.none", { name }));
+  const read = status;
+  await host.dialogs.open<true>((close) => <TrustForm host={host} store={store} root={root} name={name} status={read} close={close} />, {
+    title: t("projects.trust.title"),
+  });
+}
+
+function TrustForm({ host, store, root, name, status, close }: { host: HostApi; store: AppStore; root: string; name: string; status: TrustStatus; close: Close }) {
+  const t = useT();
+  const byKind = (category: string) => status.items.filter((item) => item.category === category);
+  const named = (items: TrustItem[]) => items.map((item) => item.name ?? item.key).join(t("projects.trust.sep"));
+  const trust = () =>
+    attempt(
+      host,
+      async () => {
+        await store.setTrust(root, true);
+        host.shell.notice(t("projects.trust.done", { name }));
+        close(true);
+      },
+      (error) => t("projects.trust.failed", { error }),
+    );
+  return (
+    <>
+      <DialogBody>
+        <p data-testid="trust-intro">{t("projects.trust.intro", { path: root })}</p>
+        {status.categories.length ? (
+          <>
+            <p>{t("projects.trust.enables")}</p>
+            <ul className="trust-list" data-testid="trust-categories">
+              {status.categories.map((category) => (
+                <li key={category} data-category={category}>
+                  <strong>{trustCategory(category)}</strong>
+                  <span className="sub">{named(byKind(category))}</span>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p data-testid="trust-nothing">{t("projects.trust.nothing")}</p>
+        )}
+        <div className="hint">{t("projects.trust.warning")}</div>
+      </DialogBody>
+      <DialogFoot>
+        <button type="button" className="btn outline" onClick={() => close(null)}>
+          {t("common.cancel")}
+        </button>
+        <button type="button" className="btn primary" data-testid="trust-confirm" onClick={() => void trust()}>
+          {t("projects.trust.confirm")}
+        </button>
+      </DialogFoot>
+    </>
+  );
+}
+
+/** No longer trust a project: tightening needs no confirmation. A glob or the default in the global
+ *  settings may still trust it, which is said. */
+async function untrust(host: HostApi, store: AppStore, root: string, name: string): Promise<void> {
+  await attempt(
+    host,
+    async () => {
+      const status = await store.setTrust(root, false);
+      if (status.trust !== "trusted") host.shell.notice(t("projects.trust.revoked", { name }));
+      else if (status.matched) host.shell.notice(t("projects.trust.stillTrusted", { name, matched: status.matched }));
+      else host.shell.notice(t("projects.trust.stillTrustedDefault", { name }));
+    },
+    (error) => t("projects.trust.failed", { error }),
+  );
+}
+
 /* ── a project's menu ─────────────────────────────────────────────────── */
 
 /** A project's menu, anchored where it was opened. */
 export function workspaceMenu(host: HostApi, store: AppStore, workspace: Workspace, anchor: Element | { x: number; y: number }): void {
+  const name = workspace.title ?? workspace.path;
+  // Trust is offered for a project whose trust could be read, or is still being read: not for one
+  // whose read failed (the backend was not granted it), nor a directory with no settings of its own.
+  const status = store.getSnapshot().trust[workspace.path];
+  const trust =
+    status === null || status?.trust === "none"
+      ? []
+      : status?.trust === "trusted"
+        ? [{ id: "untrust", icon: "shield", label: t("projects.trust.revoke"), run: () => untrust(host, store, workspace.path, name) }]
+        : [{ id: "trust", icon: "shield", label: t("projects.trust.menu"), run: () => trustDialog(host, store, workspace.path, name) }];
   void host.dialogs.menu(anchor, [
     { id: "new", icon: "plus", label: t("dialog.newSessionHere"), run: () => newSessionDialog(host, store, workspace.path) },
+    ...trust,
     {
       id: "rename",
       icon: "edit",

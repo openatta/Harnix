@@ -71,8 +71,58 @@ Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方�
 | 选一个已有目录 | `harnix-app.workspaces.create {path}` | 目录要已经存在；同一个目录再加一次是幂等的 |
 | 浏览目录 | `harnix-app.listDirectory {path?}` | **选择器从 `projects_dir` 起**：不给 `path` 时打开它（还没有就建；建不了才退到 `$HOME`）；只在 `$HOME` 或项目根之内 |
 
-**项目菜单**：在这个项目里新建会话（打开新会话对话框，§4）、改名（`harnix-app.workspaces.update {id, title}`）、移除分组
-（`harnix-app.workspaces.remove`）。
+**项目菜单**：在这个项目里新建会话（打开新会话对话框，§4）、信任这个项目 / 不再信任这个项目（§3.1）、
+改名（`harnix-app.workspaces.update {id, title}`）、移除分组（`harnix-app.workspaces.remove`）。
+
+### 3.1 项目信任
+
+一个项目自己的设置（`<项目>/.agix/` 下的设置、agent 类型、hook 脚本，项目里的 skill）是仓库内容。引擎缺省**不信任**项目：
+没受信的项目只能收紧设置，它自己的 hook、MCP 服务器、比下面几层更宽的权限与沙箱、自己的 provider 与模型端点、遥测去向、
+更宽的插件、替换同名类型的 agent、带命令的 skill 都被扣下，不生效。信任是**项目根**的属性，引擎记在全局层的
+`settings.local.json`（`project_trust.trusted`）里，和场景无关。
+
+- **项目菜单「信任这个项目…」**：先重读这个项目的状态，在对话框里按类列出信任之后会开始生效的东西（每类后面是它点名的
+  MCP 服务器、agent 类型、规则……），确认了才写。已受信的项目菜单里是「不再信任这个项目」，不用确认：它只删指向这个目录的那一条；
+  全局设置里另有一条 glob 或缺省就是受信时，项目仍然受信，提示里说是哪一条。没有自己项目层的目录（如 `$HOME`）不出这一项。
+- **受信项目**在项目树里名字后面有一个盾牌。
+- **横幅**：在项目 space 里打开一个会话，它的项目没受信、又有被扣下的东西时，对话上方有一条横幅（`SpaceContribution.pinned`），
+  说哪几类没生效，带「信任…」（同菜单的对话框）和「不再提示」。关掉的按项目记在页面的 `localStorage`（`harnix.trust.dismissed`），
+  这个项目以后不再提示；信任之后横幅自己消失。
+- 后端读不了信任（产品没授予 `harnix-app` 能力 `engine.control`，见下）时，菜单不出这一项，也没有盾牌和横幅。
+
+设备不持有能力，信任经 `harnix-app` 的方法做；`harnix-app` 持可选能力 `engine.control`，替设备调引擎的 `engine.project.status`、
+`engine.project.trust`。**只对设备看得到的项目**：登记过的项目，或列出来的某个会话跑在里面的目录；别的目录答 `REFUSED`
+（防误：免得一个页面点名磁盘上任意目录就把它信任了）。`projects.trust` 进审计。
+
+| 方法 | 参数 | 答 |
+|---|---|---|
+| `harnix-app.projects.status` | `{project_root, instance?, scene?}` | 项目的信任状态（下表） |
+| `harnix-app.projects.trust` | `{project_root, trusted, instance?}` | 写完之后的状态，另带 `written_to` |
+| `harnix-app.sessions.projectStatus` | `{instance?, session_id, space?}`，按 `RowScope::Session` 判 | 会话所在项目的状态（按会话的场景判），另带 `session_id`；无项目会话是 `trust: "none"`、什么都不扣 |
+
+状态的形状，引擎原样的字段加上 `harnix-app` 算好的三项——项目 space、右栏的「上下文」页、项目自带的流程读的都是这一份：
+
+```jsonc
+{ "project_root": "/Users/x/repo",          // 解析之后的真实目录
+  "trust": "untrusted",                     // trusted | untrusted | none（没有自己的项目层）
+  "trust_source": "default",                // default | user | host（从这里信任的）| null
+  "matched": null,                          // 信任它的那条 project_trust.trusted
+  "default": "untrusted",
+  "requires_trust": ["hooks_config", "mcp_servers.github"],   // 引擎说要信任才生效的键，信不信都列
+  "items": [ { "key": "hooks_config", "category": "hooks", "name": null },
+             { "key": "mcp_servers.github", "category": "mcp", "name": "github" } ],
+  "categories": ["hooks", "mcp"],           // items 里有的类，按下面的顺序
+  "withheld": [ … ] }                       // 现在被扣下的：untrusted 时就是 items，否则为空
+```
+
+`category` 是 `hooks`（hook 与脚本）、`mcp`、`permissions`、`sandbox`、`models`（provider、模型端点与令牌、按任务的模型）、
+`telemetry`（遥测、录像、指令文件）、`plugins`、`agents`、`skills`、`other` 之一；`name` 是键点名的那一个（MCP 服务器、
+agent 类型、skill、规则），没有时是 `null`。主题 `harnix-app.trust`（无参数）的值是 `{projects: {<项目根>: <状态>}}`：
+这个进程里最近一次读到或写下的每个项目的状态，变了才推，别的页面据此刷新。在 Harnix 之外改了信任（手改全局设置）不推，
+下一次读时才看得到。
+
+设置页的「项目层写了但不生效」照旧由 `settings.describe` 的 `withheld` 逐个字段说，和这里互不重复：那里说某个值没用上，这里说为什么、
+怎么放开。
 
 ## 4. 新建会话
 
@@ -168,7 +218,7 @@ Harnix app 是原生扩展最小的例子：一个后端扩展、一个界面包
 
 | 部分 | 用了什么 | 二开产品对应的做法 |
 |---|---|---|
-| 后端 | 扩展 `harnix-app`：`workspaces.list/create/update/reorder/remove`、`sessions.archive`、`sessions.export`、`prefs.set`、`search`、`files`、`listDirectory`、`recentProjects`、`projects.create`、`describe`；`Manifest::requires([transcripts.read, engine.export])` | 一个 `Extension` 的 `register`、`Manifest::requires`（[Harnix 扩展](harnix-ext.md)） |
+| 后端 | 扩展 `harnix-app`：`workspaces.list/create/update/reorder/remove`、`sessions.archive`、`sessions.export`、`prefs.set`、`search`、`files`、`listDirectory`、`recentProjects`、`projects.create`、`projects.status`、`projects.trust`、`sessions.projectStatus`、`describe`，主题 `trust`；`Manifest::requires([transcripts.read, engine.export])`、`.optional([engine.control])` | 一个 `Extension` 的 `register`、`Manifest::requires`（[Harnix 扩展](harnix-ext.md)） |
 | 行的开放范围 | 全部 `Access::device()`：人经界面做的决定只对设备开；`sessions.*` 另按 `RowScope::Session` | 同一套 `Access`，扩展也要调的行写 `.with_extensions()` |
 | 后端 space | `sessions`，`default_space()` | `register` 里的 `SpaceDecl` |
 | 界面 space | 两个 `space` 注册，owner 是扩展 id `harnix-app`；项目 space 写 `sessions: "sessions"` | `r.register('space', …)`（[Harnix 扩展](harnix-ext.md)的前端一节） |

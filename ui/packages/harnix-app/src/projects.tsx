@@ -7,12 +7,16 @@
  * are the session space's — the same sessions, listed by where they run — so opening one here
  * claims the session space, and a new one started here runs in the open project
  * (`newSessionDefaults`).
+ *
+ * A trusted project carries a shield. A conversation open in a project that is not trusted, and
+ * whose own settings are therefore held back, has a banner over it offering to trust it — until it
+ * is trusted, or the banner is closed for that project.
  */
 
 import { useEffect, useRef } from "react";
-import { Glyph, useRoving, useT, type HostApi } from "@harnix/react";
+import { Glyph, useRoving, useT, type HostApi, type HostSessionRef } from "@harnix/react";
 
-import { addWorkspaceDialog, workspaceMenu } from "./dialogs.tsx";
+import { addWorkspaceDialog, trustCategories, trustDialog, workspaceMenu } from "./dialogs.tsx";
 import { SessionRow, useApp } from "./sessions.tsx";
 import { keyOf, type AppState, type AppStore, type Workspace } from "./store.ts";
 
@@ -30,6 +34,10 @@ export function ProjectsSidebar({ host, store }: { host: HostApi; store: AppStor
   // Read again whenever the space comes to the front: nothing pushes a change to the workspaces, so
   // a project made elsewhere (another client, a direct call) shows only after a read.
   useEffect(() => void store.refresh(), [store]);
+  // Each project's trust, read once on this page: the shield, and what its menu offers.
+  useEffect(() => {
+    for (const workspace of s.workspaces) store.ensureTrust(workspace.path);
+  }, [store, s.workspaces]);
   const all = Boolean(s.expanded["projects:more"]);
   const shown = all ? s.workspaces : s.workspaces.slice(0, PROJECTS);
   // A tree, one Tab stop: Up and Down go along the projects and the open one's conversations, Right
@@ -68,6 +76,7 @@ function Project({ host, store, s, workspace }: { host: HostApi; store: AppStore
   const all = Boolean(s.expanded[`project:${workspace.id}`]);
   const rows = all ? sessions : sessions.slice(0, SESSIONS);
   const running = sessions.some((row) => s.running[keyOf(row.instance, row.session_id)]);
+  const trusted = s.trust[workspace.path]?.trust === "trusted";
   return (
     <div className="project" role="none" data-project={workspace.id} data-open={open}>
       <div className="prj-row" role="none">
@@ -88,6 +97,11 @@ function Project({ host, store, s, workspace }: { host: HostApi; store: AppStore
           <Glyph name="chevronDown" className={`glyph chv${open ? " open" : ""}`} />
           <Glyph name="folder" className="glyph" />
           <span className="nm">{workspace.title ?? basename(workspace.path)}</span>
+          {trusted ? (
+            <span className="trusted" data-testid="project-trusted" title={t("projects.trust.badge")} aria-label={t("projects.trust.badge")}>
+              <Glyph name="shield" className="glyph" />
+            </span>
+          ) : null}
           {running && !open ? <span className="live" /> : null}
           <span className="c">{sessions.length}</span>
         </button>
@@ -116,6 +130,41 @@ function Project({ host, store, s, workspace }: { host: HostApi; store: AppStore
           ) : null}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Over a conversation in a project that is not trusted and has settings held back for it: what is
+ * held back, by kind, and an offer to trust it. Closed, it stays closed for that project.
+ */
+export function TrustBanner({ host, store, session }: { host: HostApi; store: AppStore; session: HostSessionRef }) {
+  const t = useT();
+  const s = useApp(store);
+  const listed = store.row(session.instance, session.sessionId)?.project_root;
+  const context = host.session.context()?.session?.project_root;
+  const root = listed ?? (typeof context === "string" ? context : null);
+  useEffect(() => store.ensureTrust(root), [store, root]);
+  const status = root ? s.trust[root] : null;
+  if (!root || !status || status.trust !== "untrusted" || !status.withheld.length || s.trustDismissed[root]) return null;
+  const name = s.workspaces.find((w) => w.path === root)?.title ?? basename(root);
+  return (
+    <div className="trust-banner" role="status" data-testid="trust-banner">
+      <Glyph name="shield" className="glyph" />
+      <span className="text">{t("projects.trust.banner", { categories: trustCategories(status) })}</span>
+      <button type="button" className="btn sm primary" data-testid="trust-banner-trust" onClick={() => void trustDialog(host, store, root, name)}>
+        {t("projects.trust.bannerAction")}
+      </button>
+      <button
+        type="button"
+        className="ib sm"
+        data-testid="trust-banner-dismiss"
+        title={t("projects.trust.bannerDismiss")}
+        aria-label={t("projects.trust.bannerDismiss")}
+        onClick={() => store.dismissTrust(root)}
+      >
+        <Glyph name="close" className="glyph" />
+      </button>
     </div>
   );
 }
