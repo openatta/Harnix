@@ -81,16 +81,8 @@ impl Host for AppState {
         headers: Vec<(String, String)>,
         body: Option<Vec<u8>>,
     ) -> Result<HttpResponse, String> {
-        if !self.shared.caps.allows_url(&url) {
-            // Names the host, never the URL: the component may have built it
-            // from a secret, and this string usually travels on into a tool
-            // result and the transcript.
-            let refused =
-                crate::host_of(&url).unwrap_or_else(|| "(not an http(s) URL)".to_string());
-            return Err(format!(
-                "network access to `{refused}` is not in this package's `net` capability"
-            ));
-        }
+        // `net` is the lender's to judge, where the request is made: one parse of the URL there,
+        // the same one it is sent with.
         let request = HttpRequest {
             method,
             url,

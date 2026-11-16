@@ -187,8 +187,9 @@ impl VmHost for MockHost {
     }
 }
 
-/// A network that answers everything with 200 and remembers what it was
-/// asked, so a test can tell "refused before the network" from "fetched".
+/// A network that remembers what it was asked, refuses any URL naming
+/// `evil.example` as a lender judging `net` would, and answers the rest
+/// with 200.
 #[derive(Default)]
 pub struct MockFetcher {
     pub requests: Mutex<Vec<HttpRequest>>,
@@ -197,8 +198,13 @@ pub struct MockFetcher {
 #[async_trait]
 impl HttpFetcher for MockFetcher {
     async fn fetch(&self, _app: &str, request: HttpRequest) -> Result<HttpResponse, String> {
-        let body = format!("hello from {}", host_of(&request.url).unwrap_or_default());
+        let url = request.url.clone();
         self.requests.lock().unwrap().push(request);
+        if url.contains("evil.example") {
+            return Err("network access to `evil.example` is not in this package's `net` capability".into());
+        }
+        let host = url.split("://").nth(1).and_then(|rest| rest.split(['/', ':']).next());
+        let body = format!("hello from {}", host.unwrap_or_default());
         Ok(HttpResponse {
             status: 200,
             headers: vec![],

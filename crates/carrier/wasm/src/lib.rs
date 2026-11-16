@@ -369,8 +369,8 @@ impl HttpFetcher for Fetcher {
         let Some(net) = self.registry.net(app) else {
             return Err(format!("`{app}` is not running"));
         };
-        self.kernel.allowed(app, &net, &request.url)?;
-        let request = Request { method: request.method, url: request.url, headers: request.headers, body: request.body };
+        let url = self.kernel.allowed(app, &net, &request.url)?;
+        let request = Request { method: request.method, url, headers: request.headers, body: request.body };
         let response = self.egress.send(request).await?;
         Ok(HttpResponse { status: response.status, headers: response.headers, body: response.body })
     }

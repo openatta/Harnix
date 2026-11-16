@@ -138,6 +138,8 @@ tokio-stream = "0.1"
 futures = "0.3"
 async-trait = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+# reqwest's own: a package's egress parses a URL with it once and hands reqwest that parse.
+url = "2.5"
 bytes = "1"
 # The extension interface's HTTP routes are `http` 1.x, so axum's major version is not part of it.
 http = "1"

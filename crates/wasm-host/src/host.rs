@@ -46,8 +46,8 @@ use crate::placement::{self, Placed};
 /// [`Start`].
 #[derive(Default)]
 pub struct HostOptions {
-    /// Where packages' HTTP goes out, when the product decides their `net` on its side too;
-    /// this process's network otherwise.
+    /// Where packages' HTTP goes out, once this host has judged it against their `net`: the
+    /// product's, which judges it again where it sends. None: packages reach no network.
     pub http: Option<Arc<dyn HttpFetcher>>,
 }
 
@@ -198,7 +198,7 @@ impl Host {
             engine: WasmEngine::new()?,
             kernel,
             agent,
-            http: options.http.unwrap_or_else(|| Arc::new(crate::http::Http::new())),
+            http: options.http.unwrap_or_else(|| Arc::new(harnix_wasm::NoNetwork)),
             running: RwLock::new(BTreeMap::new()),
             bridges: Mutex::new(BTreeMap::new()),
             failed: Mutex::new(BTreeMap::new()),
@@ -402,7 +402,6 @@ impl Host {
         let spec = AppSpec {
             id: id.clone(),
             capabilities: Capabilities {
-                net: caps.net.clone(),
                 env: caps.env.clone(),
                 storage_bytes: u64::from(start.limits.storage_mb) << 20,
                 fs: caps
@@ -428,7 +427,7 @@ impl Host {
         let services = harnix_wasm::Services {
             host: bridge,
             kv: Arc::new(kv),
-            http: self.http.clone(),
+            http: Arc::new(crate::http::Net::new(caps.net.clone(), self.http.clone())),
         };
         let vm = AppVm::start(&self.engine, &loaded, spec, services)
             .await

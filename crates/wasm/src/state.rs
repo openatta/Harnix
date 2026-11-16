@@ -72,7 +72,7 @@ impl AppState {
 
 /// The WASI context: preopens for the declared directories, and nothing else.
 /// No inherited environment, arguments or stdio, and no sockets — the
-/// network is `host.http-request`, where `net` is checked. `full`: the
+/// network is `host.http-request`, whose lender checks `net`. `full`: the
 /// package is over its storage quota, so `/data`'s files are offered
 /// read-only (and may still be removed, which is how it gets under again).
 fn wasi_for(caps: &Resolved, project: Option<&Path>, full: bool) -> anyhow::Result<WasiCtx> {

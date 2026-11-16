@@ -67,7 +67,7 @@ pub trait VmHost: Send + Sync {
     }
 }
 
-/// An outgoing HTTP request, already checked against `net`.
+/// An outgoing HTTP request, as the component made it: its URL not yet judged.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HttpRequest {
     pub method: String,
@@ -83,7 +83,9 @@ pub struct HttpResponse {
     pub body: Vec<u8>,
 }
 
-/// Where a package's HTTP goes out.
+/// Where a package's HTTP goes out, and where its `net` is judged: an
+/// implementation refuses a URL whose host the package was not granted, and
+/// sends what it judged (`harnix_package::egress` is that rule).
 ///
 /// An implementation **must not follow redirects**: the `net` check was made
 /// against the URL the component asked for, and a redirect is a second URL
