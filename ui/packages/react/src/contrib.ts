@@ -1,19 +1,20 @@
 /**
  * 贡献点注册表（概念 §5.6）：界面上哪些地方可以由内建、UI 包或运行期包填，以及怎么填。
  *
- * v3 的九个内核点，都注册 React 组件：
+ * v4 的十个内核点，都注册 React 组件：
  *
  * | 点 | 形状 | 怎么用 |
  * |---|---|---|
  * | `space` | `id`、`icon`、`title()`，与四组 `sidebar`、`center`、`conversation`、`details`，可选的 `store` | 全部，按 `order` 再按注册顺序 |
- * | `home.card` | `id`、`render()`、`title?()` | 全部，按 `order` 再按注册顺序 |
+ * | `home.card` | `id`、`render()`、`title?()` | 全部，按 `order` 再按注册顺序；没有 `title`、`render()` 什么都没画的卡不占位 |
  * | `tool.row` | `match(tool块)`、`render(tool块)` | 后注册的先认领 |
  * | `details.panel` | `match(item)`、`render(item)`、`title?(item)` | 后注册的先认领 |
  * | `flow.block` | `match(块)`、`render(块)` | 后注册的先认领 |
  * | `sidebar.group` | `group(会话) → 组[]`、`label?()` | 只用最后注册的那一个 |
  * | `command` | `trigger?`（`/` 或 `@`）、`complete(query, ctx?) → 候选[]`（候选可带 `run`） | 全部，按注册顺序拼起来；`/` 与 `@` 两个菜单各问各的 |
- * | `settings.section` | `id`、`label()`、`render()`，可选的 `covers` | 全部，按注册顺序；外壳要人去配模型时打开 `covers` 里有 `"models"` 的那一节 |
- * | `session.action` | `id`、`at`、`label(target)`、`match(target)`、`run(target)` | 标题栏、会话菜单、工具行各问 `at` 里有它的，按注册顺序 |
+ * | `settings.section` | `id`、`label()`、`render()`，可选的 `covers`；或不给 `render`，给 `fields`（字段声明，见 `fields.tsx`）与可选的 `store` | 全部，按注册顺序；外壳要人去配模型时打开 `covers` 里有 `"models"` 的那一节；只给 `fields` 的按声明画表单，值缺省存在这个浏览器里 |
+ * | `session.action` | `id`、`at`、`label(target)`、`match(target)`、`run(target)` | 标题栏、会话菜单、工具行（按钮与参数）各问 `at` 里有它的，按注册顺序 |
+ * | `sidebar.tab` | `id`、`kind`、`title(address?)`、`render()`，可选的 `patterns`、`priority`、`canOpen`、`guide`、`multiple`、`keepMounted`、`scope` | 右栏的页签类型（`sidebar.ts`）：资源地址按优先级档、模式长度、注册顺序认领；一个 `kind` 至多一份 extension 加一份 builtin，extension 生效 |
  *
  * 扩展还可以定义自己的点（`definePoint("<扩展 id>.<名>")`），别的包往里注册；注册进还没定义的点先挂着，全部注册完
  * （`settle`）还没人定义就丢掉并记进诊断，给了 `orElse` 的调它。一个扩展激活时注册的（`activate`）记在它名下，
@@ -31,6 +32,8 @@ import type { SessionRow } from "@harnix/core";
 import type { ChatIds } from "./chat/types";
 import type { SessionRef } from "./host";
 import { addStrings, type Locale } from "./i18n/index";
+import { FieldsSection, type FieldStore, type LocalField } from "./fields";
+import { SIDEBAR_PRIORITIES, SIDEBAR_SCOPES, sameTier, type SidebarTabType } from "./sidebar";
 
 export const POINTS = [
   "space",
@@ -42,6 +45,7 @@ export const POINTS = [
   "command",
   "settings.section",
   "session.action",
+  "sidebar.tab",
 ] as const;
 export type Point = (typeof POINTS)[number];
 
@@ -115,10 +119,12 @@ export type Badge = string | number | null | undefined;
  *  space it is asked in (a space's `sessions` says which backend space that lists). */
 export type ActionTarget =
   | { kind: "session"; session: SessionRef; space: string }
-  | { kind: "tool"; session: SessionRef; space: string; toolUseId: string; tool: string };
+  | { kind: "tool"; session: SessionRef; space: string; toolUseId: string; tool: string; input?: unknown };
 
-/** Where the shell asks for session actions: the title bar, the session menu, a tool row. */
-export type ActionPlace = "header" | "menu" | "tool";
+/** Where the shell asks for session actions: the title bar, the session menu, a tool row — its
+ *  buttons, and its argument (`arg`: the first action that matches makes the argument a link, its
+ *  label the link's title; a file tool's path opening the file, say). */
+export type ActionPlace = "header" | "menu" | "tool" | "arg";
 
 /**
  * A space as the interface draws it (concept §5.4), its members grouped by where they are drawn.
@@ -259,9 +265,19 @@ export interface Contributions {
     render(): ReactNode;
     /** What the shell may send a reader here for: `"models"` — a turn has no model to go to. */
     covers?: SettingsNeed[];
+    /** The fields it declares, when it is drawn from them (a registration without `render`). */
+    fields?: LocalField[];
+    /** Where those fields' values are: this browser's (`harnix.pref.<owner>.<key>`) when none. */
+    store?: FieldStore;
   };
   "session.action": SessionAction;
+  "sidebar.tab": SidebarTabType;
 }
+
+/** What a registration may give: a settings section may declare its fields in place of drawing itself. */
+export type ContributionInput<P extends Point> = P extends "settings.section"
+  ? Omit<Contributions["settings.section"], "render"> & ({ render(): ReactNode } | { render?: undefined; fields: LocalField[] })
+  : Contributions[P];
 
 /** What the shell itself sends a reader to the settings for, to whichever section `covers` it. */
 export type SettingsNeed = "models";
@@ -292,13 +308,42 @@ const SHAPE: { [P in Point]: string[] } = {
   command: ["complete"],
   "settings.section": ["label", "render"],
   "session.action": ["label", "match", "run"],
+  "sidebar.tab": ["title", "render"],
 };
 
-const ACTION_PLACES: readonly string[] = ["header", "menu", "tool"];
+const ACTION_PLACES: readonly string[] = ["header", "menu", "tool", "arg"];
 const SPACE_GROUPS = ["sidebar", "center", "conversation", "details", "store"] as const;
+
+const FIELD_TYPES: readonly string[] = ["toggle", "select", "number", "text", "secret", "list", "rules", "route"];
+
+/** What is wrong with a settings section's `fields`; null when nothing. */
+function fieldsError(fields: unknown): string | null {
+  if (!Array.isArray(fields) || !fields.length) return "a settings section draws itself (`render`) or declares `fields`";
+  for (const f of fields as Record<string, unknown>[]) {
+    if (!f || typeof f.key !== "string" || !f.key || !FIELD_TYPES.includes(f.type as string)) {
+      return `a settings field needs a \`key\` and a \`type\`: ${FIELD_TYPES.join(", ")}`;
+    }
+  }
+  return null;
+}
 
 /** What is wrong with a kernel point's contribution beyond its functions; null when nothing. */
 function shapeError(point: Point, c: Record<string, unknown>): string | null {
+  if (point === "sidebar.tab") {
+    if (typeof c.kind !== "string" || !c.kind) return "a tab type needs a `kind`";
+    if (c.priority !== undefined && !(SIDEBAR_PRIORITIES as readonly unknown[]).includes(c.priority)) {
+      return `a tab type's priority is ${SIDEBAR_PRIORITIES.join(", ")}, not ${JSON.stringify(c.priority)}`;
+    }
+    if (c.scope !== undefined && !(SIDEBAR_SCOPES as readonly unknown[]).includes(c.scope)) {
+      return `a tab type's scope is ${SIDEBAR_SCOPES.join(" or ")}, not ${JSON.stringify(c.scope)}`;
+    }
+    if (c.patterns !== undefined && (!Array.isArray(c.patterns) || c.patterns.some((p) => typeof p !== "string" || !p))) {
+      return "a tab type's `patterns` are strings";
+    }
+    if (c.guide !== undefined && (!Array.isArray(c.guide) || c.guide.some((g) => !g || typeof g !== "object" || typeof (g as { id?: unknown }).id !== "string" || typeof (g as { title?: unknown }).title !== "function"))) {
+      return "a tab type's `guide` entries are `{ id, title() }`";
+    }
+  }
   if (point === "command" && c.trigger !== undefined && c.trigger !== "/" && c.trigger !== "@") {
     return `a command's trigger is "/" or "@", not ${JSON.stringify(c.trigger)}`;
   }
@@ -341,7 +386,7 @@ interface Defined {
 }
 
 export class Registry {
-  /** Every registration, by point name: the kernel's nine, and whatever else was named — a point an
+  /** Every registration, by point name: the kernel's ten, and whatever else was named — a point an
    *  extension defines, or one nobody has defined yet. */
   private readonly entries = new Map<string, Entry<Point>[]>(POINTS.map((p) => [p, []]));
   private readonly meta = new WeakMap<object, Meta>();
@@ -360,14 +405,22 @@ export class Registry {
   private readonly listeners = new Set<() => void>();
   private version = 0;
 
-  register<P extends Point>(point: P, contribution: Contributions[P], owner: string, options?: RegisterOptions): boolean;
+  register<P extends Point>(point: P, contribution: ContributionInput<P>, owner: string, options?: RegisterOptions): boolean;
   /** Any other point: one an extension defines, or a name only known at run time. A kernel
    *  point's name goes through the typed overload above, so its shape is checked when compiled. */
   register<N extends string>(point: Exclude<N, Point>, contribution: unknown, owner: string, options?: RegisterOptions): boolean;
   register(point: string, contribution: unknown, owner: string, options: RegisterOptions = {}): boolean {
-    const c = contribution as Record<string, unknown> | null;
-    if (!c || typeof c !== "object" || typeof c.id !== "string") {
+    const given = contribution as Record<string, unknown> | null;
+    if (!given || typeof given !== "object" || typeof given.id !== "string") {
       return this.refuse({ point, owner, reason: "a contribution needs an `id`" });
+    }
+    let c: Record<string, unknown> & { id: string } = given as Record<string, unknown> & { id: string };
+    if (point === "settings.section" && typeof c.render !== "function" && c.fields !== undefined) {
+      const wrong = fieldsError(c.fields);
+      if (wrong) return this.refuse({ point, owner, id: c.id, reason: wrong });
+      const fields = c.fields as LocalField[];
+      const store = c.store as FieldStore | undefined;
+      c = { ...c, render: () => createElement(FieldsSection, { fields, store, owner }) };
     }
     const kernel = (POINTS as readonly string[]).includes(point);
     if (kernel) {
@@ -377,6 +430,13 @@ export class Registry {
       }
       const wrong = shapeError(point as Point, c);
       if (wrong) return this.refuse({ point, owner, id: c.id, reason: wrong });
+      // A kind carries one extension type and one of the product's (`sidebar.ts`); a second at the
+      // same tier is a clash, not an override — the later one is refused and the first stays in force.
+      if (point === "sidebar.tab") {
+        const type = c as unknown as SidebarTabType;
+        const clash = this.at("sidebar.tab").find((held) => held.kind === type.kind && sameTier(held, type));
+        if (clash) return this.refuse({ point, owner, id: c.id, reason: `\`${type.kind}\` already has a ${clash.priority ?? "extension"} type (${clash.id}, ${clash.owner})` });
+      }
     }
     const entry = { ...(c as object), owner } as Entry<Point>;
     // A kernel point and one already defined take it as it is; any other waits for its definer.

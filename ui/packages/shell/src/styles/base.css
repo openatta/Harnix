@@ -23,8 +23,8 @@ html[data-theme="dark"] {
 
 body {
   font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 22px;
+  font-size: var(--font-size-base);
+  line-height: calc(var(--font-size-base) * 1.57);
   color: var(--label-primary);
   background: var(--bg-base);
   /* Grayscale antialiasing over subpixel; other engines ignore both. */

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use harnix_contract::wire::{self, AttachResult, EventFrame, ToolCallOutcome};
 use harnix_contract::{Frame, RpcError};
-use harnix_engine_link::events::{Completion, Joins, Prompt, SessionEventKind};
+use harnix_engine_link::events::{Completion, FileWrite, Joins, Prompt, SessionEventKind};
 use harnix_contract::sync::lock;
 use harnix_engine_link::ops::{SessionInfo, SessionSetup};
 use harnix_kernel::CallContext;
@@ -84,12 +84,14 @@ pub(crate) struct SessionState {
     pub answer: Answer,
 }
 
-/// What a turn said and which tools it called, gathered from its events.
+/// What a turn said, which tools it called and which files they wrote, gathered from its events.
 #[derive(Default)]
 pub(crate) struct Answer {
     pub text: String,
     pub truncated: bool,
     pub tool_calls: Vec<ToolCallOutcome>,
+    /// In the order written, a sub-agent's among them: what the turn's changes entry is made of.
+    pub wrote: Vec<FileWrite>,
 }
 
 /// The most answer text `outcome.text` carries; the rest is in `engine.session.history`.
@@ -112,7 +114,9 @@ impl Answer {
             SessionEventKind::ToolCall { id, name } => {
                 self.tool_calls.push(ToolCallOutcome { id: id.clone(), name: name.clone(), is_error: None })
             }
-            SessionEventKind::ToolResult { id, is_error } => {
+            SessionEventKind::Wrote(wrote) => self.wrote.extend(wrote.iter().cloned()),
+            SessionEventKind::ToolResult { id, is_error, wrote } => {
+                self.wrote.extend(wrote.iter().cloned());
                 if let Some(call) = self.tool_calls.iter_mut().find(|c| c.id == *id) {
                     call.is_error = Some(*is_error);
                 }

@@ -1,16 +1,16 @@
 /**
  * The Harnix app's dialogs: a new session (scene, permission mode, project), adding a project, a
- * session's export, and the directory picker the first two share; and a project's menu, which
- * opens them. Each goes through the shell's layer (`host.dialogs`), so focus, Escape and the page
+ * session's export, trusting a project, and the directory picker the first two share; and a
+ * project's menu, which opens them. Each goes through the shell's layer (`host.dialogs`), so focus, Escape and the page
  * made inert under it are the shell's; a dialog draws its own body and buttons so the buttons can
  * read its state.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { errorText, type Scene } from "@harnix/core";
 import { DialogBody, DialogFoot, Glyph, t, useHello, useT, type HostApi } from "@harnix/react";
 
-import type { AppStore, Workspace } from "./store.ts";
+import { SESSIONS, type AppStore, type TrustItem, type TrustStatus, type Workspace } from "./store.ts";
 
 /** Run a call; a failure is said in the banner, in `failed`'s words when given. */
 async function attempt(host: HostApi, run: () => Promise<unknown>, failed?: (error: string) => string): Promise<boolean> {
@@ -81,17 +81,32 @@ interface Recents {
   projects_root?: string | null;
 }
 
-export async function newSessionDialog(host: HostApi, store: AppStore, preselect?: string): Promise<void> {
+/** The new-session dialog; `preselect` is the project it opens on, `scene` the scene. */
+export async function newSessionDialog(host: HostApi, store: AppStore, preselect?: string, scene?: string): Promise<void> {
   let recents: Recents = {};
   try {
     recents = await host.call<Recents>("harnix-app.recentProjects", {});
   } catch {
     /* the picker still works without recents */
   }
-  await host.dialogs.open<true>((close) => <NewSession host={host} store={store} recents={recents} preselect={preselect} close={close} />, { title: t("dialog.newSession") });
+  await host.dialogs.open<true>((close) => <NewSession host={host} store={store} recents={recents} preselect={preselect} initialScene={scene} close={close} />, { title: t("dialog.newSession") });
 }
 
-function NewSession({ host, store, recents, preselect, close }: { host: HostApi; store: AppStore; recents: Recents; preselect?: string; close: Close }) {
+function NewSession({
+  host,
+  store,
+  recents,
+  preselect,
+  initialScene,
+  close,
+}: {
+  host: HostApi;
+  store: AppStore;
+  recents: Recents;
+  preselect?: string;
+  initialScene?: string;
+  close: Close;
+}) {
   const t = useT();
   const hello = useHello();
   const scenes = (hello?.scenes ?? []) as (Scene & { capabilities?: { requires_project?: boolean } })[];
@@ -99,7 +114,7 @@ function NewSession({ host, store, recents, preselect, close }: { host: HostApi;
   // The engine's own default first: the active list is sorted by id, and a flow's wrapped scenes
   // (`flow-*`) sort before most.
   const preferred = hello?.engine?.scene;
-  const [picked, setScene] = useState<string | null>(null);
+  const [picked, setScene] = useState<string | null>(initialScene ?? null);
   const scene = picked ?? active.find((s) => s.scene === preferred)?.scene ?? active[0]?.scene ?? "harnix";
   const [mode, setMode] = useState("default");
   const [root, setRoot] = useState<string | null>(preselect ?? recents.cwd ?? null);
@@ -324,12 +339,193 @@ function ExportForm({ host, target, close }: { host: HostApi; target: ExportTarg
   );
 }
 
+/* ── import ───────────────────────────────────────────────────────────── */
+
+/** What `harnix-app.sessions.import` answers: the engine's, plus where it landed. */
+interface Imported {
+  root_session_id: string;
+  instance?: string;
+  warnings?: string[];
+}
+
+type ImportState = { step: "idle" } | { step: "uploading" | "importing"; name: string } | { step: "failed"; error: string };
+
+/**
+ * Import a session bundle (an archive exported from here or from Agix): the zip goes up the
+ * large-payload channel, then the backend asks the engine to install it as new sessions in the
+ * session space. The bundle's project is kept when it exists on this machine, else the session
+ * has none (a warning says so). The imported session is opened.
+ */
+export async function importDialog(host: HostApi, store: AppStore): Promise<void> {
+  await host.dialogs.open<true>((close) => <ImportForm host={host} store={store} close={close} />, { title: t("dialog.importSession") });
+}
+
+function ImportForm({ host, store, close }: { host: HostApi; store: AppStore; close: Close }) {
+  const t = useT();
+  const pick = useRef<HTMLInputElement>(null);
+  const [state, setState] = useState<ImportState>({ step: "idle" });
+  const busy = state.step === "uploading" || state.step === "importing";
+  const run = async (file: File) => {
+    setState({ step: "uploading", name: file.name });
+    try {
+      const grant = await host.call<{ token: string; url: string }>("harnix-app.sessions.importUpload", { name: file.name, space: SESSIONS });
+      const response = await fetch(grant.url, { method: "POST", body: file });
+      if (!response.ok) throw new Error(await response.text());
+      setState({ step: "importing", name: file.name });
+      const done = await host.call<Imported>("harnix-app.sessions.import", { token: grant.token, space: SESSIONS });
+      await store.refresh();
+      for (const warning of done.warnings ?? []) host.shell.notice(warning);
+      close(true);
+      await host.session.open({ instance: done.instance ?? host.defaults.instance, sessionId: done.root_session_id });
+    } catch (e) {
+      setState({ step: "failed", error: errorText(e) });
+    }
+  };
+  return (
+    <>
+      <DialogBody>
+        <div className="field">
+          <div className="hint">{t("dialog.importHint")}</div>
+          <input
+            ref={pick}
+            type="file"
+            accept=".zip"
+            hidden
+            data-testid="import-file"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) void run(file);
+            }}
+          />
+          <button type="button" className="btn outline" data-testid="import-pick" disabled={busy} onClick={() => pick.current?.click()}>
+            {t("dialog.importPick")}
+          </button>
+          <div className="hint" data-testid="import-status" role="status">
+            {state.step === "uploading" ? t("dialog.importUploading", { name: state.name }) : null}
+            {state.step === "importing" ? t("dialog.importImporting", { name: state.name }) : null}
+            {state.step === "failed" ? t("dialog.importFailed", { error: state.error }) : null}
+          </div>
+        </div>
+      </DialogBody>
+      <DialogFoot>
+        <button type="button" className="btn outline" disabled={busy} onClick={() => close(null)}>
+          {t("common.cancel")}
+        </button>
+      </DialogFoot>
+    </>
+  );
+}
+
+/* ── trusting a project ───────────────────────────────────────────────── */
+
+/** A kind of setting that waits on trust, in words. */
+export const trustCategory = (category: string) => t(`projects.trust.cat.${category}`);
+
+/** The kinds a status lists, in words, joined. */
+export const trustCategories = (status: TrustStatus) => status.categories.map(trustCategory).join(t("projects.trust.sep"));
+
+/**
+ * Trust a project: what it lets in is read again first and listed by kind, each with what it names
+ * (`harnix-app.projects.status`), and the project is trusted only once that is confirmed. A
+ * project already trusted, or one with no settings of its own, is said so and nothing is asked.
+ */
+export async function trustDialog(host: HostApi, store: AppStore, root: string, name: string): Promise<void> {
+  let status: TrustStatus | null;
+  try {
+    status = await store.loadTrust(root);
+  } catch (e) {
+    host.shell.notice(t("projects.trust.failed", { error: errorText(e) }), "error");
+    return;
+  }
+  if (!status) return;
+  if (status.trust === "trusted") return host.shell.notice(t("projects.trust.already", { name }));
+  if (status.trust === "none") return host.shell.notice(t("projects.trust.none", { name }));
+  const read = status;
+  await host.dialogs.open<true>((close) => <TrustForm host={host} store={store} root={root} name={name} status={read} close={close} />, {
+    title: t("projects.trust.title"),
+  });
+}
+
+function TrustForm({ host, store, root, name, status, close }: { host: HostApi; store: AppStore; root: string; name: string; status: TrustStatus; close: Close }) {
+  const t = useT();
+  const byKind = (category: string) => status.items.filter((item) => item.category === category);
+  const named = (items: TrustItem[]) => items.map((item) => item.name ?? item.key).join(t("projects.trust.sep"));
+  const trust = () =>
+    attempt(
+      host,
+      async () => {
+        await store.setTrust(root, true);
+        host.shell.notice(t("projects.trust.done", { name }));
+        close(true);
+      },
+      (error) => t("projects.trust.failed", { error }),
+    );
+  return (
+    <>
+      <DialogBody>
+        <p data-testid="trust-intro">{t("projects.trust.intro", { path: root })}</p>
+        {status.categories.length ? (
+          <>
+            <p>{t("projects.trust.enables")}</p>
+            <ul className="trust-list" data-testid="trust-categories">
+              {status.categories.map((category) => (
+                <li key={category} data-category={category}>
+                  <strong>{trustCategory(category)}</strong>
+                  <span className="sub">{named(byKind(category))}</span>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p data-testid="trust-nothing">{t("projects.trust.nothing")}</p>
+        )}
+        <div className="hint">{t("projects.trust.warning")}</div>
+      </DialogBody>
+      <DialogFoot>
+        <button type="button" className="btn outline" onClick={() => close(null)}>
+          {t("common.cancel")}
+        </button>
+        <button type="button" className="btn primary" data-testid="trust-confirm" onClick={() => void trust()}>
+          {t("projects.trust.confirm")}
+        </button>
+      </DialogFoot>
+    </>
+  );
+}
+
+/** No longer trust a project: tightening needs no confirmation. A glob or the default in the global
+ *  settings may still trust it, which is said. */
+async function untrust(host: HostApi, store: AppStore, root: string, name: string): Promise<void> {
+  await attempt(
+    host,
+    async () => {
+      const status = await store.setTrust(root, false);
+      if (status.trust !== "trusted") host.shell.notice(t("projects.trust.revoked", { name }));
+      else if (status.matched) host.shell.notice(t("projects.trust.stillTrusted", { name, matched: status.matched }));
+      else host.shell.notice(t("projects.trust.stillTrustedDefault", { name }));
+    },
+    (error) => t("projects.trust.failed", { error }),
+  );
+}
+
 /* ── a project's menu ─────────────────────────────────────────────────── */
 
 /** A project's menu, anchored where it was opened. */
 export function workspaceMenu(host: HostApi, store: AppStore, workspace: Workspace, anchor: Element | { x: number; y: number }): void {
+  const name = workspace.title ?? workspace.path;
+  // Trust is offered for a project whose trust could be read, or is still being read: not for one
+  // whose read failed (the backend was not granted it), nor a directory with no settings of its own.
+  const status = store.getSnapshot().trust[workspace.path];
+  const trust =
+    status === null || status?.trust === "none"
+      ? []
+      : status?.trust === "trusted"
+        ? [{ id: "untrust", icon: "shield", label: t("projects.trust.revoke"), run: () => untrust(host, store, workspace.path, name) }]
+        : [{ id: "trust", icon: "shield", label: t("projects.trust.menu"), run: () => trustDialog(host, store, workspace.path, name) }];
   void host.dialogs.menu(anchor, [
     { id: "new", icon: "plus", label: t("dialog.newSessionHere"), run: () => newSessionDialog(host, store, workspace.path) },
+    ...trust,
     {
       id: "rename",
       icon: "edit",

@@ -11,6 +11,7 @@ import type {
   EngineTrust,
   Handshake,
   Hello,
+  HelloEngine,
   InstanceRow,
   InstancesList,
   QueueItem,
@@ -54,6 +55,17 @@ export interface Negotiated {
 
 /** 一台实例的引擎受信到哪一步（生成的 `EngineTrust`）：`extension` 的会话按不受信内容渲染。 */
 export type InstanceTrust = EngineTrust;
+
+/**
+ * Whether a turn has a model to go to, as hello tells it: a provider, or the `ANTHROPIC_*` key the
+ * engine started with. Unknown (hello could not read the providers) counts as yes, so a page does
+ * not cry wolf.
+ */
+export function modelConfigured(engine: Partial<HelloEngine> | null | undefined): boolean {
+  const providers = engine?.providers;
+  if (!providers) return true;
+  return Object.keys(providers.providers ?? {}).length > 0 || engine?.has_credentials === true;
+}
 
 /* ── 方法表 ───────────────────────────────────────────────────────────── */
 

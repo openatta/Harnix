@@ -35,6 +35,10 @@ No environment variable is required. With no model configured it still starts an
 **Set up a model** (or the avatar → **Settings → Models & credentials**) adds providers — Anthropic or
 OpenAI-compatible APIs, one of them the default — kept in `~/.agix/settings.json`, never shown to the
 browser or the logs. `ANTHROPIC_AUTH_TOKEN` (plus an optional `ANTHROPIC_BASE_URL`) works too.
+The empty page of a new conversation walks through the first run in three cards — the model, a
+project to work in, and what a conversation starts with: the `harnix` scene and the default
+permission mode, with `code` (a coding agent in a project) offered beside it. Each goes once it is
+done or closed.
 
 To look around with data in it: `scripts/harnix-demo.sh start` (also `stop`, `restart`, `status`)
 runs the Harnix app in a directory of its own (`~/harnix-demo`) with demo flows, runs and

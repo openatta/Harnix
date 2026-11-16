@@ -16,6 +16,7 @@ import type { SessionState } from "@harnix/core/state";
 
 import type { DetailItem } from "./contrib";
 import type { Translate } from "./i18n/index";
+import type { SidebarOpenOptions, SidebarResourceOptions } from "./sidebar";
 
 export interface SessionRef {
   instance: string;
@@ -118,6 +119,23 @@ export interface HostApi {
     tab(): string;
     /** The selected tab changed — clicked, or by `open(tab)`. Returns the unsubscribe. */
     onTab(fn: (tab: string) => void): () => void;
+  };
+  /**
+   * The right column as the open session's docking surface (harnix-ext.md §22.7): every way into
+   * it goes through here. Opening expands the column; the same content already open is focused,
+   * not opened twice. An address no type claims, or a kind no type has, throws — a wiring error.
+   */
+  sidebar: {
+    /** Open `harnix-resource://<type>/…` with the type that claims it (or `kind`'s); answers the tab's id. */
+    openResource(address: string, options?: SidebarResourceOptions): string;
+    /** Open a page type by kind; answers the tab's id. */
+    openTab(kind: string, options?: SidebarOpenOptions): string;
+    /** Close a tab of the open session's surface; nothing for an id that is not there. */
+    close(tabId: string): void;
+    /** The open session's tab in front, if it has one. */
+    active(): { id: string; kind: string; address: string | null } | null;
+    isExpanded(): boolean;
+    toggleExpanded(open?: boolean): void;
   };
   settings: {
     /** Open the settings panel at a section (a `settings.section` id, or a built-in one such as

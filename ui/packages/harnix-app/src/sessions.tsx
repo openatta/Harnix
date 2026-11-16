@@ -10,6 +10,7 @@
 import { useSyncExternalStore, type MouseEvent } from "react";
 import { Glyph, ago, clip, t, useCurrentSession, useRegistry, useT, type HostApi, type Registry, type SidebarGroup } from "@harnix/react";
 
+import { importDialog } from "./dialogs.tsx";
 import { keyOf, type AppSession, type AppStore } from "./store.ts";
 
 const PAGE = 8;
@@ -102,6 +103,10 @@ export function SessionsSidebar({ host, r, store }: { host: HostApi; r: Registry
           <span>{s.showArchived ? t("sidebar.archivedHide") : t("sidebar.archivedShow", { count: archived })}</span>
         </button>
       ) : null}
+      <button type="button" className="archive-toggle" data-testid="session-import" onClick={() => void importDialog(host, store)}>
+        <Glyph name="upload" className="glyph" />
+        <span>{t("sidebar.importSession")}</span>
+      </button>
     </>
   );
 }

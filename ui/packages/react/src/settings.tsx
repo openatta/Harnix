@@ -22,9 +22,15 @@ export function useSettingsReload(): () => void {
   return useContext(Reload).reload;
 }
 
-export function SettingsRow({ label, hint, children }: { label: ReactNode; hint?: ReactNode; children?: ReactNode }) {
+/** Bumped each time the page is asked to read again: what a section that loads itself follows. */
+export function useSettingsVersion(): number {
+  return useContext(Reload).version;
+}
+
+/** A labelled row. `setting` names the field it is for (`data-setting`); `state`, how it stands. */
+export function SettingsRow({ label, hint, children, setting, state }: { label: ReactNode; hint?: ReactNode; children?: ReactNode; setting?: string; state?: string }) {
   return (
-    <div className="srow-setting">
+    <div className="srow-setting" data-setting={setting} data-state={state}>
       <div className="text">
         <div className="label">{label}</div>
         {hint ? <div className="hint">{hint}</div> : null}

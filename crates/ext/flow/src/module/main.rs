@@ -80,7 +80,6 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
             .workspace(run)
             .unwrap_or_else(|| crate::kernel::refs::workspace_of(&cx.data_dir().join("workspaces"), run));
         std::fs::create_dir_all(&dir).map_err(|e| format!("no workspace for the run: {e}"))?;
-        write_agent_type(&dir, &scene);
         Some(dir)
     } else {
         None
@@ -114,32 +113,6 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
     let attached = engine.attach_main(run, &session_name(&s)).await;
     settle_quiet(sh, run, attached).await;
     Ok(s)
-}
-
-/// The agent type a sub-agent station's sub-agent is when the station names none
-/// ([`crate::kernel::protocol::DEFAULT_AGENT_TYPE`]), written into the run's workspace
-/// (`.agix/agents/`, where the engine reads a project's agent types).
-///
-/// It runs on the wrapped scene's own scene (`flow-harnix` → `harnix`): a scene layer is not one of
-/// the engine's scenes. A sub-agent has the session's own tools, not the layer's added text.
-fn write_agent_type(workspace: &std::path::Path, main_scene: &str) {
-    let inner = main_scene.strip_prefix("flow-").unwrap_or(main_scene);
-    let dir = workspace.join(".agix").join("agents");
-    let body = format!(
-        "---\nname: {}\ndescription: Does one task of a flow run, handed over by the run's main \
-         agent\nscene: {inner}\n---\nYou do one task of a flow run, handed to you by the run's \
-         main agent. Do it, then reply with the result only.\n",
-        crate::kernel::protocol::DEFAULT_AGENT_TYPE
-    );
-    let ok = std::fs::create_dir_all(&dir).and_then(|_| {
-        std::fs::write(
-            dir.join(format!("{}.md", crate::kernel::protocol::DEFAULT_AGENT_TYPE)),
-            body,
-        )
-    });
-    if let Err(e) = ok {
-        tracing::warn!(error = %e, "the sub-agent type not written");
-    }
 }
 
 /// The main session's name in the session list: the run's title, else its flow's and its id.

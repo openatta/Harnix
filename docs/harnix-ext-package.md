@@ -281,7 +281,7 @@ title = "Search · {input.query}"
 [[ui]]                           # 进页面的 ES 模块，同 Agix 插件的 [[ui]]：只对受信发布者生效
 point = "home.card"
 module = "notes.js"
-api_version = 3                  # 等于贡献点 API（CONTRIB_API_VERSION）
+api_version = 4                  # 等于贡献点 API（CONTRIB_API_VERSION）
 ```
 
 各节的意思在 §6。`[interface] calls` 里不能写外壳自己的家族（`packages.*`、`plugins.*`、`settings.*`、`devices.*`、`harnix.instances.*`、`system.*`、`harnix.bulk.*`、
@@ -674,7 +674,7 @@ Harnix 自己怎么测扩展包（两个载体各跑一遍的 `--carrier`、契�
 | WIT 包 | `harnix:ext@1.0.0` | `crates/wasm/wit/ext.wit` | 只增函数时升补丁版本；老组件照样链接 |
 | 桥 | `harnix-ui-bridge@2` | `@harnix/ext-sdk/protocol` 的 `PROTOCOL` | 协议有不兼容的变化 |
 | SDK | `0.1.0` | `@harnix/ext-sdk` 的 `SDK_VERSION`，`hello` 时带给外壳 | |
-| 贡献点 API | `3` | `[[ui]]` 的 `api_version`；`harnix_contract::CONTRIB_API_VERSION` | 进页面的模块的契约变了 |
+| 贡献点 API | `4` | `[[ui]]` 的 `api_version`；`harnix_contract::CONTRIB_API_VERSION` | 进页面的模块的契约变了 |
 | 扩展线 | `1` | `harnix_wasm_port::EXT_WIRE_VERSION` | 模式 3 的产品与扩展进程之间那条线变了；两端是同一次构建，不应用自己碰 |
 | 签名 / 目录格式 | `harnix-ext-signatures@1` / `harnix-store-index@1` | `SIGNATURES` / `index.json` 的 `format` | |
 
@@ -731,7 +731,7 @@ Harnix 自己怎么测扩展包（两个载体各跑一遍的 `--carrier`、契�
 | `[[inline.flow_block]]` | `kind`、`icon?`、`title`、`body?`、`field[] {label, value}`、`button[] {label, method, params?, confirm?, done?}` | | `kind` 点分、唯一；至多 12 个字段、4 个按钮；文本至多 200 字，正文 4000 |
 | `[[inline.command]]` | `trigger`（`/` 或 `@`）、`name`、`description?` | | 要有 `[[method]] name = "complete"` |
 | `[[inline.sidebar_group]]` | `space?`、`by`（`scene` / `field` / `method`）、`field?`、`method?`、`other?` | | `space` 是自己的 `[[space]]`（缺省包的 id），每个 space 一次；不能和那个 space 的 `space.sidebar` 并存 |
-| `[[ui]]` | `point`、`module`、`api_version` | | `module` 是 `ui/` 下的 `.js`；`api_version` 等于贡献点 API（3） |
+| `[[ui]]` | `point`、`module`、`api_version` | | `module` 是 `ui/` 下的 `.js`；`api_version` 等于贡献点 API（4） |
 | `[agent] install_into` | [string] | `["main"]` | `main`，或安装时已有的实例的 id；两种载体都在安装时核对，同一句拒绝 |
 
 ## 15. WIT

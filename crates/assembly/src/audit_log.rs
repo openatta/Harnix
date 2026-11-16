@@ -100,6 +100,7 @@ fn is_consequential(method: &str) -> bool {
             | "devices.pair.complete"
             | "devices.revoke"
             | "settings.set"
+            | "settings.write"
             | "settings.setProvider"
             // Switching a package on or off changes what this process serves.
             | "packages.enable"
@@ -128,6 +129,9 @@ fn is_consequential(method: &str) -> bool {
             | "engine.plugin.enable"
             | "engine.plugin.disable"
             | "engine.plugin.reload"
+            // Trusting a project, or no longer: what its own hooks, MCP servers and settings may do.
+            | "harnix-app.projects.trust"
+            | "engine.project.trust"
         )
 }
 
@@ -188,5 +192,15 @@ mod tests {
         }
         assert!(!is_consequential("engine.config.get"));
         assert!(!is_consequential("engine.config.getProvider"));
+    }
+
+    /// Trusting a project lets its own hooks and MCP servers run: the device's decision and the
+    /// write it makes are both on the record; reading the status is not.
+    #[test]
+    fn trusting_a_project_is_audited() {
+        assert!(is_consequential("harnix-app.projects.trust"));
+        assert!(is_consequential("engine.project.trust"));
+        assert!(!is_consequential("harnix-app.projects.status"));
+        assert!(!is_consequential("engine.project.status"));
     }
 }

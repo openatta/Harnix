@@ -132,18 +132,12 @@ defineSuite("errors", { feature: "connection" }, {
     "a file query outside any project is refused rather than answered":
       async ({ client }) => {
         // `harnix-app.files` resolves mentions inside a project. Pointed at
-        // somewhere that is not one, it must not fall back to answering from
-        // wherever the process happens to be standing.
+        // somewhere that is not one, it must not walk it, nor fall back to
+        // answering from wherever the process happens to be standing.
         const e = await client.refused("harnix-app.files",
           { project_root: "/definitely/not/a/project", query: "x" });
-        if (e) {
-          assert(e.message.length > 5, `bare message "${e.message}"`);
-        } else {
-          const result = await client.call("harnix-app.files",
-            { project_root: "/definitely/not/a/project", query: "x" });
-          assert(Array.isArray(result.files) && result.files.length === 0,
-            `answered with ${result.files?.length} files from a path that is not a project`);
-        }
+        assert(e?.code === REFUSED, `not refused: ${JSON.stringify(e)}`);
+        assert(e.message.length > 5, `bare message "${e.message}"`);
       },
 
     "an unknown method and a refused one are different answers": async ({ client }) => {

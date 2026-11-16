@@ -387,6 +387,43 @@ test.describe("on", () => {
     expect(audit.entries.some((e: any) => e.method === "harnix-app.sessions.export")).toBe(true);
   });
 
+  test("an exported archive is imported into the session space: listed, its history the same, a bundle that is not one refused", { tag: ["@feature:session-space", "@layer:api"] }, async () => {
+    const s = await oneTurn(api, "sessions");
+    const own = { ...s, space: "sessions" };
+    const archive = await api.call("harnix-app.sessions.export", { ...own, format: "archive" });
+    const zip = Buffer.from(archive.content, "base64");
+    const send = async (name: string, body: Buffer) => {
+      const grant = await api.call("harnix-app.sessions.importUpload", { name, space: "sessions" });
+      // A Node Buffer is not a `BodyInit` to the DOM's fetch types; its bytes, copied, are.
+      const sent = await fetch(`${backend.url.replace(/\/$/, "")}${grant.url}`, { method: "POST", body: new Uint8Array(body) });
+      expect(sent.ok).toBe(true);
+      return grant.token as string;
+    };
+
+    const token = await send(archive.file, zip);
+    const done = await api.call("harnix-app.sessions.import", { token, space: "sessions" });
+    expect(done.root_session_id).toBeTruthy();
+    expect(done.root_session_id, "a new session, not the original").not.toBe(s.session_id);
+    expect(done.space).toBe("sessions");
+
+    const listed = await api.call("harnix.sessions.list", { space: "sessions" });
+    expect(listed.sessions.some((r: any) => r.session_id === done.root_session_id)).toBe(true);
+    const imported = { instance: done.instance, session_id: done.root_session_id, space: "sessions" };
+    const was = await api.call("engine.session.history", own);
+    const now = await api.call("engine.session.history", imported);
+    expect(now.total).toBe(was.total);
+    expect(now.messages.map((m: any) => m.role)).toEqual(was.messages.map((m: any) => m.role));
+
+    // A grant is spent by its import; a file that is not a bundle is the engine's to refuse, and
+    // nothing is created.
+    expect((await api.refused("harnix-app.sessions.import", { token, space: "sessions" }))?.code).toBe(INVALID_PARAMS);
+    const before = (await api.call("harnix.sessions.list", { space: "sessions" })).sessions.length;
+    const bad = await send("not-a-bundle.zip", Buffer.from("not a zip"));
+    expect(await api.refused("harnix-app.sessions.import", { token: bad, space: "sessions" })).toBeTruthy();
+    expect((await api.call("harnix.sessions.list", { space: "sessions" })).sessions.length).toBe(before);
+    expect((await api.refused("harnix-app.sessions.importUpload", { name: "x.txt", space: "sessions" }))?.code).toBe(INVALID_PARAMS);
+  });
+
   test("a session's model is switched from the system space, and says so", TAGS, async () => {
     const s = await oneTurn(api, "fleet");
     // The engine's answer: the model the session's next turn runs; `fleet.model` reads the engine's

@@ -21,7 +21,9 @@ import type { SessionController } from "@harnix/core/state";
 import { Agent, AskCard, ContextRow, ImageBlock, rowTitle, toolAsks, type ToolAsks } from "../components/blocks";
 import { ConnectionBadge } from "../components/ConnectionBadge";
 import { ChatComposer, type Attached, type ComposerApi, type ContextRingConfig, type ModelOption } from "./ChatComposer";
-import { TOOL_NAMES } from "./format";
+import { useDisplay } from "../display";
+import { t } from "../i18n/index";
+import { TOOL_NAMES, compactTokens } from "./format";
 import { Icon } from "./icons";
 import {
   AssistantHead,
@@ -226,6 +228,20 @@ export function ChatPanel(props: ChatPanelProps) {
   return <LiveChat {...props} sessionId={props.sessionId} />;
 }
 
+/**
+ * A link in a message, as the display preferences open it: in this tab, or after asking. (A new
+ * tab is what the link says itself.) Only links the markdown made, in a message's text.
+ */
+function openLink(event: MouseEvent<HTMLElement>, links: "same" | "ask"): void {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
+  const link = (event.target as Element | null)?.closest?.(".hx-md a[href]") as HTMLAnchorElement | null;
+  if (!link) return;
+  const href = link.getAttribute("href") ?? "";
+  event.preventDefault();
+  if (links === "same") window.open(href, "_self", "noopener");
+  else if (window.confirm(t("chat.linkAsk", { url: href }))) window.open(href, "_blank", "noopener,noreferrer");
+}
+
 function LiveChat(props: ChatPanelProps & { sessionId: string }) {
   const { state, controller } = useSession(props.sessionId, props.instance, props.space, props.sendExtras);
   const { onController } = props;
@@ -401,6 +417,7 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
   const readOnly = props.readOnly === true ? strings.readOnly : props.readOnly || null;
   const header = props.header === false ? null : (props.header ?? {});
   const model = features.modelPicker === false ? null : (props.model ?? (typeof hello?.engine?.model === "string" ? hello.engine.model : null));
+  const { links } = useDisplay();
 
   return (
     <ChatContext.Provider value={context}>
@@ -411,6 +428,7 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
         data-state={viewState}
         data-variant={variant}
         aria-busy={!state || state.loading}
+        onClick={links === "new" ? undefined : (event) => openLink(event, links)}
       >
         {header ? <ChatHeader config={header} role={role} state={state} selection={props.selection} /> : null}
         {props.pinned ? (
@@ -501,6 +519,7 @@ function ChatHeader({
   selection?: ChatPanelProps["selection"];
 }) {
   const strings = useStrings();
+  const { usage } = useDisplay();
   const totals = usageTotals(state?.usage ?? null);
   const shownRole = config.role === false ? null : (config.role ?? role);
   const data: Record<string, string> = {};
@@ -546,10 +565,10 @@ function ChatHeader({
             {config.model}
           </span>
         ) : null}
-        {config.usage && totals ? (
-          <span className="hx-pill" data-testid="conv-usage" data-total={totals.total} data-cached={totals.cached}>
-            {strings.tokens(totals.total)}
-            {totals.cached ? ` · ${strings.cached(totals.cached)}` : ""}
+        {config.usage && totals && usage !== "none" ? (
+          <span className="hx-pill" data-testid="conv-usage" data-detail={usage} data-total={totals.total} data-cached={totals.cached}>
+            {usage === "compact" ? strings.tokens(totals.total).replace(totals.total.toLocaleString(), compactTokens(totals.total)) : strings.tokens(totals.total)}
+            {usage === "full" && totals.cached ? ` · ${strings.cached(totals.cached)}` : ""}
           </span>
         ) : null}
         {config.meta}

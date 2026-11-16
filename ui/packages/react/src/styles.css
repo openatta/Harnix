@@ -79,7 +79,7 @@
   background: var(--hx-bg);
   color: var(--hx-fg);
   font-family: var(--hx-font);
-  font-size: 14px;
+  font-size: var(--font-size-base, 14px);
   line-height: 1.55;
 }
 :where(.hx-chat) button { font: inherit; color: inherit; cursor: pointer; }

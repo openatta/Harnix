@@ -393,7 +393,9 @@
 }
 
 .srow-setting select,
-.srow-setting input[type="text"] {
+.srow-setting input[type="text"],
+.srow-setting input[type="number"],
+.srow-setting input[type="password"] {
   height: 36px;
   min-width: 160px;
   padding: 0 14px;
@@ -402,6 +404,88 @@
   background: var(--bg-base);
   font-size: 14px;
   line-height: 22px;
+}
+
+.srow-setting .hint .err {
+  color: var(--state-error);
+}
+
+/* A field drawn from its declaration that needs the row's width: a list, a table of rules. */
+.srow-wide {
+  padding: 0 0 10px;
+  border-bottom: 1px solid var(--border-l1);
+}
+
+.srow-wide textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border-l2);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  font: inherit;
+  font-size: 13px;
+}
+
+.settings-rules table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.settings-rules th {
+  color: var(--label-caption);
+  font-weight: normal;
+  text-align: left;
+  padding: 4px 6px;
+}
+
+.settings-rules td {
+  padding: 3px 6px;
+}
+
+.settings-rules td input,
+.settings-rules td select {
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border-l2);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+}
+
+.settings-rules-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* A model route: the provider, then a model of it. */
+.settings-route {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.settings-route input {
+  min-width: 12em;
+}
+
+/* A risky value waiting for its confirmation; a write over settings that changed; a review. */
+.settings-risk,
+.settings-conflict,
+.settings-review {
+  margin: 6px 0;
+  flex-wrap: wrap;
+}
+
+.settings-risk .check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.srow-setting[data-state="draft"] .label {
+  color: var(--state-info);
 }
 
 .srow-setting input[type="checkbox"] {
@@ -753,4 +837,99 @@
 
 #main .empty-conversation:empty {
   display: none;
+}
+
+/* ── the session's tabs in the strip ─────────────────────────────────── */
+/* A session tab is a chip: the tab itself, and a close control that shows on hover and while it is
+   in front. The space's tabs beside it are plain buttons, as they were. */
+#details .tabs .chip {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  flex: none;
+}
+
+#details .tabs .chip .tab-close {
+  display: flex;
+  align-items: center;
+  align-self: center;
+  padding: 2px;
+  margin-left: -8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--label-tertiary);
+  cursor: pointer;
+  opacity: 0;
+}
+
+#details .tabs .chip:hover .tab-close,
+#details .tabs .chip.on .tab-close,
+#details .tabs .chip .tab-close:focus-visible {
+  opacity: 1;
+}
+
+#details .tabs .chip .tab-close:hover {
+  color: var(--label-primary);
+  background: var(--interactive-hover);
+}
+
+#details .tabs .chip .tab-close .glyph {
+  width: 12px;
+  height: 12px;
+}
+
+#details .tab-body[hidden] {
+  display: none;
+}
+
+/* ── the guide ───────────────────────────────────────────────────────── */
+#details .guide-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+#details .guide-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-l1);
+  border-radius: var(--radius-card);
+  background: var(--bg-base);
+  color: var(--label-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+#details .guide-card:hover {
+  background: var(--interactive-hover);
+}
+
+#details .guide-card .glyph {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  color: var(--label-secondary);
+}
+
+#details .guide-card .text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+#details .guide-card .title {
+  font-size: 13px;
+  font-weight: 550;
+}
+
+#details .guide-card .desc {
+  color: var(--label-secondary);
+  font-size: 12px;
+  line-height: 18px;
 }

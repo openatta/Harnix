@@ -34,6 +34,7 @@ something.
 | `runs-a-team` | Two sessions: the parent calls `TeamCreate` (team `ui-team`, one stage, member `alpha` — a `code`-scene tool, shown only with `team.enabled` in the global tier, found with `ToolSearch` first), the member says "alpha here", the parent "Team done.". Replay binds live sessions to recorded ones in the order they first call, so the member is a session of its own here. Recorded; by position only (its task ids) |
 | `messages-a-subagent` | Two sessions: the parent starts a background `Agent`, which runs ten seconds of Bash (`perl`, as in `runs-a-while`) and then says "sub-agent done"; the parent says "Started it in the background.". A sub-agent still in its turn, to be told something (`messageTask`). Recorded; by position only (its task id) |
 | `leaves-a-process` | A `Bash` call that leaves a `tail -f /dev/null` in the background and prints its pid (ipdrun-07), then "started". Recorded; by position only (the pid) |
+| `writes-a-file` | A `Write` call (`notes.txt`, the one line `harnix-changes-fixture`, a relative path so it lands in whichever project the test runs in), then "written": a turn whose tool result carries the files it wrote, which the hub keeps as the turn's changes (`harnix.changes`). Made from `calls-a-tool` by hand: only the tool, its input and the text differ |
 | `calls-a-native-tool` | A call to `ProbeFixed`, the tool `harnix-testapp`'s native scene contributes (ipdrun-10). Made from `calls-a-tool` by hand: only the tool input and the text differ |
 | `flow-analyze` | The flow module's `analyze` station (xops-01): one call to `flow_submit` with `{findings: [one low finding]}`, then a line of text. Made from `calls-a-native-tool` by hand; `harnix-testapp` names a session task's recording `flow-<station>` |
 | `flow-report` | The same for the `report` station's `summary` task: `flow_submit` with `{summary}` |
@@ -66,6 +67,7 @@ something.
   recording; a real recording would hold that round.
 - `streams-output`: the Monitor's lines go back to the model as turns of their own, as many as the
   timing makes, so no two recordings are alike; the hand-made one keeps the one call the suites expect.
+- `writes-a-file`: not recorded yet; the message to record it with is the one `api/project-files.spec.ts` sends.
 - `calls-a-native-tool`, the `flow-*` ones, `app-spawn-echo`, `app-backend-session`: the session is not
   one `record-fixture.mjs` makes — it lives on a template instance or a spawned daemon, or a flow's
   station or the showcase's backend creates and prompts it — and the flows' calls (`flow_submit` with

@@ -71,12 +71,16 @@ pub struct Point {
     pub frequency: Frequency,
 }
 
-/// The nine points the interface is built out of.
+/// The ten points the interface is built out of.
 ///
-/// The number is part of the design (concept §5.6): a tenth is an argument to
+/// The number is part of the design (concept §5.6): one more is an argument to
 /// be made, not a commit to be pushed. The ninth, `session.action`, was argued:
 /// three things the shell drew for one extension (open in the system space, view
-/// a tool call there, archive and export) were one kind of thing with nowhere to go. Every one of them is drawn by a built-in
+/// a tool call there, archive and export) were one kind of thing with nowhere to go. The tenth,
+/// `sidebar.tab`, was argued too: the right column is a docking surface per session, and the
+/// pages opened in it (a file preview, the usage, a flow's progress, an output stream) are one
+/// kind of thing — a tab type that claims an address or is opened by name — which a space's
+/// `details.tabs` could not be, being a space's and not a session's. Every one of them is drawn by a built-in
 /// registration **and asked for by the shell**, which is what makes the count
 /// honest — a seam nothing uses is not a seam, it is a line in this list.
 /// It has happened: five of the seven points there were once went unasked.
@@ -140,8 +144,15 @@ pub const POINTS: &[Point] = &[
     Point {
         id: "session.action",
         kind: PointKind::Register,
-        what: "对一个会话或它里面一次工具调用的动作（`at`：标题栏、会话菜单、工具行）",
+        what: "对一个会话或它里面一次工具调用的动作（`at`：标题栏、会话菜单、工具行、工具行的参数）",
         when: "标题栏、会话菜单、工具行画出时",
+        frequency: Frequency::PerInteraction,
+    },
+    Point {
+        id: "sidebar.tab",
+        kind: PointKind::Register,
+        what: "右栏的一种页签类型：按 `patterns` 认领 `harnix-resource://` 地址，或按 `kind` 打开的页；`guide` 进引导页",
+        when: "右栏打开一个地址或一种页时",
         frequency: Frequency::PerInteraction,
     },
 ];
@@ -150,7 +161,7 @@ pub fn point(id: &str) -> Option<&'static Point> {
     POINTS.iter().find(|p| p.id == id)
 }
 
-/// A point a first-party extension defines for the others to fill, beside the shell's nine and not
+/// A point a first-party extension defines for the others to fill, beside the shell's ten and not
 /// counted among them: the extension declares it (`UiDecl::point`) and its UI package defines it.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy)]
@@ -252,10 +263,10 @@ mod tests {
         assert_eq!(points_of("system").count(), 2);
     }
 
-    /// Nine, and adding one is a decision (concept §5.6).
+    /// Ten, and adding one is a decision (concept §5.6).
     #[test]
-    fn the_interface_has_nine_points() {
-        assert_eq!(POINTS.len(), 9);
+    fn the_interface_has_ten_points() {
+        assert_eq!(POINTS.len(), 10);
     }
 
     /// Nothing here may fire per streaming delta — the whole reason frequency

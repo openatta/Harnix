@@ -63,7 +63,7 @@
 //! [[ui]]                        # ES modules under ui/, as a package's [[ui]]: run in the page,
 //! point = "home.card"           # a trusted publisher's only
 //! module = "showcase.js"
-//! api_version = 3
+//! api_version = 4
 //!
 //! [interface]                   # the interface in isolated frames (`surface.rs`)
 //! calls = ["harnix.sessions.list"]   # beyond <id>.*, what a frame may call
@@ -901,7 +901,7 @@ nested = { a = 1 }
 [[ui]]
 point = "home.card"
 module = "showcase.js"
-api_version = 3
+api_version = 4
 
 [agent]
 install_into = ["main"]
@@ -1033,7 +1033,7 @@ install_into = ["main"]
                 "which is 0",
             ),
             (GOOD.replace("storage_mb = 1", "net = [\"https://x.example\"]"), "lists hosts"),
-            (GOOD.replace("api_version = 3", "api_version = 2"), "contribution API 2"),
+            (GOOD.replace("api_version = 4", "api_version = 2"), "contribution API 2"),
             (GOOD.replace("showcase.js", "../escape.js"), "under ui/"),
             (GOOD.replace("[app]", "[app]\n").replace("id = ", "ident = "), "in `[app]`"),
             (format!("{GOOD}\n[[component]]\nname = \"two\"\nworld = \"harnix:ext/tools-ext@1.0.0\"\n"), "one component"),

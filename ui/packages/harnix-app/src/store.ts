@@ -2,7 +2,8 @@
  * What the Harnix app keeps about its sessions on this page: the session space's list joined with
  * the workspaces and the archive (`harnix-app.workspaces.list`), which of them are running, the
  * left column's name filter and transcript search, the groups opened past their length, the
- * project open in the projects space, and whether the archived ones show.
+ * project open in the projects space, whether the archived ones show, and each project's trust
+ * (`harnix-app.projects.status`, kept current by the `harnix-app.trust` topic).
  *
  * One immutable snapshot, `subscribe` / `getSnapshot`, which is also the spaces' `store`: when it
  * changes the shell draws them again. It follows the hub rather than being told: the instance's
@@ -17,6 +18,8 @@ import { t, type HostApi } from "@harnix/react";
 export const SESSIONS = "sessions";
 
 const PROJECT_KEY = "harnix.project";
+/** The projects whose "not trusted" banner was closed, on this page: closed once, it stays closed. */
+const TRUST_DISMISSED_KEY = "harnix.trust.dismissed";
 
 export interface Workspace {
   id: string;
@@ -33,6 +36,32 @@ export interface AppSession extends SessionRow {
   workspace_id?: string | null;
 }
 
+/** One key of a project's settings that waits on trust, as `harnix-app.projects.status` says it. */
+export interface TrustItem {
+  key: string;
+  /** hooks · mcp · permissions · sandbox · models · telemetry · plugins · agents · skills · other */
+  category: string;
+  /** The one thing the key names (an MCP server, an agent type, a rule), when it names one. */
+  name?: string | null;
+}
+
+/** A project's trust (`harnix-app.projects.status` / `.trust`, the `harnix-app.trust` topic). */
+export interface TrustStatus {
+  project_root: string | null;
+  /** `none`: the directory has no project settings of its own. */
+  trust: "trusted" | "untrusted" | "none";
+  /** Who decided: `host` (trusted from here), `user` (an entry in the global settings), `default`. */
+  trust_source?: string | null;
+  /** The global settings' entry that trusts it, when one does. */
+  matched?: string | null;
+  /** Every key that waits on trust, whether or not it is withheld now. */
+  items: TrustItem[];
+  /** The kinds among `items`, in the order a page lists them. */
+  categories: string[];
+  /** What is not in force now: `items` while untrusted, nothing otherwise. */
+  withheld: TrustItem[];
+}
+
 export interface SearchHit {
   session_id: string;
   name?: string | null;
@@ -42,6 +71,8 @@ export interface SearchHit {
 export interface AppState {
   sessions: AppSession[];
   workspaces: Workspace[];
+  /** The sessions and workspaces have been read once: until then, none listed means not known yet. */
+  loaded: boolean;
   showArchived: boolean;
   /** Running sessions, `instance/session` → true (`harnix.sessions.status`). */
   running: Record<string, boolean>;
@@ -51,6 +82,10 @@ export interface AppState {
   expanded: Record<string, boolean>;
   /** The project open in the projects space: one at a time. */
   project: string | null;
+  /** Each project's trust by its directory; null when it could not be read (nothing is offered). */
+  trust: Record<string, TrustStatus | null>;
+  /** The projects whose "not trusted" banner was closed, by directory. */
+  trustDismissed: Record<string, true>;
 }
 
 export const keyOf = (instance: string, sessionId: string) => `${instance}/${sessionId}`;
@@ -61,6 +96,16 @@ function storedProject(): string | null {
     return raw == null ? null : (JSON.parse(raw) as string | null);
   } catch {
     return null;
+  }
+}
+
+function storedDismissed(): Record<string, true> {
+  try {
+    const raw = localStorage.getItem(TRUST_DISMISSED_KEY);
+    const roots = raw == null ? [] : (JSON.parse(raw) as unknown);
+    return Object.fromEntries((Array.isArray(roots) ? roots : []).filter((r) => typeof r === "string").map((r) => [r, true as const]));
+  } catch {
+    return {};
   }
 }
 
@@ -76,12 +121,17 @@ export class AppStore {
   private state: AppState = {
     sessions: [],
     workspaces: [],
+    loaded: false,
     showArchived: false,
     running: {},
     search: { query: "", hits: null, truncated: false },
     expanded: {},
     project: storedProject(),
+    trust: {},
+    trustDismissed: storedDismissed(),
   };
+  /** The projects whose trust was asked for on this page: each is read once, then followed. */
+  private readonly trustAsked = new Set<string>();
   private readonly listeners = new Set<() => void>();
   private offs: (() => void)[] = [];
   /** A read in flight, and whether another was asked for meanwhile: pushes come in bursts. */
@@ -110,6 +160,7 @@ export class AppStore {
     this.offs.push(
       this.host.subscribe("harnix.instances.sessions", { instance }, () => void this.refresh()),
       this.host.subscribe("harnix.sessions.status", {}, (value) => this.applyStatus(value)),
+      this.host.subscribe("harnix-app.trust", {}, (value) => this.applyTrust(value)),
       this.host.events.onTurnSettled(() => void this.refresh()),
     );
     void this.refresh();
@@ -124,6 +175,58 @@ export class AppStore {
     const running: Record<string, boolean> = {};
     for (const row of rows) running[keyOf(row.instance, row.session_id)] = true;
     this.set({ running });
+  }
+
+  /** What another page (or this one) last read or changed of each project's trust. The topic says
+   *  a project by its resolved directory; one this page asked about by another spelling (a link to
+   *  it) is the entry whose status says that directory. */
+  private applyTrust(value: unknown): void {
+    const projects = (value as { projects?: Record<string, TrustStatus> } | null)?.projects;
+    if (!projects || typeof projects !== "object") return;
+    const trust = { ...this.state.trust, ...projects };
+    for (const [asked, known] of Object.entries(this.state.trust)) {
+      const resolved = known?.project_root;
+      if (resolved && resolved !== asked && projects[resolved]) trust[asked] = projects[resolved]!;
+    }
+    this.set({ trust });
+  }
+
+  /** Read a project's trust once on this page; the topic keeps it current after that. */
+  ensureTrust(root: string | null | undefined): void {
+    if (!root || this.trustAsked.has(root)) return;
+    this.trustAsked.add(root);
+    void this.loadTrust(root).catch(() => undefined);
+  }
+
+  /** Read a project's trust now. One that cannot be read (the backend was not granted it, the
+   *  directory is gone) is kept as null: nothing about trust is offered for it. */
+  async loadTrust(root: string): Promise<TrustStatus | null> {
+    try {
+      const status = await this.host.call<TrustStatus>("harnix-app.projects.status", { project_root: root });
+      this.set({ trust: { ...this.state.trust, [root]: status } });
+      return status;
+    } catch (e) {
+      this.set({ trust: { ...this.state.trust, [root]: null } });
+      throw e;
+    }
+  }
+
+  /** Trust a project, or no longer; the status as written. */
+  async setTrust(root: string, trusted: boolean): Promise<TrustStatus> {
+    const status = await this.host.call<TrustStatus>("harnix-app.projects.trust", { project_root: root, trusted });
+    this.set({ trust: { ...this.state.trust, [root]: status } });
+    return status;
+  }
+
+  /** Close a project's "not trusted" banner for good, on this page. */
+  dismissTrust(root: string): void {
+    const trustDismissed = { ...this.state.trustDismissed, [root]: true as const };
+    this.set({ trustDismissed });
+    try {
+      localStorage.setItem(TRUST_DISMISSED_KEY, JSON.stringify(Object.keys(trustDismissed)));
+    } catch {
+      /* private mode: it does not survive a reload */
+    }
   }
 
   /** Read the list again; one read at a time, and one more after it when asked meanwhile. */
@@ -164,7 +267,7 @@ export class AppStore {
           workspace_id: workspace?.id ?? null,
         };
       });
-      this.set({ sessions, workspaces, showArchived: Boolean(spaces.prefs?.showArchived ?? this.state.showArchived) });
+      this.set({ sessions, workspaces, loaded: true, showArchived: Boolean(spaces.prefs?.showArchived ?? this.state.showArchived) });
     } catch (e) {
       this.host.shell.notice(errorText(e), "error");
     }

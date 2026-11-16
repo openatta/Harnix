@@ -11,7 +11,7 @@ export { ChatPanel, type ChatPanelProps } from "./chat/ChatPanel";
 export { ChatComposer, type Attached, type ChatComposerProps, type ComposerApi, type ModelOption } from "./chat/ChatComposer";
 export { TranscriptList, type TranscriptListProps } from "./chat/TranscriptList";
 export { readDraft, writeDraft } from "./chat/drafts";
-export { Avatar, ComposerNote, DiffView, QueuedBubble, SegmentRow, TranscriptToolRow } from "./chat/messages";
+export { Avatar, ComposerNote, DiffView, QueuedBubble, SegmentRow, TranscriptToolRow, UnifiedDiffView } from "./chat/messages";
 export type { ContextRingConfig } from "./chat/ChatComposer";
 export {
   type ChatCommand,
@@ -38,6 +38,8 @@ export {
   toolArgs,
   toolDisplayName,
   toolSummary,
+  unifiedDiffRows,
+  type DiffRow,
   type NumberedDiffLine,
 } from "./chat/format";
 export { SessionView, type SessionViewProps } from "./components/SessionView";
@@ -48,10 +50,29 @@ export { lineDiff, hunks, type DiffLine } from "./diff";
 export { markdown, escapeHtml, type MarkdownOptions } from "./markdown";
 export { zhCN, en, uiStrings, type HarnixUiStrings } from "./strings";
 export { Icon } from "./chat/icons";
+export { DISPLAY_DEFAULTS, FONT_SIZE_RANGE, accepts as displayAccepts, applyTypography, display, setDisplay, subscribeDisplay, useDisplay, type BusyEnter, type Display, type LinkOpening, type UsageDetail } from "./display";
 export { GLYPHS, Glyph, glyphHtml, iconsFrom, toolGlyph } from "./glyph";
 export { rowKeys, useRoving, type Roving } from "./roving";
 export { ago, clock, compact, fileSize, megabytes, millis, since } from "./format";
-export { DialogBody, DialogFoot, SettingsReload, SettingsRow, SettingsSection, SettingsValue, useSettingsReload } from "./settings";
+export { DialogBody, DialogFoot, SettingsReload, SettingsRow, SettingsSection, SettingsValue, useSettingsReload, useSettingsVersion } from "./settings";
+export {
+  FieldForm,
+  FieldsSection,
+  checkField,
+  routeOf,
+  isRisky,
+  localFieldStore,
+  type FieldColumn,
+  type FieldDecl,
+  type FieldDoc,
+  type FieldFormProps,
+  type FieldRisk,
+  type FieldRoute,
+  type FieldState,
+  type FieldStore,
+  type FieldType,
+  type LocalField,
+} from "./fields";
 export {
   focusables,
   isTop,
@@ -68,6 +89,7 @@ export {
   type UseLayer,
 } from "./layers";
 export { MenuBox, type MenuBoxProps } from "./menu";
+export { SetupStep, dismissSetupStep, resetSetupSteps, setupStepDismissed, setupStepState, useSetupStep, type SetupStepState } from "./setup";
 export {
   POINTS,
   Registry,
@@ -95,7 +117,31 @@ export {
   type SpaceTab,
   tabsOf,
 } from "./contrib";
-export { t, translate, useT, useLocale, setLocale, currentLocale, localeChoice, addStrings, DICTIONARIES, type Locale, type LocaleChoice, type Translate } from "./i18n/index";
+export {
+  RESOURCE_SCHEME,
+  SIDEBAR_PRIORITIES,
+  SIDEBAR_SCOPES,
+  TabInfoProvider,
+  candidates as sidebarCandidates,
+  claim as sidebarClaim,
+  effectiveTypes as sidebarTypes,
+  guideEntries as sidebarGuideEntries,
+  parseResource,
+  patternMatches,
+  priorityOf as sidebarPriorityOf,
+  resourceAddress,
+  typeOfKind as sidebarTypeOfKind,
+  useTabInfo,
+  type SidebarGuideEntry,
+  type SidebarOpenOptions,
+  type SidebarPriority,
+  type SidebarResourceOptions,
+  type SidebarScope,
+  type SidebarTabType,
+  type TabActions,
+  type TabInfo,
+} from "./sidebar";
+export { t, translate, useT, useLocale, setLocale, onLocaleChoice, currentLocale, localeChoice, addStrings, DICTIONARIES, type Locale, type LocaleChoice, type Translate } from "./i18n/index";
 export type { FlowBlockContribution } from "./chat/types";
 export {
   HostProvider,

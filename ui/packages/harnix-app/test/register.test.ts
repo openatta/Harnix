@@ -34,6 +34,7 @@ function fakeHost(answers: Record<string, unknown> = {}) {
     subscribe: () => () => undefined,
     events: { onTurnSettled: () => () => undefined, onSessionEvent: () => () => undefined, onHostEvent: () => () => undefined },
     session: { current: () => current, context: () => null },
+    spaces: { current: () => "projects" },
     shell: { notice: () => undefined },
     defaults: { instance: "main", space: "sessions" },
   };
@@ -91,7 +92,8 @@ describe("@harnix/harnix-app", () => {
     expect(files.trigger).toBe("@");
     host.setCurrent({ instance: "main", sessionId: "s1" });
     expect(await files.complete("ma")).toEqual([{ label: "src/main.rs", description: "2.0 KB", replacement: "@src/main.rs " }]);
-    expect(host.calls.find(([m]) => m === "harnix-app.files")?.[1]).toEqual({ project_root: "/work/alpha", query: "ma" });
+    // The session, claimed in the backend space the front one lists; the backend finds its project.
+    expect(host.calls.find(([m]) => m === "harnix-app.files")?.[1]).toEqual({ instance: "main", session_id: "s1", space: "sessions", query: "ma" });
     host.setCurrent({ instance: "main", sessionId: "s2" });
     expect(await files.complete("ma")).toEqual([]);
     expect(await files.complete("session:x")).toEqual([]);

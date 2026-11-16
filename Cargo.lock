@@ -1709,6 +1709,7 @@ dependencies = [
  "libc",
  "serde_json",
  "tempfile",
+ "tokio",
  "tracing",
 ]
 

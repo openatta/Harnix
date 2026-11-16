@@ -238,6 +238,18 @@ html.resizing #frame {
   color: var(--label-tertiary);
 }
 
+/* A trusted project's shield, beside its name. */
+#side .prj .trusted {
+  display: inline-flex;
+  flex: none;
+  color: var(--label-tertiary);
+}
+
+#side .prj .trusted .glyph {
+  width: 12px;
+  height: 12px;
+}
+
 /* The open project's conversations hang off a guide line: they belong to it. */
 #side .pgroup {
   margin: 0 0 4px 15px;
@@ -266,6 +278,45 @@ html.resizing #frame {
 
 #main .home-cards {
   margin-top: 20px;
+}
+
+/* A card whose `render()` drew nothing (a first-run step already done) takes no place. */
+#main .home-card:empty,
+#main .home-cards:not(:has(> .home-card:not(:empty))) {
+  display: none;
+}
+
+/* A first-run step (`SetupStep`): what is missing, the way to it; a check once it is done. */
+.setup-step .dt .sp {
+  flex: 1;
+}
+
+.setup-step .dt > .glyph {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  color: var(--label-secondary);
+}
+
+.setup-step[data-state="done"] .dt > .glyph {
+  color: var(--state-success);
+}
+
+.setup-step .setup-body {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--label-secondary);
+}
+
+.setup-step .setup-body .line + .line {
+  margin-top: 4px;
+}
+
+.setup-step .setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
 }
 
 /* Settings' diagnostics: the import map. */

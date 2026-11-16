@@ -1,8 +1,12 @@
 /**
  * @harnix/harnix-app — the Harnix app's interface (the `harnix-app` extension's): the session
  * space and the projects space, which list the same conversations by time and by project; the
- * grouping by time; a session's archiving and export, offered on the shell's session menu; and
- * the composer's `@` files of the open session's project.
+ * grouping by time; a session's archiving and export, offered on the shell's session menu; the
+ * composer's `@` files of the open session's project; a project's trust (its menu, its shield,
+ * the banner over a conversation in a project that is not trusted); and the right column's files,
+ * preview and changes tabs, with the changes card a turn that wrote files leaves in the conversation;
+ * and two first-run steps on the empty page (`home.card`): a project, and the scene and permission
+ * mode a conversation starts with.
  *
  * Only the host API: the sessions come from the hub (`harnix.sessions.list`, kept current by the
  * instance's pushed session list) and what this product notes about them from its own methods
@@ -13,12 +17,16 @@
 import { t, type ActionTarget, type CommandCandidate, type Dispose, type HostApi, type Registry } from "@harnix/react";
 
 import { exportDialog } from "./dialogs.tsx";
-import { ProjectsSidebar } from "./projects.tsx";
+import { ProjectsSidebar, TrustBanner } from "./projects.tsx";
 import { SessionsSidebar, byTime } from "./sessions.tsx";
+import { claimFor, registerSidebar } from "./sidebar.tsx";
+import { PROJECT_STEP, ProjectStep, SCENE_STEP, SceneStep } from "./setup.tsx";
 import { AppStore, SESSIONS } from "./store.ts";
 
-export { AppStore, SESSIONS, type AppSession, type AppState, type Workspace } from "./store.ts";
+export { AppStore, SESSIONS, type AppSession, type AppState, type TrustItem, type TrustStatus, type Workspace } from "./store.ts";
 export { byTime } from "./sessions.tsx";
+export { CHANGES_KIND, FILES_KIND, FILE_PATTERN, PREVIEW_KIND, fileOfCall, lineOf } from "./sidebar.tsx";
+export { PROJECT_STEP, SCENE_STEP } from "./setup.tsx";
 
 /** The backend extension this is the interface of. */
 export const extension = "harnix-app";
@@ -56,6 +64,8 @@ export function register(r: Registry, host: HostApi): Dispose {
           const root = store.projectRoot();
           return root ? { project_root: root } : undefined;
         },
+        // A project that is not trusted, with its own settings held back: an offer to trust it.
+        pinned: (session) => <TrustBanner host={host} store={store} session={session} />,
       },
       center: { mode: "chat" },
       sessions: SESSIONS,
@@ -105,7 +115,8 @@ export function register(r: Registry, host: HostApi): Dispose {
     extension,
   );
 
-  // `@` offers the open session's project files.
+  // `@` offers the open session's project files: the backend walks the session's project, as it
+  // has it, not a directory this page names.
   r.register(
     "command",
     {
@@ -117,15 +128,26 @@ export function register(r: Registry, host: HostApi): Dispose {
         if (!session) return [];
         const listed = store.row(session.instance, session.sessionId)?.project_root;
         const context = host.session.context()?.session?.project_root;
-        const root = listed ?? (typeof context === "string" ? context : null);
-        if (!root) return [];
-        const { files } = await host.call<{ files: { path: string; size?: number }[] }>("harnix-app.files", { project_root: root, query });
+        // Known to have no project: nothing to ask for.
+        if (!(listed ?? (typeof context === "string" ? context : null))) return [];
+        const { files } = await host.call<{ files: { path: string; size?: number }[] }>("harnix-app.files", {
+          instance: session.instance,
+          session_id: session.sessionId,
+          space: claimFor(r, host),
+          query,
+        });
         // As the menu draws a candidate: the path, its size beside it, `@path ` inserted.
         return files.map((f) => ({ label: f.path, description: f.size != null ? `${(f.size / 1024).toFixed(1)} KB` : undefined, replacement: `@${f.path} ` }));
       },
     },
     extension,
   );
+  // The right column's files, preview and changes, the changes card, and a file tool's path opening the file.
+  registerSidebar(r, host, store, extension);
+  // First run, after the settings' model step: a project, then what a conversation starts with.
+  r.register("home.card", { id: PROJECT_STEP, order: 20, render: () => <ProjectStep host={host} store={store} /> }, extension);
+  r.register("home.card", { id: SCENE_STEP, order: 30, render: () => <SceneStep host={host} store={store} /> }, extension);
+
   // Disabled: the store stops following the hub with everything it fed.
   return () => store.stop();
 }

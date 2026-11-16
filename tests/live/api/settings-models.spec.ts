@@ -1,0 +1,124 @@
+// Model settings: the engine's model parameters, its routes by task, and a provider's key and
+// thinking as the settings page reads and writes them.
+//
+// Every key is one the engine reads (agix/docs/schemas/settings.schema.json). The models a field
+// offers are the configured providers' own: the engine lists no endpoint's models, so nothing here
+// asks an endpoint for its catalogue.
+
+import { INVALID_PARAMS } from "@harnix/core/protocol";
+import { assert, defineSuite } from "@harnix/testkit";
+
+type Field = { key: string; type: string; section: string; options?: string[]; suggestions?: string[]; routes?: { provider: string; default_model?: string | null; models?: string[] }[]; tiers: Record<string, unknown>; effective: unknown };
+
+const TASKS = ["subagent", "compact", "memory", "title", "web_search", "web_fetch"];
+
+/** A provider the tests route to: the engine builds a client for it without calling it. */
+const PROVIDER = "test-models";
+const CONFIG = { api_type: "openai_compatible", base_url: "https://example.invalid/v1", api_key: "sk-secret-value-wxyz", default_model: "m-default", models: ["m-default", "m-other"] };
+
+defineSuite("settings-models", { feature: "settings" }, {
+  tests: {
+    "the model parameters and the routes by task are described as the engine reads them": async ({ client }) => {
+      const described = await client.call("settings.describe", {});
+      const field = (key: string): Field => {
+        const found = described.fields.find((f: Field) => f.key === key);
+        assert(found, `${key} is not described`);
+        return found;
+      };
+      assert(JSON.stringify(field("model.effort").options) === JSON.stringify(["low", "medium", "high", "xhigh", "max"]), JSON.stringify(field("model.effort")));
+      assert(field("model.thinking_mode").type === "select", JSON.stringify(field("model.thinking_mode")));
+      assert(field("model.max_output_tokens").type === "number", JSON.stringify(field("model.max_output_tokens")));
+      const fallback = field("model.fallback_model");
+      assert(fallback.type === "text" && Array.isArray(fallback.suggestions), JSON.stringify(fallback));
+      for (const task of TASKS) {
+        const route = field(`task_models.${task}`);
+        assert(route.type === "route" && route.section === "task-models" && Array.isArray(route.routes), JSON.stringify(route));
+      }
+      // `main` is the default provider, and the model a session picks.
+      assert(!described.fields.some((f: Field) => f.key === "task_models.main"), "main is routed from the settings page");
+    },
+
+    "a provider's models are offered to the model fields and to every route": async ({ client }) => {
+      await client.call("settings.setProvider", { provider_id: PROVIDER, config: CONFIG });
+      try {
+        const described = await client.call("settings.describe", {});
+        const field = (key: string): Field => described.fields.find((f: Field) => f.key === key);
+        for (const key of ["model.fallback_model", "model.model_name"]) {
+          const offered = field(key).suggestions ?? [];
+          assert(offered.includes("m-default") && offered.includes("m-other"), `${key} offers ${JSON.stringify(offered)}`);
+        }
+        const route = field("task_models.title").routes?.find((r) => r.provider === PROVIDER);
+        assert(route && route.default_model === "m-default" && JSON.stringify(route.models) === JSON.stringify(["m-default", "m-other"]), JSON.stringify(field("task_models.title")));
+      } finally {
+        await client.call("settings.setProvider", { provider_id: PROVIDER, delete: true });
+      }
+    },
+
+    "a task is routed to a provider and a model of it, and a route to a provider that is not configured is refused by name": async ({ client }) => {
+      await client.call("settings.setProvider", { provider_id: PROVIDER, config: CONFIG });
+      try {
+        const written = await client.call("settings.write", {
+          tier: "global",
+          changes: { "task_models.title": { provider: PROVIDER, model: "m-other" }, "task_models.compact": PROVIDER },
+        });
+        const field = (key: string): Field => written.fields.find((f: Field) => f.key === key);
+        assert(JSON.stringify(field("task_models.title").tiers.global) === JSON.stringify({ provider: PROVIDER, model: "m-other" }), JSON.stringify(field("task_models.title")));
+        assert(field("task_models.compact").tiers.global === PROVIDER, JSON.stringify(field("task_models.compact")));
+
+        const before = await client.call("settings.describe", {});
+        const e = await client.refused("settings.write", { tier: "global", changes: { "task_models.memory": { provider: "not-configured" } } });
+        assert(e && e.code === INVALID_PARAMS, `answered ${JSON.stringify(e)}`);
+        assert(e.data?.errors?.[0]?.key === "task_models.memory", `named ${JSON.stringify(e.data)}`);
+        const shape = await client.refused("settings.write", { tier: "global", changes: { "task_models.memory": { provider: PROVIDER, base_url: "http://elsewhere" } } });
+        assert(shape && shape.code === INVALID_PARAMS, `a route with a base_url was taken: ${JSON.stringify(shape)}`);
+        const after = await client.call("settings.describe", {});
+        assert(after.revision === before.revision, "a refused route was written");
+      } finally {
+        await client.call("settings.write", { tier: "global", changes: { "task_models.title": null, "task_models.compact": null } });
+        await client.call("settings.setProvider", { provider_id: PROVIDER, delete: true });
+      }
+    },
+
+    "effort, thinking, the output limit and the fallback model are written and given back": async ({ client }) => {
+      const changes = { "model.effort": "low", "model.thinking_mode": "off", "model.max_output_tokens": 16000, "model.fallback_model": "m-fallback" };
+      const written = await client.call("settings.write", { tier: "global", changes });
+      try {
+        for (const [key, value] of Object.entries(changes)) {
+          const field: Field = written.fields.find((f: Field) => f.key === key);
+          assert(field.tiers.global === value && field.effective === value, `${key}: ${JSON.stringify(field)}`);
+        }
+        const e = await client.refused("settings.write", { tier: "global", changes: { "model.effort": "extreme", "model.thinking_mode": "sometimes" } });
+        assert(e && e.code === INVALID_PARAMS, `answered ${JSON.stringify(e)}`);
+        const named = (e.data?.errors ?? []).map((x: { key: string }) => x.key).sort();
+        assert(JSON.stringify(named) === JSON.stringify(["model.effort", "model.thinking_mode"]), `named ${JSON.stringify(named)}`);
+      } finally {
+        await client.call("settings.write", { tier: "global", changes: Object.fromEntries(Object.keys(changes).map((k) => [k, null])) });
+      }
+    },
+
+    "a provider's key is read back as its last four, and the variable it may come from by name": async ({ client }) => {
+      await client.call("settings.setProvider", { provider_id: PROVIDER, config: { ...CONFIG, api_key_env: "HARNIX_TEST_MODELS_KEY" } });
+      try {
+        const described = await client.call("settings.describe", {});
+        const provider = described.providers?.providers?.[PROVIDER];
+        assert(provider?.api_key === "***wxyz", `read back as ${JSON.stringify(provider)}`);
+        assert(provider.api_key_env === "HARNIX_TEST_MODELS_KEY", JSON.stringify(provider));
+        assert(!JSON.stringify(described).includes("sk-secret-value"), "the key came back in the clear");
+      } finally {
+        await client.call("settings.setProvider", { provider_id: PROVIDER, delete: true });
+      }
+    },
+
+    "an OpenAI-compatible provider's thinking switch is taken, and one the engine does not know is not": async ({ client }) => {
+      await client.call("settings.setProvider", { provider_id: PROVIDER, config: { ...CONFIG, thinking_toggle: "deepseek", reasoning_passback: true } });
+      try {
+        const provider = (await client.call("settings.describe", {})).providers?.providers?.[PROVIDER];
+        assert(provider?.thinking_toggle === "deepseek" && provider.reasoning_passback === true, JSON.stringify(provider));
+        const e = await client.refused("settings.setProvider", { provider_id: PROVIDER, config: { thinking_toggle: "always" } });
+        assert(e && e.code === INVALID_PARAMS && /thinking_toggle/.test(e.message), `answered ${JSON.stringify(e)}`);
+      } finally {
+        await client.call("settings.setProvider", { provider_id: PROVIDER, delete: true });
+      }
+    },
+  },
+});

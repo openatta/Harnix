@@ -133,7 +133,7 @@ describe("a tool's one name: its row's, on the card and in the announcement", ()
 });
 
 describe("contribution API 3", () => {
-  const action = (id: string, at: ("header" | "menu" | "tool")[], match = () => true) => ({ id, at, label: () => id, match, run: () => undefined });
+  const action = (id: string, at: ("header" | "menu" | "tool" | "arg")[], match = () => true) => ({ id, at, label: () => id, match, run: () => undefined });
   const target = { kind: "session" as const, session: { instance: "main", sessionId: "s" }, space: "sessions" };
 
   it("takes a session action for the places its `at` names, and asks each by its match", () => {
@@ -146,6 +146,12 @@ describe("contribution API 3", () => {
     expect(r.actions("header", target).map((a) => a.id)).toEqual(["both"]);
     expect(r.actions("menu", target).map((a) => a.id)).toEqual(["both"]);
     expect(r.actions("tool", { ...target, kind: "tool", toolUseId: "t", tool: "Bash" }).map((a) => a.id)).toEqual(["tool"]);
+    // A tool row's argument is a place of its own; the call's input rides on the target.
+    expect(r.register("session.action", action("path", ["arg"], (t?: { input?: { file_path?: string } }) => Boolean(t?.input?.file_path)), "a")).toBe(true);
+    const call = { ...target, kind: "tool" as const, toolUseId: "t", tool: "Read" };
+    expect(r.actions("arg", { ...call, input: { file_path: "/w/a" } }).map((a) => a.id)).toEqual(["path"]);
+    expect(r.actions("arg", call).map((a) => a.id)).toEqual([]);
+    expect(r.actions("tool", call).map((a) => a.id)).toEqual(["tool"]);
   });
 
   it("drops a session action whose match throws, and keeps the rest", async () => {

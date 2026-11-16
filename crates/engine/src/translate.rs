@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use harnix_contract::RpcError;
-use harnix_engine_link::events::{Completion, DaemonEventKind, EngineEvent, Fragment, Joins, Prompt, SessionEventKind, Waiting};
+use harnix_engine_link::events::{Completion, DaemonEventKind, EngineEvent, FileWrite, Fragment, Joins, Prompt, SessionEventKind, Waiting};
 use harnix_engine_link::ops::{codes, Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
 use harnix_engine_api::{Delivery, ToolError, ToolOutput, ToolSpec};
 use serde_json::{json, Value};
@@ -74,6 +74,8 @@ const THINKING_DELTA: &str = "thinking_delta";
 const TOOL_ARGS_DELTA: &str = "tool_args_delta";
 const TOOL_USE: &str = "tool_use";
 const TOOL_RESULT: &str = "tool_result";
+/// What a file-editing tool's result carries of the files it wrote (daemon protocol §7.5).
+const FILE_CHANGES: &str = "file_changes";
 const PROMPT: &str = "prompt";
 const PROMPT_RESOLVED: &str = "prompt_resolved";
 const SUBAGENT_PROGRESS: &str = "subagent_progress";
@@ -367,6 +369,19 @@ fn session_event(mut params: Value) -> Option<EngineEvent> {
         TOOL_RESULT => SessionEventKind::ToolResult {
             id: field("id"),
             is_error: event.get("is_error").and_then(Value::as_bool).unwrap_or(false),
+            wrote: file_writes(&event),
+        },
+        // A sub-agent's writes are the turn's too.
+        SUBAGENT_PROGRESS => match event.get("event") {
+            Some(nested) if nested.get("kind").and_then(Value::as_str) == Some(TOOL_RESULT) => {
+                let wrote = file_writes(nested);
+                if wrote.is_empty() {
+                    SessionEventKind::Other
+                } else {
+                    SessionEventKind::Wrote(wrote)
+                }
+            }
+            _ => SessionEventKind::Other,
         },
         PROMPT => SessionEventKind::Asked(prompt(event.clone())),
         PROMPT_RESOLVED => match event.get("prompt_id").and_then(Value::as_str) {
@@ -411,6 +426,25 @@ fn session_event(mut params: Value) -> Option<EngineEvent> {
         _ => SessionEventKind::Other,
     };
     Some(EngineEvent::Session { session, turn_id, kind, event })
+}
+
+/// The files a tool result says its call wrote; none when it says nothing.
+fn file_writes(result: &Value) -> Vec<FileWrite> {
+    let Some(changes) = result.get(FILE_CHANGES).and_then(Value::as_array) else { return Vec::new() };
+    changes
+        .iter()
+        .filter_map(|c| {
+            let path = c.get("path").and_then(Value::as_str)?;
+            let text = |k: &str| c.get(k).and_then(Value::as_str).map(str::to_string);
+            let count = |k: &str| c.get(k).and_then(Value::as_u64).unwrap_or(0);
+            Some(
+                FileWrite::new(path, c.get("op").and_then(Value::as_str) == Some("create"))
+                    .lines(count("added"), count("removed"))
+                    .bytes(c.get("after_bytes").and_then(Value::as_u64))
+                    .diff(text("unified_diff"), c.get("truncated").and_then(Value::as_bool).unwrap_or(false), text("omitted")),
+            )
+        })
+        .collect()
 }
 
 fn daemon_event(params: Value) -> EngineEvent {
@@ -927,6 +961,34 @@ mod tests {
 
     fn kind_of(event: Value) -> SessionEventKind {
         kind(session(event))
+    }
+
+    #[test]
+    fn the_files_a_tool_result_wrote_are_read_off_it_and_off_a_sub_agents() {
+        let change = json!({"path": "/w/src/a.rs", "op": "modify", "before_hash": "sha256:1", "after_hash": "sha256:2",
+            "before_bytes": 10, "after_bytes": 12, "added": 3, "removed": 1,
+            "unified_diff": "--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n-a\n+b\n", "truncated": false, "omitted": null});
+        let created = json!({"path": "/w/big.bin", "op": "create", "before_hash": null, "after_hash": null, "before_bytes": null,
+            "after_bytes": 99, "added": 0, "removed": 0, "unified_diff": null, "truncated": false, "omitted": "binary"});
+        let result = json!({"kind": "tool_result", "id": "u", "name": "Write", "content": "ok", "is_error": false, "file_changes": [change, created]});
+        let SessionEventKind::ToolResult { id, is_error, wrote } = kind_of(result.clone()) else { panic!() };
+        assert_eq!((id.as_str(), is_error, wrote.len()), ("u", false, 2));
+        assert_eq!(
+            wrote[0],
+            FileWrite::new("/w/src/a.rs", false)
+                .lines(3, 1)
+                .bytes(Some(12))
+                .diff(Some("--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n-a\n+b\n".into()), false, None)
+        );
+        assert_eq!(wrote[1], FileWrite::new("/w/big.bin", true).bytes(Some(99)).diff(None, false, Some("binary".into())));
+        // A tool that writes nothing says nothing.
+        let plain = kind_of(json!({"kind": "tool_result", "id": "v", "content": "x"}));
+        assert_eq!(plain, SessionEventKind::ToolResult { id: "v".into(), is_error: false, wrote: Vec::new() });
+        // A sub-agent's: what it wrote, and nothing for the rest of its stream.
+        let nested = kind_of(json!({"kind": "subagent_progress", "agent_session_id": "sub", "event": result}));
+        assert!(matches!(nested, SessionEventKind::Wrote(w) if w.len() == 2));
+        assert_eq!(kind_of(json!({"kind": "subagent_progress", "event": {"kind": "text_delta", "text": "x"}})), SessionEventKind::Other);
+        assert_eq!(kind_of(json!({"kind": "subagent_progress", "event": {"kind": "tool_result", "id": "w"}})), SessionEventKind::Other);
     }
 
     #[test]

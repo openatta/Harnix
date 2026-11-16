@@ -14,3 +14,4 @@ export * from "./generated/packages.ts";
 export * from "./engine.ts";
 export * from "./frames.ts";
 export * from "./events.ts";
+export * from "./changes.ts";

@@ -657,6 +657,39 @@
   display: none;
 }
 
+/* The projects space's offer to trust the open conversation's project, over its messages. */
+#main .trust-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--label-secondary);
+}
+
+#main .trust-banner > .glyph {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--state-warn);
+}
+
+#main .trust-banner .text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The trust dialog's list: a kind of setting, and what of it the project has. */
+.trust-list {
+  margin: 6px 0 10px;
+  padding-left: 18px;
+}
+
+.trust-list .sub {
+  margin-left: 6px;
+  color: var(--label-tertiary);
+  word-break: break-all;
+}
+
 /* "Deliver now" (`SpaceContribution.composer.steer`): on, it is the accent. */
 #main .hx-cmp .steer.on {
   color: var(--accent);
@@ -665,4 +698,14 @@
 
 #main .hx-cmp .steer:disabled {
   opacity: 0.45;
+}
+
+/* A tool row's argument that an action at `arg` opens (`ActionArg`): a link inside the row's toggle. */
+#main .hx-tool-arg.arg-link {
+  color: var(--accent);
+  cursor: pointer;
+}
+
+#main .hx-tool-arg.arg-link:hover {
+  text-decoration: underline;
 }

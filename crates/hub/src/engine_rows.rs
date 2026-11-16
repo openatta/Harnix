@@ -94,6 +94,16 @@ const BY_CAPABILITY: &[(&str, Capability, After)] = &[
     ("engine.plugin.reload", caps::ENGINE_PLUGINS, After::Nothing),
 ];
 
+/// A project's trust: whether its own hooks, MCP servers, looser settings, agent types and skills
+/// are in force (`docs/harnix-app.md` §3). Read and written by an extension holding
+/// `engine.control` — a device decides through the projects space's own methods, which say what
+/// they are doing. Trust is kept in the engine's global settings, so an extension's engine refuses
+/// it as it refuses its settings.
+const PROJECT_TRUST: &[(&str, Capability)] = &[
+    ("engine.project.status", caps::ENGINE_CONTROL),
+    ("engine.project.trust", caps::ENGINE_CONTROL),
+];
+
 /// The engine methods that change credentials, repoint model endpoints, or hand the caller the
 /// process itself. Refused to devices always, with the reason written out — the engine trusts
 /// whoever reaches its dispatch, and in this process that is the hub (concept §3.4). The kernel may
@@ -191,6 +201,15 @@ pub(crate) fn rows(hub: &HubCell) -> Vec<HubRow> {
             access: Access::device().with_extensions().scoped(RowScope::Session),
             handler: Some(answer(hub, "harnix.session.fork", true, |h, cx, p| async move { h.fork(&cx.subject, p).await })),
         },
+        // A session bundle installed as new sessions in the space the call claims. An extension
+        // holding `engine.export` acts for a device: the bundle's path is what the extension
+        // checked, not what a device said.
+        HubRow::Method {
+            name: "harnix.session.import",
+            owner: Owner::Kernel(harnix_kernel::KernelPart::Hub),
+            access: Access::capability(caps::ENGINE_EXPORT).scoped(RowScope::Space),
+            handler: Some(answer(hub, "harnix.session.import", false, |h, cx, p| async move { h.import(&cx, p).await })),
+        },
         // A session's own prompt text, behind its scene layer's: changed as its context is, by
         // whoever holds `engine.control` (a device through the system space).
         HubRow::Method {
@@ -216,6 +235,10 @@ pub(crate) fn rows(hub: &HubCell) -> Vec<HubRow> {
         let scope = if on_a_session { RowScope::Session } else { RowScope::Open };
         let through = Through { after: *after, checked: false, settings: SETTINGS.contains(cap) };
         engine(hub, name, Access::capability(cap.clone()).scoped(scope), through)
+    }));
+    rows.extend(PROJECT_TRUST.iter().map(|(name, cap)| {
+        let through = Through { after: After::Nothing, checked: false, settings: true };
+        engine(hub, name, Access::capability(cap.clone()), through)
     }));
     rows.extend(ENGINE_REFUSALS.iter().map(|(name, why, cap)| {
         let access = match cap {
@@ -301,6 +324,58 @@ impl Hub {
             }
             After::Relisted => self.refresh("harnix.instances.sessions", json!({"instance": instance})),
         }
+        Ok(answer)
+    }
+
+    /// `harnix.session.import {path, space?, project_root?}`: the bundle at `path` becomes new
+    /// sessions, the root and its sub-agents', all in the space the call claims, started by a
+    /// person (not by Harnix). `project_root` is passed on only when given: left out, the engine
+    /// uses the bundle's own, and a bundle whose project is not on this machine is imported with
+    /// no project — what the engine cannot honestly place is not placed in a guess.
+    pub(crate) async fn import(self: &Arc<Self>, cx: &CallContext, mut params: Value) -> Rpc<Value> {
+        crate::refuse_hub_owned_options(&params)?;
+        let path = params
+            .get("path")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError::invalid_params("missing path"))?
+            .to_string();
+        let space = self.place(cx, &mut params).await?;
+        let instance = self.instance_of(&params)?;
+        let linked = self.engine(&instance)?;
+        let mut ask = json!({"path": path});
+        if let Some(root) = params.get("project_root") {
+            ask["project_root"] = root.clone();
+        }
+        let mut warnings = Vec::new();
+        let mut answer = match linked.ops().passthrough("engine.session.import", ask.clone()).await {
+            Err(e) if params.get("project_root").is_none() && e.code == codes::INVALID_PARAMS && e.message.contains("project_root") => {
+                ask["project_root"] = Value::Null;
+                warnings.push(json!("the bundle's project is not on this machine; imported with no project"));
+                linked.ops().passthrough("engine.session.import", ask).await?
+            }
+            other => other?,
+        };
+        let ids: Vec<String> = answer
+            .get("sessions")
+            .and_then(Value::as_array)
+            .map(|rows| rows.iter().filter_map(|r| r.get("session_id").and_then(Value::as_str).map(str::to_string)).collect())
+            .unwrap_or_default();
+        if !space.is_empty() {
+            for sid in &ids {
+                self.bind_space(&(instance.clone(), sid.clone()), &space);
+            }
+        }
+        if let Some(obj) = answer.as_object_mut() {
+            if !warnings.is_empty() {
+                let all = obj.entry("warnings").or_insert_with(|| json!([]));
+                if let Some(all) = all.as_array_mut() {
+                    all.extend(warnings);
+                }
+            }
+            obj.insert("instance".into(), json!(instance));
+            obj.insert("space".into(), json!(space));
+        }
+        self.refresh("harnix.instances.sessions", json!({"instance": instance}));
         Ok(answer)
     }
 

@@ -6,8 +6,8 @@
 > 新建会话、按时间看会话、按项目管理会话。它由两半组成：后端是第一方原生扩展 `harnix-app`（`crates/ext/harnix-app`），界面是前端包
 > `@harnix/harnix-app`（`ui/packages/harnix-app`）。用词照 [术语](glossary.md)；扩展接口见 [Harnix 扩展](harnix-ext.md)。
 >
-> 本文照代码写：后端在 `crates/ext/harnix-app/src/`（`lib.rs`、`workspaces.rs`、`files.rs`、`export.rs`、`store.rs`），界面在
-> `ui/packages/harnix-app/src/`（`index.tsx`、`sessions.tsx`、`projects.tsx`、`dialogs.tsx`、`store.ts`），外壳的菜单、层与新对话页在
+> 本文照代码写：后端在 `crates/ext/harnix-app/src/`（`lib.rs`、`workspaces.rs`、`files.rs`、`project.rs`、`export.rs`、`store.rs`），界面在
+> `ui/packages/harnix-app/src/`（`index.tsx`、`sessions.tsx`、`projects.tsx`、`sidebar.tsx`、`dialogs.tsx`、`store.ts`），一轮的改动由中枢记（`crates/hub/src/changes.rs`），外壳的菜单、层与新对话页在
 > `ui/packages/shell/src/`（`Menu.tsx`、`Shell.tsx`、`dialogs.tsx`；层与菜单的底子在 `ui/packages/react/src/layers.ts`），profile 在
 > `crates/assembly/src/profile.rs`。对不上时以代码为准。
 
@@ -21,7 +21,7 @@
 | 标题 | 会话（Sessions）：全部会话，按时间 | 项目（Projects）：按项目看会话 |
 | 左栏 | 搜索框 + 全部会话，按时间分组 | 一棵树：项目（工作区），一次只展开一个，它的会话挂在下面 |
 | 中区 | 对话（`center: "chat"`） | 对话；新建的会话跑在展开的项目里 |
-| 右栏 | 只有详情 | 只有详情 |
+| 右栏 | 会话的停靠面：引导页，文件、预览、改动（§6），`@harnix/system` 的「输出」（Agent 后台 Shell 与监视器的只读输出流，一个任务一个页签，从对话里工具行的「查看输出」打开），别的包注册的页签，和 `reveal` 打开的详情 | 同左 |
 | 后端 space | `sessions` | **同一个** `sessions`（界面注册里 `sessions: "sessions"`） |
 
 **项目 space 是界面上的一个视图，不是第二个会话集合。** 「按时间看」和「按项目看」是同一批会话的两种排法；会话按 space 绑定是
@@ -31,7 +31,8 @@
 **两半，一个扩展。** `harnix-app` 扩展声明后端的会话 space（`SpaceDecl::new("sessions").default_space()`：不声称 space 的设备调用按它检查，
 没人安置的会话归它），提供 `harnix-app.*` 的方法，状态在自己的目录 `~/.<product_id>/ext/harnix-app/data/state.json`（工作区、归档、偏好；
 删掉只丢分组）。会话的标题不在这里：它是引擎给会话的名字，`harnix.session.rename` 改的就是它。界面包 `@harnix/harnix-app` 注册两个 `space`、
-`sidebar.group` 的 `harnix-app.time`、会话菜单的归档与导出两个 `session.action`、`@` 的文件补全。
+`sidebar.group` 的 `harnix-app.time`、会话菜单的归档与导出两个 `session.action`、`@` 的文件补全，以及右栏的文件、预览、改动三种页签、
+对话里的改动卡和工具行上「在预览中打开」的 `session.action`（§6）。
 
 Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方扩展（`harnix::first_party::standard()`，含 `harnix-app`）、`packages` 与流程扩展。
 它的缺省是原生扩展加模式 2（见 [应用开发](app-development.md)）。
@@ -71,23 +72,96 @@ Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方�
 | 选一个已有目录 | `harnix-app.workspaces.create {path}` | 目录要已经存在；同一个目录再加一次是幂等的 |
 | 浏览目录 | `harnix-app.listDirectory {path?}` | **选择器从 `projects_dir` 起**：不给 `path` 时打开它（还没有就建；建不了才退到 `$HOME`）；只在 `$HOME` 或项目根之内 |
 
-**项目菜单**：在这个项目里新建会话（打开新会话对话框，§4）、改名（`harnix-app.workspaces.update {id, title}`）、移除分组
-（`harnix-app.workspaces.remove`）。
+**项目菜单**：在这个项目里新建会话（打开新会话对话框，§4）、信任这个项目 / 不再信任这个项目（§3.1）、
+改名（`harnix-app.workspaces.update {id, title}`）、移除分组（`harnix-app.workspaces.remove`）。
+
+### 3.1 项目信任
+
+一个项目自己的设置（`<项目>/.agix/` 下的设置、agent 类型、hook 脚本，项目里的 skill）是仓库内容。引擎缺省**不信任**项目：
+没受信的项目只能收紧设置，它自己的 hook、MCP 服务器、比下面几层更宽的权限与沙箱、自己的 provider 与模型端点、遥测去向、
+更宽的插件、替换同名类型的 agent、带命令的 skill 都被扣下，不生效。信任是**项目根**的属性，引擎记在全局层的
+`settings.local.json`（`project_trust.trusted`）里，和场景无关。
+
+- **项目菜单「信任这个项目…」**：先重读这个项目的状态，在对话框里按类列出信任之后会开始生效的东西（每类后面是它点名的
+  MCP 服务器、agent 类型、规则……），确认了才写。已受信的项目菜单里是「不再信任这个项目」，不用确认：它只删指向这个目录的那一条；
+  全局设置里另有一条 glob 或缺省就是受信时，项目仍然受信，提示里说是哪一条。没有自己项目层的目录（如 `$HOME`）不出这一项。
+- **受信项目**在项目树里名字后面有一个盾牌。
+- **横幅**：在项目 space 里打开一个会话，它的项目没受信、又有被扣下的东西时，对话上方有一条横幅（`SpaceContribution.pinned`），
+  说哪几类没生效，带「信任…」（同菜单的对话框）和「不再提示」。关掉的按项目记在页面的 `localStorage`（`harnix.trust.dismissed`），
+  这个项目以后不再提示；信任之后横幅自己消失。
+- 后端读不了信任（产品没授予 `harnix-app` 能力 `engine.control`，见下）时，菜单不出这一项，也没有盾牌和横幅。
+
+设备不持有能力，信任经 `harnix-app` 的方法做；`harnix-app` 持可选能力 `engine.control`，替设备调引擎的 `engine.project.status`、
+`engine.project.trust`。**只对设备看得到的项目**：登记过的项目，或列出来的某个会话跑在里面的目录；别的目录答 `REFUSED`
+（防误：免得一个页面点名磁盘上任意目录就把它信任了）。`projects.trust` 进审计。
+
+| 方法 | 参数 | 答 |
+|---|---|---|
+| `harnix-app.projects.status` | `{project_root, instance?, scene?}` | 项目的信任状态（下表） |
+| `harnix-app.projects.trust` | `{project_root, trusted, instance?}` | 写完之后的状态，另带 `written_to` |
+| `harnix-app.sessions.projectStatus` | `{instance?, session_id, space?}`，按 `RowScope::Session` 判 | 会话所在项目的状态（按会话的场景判），另带 `session_id`；无项目会话是 `trust: "none"`、什么都不扣 |
+
+状态的形状，引擎原样的字段加上 `harnix-app` 算好的三项——项目 space、右栏的「上下文」页、项目自带的流程读的都是这一份：
+
+```jsonc
+{ "project_root": "/Users/x/repo",          // 解析之后的真实目录
+  "trust": "untrusted",                     // trusted | untrusted | none（没有自己的项目层）
+  "trust_source": "default",                // default | user | host（从这里信任的）| null
+  "matched": null,                          // 信任它的那条 project_trust.trusted
+  "default": "untrusted",
+  "requires_trust": ["hooks_config", "mcp_servers.github"],   // 引擎说要信任才生效的键，信不信都列
+  "items": [ { "key": "hooks_config", "category": "hooks", "name": null },
+             { "key": "mcp_servers.github", "category": "mcp", "name": "github" } ],
+  "categories": ["hooks", "mcp"],           // items 里有的类，按下面的顺序
+  "withheld": [ … ] }                       // 现在被扣下的：untrusted 时就是 items，否则为空
+```
+
+`category` 是 `hooks`（hook 与脚本）、`mcp`、`permissions`、`sandbox`、`models`（provider、模型端点与令牌、按任务的模型）、
+`telemetry`（遥测、录像、指令文件）、`plugins`、`agents`、`skills`、`other` 之一；`name` 是键点名的那一个（MCP 服务器、
+agent 类型、skill、规则），没有时是 `null`。主题 `harnix-app.trust`（无参数）的值是 `{projects: {<项目根>: <状态>}}`：
+这个进程里最近一次读到或写下的每个项目的状态，变了才推，别的页面据此刷新。在 Harnix 之外改了信任（手改全局设置）不推，
+下一次读时才看得到。
+
+设置页的「项目层写了但不生效」照旧由 `settings.describe` 的 `withheld` 逐个字段说，和这里互不重复：那里说某个值没用上，这里说为什么、
+怎么放开。
 
 ## 4. 新建会话
 
 - **左栏顶上的「新会话」**（⌘K）：不建会话，只打开新对话的空页。前台是系统 space、`center: "hidden"` 的 space 或嵌在别的
   space 里的 space 时，先换到第一个能对话的 space。⌘\ 收起左栏，⌘/ 聚焦输入框。对话框开着时这三个键都不生效。
 - **窄窗口**（≤ 960 宽）：左栏是 56px 的轨，轨上的「会话」入口、收起键或 ⌘\ 把它作为抽屉盖在页面上打开；在抽屉里选了会话或 space、
-  按 Esc、点幕布就收回。打开的右栏是从右边盖住中区的抽屉（`narrow_details = "beside"` 时 720–960 宽仍三栏并排）。宽窗口里人自己
+  按 Esc、点幕布就收回。打开的右栏是从右边盖住中区的抽屉（`narrow_details = "beside"` 时 720–960 宽仍三栏并排），里面是同一条页签栏、同一个会话的停靠面（[Harnix 扩展](harnix-ext.md) §22.7）；
+  会话头角落的按钮在右栏收起时把它展开。宽窗口里人自己
   收起或展开的左栏，窗口变窄再变宽后照旧。
 - **新对话的空页**：问候（按钟点是早上、下午、晚上）、这个 space 的 `subtitle()`、输入框、`suggestions()` 的建议（点了就建会话
   并发出）、`notice()`，下面是 `home.card` 的卡片。**第一次发出时才建会话**：`harnix.session.create`（带前台 space 的归属，项目 space 里带项目的
-  目录），然后 `harnix.session.send`。Harnix app 的两个 space 不给建议、提示与卡片；应用的扩展与扩展包可以给 `home.card`。
-- **新会话对话框**（从项目菜单进来）：场景（启用的场景，引擎缺省的在前）、权限模式（`default`、`acceptEdits`、`plan`、
+  目录），然后 `harnix.session.send`。Harnix app 的两个 space 不给建议与提示；卡片是首次运行的三步（§4.1），应用的扩展与扩展包也可以给 `home.card`。
+- **新会话对话框**（从项目菜单或首次运行的「场景与权限」进来）：场景（启用的场景，引擎缺省的在前）、权限模式（`default`、`acceptEdits`、`plan`、
   `bypassPermissions`）、项目目录（`harnix-app.recentProjects` 给的最近目录，或不带项目），可以浏览目录。
 - **换模型**：会话的模型菜单在有 `harnix.session.setModel`（`[shell] model_switch = true`）时用它，否则用系统 space 的
   `system.model`。
+
+### 4.1 首次运行
+
+新对话的空页上，输入框下面是三步，每一步是拥有它的那个 UI 包注册的一张 `home.card`，外壳不认识它们：
+
+| 卡（`home.card` 的 id） | 谁的 | 什么时候算做完 | 没做完时 |
+|---|---|---|---|
+| 模型（`settings.setup.model`，`order` 10） | `@harnix/settings` | `harnix.hello` 说有模型可用：配了 provider，或引擎启动时带着 `ANTHROPIC_*` 的密钥（同输入框上的「配置模型」提示；读不到 provider 时算有）。卡画出来时读一次，此后每关一次对话框（设置页就是在对话框里配的）再读 | 说还没有模型，「打开模型设置」到设置 · 模型与凭据 |
+| 项目（`harnix-app.setup.project`，20） | `@harnix/harnix-app` | `harnix-app.workspaces.list` 里有项目 | 说会话可以跑在一个项目（目录）里，「新建或选择项目…」打开添加项目的对话框（§3）；做完了是「打开项目」：到项目 space 并展开它 |
+| 场景与权限（`harnix-app.setup.scene`，30） | `@harnix/harnix-app` | 没有可读的完成状态：读过、点「知道了」或关掉就算 | 各一行：新会话缺省的场景（`hello.engine.scene` 和它的说明），缺省的权限模式（引擎设置的 `permission_mode`，经 `settings.describe` 按缺省场景读，读不到是 `default`）和它意味着什么。`code` 在、又不是缺省场景时，加一行推荐它，「用 code 新建会话…」打开停在 `code` 上的新会话对话框；「选场景与权限新建…」打开新会话对话框；「更改缺省…」到设置的引擎一节 |
+
+- **做完的一步**：这一页看着它从没做完变成做完的，画成做完（一个勾，模型那步写出新会话用的模型）；页面起来时就已经做完的，不画。
+- **关掉**：每张卡右上角的「不再显示」。关掉的记在这个浏览器的 `localStorage`（`harnix.setup.dismissed`，卡的 id 的数组），以后不再画。
+- **不占位**：没有 `title`、`render()` 什么都没画的 `home.card`，外壳不给它留位置（`:empty`），所以做完、关掉的步骤从空页上消失。
+  三步的外观与「做完、关掉」的记法在 `@harnix/react` 的 `SetupStep`、`useSetupStep` 里，应用的包要加自己的一步也用它。
+- **不说信任**：新建的项目是不受信的，但空页上不提这件事。那是对话上方横幅（§3.1）的事：在一个有被扣下设置的项目里打开会话时才说，
+  两处不重复。
+- 产品关掉 `settings` 扩展时没有模型那一步，关掉 `harnix-app` 时没有后两步。
+
+**`harnix` 的缺省场景**：不给 `--profile` 时，`harnix` 二进制的 `[engine]` 是 `scene = "harnix"`、`scenes = ["code"]`
+（`AppBuilder::default_engine`，见 [Harnix 扩展](harnix-ext.md) §17.1）：新会话仍在 `harnix` 场景里，`code`（要一个项目的编程 Agent）在新会话
+对话框里可选。给了 profile 就照 profile 写的，`--scene`、`--scenes` 照旧盖在上面。
 
 **`[shell] new_session = false`**：整个外壳不画「新会话」、⌘K 不归外壳（会话由应用自己建）。**只是界面**：空页上的输入框只看 space
 自己的 `newSession`，所以空的 space 仍然给一个输入框；要一个 space 没有它，在那个 space 上写 `newSession: false`（这时画
@@ -106,6 +180,7 @@ Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方�
 | 归档 / 取消归档 | `harnix-app.sessions.archive` | 只影响左栏列不列它 |
 | 从这里分叉 | `harnix.session.fork` | |
 | 导出 | `harnix-app.sessions.export` | Markdown，或引擎打的数据包（zip，可带录像） |
+| 导入… | `harnix-app.sessions.importUpload` → 上传 → `harnix-app.sessions.import` | 选一个导出的数据包（`.zip`），经大负载旁路上传，装成当前空间里的新会话（连同它的子代理会话）；不是选中某个会话的操作，在会话列表的「+」菜单里。包里的项目在这台机器上不存在时，装成无项目会话并提示 |
 | 关闭 | `harnix.session.close` | 放掉运行时，历史留着，还能重开 |
 | 删除 | `harnix.session.delete` | 先试删一次看连带几条侧链会话，确认后删；连同录像 |
 
@@ -119,9 +194,67 @@ Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方�
 - **横幅的提示排队**：一次显示一条，后面还有几条会写出来；普通的 6 秒后自己走，错误 12 秒，要重新加载页面这类状态一直在。
   横幅是播报区（错误 `role=alert`，其余 `role=status`）；对话里来了权限询问，也单独播报一句「需要批准：工具名」。
 
-## 6. profile
+## 6. 右栏：文件、预览、改动
 
-### 6.1 `[shell]` 与 `[extensions]`
+右栏是每个会话一个停靠面（[Harnix 扩展](harnix-ext.md) §22.7）。`@harnix/harnix-app` 往里注册三种页签类型，都只读、都限在**这个会话的项目根**
+（引擎记的 `project_root`）里：
+
+| 页签 | `sidebar.tab` | 打开它 | 内容 |
+|---|---|---|---|
+| 文件 | `kind: files`，`builtin`，引导页入口，`keepMounted`（树的展开在切页签、切会话后还在） | 引导页、`openTab("files")` | 项目的目录树，一层一层按需读。`.gitignore` 忽略的和 `.git`、`node_modules`、`target` 不列，只数个数；「显示被忽略的（N）」切换。点文件用预览打开它 |
+| 预览 | 资源类，`patterns: ["harnix-resource://file/**"]`，`fallback` | `openResource(harnix-resource://file/<相对项目根的路径>, {params})` | 文本与代码（带行号，不高亮），Markdown 用对话里的同一个渲染器（「源码 / 渲染」切换），图片。二进制、超过 1 MiB 的文本或 5 MiB 的图片、Office 与 PDF：说一句为什么不预览。`params.line` 标出那一行并滚过去；`params.text` 标出这段文字所在的第一行；每次导航（`revision` 变）都重新落到那一行，落到行上时 Markdown 显示源码 |
+| 改动 | `kind: changes`，`builtin`，引导页入口 | 改动卡、引导页、`openTab("changes", {params: {turn}})` | 一轮改了哪些文件：每个文件的 `+增 −删`、新建的标「新建」、逐个展开 unified diff（和工具行的 diff 一个样子，行号是文件里的行号），「打开文件」用预览打开。给了 `turn` 只看那一轮，「看全部轮次」看本会话的每一轮（新的在前）；一轮结束后自己刷新 |
+
+扩展可以注册同一个 `kind` 的 `extension` 优先级的类型顶替文件或改动页，注册更具体的 `patterns` 认领某一类文件的预览（比如 `*.csv`）。
+
+**文件的读法**（`harnix-app.files.*`，设备调用，`RowScope::Session`：像别的会话调用一样声明会话所在的 space，由 `engine.session.get` 查这台设备看不看得到这个会话）：
+
+| 方法 | 参数 | 答 |
+|---|---|---|
+| `harnix-app.files.list` | `{instance?, session_id, space?, path?, all?}`：`path` 相对项目根，缺省是根；`all: true` 连忽略的一起列 | `{root, path, entries: [{name, path, dir, link?, size?}], hidden, truncated}`：目录在前；`hidden` 是没列的个数；一层至多 2000 项 |
+| `harnix-app.files.read` | `{instance?, session_id, space?, path}` | `{path, size, kind}`：`kind` 是 `text`（带 `text`）、`image`（带 `mime`、base64 的 `data`）、`binary` 或 `too_large` |
+
+路径只能是相对的、不往上走：`..`、绝对路径一律 `REFUSED`，不管它存不存在；然后顺着符号链接解析，落到项目根外面的同样 `REFUSED`——项目里一个指向 `/etc` 的链接不是出口。
+会话没有项目时答 `INVALID_PARAMS`（文件页说「这个会话没有项目」），不存在的文件答 `NOT_FOUND`。
+
+**输入框 `@` 的文件补全**（`harnix-app.files`，设备调用，`RowScope::Session`）走同一道围栏：
+
+| 参数 | 走哪个目录 |
+|---|---|
+| `{instance?, session_id, space?, query?, limit?}`（输入框用这个） | 这个会话的项目根，像上表一样声明 space、由 `engine.session.get` 查；同时给了 `project_root` 时不看它 |
+| `{project_root, query?, limit?}` | 只在它**是这里的项目**时：登记过的项目（工作区），或某个会话跑在里面的目录；按解析过符号链接的真实目录比，和项目信任（§3.1）认的是同一批。别的目录一律 `REFUSED`，`..`、指向别处的链接也是。隔离 iframe 里的页面不能这样给，只能给会话 |
+| 两个都不给 | `INVALID_PARAMS`：不再退到项目目录 |
+
+答 `{project_root, files: [{path, size}]}`：`project_root` 是解析过的真实目录，`path` 相对它；不跟符号链接走，`.gitignore` 忽略的和隐藏文件不列，至多 30 条。
+
+**目录选择器**（`harnix-app.listDirectory`，§3）先把 `path` 顺着 `..` 和符号链接解析成真实目录，再看在不在 `$HOME` 或项目根之内；解析不了的（不存在、读不了）答 `INVALID_PARAMS`，不按写法比。
+
+**改动卡与改动的来历**。引擎只在 `Write`、`Edit`、`NotebookEdit` 的工具结果旁边报一次写了哪些文件（daemon 协议 §7.5 的 `file_changes`），
+transcript 里没有 diff。所以**一轮结束时，中枢把这一轮写过的文件（子 Agent 写的也算）记成会话日志里的一条条目**，命名空间 `harnix.changes`，
+事件 `turn`——和审计用的是同一条路，引擎不解析它，不认识它的界面跳过它；刷新、重开会话、分叉之后都还在：
+
+```jsonc
+{ "turn_id": "t_…", "added": 12, "removed": 3, "more": 0,      // more：超出 200 个、没列的文件数
+  "files": [ { "path": "/abs/src/lib.rs", "op": "modify",       // create | modify；同一个文件写几次合成一行
+               "added": 10, "removed": 3, "bytes": 1851,
+               "diff": "--- a/src/lib.rs
++++ b/src/lib.rs
+@@ …",  // 几次写就几段，按次序
+               "truncated": false },
+             { "path": "/abs/logo.png", "op": "create", "added": 0, "removed": 0, "omitted": "binary" } ] }  // too_large | binary | redacted
+```
+
+一条条目里的 diff 合计至多 512 KiB，超出的文件只留行数、写 `omitted: "too_large"`：打开会话时要整个读回日志，一轮改了一大片不能让以后每次打开都付这个代价。
+`Bash` 改了哪些文件引擎不知道，不报，这里也就没有。界面里只有 `@harnix/core` 的 `parseTurnChanges` 认识这个形状。
+对话里，这条条目画成一张卡「改了 N 个文件 +增 −删」，后面是前几个文件名；点它打开改动页签到这一轮。
+
+**工具行里的文件**：`Read`、`Write`、`Edit`、`NotebookEdit` 这类参数里有 `file_path`（或 `notebook_path`）、而且在项目里的调用，工具行上的路径是链接，
+点了用预览打开那个文件——`Read` 跳到它的 `offset`，`Edit` 跳到它写进去的文字所在的那一行；展开工具行，下面也有「在预览中打开」。
+这是一个 `session.action`（`harnix-app.open-file`，`at: ["arg", "tool"]`），外壳不认识任何工具。
+
+## 7. profile
+
+### 7.1 `[shell]` 与 `[extensions]`
 
 ```toml
 [shell]
@@ -144,7 +277,7 @@ default_space = "sessions"  # 不声称 space 的调用按它检查，换掉扩�
 
 一个 space 都没有时，外壳说「没有注册任何 space」。
 
-### 6.2 `[brand]` 与目录
+### 7.2 `[brand]` 与目录
 
 ```toml
 [brand]
@@ -156,23 +289,58 @@ product_id = "harnix"     # 程序自己的目录 ~/.<product_id>；小写字母
 Harnix app 的项目在项目根 `projects_dir`（`--data-dir`，缺省 `$HARNIX_DATA_DIR`，再缺省 `~/Documents`）里，工作区登记、归档、偏好在 `~/.<product_id>/ext/harnix-app/data/state.json`，会话标题在引擎里，
 对话在引擎的目录（`~/.agix/`）里。
 
-### 6.3 `harnix.hello` 里的 `shell`
+### 7.3 `harnix.hello` 里的 `shell`
 
 外壳不读 profile，读握手之后 `harnix.hello` 的 `shell`：`brand {name, icon, product_id}`、`runtime_modules`、`new_session`、
 `model_switch`、`narrow_details`、`state_dir`、`projects_dir`、`user`。哪些 space 在，外壳看 `hello.extensions` 里启用的扩展
 （会话与项目是 `harnix-app` 的，系统 space 是 `system` 的）。`harnix-app.describe` 也答 `projects_dir`。
 
-## 7. 它是怎么用框架做的
+### 7.4 设置页：通用、显示、隐私与高级
+
+设置页的字段分两处存放，同一种写法（`harnix-ext.md` §22 的字段声明）：引擎的设置在后端 `settings` 扩展的字段表里，
+这个浏览器自己的偏好在外壳的 `settings.tsx`，存在 `localStorage`，不进引擎。
+
+**通用与显示**（外壳的「通用」节，浏览器本地，立即生效）：
+
+| 偏好 | 说明 |
+|---|---|
+| 主题、语言 | 语言选定时同时写进引擎全局层的 `language`（`auto` 则交还），引擎按它作答；写的是 `@harnix/settings` 订阅语言选择做的，外壳不认识它 |
+| 字号、正文字体、代码字体 | 经 token `--font-size-base`、`--font-sans`、`--font-code` 作用于整个文档；缺省值时不在文档上留内联样式 |
+| 工具详情缺省展开 | 编辑类工具的 diff 本来缺省展开，这一项管其余工具 |
+| 折叠思考 | 想完的内容首次画出时是否折叠 |
+| 用量显示 | 不显示 / 只显示总数 / 总数加缓存命中，管会话抬头的用量标签 |
+| 链接打开方式 | 新标签页（缺省，链接自己的行为）/ 当前标签页 / 每次询问；只管消息正文里的链接 |
+| 运行中按回车 | 排队（缺省）/ 插话（steer）。只在支持插话的 space 里有意义；会话里输入框上的开关仍可单独改，改了就以它为准 |
+
+这些偏好由 `@harnix/react` 的 `display` 模块保存与分发（`localStorage` 键 `harnix.display`），聊天组件读它，下次画时生效。
+字体列表进样式声明，含 `;{}<>\` 的值不接受。
+
+**设置文件**：「引擎」「隐私」「高级」节列出各层 `settings.json` 的路径并带「复制路径」。没有新增在系统里定位文件的特权接口，
+由人用自己的编辑器或文件管理器打开。
+
+**隐私**：遥测是引擎对自己做了什么的记录，每个会话一个 JSONL，写在引擎数据目录的 `telemetry/` 下，不含提示词、消息文本和工具的输入输出
+（`agix/docs/telemetry.md`）。字段 `telemetry_enabled` 与 `telemetry_url`（OTLP 端点，只有带导出支持的引擎才用）只写全局层，项目没有发言权。
+引擎自己的缺省是开；**Harnix 的缺省是关**：实例建起来（非 attach 的承载方式）时，`harnix-instance` 在该实例全局层的 `settings.json`
+里缺 `telemetry_enabled` 就写 `false`（`crates/instance/src/defaults.rs`），已有值（开或关）不动，其余内容不动。
+人在设置页里「清除」这一项后，下次启动会再写一次 `false`。
+
+**高级**：压缩（`compaction`）、执行参数（`execution`）、hooks（`hooks_config`）、团队（`team`）、检查点（`checkpoints`）的当前值，
+按引擎实际使用的值显示，并说哪一层写了它；没有任何一层写的，说是引擎缺省。这些字段声明为 `json` 类型、没有可写的层，
+`settings.write` 在任何层都拒绝；要改就改文件。hooks 只显示每个事件有几条，不显示每条跑什么（hook 里可能带凭据）。
+Agent 循环内部的参数不做表单。
+
+## 8. 它是怎么用框架做的
 
 Harnix app 是原生扩展最小的例子：一个后端扩展、一个界面包，用的都是二开产品也用的接口。
 
 | 部分 | 用了什么 | 二开产品对应的做法 |
 |---|---|---|
-| 后端 | 扩展 `harnix-app`：`workspaces.list/create/update/reorder/remove`、`sessions.archive`、`sessions.export`、`prefs.set`、`search`、`files`、`listDirectory`、`recentProjects`、`projects.create`、`describe`；`Manifest::requires([transcripts.read, engine.export])` | 一个 `Extension` 的 `register`、`Manifest::requires`（[Harnix 扩展](harnix-ext.md)） |
-| 行的开放范围 | 全部 `Access::device()`：人经界面做的决定只对设备开；`sessions.*` 另按 `RowScope::Session` | 同一套 `Access`，扩展也要调的行写 `.with_extensions()` |
+| 后端 | 扩展 `harnix-app`：`workspaces.list/create/update/reorder/remove`、`sessions.archive`、`sessions.export`、`sessions.importUpload`、`sessions.import`、`prefs.set`、`search`、`files`、`files.list`、`files.read`、`listDirectory`、`recentProjects`、`projects.create`、`projects.status`、`projects.trust`、`sessions.projectStatus`、`describe`，主题 `trust`；`Manifest::requires([transcripts.read, engine.export])`、`.optional([engine.control])` | 一个 `Extension` 的 `register`、`Manifest::requires`（[Harnix 扩展](harnix-ext.md)） |
+| 行的开放范围 | 全部 `Access::device()`：人经界面做的决定只对设备开；`sessions.*`、`files.list`、`files.read` 另按 `RowScope::Session` | 同一套 `Access`，扩展也要调的行写 `.with_extensions()` |
 | 后端 space | `sessions`，`default_space()` | `register` 里的 `SpaceDecl` |
 | 界面 space | 两个 `space` 注册，owner 是扩展 id `harnix-app`；项目 space 写 `sessions: "sessions"` | `r.register('space', …)`（[Harnix 扩展](harnix-ext.md)的前端一节） |
 | 分组 | `sidebar.group` 的 `harnix-app.time` | 注册自己的 `sidebar.group` 换掉它 |
+| 右栏 | `sidebar.tab` 的 `files`、`preview`、`changes`，`flow.block` 的改动卡，`session.action` 的 `harnix-app.open-file`（`at: ["arg", "tool"]`） | 注册同一个 `kind` 的 extension 类型顶替，或更具体的 `patterns` |
 | 数据 | 方法 `harnix.sessions.list`，主题 `harnix.sessions.status` | `useHost()` 的 `call` 与 `subscribe` |
 
 `harnix-app` 只用公开的扩展接口，由 `crates/harnix/tests/layering.rs` 盯着（第一方扩展只依赖 `harnix-ext`）。界面一侧，`@harnix/harnix-app`

@@ -7,7 +7,7 @@ import type { EngineEvent, Goal, PromptEvent, Scene, SessionInfo, SessionRow, Us
 export const PROTOCOL_VERSION = 5;
 
 /** The contribution point API — separate, because a UI bundle can be current on one and stale on the other. */
-export const CONTRIB_API_VERSION = 3;
+export const CONTRIB_API_VERSION = 4;
 
 /** The largest single RPC frame a client may send. */
 export const MAX_FRAME_BYTES = 16777216;

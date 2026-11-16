@@ -2,28 +2,114 @@
  * @harnix/settings — the settings sections for the engine (the `settings` extension's interface):
  * its defaults, the scenes, the model providers and the MCP servers.
  *
- * Engine settings are written to a tier's settings.json through `settings.set`; the value a row
+ * Engine settings are drawn from the fields `settings.describe` declares and written to a tier's
+ * settings.json through `settings.write`, against the revision they were read at; the value a row
  * shows is the engine's own for the open (project, scene), and it says when the project tier wrote
- * one the engine does not use (an untrusted project can only tighten). Providers go through
- * `settings.setProvider`, the only path credentials take from the interface.
+ * one the engine does not use (an untrusted project can only tighten). A field's `section` is
+ * which of the sections below draws it. Providers go through `settings.setProvider`, the only path
+ * credentials take from the interface; a stored key is only ever shown as its last four characters.
+ *
+ * And the first run's model step on the empty page (`home.card`): drawn while no model is
+ * configured, with the way to these sections.
  */
 
-import { useState, type ReactNode } from "react";
-import { errorText, type Hello } from "@harnix/core";
-import { Glyph, SettingsRow, SettingsSection, SettingsValue, t, useHello, useSettingsReload, useT, type HostApi, type Registry, type SettingsNeed } from "@harnix/react";
+import { useEffect, useState, type ReactNode } from "react";
+import { errorText, modelConfigured, type Hello } from "@harnix/core";
+import { FieldForm, Glyph, SettingsRow, SettingsSection, SettingsValue, SetupStep, onLocaleChoice, setupStepDismissed, t, useHello, useSetupStep, useSettingsReload, useT, type FieldDoc, type FieldStore, type HostApi, type Registry, type LocaleChoice, type SettingsNeed } from "@harnix/react";
 
 /** The backend extension this is the interface of. */
 export const extension = "settings";
+
+/** The first-run step this package owns. */
+export const MODEL_STEP = "settings.setup.model";
 
 /** The sections, at `settings.section`, in this order. */
 export function register(r: Registry, host: HostApi): void {
   const section = (id: string, label: string, render: () => ReactNode, covers?: SettingsNeed[]) =>
     r.register("settings.section", { id, label: () => t(label), render, ...(covers ? { covers } : {}) }, extension);
-  section("engine", "settings.engineDefaults", () => <EngineSettings host={host} only={["permission_mode", "memory_enabled", "allow_client_permission_override"]} />);
+  section("engine", "settings.engineDefaults", () => <EngineSettings host={host} section="engine" />);
   section("scenes", "settings.nav.scenes", () => <Scenes host={host} />);
   // Where the shell sends a reader when a turn has no model to go to.
   section("models", "settings.nav.models", () => <Models host={host} />, ["models"]);
+  section("task-models", "settings.nav.taskModels", () => <EngineSettings host={host} section="task-models" title="settings.taskModels" />);
   section("mcp", "settings.nav.mcp", () => <Mcp host={host} />);
+  // privacy & advanced
+  section("privacy", "settings.nav.privacy", () => <Privacy host={host} />);
+  section("advanced", "settings.nav.advanced", () => <Advanced host={host} />);
+  followLanguage(host);
+  // First of the first-run steps: nothing runs without a model.
+  r.register("home.card", { id: MODEL_STEP, order: 10, render: () => <ModelStep host={host} /> }, extension);
+}
+
+let unfollow: (() => void) | null = null;
+
+/**
+ * The language chosen in the shell's general section is the engine's too (`language`, the global
+ * tier): what it answers in follows what the interface speaks. `auto` gives the setting back.
+ */
+function followLanguage(host: HostApi): void {
+  unfollow?.();
+  unfollow = onLocaleChoice((choice: LocaleChoice) => {
+    host
+      .call("settings.write", { tier: "global", changes: { language: choice === "auto" ? null : choice } })
+      .catch((e: unknown) => host.shell.notice(t("settings.writeFailed", { error: errorText(e) }), "error"));
+  });
+}
+
+/* ── first run ────────────────────────────────────────────────────────── */
+
+/** The model a new session runs on, as hello says: the default provider's, else the engine's. */
+function modelOf(engine: Hello["engine"]): string | null {
+  const providers = engine.providers;
+  const chosen = providers?.default_provider ? providers.providers?.[providers.default_provider] : undefined;
+  return chosen?.default_model || (typeof engine.model === "string" ? engine.model : null);
+}
+
+/**
+ * Whether a turn has a model to go to, read from hello when the card is drawn and again each time a
+ * dialog closes (the settings panel is where one is set up): done once it has.
+ */
+export function ModelStep({ host }: { host: HostApi }) {
+  const t = useT();
+  const [engine, setEngine] = useState<Hello["engine"] | null>(null);
+  useEffect(() => {
+    if (setupStepDismissed(MODEL_STEP)) return;
+    let alive = true;
+    const read = () =>
+      host
+        .call<Hello>("harnix.hello", {})
+        .then((hello) => {
+          if (alive && hello?.engine) setEngine(hello.engine);
+        })
+        .catch(() => undefined);
+    void read();
+    const off = host.modal.onChange((open) => {
+      if (!open) void read();
+    });
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [host]);
+  const state = useSetupStep(MODEL_STEP, engine ? modelConfigured(engine) : null);
+  const model = engine ? modelOf(engine) : null;
+  return (
+    <SetupStep
+      id={MODEL_STEP}
+      state={state}
+      icon="key"
+      title={t("setup.model.title")}
+      actions={
+        state === "todo" ? (
+          <button type="button" className="btn sm primary" data-testid="setup-model-open" onClick={() => host.settings.open("models")}>
+            {t("setup.model.action")}
+          </button>
+        ) : null
+      }
+    >
+      {state === "todo" ? t("setup.model.todo") : model ? t("setup.model.done", { model }) : t("setup.model.doneBare")}
+    </SetupStep>
+  );
 }
 
 /* ── pieces ───────────────────────────────────────────────────────────── */
@@ -40,22 +126,22 @@ function Select({ options, value, onChange, testId }: { options: [string, string
   );
 }
 
-interface Field {
-  key: string;
-  kind: "choice" | "flag" | "count" | "text";
-  options?: string[];
-  effective?: unknown;
-  tiers: Record<string, unknown>;
-  source?: string | null;
-  /** The project tier wrote a value the engine does not use (an untrusted project may only tighten). */
-  withheld?: boolean;
-}
-
-interface Described {
+interface Described extends FieldDoc {
   paths?: Record<string, string>;
-  fields?: Field[];
   providers?: {
-    providers?: Record<string, { api_type?: string | null; base_url?: string | null; api_key?: unknown; default_model?: string | null; models?: string[] }>;
+    providers?: Record<
+      string,
+      {
+        api_type?: string | null;
+        base_url?: string | null;
+        api_key?: unknown;
+        api_key_env?: string | null;
+        default_model?: string | null;
+        models?: string[];
+        thinking_toggle?: string | null;
+        reasoning_passback?: boolean;
+      }
+    >;
     default_provider?: string | null;
   };
 }
@@ -71,84 +157,147 @@ function where(host: HostApi, hello: Hello | null): { scene?: string; project_ro
   return { scene: scene ?? hello?.engine?.active_scenes?.[0], project_root: root };
 }
 
-function EngineSettings({ host, only }: { host: HostApi; only: string[] }) {
+/** The engine's settings as a field store: read for (scene, project), written into one tier. */
+export function engineStore(host: HostApi, request: { scene?: string; project_root: string | null }, tier: string): FieldStore<Described> {
+  return {
+    load: () => host.call<Described>("settings.describe", request),
+    save: (changes, revision) => host.call("settings.write", { ...request, tier, changes, ...(revision ? { revision } : {}) }),
+  };
+}
+
+/** The settings file of each tier, and a way to it: the path to copy, to open where the person's
+ *  own editor and file manager are. Nothing here reveals a file itself. */
+function SettingsFiles({ paths, name }: { paths: Record<string, string | null | undefined>; name: (tier: string) => string }) {
+  const t = useT();
+  const [copied, setCopied] = useState<string | null>(null);
+  const copy = (id: string, path: string) => {
+    const clip = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+    if (!clip) return;
+    clip.writeText(path).then(
+      () => {
+        setCopied(id);
+        setTimeout(() => setCopied((now) => (now === id ? null : now)), 1200);
+      },
+      () => undefined,
+    );
+  };
+  return (
+    <>
+      {(["global", "scene", "project"] as const)
+        .filter((id) => paths[id])
+        .map((id) => (
+          <SettingsRow key={id} setting={`file-${id}`} label={t("settings.file", { tier: name(id) })} hint={<code data-testid={`settings-file-${id}`}>{paths[id]}</code>}>
+            <button type="button" className="btn sm outline" data-testid={`settings-file-copy-${id}`} onClick={() => copy(id, paths[id]!)}>
+              {copied === id ? t("settings.fileCopied") : t("settings.fileCopy")}
+            </button>
+          </SettingsRow>
+        ))}
+    </>
+  );
+}
+
+/** The engine's fields of one section, with the tier they are written to. `only` fixes the tier:
+ *  what the section's fields are written in, for fields only one tier may have. */
+function EngineSettings({ host, section, title = "settings.engineDefaults", only }: { host: HostApi; section: string; title?: string; only?: string }) {
   const t = useT();
   const reload = useSettingsReload();
   const hello = useHello();
   const request = where(host, hello);
-  const [selected, setSelected] = useState(tier);
+  const [chosen, setSelected] = useState(tier);
+  const selected = only ?? chosen;
+  const name = (id: string) => t(`settings.tier.${id}`, { scene: request.scene });
   return (
-    <SettingsSection title={t("settings.engineDefaults")} load={() => host.call<Described>("settings.describe", request)}>
-      {(data) => {
+    <FieldForm<Described>
+      title={t(title)}
+      store={engineStore(host, request, selected)}
+      section={section}
+      tier={selected}
+      tierName={name}
+      header={(data) => {
         const paths = data.paths ?? {};
-        const write = (key: string, value: unknown) =>
-          host
-            .call("settings.set", { ...request, tier: selected, key, value })
-            .then(() => {
-              host.shell.notice(t("settings.written", { path: paths[selected] }));
-              reload();
-            })
-            .catch((e: unknown) => host.shell.notice(t("settings.writeFailed", { error: errorText(e) }), "error"));
-        const tiers = (
-          [
-            ["global", t("settings.tier.global")],
-            ["scene", t("settings.tier.scene", { scene: request.scene })],
-            ["project", t("settings.tier.project")],
-          ] as [string, string][]
-        ).filter(([id]) => paths[id]);
+        const tiers = (["global", "scene", "project"] as const).filter((id) => paths[id]).map((id) => [id, name(id)] as [string, string]);
         return (
           <>
-            <SettingsRow label={t("settings.tier")} hint={paths[selected] ?? ""}>
-              <Select
-                options={tiers}
-                value={selected}
-                onChange={(value) => {
-                  tier = value;
-                  setSelected(value);
-                }}
-              />
-            </SettingsRow>
-            {(data.fields ?? [])
-              .filter((field) => only.includes(field.key))
-              .map((field) => {
-                const own = field.tiers?.[selected];
-                const inherited = own === null || own === undefined;
-                const notes = [inherited ? t("settings.inherited") : t("settings.setHere")];
-                if (field.source) notes.push(t("settings.sourceTier", { tier: t(`settings.tier.${field.source}`, { scene: request.scene }) }));
-                if (field.withheld) notes.push(t("settings.withheld"));
-                return (
-                  <SettingsRow key={field.key} label={t(`settings.field.${field.key}`)} hint={notes.join(" · ")}>
-                    <FieldControl field={field} write={(value) => void write(field.key, value)} />
-                    {!inherited ? (
-                      <button type="button" className="btn sm outline" title={t("settings.clearHint")} onClick={() => void write(field.key, null)}>
-                        {t("settings.clear")}
-                      </button>
-                    ) : null}
-                  </SettingsRow>
-                );
-              })}
+            {only ? null : (
+              <SettingsRow label={t("settings.tier")} hint={paths[selected] ?? ""}>
+                <Select
+                  testId="settings-tier"
+                  options={tiers}
+                  value={selected}
+                  onChange={(value) => {
+                    tier = value;
+                    setSelected(value);
+                  }}
+                />
+              </SettingsRow>
+            )}
+            {section === "engine" || only ? <SettingsFiles paths={only ? { [only]: paths[only] } : paths} name={name} /> : null}
           </>
         );
       }}
-    </SettingsSection>
+      onSaved={(_, data) => {
+        host.shell.notice(t("settings.written", { path: data?.paths?.[selected] }));
+        reload();
+      }}
+      onFailed={(e) => host.shell.notice(t("settings.writeFailed", { error: errorText(e) }), "error")}
+    />
   );
 }
 
-function FieldControl({ field, write }: { field: Field; write: (value: unknown) => void }) {
-  const [text, setText] = useState(String(field.effective ?? ""));
-  if (field.kind === "choice") {
-    return <Select options={(field.options ?? []).map((o) => [o, o])} value={String(field.effective ?? "")} onChange={write} />;
-  }
-  if (field.kind === "flag") {
-    return <input type="checkbox" checked={Boolean(field.effective)} onChange={(e) => write(e.target.checked)} />;
-  }
+/* ── privacy & advanced ───────────────────────────────────────────────── */
+
+/** Telemetry: what is recorded and where, said plainly, then the switch (global tier only). */
+function Privacy({ host }: { host: HostApi }) {
+  const t = useT();
   return (
-    <input
-      type={field.kind === "count" ? "number" : "text"}
-      value={text}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={() => write(field.kind === "count" ? Number(text) : text)}
-    />
+    <>
+      <h3>{t("settings.privacy")}</h3>
+      <div className="callout" data-testid="privacy-explain">
+        <Glyph name="key" className="glyph" />
+        <span>{t("settings.privacyExplain")}</span>
+      </div>
+      <EngineSettings host={host} section="privacy" only="global" />
+    </>
+  );
+}
+
+/** What the engine runs with for compaction, execution, hooks, teams and checkpoints, and which
+ *  tier says so; the file to edit is named, and nothing here writes it. */
+function Advanced({ host }: { host: HostApi }) {
+  const t = useT();
+  const hello = useHello();
+  const request = where(host, hello);
+  const name = (id: string) => t(`settings.tier.${id}`, { scene: request.scene });
+  return (
+    <SettingsSection title={t("settings.nav.advanced")} load={() => host.call<Described>("settings.describe", request)}>
+      {(data) => {
+        const paths = data.paths ?? {};
+        return (
+          <div data-testid="advanced">
+            <div className="hint">{t("settings.advancedHint")}</div>
+            {(data.fields ?? [])
+              .filter((field) => field.section === "advanced")
+              .map((field) => {
+                const value = field.effective;
+                const empty = value === null || value === undefined || (typeof value === "object" && !Object.keys(value as object).length);
+                return (
+                  <SettingsRow
+                    key={field.key}
+                    setting={field.key}
+                    label={t(field.label ?? `settings.field.${field.key}`)}
+                    hint={field.source ? t("settings.sourceTier", { tier: name(field.source) }) : t("settings.advancedDefault")}
+                  >
+                    <code data-testid={`settings-${field.key}`} data-source={field.source ?? ""}>
+                      {empty ? t("settings.advancedUnset") : JSON.stringify(value)}
+                    </code>
+                  </SettingsRow>
+                );
+              })}
+            <SettingsFiles paths={paths} name={name} />
+          </div>
+        );
+      }}
+    </SettingsSection>
   );
 }
 
@@ -234,7 +383,7 @@ function Models({ host }: { host: HostApi }) {
               {!names.length ? (
                 <div className={`callout${hello?.engine?.has_credentials === true ? "" : " warn"}`} data-testid="providers-none">
                   <Glyph name="key" className="glyph" />
-                  <span>{t("settings.providersNone")}</span>
+                  <span>{hello?.engine?.has_credentials === true ? t("settings.providersEnv") : t("settings.providersNone")}</span>
                 </div>
               ) : null}
               {names.map((id) =>
@@ -257,12 +406,27 @@ function Models({ host }: { host: HostApi }) {
           );
         }}
       </SettingsSection>
-      <EngineSettings host={host} only={["model.model_name", "model.max_tokens"]} />
+      <EngineSettings host={host} section="models" title="settings.modelDefaults" />
     </>
   );
 }
 
 type ProviderEntry = NonNullable<NonNullable<Described["providers"]>["providers"]>[string];
+
+/**
+ * A stored key as the page shows it: `***` and its last four characters at most. The engine and the
+ * `settings` extension both redact it before it gets here; this holds even if neither did. Null when
+ * no key is stored.
+ */
+export function maskedKey(key: unknown): string | null {
+  if (key === null || key === undefined || key === "") return null;
+  const text = String(key);
+  if (/^\*{3}[^*]{0,4}$/.test(text)) return text;
+  return text.length >= 12 ? `***${text.slice(-4)}` : "***";
+}
+
+/** The fields an OpenAI-compatible endpoint switches thinking by (Agix's `thinking_toggle`). */
+const THINKING_TOGGLES = ["deepseek", "enable_thinking", "chat_template_kwargs"];
 
 const API_TYPES = [
   { id: "anthropic", label: "settings.apiTypeAnthropic", url: "https://api.anthropic.com", model: "claude-sonnet-4-6" },
@@ -321,7 +485,7 @@ function ProviderCard({
         <span className="pill">{typeLabel(t, apiTypeOf(provider))}</span>
         {isDefault ? <span className="pill acc">{t("settings.providerDefault")}</span> : null}
         <span className="sp" />
-        <SettingsValue tone={provider.api_key ? "ok" : "err"}>{provider.api_key ? t("settings.keySet") : t("settings.keyMissing")}</SettingsValue>
+        <ProviderKey provider={provider} />
       </div>
       <div className="pc-meta">
         <span className="mono truncate">{provider.base_url || apiTypeOf(provider).url}</span>
@@ -351,6 +515,32 @@ function ProviderCard({
   );
 }
 
+/** Where a provider's key comes from: the one stored, as its last four; else the environment
+ *  variable it names (whether the engine's environment has it, the engine does not say). */
+function ProviderKey({ provider }: { provider: ProviderEntry }) {
+  const t = useT();
+  const stored = maskedKey(provider.api_key);
+  if (stored) {
+    return (
+      <span data-testid="provider-key" data-state="stored">
+        <SettingsValue tone="ok">{t("settings.keyMasked", { value: stored })}</SettingsValue>
+      </span>
+    );
+  }
+  if (provider.api_key_env) {
+    return (
+      <span data-testid="provider-key" data-state="env" title={t("settings.keyFromEnvHint", { name: provider.api_key_env })}>
+        <SettingsValue tone="ok">{t("settings.keyFromEnv", { name: provider.api_key_env })}</SettingsValue>
+      </span>
+    );
+  }
+  return (
+    <span data-testid="provider-key" data-state="missing">
+      <SettingsValue tone="err">{t("settings.keyMissing")}</SettingsValue>
+    </span>
+  );
+}
+
 /** Add (no id yet) or edit one provider — the only path credentials take from the interface. */
 function ProviderForm({
   host,
@@ -375,8 +565,11 @@ function ProviderForm({
     api_type: apiTypeOf(provider).id,
     base_url: provider.base_url ?? "",
     api_key: "",
+    api_key_env: provider.api_key_env ?? "",
     default_model: provider.default_model ?? "",
     models: (provider.models ?? []).join(", "),
+    thinking_toggle: provider.thinking_toggle ?? "",
+    reasoning_passback: provider.reasoning_passback === true,
     make_default: isDefault,
   });
   const [saving, setSaving] = useState(false);
@@ -384,7 +577,7 @@ function ProviderForm({
   // A type the table lacks stays selectable as it is, so the other fields can be saved without turning it into another.
   const types = API_TYPES.some((x) => x.id === fields.api_type) ? API_TYPES : [...API_TYPES, type];
   const set = (key: keyof typeof fields, value: string | boolean) => setFields({ ...fields, [key]: value });
-  const text = (key: "provider_id" | "base_url" | "api_key" | "default_model" | "models", label: string, placeholder?: string, hint?: string) => (
+  const text = (key: "provider_id" | "base_url" | "api_key" | "api_key_env" | "default_model" | "models", label: string, placeholder?: string, hint?: string) => (
     <div className="field" key={key}>
       <label>{label}</label>
       <input
@@ -411,8 +604,14 @@ function ProviderForm({
       base_url: fields.base_url.trim(),
       default_model: fields.default_model.trim(),
       models: models.length ? models : null,
+      api_key_env: fields.api_key_env.trim(),
     };
     if (fields.api_key) config.api_key = fields.api_key;
+    // Only an OpenAI-compatible endpoint reads them; another type keeps what it has.
+    if (fields.api_type === "openai_compatible") {
+      config.thinking_toggle = fields.thinking_toggle || null;
+      config.reasoning_passback = fields.reasoning_passback;
+    }
     setSaving(true);
     try {
       await host.call("settings.setProvider", {
@@ -456,9 +655,33 @@ function ProviderForm({
         </div>
       </div>
       {text("base_url", t("settings.baseUrl"), type.url)}
-      {text("api_key", t("settings.apiKey"), id && provider.api_key ? t("settings.apiKeyKeep") : "sk-…", t("settings.apiKeyHint", { path: path ?? "~/.agix/settings.json" }))}
+      {text(
+        "api_key",
+        t("settings.apiKey"),
+        id && provider.api_key ? `${maskedKey(provider.api_key)} · ${t("settings.apiKeyKeep")}` : "sk-…",
+        t("settings.apiKeyHint", { path: path ?? "~/.agix/settings.json" }),
+      )}
+      {text("api_key_env", t("settings.apiKeyEnv"), "OPENAI_API_KEY", t("settings.apiKeyEnvHint"))}
       {text("default_model", t("settings.defaultModel"), type.model)}
       {text("models", t("settings.models"), undefined, t("settings.modelsHint"))}
+      {fields.api_type === "openai_compatible" ? (
+        <>
+          <div className="field">
+            <label>{t("settings.thinkingToggle")}</label>
+            <Select
+              testId="provider-thinking_toggle"
+              options={[["", t("settings.thinkingToggleNone")], ...THINKING_TOGGLES.map((x) => [x, x] as [string, string])]}
+              value={fields.thinking_toggle}
+              onChange={(value) => set("thinking_toggle", value)}
+            />
+            <div className="hint">{t("settings.thinkingToggleHint")}</div>
+          </div>
+          <label className="check">
+            <input type="checkbox" data-testid="provider-reasoning_passback" checked={fields.reasoning_passback} onChange={(e) => set("reasoning_passback", e.target.checked)} />
+            {t("settings.reasoningPassback")}
+          </label>
+        </>
+      ) : null}
       <label className="check">
         <input type="checkbox" data-testid="provider-make-default" checked={fields.make_default} onChange={(e) => set("make_default", e.target.checked)} />
         {t("settings.providerAsDefault")}

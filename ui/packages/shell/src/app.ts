@@ -10,10 +10,11 @@
  */
 
 import type { ReactNode } from "react";
-import { TOKEN_STALE, errorText, type ConnectionStatus, type ExtensionEntry, type HarnixClient, type Hello, type SessionRow, type UiView } from "@harnix/core";
+import { TOKEN_STALE, errorText, modelConfigured, type ConnectionStatus, type ExtensionEntry, type HarnixClient, type Hello, type SessionRow, type UiView } from "@harnix/core";
 import { MAIN_INSTANCE, type SessionController } from "@harnix/core/state";
-import { t, tabsOf, type ComposerApi, type DetailItem, type Registry, type ShellContext, type SpaceContribution, type SpaceTab } from "@harnix/react";
+import { sidebarTypes, t, tabsOf, type ComposerApi, type DetailItem, type Registry, type ShellContext, type SidebarTabType, type SpaceContribution, type SpaceTab } from "@harnix/react";
 
+import { SurfaceStore, type SidebarTab } from "./sidebar/surface.ts";
 import { topicsOf } from "./topics.ts";
 
 export interface SessionKey {
@@ -161,6 +162,11 @@ export interface ShellState {
    *  when the space is entered again; a tab the reader clicked goes back to the first, as before
    *  (kept too for a space that gives `tab()`). */
   tabBySpace: Record<string, { id: string; asked: boolean }>;
+  /** Which side of the right column's strip is in front: the front space's tabs (`details.tabs`,
+   *  the details, the `scope: "space"` types — `tabBySpace` says which), or the open session's
+   *  surface (`sidebar`, whose active tab it is). Opening or clicking a session tab brings that side
+   *  in front; selecting a space tab or revealing a detail brings the space's. */
+  stripSide: "space" | "session";
   /** Bumped by `redraw()`: the shell reads the front space's functions again. */
   drawn: number;
 }
@@ -171,6 +177,15 @@ const CURRENT_KEY = "harnix.space.current";
 const WIDTHS_KEY = "harnix.widths";
 const DETAILS_KEY = "harnix.details";
 const SECONDARY_MAX_KEY = "harnix.secondaryMax";
+
+/** The page's storage, if it has one that can be touched at all. */
+function storage(): Storage | null {
+  try {
+    return typeof localStorage === "undefined" ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
 
 function stored<T>(key: string, fallback: T): T {
   try {
@@ -213,9 +228,16 @@ export function orderTabs<T extends { align?: "start" | "end" }>(tabs: T[]): T[]
   return [...tabs.filter((x) => x.align !== "end"), ...tabs.filter((x) => x.align === "end")];
 }
 
-/** A space's tabs; a `tabs()` that throws gives none, and is counted as failed. */
-export function safeTabs(registry: Registry, space: (SpaceContribution & { owner?: string }) | undefined): SpaceTab[] {
-  return ask(registry, space, () => tabsOf(space), []);
+/** A tab of the strip's space side: one of the space's own, or a `scope: "space"` tab type in
+ *  force, which stands in the strip for every space and is drawn with a tab domain of its own. */
+export type StripTab = SpaceTab & { type?: SidebarTabType & { owner: string } };
+
+/** A space's tabs — a `tabs()` that throws gives none, and is counted as failed — then the
+ *  `scope: "space"` tab types in force, each as a tab whose id is its kind. */
+export function safeTabs(registry: Registry, space: (SpaceContribution & { owner?: string }) | undefined): StripTab[] {
+  const own: StripTab[] = ask(registry, space, () => tabsOf(space), []);
+  const types = sidebarTypes(registry.at("sidebar.tab")).filter((type) => type.scope === "space");
+  return [...own, ...types.map((type): StripTab => ({ id: type.kind, title: () => type.title(), render: () => type.render(), type }))];
 }
 
 /** One of a space's functions, read while drawing: one that throws gives `fallback`, and the space
@@ -263,10 +285,14 @@ export class App {
   composer: ComposerApi | null = null;
   private builtins: ((app: App) => void | Promise<void>) | null = null;
   private interfaces: ((app: App, view: UiView) => Promise<void>) | null = null;
+  /** Each session's docking surface in the right column (`sidebar/surface.ts`). */
+  readonly sidebar: SurfaceStore;
 
   constructor(client: HarnixClient, registry: Registry) {
     this.conn = client;
     this.registry = registry;
+    this.sidebar = new SurfaceStore(storage());
+    this.sidebar.failed = (tabId, e) => registry.fail("sidebar.tab", { id: tabId, owner: "page" }, e);
     // Until hello says which space this product starts in, the one left in front last time.
     const space = stored<string>(SPACE_KEY, "");
     const currentBySpace = stored<Record<string, SessionKey | null>>(CURRENT_KEY, {});
@@ -299,6 +325,7 @@ export class App {
       dragged: stored<Partial<Widths>>(WIDTHS_KEY, {}),
       menu: false,
       tabBySpace: {},
+      stripSide: "space",
       drawn: 0,
     };
   }
@@ -541,10 +568,7 @@ export class App {
    * with. Unknown (hello could not read the providers) counts as yes, so the page does not cry wolf.
    */
   modelReady(): boolean {
-    const engine = this.state.hello?.engine;
-    const providers = engine?.providers;
-    if (!providers) return true;
-    return Object.keys(providers.providers).length > 0 || engine?.has_credentials === true;
+    return modelConfigured(this.state.hello?.engine);
   }
 
   /** The model a new session runs on: the default provider's, else the engine's; none while no
@@ -679,8 +703,9 @@ export class App {
     }
   }
 
-  /** Forget a session wherever it was current: it was deleted. */
+  /** Forget a session wherever it was current: it was deleted. Its surface in the right column goes too. */
   forget(key: { instance: string; sessionId: string }): void {
+    this.sidebar.drop(key);
     const currentBySpace = { ...this.state.currentBySpace };
     for (const [space, current] of Object.entries(currentBySpace)) {
       if (current && current.instance === key.instance && current.sessionId === key.sessionId) currentBySpace[space] = null;
@@ -729,6 +754,29 @@ export class App {
     this.selectTab("details");
   }
 
+  /**
+   * What the right column shows for the front space: a tab of the space's side (`shownTab()`), or
+   * the open session's tab in front. The session's side is shown when it was brought in front last
+   * (`stripSide`) and has a tab — or when the space's side has nothing at all to show.
+   */
+  stripShown(state: ShellState = this.state): { side: "space"; id: string } | { side: "session"; tab: SidebarTab } {
+    const active = state.current ? this.sidebar.active(state.current) : null;
+    if (active) {
+      if (state.stripSide === "session") return { side: "session", tab: active };
+      const space = this.registry.at("space").find((c) => c.id === state.space);
+      if (!safeTabs(this.registry, space).length && !state.detail) return { side: "session", tab: active };
+    }
+    return { side: "space", id: this.shownTab(state) };
+  }
+
+  /** Bring a tab of the open session's surface to the front, and that side of the strip with it. */
+  focusSessionTab(id: string): void {
+    const current = this.state.current;
+    if (!current) return;
+    this.sidebar.select(current, id);
+    if (this.state.stripSide !== "session") this.set({ stripSide: "session" });
+  }
+
   /** The tab the right column shows for the front space: the one chosen while it is still there,
    *  else the first. "details" stands while there is a detail to show. */
   shownTab(state: ShellState = this.state): string {
@@ -745,7 +793,7 @@ export class App {
   /** Select a tab of the front space's right column; `asked` when the host API asked for it. */
   selectTab(id: string, asked = false): void {
     const before = this.shownTab();
-    this.set({ tabBySpace: { ...this.state.tabBySpace, [this.state.space]: { id, asked } } });
+    this.set({ tabBySpace: { ...this.state.tabBySpace, [this.state.space]: { id, asked } }, stripSide: "space" });
     const after = this.shownTab();
     if (after !== before) for (const fn of [...this.tabListeners]) fn(after);
   }

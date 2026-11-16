@@ -11,7 +11,7 @@
 //! [[ui]]                    # a same-origin ES module the browser imports
 //! point  = "tool.row"
 //! module = "rows.js"        # under the package's ui/
-//! api_version = 3           # precompiled, imports `react` and `@harnix/react` from the page
+//! api_version = 4           # precompiled, imports `react` and `@harnix/react` from the page
 //! ```
 //!
 //! The engine's manifest parser ignores sections it does not know, so this
@@ -245,7 +245,7 @@ mod tests {
             [[ui]]
             point = "tool.row"
             module = "rows.js"
-            api_version = 3
+            api_version = 4
             "#,
         );
         let read = read(dir.path(), "p", "1.0.0", true).expect("contributes");
@@ -378,7 +378,7 @@ mod tests {
             [[ui]]
             point = "tool.row"
             module = "rows.js"
-            api_version = 3
+            api_version = 4
             "#,
         );
         let listed = serde_json::json!({"plugins": [
@@ -404,7 +404,7 @@ mod tests {
             [[ui]]
             point = "tool.row"
             module = "host/fold.js"
-            api_version = 3
+            api_version = 4
             "#,
         );
         let read = read(dir.path(), "p", "1.0.0", true).expect("declares something");
@@ -426,7 +426,7 @@ mod tests {
             [[ui]]
             point = "tool.row"
             module = "../../../etc/passwd"
-            api_version = 3
+            api_version = 4
             "#,
         );
         let read = read(dir.path(), "p", "1.0.0", true).expect("declares something");
@@ -450,7 +450,7 @@ mod tests {
             [[ui]]
             point = "tool.row"
             module = "gone.js"
-            api_version = 3
+            api_version = 4
             "#,
         );
         let read = read(dir.path(), "p", "1.0.0", true).expect("declares something");

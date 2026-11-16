@@ -181,6 +181,8 @@ impl Hub {
             state.turn_started_ms = Some(crate::now_ms());
             state.external = true;
             state.compacted = false;
+            // What it says, calls and writes is its own, not the turn's before it.
+            state.answer = Default::default();
             state.replay.clear();
         }
         self.refresh("harnix.sessions.status", json!({}));
