@@ -1221,7 +1221,7 @@ cookie。一帧最大 16 MiB（`MAX_FRAME_BYTES`），一次上传最大 32 MiB�
 | 组 | 方法 | 谁能调 |
 |---|---|---|
 | 握手与自述（装配） | `harnix.hello`（见下）、`harnix.reachable`、`harnix.diagnostics`、`harnix.audit`、`harnix.extensions`（每个扩展：id、信任、载体、版本、启用、授予、行数、停用理由）、`harnix.ui`（方法与主题同值：每个扩展的界面条目、Agix 包的界面模块、扩展包的面）、`harnix.bulk.upload` | 设备、扩展（`bulk.upload` 只设备） |
-| 会话驱动（中枢） | `harnix.sessions.list {space? \| instance?}`、`harnix.session.attach`、`.detach`、`.send`、`.queue.remove`、`.queue.edit {session_id, item_id, message}`（改排队中一条的话，位置与附件不变；已开始或已撤回的答 REFUSED）、`.create`、`.interrupt`、`.close`、`.delete`、`.fork`、`.respond`（回答权限卡；flow 按策略作答）、`.tasks`、`.rename`（引擎的标题，标题只在引擎）、`.move {instance?, session_id, space}`、`.entries.append`、`.answerer {session_id, tool_use_id}`（回答该工具权限卡的设备 `device:<id>`，没有设备回答时是 `null`；读一次即忘，最多留最近 1024 条）、`harnix.topics.subscribe`、`.unsubscribe`、`harnix.spaces.list` | 设备、扩展（再按 `topic:<名>` 与范围判） |
+| 会话驱动（中枢） | `harnix.sessions.list {space? \| instance?}`、`harnix.session.attach`、`.detach`、`.send`、`.queue.remove`、`.queue.edit {session_id, item_id, message}`（改排队中一条的话，位置与附件不变；已开始或已撤回的答 REFUSED）、`.create`、`.interrupt`、`.close`、`.delete`、`.fork`、`.respond`（回答权限卡；flow 按策略作答）、`.tasks`、`.rename`（引擎的标题，标题只在引擎）、`.move {instance?, session_id, space}`、`.entries.append`、`.answerer {session_id, tool_use_id}`（回答该工具权限卡的设备 `device:<id>`，没有设备回答时是 `null`；读一次即忘，最多留最近 1024 条）、`.outline {instance?, session_id, space?}`（会话的各轮，见下）、`harnix.topics.subscribe`、`.unsubscribe`、`harnix.spaces.list` | 设备、扩展（再按 `topic:<名>` 与范围判） |
 | `[shell] model_switch = true` 时 | `harnix.session.setModel {instance?, session_id, model, provider?, space?}`：只作用于调用方声称的 space 的会话，会话属别的 space 答 `SPACE_MISMATCH`；扩展改模型用 `engine.session.setModel`（要 `engine.control`） | 设备 |
 | 实例（登记表） | `harnix.instances.list / templates / create / ensure / stop / restart / wait`。`create` / `ensure` 可带 `wait: "ready"`、`timeout_ms`（缺省 60000）：等这台变成 `ready` 再答，变成 `down` 立即以 `-31004` 报错（带理由），超时同样；`wait {instance, timeout_ms?}` 是对已有实例的同一种等。并发 `ensure` 同名同模板都拿到同一台。`templates` 只列调用方能建的 | 设备、扩展（`create` 只认 `ui` 模板；跨拥有者要 `instances.admin`） |
 | 　 | `harnix.instances.inheritProviders`：把 `main` 的 provider 并进所有 `inherit_providers` 模板的实例并让变了的重读，答 `{reloaded: [id…]}` | `engine.config.write` |
@@ -1276,6 +1276,24 @@ cookie。一帧最大 16 MiB（`MAX_FRAME_BYTES`），一次上传最大 32 MiB�
 通知不改名：`harnix.event`、`harnix.host_event`、`harnix.topic`、`harnix.topic_ended`、`harnix.turn_settled`、`harnix.session_resync`。
 会话事件不是主题：`harnix.session.attach` 之后经 `harnix.event` 帧来，带 `seq`，断线按 `seq` 追赶。
 条目以 `harnix.event { event: { kind: "extension_entry", entry } }` 推给正在看的人。
+
+**`harnix.session.outline`**：一个会话的各轮，一轮一行，旧的在前，轮次导航与轨迹都按它分轮。从引擎的历史读出来，谁能读这个会话的
+`engine.session.history` 谁就能调它（设备、扩展，声称的 space 照样核对）。
+
+```text
+{ instance, session_id, total,          // total：读的时候历史里有几条消息，seq 的坐标
+  turns: [{ turn_id,                    // 这一轮的 id，和实时帧的 turn_id 相同；写下轮 id 之前的老日志为 null
+            seq,                        // 开这一轮的那条人的话在历史里的位置：engine.session.history 的 offset
+            at,                         // 那条话的时间（ISO 8601，引擎写的）；日志没写为 null
+            prompt,                     // 人的话，合成一行，截到约一行（PROMPT_CHARS = 100 个字符，截了以 … 结尾）
+            reply,                      // 这一轮最后一段文字回复，合成一行，截到约三行（REPLY_CHARS = 300）；还没说话为空
+            marks? }] }                 // [{kind, label}]：这一轮上还发生了什么（流程的站开始：kind "station"）；中枢不写，没有就不出现
+```
+
+开一轮的是人打的话或跑的命令（`origin` 为 `user`、`command`）；运行中送进来的话（`steer`）、注入的上下文、工具结果不开新的一轮，
+同一轮 id 的第二条人的话也不开；没有 `origin` 的老日志按文字认。中枢为最近问过的 64 个会话留着上次的结果，下次从留下的最后一轮读起
+（那一轮可能长了）；那一轮开头的消息不在原处（压缩、改过消息）就从头再读。所以客户端可以每收到这个会话的 `harnix.turn_settled` 就再读一次。
+正在跑的那一轮通常还不在历史里：界面把它从自己画着的对话里补上（`@harnix/core` 的 `mergeTurns`）。
 
 一轮结束时中枢发 `harnix.turn_settled { instance, session_id, turn_id, result | error, outcome? }`。`outcome` 是这一轮
 `turn_complete` 的要点：`stop_reason`、`usage`，有才有的 `structured_output`、`message`（例如 hook 截停的理由）；中枢没看到
@@ -1564,7 +1582,10 @@ r.register("shortcut", {
 `chordOf(event)`、`shortcutPlatform()`、`shortcutConflicts(bindings)`、`pickShortcut(bindings, chord, scopes)`。
 
 外壳自己的命令：`shell.session.new`（`Mod+K`）、`shell.sidebar.toggle`（`Mod+\`）、`shell.composer.focus`（`Mod+/`）、
-`shell.details.toggle`、`shell.settings.open`（后两个缺省没有键）。扩展包的页面（iframe）里按下的全局键交给外壳：外壳在环境的 `keys` 里说它们现在是哪些
+`shell.details.toggle`、`shell.settings.open`（后两个缺省没有键）；还有对话的轮次导航 `chat.turn.previous`（`Alt+ArrowUp`，⌥↑）、
+`chat.turn.next`（`Alt+ArrowDown`，⌥↓）：`@harnix/react` 的 `registerTurnShortcuts(registry, owner)`，外壳和它自己的命令一起注册，
+不用外壳的页面自己调。它们是全局的，读着对话、焦点不在输入框里时也能用；焦点在有字的文字框里时让给文字框（Mac 上 ⌥↑ / ⌥↓ 是按段移光标），
+空的输入框不算。作用在焦点所在的那个对话的轮次轨上，焦点不在任何对话里时是最后打开的那个。扩展包的页面（iframe）里按下的全局键交给外壳：外壳在环境的 `keys` 里说它们现在是哪些
 （[扩展包](harnix-ext-package.md)）。
 
 ---
