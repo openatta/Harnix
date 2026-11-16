@@ -17,7 +17,7 @@ use harnix_kernel::{Access, CallContext, Owner, Rpc};
 use serde_json::{json, Value};
 
 use crate::rows::{answer, HubCell, HubRow};
-use crate::{without_instance, Hub, ANSWERERS_KEPT};
+use crate::{without_instance, Hub, SessionKey, ANSWERERS_KEPT};
 
 /// What the hub does once the engine has answered.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -96,6 +96,13 @@ const BY_CAPABILITY: &[(&str, Capability, After)] = &[
     ("engine.plugin.disable", caps::ENGINE_PLUGINS, After::Nothing),
     ("engine.plugin.reload", caps::ENGINE_PLUGINS, After::Nothing),
 ];
+
+/// The engine's context requests: it takes one at a time for a session and refuses another that
+/// comes while one is under way (`SESSION_BUSY`, reason `context_operation`). Two readers of a
+/// session's context — the right column's context tab reads it twice, the system space once more —
+/// are not a conflict, so the hub sends them one after the other rather than let one be refused.
+/// A turn still refuses them while it runs: that is the engine's to say.
+const CONTEXT_REQUESTS: &[&str] = &["engine.session.inspectContext", "engine.session.dropMessages", "engine.session.editMessage"];
 
 /// A project's trust: whether its own hooks, MCP servers, looser settings, agent types and skills
 /// are in force (`docs/harnix-app.md` §3). Read and written by an extension holding
@@ -329,7 +336,13 @@ impl Hub {
             After::OneScene => crate::scenes::about_one(&layers, params),
             _ => (params, None),
         };
-        let mut answer = linked.ops().passthrough(method, without_instance(params)).await?;
+        let one = match &session {
+            Some(sid) if CONTEXT_REQUESTS.contains(&method) => Some(self.context_request(&(instance.clone(), sid.clone())).await),
+            _ => None,
+        };
+        let answered = linked.ops().passthrough(method, without_instance(params)).await;
+        drop(one);
+        let mut answer = answered?;
         if extension {
             harden(&mut answer, through.after);
         }
@@ -370,6 +383,17 @@ impl Hub {
             After::Relisted => self.refresh("harnix.instances.sessions", json!({"instance": instance})),
         }
         Ok(answer)
+    }
+
+    /// The session's turn at the engine for a context request (`CONTEXT_REQUESTS`), held until the
+    /// guard drops. A session's lock is let go of here once nobody holds or waits for it.
+    async fn context_request(&self, key: &SessionKey) -> tokio::sync::OwnedMutexGuard<()> {
+        let one = {
+            let mut held = lock(&self.context_requests);
+            held.retain(|_, one| Arc::strong_count(one) > 1);
+            held.entry(key.clone()).or_default().clone()
+        };
+        one.lock_owned().await
     }
 
     /// `harnix.session.import {path, space?, project_root?}`: the bundle at `path` becomes new
@@ -503,5 +527,61 @@ fn harden(answer: &mut Value, after: After) {
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod context_request_tests {
+    use super::*;
+    use std::time::Duration;
+
+    use harnix_kernel::{InstanceBook, Listed};
+
+    use crate::{HubConfig, Spaces};
+
+    struct Book;
+
+    #[async_trait::async_trait]
+    impl InstanceBook for Book {
+        fn listed(&self, _: &str) -> Option<Listed> {
+            None
+        }
+        fn all(&self) -> Vec<Listed> {
+            Vec::new()
+        }
+        async fn ensure_for_space(&self, _: &str, _: &str, _: &str) -> Rpc<()> {
+            Ok(())
+        }
+        fn flooding(&self, _: &str, _: u32) {}
+    }
+
+    /// Two context requests of one session reach the engine one after the other — the second is
+    /// not refused for the first — while another session's go on beside them; a session's lock is
+    /// gone from the hub once nobody holds or waits for it.
+    #[tokio::test]
+    async fn a_sessions_context_requests_go_one_at_a_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let spaces = Spaces::load(dir.path().join("spaces.json"), Vec::new(), Default::default()).unwrap();
+        let hub = Hub::new(HubConfig { instances: Arc::new(Book), spaces, turns: Default::default() });
+        let one: SessionKey = ("main".into(), "s1".into());
+        let first = hub.context_request(&one).await;
+
+        let other = tokio::time::timeout(Duration::from_secs(1), hub.context_request(&("main".into(), "s2".into()))).await;
+        assert!(other.is_ok(), "another session's request waited for this one's");
+        drop(other);
+
+        let second = tokio::spawn({
+            let (hub, one) = (hub.clone(), one.clone());
+            async move {
+                let _held = hub.context_request(&one).await;
+            }
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!second.is_finished(), "the second request went on while the first was with the engine");
+        drop(first);
+        tokio::time::timeout(Duration::from_secs(1), second).await.expect("the second request never went on").unwrap();
+
+        let _third = hub.context_request(&("main".into(), "s3".into())).await;
+        assert_eq!(lock(&hub.context_requests).len(), 1, "the locks nobody held were kept");
     }
 }

@@ -1713,7 +1713,7 @@ settings.mcp.context → {
 }
 ```
 
-读自 `engine.session.inspectContext`（会话正在跑一轮时引擎答 `SESSION_BUSY`），先以设备的身份 `engine.session.get` 一次，看它能不能看这个会话。
+读自 `engine.session.inspectContext`（会话正在跑一轮时引擎答 `SESSION_BUSY`；同一个会话的几次上下文请求由 hub 一次一个地交给引擎，彼此不会因对方而被拒），先以设备的身份 `engine.session.get` 一次，看它能不能看这个会话。
 
 ### 22.10 中区的视图：`conversation.view`
 

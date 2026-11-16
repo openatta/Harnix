@@ -181,6 +181,9 @@ pub struct Hub {
     pub(crate) turns: Arc<TurnChains>,
     /// One `harnix.session.setPrompt` at a time (`prompt.rs`).
     prompting: Mutex<()>,
+    /// One context request at a time for each session (`engine_rows.rs`): held while one is with
+    /// the engine, and dropped from here once nobody holds or waits for it.
+    context_requests: StdMutex<HashMap<SessionKey, Arc<Mutex<()>>>>,
 }
 
 pub struct HubConfig {
@@ -227,6 +230,7 @@ impl Hub {
                 audit: StdRwLock::new(None),
                 turns: config.turns.clone(),
                 prompting: Mutex::new(()),
+                context_requests: StdMutex::new(HashMap::new()),
             }
         });
         hub
