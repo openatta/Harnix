@@ -155,6 +155,96 @@ defineSuite("settings", { feature: "settings" }, {
       assert(/settings\.json$/.test(described.paths.global ?? ""), JSON.stringify(described.paths));
     },
 
+    // permissions, sandbox, network
+    "the permission, sandbox and network fields are the engine's keys": async ({ client }) => {
+      const described = await client.call("settings.describe", {});
+      const field = (key: string) => described.fields.find((f: { key: string }) => f.key === key);
+      const sections: Record<string, string> = {
+        permission_mode: "permissions",
+        allow_client_permission_override: "permissions",
+        permission_rules: "permissions",
+        "sandbox.network_mode": "sandbox",
+        "sandbox.egress_proxy": "sandbox",
+        "sandbox.additional_directories": "sandbox",
+        "sandbox.read_directories": "sandbox",
+        "sandbox.require_enforcement": "sandbox",
+        "network.use_system_proxy": "network",
+        "sandbox.allowed_domains": "network",
+      };
+      for (const [key, section] of Object.entries(sections)) {
+        assert(field(key)?.section === section, `${key}: ${JSON.stringify(field(key))}`);
+      }
+      assert(field("permission_mode").options.includes("dontAsk"), "dontAsk is not a mode");
+      const rules = field("permission_rules");
+      assert(rules.type === "rules" && rules.additive === true, JSON.stringify(rules));
+      assert(JSON.stringify(rules.columns.map((c: { key: string }) => c.key)) === JSON.stringify(["tool", "action", "match"]), JSON.stringify(rules.columns));
+      assert(rules.columns[0].check === "tool", "the tool column is not checked as a tool");
+      // The engine reads its own proxy setting from the global tier only.
+      assert(JSON.stringify(field("network.use_system_proxy").writable) === JSON.stringify(["global"]), JSON.stringify(field("network.use_system_proxy")));
+      // The web's two routes are with the other routes (settings-models), declared once.
+      for (const key of ["task_models.web_search", "task_models.web_fetch"]) {
+        assert(described.fields.filter((f: { key: string }) => f.key === key).length === 1 && field(key).section === "task-models", JSON.stringify(field(key)));
+      }
+    },
+
+    "permission rules are written in the engine's shape, and a tool it cannot match is refused": async ({ client }) => {
+      const rules = [{ tool: "Bash(git push:*)", action: "deny" }, { tool: "Edit(docs/**)", action: "allow" }];
+      const written = await client.call("settings.write", { tier: "global", changes: { permission_rules: rules } });
+      try {
+        const field = written.fields.find((f: { key: string }) => f.key === "permission_rules");
+        assert(JSON.stringify(field.tiers.global) === JSON.stringify(rules), JSON.stringify(field));
+        // The engine took them: they are among the rules it runs with.
+        assert(Array.isArray(field.effective) && field.effective.some((r: { tool: string }) => r.tool === "Bash(git push:*)"), JSON.stringify(field.effective));
+        const e = await client.refused("settings.write", { tier: "global", changes: { permission_rules: [{ tool: "mcp__github__*", action: "deny" }] } });
+        assert(e && e.code === INVALID_PARAMS && /wildcard/.test(e.message), `answered ${JSON.stringify(e)}`);
+        const flowWords = await client.refused("settings.write", { tier: "global", changes: { permission_rules: [{ tool: "Bash", effect: "deny" }] } });
+        assert(flowWords && flowWords.code === INVALID_PARAMS, "a rule in a flow's keys was written into the engine's settings");
+      } finally {
+        await client.call("settings.write", { tier: "global", changes: { permission_rules: null } });
+      }
+    },
+
+    "an untrusted project's allow rule is withheld, its deny is not": async ({ client }) => {
+      const at = { project_root: client.project };
+      const field = async () =>
+        (await client.call("settings.describe", at)).fields.find((f: { key: string }) => f.key === "permission_rules");
+      await client.call("settings.write", { tier: "project", changes: { permission_rules: [{ tool: "Bash(rm:*)", action: "deny" }] }, ...at });
+      try {
+        const deny = await field();
+        assert(deny.withheld === false && deny.source === "project", JSON.stringify(deny));
+        await client.call("settings.write", { tier: "project", changes: { permission_rules: [{ tool: "Bash(curl:*)", action: "allow" }] }, ...at });
+        const allow = await field();
+        assert(allow.withheld === true, JSON.stringify(allow));
+        assert(!(allow.effective ?? []).some((r: { tool: string }) => r.tool === "Bash(curl:*)"), "an untrusted project's allow is in force");
+      } finally {
+        await client.call("settings.write", { tier: "project", changes: { permission_rules: null }, ...at });
+      }
+    },
+
+    "sandbox and network settings are written into their tiers, and the proxy switch only globally": async ({ client }) => {
+      // Values that change nothing a session does (other suites share this backend): the defaults
+      // spelled out, a directory to read and a domain to reach.
+      const changes = {
+        "sandbox.network_mode": "unrestricted",
+        "sandbox.allowed_domains": ["example.com"],
+        "sandbox.read_directories": ["/tmp/harnix-live-read"],
+        "sandbox.require_enforcement": false,
+      };
+      const written = await client.call("settings.write", { tier: "global", changes });
+      try {
+        for (const [key, value] of Object.entries(changes)) {
+          const field = written.fields.find((f: { key: string }) => f.key === key);
+          assert(JSON.stringify(field.tiers.global) === JSON.stringify(value), `${key}: ${JSON.stringify(field)}`);
+        }
+        const e = await client.refused("settings.write", { tier: "scene", changes: { "network.use_system_proxy": false } });
+        assert(e && e.code === INVALID_PARAMS && /global|tier/.test(e.message), `answered ${JSON.stringify(e)}`);
+        const mode = await client.refused("settings.write", { tier: "global", changes: { "sandbox.network_mode": "none" } });
+        assert(mode && mode.code === INVALID_PARAMS, "a network mode the engine does not have was written");
+      } finally {
+        await client.call("settings.write", { tier: "global", changes: Object.fromEntries(Object.keys(changes).map((k) => [k, null])) });
+      }
+    },
+
     "providers can be read back": async ({ client }) => {
       const described = await client.call("settings.describe", { section: "providers" })
         .catch(() => null);

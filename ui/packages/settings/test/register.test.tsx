@@ -25,7 +25,7 @@ describe("@harnix/settings", () => {
     r.activate(extension, () => register(r, host));
     expect(extension).toBe("settings");
     const sections = r.at("settings.section");
-    expect(sections.map((s) => s.id)).toEqual(["engine", "scenes", "models", "task-models", "mcp", "privacy", "advanced"]);
+    expect(sections.map((s) => s.id)).toEqual(["engine", "scenes", "models", "task-models", "mcp", "permissions", "sandbox", "network", "privacy", "advanced"]);
     expect(sections.every((s) => s.owner === "settings" && typeof s.label() === "string")).toBe(true);
     // Each draws, and reads what it shows through the host.
     // Not connected: what reads hello waits, the rest draws.
@@ -52,7 +52,7 @@ describe("@harnix/settings", () => {
   });
 
   it("says when the project tier wrote a setting the engine does not use", async () => {
-    const field = { key: "permission_mode", type: "select", kind: "choice", section: "engine", options: ["default", "plan"], effective: "default", source: "project", withheld: true, tiers: { global: "default", scene: null, project: "bypassPermissions" } };
+    const field = { key: "permission_mode", type: "select", kind: "choice", section: "permissions", options: ["default", "plan"], effective: "default", source: "project", withheld: true, tiers: { global: "default", scene: null, project: "bypassPermissions" } };
     const host = {
       call: async () => ({ paths: { global: "/g", project: "/p" }, fields: [field] }),
       session: { current: () => null, context: () => null },
@@ -61,15 +61,15 @@ describe("@harnix/settings", () => {
     } as unknown as HostApi;
     const r = new Registry();
     r.activate(extension, () => register(r, host));
-    const engine = r.at("settings.section").find((s) => s.id === "engine")!;
+    const permissions = r.at("settings.section").find((s) => s.id === "permissions")!;
     const client = { status: "closed", detail: undefined, onStatus: () => () => undefined, call: async () => ({}) } as unknown as HarnixClient;
-    const { findByText } = render(<HarnixUiProvider client={client} strings={en}>{engine.render()}</HarnixUiProvider>);
+    const { findByText } = render(<HarnixUiProvider client={client} strings={en}>{permissions.render()}</HarnixUiProvider>);
     expect(await findByText(/not in force: an untrusted project can only tighten settings/)).toBeTruthy();
   });
 
   it("draws a section's engine fields from their declarations and writes one into the chosen tier, at the revision read", async () => {
     const fields = [
-      { key: "permission_mode", type: "select", section: "engine", options: ["default", "plan"], default: "default", writable: ["global", "scene", "project"], effective: "default", source: null, withheld: false, tiers: { global: null, scene: null, project: null } },
+      { key: "permission_mode", type: "select", section: "permissions", options: ["default", "plan"], default: "default", writable: ["global", "scene", "project"], effective: "default", source: null, withheld: false, tiers: { global: null, scene: null, project: null } },
       { key: "memory_enabled", type: "toggle", section: "engine", default: true, writable: ["global", "scene", "project"], effective: true, source: null, withheld: false, tiers: { global: null, scene: null, project: null } },
       { key: "model.max_tokens", type: "number", section: "models", min: 1, max: 1000000, writable: ["global", "scene", "project"], effective: 8000, source: "global", withheld: false, tiers: { global: 8000, scene: null, project: null } },
     ];
@@ -88,9 +88,9 @@ describe("@harnix/settings", () => {
     const engine = r.at("settings.section").find((s) => s.id === "engine")!;
     const client = { status: "closed", detail: undefined, onStatus: () => () => undefined, call: async () => ({}) } as unknown as HarnixClient;
     render(<HarnixUiProvider client={client} strings={en}>{engine.render()}</HarnixUiProvider>);
-    // The engine section's two, not the models section's.
-    expect(await screen.findByTestId("settings-permission_mode")).toBeTruthy();
-    expect(screen.getByTestId("settings-memory_enabled")).toBeTruthy();
+    // The engine section's own, not the permissions section's or the models section's.
+    expect(await screen.findByTestId("settings-memory_enabled")).toBeTruthy();
+    expect(screen.queryByTestId("settings-permission_mode")).toBeNull();
     expect(screen.queryByTestId("settings-model.max_tokens")).toBeNull();
     // The scene tier, then a write there.
     fireEvent.change(screen.getByTestId("settings-tier"), { target: { value: "scene" } });
@@ -98,6 +98,30 @@ describe("@harnix/settings", () => {
     await waitFor(() => expect(calls.some(([m]) => m === "settings.write")).toBe(true));
     const [, params] = calls.find(([m]) => m === "settings.write")!;
     expect(params).toMatchObject({ tier: "scene", changes: { memory_enabled: false }, revision: "rev-1" });
+  });
+
+  it("sends a reader from the network section to the web's routes, which are set with the other routes", async () => {
+    const fields = [
+      { key: "sandbox.allowed_domains", type: "list", section: "network", writable: ["global", "scene", "project"], effective: null, source: null, withheld: false, tiers: { global: null, scene: null, project: null } },
+      { key: "task_models.web_search", type: "route", section: "task-models", routes: [], writable: ["global", "scene", "project"], effective: null, source: null, withheld: false, tiers: { global: null, scene: null, project: null } },
+    ];
+    const opened: (string | undefined)[] = [];
+    const host = {
+      call: async () => ({ paths: { global: "/g/settings.json" }, fields }),
+      session: { current: () => null, context: () => null },
+      settings: { open: (section?: string) => opened.push(section) },
+      shell: { notice: () => undefined },
+      dialogs: { confirm: async () => false },
+    } as unknown as HostApi;
+    const r = new Registry();
+    r.activate(extension, () => register(r, host));
+    const network = r.at("settings.section").find((s) => s.id === "network")!;
+    const client = { status: "closed", detail: undefined, onStatus: () => () => undefined, call: async () => ({}) } as unknown as HarnixClient;
+    render(<HarnixUiProvider client={client} strings={en}>{network.render()}</HarnixUiProvider>);
+    expect(await screen.findByTestId("settings-sandbox.allowed_domains")).toBeTruthy();
+    expect(screen.queryByTestId("settings-task_models.web_search")).toBeNull();
+    fireEvent.click(screen.getByTestId("settings-web-routes"));
+    expect(opened).toEqual(["task-models"]);
   });
 
   it("the engine's store reads describe and writes write", async () => {
