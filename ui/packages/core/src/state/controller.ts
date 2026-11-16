@@ -13,7 +13,7 @@
  */
 
 import { errorText, type HarnixClient } from "../client/index.ts";
-import type { Decision, Notifications } from "../protocol/index.ts";
+import type { Decision, FeedbackCategory, Notifications, Rating } from "../protocol/index.ts";
 import {
   addCustom,
   addEntry,
@@ -288,7 +288,7 @@ export class SessionController {
     if (method === "harnix.event") {
       const params = raw as unknown as Notifications["harnix.event"];
       if (params.seq <= this.state.seq) return;
-      const next = applyEvent({ ...this.state, seq: params.seq }, params.event, this.applyOptions());
+      const next = applyEvent({ ...this.state, seq: params.seq }, params.event, { ...this.applyOptions(), turnId: params.turn_id || undefined });
       // 一条 user_message 是一轮开始的信号（中枢合成的那条）。
       const turn = params.event.kind === "user_message" ? { turnId: params.turn_id } : next.turn;
       this.set({ ...next, turn });
@@ -424,6 +424,27 @@ export class SessionController {
         message,
       });
       this.set({ ...this.state, queue: result.items || [] });
+      return true;
+    } catch (e) {
+      this.set({ ...this.state, banner: errorText(e) });
+      return false;
+    }
+  }
+
+  /**
+   * 对一轮回答的反馈（`harnix.session.feedback`）：`rating` 为 null 是撤回。记下的条目立即进状态，
+   * 正在看这个会话的别的设备经推送拿到同一条（按 id 去重）。失败时横幅说明，返回 false。
+   */
+  async feedback(turnId: string, rating: Rating | null, extra: { category?: FeedbackCategory; note?: string } = {}): Promise<boolean> {
+    try {
+      const filed = await this.client.call("harnix.session.feedback", {
+        ...this.key(),
+        turn_id: turnId,
+        rating,
+        ...(rating && extra.category ? { category: extra.category } : {}),
+        ...(rating && extra.note?.trim() ? { note: extra.note.trim() } : {}),
+      });
+      if (filed?.entry?.id) this.set(addEntry(this.state, filed.entry as SessionEntry, this.now()));
       return true;
     } catch (e) {
       this.set({ ...this.state, banner: errorText(e) });

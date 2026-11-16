@@ -736,6 +736,7 @@ fn main() -> anyhow::Result<()> {
 | `extensions.manage` | 拿宿主组件接口：运行期登记扩展、拉起扩展进程、收养扩展进程的引擎 | ✔ | | packages |
 | `ui.page` | 进页面的 ES 模块 | ✔ | 只 `trusted` 发布者 | — |
 | `events.all_tools` | 看到每个会话的每一次工具调用 | | ✔ | — |
+| `feedback.read` | 收到人对回复的每一条反馈（评分、类别、备注原文，连同会话），主题 `harnix.feedback` | ✔ | | —（缺省谁都没有：反馈不出日志，除非产品授予某个扩展） |
 | `net:<主机>` · `env:<名字>` · `storage:<MB>` · `fs:data` · `fs:project` | 扩展包的资源能力 | | ✔ | — |
 
 **跨 space 不是一项能力。** 同页的代码能声称任何 space，所以「在一个 space 里看别的 space 的会话」只能防误。它是 space 声明上的标志 `cross_space()`，

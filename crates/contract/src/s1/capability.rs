@@ -120,6 +120,10 @@ pub mod caps {
     pub const EXTENSIONS_MANAGE: Capability = Capability::new("extensions.manage");
     pub const UI_PAGE: Capability = Capability::new("ui.page");
     pub const EVENTS_ALL_TOOLS: Capability = Capability::new("events.all_tools");
+    /// Hear each piece of feedback people give on answers, note and all, as it is given (the topic
+    /// `harnix.feedback`). Nobody has it unless the product grants it: feedback leaves the
+    /// session's log only through an extension the product chose.
+    pub const FEEDBACK_READ: Capability = Capability::new("feedback.read");
 
     /// Every one of them, as the kernel declares it.
     pub const KERNEL: &[CapabilitySpec] = &[
@@ -138,6 +142,7 @@ pub mod caps {
         CapabilitySpec::new("extensions.manage", "运行期登记扩展，用宿主的服务"),
         CapabilitySpec::new("ui.page", "进页面的 ES 模块").package(),
         CapabilitySpec::new("events.all_tools", "看到每个会话的每一次工具调用").package_only(),
+        CapabilitySpec::new("feedback.read", "收到人对回复的每一条反馈：评分、类别和备注原文，连同是哪个会话的哪一轮"),
     ];
 
     /// The kernel's declaration of `cap`, when it is the kernel's.
@@ -168,6 +173,7 @@ mod tests {
             caps::EXTENSIONS_MANAGE,
             caps::UI_PAGE,
             caps::EVENTS_ALL_TOOLS,
+            caps::FEEDBACK_READ,
         ] {
             assert!(caps::kernel(&cap).is_some(), "{cap}");
         }

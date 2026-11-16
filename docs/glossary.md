@@ -143,6 +143,7 @@
 | **引擎贡献** | `EngineContribution`，`Registrar::engine()` / `engine_everywhere()` | 原生扩展交给进程内实例的东西：场景层、原生工具（`Tool`、`ToolProvider`）、`PromptGate`。扩展包没有 |
 | **扩展的 HTTP 路由** | `Registrar::route`、`static_dir`，`/ext/<id>/` | 原生扩展自己的 HTTP 路由与静态文件。同源、同一个准入，但不享受 Harnix 通道的保证 |
 | **扩展条目** | extension entry | 扩展往会话时间线写的、只给人看的条目，由 `flow.block` 画出来；命名空间是写它的扩展的 id |
+| **反馈** | `harnix.session.feedback`，条目 `harnix.feedback` / `rating` | 人对一轮回答的赞或踩，可带类别和备注。中枢记成会话日志里的条目，只给人看，同一轮后来的盖过先前的；不往任何地方送，持 `feedback.read` 的扩展才收得到 |
 
 **别混**：
 

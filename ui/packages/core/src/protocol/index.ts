@@ -15,3 +15,4 @@ export * from "./engine.ts";
 export * from "./frames.ts";
 export * from "./events.ts";
 export * from "./changes.ts";
+export * from "./feedback.ts";

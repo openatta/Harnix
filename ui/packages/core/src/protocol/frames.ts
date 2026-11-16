@@ -9,12 +9,15 @@
 import type {
   AttachResult,
   EngineTrust,
+  FeedbackCategory,
+  FeedbackFiled,
   Handshake,
   Hello,
   HelloEngine,
   InstanceRow,
   InstancesList,
   QueueItem,
+  Rating,
   SessionsList,
   SpacesList,
   Topology,
@@ -105,6 +108,11 @@ export interface Methods {
   };
   "harnix.session.queue.remove": { params: SessionKey & { item_id: string }; result: { items: QueueItem[] } };
   "harnix.session.queue.edit": { params: SessionKey & { item_id: string; message: string }; result: { items: QueueItem[] } };
+  /** 对一轮回答的反馈（设备的）：记进会话日志，后来的盖过先前的；`rating: null` 撤回。 */
+  "harnix.session.feedback": {
+    params: SessionKey & { turn_id: string; call_id?: string; rating: Rating | null; category?: FeedbackCategory; note?: string };
+    result: FeedbackFiled;
+  };
   "harnix.topics.subscribe": { params: { topic: string; params?: Record<string, unknown> }; result: { topic: string; value: unknown } };
   "harnix.topics.unsubscribe": { params: { topic: string; params?: Record<string, unknown> }; result: { unsubscribed: boolean } };
   "harnix.instances.list": { params: Record<string, never>; result: InstancesList };

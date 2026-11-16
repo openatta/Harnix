@@ -585,6 +585,123 @@ pub struct TopicEnded {
     pub reason: String,
 }
 
+/* ── feedback on an answer ─────────────────────────────────────────────── */
+
+/// The namespace a person's feedback is filed under in a session's log: the hub's own, beside
+/// `harnix.changes`. An entry, so it is never the model's (concept §3.2.1).
+pub const FEEDBACK_NS: &str = "harnix.feedback";
+/// The one event in it.
+pub const FEEDBACK_EVENT: &str = "rating";
+/// The topic a holder of `feedback.read` hears each piece of feedback on, as it is given.
+pub const FEEDBACK_TOPIC: &str = "harnix.feedback";
+/// The longest note one piece of feedback carries, in characters.
+pub const FEEDBACK_NOTE_MAX_CHARS: usize = 4000;
+
+/// Thumbs up or down.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum Rating {
+    Up,
+    Down,
+}
+
+/// What was wrong with (or about) an answer, when a person says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum FeedbackCategory {
+    Inaccurate,
+    Unhelpful,
+    Unsafe,
+    Slow,
+    Other,
+}
+
+/// One piece of feedback on a turn's answer: the payload of a `harnix.feedback` / `rating` entry.
+///
+/// Every change is a new entry; the last one for a turn (and call) is what stands, and the ones
+/// before it stay in the log. `rating: null` takes the feedback back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct Feedback {
+    /// The turn whose answer it is about: the `turn_id` of its frames, its transcript messages and
+    /// its recorded calls.
+    pub turn_id: String,
+    /// One call in the turn, when the caller rated that rather than the turn's answer; opaque to
+    /// the hub. The conversation's thumbs leave it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub call_id: Option<String>,
+    /// `null`: taken back.
+    pub rating: Option<Rating>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub category: Option<FeedbackCategory>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub note: Option<String>,
+    /// When, in ms since the epoch.
+    pub at: u64,
+    /// Who: the subject's label (`device:<id>`).
+    pub by: String,
+}
+
+impl Feedback {
+    /// The feedback an entry of the session's log holds, when it holds some.
+    pub fn of_entry(entry: &Value) -> Option<Self> {
+        if entry.get("ns").and_then(Value::as_str) != Some(FEEDBACK_NS)
+            || entry.get("event").and_then(Value::as_str) != Some(FEEDBACK_EVENT)
+        {
+            return None;
+        }
+        serde_json::from_value(entry.get("payload")?.clone()).ok()
+    }
+
+    /// What it is about: a turn, or one call in it.
+    pub fn target(&self) -> (&str, Option<&str>) {
+        (&self.turn_id, self.call_id.as_deref())
+    }
+}
+
+/// The feedback that stands in a session's log, `entries` oldest first: the last word on each turn
+/// (and call), in the order each was first rated; what was taken back is left out.
+pub fn current_feedback<'a>(entries: impl IntoIterator<Item = &'a Value>) -> Vec<Feedback> {
+    let mut standing: Vec<Feedback> = Vec::new();
+    for feedback in entries.into_iter().filter_map(Feedback::of_entry) {
+        match standing.iter_mut().find(|f| f.target() == feedback.target()) {
+            Some(slot) => *slot = feedback,
+            None => standing.push(feedback),
+        }
+    }
+    standing.retain(|f| f.rating.is_some());
+    standing
+}
+
+/// `harnix.session.feedback`'s answer: what was filed, and the entry it was filed as (the
+/// engine's shape).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct FeedbackFiled {
+    pub feedback: Feedback,
+    #[cfg_attr(feature = "ts", ts(type = "{ id: string; ts?: string; ns: string; event: string; payload: Feedback; at: number }"))]
+    pub entry: Value,
+}
+
+/// The topic `harnix.feedback`'s value: the last piece of feedback given, on which session. Pushed
+/// once per piece; the session's log is the record.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct FeedbackNotice {
+    pub instance: String,
+    pub session_id: String,
+    /// The space the session belongs to.
+    pub space: String,
+    /// The entry's id in the session's log.
+    pub entry_id: String,
+    pub feedback: Feedback,
+}
+
 /// Build a frame's `params` from one of these: a structure that does not serialize is a bug, and
 /// an empty object is the frame a client can at least parse.
 pub fn params<T: Serialize>(frame: &T) -> Value {
@@ -629,6 +746,48 @@ mod tests {
         let value = params(&row);
         assert_eq!(value["status"], json!({"state": "degraded", "since_ms": 1, "reason": "lost"}));
         assert!(value.get("trust").is_none() && value.get("reap").is_none());
+    }
+
+    fn rated(turn: &str, call: Option<&str>, rating: Option<Rating>, at: u64) -> Value {
+        let mut payload = json!({"turn_id": turn, "rating": rating, "at": at, "by": "device:d"});
+        if let Some(call) = call {
+            payload["call_id"] = json!(call);
+        }
+        json!({"id": format!("e{at}"), "ns": FEEDBACK_NS, "event": FEEDBACK_EVENT, "payload": payload, "at": 2})
+    }
+
+    #[test]
+    fn the_last_word_on_a_turn_stands_and_a_retraction_leaves_none() {
+        let entries = vec![
+            rated("t1", None, Some(Rating::Up), 1),
+            json!({"id": "x", "ns": "harnix.changes", "event": "turn", "payload": {"turn_id": "t1"}}),
+            rated("t2", None, Some(Rating::Down), 2),
+            rated("t1", None, Some(Rating::Down), 3),
+            rated("t2", None, None, 4),
+            rated("t1", Some("c1"), Some(Rating::Up), 5),
+            json!({"id": "y", "ns": FEEDBACK_NS, "event": FEEDBACK_EVENT, "payload": {"rating": "sideways"}}),
+        ];
+        let standing = current_feedback(&entries);
+        let seen: Vec<_> = standing.iter().map(|f| (f.turn_id.as_str(), f.call_id.as_deref(), f.rating, f.at)).collect();
+        // t1's turn changed its mind; t2 was taken back; a call of t1 is a target of its own; what
+        // does not read as feedback is skipped.
+        assert_eq!(seen, vec![("t1", None, Some(Rating::Down), 3), ("t1", Some("c1"), Some(Rating::Up), 5)]);
+    }
+
+    #[test]
+    fn feedback_is_written_as_the_wire_says() {
+        let given = Feedback {
+            turn_id: "t".into(),
+            call_id: None,
+            rating: Some(Rating::Down),
+            category: Some(FeedbackCategory::Slow),
+            note: None,
+            at: 7,
+            by: "device:d".into(),
+        };
+        assert_eq!(params(&given), json!({"turn_id": "t", "rating": "down", "category": "slow", "at": 7, "by": "device:d"}));
+        let taken_back = Feedback { rating: None, category: None, ..given };
+        assert_eq!(params(&taken_back)["rating"], Value::Null);
     }
 
     #[test]

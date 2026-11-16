@@ -1,6 +1,7 @@
 //! `harnix-app.sessions.export`: a session written out, for reading or for keeping.
 //!
-//! Three forms. `markdown` is the conversation as a person reads it. `archive` is the session as
+//! Three forms. `markdown` is the conversation as a person reads it, with the feedback that stands
+//! on each answer under it. `archive` is the session as
 //! the engine packs it (`engine.session.export`): the session and its sub-agents' sessions at any depth,
 //! cut at one moment, the images in its messages as files, its extension entries and a versioned
 //! manifest — and its recording only when asked — as a zip. `bundle` is the older, Harnix-made
@@ -71,7 +72,7 @@ pub(crate) async fn session_export(call: Call, params: Value) -> Result<Value, R
             json!({
                 "format": "markdown",
                 "file": format!("{stem}.md"),
-                "content": markdown(title.as_deref(), &session_id, &info, &messages),
+                "content": markdown(title.as_deref(), &session_id, &info, &messages, &entries),
             })
         } else {
             let bundle = json!({
@@ -181,53 +182,117 @@ fn file_stem(title: Option<&str>, session_id: &str) -> String {
     }
 }
 
+/// The feedback entries' namespace and event: the hub's (harnix-app.md §2).
+const FEEDBACK_NS: &str = "harnix.feedback";
+const FEEDBACK_EVENT: &str = "rating";
+
+/// The feedback that stands in the log, oldest entry first: the last word on each turn (and call)
+/// wins, one taken back (`rating: null`) leaves none. Each as its payload.
+fn standing_feedback(entries: &Value) -> Vec<Value> {
+    let mut standing: Vec<Value> = Vec::new();
+    for entry in entries.as_array().into_iter().flatten() {
+        if entry.get("ns").and_then(Value::as_str) != Some(FEEDBACK_NS)
+            || entry.get("event").and_then(Value::as_str) != Some(FEEDBACK_EVENT)
+        {
+            continue;
+        }
+        let Some(payload) = entry.get("payload").filter(|p| p.get("turn_id").and_then(Value::as_str).is_some()) else {
+            continue;
+        };
+        let target = |p: &Value| (p.get("turn_id").cloned(), p.get("call_id").cloned());
+        match standing.iter_mut().find(|p| target(p) == target(payload)) {
+            Some(slot) => *slot = payload.clone(),
+            None => standing.push(payload.clone()),
+        }
+    }
+    standing.retain(|p| matches!(p.get("rating").and_then(Value::as_str), Some("up" | "down")));
+    standing
+}
+
+/// One piece of feedback as a quoted line: the rating, what was wrong, the note.
+fn feedback_line(feedback: &Value) -> String {
+    let field = |k: &str| feedback.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
+    let mut line = format!("> **Feedback**: {}", field("rating").unwrap_or(""));
+    if let Some(category) = field("category") {
+        line.push_str(&format!(" ({category})"));
+    }
+    if let Some(note) = field("note") {
+        line.push_str(&format!(" — {}", note.replace('\n', " ")));
+    }
+    line + "\n\n"
+}
+
 /// The conversation as a person reads it: who said what, the tool calls with their input and a
-/// screenful of their result, injected context and compaction summaries folded away.
-fn markdown(title: Option<&str>, session_id: &str, info: &Value, messages: &[Value]) -> String {
+/// screenful of their result, injected context and compaction summaries folded away; under each
+/// turn's last message, the feedback that stands on it, and what stands on turns no longer in the
+/// transcript at the end.
+fn markdown(title: Option<&str>, session_id: &str, info: &Value, messages: &[Value], entries: &Value) -> String {
     let mut out = format!("# {}\n\n", title.unwrap_or(session_id));
     let scene = info.get("scene").and_then(Value::as_str).unwrap_or("");
     out.push_str(&format!("> session `{session_id}`{}\n\n", if scene.is_empty() { String::new() } else { format!(" · scene `{scene}`") }));
-    for message in messages {
-        let role = message.get("role").and_then(Value::as_str).unwrap_or("");
-        let origin = message.get("origin").and_then(Value::as_str);
-        let parts: Vec<Value> = match message.get("content") {
-            Some(Value::String(text)) => vec![json!({"type": "text", "text": text})],
-            Some(Value::Array(parts)) => parts.clone(),
-            _ => Vec::new(),
-        };
-        for part in parts {
-            match part.get("type").and_then(Value::as_str) {
-                Some("text") => {
-                    let text = part.get("text").and_then(Value::as_str).unwrap_or("").trim();
-                    if text.is_empty() {
-                        continue;
-                    }
-                    match (role, origin) {
-                        ("user", Some("injected" | "compact" | "extension")) => {
-                            let label = if origin == Some("compact") { "Compacted context" } else { "Injected context" };
-                            out.push_str(&format!("<details><summary>{label}</summary>\n\n{text}\n\n</details>\n\n"));
-                        }
-                        ("user", _) => out.push_str(&format!("**User**\n\n{text}\n\n")),
-                        _ => out.push_str(&format!("**Assistant**\n\n{text}\n\n")),
-                    }
-                }
-                Some("tool_use") => {
-                    let name = part.get("name").and_then(Value::as_str).unwrap_or("tool");
-                    let input = serde_json::to_string_pretty(part.get("input").unwrap_or(&Value::Null)).unwrap_or_default();
-                    out.push_str(&format!("**Tool call** `{name}`\n\n```json\n{input}\n```\n\n"));
-                }
-                Some("tool_result") => {
-                    let text = result_text(part.get("content"));
-                    let clipped: String = text.chars().take(RESULT_CHARS).collect();
-                    let more = if text.chars().count() > RESULT_CHARS { "\n…" } else { "" };
-                    let label = if part.get("is_error").and_then(Value::as_bool) == Some(true) { "Tool error" } else { "Tool result" };
-                    out.push_str(&format!("**{label}**\n\n```\n{clipped}{more}\n```\n\n"));
-                }
-                _ => {}
-            }
+    let mut feedback = standing_feedback(entries);
+    let turn_of = |m: &Value| m.get("turn_id").and_then(Value::as_str).map(str::to_string);
+    for (i, message) in messages.iter().enumerate() {
+        markdown_message(&mut out, message);
+        let Some(turn) = turn_of(message) else { continue };
+        if messages.get(i + 1).and_then(turn_of).as_deref() == Some(turn.as_str()) {
+            continue;
         }
+        feedback.retain(|f| {
+            let here = f.get("turn_id").and_then(Value::as_str) == Some(turn.as_str());
+            if here {
+                out.push_str(&feedback_line(f));
+            }
+            !here
+        });
+    }
+    for f in &feedback {
+        let turn = f.get("turn_id").and_then(Value::as_str).unwrap_or("");
+        out.push_str(&format!("> turn `{turn}`\n>\n{}", feedback_line(f)));
     }
     out
+}
+
+/// One message of [`markdown`].
+fn markdown_message(out: &mut String, message: &Value) {
+    let role = message.get("role").and_then(Value::as_str).unwrap_or("");
+    let origin = message.get("origin").and_then(Value::as_str);
+    let parts: Vec<Value> = match message.get("content") {
+        Some(Value::String(text)) => vec![json!({"type": "text", "text": text})],
+        Some(Value::Array(parts)) => parts.clone(),
+        _ => Vec::new(),
+    };
+    for part in parts {
+        match part.get("type").and_then(Value::as_str) {
+            Some("text") => {
+                let text = part.get("text").and_then(Value::as_str).unwrap_or("").trim();
+                if text.is_empty() {
+                    continue;
+                }
+                match (role, origin) {
+                    ("user", Some("injected" | "compact" | "extension")) => {
+                        let label = if origin == Some("compact") { "Compacted context" } else { "Injected context" };
+                        out.push_str(&format!("<details><summary>{label}</summary>\n\n{text}\n\n</details>\n\n"));
+                    }
+                    ("user", _) => out.push_str(&format!("**User**\n\n{text}\n\n")),
+                    _ => out.push_str(&format!("**Assistant**\n\n{text}\n\n")),
+                }
+            }
+            Some("tool_use") => {
+                let name = part.get("name").and_then(Value::as_str).unwrap_or("tool");
+                let input = serde_json::to_string_pretty(part.get("input").unwrap_or(&Value::Null)).unwrap_or_default();
+                out.push_str(&format!("**Tool call** `{name}`\n\n```json\n{input}\n```\n\n"));
+            }
+            Some("tool_result") => {
+                let text = result_text(part.get("content"));
+                let clipped: String = text.chars().take(RESULT_CHARS).collect();
+                let more = if text.chars().count() > RESULT_CHARS { "\n…" } else { "" };
+                let label = if part.get("is_error").and_then(Value::as_bool) == Some(true) { "Tool error" } else { "Tool result" };
+                out.push_str(&format!("**{label}**\n\n```\n{clipped}{more}\n```\n\n"));
+            }
+            _ => {}
+        }
+    }
 }
 
 fn result_text(content: Option<&Value>) -> String {
@@ -256,7 +321,7 @@ mod tests {
             json!({"role": "user", "origin": "tool_result", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": [{"type": "text", "text": "a.txt"}]}]}),
             json!({"role": "user", "origin": "compact", "content": "earlier, in short"}),
         ];
-        let md = markdown(Some("Files"), "S1", &json!({"scene": "harnix"}), &messages);
+        let md = markdown(Some("Files"), "S1", &json!({"scene": "harnix"}), &messages, &json!([]));
         assert!(md.starts_with("# Files\n\n> session `S1` · scene `harnix`"));
         assert!(md.contains("<details><summary>Injected context</summary>"));
         assert!(md.contains("**User**\n\nlist the files"));
@@ -264,6 +329,34 @@ mod tests {
         assert!(md.contains("**Tool call** `Bash`\n\n```json\n{\n  \"command\": \"ls\"\n}\n```"));
         assert!(md.contains("**Tool result**\n\n```\na.txt\n```"));
         assert!(md.contains("<details><summary>Compacted context</summary>\n\nearlier, in short"));
+    }
+
+    #[test]
+    fn the_feedback_that_stands_is_under_its_turns_last_message() {
+        let rated = |turn: &str, rating: Value, extra: Value| {
+            let mut payload = json!({"turn_id": turn, "rating": rating, "at": 1, "by": "device:d"});
+            payload.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            json!({"id": "e", "ns": FEEDBACK_NS, "event": FEEDBACK_EVENT, "payload": payload, "at": 2})
+        };
+        let messages = vec![
+            json!({"role": "user", "origin": "user", "turn_id": "t1", "content": "first"}),
+            json!({"role": "assistant", "turn_id": "t1", "content": "one"}),
+            json!({"role": "user", "origin": "user", "turn_id": "t2", "content": "second"}),
+            json!({"role": "assistant", "turn_id": "t2", "content": "two"}),
+        ];
+        let entries = json!([
+            rated("t1", json!("up"), json!({})),
+            {"id": "c", "ns": "harnix.changes", "event": "turn", "payload": {"turn_id": "t1"}},
+            rated("t1", json!("down"), json!({"category": "inaccurate", "note": "the wrong\nfile"})),
+            rated("t2", json!("up"), json!({})),
+            rated("t2", Value::Null, json!({})),
+            rated("t0", json!("up"), json!({})),
+        ]);
+        let md = markdown(None, "S1", &json!({}), &messages, &entries);
+        // t1 changed its mind; t2 was taken back; t0 is no longer in the transcript.
+        assert!(md.contains("**Assistant**\n\none\n\n> **Feedback**: down (inaccurate) — the wrong file\n\n**User**\n\nsecond"), "{md}");
+        assert_eq!(md.matches("**Feedback**").count(), 2, "{md}");
+        assert!(md.ends_with("> turn `t0`\n>\n> **Feedback**: up\n\n"), "{md}");
     }
 
     #[test]

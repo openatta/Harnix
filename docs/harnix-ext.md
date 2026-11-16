@@ -514,6 +514,32 @@ r.register('flow.block', {
 
 没人认领的条目不画。
 
+### 7.3 对回答的反馈
+
+人在对话里对一轮回答点赞或踩（可选类别、写一句备注），是中枢记的条目，不是哪个扩展的：
+
+```text
+harnix.session.feedback {instance?, session_id, space?, turn_id, call_id?, rating: "up" | "down" | null, category?, note?}
+  → {feedback, entry}
+条目 harnix.feedback / rating，载荷 {turn_id, call_id?, rating, category?, note?, at, by}
+```
+
+- **只设备调**（`Access::device()`，`RowScope::Session`）：这是人的判断，和换模型一样；按调用方声称的 space 查它看不看得到这个会话。
+  扩展不替人评。
+- `category` 是 `inaccurate`、`unhelpful`、`unsafe`、`slow`、`other` 之一；`note` 至多 4000 字，去掉首尾空白，空的不记。`rating: null` 是撤回，
+  这时类别与备注不记。`at` 是毫秒时间戳，`by` 是 `device:<id>`。
+- **改、撤都是再记一条**：同一轮（与同一个 `call_id`）最后一条为准，之前的留在日志里。读法只有一种：Rust 的
+  `harnix_contract::wire::current_feedback`，界面的 `@harnix/core` `standingFeedback`。
+- 它是条目，所以和 §7.2 一样：进日志、刷新、重放、整段分叉都在，模型看不见；导出带上（`harnix-app.sessions.export` 的三种格式，见
+  [Harnix app](harnix-app.md) §2）。正在看这个会话的设备经 `extension_entry` 立即收到，界面据此更新按钮。
+- `turn_id` 就是这一轮的帧、transcript 消息和录像里调用的 `turn_id`；`call_id` 留给只评某一次调用的调用方，中枢不解释它，对话里的按钮不带。
+  轨迹在调用上标反馈时：同一会话里 `turn_id` 相同、不属子 Agent 的那一轮的最后一次调用，就是被评的那个回答；带 `call_id` 的标在调用方指的那一次上。
+
+**隐私：缺省不上传。** Harnix 只把反馈记进本机的会话日志，不往任何地方送。每记一条，中枢在主题 `harnix.feedback`（无参数）上推一次
+`{instance, session_id, space, entry_id, feedback}`（整值是最近的一条），**只有被授予内核能力 `feedback.read` 的原生扩展能订**，设备永远订不到；
+标准装配里谁都没有这项能力。要收集反馈（汇总、送到自己的服务）的应用，自己写一个扩展、在装配里授予它 `feedback.read`，并在它的披露里说清楚送到哪里；
+送不送、送什么由应用定。主题只是通知，漏了的以会话日志为准（`engine.session.entries {namespaces: ["harnix.feedback"]}`）。
+
 ## 8. 前端
 
 ### 8.1 包
@@ -955,6 +981,7 @@ pub trait Extension: Send + Sync + 'static {
 | `extensions.manage` | 拿 `harnix-host-api` 的 `HostServices`：运行期登记扩展、拉起扩展进程、收养扩展进程的引擎 | ✔ | | packages |
 | `ui.page` | 进页面的 ES 模块 | ✔ | 只 `trusted` 发布者 | — |
 | `events.all_tools` | 看到每个会话的每一次工具调用 | | ✔ | — |
+| `feedback.read` | 订主题 `harnix.feedback`：收到人对回复的每一条反馈，评分、类别、备注原文，连同会话（§7.3） | ✔ | | —（缺省谁都没有） |
 | `net:<主机>` · `env:<名字>` · `storage:<MB>` · `fs:data` · `fs:project` | 扩展包的资源能力 | | ✔ | — |
 
 **跨 space 不是一项能力**：同页的代码能声称任何 space，所以「在一个 space 里看别的 space 的会话」只防误。它是 space 声明上的标志 `cross_space()`，只有原生扩展能声明；
@@ -1221,7 +1248,7 @@ cookie。一帧最大 16 MiB（`MAX_FRAME_BYTES`），一次上传最大 32 MiB�
 | 组 | 方法 | 谁能调 |
 |---|---|---|
 | 握手与自述（装配） | `harnix.hello`（见下）、`harnix.reachable`、`harnix.diagnostics`、`harnix.audit`、`harnix.extensions`（每个扩展：id、信任、载体、版本、启用、授予、行数、停用理由）、`harnix.ui`（方法与主题同值：每个扩展的界面条目、Agix 包的界面模块、扩展包的面）、`harnix.bulk.upload` | 设备、扩展（`bulk.upload` 只设备） |
-| 会话驱动（中枢） | `harnix.sessions.list {space? \| instance?}`、`harnix.session.attach`、`.detach`、`.send`、`.queue.remove`、`.queue.edit {session_id, item_id, message}`（改排队中一条的话，位置与附件不变；已开始或已撤回的答 REFUSED）、`.create`、`.interrupt`、`.close`、`.delete`、`.fork`、`.respond`（回答权限卡；flow 按策略作答）、`.tasks`、`.rename`（引擎的标题，标题只在引擎）、`.move {instance?, session_id, space}`、`.entries.append`、`.answerer {session_id, tool_use_id}`（回答该工具权限卡的设备 `device:<id>`，没有设备回答时是 `null`；读一次即忘，最多留最近 1024 条）、`harnix.topics.subscribe`、`.unsubscribe`、`harnix.spaces.list` | 设备、扩展（再按 `topic:<名>` 与范围判） |
+| 会话驱动（中枢） | `harnix.sessions.list {space? \| instance?}`、`harnix.session.attach`、`.detach`、`.send`、`.queue.remove`、`.queue.edit {session_id, item_id, message}`（改排队中一条的话，位置与附件不变；已开始或已撤回的答 REFUSED）、`.create`、`.interrupt`、`.close`、`.delete`、`.fork`、`.respond`（回答权限卡；flow 按策略作答）、`.tasks`、`.rename`（引擎的标题，标题只在引擎）、`.move {instance?, session_id, space}`、`.entries.append`、`.feedback {instance?, session_id, space?, turn_id, call_id?, rating, category?, note?}`（对一轮回答的反馈，只设备调，§7.3）、`.answerer {session_id, tool_use_id}`（回答该工具权限卡的设备 `device:<id>`，没有设备回答时是 `null`；读一次即忘，最多留最近 1024 条）、`harnix.topics.subscribe`、`.unsubscribe`、`harnix.spaces.list` | 设备、扩展（再按 `topic:<名>` 与范围判） |
 | `[shell] model_switch = true` 时 | `harnix.session.setModel {instance?, session_id, model, provider?, space?}`：只作用于调用方声称的 space 的会话，会话属别的 space 答 `SPACE_MISMATCH`；扩展改模型用 `engine.session.setModel`（要 `engine.control`） | 设备 |
 | 实例（登记表） | `harnix.instances.list / templates / create / ensure / stop / restart / wait`。`create` / `ensure` 可带 `wait: "ready"`、`timeout_ms`（缺省 60000）：等这台变成 `ready` 再答，变成 `down` 立即以 `-31004` 报错（带理由），超时同样；`wait {instance, timeout_ms?}` 是对已有实例的同一种等。并发 `ensure` 同名同模板都拿到同一台。`templates` 只列调用方能建的 | 设备、扩展（`create` 只认 `ui` 模板；跨拥有者要 `instances.admin`） |
 | 　 | `harnix.instances.inheritProviders`：把 `main` 的 provider 并进所有 `inherit_providers` 模板的实例并让变了的重读，答 `{reloaded: [id…]}` | `engine.config.write` |
@@ -1263,6 +1290,7 @@ cookie。一帧最大 16 MiB（`MAX_FRAME_BYTES`），一次上传最大 32 MiB�
 | `harnix.instances.sessions` | `instance` | 一台实例的会话：每行带 `running`（有一轮在跑）、`queued`、`tasks`（还在跑的任务数——任务可以比起它的那一轮活得久）、`waiting`（在等人：`approval` 是权限询问，`answer` 是模型的提问，`plan` 是离开计划模式要人审阅计划，没有为 null）、`started_by`（`harnix` 是扩展或内核起的，`user` 是设备上的人起的）、`turn_started_ms`、`goal`（hub 最近听到的目标；没有目标为 null，hub 还没听到过就没有这个键） |
 | `harnix.session.tasks` | `instance`、`session_id` | 一个会话的任务，和 `teams`：它的每个团队 hub 最近听到的 `team_progress`（`team, team_id, stage, stage_index, stage_count, status, members, failed`） |
 | `harnix.sessions.status` | — | 各会话的运行状态 |
+| `harnix.feedback` | — | 最近记下的一条反馈：`{instance, session_id, space, entry_id, feedback}`，每记一条推一次；只有持 `feedback.read` 的扩展能订（§7.3） |
 | `harnix.spaces` | — | 同 `harnix.spaces.list` 的答；总在 |
 | `harnix.ui` | — | 每个扩展的界面条目、Agix 包的界面模块、扩展包的面（也是同名方法） |
 | `system.process` | — | 同 `system.process` 方法的答；有人订阅时每 5 秒重算一次推出 |

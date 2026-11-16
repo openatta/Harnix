@@ -7,7 +7,8 @@
 use std::future::Future;
 use std::sync::{Arc, OnceLock};
 
-use harnix_contract::s1::RowScope;
+use harnix_contract::s1::{caps, RowScope};
+use harnix_contract::wire::FEEDBACK_TOPIC;
 use harnix_contract::{codes, RpcError};
 use harnix_kernel::{Access, CallContext, Handler, KernelPart, Owner, Rpc};
 use serde_json::Value;
@@ -204,6 +205,16 @@ impl Hub {
             },
             own_ext(hub, "harnix.session.answerer", RowScope::Open, false, |h, _, p| async move { h.answerer(&p) }),
             own(hub, "harnix.spaces.list", |h, _, _| async move { Ok(h.spaces_view()) }),
+            // A person's judgment of an answer, as setting a model is: a device's alone, about a
+            // session it can see.
+            HubRow::Method {
+                name: "harnix.session.feedback",
+                owner: Owner::Kernel(KernelPart::Hub),
+                access: Access::device().scoped(RowScope::Session),
+                handler: Some(answer(hub, "harnix.session.feedback", true, |h, cx, p| async move {
+                    h.feedback(&cx.subject, p).await
+                })),
+            },
             // Intercepted engine methods, the hub's semantics: still the device's to ask for.
             own_session(hub, "harnix.session.interrupt", |h, _, p| async move { h.interrupt(p).await }),
             own_session(hub, "harnix.session.close", |h, _, p| async move { h.close_or_delete(p, false).await }),
@@ -214,6 +225,9 @@ impl Hub {
                 .iter()
                 .map(|(name, _)| HubRow::Topic { name, access: Access::device().with_extensions().scoped(topic_scope(name)) }),
         );
+        // Every piece of feedback, note and all, from every space: only for whom the product
+        // granted it, and never a device's — the page has the log.
+        rows.push(HubRow::Topic { name: FEEDBACK_TOPIC, access: Access::capability(caps::FEEDBACK_READ).scoped(RowScope::Open) });
         rows.extend(crate::engine_rows::rows(hub));
         rows
     }
