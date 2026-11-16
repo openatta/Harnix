@@ -106,6 +106,7 @@ Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方�
 | 归档 / 取消归档 | `harnix-app.sessions.archive` | 只影响左栏列不列它 |
 | 从这里分叉 | `harnix.session.fork` | |
 | 导出 | `harnix-app.sessions.export` | Markdown，或引擎打的数据包（zip，可带录像） |
+| 导入… | `harnix-app.sessions.importUpload` → 上传 → `harnix-app.sessions.import` | 选一个导出的数据包（`.zip`），经大负载旁路上传，装成当前空间里的新会话（连同它的子代理会话）；不是选中某个会话的操作，在会话列表的「+」菜单里。包里的项目在这台机器上不存在时，装成无项目会话并提示 |
 | 关闭 | `harnix.session.close` | 放掉运行时，历史留着，还能重开 |
 | 删除 | `harnix.session.delete` | 先试删一次看连带几条侧链会话，确认后删；连同录像 |
 
@@ -168,7 +169,7 @@ Harnix app 是原生扩展最小的例子：一个后端扩展、一个界面包
 
 | 部分 | 用了什么 | 二开产品对应的做法 |
 |---|---|---|
-| 后端 | 扩展 `harnix-app`：`workspaces.list/create/update/reorder/remove`、`sessions.archive`、`sessions.export`、`prefs.set`、`search`、`files`、`listDirectory`、`recentProjects`、`projects.create`、`describe`；`Manifest::requires([transcripts.read, engine.export])` | 一个 `Extension` 的 `register`、`Manifest::requires`（[Harnix 扩展](harnix-ext.md)） |
+| 后端 | 扩展 `harnix-app`：`workspaces.list/create/update/reorder/remove`、`sessions.archive`、`sessions.export`、`sessions.importUpload`、`sessions.import`、`prefs.set`、`search`、`files`、`listDirectory`、`recentProjects`、`projects.create`、`describe`；`Manifest::requires([transcripts.read, engine.export])` | 一个 `Extension` 的 `register`、`Manifest::requires`（[Harnix 扩展](harnix-ext.md)） |
 | 行的开放范围 | 全部 `Access::device()`：人经界面做的决定只对设备开；`sessions.*` 另按 `RowScope::Session` | 同一套 `Access`，扩展也要调的行写 `.with_extensions()` |
 | 后端 space | `sessions`，`default_space()` | `register` 里的 `SpaceDecl` |
 | 界面 space | 两个 `space` 注册，owner 是扩展 id `harnix-app`；项目 space 写 `sessions: "sessions"` | `r.register('space', …)`（[Harnix 扩展](harnix-ext.md)的前端一节） |

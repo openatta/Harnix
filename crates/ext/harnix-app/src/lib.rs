@@ -13,6 +13,7 @@
 
 mod export;
 mod files;
+mod import;
 mod store;
 mod workspaces;
 
@@ -50,6 +51,8 @@ pub(crate) struct App {
     /// Where projects live: what the picker opens on, and what "new project" creates into. A
     /// default, not a boundary — the fence is `$HOME` or this root.
     projects_root: PathBuf,
+    /// Bundle uploads granted and not yet imported.
+    grants: import::Grants,
 }
 
 #[async_trait::async_trait]
@@ -59,7 +62,7 @@ impl Extension for HarnixApp {
     fn manifest(&self) -> Manifest {
         Manifest::new(ID, env!("CARGO_PKG_VERSION"))
             .title("Harnix")
-            .disclosure("会话 space：工作区、会话的归档、视图偏好、跨会话搜索、目录选择、文件引用、导出")
+            .disclosure("会话 space：工作区、会话的归档、视图偏好、跨会话搜索、目录选择、文件引用、导出与导入")
             .requires([caps::TRANSCRIPTS_READ, caps::ENGINE_EXPORT])
     }
 
@@ -74,6 +77,15 @@ impl Extension for HarnixApp {
         r.method("workspaces.remove").access(open()).raw(|c, p| with(c, |a, _| async move { a.workspaces_remove(p).await }));
         r.method("sessions.archive").access(session()).raw(|c, p| with(c, |a, c| async move { a.session_archive(&c, p).await }));
         r.method("sessions.export").access(session()).raw(export::session_export);
+        let space = || Access::device().scoped(RowScope::Space);
+        r.method("sessions.importUpload")
+            .access(space())
+            .describe("a one-shot URL to send a session bundle's .zip to")
+            .raw(|c, p| with(c, |a, c| async move { a.import_upload(&c, &p) }));
+        r.method("sessions.import")
+            .access(space())
+            .describe("install the uploaded session bundle as new sessions in the space")
+            .raw(|c, p| with(c, |a, c| async move { a.import(&c, p).await }));
         r.method("prefs.set").access(open()).raw(|c, p| with(c, |a, _| async move { a.prefs_set(p).await }));
         r.method("search").access(open()).raw(|c, p| with(c, |a, c| async move { a.search(&c, p).await }));
         r.method("files").access(open()).raw(|c, p| with(c, |a, _| async move { a.files(p).await }));
@@ -88,7 +100,7 @@ impl Extension for HarnixApp {
 
     async fn start(&self, cx: ExtensionContext) -> anyhow::Result<()> {
         let store = Store::open(cx.data_dir().to_path_buf())?;
-        cx.provide(App { store: Mutex::new(store), projects_root: cx.projects_dir().to_path_buf() });
+        cx.provide(App { store: Mutex::new(store), projects_root: cx.projects_dir().to_path_buf(), grants: Default::default() });
         Ok(())
     }
 }

@@ -946,7 +946,7 @@ pub trait Extension: Send + Sync + 'static {
 | `engine.control` | 改任何会话的内部：`stopTask`、`messageTask`、`dropMessages`、`editMessage`、`compact`、`clear`、`setModel`、`rename`、`setGoal`、`updateGoal` | ✔ | | system、flow |
 | `engine.config.read` / `engine.config.write` | 读 / 写引擎设置与 provider；后者含 `engine.config.reload`、`harnix.instances.inheritProviders`、宿主服务 `SettingsTiers`（§17.8） | ✔ | | settings、packages（写，可选） |
 | `engine.plugins` | Agix 插件的装、卸、启停、重读；往实例里放 skill | ✔ | | plugins、packages |
-| `engine.export` | `engine.session.export` | ✔ | | harnix-app |
+| `engine.export` | `engine.session.export`、`harnix.session.import` | ✔ | | harnix-app |
 | `engine.mcp` | `engine.mcp.addServer` | ✔ | | — |
 | `recordings.read` · `transcripts.read` | 录像与用量的读者 · 转录的读者；都经引擎的协议读（`session.calls`、`call`、`callBlob`、`search`），每台实例各有一套，实例连不上读者返回 `Unavailable` | ✔ | | observability · harnix-app |
 | `process.observe` | 版本、运行时长、内存、线程、已连接的客户端 | ✔ | | system |
@@ -1230,7 +1230,7 @@ cookie。一帧最大 16 MiB（`MAX_FRAME_BYTES`），一次上传最大 32 MiB�
 | 　 | `engine.session.export` · `engine.config.get / getProvider` · `engine.config.set / setProvider / update / reload` · `engine.plugin.install / uninstall / enable / disable / reload` · `engine.mcp.addServer` | `engine.export` · `engine.config.read` · `engine.config.write`（设备永远不能） · `engine.plugins` · `engine.mcp` |
 | 　 | `engine.import.*` | 只有内核 |
 | 　 | `engine.session.run_turn / subscribe / unsubscribe`、`engine.daemon.subscribeEvents / shutdown` | **中枢独占**：谁都不能、不能授予 |
-| `harnix-app` | `harnix-app.workspaces.*`、`.prefs.set`、`.projects.create`、`.recentProjects`、`.listDirectory`、`.files`、`.search`、`.sessions.archive`、`.sessions.export {instance?, session_id, space?, format: markdown \| archive \| bundle, recording?}`（答 `{format, file, content}`：markdown 是可读的对话；archive 是引擎打的 zip（`encoding: "base64"`，另带 `bytes`、`sessions`、`attachments`、`recording`、`warnings`）；bundle 是 Harnix 拼的 JSON；超过一帧时拒绝）、`harnix-app.describe`（项目目录等） | 设备 |
+| `harnix-app` | `harnix-app.workspaces.*`、`.prefs.set`、`.projects.create`、`.recentProjects`、`.listDirectory`、`.files`、`.search`、`.sessions.archive`、`.sessions.importUpload {name}`（一次性上传凭据，答 `{token, url, max_bytes}`；页面把 zip 送到 `url`，走大负载旁路）、`.sessions.import {token, space?, project_root?}`（把上传的数据包装成新会话，答引擎的 `{root_session_id, id_map, sessions, warnings}` 加 `instance`、`space`；包里的项目这台机器上没有就装成无项目会话并在 `warnings` 里说）、`.sessions.export {instance?, session_id, space?, format: markdown \| archive \| bundle, recording?}`（答 `{format, file, content}`：markdown 是可读的对话；archive 是引擎打的 zip（`encoding: "base64"`，另带 `bytes`、`sessions`、`attachments`、`recording`、`warnings`）；bundle 是 Harnix 拼的 JSON；超过一帧时拒绝）、`harnix-app.describe`（项目目录等） | 设备 |
 | `system` | `system.context / messages.drop / messages.edit / tasks.stop / tasks.message / tasks.output / compact / clear / rename / model / goal / goal.set / goal.update`、`system.instances.stop / restart / create / templates`（面板列全部模板）、`system.process`（版本、运行时长、峰值内存、`threads`、已连接用户） | 设备 |
 | `observability` | `observability.trace`、`.trace.call {index}`、`.turns`、`.usage {instance?, session_ids}`（一次至多 200 个会话）、`.calls {instance?, session_id}` | 设备 |
 | `settings`、`plugins`、`devices` | `settings.*`（`setProvider` 的返回多一个 `reloaded_instances`）、`plugins.*`、`devices.*` | 设备 |

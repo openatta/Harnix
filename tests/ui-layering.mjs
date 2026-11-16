@@ -44,8 +44,8 @@ function code(text) {
 }
 
 // `import … from "x"`, `export … from "x"`, `import "x"` and `import("x")`: not any `from` or
-// `import(` that happens to sit before a string (`t("packages.from", …`).
-const IMPORT = /\b(?:(?:import|export)\b[^;"'`]*?\bfrom\s*|import\s*\(?\s*)["']([^"']+)["']/g;
+// `import(` that happens to sit before a string (`t("packages.from", …`), or a name that ends in `import` (`"harnix-app.sessions.import"`).
+const IMPORT = /(?<![\w.-])(?:(?:import|export)\b[^;"'`]*?\bfrom\s*|import\s*\(?\s*)["']([^"']+)["']/g;
 
 const imports = (text) =>
   [...text.matchAll(IMPORT)].map((m) => m[1]).filter((spec) => !spec.startsWith("."));

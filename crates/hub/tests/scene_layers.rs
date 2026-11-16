@@ -165,6 +165,12 @@ impl EngineOps for FakeLink {
         Ok(match method {
             "engine.scene.list" => json!({"scenes": [{"scene": "harnix", "name": "Harnix", "description": "the main one", "active": true, "sessions": 1, "requires_project": false}]}),
             "engine.scene.describe" | "engine.scene.activate" => json!({"scene": params["scene"], "name": "Harnix", "active": true, "capabilities": {"requires_project": false}}),
+            "engine.session.import" => {
+                if params["path"] == "/gone.zip" && params.get("project_root").is_none() {
+                    return Err(RpcError::invalid_params("project_root `/nowhere` does not exist; pass one"));
+                }
+                json!({"root_session_id": "i1", "sessions": [{"session_id": "i1", "kind": "primary"}, {"session_id": "i2", "kind": "sidechain"}], "warnings": []})
+            }
             "engine.session.list" => json!({"sessions": [described("s1"), described("s2")]}),
             _ => described(params["session_id"].as_str().unwrap_or("?")),
         })
@@ -341,4 +347,32 @@ async fn a_layer_is_listed_described_and_activated_as_its_base() {
     assert_eq!(sent.1, json!({"scene": "harnix"}), "the engine is asked of the base");
     let described = rig.call("engine.scene.describe", json!({"scene": "strict"})).await.unwrap();
     assert_eq!(described["capabilities"]["requires_project"], true);
+}
+
+#[tokio::test]
+async fn an_imported_bundle_lands_in_the_claimed_space() {
+    let rig = Rig::new().await;
+    let done = rig.call("harnix.session.import", json!({"path": "/b.zip", "space": "lab"})).await.unwrap();
+    assert_eq!((&done["root_session_id"], &done["space"]), (&json!("i1"), &json!("lab")));
+    let passed = rig.link.passed.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(passed.0, "engine.session.import");
+    assert_eq!(passed.1, json!({"path": "/b.zip"}), "nothing but the path and what the caller gave");
+    // The sub-agent's session is the root's space's too.
+    for sid in ["i1", "i2"] {
+        assert!(rig.call("engine.session.get", json!({"session_id": sid, "space": "lab"})).await.is_ok(), "{sid}");
+    }
+    assert_eq!(rig.call("harnix.session.import", json!({"space": "lab"})).await.unwrap_err().code, -32602);
+}
+
+#[tokio::test]
+async fn a_bundle_whose_project_is_gone_is_imported_with_none() {
+    let rig = Rig::new().await;
+    let done = rig.call("harnix.session.import", json!({"path": "/gone.zip"})).await.unwrap();
+    assert_eq!(done["root_session_id"], "i1");
+    assert_eq!(done["warnings"].as_array().map(Vec::len), Some(1));
+    let passed = rig.link.passed.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(passed.1, json!({"path": "/gone.zip", "project_root": null}));
+    // One the caller named a project for is not retried: its refusal stands.
+    let refused = rig.call("harnix.session.import", json!({"path": "/gone.zip", "project_root": "/x"})).await;
+    assert!(refused.is_ok(), "the fake accepts a named project");
 }

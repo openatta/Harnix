@@ -65,6 +65,8 @@
       "harnix-app.search",
       "harnix-app.sessions.archive",
       "harnix-app.sessions.export",
+      "harnix-app.sessions.import",
+      "harnix-app.sessions.importUpload",
       "harnix-app.workspaces.create",
       "harnix-app.workspaces.list",
       "harnix-app.workspaces.remove",
