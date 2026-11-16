@@ -234,9 +234,9 @@ Harnix 本身是**框架 + 第一方扩展**：Harnix app（会话 space、项�
 
 | 层 | crate | 管什么 | 模式 1 | 模式 2 | 模式 3 |
 |---|---|---|---|---|---|
-| 骨架 | `harnix-contract`、`harnix-kernel`、`harnix-authz`、`harnix-router`、`harnix-transport`、`harnix-hub`、`harnix-instance`、`harnix-engine-api`、`harnix-engine`、`harnix-supervise`、`harnix-assembly` | 协议、内部接口、准入、路由表、传输、中枢、实例登记表、Agix 接缝、子进程看护、装配与扩展宿主 | ✔ | ✔ | ✔（产品侧） |
+| 骨架 | `harnix-contract`、`harnix-kernel`、`harnix-authz`、`harnix-router`、`harnix-transport`、`harnix-hub`、`harnix-instance`、`harnix-engine-api`、`harnix-engine-link`、`harnix-engine`、`harnix-supervise`、`harnix-assembly` | 协议、内部接口、准入、路由表、传输、中枢、实例登记表、引擎词汇（扩展的一半 S1、骨架的一半 S3）、Agix 接缝、子进程看护、装配与扩展宿主 | ✔ | ✔ | ✔（产品侧） |
 | 扩展接口 | `harnix-ext`；门面 `harnix` | 扩展接口（S1）；`harnix::ext`、`harnix::engine`、`App`、`first_party`、`carriers` | ✔ | ✔ | ✔ |
-| 第一方扩展 | `harnix-ext-{system,harnix-app,settings,plugins,observability,devices,flow}` | 各一个原生扩展，只依赖 `harnix-ext` | ✔ | ✔ | ✔ |
+| 第一方扩展 | `harnix-ext-{system,harnix-app,settings,plugins,observability,devices,flow}` | 各一个原生扩展，只依赖 `harnix-ext`（`settings` 过渡期另依赖 `harnix-host-api`，见 harnix-ext.md §17.8） | ✔ | ✔ | ✔ |
 | 宿主组件接口 | `harnix-host-api` | 运行期登记、拉起扩展进程、收养（S3，凭 `extensions.manage`） | | ✔ | ✔ |
 | 扩展包的管理 | `harnix-ext-packages` | 安装记录与同意、商店、升级与回滚、按名字选载体、把包登记成扩展 | | ✔ | ✔ |
 | 载体 | `harnix-carrier-wasm` · `harnix-carrier-proc` | 模式 2 的载体 · 模式 3 载体的产品侧（拉起、复核、扩展线的产品一端、`proc.<id>` 的收养） | | ✔ · | · ✔ |

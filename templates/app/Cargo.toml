@@ -28,6 +28,7 @@ harnix-client    = { path = "harnix/crates/client" }
 harnix-contract  = { path = "harnix/crates/contract" }
 harnix-engine    = { path = "harnix/crates/engine" }
 harnix-engine-api = { path = "harnix/crates/engine-api" }
+harnix-engine-link = { path = "harnix/crates/engine-link" }
 harnix-ext       = { path = "harnix/crates/ext/api" }
 harnix-ext-devices = { path = "harnix/crates/ext/devices" }
 harnix-ext-flow    = { path = "harnix/crates/ext/flow" }
