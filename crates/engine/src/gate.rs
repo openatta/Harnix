@@ -139,4 +139,12 @@ impl EngineOps for GatedOps {
         self.awake().await?;
         self.agix.live_turns(session).await
     }
+    async fn session_skills(&self, session: &str) -> Answer<harnix_contract::wire::SessionSkills> {
+        self.awake().await?;
+        self.agix.session_skills(session).await
+    }
+    async fn settings_hooks(&self, session: &str) -> Answer<harnix_contract::wire::SessionHooks> {
+        self.awake().await?;
+        self.agix.settings_hooks(session).await
+    }
 }
