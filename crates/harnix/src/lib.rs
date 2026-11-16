@@ -108,7 +108,7 @@ pub mod first_party {
     /// product's to configure and add ([`standard_with_flow`]).
     pub fn standard() -> ExtensionSet {
         ExtensionSet::new()
-            .with(HarnixApp, [caps::TRANSCRIPTS_READ, caps::ENGINE_EXPORT])
+            .with(HarnixApp, [caps::TRANSCRIPTS_READ, caps::ENGINE_EXPORT, caps::ENGINE_CONTROL])
             .with(
                 System,
                 [caps::INSTANCES_ADMIN, caps::ENGINE_INSPECT, caps::ENGINE_CONTROL, caps::PROCESS_OBSERVE],

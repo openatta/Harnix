@@ -725,7 +725,7 @@ fn main() -> anyhow::Result<()> {
 |---|---|---|---|---|
 | `instances.admin` | 停、重启任何不属于内核的实例；按任何模板建实例、列出全部模板 | ✔ | | system |
 | `engine.inspect` | 读**任何**会话的内部：上下文、任务、任务输出、目标、历史 | ✔ | | system、flow |
-| `engine.control` | 改任何会话的内部：任务、消息、压缩、清空、模型、名字、目标 | ✔ | | system、flow（给它开的会话改名） |
+| `engine.control` | 改任何会话的内部：任务、消息、压缩、清空、模型、名字、目标；读、改项目的信任 | ✔ | | system、flow（给它开的会话改名）、harnix-app（项目信任，可选） |
 | `engine.config.read` / `engine.config.write` | 读 / 写引擎设置与 provider；后者含重读设置、交给继承 provider 的实例 | ✔ | | settings · settings |
 | `engine.plugins` | Agix 插件的装、卸、启停、重读 | ✔ | | plugins、packages |
 | `engine.export` | 导出会话 | ✔ | | harnix-app |
