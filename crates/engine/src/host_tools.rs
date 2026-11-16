@@ -21,7 +21,7 @@ pub(crate) async fn run(host: Arc<HostSide>, wire: Arc<dyn Wired>, tool: Arc<dyn
     // Asked again of the tool itself: a call it refuses does not run, whatever let the engine
     // make it (a permission mode, an allow rule), and nor does one it would have asked about in
     // a session nobody answers.
-    let refused = match tool.permission(&call.input) {
+    let refused = match permission(&host, &tool, &call.input) {
         Permission::Deny(why) => Some(why),
         Permission::Ask(_) if host.nobody_asks(&call.name) => Some("nobody is there to answer whether it may run".to_string()),
         _ => None,
@@ -61,6 +61,17 @@ pub(crate) async fn run(host: Arc<HostSide>, wire: Arc<dyn Wired>, tool: Arc<dyn
     // not go is the engine's to end when it times out.
     let _ = host.answer(&*wire, translate::SESSION_RESPOND_TOOL_CALL, translate::tool_answer(&call.session, &call.call_id, out)).await;
     host.done(&call.call_id);
+}
+
+/// What `tool` says of a call of `input`. A permission check that panics refuses the call: a tool
+/// whose check cannot be run does not run, and is not asked about either — a person's yes would
+/// meet the same check when the call comes. It is called on the link's reader too (`permits.rs`),
+/// which a panic must not end.
+pub(crate) fn permission(host: &HostSide, tool: &Arc<dyn Tool>, input: &serde_json::Value) -> Permission {
+    std::panic::catch_unwind(AssertUnwindSafe(|| tool.permission(input))).unwrap_or_else(|_| {
+        tracing::error!(instance = %host.instance(), tool = %tool.spec().name(), "a tool's permission check panicked; the call is refused");
+        Permission::Deny("its permission check failed; the host's log says where".into())
+    })
 }
 
 /// A call's progress, to the engine: the latest of what the tool said while one went out, so a

@@ -104,6 +104,7 @@ impl Tool for Echo {
         match input["perm"].as_str() {
             Some("deny") => Permission::Deny("not that".into()),
             Some("ask") => Permission::Ask("Really run it?".into()),
+            Some("panic") => panic!("a permission check that breaks"),
             _ => Permission::Allow,
         }
     }
@@ -145,6 +146,15 @@ impl ToolHook for Note {
     }
 }
 
+struct Panics;
+
+#[async_trait::async_trait]
+impl ToolHook for Panics {
+    async fn before(&self, _: &ToolCallFacts) -> HookDecision {
+        panic!("a hook that breaks")
+    }
+}
+
 struct Provider {
     tools: StdMutex<Vec<Arc<dyn Tool>>>,
     hooks: Vec<Arc<dyn ToolHook>>,
@@ -171,6 +181,9 @@ struct Words;
 #[async_trait::async_trait]
 impl PromptGate for Words {
     async fn inspect(&self, message: &PromptFacts) -> PromptDecision {
+        if message.content().contains("panic-word") {
+            panic!("a gate that breaks");
+        }
         if message.content().contains("blocked-word") {
             PromptDecision::Block("not that word".into())
         } else {
@@ -660,6 +673,45 @@ async fn an_ask_whose_answer_does_not_go_is_handed_to_the_person() {
     assert_eq!(fragment(&next_but_calls(&mut events).await).as_deref(), Some("after"), "the hub saw p2");
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(events.try_recv().is_err(), "the hub saw p2");
+}
+
+/// A permission check, a tool hook or a gate that panics is taken as failed — the call refused, the
+/// hook's call let through, the message blocked — and the link goes on reading.
+#[tokio::test]
+async fn a_check_that_panics_is_taken_as_failed_and_the_link_reads_on() {
+    let provider = Arc::new(Provider {
+        tools: StdMutex::new(vec![echo("echo")]),
+        hooks: vec![Arc::new(Panics), Arc::new(Note(HookDecision::AddContext("still asked".into())))],
+        changed: ToolsChanged::new(),
+    });
+    let (_link, mut fake, _taken, mut events) = ready(&provider).await;
+
+    // On the reader: the ask is refused for the tool.
+    fake.push("s1", tool_use("u1", json!({"perm": "panic"}))).await;
+    fake.push("s1", permission_ask("p1", "u1")).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND).await;
+    assert_eq!(answer["decision"], json!({"type": "deny", "reason": "its permission check failed; the host's log says where"}));
+    fake.push("s1", json!({"kind": "text_delta", "text": "after"})).await;
+    assert_eq!(fragment(&next_but_calls(&mut events).await).as_deref(), Some("after"), "the link stopped reading");
+
+    // At the call: refused, not run.
+    fake.push("s1", tool_call("c1", json!({"perm": "panic"}))).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
+    assert_eq!(answer["result"]["content"], "refused: its permission check failed; the host's log says where");
+
+    // The hook that panics lets the call through; the one after it is still asked.
+    fake.push("s1", hook_call("h1", "PreToolUse", bash())).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_HOOK).await;
+    assert_eq!((&answer["decision"], &answer["additional_context"]), (&json!("proceed"), &json!("still asked")));
+
+    // The gate that panics blocks the message.
+    let said = json!({"hook_event_name": "UserPromptSubmit", "session_id": "s1", "user_prompt": "a panic-word here", "delivery": "turn"});
+    fake.push("s1", hook_call("h2", "UserPromptSubmit", said)).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_HOOK).await;
+    assert_eq!((&answer["decision"], &answer["message"]), (&json!("block"), &json!("a check on messages failed; the host's log says where")));
+
+    fake.push("s1", json!({"kind": "text_delta", "text": "still"})).await;
+    assert_eq!(fragment(&next_but_calls(&mut events).await).as_deref(), Some("still"));
 }
 
 /// A tool that asks has its ask handed to the person, with its own question beside the engine's.

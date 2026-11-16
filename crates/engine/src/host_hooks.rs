@@ -5,8 +5,10 @@
 //! also sees calls that are refused after. What a hook adds reaches the model as a reminder before
 //! its next step, once the call is let through.
 
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
+use futures::FutureExt as _;
 use harnix_engine_api::{Cancel, HookDecision, PromptDecision, PromptFacts, ToolCallFacts};
 
 use crate::host::{HostSide, Wired};
@@ -35,14 +37,21 @@ async fn before_tool(host: &HostSide, call: &HostHookCall, cancel: &Cancel) -> H
         .with_session(session.as_deref().unwrap_or(&call.session), call.agent_session.is_some() as u32)
         .with_cwd(cwd.unwrap_or_default());
     let mut notes = Vec::new();
-    for hook in host.providers().iter().flat_map(|p| p.hooks()) {
-        match hook.before(&facts).await {
-            HookDecision::Block(why) => return HookVerdict::Block(why),
-            HookDecision::AddContext(note) if !note.trim().is_empty() => notes.push(note.trim().to_string()),
-            _ => {}
-        }
-        if cancel.is_cancelled() {
-            return HookVerdict::Proceed { context: None };
+    for provider in host.providers() {
+        for hook in provider.hooks() {
+            // One that panics is taken as failed, which lets the call through (`on_error: allow`).
+            let decision = AssertUnwindSafe(hook.before(&facts)).catch_unwind().await.unwrap_or_else(|_| {
+                tracing::error!(instance = %host.instance(), extension = provider.name(), %tool, "a tool hook panicked; taken as failed, the call let through");
+                HookDecision::Proceed
+            });
+            match decision {
+                HookDecision::Block(why) => return HookVerdict::Block(why),
+                HookDecision::AddContext(note) if !note.trim().is_empty() => notes.push(note.trim().to_string()),
+                _ => {}
+            }
+            if cancel.is_cancelled() {
+                return HookVerdict::Proceed { context: None };
+            }
         }
     }
     HookVerdict::Proceed { context: joined(notes) }
@@ -51,8 +60,14 @@ async fn before_tool(host: &HostSide, call: &HostHookCall, cancel: &Cancel) -> H
 async fn on_message(host: &HostSide, call: &HostHookCall) -> HookVerdict {
     let (content, delivery, session) = translate::user_prompt(&call.input);
     let facts = PromptFacts::new(session.as_deref().unwrap_or(&call.session), call.turn_id.as_deref().unwrap_or(""), &content, delivery);
-    for gate in host.gates() {
-        if let PromptDecision::Block(message) = gate.inspect(&facts).await {
+    for (n, gate) in host.gates().iter().enumerate() {
+        // One that panics is taken as failed, which blocks the message (`on_error: block`). A gate
+        // has no name of its own: it is told by its place.
+        let decision = AssertUnwindSafe(gate.inspect(&facts)).catch_unwind().await.unwrap_or_else(|_| {
+            tracing::error!(instance = %host.instance(), gate = n, session = facts.session_id(), "a prompt gate panicked; taken as failed, the message blocked");
+            PromptDecision::Block("a check on messages failed; the host's log says where".into())
+        });
+        if let PromptDecision::Block(message) = decision {
             return HookVerdict::Block(message);
         }
     }

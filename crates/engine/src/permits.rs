@@ -146,7 +146,7 @@ impl HostSide {
         wire: &Arc<dyn Wired>,
         events: &mpsc::Sender<EngineEvent>,
     ) -> Judged {
-        let decision = match tool.permission(input) {
+        let decision = match crate::host_tools::permission(self, tool, input) {
             Permission::Allow => Ok(()),
             Permission::Deny(why) => Err(why),
             Permission::Ask(question) => {
