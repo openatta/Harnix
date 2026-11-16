@@ -9,7 +9,7 @@
 
 import { Fragment, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { errorText } from "@harnix/core";
-import { Contributed, FieldForm, Glyph, SettingsReload, SettingsRow, SettingsSection, SettingsValue, localFieldStore, localeChoice, setLocale, t, useRegistry, useT, type LocaleChoice, type SettingsNeed } from "@harnix/react";
+import { Contributed, DISPLAY_DEFAULTS, FONT_SIZE_RANGE, FieldForm, Glyph, SettingsReload, SettingsRow, SettingsSection, SettingsValue, display, localFieldStore, localeChoice, setDisplay, setLocale, t, useRegistry, useT, type Display, type LocalField, type LocaleChoice, type SettingsNeed } from "@harnix/react";
 
 import type { App, ThemeChoice } from "./app.ts";
 import { APPS_LIST } from "./constants.ts";
@@ -128,12 +128,50 @@ function preferences(app: App) {
   );
 }
 
+/** A display preference: kept by the display module, which the chat components read. */
+function shown<K extends keyof Display>(key: K, rest: Omit<LocalField, "key" | "get" | "set" | "default">): LocalField {
+  return {
+    key,
+    default: DISPLAY_DEFAULTS[key],
+    get: () => display()[key],
+    set: (value: unknown) => setDisplay({ [key]: value } as Partial<Display>),
+    ...rest,
+  };
+}
+
+const options = (prefix: string, ids: string[]) => ({
+  options: ids,
+  optionLabels: Object.fromEntries(ids.map((id) => [id, `${prefix}.${id}`])),
+});
+
+/**
+ * How this browser draws the conversation, as rows of their own like the preferences above.
+ */
+function displayPreferences() {
+  return localFieldStore(
+    [
+      // general & display
+      shown("fontSize", { type: "number", label: "settings.display.fontSize", hint: "settings.display.fontSizeHint", ...FONT_SIZE_RANGE }),
+      shown("fontBody", { type: "text", label: "settings.display.fontBody", hint: "settings.display.fontHint" }),
+      shown("fontCode", { type: "text", label: "settings.display.fontCode", hint: "settings.display.fontHint" }),
+      shown("toolsOpen", { type: "toggle", label: "settings.display.toolsOpen", hint: "settings.display.toolsOpenHint" }),
+      shown("thinkingFolded", { type: "toggle", label: "settings.display.thinkingFolded", hint: "settings.display.thinkingFoldedHint" }),
+      shown("usage", { type: "select", label: "settings.display.usage", hint: "settings.display.usageHint", ...options("settings.display.usage", ["none", "compact", "full"]) }),
+      shown("links", { type: "select", label: "settings.display.links", hint: "settings.display.linksHint", ...options("settings.display.links", ["same", "new", "ask"]) }),
+      shown("enter", { type: "select", label: "settings.display.enter", hint: "settings.display.enterHint", ...options("settings.display.enter", ["queue", "steer"]) }),
+    ],
+    { prefix: "harnix.pref.display." },
+  );
+}
+
 function General({ app }: { app: App }) {
   const t = useT();
   const [store] = useState(() => preferences(app));
+  const [shownStore] = useState(displayPreferences);
   return (
     <>
       <FieldForm title={t("settings.appearance")} store={store} />
+      <FieldForm title={t("settings.display")} store={shownStore} />
       <PackagesMark app={app} />
     </>
   );

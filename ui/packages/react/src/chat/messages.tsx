@@ -17,6 +17,7 @@
 
 import { memo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { useStrings } from "../context";
+import { useDisplay } from "../display";
 import { markdown } from "../markdown";
 import type { BlockOf, ToolStatus } from "@harnix/core/state";
 import { ToolDetails, toolDuration, useToolState } from "../components/blocks";
@@ -228,7 +229,8 @@ export const TranscriptText = memo(function TranscriptText({ block, extras }: { 
 export const ThinkRow = memo(function ThinkRow({ block }: { block: BlockOf<"think"> }) {
   const strings = useStrings();
   const { untrusted } = useChat();
-  const [open, setOpen] = useState(false);
+  // Folded when first drawn unless the display preferences say otherwise.
+  const [open, setOpen] = useState(!useDisplay().thinkingFolded);
   const seconds =
     block.startedAt != null && block.endedAt != null ? Math.max(1, Math.round((block.endedAt - block.startedAt) / 1000)) : null;
   const label = block.streaming ? strings.thinkingLive : seconds != null ? strings.thoughtFor(seconds) : strings.thinking;
@@ -360,10 +362,12 @@ const BULLET: Record<ToolStatus, string> = { ok: "ok", running: "run", error: "x
 export const TranscriptToolRow = memo(function TranscriptToolRow({ block }: { block: BlockOf<"tool"> }) {
   const strings = useStrings();
   const { toolNames, diffsCollapsed, diffGeneration, toolSummary: domainSummary } = useChat();
+  const { toolsOpen } = useDisplay();
   const { state, tail } = useToolState(block);
   const [local, setLocal] = useState<{ generation: number; open: boolean } | null>(null);
   const edit = editOf(block);
-  const fallback = edit ? !diffsCollapsed : false;
+  // A diff opens unless they were all folded; any other tool's details as the display preferences say.
+  const fallback = edit ? !diffsCollapsed : toolsOpen;
   const open = local && local.generation === diffGeneration ? local.open : fallback;
   const can = block.status !== "running" && (edit != null || block.input !== undefined || block.result != null);
   const toggle = () => setLocal({ generation: diffGeneration, open: !open });

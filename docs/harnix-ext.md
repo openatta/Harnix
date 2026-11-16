@@ -1349,7 +1349,7 @@ r.register("settings.section", {
 }, owner);
 ```
 
-`type` 是 `toggle`、`select`（`options`）、`number`（`min`、`max`）、`text`、`secret`（只写不读）、`list`、`rules`（`columns`）；
+`type` 是 `toggle`、`select`（`options`）、`number`（`min`、`max`）、`text`、`secret`（只写不读）、`list`、`rules`（`columns`）、`json`（只显示，不写；`writable` 为空）；
 `risk: {values?, message}` 让这些值先确认。引擎设置的字段由后端 `settings` 扩展的字段表声明，`settings.describe` 发给界面，
 `settings.write {tier, changes, revision?}` 整份校验、按版本号拒绝过期的写入（`CONFLICT`）。
 

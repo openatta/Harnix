@@ -6,6 +6,8 @@
  * and writes through the store, confirming a risky value first and, when the store says the
  * values changed since they were read, offering to keep the change and look again.
  *
+ * A `json` field is shown and not written: where its value stands and which file to edit.
+ *
  * Two stores so far: the engine's settings (the `settings` extension's `describe` and `write`,
  * tiered) and this browser's own preferences ([`localFieldStore`], untiered). A `settings.section`
  * may declare `fields` (and a `store`) instead of drawing itself.
@@ -17,7 +19,7 @@ import { CONFLICT, errorText } from "@harnix/core";
 import { useT, type Translate } from "./i18n/index";
 import { SettingsRow, useSettingsVersion } from "./settings";
 
-export type FieldType = "toggle" | "select" | "number" | "text" | "secret" | "list" | "rules";
+export type FieldType = "toggle" | "select" | "number" | "text" | "secret" | "list" | "rules" | "json";
 
 /** A column of a `rules` field: text that is not blank, or one of its options. */
 export interface FieldColumn {
@@ -104,6 +106,8 @@ export function checkField(field: FieldDecl, value: unknown): { key: string; var
       return text(value) ? null : { key: "settings.invalid.text" };
     case "list":
       return Array.isArray(value) && value.every(text) ? null : { key: "settings.invalid.list" };
+    case "json":
+      return { key: "settings.invalid.readonly" };
     case "rules": {
       if (!Array.isArray(value)) return { key: "settings.invalid.rules", vars: { row: 1 } };
       const columns = field.columns ?? [];
@@ -501,6 +505,7 @@ function shown(t: Translate, field: FieldDecl, value: unknown): string {
   if (field.type === "toggle") return value ? t("settings.on") : t("settings.off");
   if (field.type === "select" && typeof value === "string") return optionName(t, field, value);
   if (Array.isArray(value)) return field.type === "rules" ? t("settings.rulesCount", { count: value.length }) : value.join(", ");
+  if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
 
@@ -537,6 +542,8 @@ function Control({ field, value, disabled, commit }: { field: FieldState; value:
       return <SecretControl testId={testId} value={value} disabled={disabled} commit={commit} />;
     case "list":
       return <ListControl key={JSON.stringify(value ?? null)} testId={testId} value={value} disabled={disabled} commit={commit} />;
+    case "json":
+      return <code data-testid={testId}>{value === null || value === undefined ? t("common.none") : JSON.stringify(value)}</code>;
     case "rules":
       return <RulesControl key={JSON.stringify(value ?? null)} testId={testId} field={field} value={value} disabled={disabled} commit={commit} />;
   }

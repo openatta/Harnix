@@ -216,6 +216,8 @@ fn field_view(field: &fields::Field, mut per_tier: Map<String, Value>, engine: O
     let invalid: Map<String, Value> = per_tier
         .iter()
         .filter(|(_, value)| !value.is_null())
+        // A value shown and not written has nothing to be wrong about.
+        .filter(|_| !matches!(field.ty, Type::Json | Type::Counts))
         .filter_map(|(tier, value)| fields::check(field.ty, value).err().map(|why| (tier.clone(), json!(why))))
         .collect();
     let written = TIERS
@@ -229,11 +231,9 @@ fn field_view(field: &fields::Field, mut per_tier: Map<String, Value>, engine: O
     };
     let project = per_tier.get("project").filter(|value| !value.is_null());
     let withheld = engine.is_some() && project.is_some_and(|value| *value != effective);
-    if field.ty == Type::Secret {
-        effective = fields::redact(&effective);
-        for value in per_tier.values_mut() {
-            *value = fields::redact(value);
-        }
+    effective = fields::shown(field.ty, &effective);
+    for value in per_tier.values_mut() {
+        *value = fields::shown(field.ty, value);
     }
     let mut view = fields::declaration(field);
     view.insert("effective".into(), effective);
@@ -619,6 +619,27 @@ mod tests {
         assert_eq!(view["type"], json!("number"));
         assert!(view["invalid"]["scene"].as_str().unwrap().contains("whole number"));
         assert!(view["invalid"].get("global").is_none());
+    }
+
+    #[test]
+    fn an_advanced_value_is_shown_with_its_source_and_nothing_is_wrong_with_it() {
+        let field = fields::find("hooks_config").unwrap();
+        let mut tiers = Map::new();
+        tiers.insert("global".into(), json!({"PreToolUse": [{"type": "command", "command": "secret-tool"}]}));
+        tiers.insert("scene".into(), Value::Null);
+        tiers.insert("project".into(), Value::Null);
+        let view = field_view(field, tiers, Some(&json!({"PreToolUse": [{"type": "command", "command": "secret-tool"}]})));
+        assert_eq!((&view["effective"], &view["source"]), (&json!({"PreToolUse": 1}), &json!("global")));
+        assert!(view.get("invalid").is_none());
+        assert!(!view.to_string().contains("secret-tool"));
+        // Not written from the page, whatever tier is asked.
+        let mut changes = Map::new();
+        changes.insert("team".into(), json!({"enabled": true}));
+        assert!(check_changes("global", &changes).is_err());
+        changes.clear();
+        changes.insert("telemetry_enabled".into(), json!(true));
+        assert!(check_changes("global", &changes).is_ok());
+        assert!(check_changes("project", &changes).is_err(), "a project has no say in telemetry");
     }
 
     #[test]

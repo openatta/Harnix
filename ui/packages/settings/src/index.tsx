@@ -12,7 +12,7 @@
 
 import { useState, type ReactNode } from "react";
 import { errorText, type Hello } from "@harnix/core";
-import { FieldForm, Glyph, SettingsRow, SettingsSection, SettingsValue, t, useHello, useSettingsReload, useT, type FieldDoc, type FieldStore, type HostApi, type Registry, type SettingsNeed } from "@harnix/react";
+import { FieldForm, Glyph, SettingsRow, SettingsSection, SettingsValue, onLocaleChoice, t, useHello, useSettingsReload, useT, type FieldDoc, type FieldStore, type HostApi, type Registry, type LocaleChoice, type SettingsNeed } from "@harnix/react";
 
 /** The backend extension this is the interface of. */
 export const extension = "settings";
@@ -26,6 +26,25 @@ export function register(r: Registry, host: HostApi): void {
   // Where the shell sends a reader when a turn has no model to go to.
   section("models", "settings.nav.models", () => <Models host={host} />, ["models"]);
   section("mcp", "settings.nav.mcp", () => <Mcp host={host} />);
+  // privacy & advanced
+  section("privacy", "settings.nav.privacy", () => <Privacy host={host} />);
+  section("advanced", "settings.nav.advanced", () => <Advanced host={host} />);
+  followLanguage(host);
+}
+
+let unfollow: (() => void) | null = null;
+
+/**
+ * The language chosen in the shell's general section is the engine's too (`language`, the global
+ * tier): what it answers in follows what the interface speaks. `auto` gives the setting back.
+ */
+function followLanguage(host: HostApi): void {
+  unfollow?.();
+  unfollow = onLocaleChoice((choice: LocaleChoice) => {
+    host
+      .call("settings.write", { tier: "global", changes: { language: choice === "auto" ? null : choice } })
+      .catch((e: unknown) => host.shell.notice(t("settings.writeFailed", { error: errorText(e) }), "error"));
+  });
 }
 
 /* ── pieces ───────────────────────────────────────────────────────────── */
@@ -69,13 +88,46 @@ export function engineStore(host: HostApi, request: { scene?: string; project_ro
   };
 }
 
-/** The engine's fields of one section, with the tier they are written to. */
-function EngineSettings({ host, section }: { host: HostApi; section: string }) {
+/** The settings file of each tier, and a way to it: the path to copy, to open where the person's
+ *  own editor and file manager are. Nothing here reveals a file itself. */
+function SettingsFiles({ paths, name }: { paths: Record<string, string | null | undefined>; name: (tier: string) => string }) {
+  const t = useT();
+  const [copied, setCopied] = useState<string | null>(null);
+  const copy = (id: string, path: string) => {
+    const clip = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+    if (!clip) return;
+    clip.writeText(path).then(
+      () => {
+        setCopied(id);
+        setTimeout(() => setCopied((now) => (now === id ? null : now)), 1200);
+      },
+      () => undefined,
+    );
+  };
+  return (
+    <>
+      {(["global", "scene", "project"] as const)
+        .filter((id) => paths[id])
+        .map((id) => (
+          <SettingsRow key={id} setting={`file-${id}`} label={t("settings.file", { tier: name(id) })} hint={<code data-testid={`settings-file-${id}`}>{paths[id]}</code>}>
+            <button type="button" className="btn sm outline" data-testid={`settings-file-copy-${id}`} onClick={() => copy(id, paths[id]!)}>
+              {copied === id ? t("settings.fileCopied") : t("settings.fileCopy")}
+            </button>
+          </SettingsRow>
+        ))}
+    </>
+  );
+}
+
+/** The engine's fields of one section, with the tier they are written to. `only` fixes the tier:
+ *  what the section's fields are written in, for fields only one tier may have. */
+function EngineSettings({ host, section, only }: { host: HostApi; section: string; only?: string }) {
   const t = useT();
   const reload = useSettingsReload();
   const hello = useHello();
   const request = where(host, hello);
-  const [selected, setSelected] = useState(tier);
+  const [chosen, setSelected] = useState(tier);
+  const selected = only ?? chosen;
   const name = (id: string) => t(`settings.tier.${id}`, { scene: request.scene });
   return (
     <FieldForm<Described>
@@ -88,17 +140,22 @@ function EngineSettings({ host, section }: { host: HostApi; section: string }) {
         const paths = data.paths ?? {};
         const tiers = (["global", "scene", "project"] as const).filter((id) => paths[id]).map((id) => [id, name(id)] as [string, string]);
         return (
-          <SettingsRow label={t("settings.tier")} hint={paths[selected] ?? ""}>
-            <Select
-              testId="settings-tier"
-              options={tiers}
-              value={selected}
-              onChange={(value) => {
-                tier = value;
-                setSelected(value);
-              }}
-            />
-          </SettingsRow>
+          <>
+            {only ? null : (
+              <SettingsRow label={t("settings.tier")} hint={paths[selected] ?? ""}>
+                <Select
+                  testId="settings-tier"
+                  options={tiers}
+                  value={selected}
+                  onChange={(value) => {
+                    tier = value;
+                    setSelected(value);
+                  }}
+                />
+              </SettingsRow>
+            )}
+            {section === "engine" || only ? <SettingsFiles paths={only ? { [only]: paths[only] } : paths} name={name} /> : null}
+          </>
         );
       }}
       onSaved={(_, data) => {
@@ -107,6 +164,63 @@ function EngineSettings({ host, section }: { host: HostApi; section: string }) {
       }}
       onFailed={(e) => host.shell.notice(t("settings.writeFailed", { error: errorText(e) }), "error")}
     />
+  );
+}
+
+/* ── privacy & advanced ───────────────────────────────────────────────── */
+
+/** Telemetry: what is recorded and where, said plainly, then the switch (global tier only). */
+function Privacy({ host }: { host: HostApi }) {
+  const t = useT();
+  return (
+    <>
+      <h3>{t("settings.privacy")}</h3>
+      <div className="callout" data-testid="privacy-explain">
+        <Glyph name="key" className="glyph" />
+        <span>{t("settings.privacyExplain")}</span>
+      </div>
+      <EngineSettings host={host} section="privacy" only="global" />
+    </>
+  );
+}
+
+/** What the engine runs with for compaction, execution, hooks, teams and checkpoints, and which
+ *  tier says so; the file to edit is named, and nothing here writes it. */
+function Advanced({ host }: { host: HostApi }) {
+  const t = useT();
+  const hello = useHello();
+  const request = where(host, hello);
+  const name = (id: string) => t(`settings.tier.${id}`, { scene: request.scene });
+  return (
+    <SettingsSection title={t("settings.nav.advanced")} load={() => host.call<Described>("settings.describe", request)}>
+      {(data) => {
+        const paths = data.paths ?? {};
+        return (
+          <div data-testid="advanced">
+            <div className="hint">{t("settings.advancedHint")}</div>
+            {(data.fields ?? [])
+              .filter((field) => field.section === "advanced")
+              .map((field) => {
+                const value = field.effective;
+                const empty = value === null || value === undefined || (typeof value === "object" && !Object.keys(value as object).length);
+                return (
+                  <SettingsRow
+                    key={field.key}
+                    setting={field.key}
+                    label={t(field.label ?? `settings.field.${field.key}`)}
+                    hint={field.source ? t("settings.sourceTier", { tier: name(field.source) }) : t("settings.advancedDefault")}
+                  >
+                    <code data-testid={`settings-${field.key}`} data-source={field.source ?? ""}>
+                      {empty ? t("settings.advancedUnset") : JSON.stringify(value)}
+                    </code>
+                  </SettingsRow>
+                );
+              })}
+            <SettingsFiles paths={paths} name={name} />
+          </div>
+        );
+      }}
+    </SettingsSection>
   );
 }
 
