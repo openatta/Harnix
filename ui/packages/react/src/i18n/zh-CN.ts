@@ -81,6 +81,17 @@ const zhCN: Record<string, string> = {
   "secondary.restore": "还原：详情回到会话旁边",
   "details.empty": "打开一个工具调用查看它的完整输入与输出",
   "details.callId": "调用 id",
+  "app.detailsExpand": "展开右栏",
+  "app.detailsCollapse": "收起右栏",
+  "sidebar.guide": "引导",
+  "sidebar.guideHint": "这一栏能打开的页",
+  "sidebar.guideEmpty": "这里还没有可以打开的页：扩展给这一栏注册的页会列在这里。",
+  "sidebar.addTab": "打开一页…",
+  "sidebar.closeTab": "关闭 {title}",
+  "sidebar.noType": "现在没有东西画 {kind} 页签：它的扩展已关掉",
+  "sidebar.noSession": "没有打开的会话可以放它",
+  "sidebar.unclaimed": "没有页签类型认领 {address}",
+  "sidebar.noKind": "没有 kind 是 {kind} 的页签类型",
 
   // ── 请求信封 ──────────────────────────────────────────────────────────
   "request.title": "请求信封",

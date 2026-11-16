@@ -95,6 +95,30 @@ export {
   type SpaceTab,
   tabsOf,
 } from "./contrib";
+export {
+  RESOURCE_SCHEME,
+  SIDEBAR_PRIORITIES,
+  SIDEBAR_SCOPES,
+  TabInfoProvider,
+  candidates as sidebarCandidates,
+  claim as sidebarClaim,
+  effectiveTypes as sidebarTypes,
+  guideEntries as sidebarGuideEntries,
+  parseResource,
+  patternMatches,
+  priorityOf as sidebarPriorityOf,
+  resourceAddress,
+  typeOfKind as sidebarTypeOfKind,
+  useTabInfo,
+  type SidebarGuideEntry,
+  type SidebarOpenOptions,
+  type SidebarPriority,
+  type SidebarResourceOptions,
+  type SidebarScope,
+  type SidebarTabType,
+  type TabActions,
+  type TabInfo,
+} from "./sidebar";
 export { t, translate, useT, useLocale, setLocale, currentLocale, localeChoice, addStrings, DICTIONARIES, type Locale, type LocaleChoice, type Translate } from "./i18n/index";
 export type { FlowBlockContribution } from "./chat/types";
 export {

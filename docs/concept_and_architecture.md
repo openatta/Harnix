@@ -252,7 +252,7 @@ Harnix 进程
  │ UI 包           @harnix/{system,harnix-app,settings,plugins,devices,           │
  │                 packages,observability,flow} 与应用自己的；只依赖 react、core    │
  │ 扩展包的界面     隔离 iframe 里的页面，经桥（@harnix/ext-sdk）借外壳的手           │
- │ @harnix/react   注册表（9 个内核点 + 扩展定义的点）、HostApi/useHost()、i18n、令牌 │
+ │ @harnix/react   注册表（10 个内核点 + 扩展定义的点）、HostApi/useHost()、i18n、令牌 │
  │ @harnix/core    协议类型（生成）、客户端、会话状态；唯一认识 Agix 事件形状的解析层   │
  └───────────────────────────────┬──────────────────────────────────────────┘
                                  │ 五种通道语义（拓扑可选）· /ext/<id>/ 扩展的路由
@@ -985,7 +985,7 @@ IPDrun 已经有能对着 Harnix 协议跑的 React 对话组件，直接回流�
 | 包 | 依赖框架吗 | 职责 |
 |---|---|---|
 | `@harnix/core` | 否 | `/protocol`（从 `harnix-contract` **生成**的类型，漂移就失败）、`/client`（握手、拓扑与回退、追赶）、`/state`（会话事件归约、实例树、每个 space 的当前会话）。**唯一认识 Agix 事件形状的解析层** |
-| `@harnix/react` | React | 注册表（9 个内核点 + 扩展定义的点）、宿主 API `HostApi`/`useHost()`、i18n、令牌、图标、对话组件、对话框与菜单原语、不受信内容的渲染。**写界面只依赖它** |
+| `@harnix/react` | React | 注册表（10 个内核点 + 扩展定义的点）、宿主 API `HostApi`/`useHost()`、i18n、令牌、图标、对话组件、对话框与菜单原语、不受信内容的渲染。**写界面只依赖它** |
 | `@harnix/shell` | React | **外壳核心**（§5.3）。应用的入口，不被 import |
 | `@harnix/system` | React | 系统 space；定义 `system.console.tab`、`system.inspector.tab` |
 | `@harnix/harnix-app` | React | 会话 space、项目 space、新会话与添加项目的对话框、`@` 文件候选、归档与导出 |
@@ -1127,7 +1127,7 @@ space 自己的会话。这件事错一次就是把消息发进了别的产品�
 
 ### 5.6 贡献点与宿主 API
 
-**内核贡献点九个**，数量本身是设计的一部分，加第十个是一个需要论证的决定。完整目录由代码生成，见 [contribution_points.md](contribution_points.md)。
+**内核贡献点十个**，数量本身是设计的一部分，再加一个是一个需要论证的决定。完整目录由代码生成，见 [contribution_points.md](contribution_points.md)。
 
 | 贡献点 | 贡献什么 |
 |---|---|
@@ -1140,6 +1140,7 @@ space 自己的会话。这件事错一次就是把消息发进了别的产品�
 | `command` | 一条 `/` 命令或 `@` 引用的补全候选（`trigger` 选哪个菜单） |
 | `settings.section` | 设置里的一节 |
 | `session.action` | 对一个会话、或它里面一次工具调用的动作；外壳在标题栏、会话菜单、工具行上问它 |
+| `sidebar.tab` | 右栏的一种页签类型：认领 `harnix-resource://` 地址的资源页，或按 `kind` 打开的页；右栏是每个会话一个停靠面 |
 
 **这些是界面自己的接缝。** 它们存在的理由不是给第三方一个扩展面——扩展 agent 是引擎的事——而是让界面不是
 一堆 switch：于是「换一整套界面」是换一批注册，而不是改一堆分支。**频率是约束**：没有一个点跟着流式分片求值。
@@ -1148,9 +1149,13 @@ space 自己的会话。这件事错一次就是把消息发进了别的产品�
 它们是同一种东西，没有现成的点能承载；有了 `session.action`，它们由 `@harnix/system`、`@harnix/harnix-app` 注册，外壳只问。
 外壳自己的菜单项（打开、分叉、关闭、删除、改名）只用内核方法，照旧由外壳画。
 
+**第十个的理由**：右栏照 DSH 的架构做成每个会话一个停靠面之后，在里面打开的东西——文件预览、用量、流程进度、后台任务的输出——是同一种东西：
+一种认领地址、或按名字打开的页签类型，记在会话名下。`details.tabs` 是 space 的，承载不了「这个会话开着哪几页」。于是有 `sidebar.tab`，
+进右栏的每条路都走宿主 API 的 `host.sidebar`；`details.*` 与 `reveal` 原样保留，是同一条页签栏里 space 那一侧（[Harnix 扩展](harnix-ext.md) §22.7）。
+
 **扩展定义的贡献点。** 一个原生扩展的 UI 包可以定义自己的点（`r.definePoint("<自己的 id>.<名>", ..)`），别的包往里注册；后端在界面声明里写同一个点，
 进生成的目录。注册进还没定义的点先挂着，全部注册完还没人定义就丢掉并记进诊断。要「接不上就自己来」，注册时给 `orElse`：点在全部注册结束时还没定义就调它。
-`@harnix/flow` 注册进 `system.console.tab`，`orElse` 注册自己的 `flow` space——这是「挂在哪由点有没有定义决定，不按 id」。扩展定义的点不算进九个。
+`@harnix/flow` 注册进 `system.console.tab`，`orElse` 注册自己的 `flow` space——这是「挂在哪由点有没有定义决定，不按 id」。扩展定义的点不算进十个。
 
 **外壳必须真的去问。** 一个没人问的贡献点等于只存在于目录里，产品照旧自己直接画，而所有测试都还是绿的。这件
 事真的发生过一次，七个点里的五个。判据因此不是「注册了」，是「被问过」，并且由测试盯着——点的名单本身也从
@@ -1207,7 +1212,7 @@ space 自己的会话。这件事错一次就是把消息发进了别的产品�
 [[ui]]                          # 同源 ES 模块，浏览器 import
 point       = "tool.row"
 module      = "rows.js"         # 相对包里的 ui/，只在那底下解析
-api_version = 3                 # 贡献点 API，与 [plugin] api_version 是两个数
+api_version = 4                 # 贡献点 API，与 [plugin] api_version 是两个数
 ```
 
 **两个版本号，各由拥有它的一侧检查。** `[plugin] api_version` 是引擎的扩展 API，引擎校验；`[[ui]] api_version`

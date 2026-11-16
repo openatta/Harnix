@@ -582,7 +582,7 @@ r.space(SpaceDecl::new("watchlist").instance("template:helm.research").scene("re
 
 构建：模板的 `scripts/build.sh` 把 `spaces/*/ui/src/index.tsx` 自动接进去；手工怎么构建、去重了哪些包见 §22.5。
 
-`space` 只是九个内核贡献点之一：往工具行、对话流、右栏详情、左栏分组、命令菜单、设置、会话动作里加东西的是另外八个，
+`space` 只是十个内核贡献点之一：往工具行、对话流、右栏详情、右栏页签、左栏分组、命令菜单、设置、会话动作里加东西的是另外九个，
 你的扩展还能自己定义点（`<你的 id>.<名>`）。每个点的形状见 §22.3 与 [贡献点](contribution_points.md)。
 
 ### 8.3 `useHost()`
@@ -801,7 +801,7 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 |---|---|---|---|
 | Harnix 版本 | `0.4.4-2026111502` | 各 crate 的 `Cargo.toml`；`harnix::HARNIX_VERSION` | 每次发布（`scripts/set-version.sh` 连这一格一起改，`tests/crate-metadata.mjs` 查它和 crate 一致） |
 | 扩展 API | `1` | `harnix::ext::EXT_API_VERSION` | 写进文档、`--version` 打印的数，不做编译期检查：兼容靠 crate 的版本，从 0.4.4 起扩展接口只做加法（公开的结构与枚举都是 `non_exhaustive` 或只有私有字段，一个 feature 只加函数与模块）；破坏性的变化升它，也升 crate 的大版本。`harnix::ext::http::axum` 与 `harnix::axum`（feature `axum`）、`harnix::testing`（feature `testing`）不在承诺内 |
-| 贡献点 API | `3` | `harnix::CONTRIB_API_VERSION`；`harnix.hello` 里也有 | 贡献点的契约变了。2：运行期包的界面模块是预编译的 ES 模块，从页面的 import map 拿 React；**React 的大版本是它的一部分**。3：宿主 API `HostApi`/`useHost()`、第九个内核点 `session.action`、扩展自己定义的点（`definePoint`）、`space` 分组、按 `hello.extensions` 激活 |
+| 贡献点 API | `4` | `harnix::CONTRIB_API_VERSION`；`harnix.hello` 里也有 | 贡献点的契约变了。2：运行期包的界面模块是预编译的 ES 模块，从页面的 import map 拿 React；**React 的大版本是它的一部分**。3：宿主 API `HostApi`/`useHost()`、第九个内核点 `session.action`、扩展自己定义的点（`definePoint`）、`space` 分组、按 `hello.extensions` 激活。4：第十个内核点 `sidebar.tab`（右栏的页签类型）、宿主 API `host.sidebar`（导航控制器）、页签域 `useTabInfo()`；只做加法，照 3 写的模块照常 |
 | 协议 | `5` | `harnix_contract::PROTOCOL_VERSION` | 握手比对，不一致拒绝（`HANDSHAKE_REFUSED`）。5：名字规整（内核 `harnix.<区域>.<动词>`、引擎直通 `engine.*`、扩展在自己的 id 下），默认实例叫 `main`，新增错误码 `CANCELLED`、`DEADLINE_EXCEEDED`、`EXTENSION_UNAVAILABLE`。`harnix.event` 帧里的事件负载与 `engine.*` 的答是 Agix 的形状，不在加法承诺里，由 `hello.engine_protocol` 标明 |
 | 扩展包接口 | `2` | `harnix-ext.toml` 的 `[app] harnix_api`；`harnix_package::HARNIX_API` | 扩展包的契约（WIT world 与清单）有破坏性变化。见 [扩展包](harnix-ext-package.md) |
 | 扩展线 | `1` | `harnix_wasm_port::EXT_WIRE_VERSION` | 产品与它自己的扩展进程之间那条线（`harnix-ext-wire`）的帧或方法改了形状。两端是同一次构建，扩展进程的 `proc.hello` 报的数不等就被拒绝；应用不直接用它 |
@@ -1317,9 +1317,9 @@ export function register(r: Registry, host: HostApi): Dispose | void
   全部注册完还没人定义就丢掉并记进诊断。定义者用 `r.list(name)` / `useContributions(name)` 读；后端在 `UiDecl.points` 里声明同一个点，进生成的目录。
 - **接不上就自己来**：`r.register(point, c, owner, { orElse: () => … })`——点在全部注册结束时还没定义就调 `orElse`。
 
-### 22.3 九个贡献点
+### 22.3 十个贡献点
 
-内核贡献点 **9 个**，形状与每个点的字段见 [贡献点](contribution_points.md)（点的清单由代码生成）：
+内核贡献点 **10 个**，形状与每个点的字段见 [贡献点](contribution_points.md)（点的清单由代码生成）：
 
 | 点 | 什么 |
 |---|---|
@@ -1332,8 +1332,9 @@ export function register(r: Registry, host: HostApi): Dispose | void
 | `command` | `/` 与 `@` 的候选 |
 | `settings.section` | 设置里的一节；`covers: ["models"]`：外壳要人去配模型时打开它 |
 | `session.action` | 对一个会话、或它里面一次工具调用的动作：外壳在标题栏、会话菜单、工具行上问它 |
+| `sidebar.tab` | 右栏的一种页签类型：按 `patterns` 认领 `harnix-resource://` 地址，或按 `kind` 打开的页；§22.7 |
 
-扩展定义的点（0.4.4 的第一方）：`system.console.tab`、`system.inspector.tab`，不算进「9 个」。
+扩展定义的点（0.4.4 的第一方）：`system.console.tab`、`system.inspector.tab`，不算进「10 个」。
 `space` 的分组（0.4.2 的 25 个平铺成员按画在哪分四组）：
 
 ```ts
@@ -1367,7 +1368,8 @@ interface SpaceContribution {
 | `session.onChange(fn)` | 前台 space 的当前会话变了，同一个值不重复；`useCurrentSession()` 是它的 hook |
 | `session.isOpen(ref)` / `session.menu(ref, anchor)` | 这个页面有没有开着这个会话 / 外壳的会话菜单（自己的项加每个 `session.action` at `menu`） |
 | `spaces.switch(id) / current()` | 把 space 带到前台，新 space 画出来之后落定；没有这个 space 时 reject；它的 `disabled()` 此刻给了字符串时不切、照常落定 |
-| `details.open(tab?) / close() / isOpen() / tab() / onTab(fn)` | 右栏开合与选中页签（`tab` 是前台 space 的页签 id，或 `"details"`） |
+| `details.open(tab?) / close() / isOpen() / tab() / onTab(fn)` | 右栏开合与选中页签（`tab` 是前台 space 的页签 id、一个 `scope: "space"` 页签类型的 `kind`，或 `"details"`）。语义同 0.4.4：它说的是页签栏里 space 那一侧 |
+| `sidebar.openResource(address, { params?, kind?, revealIfOpened?, replaceTab? }) / openTab(kind, { params?, … }) / close(tabId) / active() / isExpanded() / toggleExpanded(open?)` | 右栏作为会话的停靠面（§22.7）：进右栏的每条路都走它。`openResource`/`openTab` 答页签 id，同一内容已开着就聚焦它，打开时展开右栏；没人认领的地址、没有的 `kind`、没有打开的会话都抛错 |
 | `redraw()` | 让外壳重读前台 space 的函数（`tabs()`、`badge()`…），不动注册表版本 |
 | `settings.open(section?)` | 打开设置面板的一节；没有这一节时打开第一节 |
 | `instances.list() / sessions(instance) / tasks(instance, sessionId) / create(template, name, params?) / stop(instance)` | 答的是协议里对应方法的结果，类型取自 `@harnix/core` 的 `Methods` |
@@ -1425,7 +1427,7 @@ import map 的 hash，§22.6）：没有 `eval`、远程 import、CDN、内联�
 [[ui]]
 point = "tool.row"
 module = "rows.js"     # 包的 ui/ 下
-api_version = 2
+api_version = 4
 ```
 
 - 模块是**预编译好的 ES 模块**，不带 React：`import { jsx } from "react/jsx-runtime"`、
@@ -1435,9 +1437,72 @@ api_version = 2
   `registry.strings(locale, d)`，`owner` 一律是包名。
 - import map 是页面里唯一的内联脚本，服务端出页面时按它的 `sha256` 写进 CSP；没有 `unsafe-inline`、
   `unsafe-eval`。
-- `api_version` 不是 2（或没写，按 v1 算）：这一条报「这一条不生效」并写明原因，包的其余部分照常。
+- `api_version` 不等于贡献点 API（§16，现在 4；没写按 v1 算）：这一条报「这一条不生效」并写明原因，包的其余部分照常。
 - `[ext.plugins] ui_modules = false`：一条都不提供、不服务。
 - 运行期包仍然**不能**新增 space。范例：`tests/fixtures/packages/demo-rows-v2/`。
+
+### 22.7 右栏：停靠面、页签类型与导航控制器
+
+右栏是**每个会话一个停靠面**：会话里打开的页签（文件预览、用量、流程进度、后台任务的输出……）记在这个会话名下，切会话就换一份，
+刷新后还在。本版只有一格；布局是一棵树（`SurfaceState.layout`），分栏、浮窗、全屏以后往里加节点，存的东西不变。
+space 的 `details.tabs`、`host.reveal(item)` 打开的详情、`scope: "space"` 的页签类型是同一条页签栏的另一侧——**space 那一侧**，
+语义与 0.4.4 相同（`host.details.*` 管的就是它）；哪一侧在前面由最后一次操作决定：开或点会话页签，会话那一侧在前；
+选 space 页签或 `reveal`，space 那一侧在前；space 那一侧什么都没有时直接显示会话那一侧。
+
+**页签类型**是内核点 `sidebar.tab` 的一条注册：
+
+```ts
+r.register("sidebar.tab", {
+  id: "observability.usage",          // 这份实现在全部注册里的身份：<owner>.<kind> 是自然的取法
+  kind: "usage",                      // openTab(kind) 打开的名字；一个 kind 至多一份 extension 加一份 builtin/fallback，extension 生效，撤掉后 builtin 恢复
+  scope: "session",                   // 缺省；"space" 的类型在每个 space 的页签栏里常驻一格、不可关，id 就是它的 kind
+  priority: "extension",              // 缺省；外壳自己的写 "builtin"，谁都该胜过它的通用查看器写 "fallback"
+  patterns: ["harnix-resource://file/**", "*.md"],   // 资源类才给：含 ":" 的匹配整个地址，不含的匹配地址路径的任意深度、忽略大小写
+  canOpen: (address) => true,         // 否决一次命中
+  title: (address) => "…",            // 页签上的字，每次画时读；资源页签给地址
+  guide: [{ id: "usage", title: () => "用量", description: () => "…", icon: "context", order: 20 }],  // 引导页上的入口卡
+  multiple: false,                    // true：每次 openTab 都开一个新页签（终端、输出流）
+  keepMounted: false,                 // true：正文在切页签、切会话、收起时保留（终端的回滚、树的展开）
+  render: () => <UsageTab />,         // 正文，用 useTabInfo() 知道自己是哪一页
+}, owner);
+```
+
+**资源地址** `harnix-resource://<类型>/<路径>`（`resourceAddress("file", "src/a.ts")`）。谁打开它：`patterns` 命中的类型先按优先级档
+（extension、builtin、fallback）排，再按命中模式的长度，再按注册顺序；`canOpen` 剔除候选；`kind` 指定时跳过认领、只问它的 `canOpen`。
+页类（引导、用量、文件树）不给 `patterns`，按 `kind` 打开。
+
+**导航控制器** `host.sidebar`：
+
+| 调用 | 说明 |
+|---|---|
+| `openResource(address, { params?, kind?, revealIfOpened?, replaceTab? })` | 认领的类型打开它；答页签 id。同一 `(kind, address)` 已开着就聚焦它、递交新的 `params`、`revision` 加一；`revealIfOpened: false` 另开一个。右栏随之展开 |
+| `openTab(kind, { params?, revealIfOpened?, replaceTab? })` | 按 kind 打开一页；`multiple` 的类型每次都是新页签。`scope: "space"` 的类型：选中它那一格（等于 `details.open(kind)`） |
+| `close(tabId)` | 关一个页签；先跑它的关闭处理器，处理器抛错则留着 |
+| `active()` | 打开的会话在前面的页签 `{ id, kind, address }`，没有就 null |
+| `isExpanded()` / `toggleExpanded(open?)` | 右栏开合，等于 `details.isOpen()` / `open()`、`close()` |
+
+没人认领的地址、没有的 `kind`、要开会话页签却没有打开的会话：抛错——那是接线错误，不是用户错误。`replaceTab` 给当前页签的 id，
+新页签就落在它的位置、它关掉（引导页就是这么让位的）。
+
+**页签域**：正文里 `const { tab } = useTabInfo()`：
+
+| 字段 | 说明 |
+|---|---|
+| `tab.id`、`tab.kind`、`tab.address` | 这一页是谁；页类的 `address` 是 null |
+| `tab.visible` | 正文在前面（没被别的页签挡着、不是后台会话的、右栏开着） |
+| `tab.navigation.params`、`tab.navigation.revision` | 最后一次导航交来的参数，和导航的次数（第一次打开是 1）：带行号跳转的预览页看它变 |
+| `tab.signal` | 页签关掉、会话被删时 abort |
+| `tab.actions.close()`、`openResource(…)`、`openTab(…)` | 作用于**自己的会话**的控制器 |
+| `tab.actions.onClose(handler)` | 关闭或被替换之前同步调；抛错则这一页留着。收起右栏、切会话、刷新都不调 |
+
+**引导页**是外壳的 builtin（`kind: "guide"`）：会话的停靠面还空着、右栏打开、space 那一侧也空着时自动开它；恰好只有一个 `guide` 入口时
+直接开那一页。页签栏上的「＋」也开它。扩展可以注册自己的 `kind: "guide"` 顶替它。
+
+**存储**：浏览器本地 `harnix.sidebar.v1.<instance>/<session>`，读出时校验（版本、格里的页签都在、选中项在格里、计数器不回头），不合法就只清这一份；
+存不进去就只留在内存。`params`、`revision`、`signal`、关闭处理器不存。会话被删，它那一份随之删掉。
+
+本版的页签由各自的 UI 包注册：`@harnix/observability` 的上下文、用量，`@harnix/harnix-app` 的文件、预览、改动，`@harnix/flow` 的流程，输出流（`multiple: true`）。
+外壳只有引导页。
 
 ---
 

@@ -475,7 +475,7 @@ world = "harnix:ext/tools-ext@1.0.0"
 [[ui]]
 point = "home.card"
 module = "card.js"
-api_version = 3
+api_version = 4
 "#;
 
     /// A zip of `entries` (name, bytes) at `dir/name.hxext`.

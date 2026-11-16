@@ -14,12 +14,14 @@ import type { App } from "./app.ts";
 import { Labelled, RequestPanel, RequestRow, type RequestBlock } from "./envelope.tsx";
 import { startInline } from "./inline/index.tsx";
 import { ActionButtons } from "./actions.tsx";
+import { GUIDE_KIND } from "./sidebar/controller.ts";
+import { GuideTab } from "./sidebar/Guide.tsx";
 
 const OWNER = "builtin";
 
 /**
  * The shell's own registrations: the "open in details" door on a tool row, the request envelope
- * and its pane, the engine's commands, and the settings sections every product has. No space:
+ * and its pane, the engine's commands, the right column's guide page, and the settings sections every product has. No space:
  * every space is a UI package's or the application's. Then what extension packages declare
  * inline, drawn by the shell.
  */
@@ -69,6 +71,19 @@ export function registerBuiltins(app: App): void {
           .filter((c) => typeof c.name === "string" && c.name.toLowerCase().startsWith(q))
           .map((c) => ({ replacement: `/${c.name} `, label: `/${c.name}`, description: c.description, source: c.source }));
       },
+    },
+    OWNER,
+  );
+
+  // The right column's default page (harnix-ext.md §22.7): a builtin, so an extension's `guide` type can take its place.
+  r.register(
+    "sidebar.tab",
+    {
+      id: "builtin.guide",
+      kind: GUIDE_KIND,
+      priority: "builtin",
+      title: () => t("sidebar.guide"),
+      render: () => <GuideTab app={app} />,
     },
     OWNER,
   );
