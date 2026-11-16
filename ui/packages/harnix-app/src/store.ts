@@ -71,6 +71,8 @@ export interface SearchHit {
 export interface AppState {
   sessions: AppSession[];
   workspaces: Workspace[];
+  /** The sessions and workspaces have been read once: until then, none listed means not known yet. */
+  loaded: boolean;
   showArchived: boolean;
   /** Running sessions, `instance/session` → true (`harnix.sessions.status`). */
   running: Record<string, boolean>;
@@ -119,6 +121,7 @@ export class AppStore {
   private state: AppState = {
     sessions: [],
     workspaces: [],
+    loaded: false,
     showArchived: false,
     running: {},
     search: { query: "", hits: null, truncated: false },
@@ -264,7 +267,7 @@ export class AppStore {
           workspace_id: workspace?.id ?? null,
         };
       });
-      this.set({ sessions, workspaces, showArchived: Boolean(spaces.prefs?.showArchived ?? this.state.showArchived) });
+      this.set({ sessions, workspaces, loaded: true, showArchived: Boolean(spaces.prefs?.showArchived ?? this.state.showArchived) });
     } catch (e) {
       this.host.shell.notice(errorText(e), "error");
     }

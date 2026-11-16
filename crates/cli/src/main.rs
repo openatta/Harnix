@@ -13,6 +13,9 @@
 //! built-in scenes wrapped — `flow-harnix`, `flow-code`, `flow-mini` — and a run's main session is
 //! on `flow-harnix` unless its flow names another, in a directory of the run's own. Run under
 //! `--replay-dir`, the flow sessions replay recordings named after their run or flow.
+//!
+//! With no profile named, a session starts in the `harnix` scene and `code` is served beside it
+//! ([`default_engine`]), so the new-session dialog offers both.
 
 #[cfg(feature = "flow")]
 use harnix_ext_flow::{DirPacks, Flow, MemPacks};
@@ -72,8 +75,14 @@ pub fn extensions() -> harnix::ExtensionSet {
     set
 }
 
+/// The `[engine]` it runs with when no profile is named: sessions start in `harnix`, and `code`
+/// (a coding agent in a project) is there to choose beside it.
+pub fn default_engine() -> harnix::engine::EngineProfile {
+    harnix::engine::EngineProfile::new().scenes(["code"])
+}
+
 fn main() -> anyhow::Result<()> {
-    harnix::App::builder().extensions(extensions()).run()
+    harnix::App::builder().extensions(extensions()).default_engine(default_engine()).run()
 }
 
 #[cfg(all(test, feature = "flow"))]

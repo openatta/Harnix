@@ -18,7 +18,9 @@ Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发
 
 **十个，再加一个是一个需要论证的决定。** 一个没人用的点不是接缝，只是这张表里的一行，所以每个点
 都要有人在用：第一方 UI 包（`@harnix/harnix-app`、`@harnix/system`、`@harnix/settings` 等）注册 `space`（会话、项目、系统）、`sidebar.group`、`command`、`settings.section`、`session.action`、`sidebar.tab`，
-外壳自己注册 `tool.row`、`flow.block`、`details.panel`，以及 `sidebar.tab` 的引导页。`home.card` 是例外：外壳在新对话的输入框下读它，`examples/hello-app` 注册了一张。
+以及 `home.card` 的首次运行三步（`@harnix/settings` 的模型，`@harnix/harnix-app` 的项目、场景与权限；见 [Harnix app](harnix-app.md) §4.1），
+外壳自己注册 `tool.row`、`flow.block`、`details.panel`，以及 `sidebar.tab` 的引导页。`home.card` 由外壳在新对话的输入框下读，`examples/hello-app` 也注册了一张；
+没有 `title`、`render()` 什么都没画的卡不占位（做完的一步就是这样收起的）。
 第九个 `session.action` 的理由：0.4.2 的外壳里写死了三样只属于某个扩展的东西——标题栏的「在系统里打开」、工具行的「在系统里看」、
 会话菜单里的归档与导出——它们是同一种东西，没有现成的点能承载。
 第十个 `sidebar.tab` 的理由：右栏是每个会话一个停靠面，在里面打开的页（文件预览、用量、流程进度、输出流）是同一种东西——认领一个地址、或按名字打开的页签类型；

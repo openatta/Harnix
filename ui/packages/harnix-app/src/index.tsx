@@ -4,7 +4,9 @@
  * grouping by time; a session's archiving and export, offered on the shell's session menu; the
  * composer's `@` files of the open session's project; a project's trust (its menu, its shield,
  * the banner over a conversation in a project that is not trusted); and the right column's files,
- * preview and changes tabs, with the changes card a turn that wrote files leaves in the conversation.
+ * preview and changes tabs, with the changes card a turn that wrote files leaves in the conversation;
+ * and two first-run steps on the empty page (`home.card`): a project, and the scene and permission
+ * mode a conversation starts with.
  *
  * Only the host API: the sessions come from the hub (`harnix.sessions.list`, kept current by the
  * instance's pushed session list) and what this product notes about them from its own methods
@@ -18,11 +20,13 @@ import { exportDialog } from "./dialogs.tsx";
 import { ProjectsSidebar, TrustBanner } from "./projects.tsx";
 import { SessionsSidebar, byTime } from "./sessions.tsx";
 import { claimFor, registerSidebar } from "./sidebar.tsx";
+import { PROJECT_STEP, ProjectStep, SCENE_STEP, SceneStep } from "./setup.tsx";
 import { AppStore, SESSIONS } from "./store.ts";
 
 export { AppStore, SESSIONS, type AppSession, type AppState, type TrustItem, type TrustStatus, type Workspace } from "./store.ts";
 export { byTime } from "./sessions.tsx";
 export { CHANGES_KIND, FILES_KIND, FILE_PATTERN, PREVIEW_KIND, fileOfCall, lineOf } from "./sidebar.tsx";
+export { PROJECT_STEP, SCENE_STEP } from "./setup.tsx";
 
 /** The backend extension this is the interface of. */
 export const extension = "harnix-app";
@@ -140,6 +144,10 @@ export function register(r: Registry, host: HostApi): Dispose {
   );
   // The right column's files, preview and changes, the changes card, and a file tool's path opening the file.
   registerSidebar(r, host, store, extension);
+  // First run, after the settings' model step: a project, then what a conversation starts with.
+  r.register("home.card", { id: PROJECT_STEP, order: 20, render: () => <ProjectStep host={host} store={store} /> }, extension);
+  r.register("home.card", { id: SCENE_STEP, order: 30, render: () => <SceneStep host={host} store={store} /> }, extension);
+
   // Disabled: the store stops following the hub with everything it fed.
   return () => store.stop();
 }

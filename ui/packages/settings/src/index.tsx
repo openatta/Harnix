@@ -8,14 +8,20 @@
  * one the engine does not use (an untrusted project can only tighten). A field's `section` is
  * which of the sections below draws it. Providers go through `settings.setProvider`, the only path
  * credentials take from the interface; a stored key is only ever shown as its last four characters.
+ *
+ * And the first run's model step on the empty page (`home.card`): drawn while no model is
+ * configured, with the way to these sections.
  */
 
-import { useState, type ReactNode } from "react";
-import { errorText, type Hello } from "@harnix/core";
-import { FieldForm, Glyph, SettingsRow, SettingsSection, SettingsValue, onLocaleChoice, t, useHello, useSettingsReload, useT, type FieldDoc, type FieldStore, type HostApi, type Registry, type LocaleChoice, type SettingsNeed } from "@harnix/react";
+import { useEffect, useState, type ReactNode } from "react";
+import { errorText, modelConfigured, type Hello } from "@harnix/core";
+import { FieldForm, Glyph, SettingsRow, SettingsSection, SettingsValue, SetupStep, onLocaleChoice, setupStepDismissed, t, useHello, useSetupStep, useSettingsReload, useT, type FieldDoc, type FieldStore, type HostApi, type Registry, type LocaleChoice, type SettingsNeed } from "@harnix/react";
 
 /** The backend extension this is the interface of. */
 export const extension = "settings";
+
+/** The first-run step this package owns. */
+export const MODEL_STEP = "settings.setup.model";
 
 /** The sections, at `settings.section`, in this order. */
 export function register(r: Registry, host: HostApi): void {
@@ -31,6 +37,8 @@ export function register(r: Registry, host: HostApi): void {
   section("privacy", "settings.nav.privacy", () => <Privacy host={host} />);
   section("advanced", "settings.nav.advanced", () => <Advanced host={host} />);
   followLanguage(host);
+  // First of the first-run steps: nothing runs without a model.
+  r.register("home.card", { id: MODEL_STEP, order: 10, render: () => <ModelStep host={host} /> }, extension);
 }
 
 let unfollow: (() => void) | null = null;
@@ -46,6 +54,62 @@ function followLanguage(host: HostApi): void {
       .call("settings.write", { tier: "global", changes: { language: choice === "auto" ? null : choice } })
       .catch((e: unknown) => host.shell.notice(t("settings.writeFailed", { error: errorText(e) }), "error"));
   });
+}
+
+/* ── first run ────────────────────────────────────────────────────────── */
+
+/** The model a new session runs on, as hello says: the default provider's, else the engine's. */
+function modelOf(engine: Hello["engine"]): string | null {
+  const providers = engine.providers;
+  const chosen = providers?.default_provider ? providers.providers?.[providers.default_provider] : undefined;
+  return chosen?.default_model || (typeof engine.model === "string" ? engine.model : null);
+}
+
+/**
+ * Whether a turn has a model to go to, read from hello when the card is drawn and again each time a
+ * dialog closes (the settings panel is where one is set up): done once it has.
+ */
+export function ModelStep({ host }: { host: HostApi }) {
+  const t = useT();
+  const [engine, setEngine] = useState<Hello["engine"] | null>(null);
+  useEffect(() => {
+    if (setupStepDismissed(MODEL_STEP)) return;
+    let alive = true;
+    const read = () =>
+      host
+        .call<Hello>("harnix.hello", {})
+        .then((hello) => {
+          if (alive && hello?.engine) setEngine(hello.engine);
+        })
+        .catch(() => undefined);
+    void read();
+    const off = host.modal.onChange((open) => {
+      if (!open) void read();
+    });
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [host]);
+  const state = useSetupStep(MODEL_STEP, engine ? modelConfigured(engine) : null);
+  const model = engine ? modelOf(engine) : null;
+  return (
+    <SetupStep
+      id={MODEL_STEP}
+      state={state}
+      icon="key"
+      title={t("setup.model.title")}
+      actions={
+        state === "todo" ? (
+          <button type="button" className="btn sm primary" data-testid="setup-model-open" onClick={() => host.settings.open("models")}>
+            {t("setup.model.action")}
+          </button>
+        ) : null
+      }
+    >
+      {state === "todo" ? t("setup.model.todo") : model ? t("setup.model.done", { model }) : t("setup.model.doneBare")}
+    </SetupStep>
+  );
 }
 
 /* ── pieces ───────────────────────────────────────────────────────────── */

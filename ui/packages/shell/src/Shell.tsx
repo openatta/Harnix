@@ -627,7 +627,8 @@ function Hero({ app }: { app: App }) {
 }
 
 /** The `home.card` registrations, under a new conversation's composer: what the product wants in
- *  front of someone about to start something. */
+ *  front of someone about to start something. A card with no title whose `render()` draws nothing
+ *  takes no place (`:empty`): a first-run step that is done. */
 function HomeCards({ app }: { app: App }) {
   const registry = useRegistry(app.registry);
   const cards = [...registry.at("home.card")].sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
