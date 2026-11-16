@@ -95,7 +95,7 @@ export interface ChatFeatures {
   options?: boolean;
   /** ＋ 添加：文件与图片（给了 upload）、引用条目（给了 mention）、命令；截图要后端，不可用。缺省开 */
   attachments?: boolean;
-  /** 语音输入：要后端（转写），画成不可用的按钮。缺省开 */
+  /** 语音输入：要后端（转写），后端没有就不画按钮。缺省关 */
   voice?: boolean;
   /** 模型（底栏右侧）：显示当前模型；给了 onModel 才能换。缺省开 */
   modelPicker?: boolean;
