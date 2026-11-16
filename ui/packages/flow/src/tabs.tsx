@@ -59,6 +59,7 @@ import {
   type GuideGroup,
 } from "./model";
 import { FlowParts, PermissionList, RuleChips } from "./parts";
+import { StartActions } from "./points";
 import { StartForm } from "./RunList";
 import { DryControls, PhaseBadge, RunHead, RunSessionsList, useNow } from "./RunPanel";
 import type { FlowSelection, FlowSpaceState } from "./state";
@@ -354,6 +355,8 @@ export function FlowDetail({ state, tabs, flow, summary, station }: TabProps & {
         <button type="button" className="btn sm outline" data-testid="flow-start-open" aria-expanded={starting} disabled={summary?.valid === false} onClick={() => setStarting(!starting)}>
           {t("flowui.start.open")}
         </button>
+        {/* The other ways to start it (`flow.start.action`): with the flow alone, the rest asked there. */}
+        {state.registry ? <StartActions registry={state.registry} draft={() => ({ flow })} disabled={summary?.valid === false} testid="flow-action" /> : null}
       </div>
       {def?.description ? <p className="hx-flow-desc">{def.description}</p> : null}
       {dry.error ? <div className="hx-flow-error">{dry.error}</div> : null}

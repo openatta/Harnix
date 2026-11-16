@@ -158,7 +158,7 @@ function Project({ host, r, store, s, workspace }: { host: HostApi; r: Registry;
         <div className="pgroup sel" role="group">
           {rows.map((entry) =>
             entry.kind === "session" ? (
-              <SessionRow key={`s:${entry.session.session_id}`} host={host} store={store} session={entry.session} nested />
+              <SessionRow key={`s:${entry.session.session_id}`} host={host} r={r} store={store} session={entry.session} nested />
             ) : (
               <ItemRow key={`i:${entry.item.kind.id}:${entry.item.row.id}`} host={host} r={r} item={entry.item} context={context} />
             ),

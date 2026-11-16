@@ -12,10 +12,11 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { DialogBody, DialogFoot, Glyph, t, useHost, useT, type HostApi } from "@harnix/react";
+import { DialogBody, DialogFoot, Glyph, t, useHost, useT, type HostApi, type Registry } from "@harnix/react";
 
 import { errorText, useDefs, useMethod } from "./hooks";
 import { defBlockedKey, methodName, runIdOf, runningIn, sameRoot } from "./model";
+import { StartActions, type StartDraft } from "./points";
 import type { DefInfo, DefSummary, RunSummary, WorkspaceInfo } from "./types";
 
 /**
@@ -174,6 +175,9 @@ export interface NewTaskOptions {
   runs(): RunSummary[];
   /** The flow to start on, when there is one. */
   flow?: string;
+  /** Where the other ways to start are (`flow.start.action`), offered beside starting now with what
+   *  was filled in; none, none offered. */
+  registry?: Registry;
 }
 
 /** Open the dialog; `onStarted` is called with the run once it is. */
@@ -243,6 +247,21 @@ function NewTaskForm({ host, module, options, onStarted, close }: { host: HostAp
       setBusy(false);
     }
   };
+
+  // What another way to start takes: what is filled in so far, a blank left out; the subject may be blank yet.
+  const draft = (): StartDraft | null =>
+    flow
+      ? {
+          flow,
+          subject: subject.trim() || undefined,
+          inputs: Object.keys(collected.inputs).length ? collected.inputs : undefined,
+          title: title.trim() || undefined,
+          output_dir: outputDir.trim() || undefined,
+          workspace: workspaceParam(git, worktree),
+          project_root: options.root,
+          show_in_space: options.space || undefined,
+        }
+      : null;
 
   const set = (key: string, value: string) => setTexts((s) => ({ ...s, [key]: value }));
   return (
@@ -323,6 +342,7 @@ function NewTaskForm({ host, module, options, onStarted, close }: { host: HostAp
         ) : null}
       </DialogBody>
       <DialogFoot>
+        {options.registry ? <StartActions registry={options.registry} draft={draft} disabled={!flow || def?.valid === false || problems > 0 || busy} before={() => close(null)} testid="task-action" /> : null}
         <button type="button" className="btn outline" onClick={() => close(null)}>
           {t("common.cancel")}
         </button>

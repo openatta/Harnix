@@ -254,6 +254,30 @@ pub const EXTENSION_POINTS: &[ExtensionPoint] = &[
         when: "来源的 `subscribe` 说变了时、点一项时",
         frequency: Frequency::PerInteraction,
     },
+    ExtensionPoint {
+        owner: "harnix-app",
+        id: "harnix-app.session.badge",
+        kind: PointKind::Render,
+        what: "左栏会话行上的一个标记（`{id, render(session)}`）：定时的时钟",
+        when: "会话行画出时",
+        frequency: Frequency::PerInteraction,
+    },
+    ExtensionPoint {
+        owner: "flow",
+        id: "flow.task.badge",
+        kind: PointKind::Render,
+        what: "任务行上的一个标记（`{id, render(run)}`）：定时的下一次时间",
+        when: "任务行画出时",
+        frequency: Frequency::PerInteraction,
+    },
+    ExtensionPoint {
+        owner: "flow",
+        id: "flow.start.action",
+        kind: PointKind::Register,
+        what: "新任务对话框和流程详情里「现在启动」之外的另一种起法（`{id, label(), icon?, run(draft)}`）：定时运行",
+        when: "新任务对话框、流程详情画出时",
+        frequency: Frequency::PerInteraction,
+    },
 ];
 
 /// The points `owner` defines.
@@ -314,7 +338,8 @@ mod tests {
             assert!(point(p.id).is_none(), "{} is one of the shell's", p.id);
         }
         assert_eq!(points_of("system").count(), 3);
-        assert_eq!(points_of("harnix-app").count(), 3);
+        assert_eq!(points_of("harnix-app").count(), 4);
+        assert_eq!(points_of("flow").count(), 2);
     }
 
     /// Twelve, and adding one is a decision (concept §5.6).

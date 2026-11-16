@@ -1,11 +1,13 @@
 /**
- * The two points the projects space defines for other packages to fill (harnix-app.md §3.2): what
+ * The points the projects space defines for other packages to fill (harnix-app.md §3.2): what
  * else a project holds besides its conversations, and what its overview page shows.
  *
  *   harnix-app.project.items   a kind of item in the project tree — its rows for a project root,
  *                              how a row is drawn and opened, and the entry it adds to the
  *                              project's "+" menu. The flows register their tasks here.
  *   harnix-app.project.panels  a block on a project's overview page.
+ *   harnix-app.session.badge   a badge on a session's row in the left column (both spaces'): a
+ *                              schedule's clock.
  *
  * The projects space knows no item kind by name: it draws whatever is registered, interleaved
  * with the conversations by activity. A kind's `rows` are read on each draw and `subscribe` says
@@ -20,6 +22,7 @@ import type { Workspace } from "./store.ts";
 
 export const PROJECT_ITEMS = "harnix-app.project.items";
 export const PROJECT_PANELS = "harnix-app.project.panels";
+export const SESSION_BADGE = "harnix-app.session.badge";
 
 /** One row of an item kind, in a project. */
 export interface ProjectItemRow {
@@ -75,6 +78,14 @@ export interface ProjectPanel {
   /** Smaller first; 100 when absent. */
   order?: number;
   render(context: ProjectItemContext): ReactNode;
+}
+
+/** A badge on a session's row in the left column (`harnix-app.session.badge`, a `render` point):
+ *  another package's word about the session — a schedule's clock, say. */
+export interface SessionBadge {
+  id: string;
+  /** Inside the row, before its time; nothing to say, nothing drawn (null). Read at every draw of the row. */
+  render(session: { instance: string; sessionId: string }): ReactNode;
 }
 
 /** A kind's row, with the kind that owns it. */

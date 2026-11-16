@@ -128,3 +128,4 @@ export { PROJECT_ITEMS, ProjectTasks, TASK_KIND, TASK_TAB_KIND, TaskRow, activit
 export { collectInputs, defOptions, defaultOutputDir, fieldsOf, initialText, newTaskDialog, noWorktreeText, workspaceParam, type FieldKind, type NewTaskOptions, type SchemaField } from "./NewTask";
 export { TaskTab, runOf } from "./TaskTab";
 export { STRINGS, STRINGS_OWNER, registerFlowStrings } from "./strings";
+export { START_ACTION, StartActions, TASK_BADGE, TaskBadges, type StartAction, type StartDraft, type TaskBadge } from "./points";

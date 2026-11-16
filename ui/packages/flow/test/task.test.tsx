@@ -16,6 +16,7 @@ import { WorktreeLine, currentStation, taskStep, worktreeOpen } from "../src/Run
 import { registerSystemFlows } from "../src/space";
 import { registerFlowStrings } from "../src/strings";
 import { INBOX, PROJECT_ITEMS, PROJECT_PANELS, ProjectTasks, TASK_KIND, TASK_TAB_KIND, TaskRow, TasksPanel, enterTask, openTask, taskCounts, taskRows, waitingItems } from "../src/task";
+import { START_ACTION, TASK_BADGE, type StartAction, type StartDraft, type TaskBadge } from "../src/points";
 import { TaskTab } from "../src/TaskTab";
 import type { DefSummary, FlowDef, RunSummary, RunView, WorktreeRec } from "../src/types";
 
@@ -706,5 +707,72 @@ describe("a task in a worktree", () => {
     expect(decided.getByTestId("flow-worktree").dataset.outcome).toBe("merged");
     expect(decided.getByTestId("flow-worktree-outcome").textContent).toBe("merged into main");
     expect(decided.queryByTestId("flow-worktree-actions")).toBeNull();
+  });
+});
+
+describe("the points it defines: a task row's badges, a flow's other ways to start", () => {
+  const withPoints = (fake: ReturnType<typeof fakeHost>) => {
+    const r = new Registry();
+    r.activate("flow", () => register(r, fake.host));
+    r.settle();
+    return r;
+  };
+
+  it("defines both; a badge is drawn in the row's badges after the clock, one that throws loses only itself", async () => {
+    const fake = fakeHost({ "flow.defs": DEFS });
+    const r = withPoints(fake);
+    expect(r.definitions().filter((d) => d.owner === "flow").map((d) => [d.name, d.kind])).toEqual([
+      [TASK_BADGE, "render"],
+      [START_ACTION, "register"],
+    ]);
+    const asked: string[] = [];
+    const badge: TaskBadge = { id: "test.next", render: (run) => (asked.push(run.id), <span data-testid="test-next">next</span>) };
+    const broken: TaskBadge = { id: "test.broken", render: () => { throw new Error("no"); } };
+    r.activate("test", () => {
+      r.register(TASK_BADGE, badge, "test");
+      r.register(TASK_BADGE, broken, "test");
+    });
+    const fail = vi.spyOn(r, "fail");
+    const tasks = new ProjectTasks(fake.host, "flow", r);
+    const run = summary({ id: "example-review-9", trigger: { kind: "schedule", schedule: "s1", fire_at: 1 } });
+    const page = render(<HostProvider host={fake.host}><TaskRow run={run} module="flow" tasks={tasks} /></HostProvider>);
+    await settle();
+    const badges = page.getByTestId("task-badges");
+    expect(badges.querySelector("svg.hx-flow-task-clock")).not.toBeNull();
+    expect(badges.lastElementChild?.getAttribute("data-testid")).toBe("test-next");
+    expect(asked).toContain("example-review-9");
+    expect(fail).toHaveBeenCalledWith(TASK_BADGE, expect.objectContaining({ id: "test.broken" }), expect.any(Error));
+  });
+
+  it("the new-task dialog offers another way to start with what was filled in, the dialog closed first", async () => {
+    const fake = fakeHost({ "flow.defs": DEFS, "flow.def": { def: DEF, yaml: "", digest: "a" } });
+    const r = withPoints(fake);
+    const drafts: StartDraft[] = [];
+    const action: StartAction = { id: "test.later", label: () => "Later…", run: (draft) => void drafts.push(draft) };
+    r.activate("test", () => r.register(START_ACTION, action, "test"));
+    await newTaskDialog(fake.host, "flow", { root: ROOT, space: "sessions", runs: () => [], registry: r }, () => undefined);
+    const close = vi.fn();
+    const page = render(<HostProvider host={fake.host}>{fake.dialogs[0]!(close) as never}</HostProvider>);
+    await settle();
+    const later = page.getByTestId("task-action-test.later") as HTMLButtonElement;
+    expect(later.textContent).toBe("Later…");
+    // A required input still blank: nothing to hand over yet.
+    expect(later.disabled).toBe(true);
+    fireEvent.change(page.getByTestId("task-input-target").querySelector("input")!, { target: { value: "src/" } });
+    fireEvent.change(page.getByTestId("task-title"), { target: { value: "Nightly" } });
+    expect(later.disabled).toBe(false);
+    fireEvent.click(later);
+    await settle();
+    expect(close).toHaveBeenCalledWith(null);
+    expect(drafts).toEqual([{ flow: "example-review", inputs: { depth: 2, target: "src/" }, title: "Nightly", project_root: ROOT, show_in_space: "sessions" }]);
+    expect(fake.calls.some(([m]) => m === "flow.start")).toBe(false);
+  });
+
+  it("without a registry, or with nothing registered, the dialog offers nothing more", async () => {
+    const fake = fakeHost({ "flow.defs": DEFS, "flow.def": { def: DEF, yaml: "", digest: "a" } });
+    await newTaskDialog(fake.host, "flow", { root: ROOT, runs: () => [], registry: withPoints(fake) }, () => undefined);
+    const page = render(<HostProvider host={fake.host}>{fake.dialogs[0]!(vi.fn()) as never}</HostProvider>);
+    await settle();
+    expect(page.container.querySelector('[data-testid^="task-action-"]')).toBeNull();
   });
 });

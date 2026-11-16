@@ -27,7 +27,7 @@
  * the front by another way (a session opened there, the page loaded on it) keeps the session open.
  */
 
-import type { HostSessionRef as SessionRef, HostApi } from "@harnix/react";
+import type { HostSessionRef as SessionRef, HostApi, Registry } from "@harnix/react";
 
 import { focusTopic, isDryRun, mainSessionOf, methodName } from "./model";
 import type { FlowConversation, Focus, RunView } from "./types";
@@ -70,6 +70,8 @@ export class FlowSpaceState {
   readonly tabs: StateTabs;
   /** The space this one is shown inside, if it is (no right-column list then); null otherwise. */
   readonly within: string | null;
+  /** Where the other packages' contributions to this package's points are (a flow's other ways to start); null: none. */
+  readonly registry: Registry | null;
   /** Where a task was entered from (the projects space): the way back goes there, until left. */
   private came: { space: string; title: string } | null = null;
 
@@ -82,10 +84,11 @@ export class FlowSpaceState {
     readonly space = "flow",
     readonly module = "flow",
     tabs?: StateTabs,
-    options: { within?: string } = {},
+    options: { within?: string; registry?: Registry } = {},
   ) {
     this.tabs = tabs ?? { flows: `${space}.flows`, runs: `${space}.runs`, reference: `${space}.reference` };
     this.within = options.within ?? null;
+    this.registry = options.registry ?? null;
     // Inside another space, what was picked last stands for the tab: the flow's conversation first.
     if (this.within) this.tab = this.tabs.flows;
   }

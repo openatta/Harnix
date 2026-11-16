@@ -63,7 +63,7 @@ export function registerFlowSpace(registry: Registry, options: FlowSpaceOptions 
   const module = options.module ?? "flow";
   const owner = options.owner ?? STRINGS_OWNER;
   const tabs: FlowTabs = { flows: `${space}.flows`, runs: `${space}.runs`, reference: `${space}.reference` };
-  const state = new FlowSpaceState(space, module, tabs);
+  const state = new FlowSpaceState(space, module, tabs, { registry });
   if (options.host) state.attach(options.host);
 
   registerFlowStrings(registry);
@@ -115,7 +115,7 @@ export function registerSystemFlows(registry: Registry, options: SystemFlowsOpti
   const within = options.within ?? "system";
   const owner = options.owner ?? STRINGS_OWNER;
   const tabs: FlowTabs = { flows: `${space}.flows`, runs: `${space}.runs`, reference: `${space}.reference` };
-  const state = new FlowSpaceState(space, module, tabs, { within });
+  const state = new FlowSpaceState(space, module, tabs, { within, registry });
   if (options.host) state.attach(options.host);
 
   registerFlowStrings(registry);
