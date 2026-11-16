@@ -62,7 +62,7 @@ pub use tools::{ProcTools, MAX_NOTE, NAME as TOOLS_NAME};
 
 use crate::process::{Package, Phase, Wakes};
 use harnix_carrier_shared::sync::{lock, read, write};
-use harnix_carrier_shared::{frames, DEFAULT_TIMEOUT};
+use harnix_carrier_shared::{frames, EventScope, DEFAULT_TIMEOUT};
 
 /// How long a package's process has, from its start, to say hello, register and start.
 pub const READY_WITHIN: Duration = Duration::from_secs(30);
@@ -377,6 +377,9 @@ impl Carrier for ProcCarrier {
             title: manifest.app.title.clone(),
             root: app.pkg_dir().clone(),
             component: manifest.component.is_some(),
+            // What its process says when it starts may narrow this to none
+            // (`process::loaded_as_started`), never widen it.
+            events: EventScope::of(true, &manifest, app.capabilities()),
             tools: expected.tools.clone(),
             ui: manifest.ui.clone(),
             interface: manifest.interface.clone(),

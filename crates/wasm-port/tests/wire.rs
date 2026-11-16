@@ -179,6 +179,7 @@ impl Control for Kept {
             trust: "store".into(),
             world: Some("backend".into()),
             tools: vec![],
+            events: false,
         })
     }
     async fn stop(&self, _: CallMeta, s: Stop) -> Result<(), RpcError> {

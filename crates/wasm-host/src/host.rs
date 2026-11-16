@@ -46,8 +46,8 @@ use crate::placement::{self, Placed};
 /// [`Start`].
 #[derive(Default)]
 pub struct HostOptions {
-    /// Where packages' HTTP goes out, when the product decides their `net` on its side too;
-    /// this process's network otherwise.
+    /// Where packages' HTTP goes out, once this host has judged it against their `net`: the
+    /// product's, which judges it again where it sends. None: packages reach no network.
     pub http: Option<Arc<dyn HttpFetcher>>,
 }
 
@@ -198,7 +198,7 @@ impl Host {
             engine: WasmEngine::new()?,
             kernel,
             agent,
-            http: options.http.unwrap_or_else(|| Arc::new(crate::http::Http::new())),
+            http: options.http.unwrap_or_else(|| Arc::new(harnix_wasm::NoNetwork)),
             running: RwLock::new(BTreeMap::new()),
             bridges: Mutex::new(BTreeMap::new()),
             failed: Mutex::new(BTreeMap::new()),
@@ -402,7 +402,6 @@ impl Host {
         let spec = AppSpec {
             id: id.clone(),
             capabilities: Capabilities {
-                net: caps.net.clone(),
                 env: caps.env.clone(),
                 storage_bytes: u64::from(start.limits.storage_mb) << 20,
                 fs: caps
@@ -428,7 +427,7 @@ impl Host {
         let services = harnix_wasm::Services {
             host: bridge,
             kv: Arc::new(kv),
-            http: self.http.clone(),
+            http: Arc::new(crate::http::Net::new(caps.net.clone(), self.http.clone())),
         };
         let vm = AppVm::start(&self.engine, &loaded, spec, services)
             .await
@@ -504,6 +503,7 @@ impl Host {
         };
         let full = |name: &String| format!("{id}.{name}");
         let world = booted.vm.as_ref().map(|vm| world_name(vm.world()));
+        let events = booted.vm.as_ref().is_some_and(AppVm::exports_events);
         let backend = booted.vm.as_ref().filter(|vm| vm.world() == World::Backend);
         // Held to what the product keeps it to: an extension process's backend hibernates when
         // the product expects it to.
@@ -552,6 +552,7 @@ impl Host {
             trust: trust.as_str().to_string(),
             world,
             tools: booted.tools,
+            events,
         })
     }
 
@@ -647,6 +648,7 @@ impl Control for Host {
                 trust: running.trust.as_str().to_string(),
                 world,
                 tools: running.tools.clone(),
+                events: running.vm.as_ref().is_some_and(AppVm::exports_events),
             });
         }
         let outcome = match self.start_app(&meta, &start).await {
@@ -842,7 +844,9 @@ impl Control for Host {
         let Some(vm) = &app.vm else {
             return Ok(HookReply::Proceed);
         };
-        // `[events]`: what it was not granted, it is not shown — not even that it happened.
+        // `[events]`: what it was not granted, it is not shown — not even that it happened. The
+        // product decides this before it sends anything (`harnix_carrier_shared::tools::offered`,
+        // with what it granted); this is its manifest held to again, where the call arrives.
         if !app.events_all && !Self::about_own_tool(&app, &call) {
             return Ok(HookReply::Proceed);
         }

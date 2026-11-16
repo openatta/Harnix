@@ -2,14 +2,14 @@
 //!
 //! An [`AppSpec`] is the manifest's `[capabilities]` and `[[component]]`
 //! limits after the person installing the package agreed to them. It is
-//! resolved once, when the VM starts — paths expanded and checked, hosts
-//! normalized — so no decision at call time depends on anything a component
+//! resolved once, when the VM starts — paths expanded and checked — so no
+//! decision at call time depends on anything a component
 //! could influence between the check and the use.
 //!
 //! # Nothing is granted by omission
 //!
-//! [`Capabilities::default`] grants nothing: no network, no environment, no
-//! storage, no files. A component that declares nothing can compute and call
+//! [`Capabilities::default`] grants nothing: no environment, no storage, no
+//! files (and the network is the lender's: [`crate::HttpFetcher`]). A component that declares nothing can compute and call
 //! the hub methods the hub's own admission lets it call, and no more.
 
 use anyhow::{bail, Context, Result};
@@ -35,12 +35,11 @@ pub struct AppSpec {
 ///
 /// `calls` (which hub methods and topics the package may use) is not here:
 /// it is the hub's admission that enforces it, against the subject
-/// `ext:<app id>`, exactly as for a native extension's grants.
+/// `ext:<app id>`, exactly as for a native extension's grants. Nor is `net`:
+/// the hosts `http-request` may reach are judged by whoever the VM is lent
+/// its network by ([`crate::HttpFetcher`]), where the request is made.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Capabilities {
-    /// Hosts `http-request` may reach, matched exactly and case-insensitively.
-    /// No suffix rules: a package that wants a subdomain names it.
-    pub net: Vec<String>,
     /// The names `secret` may read, matched exactly: secrets the host keeps for the package
     /// (Harnix: the profile's `[ext.packages.secrets."<id>"]`), not the process's environment.
     pub env: Vec<String>,
@@ -102,7 +101,6 @@ impl Default for Limits {
 /// Capabilities resolved against this package's directories.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Resolved {
-    net: HashSet<String>,
     env: HashSet<String>,
     pub storage_bytes: u64,
     /// `${data}` grants, the same for every instance.
@@ -141,7 +139,6 @@ impl Resolved {
             }
         }
         Ok(Self {
-            net: caps.net.iter().map(|h| h.to_ascii_lowercase()).collect(),
             env: caps.env.iter().cloned().collect(),
             storage_bytes: caps.storage_bytes,
             preopens,
@@ -170,10 +167,6 @@ impl Resolved {
                 }
             })
             .collect()
-    }
-
-    pub fn allows_url(&self, url: &str) -> bool {
-        host_of(url).is_some_and(|host| self.net.contains(&host))
     }
 
     pub fn allows_env(&self, key: &str) -> bool {
@@ -232,29 +225,6 @@ fn resolve_grant(grant: &FsGrant, dirs: &AppDirs) -> Result<Grant> {
     }))
 }
 
-/// Lowercased host of an absolute http(s) URL; `None` means denied.
-///
-/// Public because a refusal must be able to name what was refused without
-/// echoing the URL: a component may have built it from a secret, and the
-/// refusal often travels on into a tool result and the transcript.
-///
-/// Deliberately narrow: anything that is not plainly `http(s)://host…`
-/// yields `None`. A parser that is clever about malformed input is one an
-/// attacker gets to negotiate with.
-pub fn host_of(url: &str) -> Option<String> {
-    let rest = url
-        .strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))?;
-    let authority = rest.split(['/', '?', '#']).next()?;
-    // Userinfo is the classic disguise (`https://allowed.example@evil.example/`).
-    let authority = authority.rsplit('@').next()?;
-    let host = authority.split(':').next()?;
-    if host.is_empty() {
-        return None;
-    }
-    Some(host.to_ascii_lowercase())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,36 +246,9 @@ mod tests {
     #[test]
     fn nothing_declared_grants_nothing() {
         let r = resolve(Capabilities::default(), &AppDirs::default()).unwrap();
-        assert!(!r.allows_url("https://example.com/"));
         assert!(!r.allows_env("PATH"));
         assert!(r.preopens.is_empty());
         assert_eq!(r.storage_bytes, 0);
-    }
-
-    #[test]
-    fn net_matches_the_host_exactly() {
-        let r = resolve(
-            Capabilities {
-                net: vec!["API.example.com".into()],
-                ..Default::default()
-            },
-            &AppDirs::default(),
-        )
-        .unwrap();
-        assert!(r.allows_url("https://api.example.com/x"));
-        assert!(r.allows_url("http://api.EXAMPLE.com:8080/x"));
-        assert!(!r.allows_url("https://example.com/x"), "not a suffix rule");
-        assert!(!r.allows_url("https://api.example.com.evil.test/x"));
-        assert!(!r.allows_url("https://api.example.com@evil.test/x"));
-        assert!(r.allows_url("https://user:pw@api.example.com/x"));
-        for url in [
-            "file:///etc/passwd",
-            "ftp://api.example.com/",
-            "api.example.com/x",
-            "https://",
-        ] {
-            assert!(!r.allows_url(url), "{url}");
-        }
     }
 
     #[test]

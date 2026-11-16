@@ -15,7 +15,7 @@ use harnix_hub::Hub;
 use harnix_instance::InstanceRegistry;
 use harnix_kernel::seat::{
     BulkGrants, CredentialLookup, DeviceAdmin, InstanceService, InstanceView, Listening, ProcessInfo, Seat,
-    ServiceRegistry, TopicPublisher, UiBoard,
+    ServiceRegistry, TopicPublisher, UiBoard, Unserved,
 };
 use harnix_kernel::{ClientRegistry, Dispatch, GrantBook, Rpc, TopicChanged};
 use serde_json::Value;
@@ -194,25 +194,35 @@ impl CredentialLookup for Secrets {
     }
 }
 
-/// The host's named services: one, the host components' pipes, made for whoever asks.
-#[derive(Default)]
+/// The host's named services: one, the host components' pipes, made for an extension that holds
+/// what it takes. The capability is this side's, by the name asked for: the type an extension
+/// asks through is its own to write, and says nothing.
 pub(crate) struct HostServicesRegistry {
+    grants: Arc<dyn GrantBook>,
     host: OnceLock<Weak<super::dynamic::DynamicHost>>,
 }
 
 impl HostServicesRegistry {
+    pub fn new(grants: Arc<dyn GrantBook>) -> Self {
+        Self { grants, host: OnceLock::new() }
+    }
+
     pub fn set(&self, host: &Arc<super::dynamic::DynamicHost>) {
         let _ = self.host.set(Arc::downgrade(host));
     }
 }
 
 impl ServiceRegistry for HostServicesRegistry {
-    fn service(&self, ext: &ExtId, name: &str) -> Option<Arc<dyn Any + Send + Sync>> {
+    fn service(&self, ext: &ExtId, name: &str) -> Result<Arc<dyn Any + Send + Sync>, Unserved> {
         if name != HostServices::NAME {
-            return None;
+            return Err(Unserved::Unknown);
         }
-        let host = self.host.get()?.upgrade()?;
+        if !self.grants.holds(ext, &HostServices::CAPABILITY) {
+            return Err(Unserved::Lacks(HostServices::CAPABILITY));
+        }
+        // None before the host is made, and in a process that runs no extension host.
+        let host = self.host.get().and_then(Weak::upgrade).ok_or(Unserved::Unknown)?;
         let api: Arc<dyn HostApi> = Arc::new(super::dynamic::HostFor::new(host, ext.clone()));
-        Some(Arc::new(api))
+        Ok(Arc::new(api))
     }
 }

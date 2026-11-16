@@ -210,12 +210,8 @@ async fn concurrent_tool_calls_share_the_applications_memory() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_network_is_reached_only_for_a_declared_host() {
-    let caps = Capabilities {
-        net: vec!["api.example.com".into()],
-        ..Default::default()
-    };
-    let rig = rig("tools-probe", caps, limits(5_000)).await;
+async fn a_request_goes_to_its_lender_as_made_and_its_refusal_comes_back() {
+    let rig = rig("tools-probe", Capabilities::default(), limits(5_000)).await;
 
     let out = rig
         .vm
@@ -232,6 +228,7 @@ async fn the_network_is_reached_only_for_a_declared_host() {
     assert_eq!(out.content, "status=200 body=hello from api.example.com");
     let sent = rig.http.requests.lock().unwrap().clone();
     assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].url, "https://api.example.com/v1", "the URL is the lender's to parse, as written");
     assert_eq!(sent[0].method, "GET");
     assert_eq!(sent[0].headers, [("x-probe".to_string(), "1".to_string())]);
 
@@ -259,9 +256,9 @@ async fn the_network_is_reached_only_for_a_declared_host() {
         out.content
     );
     assert_eq!(
-        rig.http.requests.lock().unwrap().len(),
-        1,
-        "refused before the network"
+        rig.http.requests.lock().unwrap()[1].url,
+        "https://user:s3cret@evil.example/path?token=t0ken",
+        "the VM judges no URL: its lender does"
     );
 }
 

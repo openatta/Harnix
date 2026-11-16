@@ -14,6 +14,7 @@ use harnix_wasm_port::ToolDef;
 use serde_json::Value;
 
 use crate::sync::{lock, read, write};
+use crate::tools::EventScope;
 
 pub use harnix_package::tool_name;
 
@@ -21,14 +22,17 @@ pub use harnix_package::tool_name;
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// One package that is running.
+#[derive(Clone)]
 pub struct Loaded {
     pub id: String,
     pub version: String,
     pub title: Option<String>,
     /// The unpacked package.
     pub root: PathBuf,
-    /// It has a component: its tools are offered, and its events run around every tool call.
+    /// It has a component: its tools are offered.
     pub component: bool,
+    /// Which tool calls its `events` is offered ([`crate::tools::offered`]).
+    pub events: EventScope,
     /// What its manifest declares it provides (in process, as its component agreed when it
     /// started; in a process of its own, what was consented to, whatever the process says).
     pub tools: Vec<ToolDef>,
@@ -136,6 +140,7 @@ mod tests {
             title: None,
             root: PathBuf::new(),
             component: true,
+            events: EventScope::Own,
             tools: Vec::new(),
             ui: Vec::new(),
             interface: Interface::default(),

@@ -33,7 +33,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use harnix_carrier_shared::sync::lock;
 use harnix_carrier_shared::frames;
-use harnix_carrier_shared::DEFAULT_TIMEOUT;
+use harnix_carrier_shared::{EventScope, DEFAULT_TIMEOUT};
 use harnix_ext::{ExtId, ExtensionContext, PackageCarrier, Rpc};
 use harnix_host_api::{
     Carrier, CarrierRegistrar, CarrierSettings, HostApi, HostServices, Installed, Running, StopReason,
@@ -298,6 +298,7 @@ impl Carrier for WasmCarrier {
             title: manifest.app.title.clone(),
             root: pkg_dir,
             component: offer.as_ref().is_some_and(|o| o.component),
+            events: EventScope::of(started.events, &manifest, app.capabilities()),
             tools: offer.map(|o| o.tools).unwrap_or_default(),
             ui: manifest.ui.clone(),
             interface: manifest.interface.clone(),
@@ -369,8 +370,8 @@ impl HttpFetcher for Fetcher {
         let Some(net) = self.registry.net(app) else {
             return Err(format!("`{app}` is not running"));
         };
-        self.kernel.allowed(app, &net, &request.url)?;
-        let request = Request { method: request.method, url: request.url, headers: request.headers, body: request.body };
+        let url = self.kernel.allowed(app, &net, &request.url)?;
+        let request = Request { method: request.method, url, headers: request.headers, body: request.body };
         let response = self.egress.send(request).await?;
         Ok(HttpResponse { status: response.status, headers: response.headers, body: response.body })
     }

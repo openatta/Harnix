@@ -233,11 +233,11 @@ impl Devices<'_> {
     }
 }
 
-/// A named service of the host, beyond what every context has: it says which capability it
-/// takes, and the context checks that before handing it out.
+/// A named service of the host, beyond what every context has: its name, and the type it is
+/// handed out as. What capability it takes is the host's that provides it, checked there against
+/// the asking extension's grants — never something a type declared on the asking side could say.
 pub trait Service: 'static {
     const NAME: &'static str;
-    const CAPABILITY: Capability;
     type Handle: ?Sized + Send + Sync + 'static;
 }
 
@@ -358,14 +358,10 @@ impl ExtensionContext {
         Ok(Devices { ext: self })
     }
 
-    /// A named service of the host, if this extension holds the capability it takes.
+    /// A named service of the host, if this extension holds the capability the host says it
+    /// takes: refused as any capability is (`data.capability`) when it does not.
     pub fn service<S: Service>(&self) -> Rpc<Arc<S::Handle>> {
-        self.require(&S::CAPABILITY)?;
-        let handle = self
-            .shared
-            .ports
-            .service(&self.shared.id, S::NAME)
-            .ok_or_else(|| crate::RpcError::missing(format!("this process has no service `{}`", S::NAME)))?;
+        let handle = self.shared.ports.service(&self.shared.id, S::NAME)?;
         handle
             .downcast_ref::<Arc<S::Handle>>()
             .cloned()
