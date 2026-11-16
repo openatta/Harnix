@@ -63,8 +63,8 @@ const status = (id: string, s: string) => (v: View) => station(v, id)?.status ==
 test("the module says what it offers: flows, a definition with its parts, the catalog, schemas", TAGS, async () => {
   const defs = await api.call("flow.defs");
   expect(defs.map((d: any) => d.name).sort()).toEqual([
-    "demo-agent", "demo-asked", "demo-bypassed", "demo-guarded", "demo-linear", "demo-main", "demo-misplaced", "demo-placed",
-    "demo-propose", "demo-review", "demo-shared",
+    "demo-agent", "demo-asked", "demo-bypassed", "demo-guarded", "demo-linear", "demo-main", "demo-misplaced", "demo-outside",
+    "demo-outside-strict", "demo-placed", "demo-propose", "demo-review", "demo-shared", "demo-task",
   ]);
   // Where each comes from and whether it is valid (xops-02 §3): all built in here.
   expect(defs.every((d: any) => d.origin === "builtin" && d.valid === true)).toBe(true);
@@ -94,7 +94,8 @@ test("the module says what it offers: flows, a definition with its parts, the ca
   expect(catalog.steps).toEqual(["collect", "self-check"]);
   expect(catalog).toMatchObject({ checks: ["lint"], tools: ["open_high"], command_gates: true });
   expect(catalog.parts).toMatchObject({
-    skill: ["analyze", "report"], rule: ["review-rules"], policy: ["ask-todo"], gate: ["lint", "open-high", "self-test"], hook: [],
+    skill: ["analyze", "report", "write-notes", "write-outside"], rule: ["review-rules"], policy: ["ask-todo"],
+    gate: ["lint", "open-high", "self-test", "task-check"], hook: [],
   });
   const def = await api.call("flow.schema", { of: "definition" });
   expect(def.properties.stations).toBeTruthy();

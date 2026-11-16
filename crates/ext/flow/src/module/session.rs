@@ -145,6 +145,32 @@ pub(crate) struct SessionJob {
     pub(crate) main: bool,
 }
 
+/// The project a flow session of `rec` is opened in: a task's own (where the run works, its worktree
+/// when it has one); for a run of no project, the run's own directory when the scene needs a
+/// project (made now), else none. Nothing of the module's is written into a task's project here.
+pub(crate) fn session_root(
+    sh: &Shared,
+    engine: &crate::kernel::engine::Engine,
+    rec: &RunRecord,
+    scene: &str,
+) -> Result<Option<std::path::PathBuf>, String> {
+    if rec.workspace.in_project() && rec.project_root.is_some() {
+        return Ok(engine.workspace_for(rec));
+    }
+    if !sh.cfg.project_scenes.contains(scene) {
+        return Ok(None);
+    }
+    let dir = match engine.workspace(&rec.id) {
+        Some(dir) => dir,
+        None => {
+            let cx = sh.cx.get().ok_or("the flow module has not started")?;
+            crate::kernel::refs::workspace_of(&cx.data_dir().join("workspaces"), &rec.id)
+        }
+    };
+    std::fs::create_dir_all(&dir).map_err(|e| format!("no workspace for the run: {e}"))?;
+    Ok(Some(dir))
+}
+
 /// Where a new session for `job` goes: the station's space (the module's when it names none),
 /// its instance, or an instance of its template made ready first; the module's own space
 /// without an instance means `system`, another space its own default. `Err`: why there is
@@ -338,6 +364,13 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
                     return;
                 }
             };
+            let project_root = match session_root(sh, &engine, &rec, &job.scene) {
+                Ok(r) => r,
+                Err(why) => {
+                    fail(sh, key, &job.token, &why).await;
+                    return;
+                }
+            };
             let spec = SessionSpec::new()
                 .space(&space)
                 .scene(&job.scene)
@@ -348,6 +381,7 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
                 Delivery::FlowSubmit => None,
             };
             let spec = super::spec_with(spec, instance, |s, v| s.instance(&v));
+            let spec = super::spec_with(spec, project_root, |s, v| s.project_root(v));
             let spec = super::spec_with(spec, job.placement.model.clone(), |s, v| s.model(&v));
             let spec = super::spec_with(spec, job.placement.provider.clone(), |s, v| s.provider(&v));
             let spec = super::spec_with(spec, output_schema, |s, v| s.output_schema(v));
@@ -565,7 +599,7 @@ fn task_message_of(sh: &Shared, job: &SessionJob, output_dir: Option<&str>) -> S
 mod tests {
     use super::*;
     use crate::kernel::host::{Outcome, WorkItem};
-    use crate::kernel::run::Actor;
+    use crate::kernel::run::{Actor, Workspace};
     use crate::{CreateIn, Engine, ManualClock, MemPacks, MemStore};
 
     fn job(round: u32, token: &str, session_key: Option<&str>) -> SessionJob {
@@ -681,6 +715,48 @@ stations:
 
     /// A partial rework starts a new round of the station but keeps the claims it did not
     /// name: the dispatcher must go on working them (the claim is the token, not the round).
+    #[tokio::test]
+    async fn a_tasks_sessions_work_in_its_project_and_a_run_of_none_in_its_own_directory() {
+        let project = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        let mut sh = Shared::for_tests();
+        sh.cfg.project_scenes = ["flow-code".to_string()].into();
+        let engine = Engine::new(
+            std::sync::Arc::new(MemStore::new()),
+            std::sync::Arc::new(MemPacks::new().flow("{name: f, stations: [{id: a, exit: [{kind: confirm}]}]}")),
+        )
+        .with_workspaces(data.path().join("workspaces"));
+        let root = project.path().to_string_lossy().into_owned();
+        let started = |workspace: Option<Workspace>, project_root: Option<String>| CreateIn {
+            flow: "f".into(),
+            subject: "s".into(),
+            project_root,
+            workspace,
+            ..Default::default()
+        };
+        let run_of = |o: Outcome| o.value["run"].as_str().unwrap().to_string();
+        for ws in [None, Some(Workspace::Project), Some(Workspace::Worktree)] {
+            let run = run_of(engine.create(started(ws, Some(root.clone())), Actor::device("d")).await.unwrap());
+            let rec = engine.record(&run).await.unwrap();
+            // Whatever the scene: the main session, a station's own, a gate — all in the project.
+            for scene in ["flow-harnix", "flow-code"] {
+                assert_eq!(session_root(&sh, &engine, &rec, scene).unwrap(), Some(project.path().to_path_buf()), "{ws:?} {scene}");
+            }
+        }
+        assert!(std::fs::read_dir(project.path()).unwrap().next().is_none(), "nothing written into the project");
+        // A run of no project: its own directory for a scene that needs one, none otherwise.
+        let run = run_of(engine.create(started(None, None), Actor::device("d")).await.unwrap());
+        let rec = engine.record(&run).await.unwrap();
+        assert_eq!(session_root(&sh, &engine, &rec, "flow-harnix").unwrap(), None);
+        let own = session_root(&sh, &engine, &rec, "flow-code").unwrap().unwrap();
+        assert_eq!(own, engine.workspace(&run).unwrap());
+        assert!(own.is_dir());
+        // A task that works in a directory of its own works there too.
+        let run = run_of(engine.create(started(Some(Workspace::Scratch), Some(root.clone())), Actor::device("d")).await.unwrap());
+        let rec = engine.record(&run).await.unwrap();
+        assert_eq!(session_root(&sh, &engine, &rec, "flow-harnix").unwrap(), None);
+    }
+
     #[tokio::test]
     async fn a_partial_rework_leaves_the_other_claims_standing() {
         let (eng, _) = engine();

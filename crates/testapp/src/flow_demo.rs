@@ -15,19 +15,23 @@
 //! | `demo-main` | xops-03: an external task, then two session stations without a scene — turns of the run's main session; the first tries a write no permission allows (`guard: strict`), the second one its permission allows — then a confirmation |
 //! | `demo-agent` | xops-03: a sub-agent station; the main session is on `flow-harnix` (it has the `Agent` tool), in a directory of the run's |
 //! | `demo-asked` | xops-04: a main-session station whose policy asks a person before the write; a rule; a tool gate and a command gate |
+//! | `demo-task` | a task in a project (`guard: auto`): a session writes `notes.txt` into the project with no one asked, then a command gate finds it there |
+//! | `demo-outside` / `demo-outside-strict` | a write outside the project: refused under `auto`, asked of a person under `strict` |
 //!
 //! The pack also has (xops-04) the rule `review-rules`, the policy `ask-todo`, and the gates `lint`
-//! (the application's own check), `open-high` (a tool) and `self-test` (a command: command gates
-//! are on here).
+//! (the application's own check), `open-high` (a tool), `self-test` and `task-check` (commands:
+//! command gates are on here).
 //!
 //! The flow module has two templates of its own for those (`flow.local` in process, `flow.remote`
 //! spawned): their engines run Agix's harnix scene, and a session with an `output_schema` always
 //! has `StructuredOutput` there.
 //!
 //! Session stations replay `flow-<station>` (`tests/live/fixtures/recordings/flow-analyze`,
-//! `flow-report`, `flow-propose`): each calls `flow_submit` with a fixed output and ends its
-//! turn; `flow-propose` first calls `TodoWrite` — which this application guards as a write — and
-//! `flow_propose`. A task with a session key replays `flow-shared` instead: one turn per task,
+//! `flow-report`, `flow-propose`, `flow-write`, `flow-outside`): each calls `flow_submit` with a
+//! fixed output and ends its turn; `flow-propose` first calls `TodoWrite` — which this application
+//! guards as a write — and `flow_propose`; `flow-write` first writes `notes.txt` (relative: into the
+//! project), `flow-outside` first writes `/tmp/harnix-flow-outside-probe.txt`. A task with a
+//! session key replays `flow-shared` instead: one turn per task,
 //! each handing in its own step. A run's main session replays `flow-main` (`demo-main`) or
 //! `flow-agent` (`demo-agent`).
 
@@ -177,6 +181,70 @@ stations:
     title: Self-test
     exit: [{kind: gate, gate: self-test}]
 "#;
+
+pub const DEMO_TASK: &str = r#"name: demo-task
+title: "Demo: a task in a project"
+description: Writes into the project with no one asked, then a command gate checks it there.
+stations:
+  - id: write
+    title: Write the notes
+    executor: {kind: session, scene: flow-harnix}
+    skill: write-notes
+    output: {type: object, required: [written], properties: {written: {const: true}}}
+    exit: [{kind: output}]
+  - id: check
+    title: Checked in the project
+    exit: [{kind: gate, gate: task-check}]
+"#;
+
+pub const DEMO_OUTSIDE: &str = r#"name: demo-outside
+title: "Demo: a write outside the project"
+permissions: [{effect: allow, tools: [Write]}]
+stations:
+  - id: outside
+    title: Try outside, then hand in
+    executor: {kind: session, scene: flow-harnix}
+    skill: write-outside
+    output: {type: object, required: [tried], properties: {tried: {const: true}}}
+    exit: [{kind: output}]
+"#;
+
+pub const DEMO_OUTSIDE_STRICT: &str = r#"name: demo-outside-strict
+title: "Demo: a write outside the project, under strict"
+guard: strict
+permissions: [{effect: allow, tools: [Write]}]
+stations:
+  - id: outside
+    title: Try outside, then hand in
+    executor: {kind: session, scene: flow-harnix}
+    skill: write-outside
+    output: {type: object, required: [tried], properties: {tried: {const: true}}}
+    exit: [{kind: output}]
+"#;
+
+pub const SKILL_WRITE_NOTES: &str = "---
+name: write-notes
+description: Write the task's notes into the project.
+---
+
+Use the Write tool to create `notes.txt` in the working directory with exactly one line:
+`harnix-task-notes`. Then hand in `{\"written\": true}`.
+";
+
+pub const SKILL_WRITE_OUTSIDE: &str = "---
+name: write-outside
+description: Try a write outside the project, then hand in.
+---
+
+Use the Write tool once to create `/tmp/harnix-flow-outside-probe.txt` with the line `outside`.
+Whatever the answer, then hand in `{\"tried\": true}`.
+";
+
+pub const GATE_TASK_CHECK: &str = "name: task-check
+title: The notes are in the project
+kind: command
+command: 'test -f \"$FLOW_WORKSPACE/notes.txt\" && test -f \"$FLOW_CONTEXT_FILE\" && echo notes found'
+";
 
 pub const RULE_REVIEW: &str = "# Review rules
 
@@ -347,17 +415,23 @@ fn packs() -> MemPacks {
         .flow(DEMO_MAIN)
         .flow(DEMO_AGENT)
         .flow(DEMO_ASKED)
+        .flow(DEMO_TASK)
+        .flow(DEMO_OUTSIDE)
+        .flow(DEMO_OUTSIDE_STRICT)
 }
 
 /// The skills, rules, policies and gates, and the catalog names they use.
 fn parts(p: MemPacks) -> MemPacks {
     p.skill("analyze", SKILL_ANALYZE)
         .skill("report", SKILL_REPORT)
+        .skill("write-notes", SKILL_WRITE_NOTES)
+        .skill("write-outside", SKILL_WRITE_OUTSIDE)
         .rule("review-rules", RULE_REVIEW)
         .policy(POLICY_ASK_TODO)
         .gate_def(GATE_LINT)
         .gate_def(GATE_OPEN_HIGH)
         .gate_def(GATE_SELF_TEST)
+        .gate_def(GATE_TASK_CHECK)
         .scene("harnix")
         .step("collect")
         .step("self-check")
@@ -429,6 +503,9 @@ mod tests {
             DEMO_MAIN,
             DEMO_AGENT,
             DEMO_ASKED,
+            DEMO_TASK,
+            DEMO_OUTSIDE,
+            DEMO_OUTSIDE_STRICT,
         ] {
             let problems = validate_yaml(yaml, &packs as &dyn Packs);
             assert!(problems.is_empty(), "{problems:?}");

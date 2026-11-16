@@ -1,7 +1,8 @@
 //! The run's main session — the flow's main Agent (xops-03 §1).
 //!
 //! It is opened when the run is created, where the flow's `main` places it (the module's main
-//! scene in the module's space by default), and recorded as the run's `@main` session key, so
+//! scene in the module's space by default) — in the run's project when the run is a task
+//! (`session_root`) — and recorded as the run's `@main` session key, so
 //! the session tasks bound to `main` and the sub-agent tasks take their turns in it (the shared
 //! session's lock, `run#@main`).
 //!
@@ -75,16 +76,7 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
     let (space, instance) = place_at(sh, &placement, run).await?;
     let wanted = main_settings(&scene, &placement, placement.template_instance(run).as_deref());
     let recording = sh.cfg.main_recording.as_ref().and_then(|f| f(&rec));
-    // A scene that needs a project works in a directory of the run's own.
-    let project_root = if sh.cfg.project_scenes.contains(&scene) {
-        let dir = engine
-            .workspace(run)
-            .unwrap_or_else(|| crate::kernel::refs::workspace_of(&cx.data_dir().join("workspaces"), run));
-        std::fs::create_dir_all(&dir).map_err(|e| format!("no workspace for the run: {e}"))?;
-        Some(dir)
-    } else {
-        None
-    };
+    let project_root = super::session::session_root(sh, &engine, &rec, &scene)?;
     let spec = SessionSpec::new()
         .space(&space)
         .scene(&scene)
