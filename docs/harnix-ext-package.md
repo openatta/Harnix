@@ -192,7 +192,7 @@ memory_mb = 64                   # 1–4096，缺省 64
 timeout_ms = 30000               # 100–600000，缺省 30000
 
 [[tool]]                         # 组件提供的每一个工具，也只有它们
-name = "search"                  # 字母、数字、_、-；包内唯一；会话里叫 ext__<id>__search（`.`、`-` 换成 `_`），全名至多 64 个字符
+name = "search"                  # 字母、数字、_、-；包内唯一；会话里叫 ext__<id>__search（id 的 `.` 换成 `_`），全名至多 64 个字符
 description = "Search the notes" # 一行：每次都进模型的工具表
 doc = "…"                        # 可选：长的用法，按需取
 read_only = true                 # 可选，缺省 false：只用于调度
@@ -418,8 +418,8 @@ export!(Ext);
   包的 skill 的信任同 Agix 插件包（来源是包的签名），`allowed-tools` 只认收窄的写法；会话自己的同名 skill 优先——用户层与受信项目里的同名 skill 把它遮住。
 - **QuickJS 脚本**挂在 Agix 的扩展点上，没有 I/O，和包的虚拟机之间**没有通道**：要有逻辑的钩子，写成 WASM 的 `events`。QuickJS 只限资源，
   不是隔离边界：它的信任来自签名（§7），不来自沙箱。
-- **工具名**：会话里叫 `ext__<id>__<tool>`，id 里的 `.` 与 `-`、工具名里的 `-` 都换成 `_`（引擎的工具名只收字母、数字与 `_`，且以字母开头），
-  例如 `ext__acme_notes__search`；全名至多 64 个字符。这个映射不是一一对应的（`a-b` 与 `a_b` 都成 `a_b`），所以装包时查：
+- **工具名**：会话里叫 `ext__<id>__<tool>`，只把 id 里的 `.` 换成 `_`，`-` 与工具名照原样（引擎的工具名收字母、数字、`_` 与 `-`，且以字母开头），
+  例如 `ext__acme_notes__search`、`ext__acme_my-notes__do-it`；全名至多 64 个字符。id 里没有 `_`，所以两个包的名字碰不到一起，装包时照样查：
   一个包的工具名映射后撞了包内或已装包的，装不上；一个提供者的包工具合起来超过 64 个，也装不上。清单里 `[[tool]] name` 的字符规则不变。
   进程内与 spawn 的 daemon 里是同一个名字。
 - **每会话登记**：载体的 `ToolProvider` 在每个进程内会话建起时登记当下在跑的包的工具（子 Agent、团队成员、后台任务都算）。新装的包，新会话马上有；已有的会话在
@@ -699,7 +699,7 @@ Harnix 自己怎么测扩展包（两个载体各跑一遍的 `--carrier`、契�
 | `… world` | string | 必填 | `harnix:ext/tools-ext@1.0.0` 或 `harnix:ext/backend-ext@1.0.0` |
 | `… memory_mb` | int | 64 | 1–4096 |
 | `… timeout_ms` | int | 30000 | 100–600000 |
-| `[[tool]] name` | string | 必填 | 字母、数字、`_`、`-`，包内唯一；`ext__<id 与 name 的 . 、- 换成 _>__<name>` 至多 64 字符，映射后不撞别的工具；只在有 `[[component]]` 时 |
+| `[[tool]] name` | string | 必填 | 字母、数字、`_`、`-`，包内唯一；`ext__<id 的 . 换成 _>__<name>` 至多 64 字符，映射后不撞别的工具；只在有 `[[component]]` 时 |
 | `… description` | string | 必填 | 一行，非空 |
 | `… doc` | string | 无 | 长的用法 |
 | `… input_schema` | 表 | 必填 | JSON Schema，对象（写成 TOML） |
@@ -943,7 +943,7 @@ greeting = "hi"
 | 包 id、扩展 id | `<发布者>.<名字>`，例如 `acme.notes`；第一段是保留字（`harnix`、`engine`、`ext`、`topic`、`route`、`proc`、`ctl`、`agix`）、第一方扩展的 id（`system`、`harnix-app`、`settings`、`plugins`、`observability`、`devices`、`flow`、`packages`）或产品链进的原生扩展 id，装的时候就拒 |
 | 方法、主题 | `<id>.<名字>`，例如 `acme.notes.notes.list`；名字的所有者是已登记的、整段前缀匹配的最长 id：原生与包跨类重叠一律拒，原生优先，包标 `failed: namespace_taken` |
 | 后端 space、界面 space | `<id>` 或 `<id>.<名字>` |
-| 会话里的工具（进程内与 spawn 的 daemon 里一样） | `ext__<id 与工具名里的 . 与 - 换成 _>__<工具>`，例如 `ext__acme_notes__search` |
+| 会话里的工具（进程内与 spawn 的 daemon 里一样） | `ext__<id 的 . 换成 _>__<工具>`，例如 `ext__acme_notes__search` |
 | 界面文件 | `/ext/<id>/ui/<路径>` |
 | 详情项的种类 | `<id>.<名字>` |
 | 扩展条目的命名空间 | `<id>` |

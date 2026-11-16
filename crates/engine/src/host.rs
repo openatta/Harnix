@@ -473,13 +473,13 @@ impl HostSide {
     }
 }
 
-/// Whether the engine takes `name` for a tool: `^[A-Za-z][A-Za-z0-9_]{0,63}$`, and not one of an
+/// Whether the engine takes `name` for a tool: `^[A-Za-z][A-Za-z0-9_-]{0,63}$`, and not one of an
 /// MCP server's.
 fn engine_tool_name(name: &str) -> bool {
     let mut chars = name.chars();
     chars.next().is_some_and(|c| c.is_ascii_alphabetic())
         && name.len() <= 64
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
         && !name.starts_with("mcp__")
 }
 
@@ -490,7 +490,8 @@ mod tests {
     #[test]
     fn a_tool_name_is_what_the_engine_takes() {
         assert!(engine_tool_name("ext__acme_notes__search"));
-        assert!(!engine_tool_name("ext__acme-notes__search"));
+        assert!(engine_tool_name("ext__acme_my-notes__do-it"));
+        assert!(!engine_tool_name("ext__acme.notes__search") && !engine_tool_name("-x"));
         assert!(!engine_tool_name("1x") && !engine_tool_name("") && !engine_tool_name(&"a".repeat(65)));
         assert!(!engine_tool_name("mcp__github__x"));
     }

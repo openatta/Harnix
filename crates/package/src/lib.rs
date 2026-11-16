@@ -32,21 +32,22 @@ pub use harnix_contract::ext_id::valid_id;
 /// The most tools one process's sessions are offered from packages.
 pub const MAX_TOOLS: usize = 64;
 
-/// The name a session sees one of a package's tools by: `ext__<id>__<tool>`, the id's `.` and `-`
-/// and the tool's `-` as `_`: the engine's tool names are letters, digits and `_`, starting with a
-/// letter, at most 64. Not one-to-one, so a package whose names would meet another's is refused at
-/// install ([`tool_clashes`]). The host's check of a package's descriptor has a copy of this rule
-/// (`harnix-assembly`, `host/dynamic.rs`), which does not depend on this crate.
+/// The name a session sees one of a package's tools by: `ext__<id>__<tool>`, the id's `.` as `_`:
+/// the engine's tool names are letters, digits, `_` and `-`, starting with a letter, at most 64.
+/// An id has no `_` of its own, so no two packages' names meet; a package whose names would meet
+/// another's is still refused at install ([`tool_clashes`]). The host's check of a package's
+/// descriptor has a copy of this rule (`harnix-assembly`, `host/dynamic.rs`), which does not
+/// depend on this crate.
 pub fn tool_name(app: &str, tool: &str) -> String {
-    format!("ext__{}__{}", app.replace(['.', '-'], "_"), tool.replace('-', "_"))
+    format!("ext__{}__{tool}", app.replace('.', "_"))
 }
 
-/// Whether `name` is one the engine takes for a tool: `^[A-Za-z][A-Za-z0-9_]{0,63}$`.
+/// Whether `name` is one the engine takes for a tool: `^[A-Za-z][A-Za-z0-9_-]{0,63}$`.
 pub fn engine_tool_name(name: &str) -> bool {
     let mut chars = name.chars();
     chars.next().is_some_and(|c| c.is_ascii_alphabetic())
         && name.len() <= 64
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 /// The names `manifest`'s tools would take that one of `installed`'s already has, as
