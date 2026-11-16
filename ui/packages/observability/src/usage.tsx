@@ -4,70 +4,14 @@
  * token's wait, the output rate, how long the run took, the sub-agents' totals — from
  * `observability.usage` and `observability.turns`, and the way into the trajectory.
  *
- * `summarizeUsage` is the arithmetic apart from React, for a summary over many sessions to share.
+ * The arithmetic is `@harnix/core`'s `summarizeUsage`, the one the system space's overview uses too.
  */
 
 import { useEffect, useState } from "react";
-import type { AgentUsage, SessionUsage, TurnSummary } from "@harnix/core";
+import { summarizeUsage, type SessionUsage, type TurnSummary } from "@harnix/core";
 import { compact, millis, useT, useTabInfo, type HostSessionRef as SessionKey } from "@harnix/react";
 
 import { Failure, RunNote, TRAJECTORY_VIEW, sessionParams, type Observed } from "./shared.tsx";
-
-export interface UsageSummary {
-  turns: number;
-  calls: number;
-  auxiliary: number;
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheWrite: number;
-  /** Every token in and out. */
-  total: number;
-  /** The cache's share of what went in, by tokens; null without input. */
-  cacheHit: number | null;
-  modelMs: number;
-  toolMs: number | null;
-  /** The mean wait for the first token, over the turns that had one. */
-  ttftMs: number | null;
-  /** Tokens a second, weighted by what each turn wrote. */
-  rate: number | null;
-  /** From the first call to the last's start. */
-  spanMs: number | null;
-  errors: number;
-  agents: { count: number; total: number; modelMs: number };
-}
-
-/** The figures of one session's run: its own Agent's, with the turns' timing, and its sub-agents summed. */
-export function summarizeUsage(own: AgentUsage | undefined, subs: readonly AgentUsage[], turns: readonly TurnSummary[]): UsageSummary {
-  const sum = (f: (t: TurnSummary) => number) => turns.reduce((n, t) => n + f(t), 0);
-  const ttfts = turns.map((t) => t.ttft_ms).filter((v): v is number => typeof v === "number");
-  const rated = turns.filter((t) => t.tokens_per_s && t.output_tokens);
-  const writing = rated.reduce((n, t) => n + t.output_tokens / t.tokens_per_s!, 0);
-  const input = own ? own.input_tokens + own.cache_read_tokens + own.cache_write_tokens : sum((t) => t.input_tokens);
-  const output = own?.output_tokens ?? sum((t) => t.output_tokens);
-  return {
-    turns: own?.turns ?? turns.length,
-    calls: own?.calls ?? sum((t) => t.calls.length),
-    auxiliary: own?.auxiliary ?? sum((t) => t.auxiliary),
-    input: own?.input_tokens ?? input,
-    output,
-    cacheRead: own?.cache_read_tokens ?? 0,
-    cacheWrite: own?.cache_write_tokens ?? 0,
-    total: input + output,
-    cacheHit: own && input > 0 ? own.cache_read_tokens / input : null,
-    modelMs: own?.model_ms ?? sum((t) => t.model_ms),
-    toolMs: turns.length ? sum((t) => t.tool_ms) : null,
-    ttftMs: ttfts.length ? Math.round(ttfts.reduce((a, b) => a + b, 0) / ttfts.length) : null,
-    rate: writing > 0 ? rated.reduce((n, t) => n + t.output_tokens, 0) / writing : null,
-    spanMs: own?.first_at != null && own.last_at != null ? Math.max(0, own.last_at - own.first_at) : null,
-    errors: own?.errors ?? 0,
-    agents: {
-      count: subs.length,
-      total: subs.reduce((n, u) => n + u.input_tokens + u.cache_read_tokens + u.cache_write_tokens + u.output_tokens, 0),
-      modelMs: subs.reduce((n, u) => n + u.model_ms, 0),
-    },
-  };
-}
 
 export function UsageTab({ observed }: { observed: Observed }) {
   const { tab } = useTabInfo();

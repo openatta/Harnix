@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  usageByFlow,
   defBlockedKey,
   ORIGINS,
   guideGroupOf,
@@ -452,5 +453,33 @@ describe("the guide's five groups (flow-5)", () => {
     expect(secs[0]!.overview).toBe(true);
     expect(secs[1]!.blocks.map((b) => b.kind)).toEqual(["heading", "table"]);
     expect(secs[3]!.overview).toBeUndefined();
+  });
+});
+
+describe("usageByFlow", () => {
+  const run = (id: string, flow: string, created: number, over: Record<string, unknown> = {}) =>
+    ({ id, flow, subject: "", status: "running", rev: 1, created_at: created, workspace: "project", trigger: { kind: "manual" }, ...over }) as never;
+
+  it("sums the runs started since, per flow, dry runs aside, the most tokens first", () => {
+    const rows = usageByFlow(
+      [
+        run("a-1", "a", 100, { usage: { input_tokens: 10, output_tokens: 5, turns: 2 }, finished_at: 400 }),
+        run("a-2", "a", 200, { usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 8, turns: 1 } }),
+        run("b-1", "b", 150, { usage: { input_tokens: 100, output_tokens: 1, turns: 1 }, finished_at: 160 }),
+        run("old-1", "a", 50, { usage: { input_tokens: 999, output_tokens: 0, turns: 1 } }),
+        run("dry-a-1", "a", 300, { dry: true, usage: { input_tokens: 999, output_tokens: 0, turns: 1 } }),
+      ],
+      100,
+    );
+    expect(rows.map((r) => [r.flow, r.runs, r.finished, r.usage.turns, r.elapsedMs])).toEqual([
+      ["b", 1, 1, 1, 10],
+      ["a", 2, 1, 3, 300],
+    ]);
+    expect(rows[1]!.usage).toMatchObject({ input_tokens: 11, output_tokens: 6, cache_read_input_tokens: 8 });
+  });
+
+  it("nothing started since: no rows", () => {
+    expect(usageByFlow([run("a-1", "a", 10)], 100)).toEqual([]);
+    expect(usageByFlow([], 0)).toEqual([]);
   });
 });

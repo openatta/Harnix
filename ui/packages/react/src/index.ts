@@ -47,6 +47,7 @@ export {
 export { SessionView, type SessionViewProps } from "./components/SessionView";
 export { SessionList, type SessionListProps } from "./components/SessionList";
 export { ConnectionBadge } from "./components/ConnectionBadge";
+export { Bars, FigureTable, type Bar, type FigureColumn, type FigureTableProps } from "./components/Figures";
 export { ContextReport, FactList, originLabel, type ContextReportData } from "./components/ContextReport";
 export { BuiltinToolRow, Disclosure, STATUS_GLYPH, ToolDetails, argumentSummary, askedTool, clip, rowTitle, toolAsks, useToolState, type ToolAsks, type ToolRowContribution, type UserRowContribution } from "./components/blocks";
 export { lineDiff, hunks, type DiffLine } from "./diff";

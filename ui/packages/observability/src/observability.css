@@ -600,3 +600,69 @@
   font-size: 11px;
   color: var(--label-caption);
 }
+
+/* The system space's 用量 tab: what every session used over the last days. */
+.obs-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.obs-summary-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.obs-summary-head .sp {
+  flex: 1;
+}
+
+.obs-summary .stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 6px;
+}
+
+.obs-summary .stat-grid .cell {
+  padding: 6px 8px;
+  border: 1px solid var(--border-l1);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.obs-summary .stat-grid .v {
+  font-family: var(--font-code);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.obs-summary .stat-grid .l {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--label-caption);
+}
+
+.obs-summary .label {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--label-secondary);
+}
+
+.obs-summary .note {
+  font-size: 12px;
+  color: var(--label-tertiary);
+}
+
+.obs-summary .hx-figures {
+  display: block;
+  overflow-x: auto;
+}
+
+.obs-summary-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

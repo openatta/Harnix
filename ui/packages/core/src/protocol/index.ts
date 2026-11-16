@@ -6,7 +6,7 @@
  * `packages.list` 的行与清单的 `[inline]`（`harnix_ext_packages::wire`），`settings.mcp.*` 的答
  * （`harnix_ext_settings::wire`），定时 `schedule.*` 的行与参数（`harnix_ext_schedule::wire`）；
  * 不手改，`scripts/check.sh` 比对漂移。`engine.ts` 是引擎（Agix）的形状，手写，照 `hello.engine_protocol`。
- * `frames.ts` 把两者接到方法名与通知名上。
+ * `frames.ts` 把两者接到方法名与通知名上；`usage.ts` 把录像读出来的用量算成界面上的数。
  */
 
 export * from "./generated/contract.ts";
@@ -19,3 +19,4 @@ export * from "./frames.ts";
 export * from "./events.ts";
 export * from "./changes.ts";
 export * from "./feedback.ts";
+export * from "./usage.ts";
