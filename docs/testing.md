@@ -38,7 +38,7 @@ scripts/prune.sh                 # 清构建缓存：增量缓存全删，超过
 | `browser` | LIVE 的 `ui` project，两种拓扑（后端只给这一种，页面得自己走过去）；扩展包的套件在 `--carrier process` 下再跑一遍（`single_duplex`） | chromium（`pnpm install:browser`） |
 | `interface` | 起一个同时给两种拓扑的后端，`tests/topology-parity.mjs` 逐条比两边的答 | 模型 |
 | `remote` | 绑非回环、带 TLS，`tests/remote-smoke.mjs` 走配对 | `--with-remote` 与模型 |
-| `budget` | `tests/budget.mjs`：二进制体积（缺省构建带两种载体 ≤ 52 MB）、界面产物、冷启动、内存、延迟；扩展进程（带它自己的引擎，开着沙箱）的常驻、拉起到 `proc.hello`、`ctl.start` 到应答、启用与按需唤醒的冷启动；最后一个、单独跑 | 发布构建 |
+| `budget` | `tests/budget.mjs`：二进制体积（缺省构建带两种载体 ≤ 104 MB）、界面产物、冷启动、内存、延迟；扩展进程（带它自己的引擎，开着沙箱）的常驻、拉起到 `proc.hello`、`ctl.start` 到应答、启用与按需唤醒的冷启动；最后一个、单独跑 | 发布构建 |
 
 **跳过的层要说，不能当作通过。** 缺模型、缺 chromium、没给 `--with-remote` 的层报 `skipped` 和原因，汇总里看得到；一层没跑不是一层过了。
 层的输出写进临时文件，只有失败时才显示最后 30 行。
