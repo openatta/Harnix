@@ -57,6 +57,8 @@ something.
 | `app-spawn-echo` | A spawned daemon's session calls `ext__example_showcase__echo {text: showcase-over-mcp}` — the showcase's tool, registered on the daemon's socket by this process — then a line of text. Made the same way |
 | `thinks-first` | "fixture ready" after a line of thinking that names it: the thinking row. The `says-ready` of before it was recorded again (Agix 0.1.0, the `code` scene), kept as it was because the provider of the recorded ones streams no thinking text. Hand-made in that sense: its requests are another scene's |
 | `says-markdown` | A reply in markdown: a `sh` code block, a table and a link — what the conversation draws of a reply. Recorded |
+| `asks-a-question` | The `code` scene's `AskUserQuestion` (header Color, options `r` red and `b` blue), answered `b`; then the model says "blue": the question card, and the answer told to every watcher (`ask_answered`). Recorded, its answer given by `api/recorded.ts` |
+| `reviews-a-plan` | `permission_mode: plan`: a plan under the heading Plan, then `ExitPlanMode`; changes asked for (`PLAN_FEEDBACK` in `api/recorded.ts`), a revised plan and `ExitPlanMode` again, approved; then "plan approved". The plan's review card. Recorded, its answers given by `api/recorded.ts` |
 
 ### Still made by hand, and why
 

@@ -227,8 +227,15 @@ export async function dropSessions(client: TestClient): Promise<void> {
 const answeredBy = new WeakMap<TestClient, Set<string>>();
 
 /**
- * One turn: send `message`, answer every permission ask it raises with `decision`, and wait for
- * the turn to settle.
+ * How a turn answers one ask: the fields of `harnix.session.respond` beside the session and the
+ * ask's id (`{decision}`, or `{prompt_type, answer}`); `undefined` answers it with the turn's
+ * `decision`.
+ */
+export type Answerer = (event: any) => Record<string, unknown> | undefined;
+
+/**
+ * One turn: send `message`, answer every permission ask it raises with `decision` — or each ask as
+ * `answer` says (a model's question, a plan's review) — and wait for the turn to settle.
  *
  * The asks answered are the ones this client is shown after the send, a sub-agent's included —
  * those come in under the sub-agent's own session. What it returns: the settlement frame and the
@@ -238,7 +245,7 @@ export async function runTurn(
   api: TestClient,
   session: { session_id: string; instance?: string },
   message: string,
-  { decision = "permit", timeout = 90_000 }: { decision?: string; timeout?: number } = {},
+  { decision = "permit", timeout = 90_000, answer }: { decision?: string; timeout?: number; answer?: Answerer } = {},
 ): Promise<{ settled: Frame; asks: any[] }> {
   const answered = answeredBy.get(api) ?? new Set<string>();
   answeredBy.set(api, answered);
@@ -262,7 +269,7 @@ export async function runTurn(
         instance: f.params.instance ?? session.instance,
         session_id: f.params.session_id,
         prompt_id: id,
-        decision: decision === "deny" ? { type: "deny", reason: "not now" } : { type: decision },
+        ...(answer?.(f.params.event) ?? { decision: decision === "deny" ? { type: "deny", reason: "not now" } : { type: decision } }),
       });
     }
     if (Date.now() > deadline) {
