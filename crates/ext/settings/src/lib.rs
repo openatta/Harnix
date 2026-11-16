@@ -19,16 +19,21 @@
 //!
 //! Providers are the engine's to write: `engine.config.setProvider` takes the global tier and a
 //! `dry_run`, and puts the key in the `settings.local.json` beside it ([`providers`]).
+//!
+//! MCP servers are the page's too ([`mcp`]): added, changed, removed, switched off and signed in to,
+//! in the tier chosen.
 
 use std::path::{Path, PathBuf};
 
-use harnix_ext::{caps, codes, Access, Call, Extension, Manifest, Registrar, Rpc, RpcError, MAIN_INSTANCE};
+use harnix_ext::{caps, codes, Access, Call, Extension, ExtensionContext, Manifest, Registrar, Rpc, RpcError, MAIN_INSTANCE};
 use harnix_host_api::SettingsTiers;
 use serde_json::{json, Map, Value};
 
 mod dir_lock;
 mod fields;
+mod mcp;
 mod providers;
+pub mod wire;
 
 use fields::{Type, FIELDS, TIERS};
 
@@ -42,10 +47,17 @@ impl Extension for Settings {
     fn manifest(&self) -> Manifest {
         Manifest::new("settings", env!("CARGO_PKG_VERSION"))
             .title("Settings")
-            .disclosure("读写引擎的设置三层；写 provider 的凭据与端点")
+            .disclosure(
+                "读写引擎的设置三层；写 provider 的凭据与端点；替设备加、改、删、停用 MCP 服务器（能起子进程的工具）并登录远端的；\
+                 读会话下一次请求里 MCP 的工具与指令",
+            )
             // Reading the settings, reloading them, and — `harnix.instances.inheritProviders` —
             // handing a changed provider to the instances whose template inherits `main`'s.
             .requires([caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE])
+            // A project's MCP servers and every sign-in go through the engine (`engine.mcp`); the MCP
+            // part of a session's next call is read off `inspectContext` (`engine.inspect`). Without
+            // them the MCP section lists and edits the global and scene tiers only.
+            .optional([caps::ENGINE_MCP, caps::ENGINE_INSPECT])
     }
 
     fn register(&self, r: &mut Registrar<'_, ()>) {
@@ -65,10 +77,16 @@ impl Extension for Settings {
             .access(Access::device())
             .describe("add, edit or remove a provider, credentials included, in the global tier")
             .raw(|call, params| async move { set_provider(&call, params).await });
+        mcp::register(r);
+    }
+
+    async fn start(&self, cx: ExtensionContext) -> anyhow::Result<()> {
+        cx.provide(mcp::McpState::default());
+        Ok(())
     }
 }
 
-fn require_str(params: &Value, key: &str) -> Rpc<String> {
+pub(crate) fn require_str(params: &Value, key: &str) -> Rpc<String> {
     params
         .get(key)
         .and_then(Value::as_str)
@@ -85,7 +103,7 @@ fn main_engine(call: &Call) -> Rpc<harnix_ext::EngineView> {
 
 /// The settings.json a tier writes to, if that tier exists here. The global and scene tiers are
 /// under the engine's data root, which the host says; the project tier is the project's own.
-fn tier_path(call: &Call, tier: &str, scene: Option<&str>, project_root: Option<&str>) -> Rpc<Option<PathBuf>> {
+pub(crate) fn tier_path(call: &Call, tier: &str, scene: Option<&str>, project_root: Option<&str>) -> Rpc<Option<PathBuf>> {
     let files = call.ext().service::<SettingsTiers>()?;
     let under_main = |path: Option<PathBuf>| {
         path.ok_or_else(|| RpcError::new(codes::INTERNAL_ERROR, "the engine has not started yet"))
@@ -106,7 +124,7 @@ fn tier_path(call: &Call, tier: &str, scene: Option<&str>, project_root: Option<
 /// `engine.config.get` needs a scene and refuses without one, and a write with no scene would
 /// resolve no tier path. A settings page opened with no session is the ordinary case, and it used
 /// to answer every field `null` — a write made and then read back as nothing.
-fn scene_of(call: &Call, params: &Value) -> Rpc<Option<String>> {
+pub(crate) fn scene_of(call: &Call, params: &Value) -> Rpc<Option<String>> {
     let default_scene = main_engine(call)?.active_scenes().first().cloned();
     Ok(params.get("scene").and_then(Value::as_str).map(str::to_string).or(default_scene))
 }
@@ -215,7 +233,7 @@ async fn describe(call: &Call, params: Value) -> Rpc<Value> {
 
 /// The `scene` / `project_root` an engine call is located by, each only when there is one: the
 /// engine refuses `null` for either.
-fn locate(scene: Option<&str>, project_root: Option<&str>) -> Value {
+pub(crate) fn locate(scene: Option<&str>, project_root: Option<&str>) -> Value {
     let mut at = json!({});
     if let Some(scene) = scene {
         at["scene"] = json!(scene);
@@ -499,7 +517,7 @@ fn set_in_file(path: &Path, key: &str, value: Value) -> Result<(), RpcError> {
 /// read that failed for any other reason — permissions, a disk error —
 /// taken as empty would have been written back as a tier holding the one key
 /// just set, its providers and credentials gone.
-fn read_document(path: &std::path::Path) -> Result<Value, RpcError> {
+pub(crate) fn read_document(path: &std::path::Path) -> Result<Value, RpcError> {
     match std::fs::read(path) {
         Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| {
             RpcError::new(
@@ -516,13 +534,13 @@ fn read_document(path: &std::path::Path) -> Result<Value, RpcError> {
 }
 
 /// The directory lock of the tier a settings file is in, the one Agix's writers take.
-fn lock_tier(path: &std::path::Path) -> Result<dir_lock::DirLock, RpcError> {
+pub(crate) fn lock_tier(path: &std::path::Path) -> Result<dir_lock::DirLock, RpcError> {
     let dir = path.parent().unwrap_or(std::path::Path::new("."));
     dir_lock::DirLock::acquire(dir).map_err(io_error)
 }
 
 /// Replace a tier's settings.json atomically.
-fn write_document(path: &std::path::Path, document: &Value) -> Result<(), RpcError> {
+pub(crate) fn write_document(path: &std::path::Path, document: &Value) -> Result<(), RpcError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(io_error)?;
     }

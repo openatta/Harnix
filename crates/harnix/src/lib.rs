@@ -114,7 +114,7 @@ pub mod first_party {
                 [caps::INSTANCES_ADMIN, caps::ENGINE_INSPECT, caps::ENGINE_CONTROL, caps::PROCESS_OBSERVE],
             )
             .with(Observability, [caps::RECORDINGS_READ])
-            .with(Settings, [caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE])
+            .with(Settings, [caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE, caps::ENGINE_MCP, caps::ENGINE_INSPECT])
             .with(Plugins::default(), [caps::ENGINE_PLUGINS])
             .with(Devices, [caps::DEVICES_MANAGE])
     }

@@ -44,10 +44,10 @@ testing = []
 # it takes it from. Not stable: bound to axum's major version.
 axum = ["harnix-ext/axum", "dep:axum"]
 # `tests/ts_export.rs`: the interface's protocol declarations, generated from the Rust types that
-# serialize onto the wire — the kernel's (`harnix_contract::wire`), the readers', the packages',
-# the flows'.
-# It reaches every crate whose types are declared there, so it is only ever a test's feature.
-ts = ["dep:ts-rs", "harnix-ext/ts", "harnix-ext-packages/ts", "harnix-ext-flow/ts"]
+# serialize onto the wire — the kernel's (`harnix_contract::wire`), the readers', the packages', the
+# flows', the settings' MCP methods'. It reaches every crate whose types are declared there, so it is
+# only ever a test's feature.
+ts = ["dep:ts-rs", "harnix-ext/ts", "harnix-ext-packages/ts", "harnix-ext-flow/ts", "harnix-ext-settings/ts"]
 
 [dependencies]
 harnix-assembly       = { workspace = true }

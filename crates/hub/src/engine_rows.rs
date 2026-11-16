@@ -59,9 +59,9 @@ const DEVICE: &[(&str, RowScope, After, bool)] = &[
     ("engine.daemon.doctor", RowScope::Open, After::Nothing, false),
 ];
 
-/// The capabilities over an engine's settings and plugins: what no row reaches on an extension's
-/// engine.
-const SETTINGS: &[Capability] = &[caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE, caps::ENGINE_PLUGINS];
+/// The capabilities over an engine's settings, plugins and MCP servers: what no row reaches on an
+/// extension's engine.
+const SETTINGS: &[Capability] = &[caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE, caps::ENGINE_PLUGINS, caps::ENGINE_MCP];
 
 /// What no device calls directly, open to the kernel and an extension holding the capability:
 /// looking into a session and changing its context (a device reaches those through the system
@@ -118,6 +118,8 @@ const PROJECT_TRUST: &[(&str, Capability)] = &[
 ///
 /// `engine.mcp.addServer` stays refused, and the difference is the point: it configures a
 /// subprocess-spawning tool with no manifest, no capability declaration and no disclosure at all.
+/// A device adds one through the `settings` extension, which holds `engine.mcp` and says what it
+/// does; the same goes for changing one and for signing in to one.
 pub const ENGINE_REFUSALS: &[(&str, &str, Option<Capability>)] = &[
     (
         "engine.config.setProvider",
@@ -139,9 +141,21 @@ pub const ENGINE_REFUSALS: &[(&str, &str, Option<Capability>)] = &[
         "adding an MCP server is equivalent to installing a tool that runs subprocesses",
         Some(caps::ENGINE_MCP),
     ),
+    (
+        "engine.mcp.updateServer",
+        "changing an MCP server is equivalent to installing a tool that runs subprocesses",
+        Some(caps::ENGINE_MCP),
+    ),
+    ("engine.mcp.auth.start", MCP_SIGN_IN, Some(caps::ENGINE_MCP)),
+    ("engine.mcp.auth.complete", MCP_SIGN_IN, Some(caps::ENGINE_MCP)),
+    ("engine.mcp.auth.cancel", MCP_SIGN_IN, Some(caps::ENGINE_MCP)),
+    ("engine.mcp.auth.logout", MCP_SIGN_IN, Some(caps::ENGINE_MCP)),
     ("engine.import.run", "config import runs outside the disclosure this layer is for", None),
     ("engine.import.list", "config import runs outside the disclosure this layer is for", None),
 ];
+
+/// Why a device does not sign in to an MCP server on the engine directly.
+const MCP_SIGN_IN: &str = "an MCP server's sign-in hands its tokens to the engine: it goes through the settings page, which says which server";
 
 /// What the hub owns. Refused to everyone, the kernel and every module included, and never
 /// grantable: each is a way around the hub, and the hub being the only holder of sessions is the

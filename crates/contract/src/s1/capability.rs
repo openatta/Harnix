@@ -134,7 +134,7 @@ pub mod caps {
         CapabilitySpec::new("engine.config.write", "写引擎设置与 provider，重读设置，交给继承它的实例"),
         CapabilitySpec::new("engine.plugins", "装、卸、启停、重读 Agix 插件"),
         CapabilitySpec::new("engine.export", "导出、导入会话"),
-        CapabilitySpec::new("engine.mcp", "给引擎加 MCP 服务器"),
+        CapabilitySpec::new("engine.mcp", "给引擎加、改 MCP 服务器，登录远端的"),
         CapabilitySpec::new("recordings.read", "读模型调用录像与用量"),
         CapabilitySpec::new("transcripts.read", "读会话转录"),
         CapabilitySpec::new("process.observe", "版本、运行时长、内存、线程、已连接的客户端"),

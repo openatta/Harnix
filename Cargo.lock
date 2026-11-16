@@ -1704,14 +1704,19 @@ dependencies = [
 name = "harnix-ext-settings"
 version = "0.4.4-2026111502"
 dependencies = [
+ "anyhow",
  "async-trait",
  "harnix-ext",
  "harnix-host-api",
+ "http",
  "libc",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",
  "tracing",
+ "ts-rs",
+ "url",
 ]
 
 [[package]]
