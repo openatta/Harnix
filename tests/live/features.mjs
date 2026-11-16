@@ -27,7 +27,7 @@ export const FEATURES = [
   { id: "modules", name: "扩展契约" },
   { id: "spaces", name: "space 与会话绑定" },
   { id: "session-space", name: "会话 space" },
-  { id: "projects", name: "项目 space（项目树、项目菜单、项目信任）" },
+  { id: "projects", name: "项目 space（项目树、项目菜单、项目信任、项目里的任务）" },
   { id: "shell", name: "外壳框架（固定部分、可去掉的内建 space、拖宽、头像）" },
   { id: "system", name: "系统 space" },
   { id: "settings", name: "设置" },

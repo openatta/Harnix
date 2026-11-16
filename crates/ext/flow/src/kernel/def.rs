@@ -51,7 +51,50 @@ pub struct FlowDef {
     /// Permissions every station works under, written here.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub permissions: Vec<Permission>,
+    /// How a call no permission speaks for is judged: `auto` (the default) lets it through inside
+    /// the run's project and refuses it outside; `strict` refuses a guarded tool and asks a person
+    /// about a path outside.
+    #[serde(default, skip_serializing_if = "Guard::is_auto")]
+    pub guard: Guard,
+    /// Where a run's deliverables go: a path relative to the project (a run of no project: to its
+    /// own directory) that may say `${flow}`, `${date}` (`YYYYMMDD`), `${seq}` (two digits: one
+    /// more than the highest already there), `${title}` and `${inputs.<k>}`. Absent:
+    /// [`DEFAULT_OUTPUT_DIR`]. A start may give its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_dir: Option<String>,
     pub stations: Vec<Station>,
+}
+
+/// Where a run's deliverables go when neither its flow nor its start says.
+pub const DEFAULT_OUTPUT_DIR: &str = "flows/${flow}-${date}${seq}";
+
+/// How a flow's tool calls are judged where no permission speaks for them. An explicit `ask`, a
+/// `confirm` and a `hold` wait for a person under both.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum Guard {
+    /// No approvals: a guarded tool no permission names is allowed inside the project (or
+    /// worktree); a path outside it is refused, with a reason the session reads, unless an `allow`
+    /// whose own `paths` cover it matched.
+    #[default]
+    Auto,
+    /// A guarded tool no permission allows is refused; a path outside the project is asked of a
+    /// person.
+    Strict,
+}
+
+impl Guard {
+    pub fn is_auto(&self) -> bool {
+        *self == Self::Auto
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Strict => "strict",
+        }
+    }
 }
 
 /// The run's main session: what session tasks bound to `main` and sub-agent tasks work in.

@@ -332,8 +332,14 @@ that names them is told to keep — never enforced), **policies** (`policies/<na
 permissions), **gates** (`gates/<name>.yaml`: a check a `gate` exit names — `tool`, `command` or \
 `host`) and **hooks** (`hooks/<name>.yaml`: tell a URL about runs' events — no flow names them). \
 Flows and stations name `rules` and `policies` and may write `permissions` of their own: each tool \
-call of a task is judged against them, deny over ask over allow; `ask` waits for a person; a \
-guarded tool nothing allows is refused.\n\n\
+call of a task is judged against them, deny over ask over allow; `ask` waits for a person. Where \
+none speaks, the flow's `guard` decides: `auto` (the default) lets a task work freely inside its \
+project and refuses any path outside it (an `allow` whose `paths` name the place lets it through); \
+`strict` refuses a guarded tool nothing allows and asks a person about a path outside. A task asks \
+no questions: where a person must look, write a `confirm` station. A run's deliverables go to its \
+`output_dir` (a template relative to the project — `${flow}`, `${date}`, `${seq}`, `${title}`, \
+`${inputs.<k>}`; default `flows/${flow}-${date}${seq}`), made when it starts; skills, permissions \
+and gates name it `${output_dir}`.\n\n\
 How to work:\n\
 - Read `flow_schema` before writing: the fields, the parts' shapes, and the names this application \
   offers (scenes, program steps, checks, tools, templates, and the parts on offer). Use only those.\n\
@@ -620,7 +626,7 @@ impl Tool for AuthorTool {
         // A conversation in a project reads and saves the project's packs
         // (`<project>/.harnix/flows/`); `flow_create` with a project moves it into that one.
         let asked = match (self.spec.does, str_of(&input, "project_root")) {
-            (Does::Save { creating: true }, Some(root)) => match super::projects::project_root(root) {
+            (Does::Save { creating: true }, Some(root)) => match super::project_packs::project_root(root) {
                 Ok(root) => Some(root),
                 Err(m) => return error(m),
             },
@@ -629,7 +635,7 @@ impl Tool for AuthorTool {
         let project = asked.clone().or_else(|| sh.conversation_project(&instance, &session));
         let packs = match &project {
             Some(root) => {
-                if !super::projects::hear(sh, root).await
+                if !super::project_packs::hear(sh, root).await
                     && matches!(self.spec.does, Does::Save { .. } | Does::Delete | Does::PartSet | Does::PartDelete)
                 {
                     return error(format!(
@@ -910,20 +916,16 @@ impl Tool for AuthorTool {
                 let Some(subject) = str_of(&input, "subject") else {
                     return error("give the run's `subject`");
                 };
-                let r = engine
-                    .create(
-                        CreateIn {
-                            flow: name,
-                            subject: subject.to_string(),
-                            inputs: input.get("inputs").cloned().unwrap_or(Value::Null),
-                            title: str_of(&input, "title").map(String::from),
-                            parent: None,
-                            project_root: project.clone(),
-                            ..Default::default()
-                        },
-                        by,
-                    )
-                    .await;
+                let start = CreateIn {
+                    flow: name,
+                    subject: subject.to_string(),
+                    inputs: input.get("inputs").cloned().unwrap_or(Value::Null),
+                    title: str_of(&input, "title").map(String::from),
+                    parent: None,
+                    project_root: project.clone(),
+                    ..Default::default()
+                };
+                let r = super::project::start(sh, &engine, start, by).await;
                 match r {
                     Ok(o) => {
                         let value = o.value.clone();

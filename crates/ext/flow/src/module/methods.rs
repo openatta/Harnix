@@ -488,7 +488,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         |sh, packs, _, p: Value| async move {
             let project = p.get("project").and_then(Value::as_str).filter(|r| !r.trim().is_empty());
             match project {
-                Some(root) => to_value(publish::defs_list(super::projects::packs_in(&sh, Some(root)).await?.as_ref())),
+                Some(root) => to_value(publish::defs_list(super::project_packs::packs_in(&sh, Some(root)).await?.as_ref())),
                 None => to_value(publish::defs_list(packs.as_ref())),
             }
         },
@@ -501,10 +501,10 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         "one flow: {name, project?} → {def, yaml, digest, origin, valid, problems, writable, skills: {name: body}, protocol: {station: text}}; project: as a task of that project reads it",
         |sh, packs, _, p: DefIn| async move {
             let packs = match p.project.as_deref() {
-                Some(root) if !root.trim().is_empty() => super::projects::packs_in(&sh, Some(root)).await?,
+                Some(root) if !root.trim().is_empty() => super::project_packs::packs_in(&sh, Some(root)).await?,
                 _ => packs,
             };
-            super::projects::refuse_withheld(packs.as_ref(), &p.name)?;
+            super::project_packs::withheld(packs.as_ref(), &p.name).map_err(rpc_error)?;
             def_info(&*engine(&sh)?, packs.as_ref(), &p.name)
         },
     );
@@ -661,13 +661,13 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
                 None => {}
                 Some("") => sh.set_conversation_project(&p.instance, &p.session_id, None),
                 Some(root) => {
-                    let root = super::projects::project_root(root).map_err(RpcError::invalid_params)?;
+                    let root = super::project_packs::project_root(root).map_err(RpcError::invalid_params)?;
                     sh.set_conversation_project(&p.instance, &p.session_id, Some(root));
                 }
             }
             let project = sh.conversation_project(&p.instance, &p.session_id);
             let packs = match &project {
-                Some(root) => super::projects::packs_in(&sh, Some(root)).await?,
+                Some(root) => super::project_packs::packs_in(&sh, Some(root)).await?,
                 None => packs,
             };
             let flow = p.flow.filter(|f| !f.is_empty());
@@ -830,32 +830,23 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         sh,
         packs,
         "start",
-        "start a run: {flow, subject, inputs?, title?, project_root?, workspace?: project|worktree|scratch, output_dir?, trigger?: {kind: manual} | {kind: schedule, schedule, fire_at}} → {run}; with a project_root (an existing absolute directory) the run is a task of that project; only the kernel and extensions start one on a schedule",
+        "start a run: {flow, subject, inputs?, title?, project_root?, workspace?: project|worktree|scratch, output_dir?, trigger?: {kind: manual} | {kind: schedule, schedule, fire_at}} → {run}; with a project_root (an existing absolute directory) the run is a task of that project; output_dir (a template relative to the project, before the flow's and flows/${flow}-${date}${seq}) is made at start and must stay inside it; only the kernel and extensions start one on a schedule",
         |sh, _, cx, p: StartParams| async move {
             let by = caller(&cx);
             let trigger = start_trigger(cx.device().is_some(), p.trigger, &by)?;
-            let project_root = project_dir(p.project_root)?;
-            if let Some(root) = &project_root {
-                // In a project a name means the project's own flow: not run until it is trusted.
-                let packs = super::projects::packs_in(&sh, Some(root)).await?;
-                super::projects::refuse_withheld(packs.as_ref(), &p.flow)?;
-            }
-            let r = engine(&sh)?
-                .create(
-                    CreateIn {
-                        flow: p.flow,
-                        subject: p.subject,
-                        inputs: p.inputs,
-                        title: p.title,
-                        parent: None,
-                        project_root,
-                        workspace: p.workspace,
-                        output_dir: p.output_dir,
-                        trigger: Some(trigger),
-                    },
-                    by,
-                )
-                .await;
+            let input = CreateIn {
+                flow: p.flow,
+                subject: p.subject,
+                inputs: p.inputs,
+                title: p.title,
+                parent: None,
+                project_root: project_dir(p.project_root)?,
+                workspace: p.workspace,
+                output_dir: p.output_dir,
+                trigger: Some(trigger),
+            };
+            let engine = engine(&sh)?;
+            let r = super::project::start(&sh, &engine, input, by).await;
             change(&sh, None, r).await
         },
     );
@@ -1137,6 +1128,9 @@ fn def_info(engine: &Engine, packs: &dyn Packs, name: &str) -> Answer {
                 gates: &pinned.gates,
                 delivery,
                 executor: Some(&t.executor),
+                guard: def.guard,
+                root: Some("<project>"),
+                output_dir: Some("<output_dir>"),
             });
             // What the session is told before its skill: the rules too.
             let rules: Vec<(String, String)> = crate::kernel::parts::rules_of(&def, s)

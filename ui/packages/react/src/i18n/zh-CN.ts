@@ -904,6 +904,8 @@ const zhCN: Record<string, string> = {
   "projects.more": "更多（{count}）",
   "projects.noSessions": "这个项目还没有会话。",
   "projects.none": "还没有项目：点 + 加一个目录。",
+  "projects.new": "在这个项目里新建…",
+  "projects.newSession": "新会话",
   "projects.trust.menu": "信任这个项目…",
   "projects.trust.revoke": "不再信任这个项目",
   "projects.trust.title": "信任这个项目",

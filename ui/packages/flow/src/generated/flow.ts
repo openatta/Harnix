@@ -33,7 +33,26 @@ policies?: Array<string>,
 /**
  * Permissions every station works under, written here.
  */
-permissions?: Array<Permission>, stations: Array<Station>, };
+permissions?: Array<Permission>, 
+/**
+ * How a call no permission speaks for is judged: `auto` (the default) lets it through inside
+ * the run's project and refuses it outside; `strict` refuses a guarded tool and asks a person
+ * about a path outside.
+ */
+guard?: Guard, 
+/**
+ * Where a run's deliverables go: a path relative to the project (a run of no project: to its
+ * own directory) that may say `${flow}`, `${date}` (`YYYYMMDD`), `${seq}` (two digits: one
+ * more than the highest already there), `${title}` and `${inputs.<k>}`. Absent:
+ * [`DEFAULT_OUTPUT_DIR`]. A start may give its own.
+ */
+output_dir?: string | null, stations: Array<Station>, };
+
+/**
+ * How a flow's tool calls are judged where no permission speaks for them. An explicit `ask`, a
+ * `confirm` and a `hold` wait for a person under both.
+ */
+export type Guard = "auto" | "strict";
 
 /**
  * The run's main session: what session tasks bound to `main` and sub-agent tasks work in.
@@ -517,7 +536,8 @@ project_root?: string | null,
  */
 workspace: Workspace, 
 /**
- * Where its deliverables go, as the run holds it.
+ * Where its deliverables go: a directory in the project (a run of no project: in its own
+ * directory), resolved from its template when the run was started; `${output_dir}`.
  */
 output_dir?: string | null, 
 /**
@@ -658,7 +678,9 @@ project_root?: string,
  */
 workspace?: Workspace, 
 /**
- * Where its deliverables go: a path or a template, recorded as given.
+ * Where its deliverables go: a template relative to the project (`${flow}`, `${date}`,
+ * `${seq}`, `${title}`, `${inputs.<k>}`), or an absolute path inside it; absent: the flow's,
+ * else `flows/${flow}-${date}${seq}`. Made at start; the run holds it resolved.
  */
 output_dir?: string, 
 /**

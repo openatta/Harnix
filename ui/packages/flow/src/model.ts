@@ -517,6 +517,24 @@ export function phaseOf(r: { phase?: Phase | null; status?: RunStatus | string |
   return { state: "running" };
 }
 
+/** Whether a run is still going: not finished, not cancelled. */
+export function runLive(r: { phase?: Phase | null; status?: RunStatus | string | null }): boolean {
+  const state = phaseOf(r).state;
+  return state !== "finished" && state !== "cancelled";
+}
+
+/** A project root as a run holds it and as a workspace spells it: a trailing `/` aside. */
+export function sameRoot(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  const strip = (s: string) => (s.length > 1 ? s.replace(/\/+$/, "") : s);
+  return strip(a) === strip(b);
+}
+
+/** The runs of a project (its tasks) still going; dry runs left out. */
+export function runningIn(runs: RunSummary[], root: string): RunSummary[] {
+  return runs.filter((r) => sameRoot(r.project_root, root) && !r.dry && !isDryRun(r.id) && runLive(r));
+}
+
 export function phaseTone(state: PhaseState | string): Tone {
   return PHASE_TONE[state as PhaseState] ?? "muted";
 }

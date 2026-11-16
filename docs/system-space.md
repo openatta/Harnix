@@ -126,6 +126,14 @@
 
 「返回系统」回到控制台，停在流程页签上。在流程里时左栏底部系统 space 的入口仍然亮着。
 
+**同一条运行的另一个入口：项目里的任务**（[Harnix app](harnix-app.md) §3.2）。项目树里点一个任务，走的也是这条路——流程的界面 space
+带到前台、停在这条运行上，主会话在中区——只是左栏的「返回」回到项目 space（`FlowSpaceState.enter(flow, run, { from })`），
+会话旁的详情面板不开，改在右栏开「流程」页签（`sidebar.tab`，`kind: "flow"`，`keepMounted`；`openTab("flow", { params: { run } })`；
+没带 `run` 时按这个会话在浏览器里记下的，再没有就在最近的运行里找主会话是它的那条）。
+两处画的是同一组件（`ui/packages/flow/src/RunPanel.tsx`）：`RunHead`（状态，暂停 / 恢复 / 取消）、`FlowGraph`（当前站高亮）、
+选中站的 `StationPanel`（确认、放行、退回、强制通过……按站给）、`RunStations`（每站的状态、耗时、token、输出一行、门禁结果）、
+`OutputDirLine`（输出目录：复制路径、打开文件页签）、`RunSessionsList`（子 Agent 与任务）。控制台这一侧仍是 `RunDetail`，只是从这里取件。
+
 **它的 space**：流程是一个界面 space，`within` 系统 space：不列在左栏，只能由代码进入。id 是 `harnix.spaces.list` 里
 scene 为 `flow-author` 的那个后端 space（缺省 `flow`，由 `flow` 扩展声明），所以旧的会话和深链接照开。
 

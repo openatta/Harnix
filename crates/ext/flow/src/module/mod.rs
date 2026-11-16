@@ -6,13 +6,14 @@
 //! shared.rs    what the module, its tools and its dispatcher share
 //! dispatch.rs  carrying out an Outcome: events, programs, and every work item handed on
 //! publish.rs   the topics: `run`, `runs`, `defs`, `focus`, `dry_runs`
+//! project.rs   a run's output directory and process directory in its project
 //! session.rs   a session task: placing, opening and binding its session
 //! turns.rs     a session task's turns: sending, judging, correcting, nudging, interrupting
 //! gate.rs      a gate's work item; `command` gates
 //! tools.rs     the scene wrappers: flow-* (flow_state, flow_submit, flow_propose)
 //! author.rs    flow-author: writing flows in conversation (xops-02 §4)
 //! methods.rs   flow.* — the device methods
-//! projects.rs  a project's own packs: whether the project is trusted, as the engine says
+//! project_packs.rs  a project's own packs: whether the project is trusted, as the engine says
 //! ```
 //!
 //! What a task may do is judged by the module call by call: a flow session `ask`s about every
@@ -41,7 +42,8 @@ mod gate;
 mod hooks;
 mod main;
 mod methods;
-mod projects;
+mod project;
+mod project_packs;
 mod publish;
 mod session;
 mod shared;
@@ -719,7 +721,7 @@ impl Extension for Flow {
         self.sh.spawn(async move {
             dispatch::stop_stale_instances(&sh).await;
             // Runs in projects read their project's packs as they go: its trust first.
-            projects::hear_active(&sh).await;
+            project_packs::hear_active(&sh).await;
             dispatch::recover(&sh).await
         });
         let sh = self.sh.clone();

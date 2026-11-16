@@ -14,7 +14,8 @@ use crate::wire::DefRow;
 /// How many runs the `runs` topic carries, newest first.
 pub const RUNS_LISTED: usize = 200;
 
-/// The newest snapshot of each run, and the list; bindings of claims that are over dropped.
+/// The newest snapshot of each run, and the list; bindings of claims that are over dropped; each
+/// run's process directory written (`project.rs`).
 pub(crate) async fn publish(sh: &Arc<Shared>, runs: &BTreeSet<String>) {
     publish_runs(sh, runs, true).await;
 }
@@ -29,6 +30,10 @@ pub(crate) async fn publish_runs(sh: &Arc<Shared>, runs: &BTreeSet<String>, list
     for run in runs {
         if let Ok(rec) = engine.record(run).await {
             sh.prune_bindings(run, |b| binding_current(&rec, b));
+            // Its process directory follows each change; bookkeeping changes nothing shown there.
+            if list {
+                super::project::project_run(engine, &rec);
+            }
             if let Err(e) = events.publish("run", json!({"run": run}), view(rec)).await {
                 tracing::warn!(run, error = %e, "run not published");
             }

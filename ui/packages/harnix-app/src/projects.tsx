@@ -1,24 +1,27 @@
 /**
  * The projects space's left column: the registered projects as a tree, one open at a time, its
  * conversations under it on a guide line. Up to five projects show, then "more"; up to eight
- * conversations of the open one, then "all".
+ * rows of the open one, then "all".
  *
  * A project is a workspace (`harnix-app.workspaces.*`): a directory sessions run in. Its conversations
  * are the session space's — the same sessions, listed by where they run — so opening one here
  * claims the session space, and a new one started here runs in the open project
- * (`newSessionDefaults`).
+ * (`newSessionDefaults`). Under a project, between its conversations, are the items other
+ * packages register for it (`harnix-app.project.items`: the flows' tasks), ordered with them by
+ * activity; the project's "+" offers a conversation and whatever those kinds make.
  *
  * A trusted project carries a shield. A conversation open in a project that is not trusted, and
  * whose own settings are therefore held back, has a banner over it offering to trust it — until it
  * is trusted, or the banner is closed for that project.
  */
 
-import { useEffect, useRef } from "react";
-import { Glyph, useRoving, useT, type HostApi, type HostSessionRef } from "@harnix/react";
+import { useEffect, useRef, type MouseEvent } from "react";
+import { Contributed, Glyph, t, useCurrentSession, useRoving, useT, type HostApi, type HostSessionRef, type Registry } from "@harnix/react";
 
-import { addWorkspaceDialog, trustCategories, trustDialog, workspaceMenu } from "./dialogs.tsx";
+import { addWorkspaceDialog, newSessionDialog, trustCategories, trustDialog, workspaceMenu } from "./dialogs.tsx";
+import { PROJECT_ITEMS, activityOf, createEntries, useProjectItems, type ProjectItem, type ProjectItemContext } from "./items.ts";
 import { SessionRow, useApp } from "./sessions.tsx";
-import { keyOf, type AppState, type AppStore, type Workspace } from "./store.ts";
+import { keyOf, type AppSession, type AppState, type AppStore, type Workspace } from "./store.ts";
 
 const PROJECTS = 5;
 const SESSIONS = 8;
@@ -28,7 +31,18 @@ const parentOf = (item: HTMLElement) => (item.matches(".srow") ? item.closest(".
 /** A project opens and closes as a click on it does. */
 const toggle = (item: HTMLElement) => item.click();
 
-export function ProjectsSidebar({ host, store }: { host: HostApi; store: AppStore }) {
+/** Where a menu opened by a pointer goes: the pointer, else under the element (a key's click). */
+const anchorOf = (event: MouseEvent<HTMLElement>): Element | { x: number; y: number } => (event.clientX || event.clientY ? { x: event.clientX, y: event.clientY } : event.currentTarget);
+
+/** The project's "+" menu: a conversation, then whatever the registered item kinds make (a task). */
+function newInProject(host: HostApi, r: Registry, store: AppStore, workspace: Workspace, anchor: Element | { x: number; y: number }): void {
+  void host.dialogs.menu(anchor, [
+    { id: "session", icon: "chat", label: t("projects.newSession"), run: () => newSessionDialog(host, store, workspace.path) },
+    ...createEntries(r, { root: workspace.path, workspace }),
+  ]);
+}
+
+export function ProjectsSidebar({ host, r, store }: { host: HostApi; r: Registry; store: AppStore }) {
   const t = useT();
   const s = useApp(store);
   // Read again whenever the space comes to the front: nothing pushes a change to the workspaces, so
@@ -55,7 +69,7 @@ export function ProjectsSidebar({ host, store }: { host: HostApi; store: AppStor
       {!s.workspaces.length ? <div className="empty">{t("projects.none")}</div> : null}
       <div className="ptree" role="tree" aria-label={t("space.projects")} ref={tree} onKeyDown={roving.onKeyDown} onFocus={roving.onFocus}>
         {shown.map((workspace) => (
-          <Project key={workspace.id} host={host} store={store} s={s} workspace={workspace} />
+          <Project key={workspace.id} host={host} r={r} store={store} s={s} workspace={workspace} />
         ))}
       </div>
       {s.workspaces.length > PROJECTS ? (
@@ -67,16 +81,31 @@ export function ProjectsSidebar({ host, store }: { host: HostApi; store: AppStor
   );
 }
 
-function Project({ host, store, s, workspace }: { host: HostApi; store: AppStore; s: AppState; workspace: Workspace }) {
+/** A row of the open project: one of its conversations, or an item another package registered. */
+type Entry = { kind: "session"; at: number | null; session: AppSession } | { kind: "item"; at: number | null; item: ProjectItem };
+
+/** The project's conversations and items together, newest activity first; what says no time last. */
+export function interleave(sessions: AppSession[], items: ProjectItem[]): Entry[] {
+  const entries: Entry[] = [
+    ...sessions.map((session) => ({ kind: "session" as const, at: activityOf(session.last_active), session })),
+    ...items.map((item) => ({ kind: "item" as const, at: activityOf(item.row.at), item })),
+  ];
+  return entries.sort((a, b) => (b.at ?? -1) - (a.at ?? -1));
+}
+
+function Project({ host, r, store, s, workspace }: { host: HostApi; r: Registry; store: AppStore; s: AppState; workspace: Workspace }) {
   const t = useT();
   const open = s.project === workspace.id;
-  const sessions = s.sessions
-    .filter((row) => row.workspace_id === workspace.id && (!row.archived || s.showArchived))
-    .sort((a, b) => String(b.last_active ?? "").localeCompare(String(a.last_active ?? "")));
+  const sessions = s.sessions.filter((row) => row.workspace_id === workspace.id && (!row.archived || s.showArchived));
+  // The other kinds of item the project holds (a task): read only while it is open, where they show.
+  const items = useProjectItems(r, open ? workspace.path : null);
+  const entries = interleave(sessions, items);
   const all = Boolean(s.expanded[`project:${workspace.id}`]);
-  const rows = all ? sessions : sessions.slice(0, SESSIONS);
-  const running = sessions.some((row) => s.running[keyOf(row.instance, row.session_id)]);
+  const rows = all ? entries : entries.slice(0, SESSIONS);
+  const running = sessions.some((row) => s.running[keyOf(row.instance, row.session_id)]) || items.some((item) => item.row.running);
   const trusted = s.trust[workspace.path]?.trust === "trusted";
+  const context: ProjectItemContext = { root: workspace.path, workspace };
+  const more = (anchor: Element | { x: number; y: number }) => workspaceMenu(host, store, workspace, anchor, createEntries(r, context));
   return (
     <div className="project" role="none" data-project={workspace.id} data-open={open}>
       <div className="prj-row" role="none">
@@ -91,7 +120,7 @@ function Project({ host, store, s, workspace }: { host: HostApi; store: AppStore
           onClick={() => store.openProject(open ? null : workspace.id)}
           onContextMenu={(e) => {
             e.preventDefault();
-            workspaceMenu(host, store, workspace, e.clientX || e.clientY ? { x: e.clientX, y: e.clientY } : e.currentTarget);
+            more(anchorOf(e));
           }}
         >
           <Glyph name="chevronDown" className={`glyph chv${open ? " open" : ""}`} />
@@ -103,32 +132,92 @@ function Project({ host, store, s, workspace }: { host: HostApi; store: AppStore
             </span>
           ) : null}
           {running && !open ? <span className="live" /> : null}
-          <span className="c">{sessions.length}</span>
+          <span className="c">{sessions.length + (open ? items.length : 0)}</span>
         </button>
         <button
           type="button"
           className="more"
-          data-testid="project-more"
-          title={t("sidebar.projectActions")}
-          aria-label={t("sidebar.projectActions")}
+          data-testid="project-new"
+          title={t("projects.new")}
+          aria-label={t("projects.new")}
           aria-haspopup="menu"
-          onClick={(e) => workspaceMenu(host, store, workspace, e.currentTarget)}
+          onClick={(e) => newInProject(host, r, store, workspace, e.currentTarget)}
         >
+          <Glyph name="plus" className="glyph" />
+        </button>
+        <button type="button" className="more" data-testid="project-more" title={t("sidebar.projectActions")} aria-label={t("sidebar.projectActions")} aria-haspopup="menu" onClick={(e) => more(e.currentTarget)}>
           <Glyph name="more" className="glyph" />
         </button>
       </div>
       {open ? (
         <div className="pgroup sel" role="group">
-          {rows.map((row) => (
-            <SessionRow key={row.session_id} host={host} store={store} session={row} nested />
-          ))}
-          {!sessions.length ? <div className="empty nested">{t("projects.noSessions")}</div> : null}
-          {sessions.length > SESSIONS ? (
+          {rows.map((entry) =>
+            entry.kind === "session" ? (
+              <SessionRow key={`s:${entry.session.session_id}`} host={host} store={store} session={entry.session} nested />
+            ) : (
+              <ItemRow key={`i:${entry.item.kind.id}:${entry.item.row.id}`} host={host} r={r} item={entry.item} context={context} />
+            ),
+          )}
+          {!entries.length ? <div className="empty nested">{t("projects.noSessions")}</div> : null}
+          {entries.length > SESSIONS ? (
             <button type="button" className="more-rows" onClick={() => store.toggleExpanded(`project:${workspace.id}`)}>
-              {all ? t("sidebar.showLess") : t("projects.all", { count: sessions.length })}
+              {all ? t("sidebar.showLess") : t("projects.all", { count: entries.length })}
             </button>
           ) : null}
         </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * An item another package registered, as a row of the tree: the package draws its body and opens
+ * it; the tree gives it the row, its place among the conversations, and its menu button. Marked
+ * current while the session it names is the open one.
+ */
+function ItemRow({ host, r, item, context }: { host: HostApi; r: Registry; item: ProjectItem; context: ProjectItemContext }) {
+  const t = useT();
+  const current = useCurrentSession();
+  const { kind, row } = item;
+  const on = Boolean(row.session && current && current.sessionId === row.session.sessionId && current.instance === row.session.instance);
+  const menu = (anchor: Element | { x: number; y: number }) => {
+    let items;
+    try {
+      items = kind.menu?.(row, context) ?? [];
+    } catch (e) {
+      r.fail(PROJECT_ITEMS, kind, e);
+      return;
+    }
+    if (items.length) void host.dialogs.menu(anchor, items);
+  };
+  return (
+    <div className={`srow-wrap${on ? " on" : ""} nested`} role="none">
+      <button
+        type="button"
+        className={`srow nested item${on ? " on" : ""}`}
+        role="treeitem"
+        aria-level={2}
+        aria-selected={on}
+        data-testid="project-item"
+        data-kind={kind.id}
+        data-item={row.id}
+        data-state={on ? "current" : undefined}
+        title={row.title}
+        onClick={() => void Promise.resolve(kind.open(row, context)).catch((e: unknown) => r.fail(PROJECT_ITEMS, kind, e))}
+        onContextMenu={(e) => {
+          if (!kind.menu) return;
+          e.preventDefault();
+          menu(anchorOf(e));
+        }}
+      >
+        <Contributed registry={r} point={PROJECT_ITEMS} contribution={kind}>
+          {kind.render(row, context)}
+        </Contributed>
+      </button>
+      {kind.menu ? (
+        <button type="button" className="more" data-testid="project-item-more" title={t("sidebar.sessionActions")} aria-label={t("sidebar.sessionActions")} aria-haspopup="menu" onClick={(e) => menu(e.currentTarget)}>
+          <Glyph name="more" className="glyph" />
+        </button>
       ) : null}
     </div>
   );

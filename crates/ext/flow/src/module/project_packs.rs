@@ -86,12 +86,12 @@ pub(crate) async fn packs_in(sh: &Arc<Shared>, project: Option<&str>) -> Result<
 
 /// Refuse a flow of the project's own while the project is not trusted: in a project its name
 /// means the project's, which is not run until then.
-pub(crate) fn refuse_withheld(packs: &dyn Packs, flow: &str) -> Result<(), RpcError> {
+pub(crate) fn withheld(packs: &dyn Packs, flow: &str) -> crate::Result<()> {
     match packs.withheld_flows().into_iter().find(|(n, _)| n == flow) {
-        Some((_, crate::Withheld::Untrusted)) => Err(RpcError::refused(format!(
+        Some((_, crate::Withheld::Untrusted)) => Err(crate::FlowError::Denied(format!(
             "flow {flow} is the project's own, and the project is not trusted: trust the project first"
         ))),
-        Some((_, crate::Withheld::Unreadable)) => Err(RpcError::invalid_params(format!(
+        Some((_, crate::Withheld::Unreadable)) => Err(crate::FlowError::Invalid(format!(
             "flow {flow} is the project's own, and its file is not a definition of that name"
         ))),
         None => Ok(()),
@@ -154,7 +154,7 @@ mod tests {
         let row = rows.iter().find(|r| r.name == "shared").unwrap();
         assert_eq!((row.origin, row.valid, row.reason), (Origin::Project, false, Some(Withheld::Untrusted)));
         assert!(row.title.is_empty(), "nothing of an untrusted project's is read");
-        assert!(refuse_withheld(eng.packs_for(Some(&at)).as_ref(), "shared").is_err());
+        assert!(matches!(withheld(eng.packs_for(Some(&at)).as_ref(), "shared"), Err(FlowError::Denied(_))));
         let r = eng.create(start(Some(&at)), me.clone()).await;
         assert!(matches!(r, Err(FlowError::NotFound(_))), "{r:?}");
         // Elsewhere the application's.

@@ -6,11 +6,17 @@
  * (`system.console.tab`) they are a tab of it, and a flow clicked there is a space shown inside the
  * console's space. Where nobody defines that point, they are a space of their own (`orElse`). Which
  * one is decided by whether the point is defined, not by which extensions run.
+ *
+ * And a task — a run in a project: the kind `flow.task` of the projects space's
+ * `harnix-app.project.items` (`task.tsx`), where that point is defined, and the right column's
+ * 流程 tab of a task's main session (`TaskTab.tsx`), a `sidebar.tab` of kind `flow`.
  */
 
 import { t, type HostApi, type Registry } from "@harnix/react";
 
-import { registerFlowSpace, registerSystemFlows } from "./space";
+import { registerFlowSpace, registerSystemFlows, type FlowSpace } from "./space";
+import { registerTaskItems, TASK_TAB_KIND } from "./task";
+import { TaskTab } from "./TaskTab";
 
 /** The backend extension this is the interface of. */
 export const extension = "flow";
@@ -19,17 +25,38 @@ export const extension = "flow";
  *  module's default; an application that renames it registers `registerFlowSpace` itself). */
 const CONSOLE = "system.console.tab";
 const SPACE = "flow";
+const MODULE = "flow";
 
 export function register(r: Registry, host: HostApi): void {
   const tab = { id: "flow.flows", order: 20, title: () => t("flowui.tab.flows"), about: () => t("flowui.about.flows") };
+  // The flow space, once registered: inside the console now, or of its own once every package has registered.
+  let space: FlowSpace | null = null;
   // The console is there already: the flows go inside the space that defines it.
   const definer = r.definitions().find((d) => d.name === CONSOLE)?.owner;
   if (definer !== undefined) {
     const view = registerSystemFlows(r, { space: SPACE, within: definer, host });
+    space = view;
     r.register(CONSOLE, { ...tab, render: view.render }, extension);
-    return;
+  } else {
+    // Not yet: if it is by the time every package has registered, the tab is drawn empty (its space
+    // came after this one); if it never is, the flows are a space of their own.
+    r.register(CONSOLE, { ...tab, render: () => null }, extension, {
+      orElse: () => {
+        space = registerFlowSpace(r, { space: SPACE, host });
+      },
+    });
   }
-  // Not yet: if it is by the time every package has registered, the tab is drawn empty (its space
-  // came after this one); if it never is, the flows are a space of their own.
-  r.register(CONSOLE, { ...tab, render: () => null }, extension, { orElse: () => void registerFlowSpace(r, { space: SPACE, host }) });
+  // A task's main session: the run in the right column. Kept mounted: the graph's pick survives a switch.
+  r.register(
+    "sidebar.tab",
+    {
+      id: "flow.task",
+      kind: TASK_TAB_KIND,
+      keepMounted: true,
+      title: () => t("flowui.task.tab"),
+      render: () => <TaskTab host={host} module={MODULE} />,
+    },
+    extension,
+  );
+  registerTaskItems(r, host, MODULE, () => space, extension);
 }

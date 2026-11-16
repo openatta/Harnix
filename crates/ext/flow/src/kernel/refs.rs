@@ -1,7 +1,8 @@
 //! References (`${...}`) and assertions.
 //!
 //! Both read the same thing: a JSON context built from the run —
-//! `{run, subject, inputs, stations: {<id>: {status, round, output}}, item, task, workspace}`.
+//! `{run, subject, inputs, stations: {<id>: {status, round, output}}, item, task, workspace,
+//! output_dir}`.
 //! A reference names a path into it (`${stations.collect.output.modules}`); an
 //! assertion in `when` does too (`path: inputs.mode`). A `tool` exit's
 //! assertions select from the tool's result instead.
@@ -15,7 +16,7 @@ use super::def::{Assert, FlowDef, Work};
 use super::run::{RunRecord, TaskStatus};
 
 /// The roots a reference may start with.
-pub const ROOTS: &[&str] = &["run", "subject", "inputs", "stations", "item", "task", "workspace"];
+pub const ROOTS: &[&str] = &["run", "subject", "inputs", "stations", "item", "task", "workspace", "output_dir"];
 
 /// The directory a run works in under the application's workspaces (`<root>/<run>`, the run's id
 /// made safe as a name): `${workspace}`.
@@ -77,6 +78,7 @@ pub fn context_in(run: &RunRecord, item: Option<&Value>, task: Option<&str>, wor
         "item": item.cloned().unwrap_or(Value::Null),
         "task": task.map_or(Value::Null, |t| Value::String(t.into())),
         "workspace": workspace.map_or(Value::Null, |w| Value::String(w.into())),
+        "output_dir": run.output_dir.as_deref().map_or(Value::Null, |d| Value::String(d.into())),
     })
 }
 

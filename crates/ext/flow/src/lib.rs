@@ -15,6 +15,7 @@
 //! kernel/def.rs       the definition (YAML) and its JSON Schema
 //! kernel/validate.rs  structural validation: every problem at once
 //! kernel/refs.rs      ${...} references and assertions
+//! kernel/output.rs    the output directory's template
 //! kernel/run.rs       the run record (snapshot + history) and its JSON Schema
 //! kernel/host.rs      what the host implements; events, work items, outcomes
 //! kernel/engine.rs    every operation: load → compute → commit against revs
@@ -38,8 +39,8 @@ pub mod wire;
 
 pub use dryrun::{Mocks, Sandbox};
 pub use kernel::def::{
-    definition_schema, Assert, Executor, ExitCond, FlowDef, InputDef, MainSession,
-    OnUnmet, Retry, SessionBinding, Station, TaskSpec, Work, DEFAULT_REWORK_LIMIT,
+    definition_schema, Assert, Executor, ExitCond, FlowDef, Guard, InputDef, MainSession,
+    OnUnmet, Retry, SessionBinding, Station, TaskSpec, Work, DEFAULT_OUTPUT_DIR, DEFAULT_REWORK_LIMIT,
     MAIN_SESSION_KEY, MAX_REWORK_LIMIT,
 };
 pub use kernel::engine::{
@@ -51,7 +52,7 @@ pub use kernel::host::{
     Programs, RunStore, StoreError, SystemClock, Tools, Withheld, WorkItem, EVENT_KINDS,
 };
 pub use kernel::parts::{
-    glob, judge, part_schema, permissions_of, rules_of, Call, Effect, GateDef, GateKind, Granted,
+    glob, judge, judge_under, part_schema, permissions_of, rules_of, Call, Effect, GateDef, GateKind, Granted,
     HookDef, HookKind, PartKind, Permission, Pinned, PolicyDef, Verdict,
 };
 pub use kernel::protocol::{agent_tag, ask_rules, skill_body, STRUCTURED_OUTPUT_TOOL};

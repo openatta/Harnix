@@ -1181,7 +1181,7 @@ async fn a_task_works_in_its_project_and_its_summary_says_so() {
     let run = start_in(
         &h,
         CreateIn {
-            output_dir: Some("flows/${flow}-${date}${seq}".into()),
+            output_dir: Some("flows/seq-2026111601".into()),
             trigger: Some(Trigger::Schedule { schedule: "nightly".into(), fire_at: T0 }),
             ..seq_in(Some("/work/app/"))
         },
@@ -1192,7 +1192,11 @@ async fn a_task_works_in_its_project_and_its_summary_says_so() {
     // Kept as given, but for the trailing `/`.
     assert_eq!(rec.project_root.as_deref(), Some("/work/app"));
     assert_eq!(rec.workspace, Workspace::Project);
-    assert_eq!(rec.output_dir.as_deref(), Some("flows/${flow}-${date}${seq}"));
+    // A relative output directory is taken where the run works: its project.
+    assert_eq!(rec.output_dir.as_deref(), Some("/work/app/flows/seq-2026111601"));
+    // `${output_dir}` and `${workspace}` read it and the project.
+    let ctx = harnix_ext_flow::kernel::refs::context_in(&rec, None, None, h.eng.workspace_for(&rec).as_deref().and_then(|p| p.to_str()));
+    assert_eq!((ctx["output_dir"].as_str(), ctx["workspace"].as_str()), (Some("/work/app/flows/seq-2026111601"), Some("/work/app")));
     let summary = rec.summary();
     assert_eq!(summary.project_root.as_deref(), Some("/work/app"));
     assert_eq!(summary.workspace, Workspace::Project);

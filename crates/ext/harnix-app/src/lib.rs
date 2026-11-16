@@ -26,7 +26,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use harnix_ext::{
-    caps, Access, Call, Extension, ExtensionContext, Manifest, Registrar, RowScope, Rpc, RpcError, SpaceDecl,
+    catalog, caps, Access, Call, Extension, ExtensionContext, Manifest, Registrar, RowScope, Rpc, RpcError, SpaceDecl,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -129,6 +129,10 @@ impl Extension for HarnixApp {
             .access(open())
             .describe("where this product's projects live")
             .raw(|c: Call, _| async move { Ok(json!({"projects_dir": c.ext().projects_dir()})) });
+        // Its UI package defines what else a project tree lists and what a project's overview shows, for others to fill.
+        for point in catalog::points_of(ID) {
+            r.ui().point(point.decl());
+        }
     }
 
     async fn start(&self, cx: ExtensionContext) -> anyhow::Result<()> {

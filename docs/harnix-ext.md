@@ -1433,7 +1433,8 @@ r.register("settings.section", {
 `settings.write {tier, changes, revision?}` 整份校验、按版本号拒绝过期的写入（`CONFLICT`），路由到没配置的 provider 也拒绝。
 provider 的 `api_key` 到界面只有 `***` 加末 4 位。
 
-扩展定义的点（0.4.4 的第一方）：`system.console.tab`、`system.inspector.tab`，不算进「11 个」。
+扩展定义的点（第一方）：`system.console.tab`、`system.inspector.tab`（[系统 space](system-space.md) §11），`harnix-app.project.items`、`harnix-app.project.panels`
+（[Harnix app](harnix-app.md) §3.2），不算进「11 个」。
 `space` 的分组（0.4.2 的 25 个平铺成员按画在哪分四组）：
 
 ```ts

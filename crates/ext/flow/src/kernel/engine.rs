@@ -56,7 +56,8 @@ pub struct CreateIn {
     /// Where it works; absent: the project when there is one, else a scratch directory.
     #[serde(default)]
     pub workspace: Option<Workspace>,
-    /// Where its deliverables go, as the host gives it; recorded.
+    /// Where its deliverables go, as the host resolved it: an absolute directory, or one relative
+    /// to where the run works (`Engine::workspace_for`). Recorded absolute when that is known.
     #[serde(default)]
     pub output_dir: Option<String>,
     /// How it came to be started; absent: by hand, by whoever starts it.
@@ -173,11 +174,20 @@ impl Engine {
         self
     }
 
-    /// A run's workspace, if the application keeps them.
+    /// A run's scratch directory, if the application keeps them: where a run of no project works.
     pub fn workspace(&self, run: &str) -> Option<std::path::PathBuf> {
         self.workspaces
             .as_ref()
             .map(|r| super::refs::workspace_of(r, run))
+    }
+
+    /// Where a run works (`${workspace}`): a task's project — its worktree's directory is the one
+    /// place that changes when a run works in one — else its scratch directory.
+    pub fn workspace_for(&self, rec: &RunRecord) -> Option<std::path::PathBuf> {
+        match (rec.workspace, &rec.project_root) {
+            (Workspace::Project | Workspace::Worktree, Some(root)) => Some(std::path::PathBuf::from(root)),
+            _ => self.workspace(&rec.id),
+        }
     }
 
     /// The scenes whose sessions hand their output in with the native tool `flow_submit` (the
@@ -427,17 +437,23 @@ impl Engine {
 
     // ── runs ─────────────────────────────────────────────────────────────────
 
-    /// Start a run of a pack's flow; the definition is validated and pinned.
-    /// `value`: `{run}`.
-    pub async fn create(&self, input: CreateIn, by: Actor) -> Result<Outcome> {
+    /// Whether `by` may start this run: what [`Engine::create`] asks first, for a host that does
+    /// something on its behalf before (makes the run's output directory).
+    pub fn may_create(&self, input: &CreateIn, by: &Actor) -> Result<()> {
         self.authorize(
             &Op::Create {
                 flow: input.flow.clone(),
                 subject: input.subject.clone(),
             },
-            &by,
+            by,
             None,
-        )?;
+        )
+    }
+
+    /// Start a run of a pack's flow; the definition is validated and pinned.
+    /// `value`: `{run}`.
+    pub async fn create(&self, input: CreateIn, by: Actor) -> Result<Outcome> {
+        self.may_create(&input, &by)?;
         let place = placement(&input, &by)?;
         // In a project, its own flows and parts over the application's.
         let packs = self.packs_for(place.project_root.as_deref());
@@ -461,6 +477,13 @@ impl Engine {
                 input.parent.clone(),
             );
             place.apply(&mut rec);
+            // A relative output directory is taken where the run works: a run of no project's own
+            // directory is known only once it has its id.
+            if let Some(d) = rec.output_dir.clone().filter(|d| !std::path::Path::new(d).is_absolute()) {
+                if let Some(base) = self.workspace_for(&rec) {
+                    rec.output_dir = Some(base.join(d).to_string_lossy().into_owned());
+                }
+            }
             t.insert_new(rec);
             t.m(&id).created();
             t.fx.advance.insert(id.clone());

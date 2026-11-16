@@ -26,6 +26,7 @@ export type {
   Station,
   MainSession,
   FlowDef,
+  Guard,
   // The parts of a pack.
   PartKind,
   PolicyDef,

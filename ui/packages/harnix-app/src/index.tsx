@@ -6,7 +6,8 @@
  * the banner over a conversation in a project that is not trusted); and the right column's files,
  * preview and changes tabs, with the changes card a turn that wrote files leaves in the conversation;
  * and two first-run steps on the empty page (`home.card`): a project, and the scene and permission
- * mode a conversation starts with.
+ * mode a conversation starts with. It defines two points of its own — the kinds of item a project
+ * tree lists besides its conversations, and the blocks of a project's overview (`items.ts`).
  *
  * Only the host API: the sessions come from the hub (`harnix.sessions.list`, kept current by the
  * instance's pushed session list) and what this product notes about them from its own methods
@@ -17,6 +18,7 @@
 import { t, type ActionTarget, type CommandCandidate, type Dispose, type HostApi, type Registry } from "@harnix/react";
 
 import { exportDialog } from "./dialogs.tsx";
+import { PROJECT_ITEMS, PROJECT_PANELS } from "./items.ts";
 import { ProjectsSidebar, TrustBanner } from "./projects.tsx";
 import { SessionsSidebar, byTime } from "./sessions.tsx";
 import { claimFor, registerSidebar } from "./sidebar.tsx";
@@ -25,13 +27,29 @@ import { AppStore, SESSIONS } from "./store.ts";
 
 export { AppStore, SESSIONS, type AppSession, type AppState, type TrustItem, type TrustStatus, type Workspace } from "./store.ts";
 export { byTime } from "./sessions.tsx";
+export { interleave } from "./projects.tsx";
 export { CHANGES_KIND, FILES_KIND, FILE_PATTERN, PREVIEW_KIND, fileOfCall, lineOf } from "./sidebar.tsx";
 export { PROJECT_STEP, SCENE_STEP } from "./setup.tsx";
+export {
+  PROJECT_ITEMS,
+  PROJECT_PANELS,
+  activityOf,
+  createEntries,
+  useProjectItems,
+  type ProjectItem,
+  type ProjectItemContext,
+  type ProjectItemKind,
+  type ProjectItemRow,
+  type ProjectPanel,
+} from "./items.ts";
 
 /** The backend extension this is the interface of. */
 export const extension = "harnix-app";
 
 export function register(r: Registry, host: HostApi): Dispose {
+  // What else a project holds, and what its overview shows: other packages fill these (`items.ts`).
+  r.definePoint(PROJECT_ITEMS, { kind: "register" });
+  r.definePoint(PROJECT_PANELS, { kind: "render" });
   const store = new AppStore(host);
   store.start();
   const followed = { subscribe: store.subscribe, getSnapshot: store.getSnapshot };
@@ -69,7 +87,7 @@ export function register(r: Registry, host: HostApi): Dispose {
       },
       center: { mode: "chat" },
       sessions: SESSIONS,
-      sidebar: { render: () => <ProjectsSidebar host={host} store={store} /> },
+      sidebar: { render: () => <ProjectsSidebar host={host} r={r} store={store} /> },
       store: followed,
     },
     extension,
