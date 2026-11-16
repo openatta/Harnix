@@ -17,6 +17,7 @@
 | **骨架** | — | 传输、路由与准入、中枢、装配四件事。写死，不可插拔 |
 | **应用** | `App::builder()` | 在 Harnix 上做出来的产品，例如 Helm、IPDrun。一个应用 = 一个二进制 + 一份界面产物 |
 | **Harnix app** | 扩展 `harnix-app`、UI 包 `@harnix/harnix-app` | Harnix 自带的一个第一方扩展：会话 space、项目 space，新建会话、按时间看、按项目管理。不叫「最小应用」。见 [Harnix app](harnix-app.md) |
+| **定时** | 扩展 `schedule`（`harnix-ext-schedule`），`Schedule`、`Receipt` | 到点由 Harnix 投递的一件事：往已有会话发一轮、在项目里新建会话发一轮、或起一个项目任务；时间按它的 IANA 时区算。每个到点留一条**投递回执**（已投递、跳过、失败），只说明交出去了。Harnix 没在跑时不投递，起来后按「错过」策略补最近一次或跳过。模型用引擎的 `CronCreate` 建的是「**模型建的定时**」：存在引擎里、按会话、按 UTC，这里只能看和删。不叫「定时任务」：「任务」另有所指。见 [Harnix app](harnix-app.md) §9 |
 | **二开** | — | 在 Harnix 上做应用，不 fork Harnix |
 | **profile** | `profiles/*.toml` | 一份声明式配置：引擎、实例、拓扑、品牌、各扩展的配置节。每一节有一个所有者，没有所有者的节、不认识的键都拒绝启动 |
 | **状态目录** / **账本** | `~/.<product_id>/` | 程序自己的持久状态：令牌、设备、会话与 space 的绑定、实例账本、各扩展的数据与扩展包。不是会话内容。缺省 `~/.harnix/`，`HARNIX_STATE_DIR` 能挪 |

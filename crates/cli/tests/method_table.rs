@@ -4,7 +4,7 @@
 //!
 //! A change here is a change of what a client may call: `HARNIX_UPDATE_SNAPSHOTS=1` writes the
 //! new table, and the commit says why.
-#![cfg(all(feature = "flow", feature = "wasm"))]
+#![cfg(all(feature = "flow", feature = "schedule", feature = "wasm"))]
 
 use std::path::{Path, PathBuf};
 
@@ -14,10 +14,11 @@ fn snapshot_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../harnix/tests/method-table.snap.json")
 }
 
-/// What this binary assembles in its default build: Harnix's extensions, the flow module and
-/// `packages`, each granted what `main` grants it.
+/// What this binary assembles in its default build: Harnix's extensions, the flow module, the
+/// schedules and `packages`, each granted what `main` grants it.
 fn the_harnix_app() -> harnix::AppBuilder {
     let set = harnix::first_party::standard_with_flow(harnix_ext_flow::Flow::builder().build())
+        .with(harnix::first_party::Schedules::new(), harnix::first_party::SCHEDULE_GRANTS)
         .with(harnix::first_party::packages(), harnix::first_party::PACKAGES_GRANTS);
     harnix::App::builder().extensions(set)
 }

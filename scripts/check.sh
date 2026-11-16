@@ -62,7 +62,7 @@ CRATES=(-p harnix -p harnix-cli -p harnix-assembly -p harnix-instance -p harnix-
         -p harnix-testapp -p harnix-wasm -p harnix-package -p harnix-wasm-port -p harnix-wasm-host
         -p harnix-carrier-shared -p harnix-carrier-wasm -p harnix-carrier-proc -p harnix-ext-packages -p harnix-supervise -p harnix-proc -p harnix-ext -p harnix-host-api
         -p harnix-ext-system -p harnix-ext-harnix-app -p harnix-ext-settings -p harnix-ext-plugins
-        -p harnix-ext-observability -p harnix-ext-devices)
+        -p harnix-ext-observability -p harnix-ext-devices -p harnix-ext-schedule)
 
 # `harnix` runs packages in its default build, on both carriers (`wasm` and `proc`). The author's
 # packing tool and the test application running packages are built in a target directory of their

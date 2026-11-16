@@ -865,7 +865,7 @@ harnix::{App, AppBuilder, ExtensionSlot, ExtensionStatus, HARNIX_VERSION, SHUTDO
 | 方法 | 说明 |
 |---|---|
 | `.name(name, version)` | 应用名与版本：`--version`、`--help` 用它。界面上的产品名、图标、产品 id 由 profile 的 `[brand]` 给 |
-| `.extensions(set)` | 加一组扩展（`ExtensionSet`），各带自己的授予。`harnix::first_party::standard()`：`harnix-app`、`system`、`observability`、`settings`、`plugins`、`devices`，各自带 Harnix 给它们的授予；`standard_with(packages)`、`standard_with_flow(flow)` 再加 `packages`、`flow` |
+| `.extensions(set)` | 加一组扩展（`ExtensionSet`），各带自己的授予。`harnix::first_party::standard()`：`harnix-app`、`system`、`observability`、`settings`、`plugins`、`devices`，各自带 Harnix 给它们的授予；`standard_with(packages)`、`standard_with_flow(flow)` 再加 `packages`、`flow`；定时 `Schedules` 照样另加（`.with(Schedules::new(), SCHEDULE_GRANTS)`，feature `schedule`） |
 | `.extension(e)` | 加一个扩展，返回 `ExtensionSlot`：`.grant([caps::…])` 或 `.ungranted()`。**顺序就是注册、`migrate`、`start` 的顺序**，也是引擎贡献的组合顺序 |
 | `.credentials(source)` | 换掉 `Credentials` 的实现（默认 `EnvCredentials`：`helm/quote-api` → `$HARNIX_CREDENTIAL_HELM_QUOTE_API`） |
 | `.profile_from_args()` / `.args(iter)` | 命令行从哪来；测试里用 `.args` |
@@ -873,8 +873,8 @@ harnix::{App, AppBuilder, ExtensionSlot, ExtensionStatus, HARNIX_VERSION, SHUTDO
 | `.default_engine(EngineProfile)` | 命令行没给 `--profile` 时用的 `[engine]`：产品自己的缺省，代替 `EngineProfile::default()`。给了 profile 就照 profile；`--scene`、`--scenes`、`--model` 照旧盖在两者上面。`harnix` 二进制用它把 `code` 列进可选场景（`scenes = ["code"]`，缺省场景仍是 `harnix`） |
 | `.run()` | 跑起来，`anyhow::Result<()>` |
 
-`harnix::first_party` 里还有每个第一方扩展的类型（`System`、`HarnixApp`、`Settings`、`Plugins`、`Observability`、`Devices`，以及按 feature 的 `Flow`、`Packages`）
-与它们的授予常量（`PACKAGES_GRANTS`、`FLOW_GRANTS`）：产品要自己挑几个、或调整配置时，各用它的类型。
+`harnix::first_party` 里还有每个第一方扩展的类型（`System`、`HarnixApp`、`Settings`、`Plugins`、`Observability`、`Devices`，以及按 feature 的 `Flow`、`Packages`、`Schedules`）
+与它们的授予常量（`PACKAGES_GRANTS`、`FLOW_GRANTS`、`SCHEDULE_GRANTS`）：产品要自己挑几个、或调整配置时，各用它的类型。
 
 ### 17.2 `trait Extension`
 
@@ -969,8 +969,8 @@ pub trait Extension: Send + Sync + 'static {
 | 内核能力 | 意思 | 原生 | 扩展包 | 谁用 |
 |---|---|---|---|---|
 | `instances.admin` | 停、重启任何非内核拥有的实例；按任何模板建实例、列出全部模板 | ✔ | | system |
-| `engine.inspect` | 读**任何**会话的内部：`inspectContext`、`tasks`、`taskOutput`、`goal`、`history` | ✔ | | system、flow、settings（会话的 MCP 上下文，可选） |
-| `engine.control` | 改任何会话的内部：`stopTask`、`messageTask`、`dropMessages`、`editMessage`、`compact`、`clear`、`setModel`、`rename`、`setGoal`、`updateGoal`；读、改项目的信任：`engine.project.status`、`engine.project.trust` | ✔ | | system、flow、harnix-app（项目信任，可选） |
+| `engine.inspect` | 读**任何**会话的内部：`inspectContext`、`tasks`、`taskOutput`、`goal`、`history`；引擎里模型建的定时 `engine.schedule.list` | ✔ | | system、flow、settings（会话的 MCP 上下文，可选）、schedule（可选） |
+| `engine.control` | 改任何会话的内部：`stopTask`、`messageTask`、`dropMessages`、`editMessage`、`compact`、`clear`、`setModel`、`rename`、`setGoal`、`updateGoal`；读、改项目的信任：`engine.project.status`、`engine.project.trust`；删引擎里模型建的定时 `engine.schedule.delete` | ✔ | | system、flow、harnix-app（项目信任，可选）、schedule（可选） |
 | `engine.config.read` / `engine.config.write` | 读 / 写引擎设置与 provider；后者含 `engine.config.reload`、`harnix.instances.inheritProviders`、宿主服务 `SettingsTiers`（§17.8） | ✔ | | settings、packages（写，可选） |
 | `engine.plugins` | Agix 插件的装、卸、启停、重读；往实例里放 skill | ✔ | | plugins、packages |
 | `engine.export` | `engine.session.export`、`harnix.session.import` | ✔ | | harnix-app |
@@ -983,6 +983,8 @@ pub trait Extension: Send + Sync + 'static {
 | `events.all_tools` | 看到每个会话的每一次工具调用 | | ✔ | — |
 | `feedback.read` | 订主题 `harnix.feedback`：收到人对回复的每一条反馈，评分、类别、备注原文，连同会话（§7.3） | ✔ | | —（缺省谁都没有） |
 | `net:<主机>` · `env:<名字>` · `storage:<MB>` · `fs:data` · `fs:project` | 扩展包的资源能力 | | ✔ | — |
+
+扩展自己声明的能力不在这张表里，列在 `harnix.extensions` 的那个扩展下：例如定时扩展的 `schedule.manage`（别的扩展要建、改、删定时、读投递记录，就要被授予它；设备不用，人管自己的定时，[Harnix app](harnix-app.md) §9）。
 
 **跨 space 不是一项能力**：同页的代码能声称任何 space，所以「在一个 space 里看别的 space 的会话」只防误。它是 space 声明上的标志 `cross_space()`，只有原生扩展能声明；
 真正的跨 space 读写权力在 `engine.inspect`、`engine.control`、`instances.admin`，它们才是安全边界。
@@ -1281,6 +1283,7 @@ cookie。一帧最大 16 MiB（`MAX_FRAME_BYTES`），一次上传最大 32 MiB�
 | 　 | `engine.session.tasks / taskOutput / inspectContext / goal` | `engine.inspect` |
 | 　 | `engine.session.stopTask / messageTask / dropMessages / editMessage / compact / clear / setModel / rename / setGoal / updateGoal` | `engine.control` |
 | 　 | `engine.project.status / trust`（项目信任；信任记在引擎的全局设置里，所以扩展的引擎上同它的设置一样拒绝） | `engine.control` |
+| 　 | `engine.schedule.list` · `engine.schedule.delete`（引擎自己的定时：模型建的，按会话、按 UTC；经这里只能读、删，建不了） | `engine.inspect` · `engine.control` |
 | 　 | `engine.session.export` · `engine.config.get / getProvider` · `engine.config.set / setProvider / update / reload` · `engine.plugin.install / uninstall / enable / disable / reload` · `engine.mcp.addServer / updateServer / auth.start / auth.complete / auth.cancel / auth.logout` | `engine.export` · `engine.config.read` · `engine.config.write`（设备永远不能） · `engine.plugins` · `engine.mcp`（设备永远不能；扩展的引擎上同它的设置一样拒绝） |
 | 　 | `engine.import.*` | 只有内核 |
 | 　 | `engine.session.run_turn / subscribe / unsubscribe`、`engine.daemon.subscribeEvents / shutdown` | **中枢独占**：谁都不能、不能授予 |
@@ -1289,7 +1292,8 @@ cookie。一帧最大 16 MiB（`MAX_FRAME_BYTES`），一次上传最大 32 MiB�
 | `observability` | `observability.trace`、`.trace.call {index}`、`.turns`、`.usage {instance?, session_ids}`（一次至多 200 个会话）、`.calls {instance?, session_id}` | 设备 |
 | `settings`、`plugins`、`devices` | `settings.*`（`setProvider` 的返回多一个 `reloaded_instances`；MCP 服务器的 `settings.mcp.*` 见 §22.9）、`plugins.*`、`devices.*` | 设备（`settings.mcp.context` 按会话） |
 | `packages` | `packages.*`：列、启停、装、升、卸、清数据、同意、商店。参数与答见 [扩展包](harnix-ext-package.md) | 设备 |
-| `flow` | `flow.*`（§23） | 设备 |
+| `flow` | `flow.*`（§23）；`flow.start`、`flow.get` 另对扩展 `schedule` 开（定时起任务、看上一次的运行还在不在） | 设备 |
+| `schedule` | `schedule.list {space?, project?}`、`.get`、`.create`、`.update {id, revision, …}`（版本不对答 `CONFLICT`）、`.delete`、`.enable`、`.disable`、`.runNow`、`.history`、`.model.delete {instance, id}`；主题 `schedule.list`（[Harnix app](harnix-app.md) §9） | 设备、持 `schedule.manage` 的扩展 |
 | 你的扩展 | `<id>.*` | 你声明的 |
 | 扩展包 | `<扩展包 id>.*` | 清单 `[[method]]` 的 `subject` |
 
@@ -1321,6 +1325,7 @@ cookie。一帧最大 16 MiB（`MAX_FRAME_BYTES`），一次上传最大 32 MiB�
 | `system.process` | — | 同 `system.process` 方法的答；有人订阅时每 5 秒重算一次推出 |
 | `packages.list`、`packages.progress` | — | 扩展包的快照、工具调用的进度；见 [扩展包](harnix-ext-package.md) |
 | `flow.*` | — | §23 |
+| `schedule.list` | — | 全部定时与上次读到的模型建的定时，同 `schedule.list {}` 的答；设备与持 `schedule.manage` 的扩展能订 |
 | `<id>.<主题>` | 你声明的 | 你推的整值快照 |
 
 扩展包撤下时，它的主题的每个订阅者按订阅的参数组各收到一次 `harnix.topic_ended { topic, params, reason }`，之后不再推；
