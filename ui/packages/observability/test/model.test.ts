@@ -34,15 +34,17 @@ describe("turns", () => {
       c(3, { turn_id: "t2", turn: 1 }),
       c(4, { turn_id: "t9", turn: 7 }),
       c(5, { turn_id: null, turn: 1, purpose: "compaction" }),
+      c(6, { turn_id: null, turn: 5, purpose: "memory" }),
     ];
     const groups = groupTurns(outline, calls);
-    expect(groups.map((g) => [g.key, g.ordinal, g.calls.length, g.aux.length])).toEqual([
-      ["t1", 1, 2, 0],
-      ["t2", 2, 1, 0],
-      ["t3", 3, 0, 0],
-      ["t9", 4, 1, 0],
-      // Beside the turns, naming turn numbers the outline does not: between the turns, last.
-      ["between", 5, 0, 2],
+    expect(groups.map((g) => [g.key, g.ordinal, g.number, g.calls.length, g.aux.length])).toEqual([
+      // A call beside a turn names the turn's number alone: it goes with the turn whose calls have it.
+      ["t1", 1, 0, 2, 1],
+      ["t2", 2, 1, 1, 1],
+      ["t3", 3, null, 0, 0],
+      ["t9", 4, 7, 1, 0],
+      // Naming a turn number no listed turn has: between the turns, last.
+      ["between", 5, null, 0, 1],
     ]);
     expect(groups[1]!.marks).toEqual([{ kind: "station", label: "plan" }]);
     expect(groups[4]!.between).toBe(true);

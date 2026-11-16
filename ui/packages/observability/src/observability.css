@@ -29,6 +29,11 @@
   min-width: 160px;
 }
 
+.hx-traj .tools-row .seg {
+  display: inline-flex;
+  gap: 2px;
+}
+
 .hx-traj .muted {
   color: var(--label-tertiary);
   font-size: 12px;

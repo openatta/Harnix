@@ -28,6 +28,8 @@ export interface TurnGroup {
   key: string;
   /** The outline's turn id, or the recording's when the outline has none for it. */
   turnId: string | null;
+  /** The recorded number of the turn, when it has calls: what `observability.turns` sums it under. */
+  number: number | null;
   /** Its place among the turns listed, from 1. */
   ordinal: number;
   seq: number | null;
@@ -73,25 +75,28 @@ export function groupTurns(outline: readonly OutlineTurn[], calls: readonly Call
   for (const turn of outline) {
     const key = turn.turn_id ?? `seq:${turn.seq}`;
     if (byKey.has(key)) continue;
-    add({ key, turnId: turn.turn_id, ordinal: 0, seq: turn.seq, at: turn.at, prompt: turn.prompt, reply: turn.reply, marks: turn.marks ?? [], calls: [], aux: [], agents: [], between: false });
+    add({ key, turnId: turn.turn_id, number: null, ordinal: 0, seq: turn.seq, at: turn.at, prompt: turn.prompt, reply: turn.reply, marks: turn.marks ?? [], calls: [], aux: [], agents: [], between: false });
   }
   const own = calls.filter((c) => !c.parent_session_id);
   const recorded = (call: CallSummary): TurnGroup => {
     const key = turnKeyOf(call);
-    return byKey.get(key) ?? add({ key, turnId: call.turn_id, ordinal: 0, seq: null, at: null, prompt: "", reply: "", marks: [], calls: [], aux: [], agents: [], between: false });
+    return byKey.get(key) ?? add({ key, turnId: call.turn_id, number: null, ordinal: 0, seq: null, at: null, prompt: "", reply: "", marks: [], calls: [], aux: [], agents: [], between: false });
   };
   // The turns' own calls first; a turn the outline lacks is listed after the outline's, by its number.
   const listed = new Set(byKey.keys());
   for (const call of own.filter((c) => !c.purpose)) recorded(call).calls.push(call);
   const unknown = groups.filter((g) => !listed.has(g.key)).sort((a, b) => (a.calls[0]?.turn ?? 0) - (b.calls[0]?.turn ?? 0));
   groups.splice(0, groups.length, ...groups.filter((g) => listed.has(g.key)), ...unknown);
-  // Beside the turns: with their turn when it is listed, else between the turns.
+  // Beside the turns: with their turn when it is listed — by id, or by the recorded number of a
+  // turn whose own calls are here (a title or a memory call names the number alone) — else between the turns.
+  const byNumber = new Map<number, TurnGroup>();
+  for (const group of groups) if (group.calls.length && !byNumber.has(group.calls[0]!.turn)) byNumber.set(group.calls[0]!.turn, group);
   let between: TurnGroup | null = null;
   for (const call of own.filter((c) => c.purpose)) {
-    const group = byKey.get(turnKeyOf(call));
+    const group = byKey.get(turnKeyOf(call)) ?? (call.turn_id == null ? byNumber.get(call.turn) : undefined);
     if (group) group.aux.push(call);
     else {
-      between ??= { key: "between", turnId: null, ordinal: 0, seq: null, at: null, prompt: "", reply: "", marks: [], calls: [], aux: [], agents: [], between: true };
+      between ??= { key: "between", turnId: null, number: null, ordinal: 0, seq: null, at: null, prompt: "", reply: "", marks: [], calls: [], aux: [], agents: [], between: true };
       between.aux.push(call);
     }
   }
@@ -123,7 +128,10 @@ export function groupTurns(outline: readonly OutlineTurn[], calls: readonly Call
     between.aux.sort((a, b) => a.ts - b.ts);
     groups.push(between);
   }
-  groups.forEach((group, i) => (group.ordinal = i + 1));
+  groups.forEach((group, i) => {
+    group.ordinal = i + 1;
+    group.number = group.calls[0]?.turn ?? null;
+  });
   return groups;
 }
 

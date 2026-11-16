@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { FEEDBACK_NS, parseFeedback, type Feedback, type OutlineTurn, type SessionEntry } from "@harnix/core";
+import { FEEDBACK_NS, parseFeedback, type Feedback, type OutlineTurn, type SessionEntry, type TurnSummary } from "@harnix/core";
 import { Glyph, clip, compact, rowKeys, useT, type HostSessionRef as SessionKey } from "@harnix/react";
 
 import { Failure, RunNote, openTrajectory, seconds, sessionParams, usageText, type Observed, type Run, type TraceCall } from "../shared.tsx";
@@ -48,6 +48,8 @@ const TAIL_PX = 48;
 const SETTLE_MS = 600;
 
 type Level = "turns" | "calls" | "agents";
+/** The context column on a turn's row: how much it grew since the turn before, or the running total. */
+type ContextMode = "delta" | "total";
 
 export function Trajectory({ observed, session, tool, compact: compactMode = false, inSystem = false }: { observed: Observed; session: SessionKey; tool?: string; compact?: boolean; inSystem?: boolean }) {
   const tr = useT();
@@ -55,6 +57,8 @@ export function Trajectory({ observed, session, tool, compact: compactMode = fal
   const [calls, setCalls] = useState<TraceCall[] | null>(null);
   const [run, setRun] = useState<Run | null>(null);
   const [outline, setOutline] = useState<OutlineTurn[]>([]);
+  const [turns, setTurns] = useState<TurnSummary[]>([]);
+  const [contextMode, setContextMode] = useState<ContextMode>("delta");
   const [feedback, setFeedback] = useState<Map<string, Feedback>>(() => new Map());
   const [error, setError] = useState<unknown>(null);
   const [folding, setFolding] = useState<Folding>(UNFOLDED);
@@ -68,9 +72,12 @@ export function Trajectory({ observed, session, tool, compact: compactMode = fal
     let alive = true;
     const params = sessionParams(observed, session);
     const readTrace = () =>
-      host
-        .call<{ calls?: TraceCall[]; run?: Run | null }>("observability.trace", params)
-        .then((r) => alive && (setCalls(r.calls ?? []), setRun(r.run ?? null), setError(null)))
+      Promise.all([
+        host.call<{ calls?: TraceCall[]; run?: Run | null }>("observability.trace", params),
+        // The turns' sums: a run without a recording has none, which is no failure of the trace.
+        host.call<{ turns?: TurnSummary[] }>("observability.turns", params).catch(() => ({ turns: [] })),
+      ])
+        .then(([r, t]) => alive && (setCalls(r.calls ?? []), setRun(r.run ?? null), setTurns(t.turns ?? []), setError(null)))
         .catch((e) => alive && setError(e ?? "error"));
     // A session with no transcript (a fresh one) is no failure of the trajectory: the recording says.
     const readOutline = () =>
@@ -112,6 +119,7 @@ export function Trajectory({ observed, session, tool, compact: compactMode = fal
   }, [host, observed, session.instance, session.sessionId]);
 
   const groups = useMemo(() => groupTurns(outline, calls ?? []), [outline, calls]);
+  const sums = useMemo(() => new Map(turns.map((t) => [t.turn, t])), [turns]);
   const overview = useMemo(() => overviewOf(groups), [groups]);
   const from = Math.max(0, groups.length - shown);
   const rows = useMemo(() => rowsOf(groups, from, folding, narrowing, feedback), [groups, from, folding, narrowing, feedback]);
@@ -181,6 +189,15 @@ export function Trajectory({ observed, session, tool, compact: compactMode = fal
             </div>
             <div className="tools-row">
               <input className="search" type="search" data-testid="calls-search" placeholder={tr("system.searchCalls")} value={narrowing.query} onChange={(e) => setNarrowing({ ...narrowing, query: e.target.value })} />
+              {turns.length ? (
+                <span className="seg" role="group" aria-label={tr("system.turns.context")}>
+                  {(["delta", "total"] as const).map((m) => (
+                    <button type="button" key={m} className={`btn sm outline${contextMode === m ? " on" : ""}`} data-testid={`turns-${m}`} aria-pressed={contextMode === m} onClick={() => setContextMode(m)}>
+                      {tr(`system.turns.${m}`)}
+                    </button>
+                  ))}
+                </span>
+              ) : null}
               <span className="muted" data-testid="traj-count">
                 {tr("trajectory.count", { turns: groups.filter((g) => !g.between).length, calls: all.length })}
               </span>
@@ -196,6 +213,8 @@ export function Trajectory({ observed, session, tool, compact: compactMode = fal
             ) : (
               <Rows
                 rows={rows}
+                sums={sums}
+                contextMode={contextMode}
                 earlier={from > 0 ? from : 0}
                 onEarlier={() => setShown((n) => n + PAGE_TURNS)}
                 folding={folding}
@@ -221,6 +240,8 @@ export function Trajectory({ observed, session, tool, compact: compactMode = fal
  */
 function Rows({
   rows,
+  sums,
+  contextMode,
   earlier,
   onEarlier,
   folding,
@@ -232,6 +253,8 @@ function Rows({
   follow,
 }: {
   rows: Row[];
+  sums: ReadonlyMap<number, TurnSummary>;
+  contextMode: ContextMode;
   earlier: number;
   onEarlier: () => void;
   folding: Folding;
@@ -283,14 +306,34 @@ function Rows({
       ) : null}
       <div style={{ height: win.above }} />
       {rows.slice(win.start, win.end).map((row) => (
-        <TrajectoryRow key={row.key} row={row} folding={folding} onFold={onFold} selected={selected} onSelect={onSelect} narrowedNow={narrowedNow} located={located} />
+        <TrajectoryRow key={row.key} row={row} sum={row.kind === "turn" && row.group.number != null ? (sums.get(row.group.number) ?? null) : null} contextMode={contextMode} folding={folding} onFold={onFold} selected={selected} onSelect={onSelect} narrowedNow={narrowedNow} located={located} />
       ))}
       <div style={{ height: win.below }} />
     </div>
   );
 }
 
-function TrajectoryRow({ row, folding, onFold, selected, onSelect, narrowedNow, located }: { row: Row; folding: Folding; onFold: (level: Level, key: string) => void; selected: number | null; onSelect: (index: number) => void; narrowedNow: boolean; located: string | null }) {
+function TrajectoryRow({
+  row,
+  sum,
+  contextMode,
+  folding,
+  onFold,
+  selected,
+  onSelect,
+  narrowedNow,
+  located,
+}: {
+  row: Row;
+  sum: TurnSummary | null;
+  contextMode: ContextMode;
+  folding: Folding;
+  onFold: (level: Level, key: string) => void;
+  selected: number | null;
+  onSelect: (index: number) => void;
+  narrowedNow: boolean;
+  located: string | null;
+}) {
   const tr = useT();
   const indent = { "--depth": row.depth } as React.CSSProperties;
   switch (row.kind) {
@@ -302,6 +345,8 @@ function TrajectoryRow({ row, folding, onFold, selected, onSelect, narrowedNow, 
       const last = g.calls[g.calls.length - 1];
       const duration = first && last ? (last.timing?.sent_at ?? last.ts) + (last.duration_ms ?? 0) - (first.timing?.sent_at ?? first.ts) : null;
       const when = g.at ? new Date(g.at) : first ? new Date(first.timing?.sent_at ?? first.ts) : null;
+      const pctOf = (x?: number | null) => (x != null ? `${Math.round(x * 100)}%` : "—");
+      const signed = (n?: number | null) => (n == null ? "—" : n > 0 ? `+${compact(n)}` : n < 0 ? `−${compact(-n)}` : "0");
       return (
         <div
           className={`traj-row turn${g.between ? " between" : ""}`}
@@ -325,9 +370,22 @@ function TrajectoryRow({ row, folding, onFold, selected, onSelect, narrowedNow, 
           <span className="r">
             {when && !Number.isNaN(when.getTime()) ? when.toLocaleTimeString() : ""}
             {g.calls.length ? ` · ${tr("trajectory.turnCalls", { count: g.calls.length })}` : ""}
+            {g.aux.length ? ` +${g.aux.length}` : ""}
             {g.agents.length ? ` · ${tr("trajectory.turnAgents", { count: g.agents.length })}` : ""}
-            {tokens ? ` · ${compact(tokens)} tok` : ""}
-            {duration != null ? ` · ${seconds(duration)}` : ""}
+            {sum ? (
+              <>
+                {` · ${tr("system.turns.ttft")} ${seconds(sum.ttft_ms)} · ${tr("system.turns.model")} ${seconds(sum.model_ms)} · ${tr("system.turns.tools")} ${seconds(sum.tool_ms)} · ${compact(sum.input_tokens)} / ${compact(sum.output_tokens)} · `}
+                <span data-testid="turn-cache">{pctOf(sum.cache_hit)}</span>
+                {sum.tokens_per_s != null ? ` · ${sum.tokens_per_s} tok/s` : ""}
+                {` · ${contextMode === "delta" ? tr("system.turns.contextDelta") : tr("system.turns.context")} `}
+                <span data-testid="turn-context">{contextMode === "delta" ? signed(sum.context_delta) : sum.context_tokens != null ? compact(sum.context_tokens) : "—"}</span>
+              </>
+            ) : (
+              <>
+                {tokens ? ` · ${compact(tokens)} tok` : ""}
+                {duration != null ? ` · ${seconds(duration)}` : ""}
+              </>
+            )}
           </span>
         </div>
       );

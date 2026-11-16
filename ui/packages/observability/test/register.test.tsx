@@ -30,6 +30,8 @@ function answering(method: string, params: unknown): unknown {
   switch (method) {
     case "observability.trace":
       return TRACE;
+    case "observability.turns":
+      return { turns: [{ turn: 0, calls: [0, 1], auxiliary: 1, started_at: 1000, duration_ms: 1500, ttft_ms: 100, model_ms: 1000, tool_ms: 500, input_tokens: 20, output_tokens: 10, cache_hit: 0.5, tokens_per_s: 12, context_tokens: 300, context_delta: 300 }] };
     case "harnix.session.outline":
       return OUTLINE;
     case "engine.session.entries":
@@ -84,7 +86,7 @@ describe("the trajectory", () => {
     expect(container.querySelector('[data-testid="trajectory"]')).not.toBeNull();
     // Every read of the session claims the front space's.
     expect(s.calls.find((c) => c.method === "observability.trace")?.params).toEqual({ instance: "main", session_id: "s1", space: "sessions" });
-    expect(container.querySelectorAll('[data-testid="turn-row"]')).toHaveLength(2);
+    expect(container.querySelectorAll('[data-testid="turn-row"]')).toHaveLength(1);
     expect(container.querySelector('[data-testid="traj-user"]')?.textContent).toContain("list the files");
     const calls = container.querySelectorAll('[data-testid="system-call"]');
     expect(calls).toHaveLength(2);
@@ -93,6 +95,11 @@ describe("the trajectory", () => {
     expect(container.querySelector('[data-testid="traj-feedback"]')?.getAttribute("data-rating")).toBe("up");
     expect(calls[1]?.getAttribute("data-feedback")).toBe("up");
     expect(container.querySelector('[data-testid="run-note"]')?.getAttribute("data-earlier")).toBe("true");
+    // The turn's sums, on its row: the cache's share, the context as a change or a total.
+    expect(container.querySelector('[data-testid="turn-cache"]')?.textContent).toBe("50%");
+    expect(container.querySelector('[data-testid="turn-context"]')?.textContent).toBe("+300");
+    fireEvent.click(container.querySelector('[data-testid="turns-total"]')!);
+    expect(container.querySelector('[data-testid="turn-context"]')?.textContent).toBe("300");
     expect(container.querySelector('[data-testid="calls-timeline"] [data-testid="timeline-call"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="traj-earlier"]')).toBeNull();
   });
