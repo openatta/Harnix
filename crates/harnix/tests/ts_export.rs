@@ -224,7 +224,7 @@ fn packages(cfg: &Config) -> Generated {
 fn flow(cfg: &Config) -> Generated {
     use harnix_ext_flow::dryrun::{DryRunSummary, Progress, Stepped};
     use harnix_ext_flow::kernel::run::RunQuery;
-    use harnix_ext_flow::wire::{DefRow, StartParams, StartTrigger};
+    use harnix_ext_flow::wire::{DefRow, StartParams, StartTrigger, StartedFrom};
     use harnix_ext_flow::*;
     Generated {
         path: "flow/src/generated/flow.ts",
@@ -242,7 +242,7 @@ fn flow(cfg: &Config) -> Generated {
                 WorktreeRec, RunRecord, Phase,
                 History, RunSummary, RunQuery, RunView,
                 // The module's rows and params.
-                Origin, Withheld, Delivery, Problem, DefRow, StartParams, StartTrigger, DryRunSummary, Stepped, Progress,
+                Origin, Withheld, Delivery, Problem, DefRow, StartParams, StartTrigger, StartedFrom, DryRunSummary, Stepped, Progress,
             ],
         ),
     }

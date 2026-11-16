@@ -767,12 +767,29 @@ trigger?: StartTrigger,
  * interface that starts a task lists the project's sessions in — to be looked at and talked
  * to there (`harnix.session.expose`). Absent: shown nowhere else.
  */
-show_in_space?: string, };
+show_in_space?: string, 
+/**
+ * The conversation it was started from (`/flow` in a conversation): a card linking to the
+ * run is written there (an entry `task_started`), and the conversation stays what it was.
+ * Absent: written nowhere.
+ */
+from_session?: StartedFrom, };
 
 /**
  * How a start says it came about. Who started it by hand is the caller, never what it claims.
  */
 export type StartTrigger = { "kind": "manual", } | { "kind": "schedule", schedule: string, fire_at: number, };
+
+/**
+ * A conversation a start came from (`StartParams::from_session`), by its full name and the
+ * space it belongs to: the card is written claiming that space, so it goes only into a
+ * conversation of it.
+ */
+export type StartedFrom = { 
+/**
+ * Absent: the main instance.
+ */
+instance?: string, session_id: string, space: string, };
 
 /**
  * One dry run in the list: `{id, flow, status, created_at}`.
