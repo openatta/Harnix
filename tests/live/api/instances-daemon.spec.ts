@@ -164,6 +164,15 @@ async function leaveAProcess(api: TestClient, instance: string): Promise<number>
   return pid;
 }
 
+/** SIGKILL `pid`; a process that is already gone is fine (ESRCH). */
+function killQuietly(pid: number): void {
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ESRCH") throw e;
+  }
+}
+
 /** Allow the Bash call the fixture makes: the engine asks before it runs. */
 async function permit(api: TestClient, instance: string, sessionId: string): Promise<void> {
   const ask = await api.waitFor(
@@ -182,8 +191,12 @@ test("reap_on_stop: stopping the instance ends what its sessions left running (i
   const built = await api.call("harnix.instances.create", { template: "reaper", name: "reaper-1", wait: "ready" });
   expect(built.reap).toBe(true);
   const pid = await leaveAProcess(api, "reaper-1");
-  await api.call("harnix.instances.stop", { instance: "reaper-1" });
-  expect(await gone(pid), `${pid} outlived instances.stop`).toBe(true);
+  try {
+    await api.call("harnix.instances.stop", { instance: "reaper-1" });
+    expect(await gone(pid), `${pid} outlived instances.stop`).toBe(true);
+  } finally {
+    killQuietly(pid);
+  }
 });
 
 // Pinned as it is, not as it should be. Since Agix 0.3.15 each command starts in a session of its
@@ -205,7 +218,7 @@ test("reap_on_stop: a daemon killed outright leaves its session's processes runn
     await expect.poll(async () => (await until(api, "reaper-2", "ready")).pid, { timeout: 60_000 }).not.toBe(built.pid);
     expect(await gone(pid, 3_000), `${pid} is reaped after its daemon's SIGKILL now: assert that, and drop the @gap`).toBe(false);
   } finally {
-    if (alive(pid)) process.kill(pid, "SIGKILL");
+    killQuietly(pid);
     await api.call("harnix.instances.stop", { instance: "reaper-2" });
   }
 });
@@ -219,11 +232,7 @@ test("without reap_on_stop, what a session left running outlives the instance, a
     await sleep(2_000);
     expect(alive(pid), "the background process was ended without reap_on_stop").toBe(true);
   } finally {
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch {
-      // already gone
-    }
+    killQuietly(pid);
   }
 });
 
