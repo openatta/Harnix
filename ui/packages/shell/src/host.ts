@@ -54,7 +54,9 @@ export function hostFor(app: App, owner = "page"): HostApi {
       },
       context: () => app.controller?.getSnapshot() ?? null,
       list: () => app.snapshot.sessions,
-      open: ((ref: SessionRef, options?: { switchSpace?: boolean; reveal?: string }) => {
+      open: ((ref: SessionRef, options?: { switchSpace?: boolean; reveal?: string; view?: string }) => {
+        // The view is remembered for the session before it opens: it is drawn in that view at once.
+        if (options?.view !== undefined) app.setConversationView({ instance: ref.instance, sessionId: ref.sessionId }, options.view);
         const opened = !options?.switchSpace
           ? app.open(ref)
           : (async () => {
@@ -90,6 +92,14 @@ export function hostFor(app: App, owner = "page"): HostApi {
     spaces: {
       switch: switchTo,
       current: () => app.snapshot.space,
+    },
+    conversation: {
+      current: () => app.conversationView(app.snapshot.current),
+      show(view) {
+        const current = app.snapshot.current;
+        if (current) app.setConversationView(current, view);
+      },
+      onChange: (fn) => app.onView(fn),
     },
     instances: {
       list: () => call("harnix.instances.list", {}),

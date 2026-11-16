@@ -6,7 +6,7 @@
 > 为什么是这个形状见 [概念与架构](concept_and_architecture.md) §5.5。用词照 [术语](glossary.md)。
 >
 > 本文照代码写：后端在 `crates/ext/system/`，界面在 `ui/packages/system/`；控制台里别的扩展注册进来的页签在它们自己的包里——流程在 `ui/packages/flow/`，
-> 扩展在 `ui/packages/packages/`，检查器的调用与每轮在 `ui/packages/observability/`。对不上时以代码为准。
+> 扩展在 `ui/packages/packages/`，检查器的轨迹在 `ui/packages/observability/`。对不上时以代码为准。
 
 ---
 
@@ -22,13 +22,13 @@
 | 右 | 选中项的检查器：只出现适用于它的页签（§8），其中一部分由别的扩展经 `system.inspector.tab` 注册；什么都没选时是「说明」页签，说控制台当前页签是什么 |
 
 外壳里它不和别的 space 排在一起：它声明 `place: "bottom"`，入口在左栏底部，角标是正在跑的会话数。还有两条路进来，都是它注册的 `session.action`：
-会话标题栏上的「在系统 space 里打开」，以及会话里一行工具调用上的「在系统 space 里看」（跳到这个会话的「调用」页签并标出那次调用）。流程的会话也从这里进（§5）。
+会话标题栏上的「在系统 space 里打开」，以及会话里一行工具调用上的「在系统 space 里看」（跳到这个会话的「轨迹」页签并标出那次调用）。流程的会话也从这里进（§5）。
 
 外壳在握手时从 `hello` 知道 `system` 启用了，才调 `@harnix/system` 的 `register`；`system` 被关掉或没链，这个包不激活，入口、动作与它定义的两个贡献点都不在。
 
 **键盘**：页签条（控制台的、右栏的）各是一个 Tab 停靠点，左右方向键在页签间走并切换，Home / End 到头尾。能点的行
-（Agent、子 Agent、任务、每轮、扩展）都能用 Tab 走到，回车或空格选中它；Agent 列表里上下键走到上一行、下一行，
-右键展开、左键收起；每轮和扩展的行回车展开。
+（Agent、子 Agent、任务、轨迹里的轮与调用、扩展）都能用 Tab 走到，回车或空格选中它；Agent 列表里上下键走到上一行、下一行，
+右键展开、左键收起；轨迹里的轮和扩展的行回车展开。
 
 **失败用人话说**：调用失败时，认得的错误码说成一句话（例如会话正在跑一轮时，上下文页签说「这一轮结束后才能看」），
 后端的原话和错误码放在悬停提示里；不认得的码照原话。横幅里的失败也一样。
@@ -221,8 +221,8 @@ kv 加 `/data`）；模式 3 另有扩展进程 stderr 的最后几行（至多 
 **什么都没选时**右栏是一个「说明」页签，说控制台当前的页签是什么、在那里能做什么。流程、扩展、诊断三个页签没有可以在右栏
 看的行：切过去就放掉原来选中的东西，右栏换成这个页签的说明，而不是留着上一个会话的概况。
 
-检查器的页签有两种来路：系统 space 自己的（概况、上下文、任务、原始帧），以及别的扩展经 `system.inspector.tab` 注册的（`@harnix/observability` 的调用、每轮）。
-后者每次画时问 `match(target)`，只在适用于选中项时出现；产品没链 `observability`，这两个页签就不在。
+检查器的页签有两种来路：系统 space 自己的（概况、上下文、任务、原始帧），以及别的扩展经 `system.inspector.tab` 注册的（`@harnix/observability` 的轨迹）。
+后者每次画时问 `match(target)`，只在适用于选中项时出现；产品没链 `observability`，这个页签就不在。
 
 ### 8.1 选中一台实例
 
@@ -232,18 +232,17 @@ kv 加 `/data`）；模式 3 另有扩展进程 stderr 的最后几行（至多 
 
 ### 8.2 选中一个会话（主 Agent）
 
-六个页签：
+五个页签：
 
 | 页签 | 看什么 | 从哪来 | 能做什么 |
 |---|---|---|---|
 | **概况** | 实例、会话、名字、space、场景、模型、项目根、谁起的；上下文环（实测或估算的 token 对窗口）；这次运行的轮数、调用数、token、缓存命中、输出速度、首字、模型与工具用时，以及子 Agent 的合计；目标（见下） | `observability.usage`、`observability.turns`、`system.context`、`system.goal` | 设定目标（`system.goal.set {objective, max_rounds}`；最多轮数是引擎最多为它开几轮，用完就受阻，缺省 256，表单上写着）、暂停 / 继续 / 编辑 / 清除（`system.goal.update`）；到所属 space 打开；这个 space 的全部会话；压缩、清空、分叉、换模型、中断、导出、改名、关闭、删除 |
-| **调用** | 这个会话**每一次记录下来的模型调用**：按轮分组，每次的用途、模型、token、用时、首字、速度、停止原因，嵌着它要的工具调用；点开是输入（系统块、工具、消息、配置）与输出，可以和上一次比 | 录像，`observability.trace` / `observability.trace.call {index}` | 只看失败、只看工具，跳到失败处，时间线上拖选；在对话里找到这一次 |
-| **每轮** | 按轮汇总：调用数（加辅助调用）、首字、模型与工具时间、进出 token、缓存命中、速度、上下文较上一轮的增量（或累计） | `observability.turns` | 展开一轮看它的调用 |
-| **上下文** | 下一次调用**将要**带的上下文：系统、工具、消息的比例，实测（上一次调用）与估算（下一次），压缩阈值；每个系统块的来源与正文、工具表、最近 50 条消息 | `system.context`（底下是 `engine.session.inspectContext`，另带 `measured`）、`engine.session.history` | 改写人说的话（`system.messages.edit`）、去掉消息（`system.messages.drop`）、从某条消息分叉（`harnix.session.fork {at_message}`） |
+| **轨迹** | 这个会话**每一次记录下来的模型调用**，按轮列成一张表：每轮人说的话、每次调用的模型、token、用时、首字、速度、停止原因与回答的开头，嵌着它要的工具调用（名字、输入的开头、结果出没出错）、子 Agent 的调用、旁边的调用（压缩、记忆、标题）；每轮的行上是这一轮的汇总（首字、模型与工具时间、进出、缓存命中、速度、上下文增量或累计）；点开一条在旁边是输入（系统块、工具、消息、配置）与输出，可以和上一次比。和对话区「轨迹」视图是同一个组件（[Harnix 扩展](harnix-ext.md) §22.10），在这个窄栏里检查器占列表的位置 | 录像，`observability.trace` / `observability.trace.call {index}` / `observability.turns`；轮次 `harnix.session.outline`；反馈 `engine.session.entries` | 折叠轮、调用、子 Agent；搜索（含折起来的）；只看失败、只看工具，跳到失败处；时间概览上拖选、滚轮缩放；在对话里定位这一次；**在会话里打开**（到所属 space、直接用轨迹画） |
+| **上下文** | 下一次调用**将要**带的上下文：系统、工具、消息的比例，实测（上一次调用）与估算（下一次），压缩阈值；每个系统块的来源与正文、工具表（这部分是 `@harnix/react` 的 `ContextReport`，会话右栏的「上下文」页画的是同一份）、最近 50 条消息 | `system.context`（底下是 `engine.session.inspectContext`，另带 `measured`）、`engine.session.history` | 改写人说的话（`system.messages.edit`）、去掉消息（`system.messages.drop`）、从某条消息分叉（`harnix.session.fork {at_message}`） |
 | **任务** | 团队看板（阶段、成员）；子 Agent、团队成员、Shell、监视器、定时任务……的状态 | `harnix.session.tasks` | 停止（3 秒内按两次，`system.tasks.stop`）；展开一个任务见 §8.3 |
 | **原始帧** | 这个会话实时的帧：seq、种类、时间、参数（留最近 500） | `harnix.session.attach` 之后的会话事件流 | 按种类筛选、暂停、复制 JSON |
 
-调用、每轮两个页签由 `@harnix/observability` 注册，概况里的用量也来自它的方法；产品没链 `observability` 时，这两个页签不在，概况里的这几格是「—」。
+轨迹页签由 `@harnix/observability` 注册，概况里的用量也来自它的方法；产品没链 `observability` 时，这个页签不在，概况里的这几格是「—」。
 
 会话的操作：压缩、清空、换模型、改名是 `system.compact`、`system.clear`、`system.model`、`system.rename`；分叉、中断、关闭、删除是内核的 `harnix.session.*`，
 都带 `space: "system"`；导出是 Harnix app 的 `harnix-app.sessions.export`，产品链了 `harnix-app` 才有这一项。
@@ -283,7 +282,8 @@ kv 加 `/data`）；模式 3 另有扩展进程 stderr 的最后几行（至多 
 | `system.tasks.stop`、`system.tasks.message`、`system.tasks.output` | `system` | 任务 |
 | `system.instances.templates`、`system.instances.create`、`system.instances.restart`、`system.instances.stop` | `system` | 实例 |
 | `system.extensions.log` | `system` | 扩展日志 |
-| `observability.usage`、`observability.turns`、`observability.trace`、`observability.trace.call` | `observability` | Agent 页签的用量、概况、调用、每轮 |
+| `observability.usage`、`observability.turns`、`observability.trace`、`observability.trace.call` | `observability` | Agent 页签的用量、概况、轨迹（按会话判的三个声称 `space: "system"`） |
+| `harnix.session.outline`、`engine.session.entries {namespaces: ["harnix.feedback"]}` | 中枢、引擎直通 | 轨迹的轮次与反馈 |
 | `harnix.sessions.list`、`harnix.session.fork`、`harnix.session.interrupt`、`harnix.session.close`、`harnix.session.delete`、`harnix.session.attach`、`harnix.session.detach` | 中枢 | 会话，都带 `space: "system"` |
 | `engine.session.history` | 引擎直通 | 上下文、子 Agent 的消息 |
 | `harnix-app.sessions.export` | `harnix-app` | 导出（链了 `harnix-app` 才有） |
@@ -312,7 +312,7 @@ space `system`（界面一侧 `@harnix/system` 把它画成 `center: "hidden"`�
 - `system.process`：方法与主题，有人订时每 5 秒算一次，数据凭 `process.observe` 从宿主拿。
 - `system.extensions.log`：转给内核的 `harnix.extensions.log`（要 `process.observe`），只传 `extension`、`level`、`after`、`limit`。日志里的行可能说出包作者没打算给别人看的东西，
   所以内核那一行不对设备与扩展包开放，设备经这里读，每次读都进审计。
-- 录像与用量不在这里：调用、每轮、用量是 `observability` 的（凭 `recordings.read`），经引擎的协议读。调用页签的列表只有概况与工具调用的名字、字数，输入与结果点开详情才取；整棵会话树（含子 Agent）在根会话的一份录像里。
+- 录像与用量不在这里：轨迹、用量是 `observability` 的（凭 `recordings.read`），经引擎的协议读。按会话判的那几个方法（`trace`、`trace.call`、`turns`、`calls`）先以调用方的身份 `engine.session.get` 一次，中枢按声称的 space 判：设备只看得到自己 space 的会话，声称 `system` 的跨 space 读进审计。轨迹的列表只有概况与工具调用的名字、输入的开头，输入与结果点开检查器才取；整棵会话树（含子 Agent）在根会话的一份录像里。
 
 **跨 space**：声称 `system` 的调用可以观看、操作任何 space 的会话，每一次跨 space 的操作都写审计；在系统 space 里看别的 space
 的会话是「观看」，不改归属。`cross_space()` 是**防误**的标志：同页的代码能声称任何 space。真正的跨 space 读写权力是上面那几项能力，它们不对设备与扩展包开放。
@@ -331,5 +331,5 @@ space `system`（界面一侧 `@harnix/system` 把它画成 `center: "hidden"`�
   不要包一层 `system.*`。
 - **界面**：往系统 space 定义的三个点里注册——控制台的页签进 `system.console.tab`（`{id, title(), render(), order?}`），检查器的页签进 `system.inspector.tab`
   （`{id, title(target), match(target), render(target)}`），指标条上一格数字去哪进 `system.metrics.link`（§2）。要在没有系统 space 的产品里也有个去处，注册时给 `orElse`。
-- 流程、扩展、调用与每轮这几个页签就是例子：它们分别是 `flow`、`packages`、`observability` 的 UI 包注册进来的，系统 space 自己不认识它们。
+- 流程、扩展、轨迹这几个页签就是例子：它们分别是 `flow`、`packages`、`observability` 的 UI 包注册进来的，系统 space 自己不认识它们。
 - 应用自己的、和系统 space 无关的调试面，做成自己的 space，或者一个扩展包的 space。

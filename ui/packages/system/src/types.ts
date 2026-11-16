@@ -7,6 +7,7 @@
  */
 
 import type { ReactNode } from "react";
+import type { ContextReportData } from "@harnix/react";
 import type {
   AgentUsage as ReadAgentUsage,
   CallSummary,
@@ -113,19 +114,8 @@ export interface AgentRow extends SessionRowView {
   key: string;
 }
 
-export interface Context {
-  model?: string;
-  /** The provider the call goes to; absent on an older engine. */
-  provider?: string;
-  max_tokens?: number;
-  system?: { name: string; origin: unknown; tokens: number; text: string }[];
-  tools?: { name: string; source?: string; tokens?: number }[];
-  messages?: { count: number; tokens: number };
-  total_tokens?: number;
-  compact_threshold?: number;
-  /** What the provider counted for the last call made; absent before the first. */
-  measured?: { tokens: number; window?: number; compact_threshold?: number };
-}
+/** `system.context`'s answer: the shared report's shape (`@harnix/react`'s `ContextReportData`). */
+export type Context = ContextReportData;
 
 /** A session's teams (Agix `team_progress`, as the hub last heard it): each one's stage and members,
  *  every member with how its task stands. */

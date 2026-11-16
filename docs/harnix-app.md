@@ -56,6 +56,13 @@ Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方�
 **数据**：`harnix.sessions.list {space: "sessions"}` 列会话，`harnix-app.workspaces.list` 列项目，外壳把两者按 `project_root` 拼起来
 （标题、归档、属于哪个项目）；谁在跑来自主题 `harnix.sessions.status`。
 
+**中区的视图**：会话打开时中区顶上是「对话 | 轨迹」的切换（贡献点 `conversation.view`，[Harnix 扩展](harnix-ext.md) §22.10）。对话是缺省；
+轨迹是 `@harnix/observability` 注册的，把这个会话记录下来的每一次模型调用按轮列成一张表，带时间概览与检查器。每个会话各记自己的选择，刷新后还在；
+产品没链 `observability` 就没有切换。
+
+**会话头**一行：状态点（等你、正在跑一轮、空闲、打不开）、会话名与它的菜单、space、场景、上下文环（和输入框旁边的是同一个，读会话自己的 `context`）、
+这一轮的用量。
+
 **对回答的反馈**（中区的对话，`@harnix/react` 的 `ChatPanel`，`features.feedback` 缺省开）：
 
 - 一轮结束后，它的回答下面的动作行里有赞和踩（复制与「重新生成」之间）。还在跑的那一轮没有。给过反馈的那一行一直显示，按下的那个是实心的。
@@ -372,7 +379,10 @@ r.register("harnix-app.project.items", {
 
 ## 6. 右栏：文件、预览、改动
 
-右栏是每个会话一个停靠面（[Harnix 扩展](harnix-ext.md) §22.7）。`@harnix/harnix-app` 往里注册三种页签类型，都只读、都限在**这个会话的项目根**
+右栏是每个会话一个停靠面（[Harnix 扩展](harnix-ext.md) §22.7）。引导页上还有 `@harnix/observability` 的两页——**上下文**（下一次调用带什么：
+系统 space 在时上下文的组成与系统块，生效的技能与钩子，MCP 服务器的工具与指令，被项目信任扣下的项与「信任这个项目」）和**用量**
+（本会话这次运行的轮数、调用、token、缓存命中、用时，带「打开轨迹」）；它们读的是设备自己的方法，在 [Harnix 扩展](harnix-ext.md) §22.7、§22.10。
+`@harnix/harnix-app` 往里注册三种页签类型，都只读、都限在**这个会话的项目根**
 （引擎记的 `project_root`）里：
 
 | 页签 | `sidebar.tab` | 打开它 | 内容 |

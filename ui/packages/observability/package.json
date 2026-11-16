@@ -2,7 +2,7 @@
   "name": "@harnix/observability",
   "version": "0.1.0",
   "private": true,
-  "description": "The system space's inspector tabs for one session: every model call, and each turn.",
+  "description": "A session's recording, drawn where the session is: the trajectory (a view of the centre, and the system space's inspector page), the right column's context and usage tabs.",
   "license": "Apache-2.0",
   "type": "module",
   "exports": {

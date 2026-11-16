@@ -12,7 +12,7 @@
 import type { ReactNode } from "react";
 import { TOKEN_STALE, errorText, modelConfigured, type ConnectionStatus, type ExtensionEntry, type HarnixClient, type Hello, type SessionRow, type UiView } from "@harnix/core";
 import { MAIN_INSTANCE, type SessionController } from "@harnix/core/state";
-import { sidebarTypes, t, tabsOf, type ComposerApi, type DetailItem, type Registry, type ShellContext, type SidebarTabType, type SpaceContribution, type SpaceTab } from "@harnix/react";
+import { CONVERSATION_VIEW, sidebarTypes, t, tabsOf, type ComposerApi, type Contributions, type DetailItem, type Registry, type ShellContext, type SidebarTabType, type SpaceContribution, type SpaceTab } from "@harnix/react";
 
 import { SurfaceStore, type SidebarTab } from "./sidebar/surface.ts";
 import { topicsOf } from "./topics.ts";
@@ -168,6 +168,9 @@ export interface ShellState {
    *  surface (`sidebar`, whose active tab it is). Opening or clicking a session tab brings that side
    *  in front; selecting a space tab or revealing a detail brings the space's. */
   stripSide: "space" | "session";
+  /** Each session's chosen view of the centre (a `conversation.view` id), by session key; one not
+   *  here is shown as its conversation. Kept in this browser. */
+  viewBySession: Record<string, string>;
   /** Bumped by `redraw()`: the shell reads the front space's functions again. */
   drawn: number;
 }
@@ -178,6 +181,9 @@ const CURRENT_KEY = "harnix.space.current";
 const WIDTHS_KEY = "harnix.widths";
 const DETAILS_KEY = "harnix.details";
 const SECONDARY_MAX_KEY = "harnix.secondaryMax";
+/** Which view of the centre each session is shown in (`conversation.view`), by session key; the
+ *  conversation when absent. */
+const VIEW_KEY = "harnix.view";
 
 /** The page's storage, if it has one that can be touched at all. */
 function storage(): Storage | null {
@@ -330,6 +336,7 @@ export class App {
       menu: false,
       tabBySpace: {},
       stripSide: "space",
+      viewBySession: stored<Record<string, string>>(VIEW_KEY, {}),
       drawn: 0,
     };
   }
@@ -363,6 +370,11 @@ export class App {
       const ref = next.current ? { instance: next.current.instance, sessionId: next.current.sessionId } : null;
       for (const fn of [...this.currentListeners]) fn(ref);
     }
+    if (!sameKey(before.current, next.current) || before.viewBySession !== next.viewBySession) {
+      const was = this.conversationView(before.current, before);
+      const now = this.conversationView(next.current, next);
+      if (was !== now) for (const fn of [...this.viewListeners]) fn(now);
+    }
     if (before.search.query !== next.search.query) this.search(next.search.query);
     // The settings panel closed: what it changed may be the model providers the composer offers.
     if (before.modals.some((m) => m.key === "settings") && !next.modals.some((m) => m.key === "settings")) void this.refreshEngine();
@@ -382,6 +394,53 @@ export class App {
   onCurrent(fn: (current: SessionKey | null) => void): () => void {
     this.currentListeners.add(fn);
     return () => this.currentListeners.delete(fn);
+  }
+
+  /* ── the centre's view of a session ───────────────────────────────── */
+
+  private readonly viewListeners = new Set<(view: string) => void>();
+
+  /** The open session's view changed: switched, or another session is open. */
+  onView(fn: (view: string) => void): () => void {
+    this.viewListeners.add(fn);
+    return () => this.viewListeners.delete(fn);
+  }
+
+  /** The `conversation.view` registrations that apply to a session, in the switch's order; a
+   *  `match` that throws drops its view. */
+  viewsFor(key: SessionKey | null): (Contributions["conversation.view"] & { owner: string })[] {
+    if (!key) return [];
+    const ref = { instance: key.instance, sessionId: key.sessionId };
+    return [...this.registry.at("conversation.view")]
+      .filter((view) => {
+        if (!view.match) return true;
+        try {
+          return view.match(ref) === true;
+        } catch (e) {
+          later(() => this.registry.fail("conversation.view", view, e));
+          return false;
+        }
+      })
+      .sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
+  }
+
+  /** Which view the centre shows a session in: its remembered choice while that view still applies
+   *  to it, else the conversation. */
+  conversationView(key: SessionKey | null, state: ShellState = this.state): string {
+    if (!key) return CONVERSATION_VIEW;
+    const chosen = state.viewBySession[keyOf(key.instance, key.sessionId)];
+    if (!chosen || chosen === CONVERSATION_VIEW) return CONVERSATION_VIEW;
+    return this.viewsFor(key).some((view) => view.id === chosen) ? chosen : CONVERSATION_VIEW;
+  }
+
+  /** Show a session in a view, and remember it for the session; the conversation forgets the entry. */
+  setConversationView(key: SessionKey, view: string): void {
+    const id = keyOf(key.instance, key.sessionId);
+    const viewBySession = { ...this.state.viewBySession };
+    if (view === CONVERSATION_VIEW) delete viewBySession[id];
+    else viewBySession[id] = view;
+    remember(VIEW_KEY, viewBySession);
+    this.set({ viewBySession });
   }
 
   private readonly modalListeners = new Set<(open: boolean) => void>();
@@ -715,7 +774,10 @@ export class App {
       if (current && current.instance === key.instance && current.sessionId === key.sessionId) currentBySpace[space] = null;
     }
     remember(CURRENT_KEY, currentBySpace);
-    this.set({ currentBySpace });
+    const viewBySession = { ...this.state.viewBySession };
+    delete viewBySession[keyOf(key.instance, key.sessionId)];
+    remember(VIEW_KEY, viewBySession);
+    this.set({ currentBySpace, viewBySession });
   }
 
   /** New sessions belong to the front space and land on its default instance unless one is named. */

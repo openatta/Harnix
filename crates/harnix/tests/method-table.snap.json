@@ -2405,7 +2405,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": "open"
+        "scope": "session"
       },
       "kind": "method",
       "name": "observability.calls",
@@ -2418,7 +2418,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": "open"
+        "scope": "session"
       },
       "kind": "method",
       "name": "observability.trace",
@@ -2431,7 +2431,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": "open"
+        "scope": "session"
       },
       "kind": "method",
       "name": "observability.trace.call",
@@ -2444,7 +2444,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": "open"
+        "scope": "session"
       },
       "kind": "method",
       "name": "observability.turns",
