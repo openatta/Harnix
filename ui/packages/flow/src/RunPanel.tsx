@@ -9,6 +9,7 @@
  *   RunStations      every station on a row: status, time, tokens, its output in a line, and the
  *                    results of its gates; a row clicked picks the station
  *   OutputDirLine    where the deliverables go (a task's `output_dir`): copy the path, open the files tab
+ *   WorktreeLine     a task run in a worktree: its branch, and once it is over 合回 / 保留分支 / 丢弃
  *   RunSessionsList  the run's main session, sub-agents and tasks, each opened in the middle
  *   RunPanel         all of them with the graph and the picked station's panel, following the
  *                    station at work until a person picks one
@@ -43,7 +44,7 @@ import {
   tokensOf,
 } from "./model";
 import { StationPanel } from "./StationPanel";
-import type { CheckRec, DryProgress, Phase, RunSessions, RunStatus, RunView, SessionWire, StationRec } from "./types";
+import type { CheckRec, DryProgress, Phase, RunSessions, RunStatus, RunView, SessionWire, StationRec, WorkspaceInfo, WorktreeRec } from "./types";
 
 /** Now, again every second while `live`: elapsed times of what is still going. */
 export function useNow(live: boolean): number {
@@ -345,6 +346,96 @@ export function OutputDirLine({ view, onOpenFiles }: { view: RunView; onOpenFile
   );
 }
 
+/* ── the worktree ─────────────────────────────────────────────────────── */
+
+/** A run's worktree, as its record holds it; null for a run in none. */
+export function worktreeOf(view: RunView | null | undefined): WorktreeRec | null {
+  const w = (view?.record as { worktree?: WorktreeRec | null } | undefined)?.worktree;
+  return w && typeof w.branch === "string" ? w : null;
+}
+
+/** What may still be done with a run's worktree: over, its own (not a parent's), not merged or discarded. */
+export function worktreeOpen(view: RunView | null | undefined): boolean {
+  const w = worktreeOf(view);
+  if (!w || !view || view.record.parent) return false;
+  if (runLive({ phase: view.phase, status: view.record.status })) return false;
+  return !w.outcome || w.outcome.kind === "kept";
+}
+
+/**
+ * A task run in a worktree: its branch and directory; once it is over, what to do with them —
+ * 合回 (merge the branch into the project's current branch), 保留分支 (the default: the directory
+ * removed, the branch kept), 丢弃 (both removed, after asking) — and, decided, what was.
+ */
+export function WorktreeLine({ view, module }: { view: RunView; module: string }) {
+  const t = useT();
+  const nest = useHost();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const w = worktreeOf(view);
+  const open = worktreeOpen(view);
+  const root = view.record.project_root ?? null;
+  const repo = useMethod<WorkspaceInfo>(module, "workspace_info", open && root ? { project_root: root } : null);
+  if (!w) return null;
+  const into = repo.value?.git ? (repo.value.branch ?? null) : null;
+  const act = async (how: "merge" | "keep" | "discard") => {
+    if (how === "merge") {
+      const ok = await nest.dialogs.confirm(t("flowui.worktree.confirmMerge", { branch: w.branch, into: into ?? t("flowui.worktree.current") }), { title: t("flowui.worktree.merge"), confirm: t("flowui.worktree.merge") });
+      if (!ok) return;
+    } else if (how === "discard") {
+      const ok = await nest.dialogs.confirm(t("flowui.worktree.confirmDiscard", { branch: w.branch }), { title: t("flowui.worktree.discard"), confirm: t("flowui.worktree.discard"), danger: true });
+      if (!ok) return;
+    }
+    setBusy(how);
+    setError(null);
+    try {
+      await nest.call(methodName(module, `worktree.${how}`), { run: view.record.id });
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const outcome = w.outcome;
+  return (
+    <div className="hx-flow-task-worktree" data-testid="flow-worktree" data-branch={w.branch} data-outcome={outcome?.kind ?? undefined}>
+      <div className="hx-flow-task-output-dir">
+        <span className="hx-flow-faint">{t("flowui.worktree.title")}</span>
+        <code className="hx-flow-id" data-testid="flow-worktree-branch" title={w.path}>
+          {w.branch}
+        </code>
+        {outcome ? (
+          <span className={`hx-flow-pill hx-flow-tone-${outcome.kind === "discarded" ? "warn" : "ok"}`} data-testid="flow-worktree-outcome">
+            {t("flowui.worktree.outcome." + outcome.kind, { into: outcome.into ?? "", branch: w.branch })}
+          </span>
+        ) : null}
+      </div>
+      {open ? (
+        <div className="hx-flow-actions" data-testid="flow-worktree-actions">
+          <span className="hx-flow-faint">{t("flowui.worktree.decide")}</span>
+          <span className="hx-flow-grow" />
+          <button type="button" className="btn sm outline" data-testid="flow-worktree-merge" disabled={busy !== null} onClick={() => void act("merge")}>
+            {into ? t("flowui.worktree.mergeInto", { into }) : t("flowui.worktree.merge")}
+          </button>
+          {outcome?.kind !== "kept" ? (
+            <button type="button" className="btn sm primary" data-testid="flow-worktree-keep" disabled={busy !== null} onClick={() => void act("keep")}>
+              {t("flowui.worktree.keep")}
+            </button>
+          ) : null}
+          <button type="button" className="btn sm ghost" data-testid="flow-worktree-discard" disabled={busy !== null} onClick={() => void act("discard")}>
+            {t("flowui.worktree.discard")}
+          </button>
+        </div>
+      ) : null}
+      {error ? (
+        <div className="hx-flow-error" role="alert" data-testid="flow-worktree-error">
+          {error}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 /* ── sub-agents and tasks ─────────────────────────────────────────────── */
 
 /** The run's sub-agents and tasks (`sessions {run}`): each opens in the middle. */
@@ -484,6 +575,7 @@ export function RunPanel({ module, run, onOpenFiles }: RunPanelProps) {
       {def && station ? <StationPanel key={`${run}/${station}`} station={station} def={def} view={view} module={module} initialTab="run" /> : null}
       <RunStations view={view} selected={station} onPick={pick} />
       <OutputDirLine view={view} onOpenFiles={onOpenFiles} />
+      <WorktreeLine view={view} module={module} />
       {isDryRun(run) ? null : <RunSessionsList module={module} run={run} rev={view.record.rev} />}
     </section>
   );

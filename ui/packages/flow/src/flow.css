@@ -762,10 +762,21 @@
 }
 
 .hx-flow-task-flow,
-.hx-flow-task-step {
+.hx-flow-task-step,
+.hx-flow-task-branch {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.hx-flow-task-branch {
+  font-family: var(--font-mono);
+  color: var(--label-tertiary);
+}
+
+.hx-flow-task-branch[data-outcome="discarded"],
+.hx-flow-task-branch[data-outcome="merged"] {
+  text-decoration: line-through;
 }
 
 .hx-flow-task-badges {
@@ -862,6 +873,12 @@
   align-items: center;
   gap: 8px;
   font-size: 13px;
+}
+
+.hx-flow-task-worktree {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .hx-flow-task-output-dir .hx-flow-id {

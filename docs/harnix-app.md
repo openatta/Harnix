@@ -191,13 +191,23 @@ r.register("harnix-app.project.items", {
 **`harnix-app.project.panels`**（`render`）：项目概况页的一个区块，`{ id, title(), order?, render(context) }`，`context` 同上。本版只定义，概况页随后补。
 
 **任务**（`@harnix/flow`，`ui/packages/flow/src/task.tsx`）：`flow.runs` 主题里 `project_root` 是这个项目的运行（试运行不算），
-一行写标题（没有就是对象）、流程名、状态（运行中、等待及原因、已暂停、已完成、已取消）、「第 k/n 站」，由定时启动的带时钟。
+一行写标题（没有就是对象）、流程名、状态（运行中、等待及原因、已暂停、已完成、已取消）、「第 k/n 站」、在 worktree 里跑的写分支名（合回或丢弃后划掉），由定时启动的带时钟。
 点了行：主会话归 `flow` 的后端 space，项目 space 声明的是 `sessions`，直接在这里打开会被 `SPACE_MISMATCH` 拒绝（[概念与架构](concept_and_architecture.md) §5.4），
 所以和系统控制台进一条运行一样——把流程的界面 space 带到前台、停在这条运行上，主会话在中区，左栏是流程的上下文，「返回」回到项目 space；
 会话旁边的详情面板不开，右栏开「流程」页签（`sidebar.tab` 的 `kind: "flow"`，`openTab("flow", { params: { run } })`，[系统 space](system-space.md) §5）。
 「新任务」对话框：流程（全部，标来源，不合法的不能选）、按 `inputs` 的 schema 生成的表单（字符串、数字、布尔、枚举、字符串数组，其余是 JSON 框）、
-对象（必填）、标题、输出目录（留空用缺省 `flows/<流程>-<YYYYMMDD><NN>`，对话框预估当天序号，由扩展最终定）、在 worktree 里跑（本版不可选）；
-项目里已有任务在跑时提示；流程不是 `guard: strict` 时写明「这个流程会直接修改项目文件」。确认即 `flow.start {flow, subject, inputs?, title?, project_root, output_dir?}`，然后打开这个任务。
+对象（必填）、标题、输出目录（留空用缺省 `flows/<流程>-<YYYYMMDD><NN>`，对话框预估当天序号，由扩展最终定）、在 worktree 里跑（见下）；
+项目里已有任务在跑时提示；流程不是 `guard: strict` 时写明「这个流程会直接修改项目文件」（在 worktree 里跑时改说「合回之后项目才会变」）。
+确认即 `flow.start {flow, subject, inputs?, title?, project_root, output_dir?, workspace?}`，然后打开这个任务。
+
+**在 worktree 里跑**：对话框先问 `flow.workspace_info {project_root}`：答 `{git: true, branch, prefix}` 时开关可用，起始状态照流程的 `workspace`；
+答 `{git: false, reason, detail}`（`reason` 是 `not_a_repository`、`bare`、`no_commit`、`no_git`）时开关不可用，下面写原因；流程本身要求 worktree 的，
+再提示「在这里启动会被拒绝」。开关动过才带 `workspace`（`worktree` 或 `project`），没动过由流程定。任务在 `<项目>/.harnix/worktrees/<运行>`、
+分支 `harnix/<运行>` 上跑（运行记录和 `flow.runs` 的行里有 `worktree: {path, prefix?, branch, base, outcome?}`），过程目录仍在项目自己的
+`.harnix/runs/<运行>/`。运行结束后右栏「流程」页签的 worktree 一行给出三个操作：**合回**（`flow.worktree.merge {run}`，按钮写「合回 <当前分支>」，先确认）、
+**保留分支**（`flow.worktree.keep {run}`，缺省，不用确认）、**丢弃**（`flow.worktree.discard {run}`，确认、标成危险操作）；合回有冲突时答 `CONFLICT`，
+`data.files` 是冲突的文件，项目里什么都不变，页签照实写出来。做过的决定记在运行上（`worktree.outcome: {kind: merged|kept|discarded, at, by, into?, commit?, how?}`），
+保留之后还可以合回或丢弃。细节见[流程指南](../crates/ext/flow/docs/guide.zh-CN.md)第二节。
 
 ## 4. 新建会话
 

@@ -9,14 +9,14 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HostProvider, Registry, TabInfoProvider, setLocale, type HostApi, type HostSessionRef, type TabInfo } from "@harnix/react";
 
-import { collectInputs, defOptions, defaultOutputDir, fieldsOf, initialText, newTaskDialog } from "../src/NewTask";
+import { collectInputs, defOptions, defaultOutputDir, fieldsOf, initialText, newTaskDialog, noWorktreeText, workspaceParam } from "../src/NewTask";
 import { register } from "../src/register";
-import { currentStation, taskStep } from "../src/RunPanel";
+import { WorktreeLine, currentStation, taskStep, worktreeOpen } from "../src/RunPanel";
 import { registerSystemFlows } from "../src/space";
 import { registerFlowStrings } from "../src/strings";
 import { PROJECT_ITEMS, ProjectTasks, TASK_KIND, TASK_TAB_KIND, TaskRow, openTask, taskRows } from "../src/task";
 import { TaskTab } from "../src/TaskTab";
-import type { DefSummary, FlowDef, RunSummary, RunView } from "../src/types";
+import type { DefSummary, FlowDef, RunSummary, RunView, WorktreeRec } from "../src/types";
 
 afterEach(() => {
   cleanup();
@@ -39,6 +39,8 @@ const DEFS: DefSummary[] = [
   { name: "example-review", title: "Example: review and approve", digest: "a", origin: "builtin", valid: true, inputs: { type: "object", properties: { depth: { type: "integer", default: 2 }, target: { type: "string", description: "What to look at." } }, required: ["target"] } },
   { name: "broken", title: "Broken", digest: "b", origin: "user", valid: false, inputs: { type: "object", properties: {}, required: [] } },
 ];
+
+const WORKTREE: WorktreeRec = { path: `${ROOT}/.harnix/worktrees/example-review-1`, branch: "harnix/example-review-1", base: "0123abcd" };
 
 const summary = (over: Partial<RunSummary>): RunSummary => ({
   id: "example-review-1",
@@ -84,7 +86,7 @@ const view = (over: Partial<RunView["record"]> = {}, phase: RunView["phase"] = {
 });
 
 /** A host with topics that can be pushed to, a front space, a session, and the right column. */
-function fakeHost(answers: Record<string, unknown> = {}) {
+function fakeHost(answers: Record<string, unknown> = {}, confirmed = true) {
   const calls: [string, unknown][] = [];
   const topics = new Map<string, Set<(v: unknown) => void>>();
   const values = new Map<string, unknown>();
@@ -92,6 +94,7 @@ function fakeHost(answers: Record<string, unknown> = {}) {
   const opened: HostSessionRef[] = [];
   const tabs: [string, unknown][] = [];
   const dialogs: ((close: (r: unknown) => void) => unknown)[] = [];
+  const confirms: [string, unknown][] = [];
   let current: HostSessionRef | null = null;
   let front = "projects";
   const keyOf = (topic: string, params?: Record<string, unknown>) => `${topic} ${JSON.stringify(params ?? {})}`;
@@ -130,7 +133,10 @@ function fakeHost(answers: Record<string, unknown> = {}) {
     },
     sidebar: { openTab: vi.fn((kind: string, options?: unknown) => (tabs.push([kind, options]), "tab-1")) },
     details: { open: vi.fn(), tab: () => "", onTab: () => () => undefined },
-    dialogs: { open: vi.fn(async (render: (close: (r: unknown) => void) => unknown) => void dialogs.push(render)) },
+    dialogs: {
+      open: vi.fn(async (render: (close: (r: unknown) => void) => unknown) => void dialogs.push(render)),
+      confirm: vi.fn(async (text: string, opts?: unknown) => (confirms.push([text, opts]), confirmed)),
+    },
     composer: { insert: vi.fn() },
     redraw: vi.fn(),
     t: (k: string) => k,
@@ -141,6 +147,7 @@ function fakeHost(answers: Record<string, unknown> = {}) {
     opened,
     tabs,
     dialogs,
+    confirms,
     push(topic: string, params: Record<string, unknown> | undefined, value: unknown) {
       const key = keyOf(topic, params);
       values.set(key, value);
@@ -211,6 +218,22 @@ describe("the rows of a project", () => {
     expect(screen.getByTestId("task-badges").querySelector("svg")).not.toBeNull();
     // The row learnt the run's main session from the run topic: the rows say it now.
     expect(tasks.rows(ROOT)[0]?.session).toEqual({ instance: "main", sessionId: "main-1" });
+  });
+
+  it("a row of a task run in a worktree says its branch, and what became of it", async () => {
+    const fake = fakeHost({ "flow.defs": DEFS });
+    const tasks = new ProjectTasks(fake.host, "flow");
+    const run = summary({ workspace: "worktree", worktree: { ...WORKTREE, outcome: { kind: "merged", at: 1, by: { kind: "device", id: "d" }, into: "main" } } });
+    render(
+      <HostProvider host={fake.host}>
+        <TaskRow run={run} module="flow" tasks={tasks} />
+      </HostProvider>,
+    );
+    await settle();
+    const branch = screen.getByTestId("task-branch");
+    expect(branch.textContent).toBe("harnix/example-review-1");
+    expect(branch.dataset.outcome).toBe("merged");
+    expect(branch.title).toContain("harnix/example-review-1");
   });
 });
 
@@ -403,5 +426,144 @@ describe("the new-task dialog", () => {
     expect(fake.calls.find(([m]) => m === "flow.start")?.[1]).toEqual({ flow: "example-review", subject: "the repo", project_root: ROOT, inputs: { depth: 2, target: "src/" }, title: "Review src" });
     expect(close).toHaveBeenCalledWith(true);
     expect(started).toEqual([["example-review-2", "example-review"]]);
+  });
+});
+
+describe("a task in a worktree", () => {
+  it("sends a workspace only when the toggle was touched in a git repository; says why not otherwise", () => {
+    expect(workspaceParam(true, null)).toBeUndefined();
+    expect(workspaceParam(true, true)).toBe("worktree");
+    expect(workspaceParam(true, false)).toBe("project");
+    expect(workspaceParam(false, true)).toBeUndefined();
+    expect(noWorktreeText({ git: true, branch: "main" })).toBeNull();
+    expect(noWorktreeText(undefined)).toBeNull();
+    expect(noWorktreeText({ git: false, reason: "not_a_repository" })).toBe("Needs a git repository: this project is not one.");
+    expect(noWorktreeText({ git: false, reason: "odd", detail: "git said so" })).toBe("git said so");
+  });
+
+  const dialog = async (answers: Record<string, unknown>) => {
+    const fake = fakeHost({ "flow.defs": DEFS, "flow.def": { def: DEF, yaml: "", digest: "a" }, "flow.start": { run: "example-review-2" }, ...answers });
+    await newTaskDialog(fake.host, "flow", { root: ROOT, runs: () => [] }, () => undefined);
+    const page = render(<HostProvider host={fake.host}>{fake.dialogs[0]!(vi.fn()) as never}</HostProvider>);
+    await settle();
+    fireEvent.change(page.getByTestId("task-subject"), { target: { value: "the repo" } });
+    fireEvent.change(page.getByTestId("task-input-target").querySelector("input")!, { target: { value: "src/" } });
+    return { fake, page, toggle: page.getByTestId("task-worktree") as HTMLInputElement };
+  };
+  const sent = (fake: ReturnType<typeof fakeHost>) => fake.calls.find(([m]) => m === "flow.start")?.[1] as Record<string, unknown>;
+
+  it("the dialog's toggle: on in a git repository, asked of the module, and sent when turned on", async () => {
+    const { fake, page, toggle } = await dialog({ "flow.workspace_info": { git: true, branch: "main" } });
+    expect(fake.calls.find(([m]) => m === "flow.workspace_info")?.[1]).toEqual({ project_root: ROOT });
+    expect(toggle.disabled).toBe(false);
+    expect(toggle.checked).toBe(false);
+    expect(page.queryByTestId("task-worktree-reason")).toBeNull();
+    fireEvent.click(toggle);
+    expect(page.getByTestId("task-modifies").dataset.worktree).toBe("true");
+    fireEvent.click(page.getByTestId("task-start"));
+    await settle();
+    expect(sent(fake).workspace).toBe("worktree");
+  });
+
+  it("the dialog's toggle: a flow that asks for a worktree starts it on, and turned off sends project", async () => {
+    const def = { def: { ...DEF, workspace: "worktree" }, yaml: "", digest: "a" };
+    const { fake, page, toggle } = await dialog({ "flow.workspace_info": { git: true, branch: "main" }, "flow.def": def });
+    expect(toggle.checked).toBe(true);
+    fireEvent.click(toggle);
+    expect(toggle.checked).toBe(false);
+    fireEvent.click(page.getByTestId("task-start"));
+    await settle();
+    expect(sent(fake).workspace).toBe("project");
+  });
+
+  it("the dialog's toggle: off with the reason in a project that is no git repository", async () => {
+    const def = { def: { ...DEF, workspace: "worktree" }, yaml: "", digest: "a" };
+    const { fake, page, toggle } = await dialog({ "flow.workspace_info": { git: false, reason: "not_a_repository", detail: "…" }, "flow.def": def });
+    expect(toggle.disabled).toBe(true);
+    expect(toggle.checked).toBe(false);
+    expect(page.getByTestId("task-worktree-reason").textContent).toBe("Needs a git repository: this project is not one.");
+    expect(page.getByTestId("task-worktree-needed")).toBeDefined();
+    fireEvent.click(page.getByTestId("task-start"));
+    await settle();
+    expect(sent(fake).workspace).toBeUndefined();
+  });
+
+  const over = (worktree: WorktreeRec, status: RunView["record"]["status"] = "finished"): RunView =>
+    view({ status, workspace: "worktree", worktree }, { state: status === "active" ? "running" : (status as "finished") });
+
+  it("the 流程 tab: the branch while it runs, nothing to decide yet", async () => {
+    const fake = fakeHost({ "flow.workspace_info": { git: true, branch: "main" } });
+    const page = render(
+      <HostProvider host={fake.host}>
+        <WorktreeLine view={over(WORKTREE, "active")} module="flow" />
+      </HostProvider>,
+    );
+    await settle();
+    expect(page.getByTestId("flow-worktree-branch").textContent).toBe("harnix/example-review-1");
+    expect(page.queryByTestId("flow-worktree-actions")).toBeNull();
+    expect(worktreeOpen(over(WORKTREE, "active"))).toBe(false);
+    expect(worktreeOpen(over(WORKTREE))).toBe(true);
+    expect(worktreeOpen(over({ ...WORKTREE, outcome: { kind: "kept", at: 1, by: { kind: "device", id: "d" } } }))).toBe(true);
+    expect(worktreeOpen(over({ ...WORKTREE, outcome: { kind: "discarded", at: 1, by: { kind: "device", id: "d" } } }))).toBe(false);
+  });
+
+  it("the 流程 tab, the run over: merge into the current branch and discard after asking, keep at once", async () => {
+    const fake = fakeHost({ "flow.workspace_info": { git: true, branch: "main" } });
+    const page = render(
+      <HostProvider host={fake.host}>
+        <WorktreeLine view={over(WORKTREE)} module="flow" />
+      </HostProvider>,
+    );
+    await settle();
+    expect(page.getByTestId("flow-worktree-merge").textContent).toBe("Merge into main");
+    fireEvent.click(page.getByTestId("flow-worktree-merge"));
+    await settle();
+    expect(fake.confirms[0]![0]).toContain("harnix/example-review-1 into main");
+    expect(fake.calls.filter(([m]) => m === "flow.worktree.merge")).toEqual([["flow.worktree.merge", { run: "example-review-1" }]]);
+    fireEvent.click(page.getByTestId("flow-worktree-keep"));
+    await settle();
+    expect(fake.confirms.length).toBe(1);
+    expect(fake.calls.some(([m]) => m === "flow.worktree.keep")).toBe(true);
+    fireEvent.click(page.getByTestId("flow-worktree-discard"));
+    await settle();
+    expect(fake.confirms[1]![1]).toMatchObject({ danger: true });
+    expect(fake.calls.some(([m]) => m === "flow.worktree.discard")).toBe(true);
+  });
+
+  it("the 流程 tab: nothing is done when the question is declined; a conflict is said; what was decided is shown", async () => {
+    const conflict = () => Promise.reject(Object.assign(new Error("merging harnix/example-review-1 into the project conflicts in a.txt"), { code: -31007 }));
+    const fake = fakeHost({ "flow.workspace_info": { git: true, branch: "main" }, "flow.worktree.merge": conflict }, false);
+    const page = render(
+      <HostProvider host={fake.host}>
+        <WorktreeLine view={over(WORKTREE)} module="flow" />
+      </HostProvider>,
+    );
+    await settle();
+    fireEvent.click(page.getByTestId("flow-worktree-discard"));
+    await settle();
+    expect(fake.calls.some(([m]) => m === "flow.worktree.discard")).toBe(false);
+    page.unmount();
+
+    const yes = fakeHost({ "flow.workspace_info": { git: true, branch: "main" }, "flow.worktree.merge": conflict });
+    const again = render(
+      <HostProvider host={yes.host}>
+        <WorktreeLine view={over(WORKTREE)} module="flow" />
+      </HostProvider>,
+    );
+    await settle();
+    fireEvent.click(again.getByTestId("flow-worktree-merge"));
+    await settle();
+    expect(again.getByTestId("flow-worktree-error").textContent).toContain("conflicts in a.txt");
+    again.unmount();
+
+    const decided = render(
+      <HostProvider host={yes.host}>
+        <WorktreeLine view={over({ ...WORKTREE, outcome: { kind: "merged", at: 1, by: { kind: "device", id: "d" }, into: "main", how: "fast_forward" } })} module="flow" />
+      </HostProvider>,
+    );
+    await settle();
+    expect(decided.getByTestId("flow-worktree").dataset.outcome).toBe("merged");
+    expect(decided.getByTestId("flow-worktree-outcome").textContent).toBe("merged into main");
+    expect(decided.queryByTestId("flow-worktree-actions")).toBeNull();
   });
 });

@@ -333,7 +333,8 @@ fn register(&self, r: &mut Registrar<'_, ()>) {
   之后新建的会话有新的工具集，已有的会话保持原样。工具名要符合引擎的字母表（字母、数字、`_`、`-`），一个会话自己的工具至多 64 个。
 - **`ToolHook` 在权限检查之前就看到调用**；`ToolCallFacts` 带发起调用的会话（`session_id()`，子 Agent 的调用是它自己的 id）、`depth()`（人开的会话为 0，子 Agent 逐层加 1）与 `cwd()`。
 - **工具在哪干活**：`ToolCx::project()` 是会话的项目；`cwd()` 是发起调用的会话的工作目录——模型在 git worktree 里起的子 Agent 是那个 worktree
-  （`<项目>/.agix/worktrees/<名>`），读写文件要照它，否则同 `project()`。`depth()` 与钩子的同义。
+  （`<项目>/.agix/worktrees/<名>`），读写文件要照它，否则同 `project()`。流程在 worktree 里跑的任务（`workspace: worktree`）不是这种：
+  它的会话本来就开在 `<项目>/.harnix/worktrees/<运行>` 里，`project()` 就是那个 worktree，扩展包的工具照 `project()` 读写也落在 worktree 里。`depth()` 与钩子的同义。
   `HookDecision::AddContext` 的文字在这次调用放行之后、模型的下一步之前，作为 system-reminder 交给模型。
 - **宿主工具的权限**由链路按 `Tool::permission` 代答：`Allow` 与 `Deny` 直接生效，`Ask` 时把工具自己的问句（`Permission::Ask(text)`）附在转给界面的询问上，界面显示它。
 - **场景层由中枢在建会话时展开**：会话建在层的基场景上，再按层补上 `prompt.append`、这个会话自己的宿主工具、`attended`、`auto_name` 与 `permission_rules`。
