@@ -6,10 +6,13 @@
 //! <project>/.harnix/
 //!   .gitignore                            runs/ and worktrees/, added on the first task
 //!   runs/<run>/
-//!     task.json                           the run as it stands, rewritten after each change
+//!     task.json                           the run as it stands (its worktree's branch and end
+//!                                         too), rewritten after each change
 //!     flow.yaml                           the definition and the parts pinned when it started
 //!     stations/<station>/                 output.json (one task) or <task>.json each,
 //!                                         gate-<gate>.log, context.json (a command gate's)
+//!   worktrees/<run>/                      a worktree run's worktree (`worktree.rs`): its output
+//!                                         directory is in there; its process directory is not
 //! ```
 //!
 //! The process directory is a projection: the ledger in the module's data directory is what
@@ -21,10 +24,10 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 
 use crate::kernel::def::{Work, DEFAULT_OUTPUT_DIR};
-use crate::kernel::engine::{CreateIn, Engine};
+use crate::kernel::engine::{CreateIn, Engine, Prepared};
 use crate::kernel::output::{has_seq, render, OutputVars};
 use crate::kernel::refs::workspace_of;
-use crate::kernel::run::{RunRecord, TaskStatus, Workspace};
+use crate::kernel::run::{RunRecord, TaskStatus, Workspace, WorktreeRec};
 use crate::kernel::host::Outcome;
 use crate::kernel::run::Actor;
 use crate::kernel::FlowError;
@@ -50,12 +53,32 @@ pub(crate) fn local_date(epoch_ms: u64) -> String {
     crate::kernel::output::date_utc(epoch_ms)
 }
 
-/// Start a run as the module does: its output directory resolved and made first (taken back if
-/// the run is not made), then the run, then what a new run needs on disk ([`made`]).
+/// Start a run as the module does: in a worktree, its worktree made first (`worktree.rs`); its
+/// output directory resolved and made; then the run, and what a new run needs on disk ([`made`]).
+/// What was made for a run that is then not started is taken back.
 pub(crate) async fn start(engine: &Engine, mut input: CreateIn, by: Actor) -> crate::Result<Outcome> {
     engine.may_create(&input, &by)?;
-    let claimed = prepare(engine, &mut input)?;
-    let r = engine.create(input, by).await;
+    let root = root_of(&input);
+    let defined = engine.packs().flow(&input.flow).and_then(|(d, _)| d.workspace);
+    let mut prepared = Prepared::default();
+    if let Some(root) = &root {
+        let workspace = Workspace::chosen(input.workspace, defined, Some(root));
+        input.workspace = Some(workspace);
+        if workspace == Workspace::Worktree && engine.packs().flow(&input.flow).is_some() {
+            let (id, w) = super::worktree::make(engine, root, &input.flow).await?;
+            prepared = Prepared { id: Some(id), worktree: Some(w) };
+        }
+    }
+    let claimed = match prepare(engine, &mut input, prepared.worktree.as_ref()) {
+        Ok(c) => c,
+        Err(e) => {
+            if let (Some(root), Some(w)) = (&root, &prepared.worktree) {
+                super::worktree::unmake(root, w).await;
+            }
+            return Err(e);
+        }
+    };
+    let r =engine.create_prepared(input, by, prepared.clone()).await;
     match &r {
         Ok(o) => {
             if let Some(run) = o.value.get("run").and_then(Value::as_str) {
@@ -66,19 +89,33 @@ pub(crate) async fn start(engine: &Engine, mut input: CreateIn, by: Actor) -> cr
             if let Some(dir) = claimed {
                 let _ = std::fs::remove_dir(dir);
             }
+            if let (Some(root), Some(w)) = (&root, &prepared.worktree) {
+                super::worktree::unmake(root, w).await;
+            }
         }
     }
     r
 }
 
+/// A start's project, as the run will hold it: trimmed, without trailing `/`s; none for none.
+fn root_of(input: &CreateIn) -> Option<String> {
+    input
+        .project_root
+        .as_deref()
+        .map(str::trim)
+        .filter(|r| !r.is_empty())
+        .map(|r| crate::kernel::run::trim_root(r).to_string())
+}
+
 /// A start's output directory resolved and made, in place in `input`: the start's own template,
 /// else its flow's, else the default; rendered against the flow, the date, the title and the
-/// inputs. A task's is made in its project now (`${seq}` claimed there), and is an absolute
-/// path; a run of no project's is left relative, for the kernel to put under the run's own
-/// directory ([`made`] makes it). Returns the directory made, to be taken back if the run is not.
+/// inputs. A task's is made in its project now (`${seq}` claimed there) — in a worktree run, at
+/// the same place in its worktree — and is an absolute path; a run of no project's is left
+/// relative, for the kernel to put under the run's own directory ([`made`] makes it). Returns the
+/// directory made, to be taken back if the run is not.
 ///
 /// A flow the packs do not have is the kernel's to refuse.
-pub(crate) fn prepare(engine: &Engine, input: &mut CreateIn) -> crate::Result<Option<PathBuf>> {
+pub(crate) fn prepare(engine: &Engine, input: &mut CreateIn, worktree: Option<&WorktreeRec>) -> crate::Result<Option<PathBuf>> {
     let Some((def, _)) = engine.packs().flow(&input.flow) else {
         return Ok(None);
     };
@@ -96,16 +133,16 @@ pub(crate) fn prepare(engine: &Engine, input: &mut CreateIn) -> crate::Result<Op
         title: input.title.as_deref().unwrap_or_default(),
         inputs: &inputs,
     };
-    let root = input
-        .project_root
-        .as_deref()
-        .map(str::trim)
-        .filter(|r| !r.is_empty())
-        .map(|r| crate::kernel::run::trim_root(r).to_string());
-    let workspace = input.workspace.unwrap_or_else(|| Workspace::default_for(root.as_deref()));
+    let root = root_of(input);
+    let workspace = Workspace::chosen(input.workspace, def.workspace, root.as_deref());
     match (workspace.in_project(), root) {
         (true, Some(root)) => {
-            let (dir, made) = claim(Path::new(&root), &template, &vars).map_err(FlowError::Invalid)?;
+            // In a worktree: the same place relative to the project, in the worktree.
+            let (base, template) = match worktree {
+                Some(w) => (w.dir(), relative_in(Path::new(&root), &template).map_err(FlowError::Invalid)?),
+                None => (PathBuf::from(&root), template),
+            };
+            let (dir, made) = claim(&base, &template, &vars).map_err(FlowError::Invalid)?;
             input.output_dir = Some(dir.to_string_lossy().into_owned());
             Ok(made)
         }
@@ -349,6 +386,7 @@ fn task_json(rec: &RunRecord) -> Value {
         "project_root": rec.project_root,
         "workspace": rec.workspace,
         "output_dir": rec.output_dir,
+        "worktree": rec.worktree,
         "stations": stations,
         "usage": rec.usage(),
     })

@@ -738,9 +738,14 @@ stations:
         for ws in [None, Some(Workspace::Project), Some(Workspace::Worktree)] {
             let run = run_of(engine.create(started(ws, Some(root.clone())), Actor::device("d")).await.unwrap());
             let rec = engine.record(&run).await.unwrap();
-            // Whatever the scene: the main session, a station's own, a gate — all in the project.
+            // Whatever the scene: the main session, a station's own, a gate — all in the project,
+            // or in its worktree.
+            let at = match ws {
+                Some(Workspace::Worktree) => project.path().join(".harnix/worktrees").join(&run),
+                _ => project.path().to_path_buf(),
+            };
             for scene in ["flow-harnix", "flow-code"] {
-                assert_eq!(session_root(&sh, &engine, &rec, scene).unwrap(), Some(project.path().to_path_buf()), "{ws:?} {scene}");
+                assert_eq!(session_root(&sh, &engine, &rec, scene).unwrap(), Some(at.clone()), "{ws:?} {scene}");
             }
         }
         assert!(std::fs::read_dir(project.path()).unwrap().next().is_none(), "nothing written into the project");

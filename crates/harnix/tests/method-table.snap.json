@@ -1435,6 +1435,58 @@
         "scope": "open"
       },
       "kind": "method",
+      "name": "flow.workspace_info",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.worktree.discard",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.worktree.keep",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.worktree.merge",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
       "name": "harnix-app.describe",
       "owner": "ext:harnix-app"
     },

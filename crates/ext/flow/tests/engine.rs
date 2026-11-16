@@ -1256,24 +1256,47 @@ async fn runs_are_listed_by_project() {
 #[tokio::test]
 async fn a_child_run_works_where_its_parent_does() {
     let h = h();
-    let run = start_in(
-        &h,
-        CreateIn {
-            flow: "parent".into(),
-            subject: "repo".into(),
-            inputs: json!({"items": ["x"]}),
-            project_root: Some("/work/app".into()),
-            workspace: Some(Workspace::Worktree),
-            ..Default::default()
-        },
-    )
-    .await
-    .unwrap();
+    // The worktree the host made for the run, under the id it allocated for it.
+    let id = h.eng.alloc_id("parent").await.unwrap();
+    let worktree = WorktreeRec {
+        path: format!("/work/app/.harnix/worktrees/{id}"),
+        prefix: "sub".into(),
+        branch: format!("harnix/{id}"),
+        base: "0123".into(),
+        outcome: None,
+    };
+    let prepared = Prepared { id: Some(id.clone()), worktree: Some(worktree.clone()) };
+    let o = h
+        .eng
+        .create_prepared(
+            CreateIn {
+                flow: "parent".into(),
+                subject: "repo".into(),
+                inputs: json!({"items": ["x"]}),
+                project_root: Some("/work/app".into()),
+                workspace: Some(Workspace::Worktree),
+                ..Default::default()
+            },
+            me(),
+            prepared,
+        )
+        .await
+        .unwrap();
+    let run = o.value["run"].as_str().unwrap().to_string();
+    assert_eq!(run, id);
+    let rec = h.eng.record(&run).await.unwrap();
+    assert_eq!(rec.worktree.as_ref(), Some(&worktree));
+    let at = Some(std::path::PathBuf::from(format!("/work/app/.harnix/worktrees/{id}/sub")));
+    assert_eq!(h.eng.workspace_for(&rec), at);
     let child = h.eng.record("child-1").await.unwrap();
     assert_eq!(child.parent.as_ref().unwrap().run, run);
     assert_eq!(child.project_root.as_deref(), Some("/work/app"));
     assert_eq!(child.workspace, Workspace::Worktree);
+    assert_eq!(h.eng.workspace_for(&child), at, "in its parent's worktree");
     assert_eq!(child.trigger, Trigger::manual(Actor::flow("dispatch")));
+    // A worktree is decided once the run is over, on the run that has it, not its child.
+    assert!(matches!(worktree_may_end(&rec), Err(FlowError::Invalid(ref m)) if m.contains("still going")));
+    assert!(matches!(worktree_may_end(&child), Err(FlowError::Invalid(ref m)) if m.contains("parent")));
 }
 
 #[test]

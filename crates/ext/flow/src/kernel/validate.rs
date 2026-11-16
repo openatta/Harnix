@@ -126,6 +126,9 @@ pub fn validate(def: &FlowDef, packs: &dyn Packs) -> Vec<Problem> {
             c.flow(format!("output_dir {t:?}: {m}"));
         }
     }
+    if def.workspace == Some(super::run::Workspace::Scratch) {
+        c.flow("workspace: a flow's tasks work in the project or a worktree of it (project | worktree)".to_string());
+    }
     names_problems(&mut c, None, &def.rules, &def.policies);
     for (i, p) in def.permissions.iter().enumerate() {
         for m in permission_problems(p) {

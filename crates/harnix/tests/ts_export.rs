@@ -238,7 +238,8 @@ fn flow(cfg: &Config) -> Generated {
                 PartKind, Effect, Permission, Granted, PolicyDef, GateKind, GateDef, HookKind, HookDef, Pinned,
                 // The run record, its summary and view, its history.
                 Actor, RunStatus, StationStatus, TaskStatus, Lease, AskRec, Usage, TaskRec, PauseRec, CheckStatus,
-                CheckRec, ConfirmRec, ForcedRec, StationRec, ParentRef, Workspace, Trigger, RunRecord, Phase,
+                CheckRec, ConfirmRec, ForcedRec, StationRec, ParentRef, Workspace, Trigger, WorktreeEnd, WorktreeOutcome,
+                WorktreeRec, RunRecord, Phase,
                 History, RunSummary, RunQuery, RunView,
                 // The module's rows and params.
                 Origin, Delivery, Problem, DefRow, StartParams, StartTrigger, DryRunSummary, Stepped, Progress,

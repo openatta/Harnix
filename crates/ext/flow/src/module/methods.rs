@@ -23,7 +23,7 @@ use crate::kernel::def::definition_schema;
 use crate::kernel::engine::{CreateIn, Engine};
 use crate::kernel::host::Packs;
 use crate::kernel::protocol;
-use crate::kernel::run::{run_schema, Actor, RunQuery, Trigger};
+use crate::kernel::run::{run_schema, Actor, RunQuery, Trigger, WorktreeEnd};
 use crate::wire::{StartParams, StartTrigger};
 use crate::kernel::validate::validate;
 use crate::kernel::FlowError;
@@ -72,6 +72,11 @@ fn project_dir(root: Option<String>) -> Result<Option<String>, RpcError> {
 #[derive(Deserialize)]
 struct RunIn {
     run: String,
+}
+
+#[derive(Deserialize)]
+struct ProjectIn {
+    project_root: String,
 }
 
 #[derive(Deserialize)]
@@ -793,7 +798,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         sh,
         packs,
         "start",
-        "start a run: {flow, subject, inputs?, title?, project_root?, workspace?: project|worktree|scratch, output_dir?, trigger?: {kind: manual} | {kind: schedule, schedule, fire_at}} → {run}; with a project_root (an existing absolute directory) the run is a task of that project; output_dir (a template relative to the project, before the flow's and flows/${flow}-${date}${seq}) is made at start and must stay inside it; only the kernel and extensions start one on a schedule",
+        "start a run: {flow, subject, inputs?, title?, project_root?, workspace?: project|worktree|scratch, output_dir?, trigger?: {kind: manual} | {kind: schedule, schedule, fire_at}} → {run}; with a project_root (an existing absolute directory) the run is a task of that project; output_dir (a template relative to the project, before the flow's and flows/${flow}-${date}${seq}) is made at start and must stay inside it; workspace (absent: the flow's, else project) worktree needs a git repository with a commit: the run works in <project>/.harnix/worktrees/<run> on the branch harnix/<run>, decided with worktree.merge|keep|discard once over; only the kernel and extensions start one on a schedule",
         |sh, _, cx, p: StartParams| async move {
             let by = caller(&cx);
             let trigger = start_trigger(cx.device().is_some(), p.trigger, &by)?;
@@ -990,6 +995,56 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
             change(&sh, Some(&p.run), r).await
         },
     );
+
+    // ── worktrees ────────────────────────────────────────────────────────────
+    method(
+        m,
+        sh,
+        packs,
+        "workspace_info",
+        "whether a task of a project can run in a worktree: {project_root} → {git: true, branch, prefix} | {git: false, reason: not_a_repository|bare|no_commit|no_git, detail}",
+        |_, _, _, p: ProjectIn| async move {
+            let Some(root) = project_dir(Some(p.project_root))? else {
+                return Err(RpcError::invalid_params("project_root is empty"));
+            };
+            Ok(super::worktree::info(root.into()).await)
+        },
+    );
+    for (name, end, describe) in [
+        (
+            "worktree.merge",
+            WorktreeEnd::Merged,
+            "merge a finished run's worktree branch into the project's current branch — a fast-forward when it can be, else a merge commit; what the task left uncommitted is committed on the branch first; on a conflict (CONFLICT, data.files) nothing in the project changes; merged, the worktree and the branch are removed: {run} → {run, worktree}",
+        ),
+        (
+            "worktree.keep",
+            WorktreeEnd::Kept,
+            "keep a finished run's worktree branch: what the task left uncommitted is committed on it, the worktree directory removed: {run} → {run, worktree}",
+        ),
+        (
+            "worktree.discard",
+            WorktreeEnd::Discarded,
+            "discard a finished run's worktree: the directory and the branch removed, uncommitted work and all: {run} → {run, worktree}",
+        ),
+    ] {
+        let sh = sh.clone();
+        m.method(name)
+            .access(Access::device())
+            .describe(describe)
+            .handler(move |cx: Call, p: RunIn| {
+                let sh = sh.clone();
+                async move {
+                    if in_sandbox(&sh, &p.run).await {
+                        return Err(RpcError::invalid_params("a dry run has no worktree"));
+                    }
+                    let engine = engine(&sh)?;
+                    let o = super::worktree::end(&engine, &p.run, end, device(&cx)).await?;
+                    let value = o.value.clone();
+                    dispatch::apply(&sh, Some(&p.run), o).await;
+                    Ok(value)
+                }
+            });
+    }
 }
 
 /// The entry a proposal's acceptance is recorded as, in the proposal's own session.
