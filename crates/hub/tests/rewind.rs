@@ -22,7 +22,8 @@ use serde_json::{json, Value};
 use tokio::sync::{mpsc, watch};
 
 /// An engine whose session `s1` has three live turns, and which says its rewinds as Agix does:
-/// the frame to subscribers, then the answer.
+/// the frame to subscribers, then the answer. It goes on listing the turns a rewind took out, as
+/// Agix does a turn that wrote files.
 struct FakeLink {
     events: Mutex<Option<EventReceiver>>,
     tx: mpsc::Sender<EngineEvent>,
@@ -131,8 +132,10 @@ impl EngineOps for FakeLink {
     }
     async fn passthrough(&self, _: &str, _: Value) -> Answer<Value> {
         let turn = |id: &str| json!({"ns": "harnix.changes", "event": "turn", "payload": {"turn_id": id, "files": []}, "at": 2});
-        let mark = json!({"ns": "harnix.changes", "event": "rewind", "payload": {"rewind_id": "r", "turn_ids": ["t2", "t3"]}, "at": 2});
-        Ok(json!({"entries": [turn("t1"), turn("t2"), turn("t3"), mark]}))
+        let mut entries = vec![turn("t1"), turn("t2"), turn("t3")];
+        let filed = self.appended.lock().unwrap().iter().map(|e| json!({"ns": e.ns, "event": e.event, "payload": e.payload, "at": 2})).collect::<Vec<_>>();
+        entries.extend(filed);
+        Ok(json!({"entries": entries}))
     }
     async fn rewind(&self, session: &str, ask: &RewindParams) -> Answer<RewindResult> {
         self.asked.lock().unwrap().push(ask.clone());
@@ -331,6 +334,11 @@ async fn a_rewind_voids_its_turns_changes_and_every_watcher_reads_the_session_ag
     let listed = rig.call(device(), "engine.session.entries", json!({"session_id": "s1", "space": "a"})).await.unwrap();
     let turns: Vec<&str> = listed["entries"].as_array().unwrap().iter().filter_map(|e| e["payload"]["turn_id"].as_str()).collect();
     assert_eq!(turns, ["t1"]);
+    // A turn it took out is no target again, though the engine still lists it; the one before is.
+    let again = json!({"session_id": "s1", "space": "a", "to": {"before_turn": "t2"}, "dry_run": true});
+    assert_eq!(rig.call(device(), "harnix.session.rewind", again).await.unwrap_err().code, codes::INVALID_PARAMS);
+    let first = json!({"session_id": "s1", "space": "a", "to": {"before_turn": "t1"}, "dry_run": true});
+    rig.call(device(), "harnix.session.rewind", first).await.unwrap();
 }
 
 #[tokio::test]
