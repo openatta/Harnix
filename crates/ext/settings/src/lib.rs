@@ -168,6 +168,9 @@ async fn describe(call: &Call, params: Value) -> Rpc<Value> {
         }
     };
 
+    // The providers of this (project, scene): what a model field offers, and a route may name.
+    let providers = providers::redacted(call.call("engine.config.getProvider", locate(scene.as_deref(), project_root.as_deref())).await.unwrap_or(json!({})));
+
     let fields: Vec<Value> = FIELDS
         .iter()
         .map(|field| {
@@ -183,11 +186,14 @@ async fn describe(call: &Call, params: Value) -> Rpc<Value> {
                 })
                 .collect();
             let engine = effective.as_ref().and_then(|settings| dig(settings, field.key));
-            field_view(field, per_tier, engine)
+            let mut view = field_view(field, per_tier, engine);
+            if let Some(view) = view.as_object_mut() {
+                view.extend(fields::offers(field, &providers));
+            }
+            view
         })
         .collect();
 
-    let providers = call.call("engine.config.getProvider", json!({})).await.unwrap_or(json!({}));
     let shown = |path: &Option<PathBuf>| path.as_ref().map(|p| p.display().to_string());
 
     Ok(json!({
@@ -205,6 +211,19 @@ async fn describe(call: &Call, params: Value) -> Rpc<Value> {
         },
         "providers": providers,
     }))
+}
+
+/// The `scene` / `project_root` an engine call is located by, each only when there is one: the
+/// engine refuses `null` for either.
+fn locate(scene: Option<&str>, project_root: Option<&str>) -> Value {
+    let mut at = json!({});
+    if let Some(scene) = scene {
+        at["scene"] = json!(scene);
+    }
+    if let Some(root) = project_root {
+        at["project_root"] = json!(root);
+    }
+    at
 }
 
 /// One field as the page gets it: its declaration, then where it stands. `effective` is the
@@ -277,6 +296,10 @@ async fn apply(call: &Call, params: Value, changes: Map<String, Value>, revision
         return Err(RpcError::invalid_params(format!("`{tier}` is not a tier: global, scene or project")));
     }
     check_changes(&tier, &changes)?;
+    if changes.iter().any(|(key, value)| !value.is_null() && fields::find(key).is_some_and(|f| f.ty == Type::Route)) {
+        let providers = call.call("engine.config.getProvider", locate(scene.as_deref(), project_root)).await?;
+        check_routes(&changes, &providers)?;
+    }
     let Some(path) = tier_path(call, &tier, scene.as_deref(), project_root)? else {
         return Err(RpcError::new(codes::INVALID_PARAMS, format!("no `{tier}` tier for this session")));
     };
@@ -321,6 +344,28 @@ fn check_changes(tier: &str, changes: &Map<String, Value>) -> Rpc<()> {
             errors.push((key.clone(), format!("`{key}` does not accept that value: {why}")));
         }
     }
+    if errors.is_empty() {
+        return Ok(());
+    }
+    let message = errors.iter().map(|(_, m)| m.as_str()).collect::<Vec<_>>().join("; ");
+    let data: Vec<Value> = errors.iter().map(|(key, message)| json!({"key": key, "message": message})).collect();
+    Err(RpcError::with_data(codes::INVALID_PARAMS, message, json!({"errors": data})))
+}
+
+/// Every route in `changes` names a provider this (project, scene) has: one that does not is
+/// refused, named as `check_changes` names a value, rather than written for the engine to fall
+/// back from.
+fn check_routes(changes: &Map<String, Value>, providers: &Value) -> Rpc<()> {
+    let configured = providers.get("providers").and_then(Value::as_object);
+    let errors: Vec<(String, String)> = changes
+        .iter()
+        .filter(|(key, _)| fields::find(key).is_some_and(|f| f.ty == Type::Route))
+        .filter_map(|(key, value)| {
+            let provider = fields::route_provider(value)?;
+            let known = configured.is_some_and(|p| p.contains_key(provider));
+            (!known).then(|| (key.clone(), format!("`{key}`: `{provider}` is not a configured provider")))
+        })
+        .collect();
     if errors.is_empty() {
         return Ok(());
     }
@@ -619,6 +664,29 @@ mod tests {
         assert_eq!(view["type"], json!("number"));
         assert!(view["invalid"]["scene"].as_str().unwrap().contains("whole number"));
         assert!(view["invalid"].get("global").is_none());
+    }
+
+    #[test]
+    fn a_route_to_a_provider_that_is_not_configured_is_refused_by_name() {
+        let providers = json!({"providers": {"deepseek": {}, "anthropic": {}}});
+        let mut changes = Map::new();
+        changes.insert("task_models.title".into(), json!("deepseek"));
+        changes.insert("task_models.compact".into(), json!({"provider": "anthropic", "model": "m"}));
+        changes.insert("task_models.memory".into(), Value::Null);
+        changes.insert("memory_enabled".into(), json!(true));
+        assert!(check_routes(&changes, &providers).is_ok());
+        changes.insert("task_models.web_search".into(), json!({"provider": "gone"}));
+        let e = check_routes(&changes, &providers).unwrap_err();
+        assert_eq!(e.code, codes::INVALID_PARAMS);
+        assert_eq!(e.data.unwrap()["errors"], json!([{"key": "task_models.web_search", "message": "`task_models.web_search`: `gone` is not a configured provider"}]));
+        // No providers to be read: every route is to one that is not there.
+        assert!(check_routes(&changes, &json!({})).is_err());
+    }
+
+    #[test]
+    fn an_engine_call_is_located_only_by_what_there_is() {
+        assert_eq!(locate(None, None), json!({}));
+        assert_eq!(locate(Some("code"), Some("/p")), json!({"scene": "code", "project_root": "/p"}));
     }
 
     #[test]

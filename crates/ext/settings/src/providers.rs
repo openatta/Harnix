@@ -14,6 +14,9 @@
 //!   default has nothing to send a turn to. Deleting the default hands it to the first left; with
 //!   no default (or one that is gone) the first becomes it. The engine changes `default_provider`
 //!   only when told, so it is told.
+//! - **A key is never read back**: the engine answers `api_key` as `***` and its last four
+//!   characters; what goes on to the page is redacted again here ([`redacted`]), so a key the
+//!   engine let through whole would still not reach it.
 
 use std::collections::BTreeSet;
 
@@ -33,7 +36,21 @@ impl Engine for harnix_ext::Call {
     }
 }
 
-pub(crate) const PROVIDER_KEYS: &[&str] = &["api_type", "base_url", "api_key", "api_key_env", "default_model", "models"];
+pub(crate) const PROVIDER_KEYS: &[&str] = &[
+    "api_type",
+    "base_url",
+    "api_key",
+    "api_key_env",
+    "default_model",
+    "models",
+    // OpenAI-compatible endpoints' thinking: how it is switched, and whether its reasoning is
+    // sent back within a tool loop (DeepSeek's thinking mode needs it).
+    "thinking_toggle",
+    "reasoning_passback",
+];
+
+/// The fields an OpenAI-compatible endpoint is told to switch thinking by.
+pub(crate) const THINKING_TOGGLES: &[&str] = &["deepseek", "enable_thinking", "chat_template_kwargs"];
 
 pub(crate) fn valid_provider_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
@@ -52,12 +69,33 @@ pub(crate) fn engine_config(config: &Value) -> Rpc<Value> {
         let blank = value.is_null() || value.as_str().is_some_and(|s| s.trim().is_empty());
         let value = match (blank, key.as_str()) {
             (true, "models") => json!([]),
+            // A flag the engine reads as `false` when it is not there.
+            (true, "reasoning_passback") => json!(false),
             (true, _) => Value::Null,
+            (false, "reasoning_passback") if !value.is_boolean() => {
+                return Err(RpcError::invalid_params("config.reasoning_passback: true or false"));
+            }
+            (false, "thinking_toggle") if !value.as_str().is_some_and(|s| THINKING_TOGGLES.contains(&s)) => {
+                return Err(RpcError::invalid_params(format!("config.thinking_toggle: one of {}", THINKING_TOGGLES.join(", "))));
+            }
             (false, _) => value.clone(),
         };
         out.insert(key.clone(), value);
     }
     Ok(Value::Object(out))
+}
+
+/// `engine.config.getProvider`'s answer with every provider's `api_key` as the page may see it:
+/// `***` and the last four characters at most.
+pub(crate) fn redacted(mut answer: Value) -> Value {
+    if let Some(providers) = answer.get_mut("providers").and_then(Value::as_object_mut) {
+        for provider in providers.values_mut() {
+            if let Some(key) = provider.get_mut("api_key") {
+                *key = crate::fields::redact(key);
+            }
+        }
+    }
+    answer
 }
 
 /// The `default_provider` to send with this change, if any: the one asked for, which must be
@@ -149,7 +187,7 @@ pub(crate) async fn set_provider(engine: &dyn Engine, scene: Option<&str>, param
     request["dry_run"] = json!(false);
     let written = engine.call("engine.config.setProvider", request).await?;
 
-    let providers = engine.call("engine.config.getProvider", json!({})).await.unwrap_or(json!({}));
+    let providers = redacted(engine.call("engine.config.getProvider", json!({})).await.unwrap_or(json!({})));
     // And to every instance whose template inherits `main`'s providers.
     let inherited = match engine.call("harnix.instances.inheritProviders", json!({})).await {
         Ok(answer) => answer.get("reloaded").cloned().unwrap_or(json!([])),
@@ -273,6 +311,36 @@ mod tests {
         assert_eq!(config, json!({"api_type": "anthropic", "base_url": null, "api_key_env": null, "models": [], "default_model": "m"}));
         // A key left out is not in the patch, which is how an edit keeps the stored key.
         assert!(config.get("api_key").is_none());
+    }
+
+    #[test]
+    fn thinking_is_switched_by_a_field_the_engine_knows() {
+        let config = engine_config(&json!({"thinking_toggle": "deepseek", "reasoning_passback": true})).unwrap();
+        assert_eq!(config, json!({"thinking_toggle": "deepseek", "reasoning_passback": true}));
+        // Blank gives them up: no toggle sent, the reasoning not passed back.
+        let config = engine_config(&json!({"thinking_toggle": "", "reasoning_passback": null})).unwrap();
+        assert_eq!(config, json!({"thinking_toggle": null, "reasoning_passback": false}));
+        assert!(engine_config(&json!({"thinking_toggle": "always"})).unwrap_err().message.contains("deepseek"));
+        assert!(engine_config(&json!({"reasoning_passback": "yes"})).is_err());
+    }
+
+    #[test]
+    fn a_key_goes_to_the_page_as_its_last_four_at_most() {
+        let answer = redacted(json!({"providers": {
+            "whole": {"api_key": "sk-0123456789abcd", "api_key_env": "DEEPSEEK_API_KEY"},
+            "engine": {"api_key": "***wxyz"},
+            "short": {"api_key": "abc"},
+            "env": {"api_key": null, "api_key_env": "OPENAI_API_KEY"},
+        }, "default_provider": "whole"}));
+        let providers = &answer["providers"];
+        assert_eq!(providers["whole"]["api_key"], json!("***abcd"));
+        assert_eq!(providers["engine"]["api_key"], json!("***wxyz"));
+        assert_eq!(providers["short"]["api_key"], json!("***"));
+        assert_eq!(providers["env"]["api_key"], Value::Null);
+        // The name of the variable is not a secret: the page says where the key comes from.
+        assert_eq!(providers["env"]["api_key_env"], json!("OPENAI_API_KEY"));
+        assert_eq!(answer["default_provider"], json!("whole"));
+        assert!(!answer.to_string().contains("0123456789"));
     }
 
     #[test]

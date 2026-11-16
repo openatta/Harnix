@@ -30,6 +30,9 @@ pub(crate) enum Type {
     /// Rows of the columns; a column marked required must be in every row, no other key may be.
     #[allow(dead_code)] // as `List`
     Rules(&'static [Column]),
+    /// Where a task's model calls go: a provider's id (its default model), or
+    /// `{"provider": id, "model": name}` — the two forms a `task_models` entry takes.
+    Route,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -60,6 +63,15 @@ pub(crate) struct Risk {
     pub message: &'static str,
 }
 
+/// Values the page offers for a field that only the configured providers know: `describe` fills
+/// them in for the (project, scene) it reads. An offer, not a limit: a name not offered is accepted.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Offer {
+    None,
+    /// Every model a provider names, its default and its allowed ones.
+    Models,
+}
+
 pub(crate) const TIERS: &[&str] = &["global", "scene", "project"];
 
 #[derive(Debug, Clone, Copy)]
@@ -76,12 +88,13 @@ pub(crate) struct Field {
     pub label: Option<&'static str>,
     pub hint: Option<&'static str>,
     pub risk: Option<Risk>,
+    pub offer: Offer,
 }
 
 impl Field {
     /// A field every tier may write, with no default the page is told, its label by its key.
     pub(crate) const fn new(key: &'static str, ty: Type, section: &'static str) -> Self {
-        Field { key, ty, default: Default::None, tiers: TIERS, section, label: None, hint: None, risk: None }
+        Field { key, ty, default: Default::None, tiers: TIERS, section, label: None, hint: None, risk: None, offer: Offer::None }
     }
     pub(crate) const fn default(self, default: Default) -> Self {
         Field { default, ..self }
@@ -90,12 +103,14 @@ impl Field {
     pub(crate) const fn tiers(self, tiers: &'static [&'static str]) -> Self {
         Field { tiers, ..self }
     }
-    #[allow(dead_code)]
     pub(crate) const fn hint(self, hint: &'static str) -> Self {
         Field { hint: Some(hint), ..self }
     }
     pub(crate) const fn risk(self, values: &'static [&'static str], message: &'static str) -> Self {
         Field { risk: Some(Risk { values, message }), ..self }
+    }
+    pub(crate) const fn offer(self, offer: Offer) -> Self {
+        Field { offer, ..self }
     }
 }
 
@@ -107,8 +122,27 @@ pub(crate) const FIELDS: &[Field] = &[
         .risk(&["bypassPermissions"], "settings.risk.bypassPermissions"),
     Field::new("memory_enabled", Type::Toggle, "engine").default(Default::Bool(true)),
     Field::new("allow_client_permission_override", Type::Toggle, "engine").default(Default::Bool(false)),
-    Field::new("model.model_name", Type::Text, "models"),
+    Field::new("model.model_name", Type::Text, "models").offer(Offer::Models),
     Field::new("model.max_tokens", Type::Number { min: 1, max: 1_000_000 }, "models"),
+    // models: the engine's own keys (agix/docs/schemas/settings.schema.json). Its defaults depend
+    // on how it was started, so none is said here; unset, `effort` is the endpoint's to choose.
+    // Effort and thinking apply to every session: the engine takes neither per session.
+    Field::new("model.effort", Type::Select(&["low", "medium", "high", "xhigh", "max"]), "models")
+        .hint("settings.hint.model.effort"),
+    Field::new("model.thinking_mode", Type::Select(&["auto", "off", "on"]), "models")
+        .hint("settings.hint.model.thinking_mode"),
+    Field::new("model.max_output_tokens", Type::Number { min: 1, max: 1_000_000 }, "models")
+        .hint("settings.hint.model.max_output_tokens"),
+    Field::new("model.fallback_model", Type::Text, "models")
+        .offer(Offer::Models)
+        .hint("settings.hint.model.fallback_model"),
+    // `main` is the default provider and the model a session picks: not a row of its own.
+    Field::new("task_models.subagent", Type::Route, "task-models").hint("settings.hint.task_models"),
+    Field::new("task_models.compact", Type::Route, "task-models").hint("settings.hint.task_models"),
+    Field::new("task_models.memory", Type::Route, "task-models").hint("settings.hint.task_models"),
+    Field::new("task_models.title", Type::Route, "task-models").hint("settings.hint.task_models"),
+    Field::new("task_models.web_search", Type::Route, "task-models").hint("settings.hint.task_models"),
+    Field::new("task_models.web_fetch", Type::Route, "task-models").hint("settings.hint.task_models.web_fetch"),
 ];
 
 pub(crate) fn find(key: &str) -> Option<&'static Field> {
@@ -159,7 +193,66 @@ pub(crate) fn check(ty: Type, value: &Value) -> Result<(), String> {
             }
             Ok(())
         }
+        Type::Route => match value {
+            Value::String(_) if not_blank(value) => Ok(()),
+            Value::Object(route) => {
+                let provider_named = route.get("provider").is_some_and(not_blank);
+                let model_fits = route.get("model").is_none_or(|m| m.is_null() || not_blank(m));
+                let only_these = route.keys().all(|k| k == "provider" || k == "model");
+                if provider_named && model_fits && only_these {
+                    Ok(())
+                } else {
+                    Err("a provider, and optionally one of its models".into())
+                }
+            }
+            _ => Err("a provider, and optionally one of its models".into()),
+        },
     }
+}
+
+/// The provider a route sends to, when it names one.
+pub(crate) fn route_provider(value: &Value) -> Option<&str> {
+    match value {
+        Value::String(s) => Some(s.as_str()),
+        Value::Object(route) => route.get("provider").and_then(Value::as_str),
+        _ => None,
+    }
+}
+
+/// What the page offers for `field`, from the providers `engine.config.getProvider` answered: the
+/// models they name (`suggestions`) for a field that offers them, the providers and their models
+/// (`routes`) for a route. Empty for any other field.
+pub(crate) fn offers(field: &Field, providers: &Value) -> Map<String, Value> {
+    let configured = providers.get("providers").and_then(Value::as_object);
+    let models_of = |provider: &Value| -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        let named = provider.get("default_model").into_iter().chain(provider.get("models").and_then(Value::as_array).into_iter().flatten());
+        for model in named.filter_map(Value::as_str).filter(|m| !m.trim().is_empty()) {
+            if !out.iter().any(|m| m == model) {
+                out.push(model.to_string());
+            }
+        }
+        out
+    };
+    let mut out = Map::new();
+    if field.ty == Type::Route {
+        let routes: Vec<Value> = configured
+            .into_iter()
+            .flatten()
+            .map(|(id, provider)| json!({"provider": id, "default_model": provider.get("default_model").cloned().unwrap_or(Value::Null), "models": models_of(provider)}))
+            .collect();
+        out.insert("routes".into(), json!(routes));
+    }
+    if field.offer == Offer::Models {
+        let mut all: Vec<String> = Vec::new();
+        for model in configured.into_iter().flatten().flat_map(|(_, provider)| models_of(provider)) {
+            if !all.contains(&model) {
+                all.push(model);
+            }
+        }
+        out.insert("suggestions".into(), json!(all));
+    }
+    out
 }
 
 /// The name of a type as the page reads it.
@@ -172,6 +265,7 @@ fn type_name(ty: Type) -> &'static str {
         Type::Secret => "secret",
         Type::List => "list",
         Type::Rules(_) => "rules",
+        Type::Route => "route",
     }
 }
 
@@ -310,8 +404,63 @@ mod tests {
     #[test]
     fn the_five_fields_are_the_ones_there_were() {
         let keys: Vec<&str> = FIELDS.iter().map(|f| f.key).collect();
-        assert_eq!(keys, ["permission_mode", "memory_enabled", "allow_client_permission_override", "model.model_name", "model.max_tokens"]);
-        assert!(FIELDS.iter().all(|f| f.tiers == TIERS));
+        for key in ["permission_mode", "memory_enabled", "allow_client_permission_override", "model.model_name", "model.max_tokens"] {
+            assert!(keys.contains(&key), "{key} is gone");
+        }
+        assert!(keys.iter().enumerate().all(|(i, k)| !keys[..i].contains(k)), "a key is declared twice");
+    }
+
+    #[test]
+    fn a_route_is_a_provider_or_a_provider_and_its_model() {
+        assert!(check(Type::Route, &json!("deepseek")).is_ok());
+        assert!(check(Type::Route, &json!({"provider": "deepseek"})).is_ok());
+        assert!(check(Type::Route, &json!({"provider": "deepseek", "model": "deepseek-chat"})).is_ok());
+        assert!(check(Type::Route, &json!({"provider": "deepseek", "model": null})).is_ok());
+        assert!(check(Type::Route, &json!(" ")).is_err());
+        assert!(check(Type::Route, &json!({"model": "m"})).is_err());
+        assert!(check(Type::Route, &json!({"provider": "a", "model": ""})).is_err());
+        assert!(check(Type::Route, &json!({"provider": "a", "base_url": "http://x"})).is_err());
+        assert!(check(Type::Route, &json!(3)).is_err());
+        assert_eq!(route_provider(&json!({"provider": "a", "model": "m"})), Some("a"));
+        assert_eq!(route_provider(&json!("b")), Some("b"));
+    }
+
+    #[test]
+    fn the_model_fields_are_the_engines_keys() {
+        // Each one a key the engine reads (agix/docs/schemas/settings.schema.json), none of them
+        // with a default the page could know.
+        for key in ["model.effort", "model.thinking_mode", "model.max_output_tokens", "model.fallback_model"] {
+            let field = find(key).unwrap_or_else(|| panic!("{key} is not declared"));
+            assert_eq!((field.section, field.default), ("models", Default::None), "{key}");
+        }
+        assert_eq!(find("model.effort").unwrap().ty, Type::Select(&["low", "medium", "high", "xhigh", "max"]));
+        for task in ["subagent", "compact", "memory", "title", "web_search", "web_fetch"] {
+            let field = find(&format!("task_models.{task}")).unwrap_or_else(|| panic!("{task} is not routed"));
+            assert_eq!((field.ty, field.section), (Type::Route, "task-models"));
+        }
+        assert!(find("task_models.main").is_none(), "main is the default provider's");
+        assert!(check(Type::Select(&["auto", "off", "on"]), &json!("on")).is_ok());
+    }
+
+    #[test]
+    fn the_configured_models_are_offered() {
+        let providers = json!({"providers": {
+            "a": {"default_model": "a-1", "models": ["a-1", "a-2"]},
+            "b": {"default_model": null, "models": ["a-2", "b-1"]},
+        }});
+        let fallback = offers(find("model.fallback_model").unwrap(), &providers);
+        assert_eq!(fallback["suggestions"], json!(["a-1", "a-2", "b-1"]));
+        assert!(fallback.get("routes").is_none());
+        let title = offers(find("task_models.title").unwrap(), &providers);
+        assert_eq!(title["routes"], json!([
+            {"provider": "a", "default_model": "a-1", "models": ["a-1", "a-2"]},
+            {"provider": "b", "default_model": null, "models": ["a-2", "b-1"]},
+        ]));
+        // Nothing configured: nothing offered, and the field still takes a name typed in.
+        assert_eq!(offers(find("model.fallback_model").unwrap(), &json!({}))["suggestions"], json!([]));
+        assert!(offers(find("memory_enabled").unwrap(), &providers).is_empty());
+        let route = declaration(find("task_models.web_fetch").unwrap());
+        assert_eq!((&route["type"], &route["hint"]), (&json!("route"), &json!("settings.hint.task_models.web_fetch")));
     }
 
     #[test]
