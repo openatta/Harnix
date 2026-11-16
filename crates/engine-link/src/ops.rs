@@ -68,6 +68,10 @@ pub trait EngineOps: Send + Sync {
     /// The first `limit` messages of the session's transcript, as text.
     async fn transcript(&self, session: &str, limit: usize) -> Answer<Vec<Said>>;
 
+    /// Up to `limit` messages of the session's transcript from `offset` on, each with where it is,
+    /// who put it there and which turn wrote it.
+    async fn history(&self, session: &str, offset: u64, limit: usize) -> Answer<HistoryPage>;
+
     /// The session's tasks; none for a session not in memory.
     async fn tasks(&self, session: &str) -> Answer<Tasks>;
 
@@ -279,6 +283,67 @@ pub struct Said {
 impl Said {
     pub fn new(role: impl Into<String>, text: impl Into<String>) -> Self {
         Self { role: role.into(), text: text.into() }
+    }
+}
+
+/// A page of a session's transcript: how many messages it holds in all, and the page's own.
+#[non_exhaustive]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct HistoryPage {
+    pub total: u64,
+    pub messages: Vec<Message>,
+}
+
+impl HistoryPage {
+    pub fn new(total: u64, messages: Vec<Message>) -> Self {
+        Self { total, messages }
+    }
+}
+
+/// One message of a transcript, as text, with the points read off it to find its turn.
+#[non_exhaustive]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Message {
+    /// Where it is in the transcript: a history `offset`.
+    pub seq: u64,
+    pub role: String,
+    /// Who put it there: `user` (a person typed it), `steer` (sent into a running turn),
+    /// `command` (a person's command, expanded), and the engine's own kinds; `None` in a log
+    /// written before messages said.
+    pub origin: Option<String>,
+    /// The turn that wrote it; `None` in a log written before turns had ids.
+    pub turn_id: Option<String>,
+    /// The id of the log row it was written as: what tells it from another at the same `seq`.
+    pub id: Option<String>,
+    /// When it was written, as the engine wrote it.
+    pub ts: Option<String>,
+    /// Its text parts, joined.
+    pub text: String,
+}
+
+impl Message {
+    pub fn new(seq: u64, role: impl Into<String>, text: impl Into<String>) -> Self {
+        Self { seq, role: role.into(), text: text.into(), ..Self::default() }
+    }
+
+    pub fn origin(mut self, origin: impl Into<String>) -> Self {
+        self.origin = Some(origin.into());
+        self
+    }
+
+    pub fn turn(mut self, turn_id: impl Into<String>) -> Self {
+        self.turn_id = Some(turn_id.into());
+        self
+    }
+
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    pub fn at(mut self, ts: impl Into<String>) -> Self {
+        self.ts = Some(ts.into());
+        self
     }
 }
 

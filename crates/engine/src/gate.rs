@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use harnix_contract::RpcError;
-use harnix_engine_link::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
+use harnix_engine_link::ops::{Answer, EngineOps, Entry, HistoryPage, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
 use serde_json::Value;
 
 use crate::translate::AgixOps;
@@ -77,6 +77,10 @@ impl EngineOps for GatedOps {
     async fn transcript(&self, session: &str, limit: usize) -> Answer<Vec<Said>> {
         self.awake().await?;
         self.agix.transcript(session, limit).await
+    }
+    async fn history(&self, session: &str, offset: u64, limit: usize) -> Answer<HistoryPage> {
+        self.awake().await?;
+        self.agix.history(session, offset, limit).await
     }
     async fn tasks(&self, session: &str) -> Answer<Tasks> {
         self.awake().await?;

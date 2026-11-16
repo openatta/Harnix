@@ -157,7 +157,7 @@ fn contract(cfg: &Config) -> Generated {
         InstanceCarrier, LinkStatus, InstanceRow, InstancesList,
         // Sessions: the hub's lists, topics and answers.
         Waiting, StartedBy, SessionActivity, HubSessionRow, SessionsList, SessionStatusRow, SessionsStatus, SpaceRow,
-        SpacesList, QueueItem, ReplayFrame, AttachResult,
+        SpacesList, QueueItem, ReplayFrame, AttachResult, SessionOutline, OutlineTurn, OutlineMark,
         // The hub's frames.
         EventFrame, ToolCallOutcome, TurnOutcome, TurnSettled, QueueFrame, SessionResync, TopicFrame, TopicEnded,
     ]);
