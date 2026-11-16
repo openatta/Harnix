@@ -1331,7 +1331,7 @@ export function register(r: Registry, host: HostApi): Dispose | void
 | `sidebar.group` | 左栏的分组 |
 | `command` | `/` 与 `@` 的候选 |
 | `settings.section` | 设置里的一节；`covers: ["models"]`：外壳要人去配模型时打开它 |
-| `session.action` | 对一个会话、或它里面一次工具调用的动作：外壳在标题栏、会话菜单、工具行上问它 |
+| `session.action` | 对一个会话、或它里面一次工具调用的动作：外壳在标题栏、会话菜单、工具行上问它；`at: ["arg"]` 的是工具行上的参数——第一个认领这次调用的把参数变成链接（文件工具的路径打开预览）。工具的 `target` 带调用的 `input` |
 | `sidebar.tab` | 右栏的一种页签类型：按 `patterns` 认领 `harnix-resource://` 地址，或按 `kind` 打开的页；§22.7 |
 
 扩展定义的点（0.4.4 的第一方）：`system.console.tab`、`system.inspector.tab`，不算进「10 个」。
@@ -1489,6 +1489,7 @@ r.register("sidebar.tab", {
 | 字段 | 说明 |
 |---|---|
 | `tab.id`、`tab.kind`、`tab.address` | 这一页是谁；页类的 `address` 是 null |
+| `tab.session` | 它在哪个会话的停靠面里（`{instance, sessionId}`）：讲「这个会话」的页读它；`scope: "space"` 的类型是 null |
 | `tab.visible` | 正文在前面（没被别的页签挡着、不是后台会话的、右栏开着） |
 | `tab.navigation.params`、`tab.navigation.revision` | 最后一次导航交来的参数，和导航的次数（第一次打开是 1）：带行号跳转的预览页看它变 |
 | `tab.signal` | 页签关掉、会话被删时 abort |
@@ -1501,7 +1502,7 @@ r.register("sidebar.tab", {
 **存储**：浏览器本地 `harnix.sidebar.v1.<instance>/<session>`，读出时校验（版本、格里的页签都在、选中项在格里、计数器不回头），不合法就只清这一份；
 存不进去就只留在内存。`params`、`revision`、`signal`、关闭处理器不存。会话被删，它那一份随之删掉。
 
-本版的页签由各自的 UI 包注册：`@harnix/observability` 的上下文、用量，`@harnix/harnix-app` 的文件、预览、改动，`@harnix/flow` 的流程，输出流（`multiple: true`）。
+本版的页签由各自的 UI 包注册：`@harnix/observability` 的上下文、用量，`@harnix/harnix-app` 的文件、预览、改动（[Harnix app](harnix-app.md) §6），`@harnix/flow` 的流程，输出流（`multiple: true`）。
 外壳只有引导页。
 
 ---
