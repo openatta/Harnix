@@ -110,6 +110,11 @@
   transform: translateY(-50%);
 }
 
+/* A project's row may carry a button before its `⋯` (a "+"): it sits to the left, not under it. */
+#side .prj-row > .more:not(:last-child) {
+  right: 32px;
+}
+
 #side .srow-wrap > .more .glyph,
 #side .prj-row > .more .glyph {
   width: 15px;
@@ -132,6 +137,10 @@
 #side .srow-wrap:is(:hover, :focus-within, .on) > .srow,
 #side .prj-row:is(:hover, :focus-within) > .prj {
   padding-right: 34px;
+}
+
+#side .prj-row:has(> .more:not(:last-child)):is(:hover, :focus-within) > .prj {
+  padding-right: 60px;
 }
 
 #side .srow-wrap:is(:hover, :focus-within) > .srow .meta {

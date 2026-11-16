@@ -49,7 +49,8 @@ test("no Flows space among the spaces: the system console has a Flows tab, after
   await expect(tabs.first()).toHaveAttribute("data-tab", "active");
   await expect(tabs.first()).toHaveAttribute("aria-selected", "true");
   const order = await tabs.evaluateAll((els) => els.map((el) => el.getAttribute("data-tab")));
-  expect(order.filter((id) => id !== "packages")).toEqual(["active", "all", "flow.flows"]);
+  // The other tabs come from their own packages (schedules, the usage summary, the extension log), each after the Flows tab.
+  expect(order.filter((id) => id !== "packages")).toEqual(["active", "all", "flow.flows", "schedule", "observability.summary", "system.extlog"]);
   if (order.includes("packages")) expect(order.indexOf("flow.flows")).toBeLessThan(order.indexOf("packages"));
 
   // The strip stays at the top; the flows and the runs under the tabs.

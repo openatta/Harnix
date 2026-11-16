@@ -151,7 +151,11 @@ test("a task schedule from a project's overview starts a task: a row of the proj
   await expect(page.locator("#main")).toHaveAttribute("data-space", "projects");
   await expect(page.getByTestId("flow-task-tab")).toHaveAttribute("data-run", run, { timeout: 15_000 });
   // The delivery opens the same task: its main session, in the projects space.
-  const main = ((record.session_keys ?? {})["@main"] as string).split("/")[1];
+  // The record read on delivery may predate the main session; it is read again until it names one.
+  let main: string | undefined;
+  await expect
+    .poll(async () => (main = ((await call(page, "flow.get", { run })).record.session_keys ?? {})["@main"]?.split("/")[1]), { timeout: 15_000 })
+    .toBeTruthy();
   await page.evaluate(() => (window as any).harnix.app.open(null));
   await scheduled.getByTestId("schedule-history-toggle").click();
   await scheduled.getByTestId("schedule-receipt-open").first().click();

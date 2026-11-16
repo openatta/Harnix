@@ -130,6 +130,9 @@ test("a permission a turn waits on is in 待我处理 — the overview, the left
   await expect(ask).toHaveAttribute("data-state", "answered");
   // Nothing waits any more.
   await expect(page.getByTestId("inbox-open")).toHaveCount(0, { timeout: 15_000 });
+  // The row opened it in the session space (the first that lists it); the overview is the projects space's.
+  await spaceEntry(page, "projects").click();
+  await expect(page.locator("#main")).toHaveAttribute("data-space", "projects");
   await toEmptyPage(page);
   await expect(overview(page).getByTestId("inbox-empty")).toBeVisible();
   expect(errors).toEqual([]);
