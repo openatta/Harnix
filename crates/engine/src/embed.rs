@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
-use agix::embed::{EmbedConfig, Embedded};
+use agix::embed::{EmbedConfig, EmbedError, Embedded};
 use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
 use harnix_engine_link::link::{EngineControl, EngineIdentity, InstanceCarrier, LinkStatus};
@@ -55,6 +55,12 @@ pub struct EngineConfig {
     pub cwd: Option<PathBuf>,
     /// Where [`Engine::serve_unix`] listens: a spawned daemon's socket. `None` in process.
     pub socket: Option<PathBuf>,
+    /// Where the engine records the process groups its sessions' commands run in, so that the
+    /// next start on the same file stops what a killed run left behind ([`Self::reaping`]). The
+    /// record is the process's, one file for every engine in it: the first engine to start keeps
+    /// it, and one started beside it runs without (its commands are recorded there all the same).
+    /// `None` records nothing: what a killed run left keeps running.
+    pub groups_file: Option<PathBuf>,
 }
 
 impl EngineConfig {
@@ -71,7 +77,15 @@ impl EngineConfig {
             data_root: data_root.to_path_buf(),
             cwd: None,
             socket: None,
+            groups_file: None,
         }
+    }
+
+    /// Recording its commands' process groups in its data root, so that a start after a run that
+    /// was killed stops what that run left behind: an instance that reaps on stop.
+    pub fn reaping(mut self) -> Self {
+        self.groups_file = Some(groups_file(&self.data_root));
+        self
     }
 
     /// Agix's settings for it.
@@ -93,8 +107,14 @@ impl EngineConfig {
         // The data root is guarded by Harnix's own lock on it (the instance's), not the engine's.
         config.instance = None;
         config.socket = self.socket.clone();
+        config.groups_file = self.groups_file.clone();
         config
     }
+}
+
+/// Where an engine on `data_root` records its process groups: beside Agix's own records.
+fn groups_file(data_root: &Path) -> PathBuf {
+    data_root.join("daemon").join("groups").join("harnix.json")
 }
 
 /// An engine running in this process, and what was read of it as it started.
@@ -118,7 +138,18 @@ impl Engine {
     pub async fn start(config: EngineConfig) -> anyhow::Result<Engine> {
         let embed = config.embed();
         let base = embed.scene.clone();
-        let embedded = Embedded::start(embed).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+        let embedded = match Embedded::start(embed.clone()).await {
+            Ok(embedded) => embedded,
+            // Another engine in this process keeps the process's record, which takes this one's
+            // commands too.
+            Err(EmbedError::GroupsInProcess { running }) => {
+                tracing::debug!(record = %running.display(), "process groups recorded by another engine in this process");
+                let mut embed = embed;
+                embed.groups_file = None;
+                Embedded::start(embed).await.map_err(|e| anyhow::anyhow!("{e}"))?
+            }
+            Err(e) => anyhow::bail!("{e}"),
+        };
 
         // What the engine does not report, read the way it reads it.
         let cwd = config.cwd.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
@@ -324,7 +355,11 @@ mod tests {
     }
 
     async fn started(dir: &Path) -> Arc<InProcessEngine> {
-        let engine = Engine::start(config(dir)).await.unwrap();
+        started_with(config(dir)).await
+    }
+
+    async fn started_with(config: EngineConfig) -> Arc<InProcessEngine> {
+        let engine = Engine::start(config).await.unwrap();
         InProcessEngine::start(engine, "main", HostSide::none()).await.unwrap()
     }
 
@@ -385,6 +420,21 @@ mod tests {
         here.shutdown().await;
         assert!(matches!(*here.status().borrow(), LinkStatus::Down { .. }));
         assert!(link.ops().passthrough("daemon.status", json!({})).await.is_err());
+    }
+
+    /// The process keeps one record of its commands' process groups: a second engine beside the
+    /// first starts all the same, and neither leaves a record behind once both are shut down.
+    #[tokio::test]
+    async fn two_engines_in_a_process_start_and_leave_no_record() {
+        let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        assert_eq!(config(a.path()).groups_file, None);
+        assert_eq!(config(a.path()).reaping().groups_file, Some(a.path().join("daemon/groups/harnix.json")));
+        let first = started_with(config(a.path()).reaping()).await;
+        let second = started_with(config(b.path()).reaping()).await;
+        second.shutdown().await;
+        first.shutdown().await;
+        assert!(!groups_file(a.path()).exists());
+        assert!(!groups_file(b.path()).exists());
     }
 
     #[test]

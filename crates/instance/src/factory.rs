@@ -230,6 +230,9 @@ impl Factory {
                 let lock = program.is_none().then(|| {
                     argv.push("--instance".into());
                     argv.push(id.to_string());
+                    if reap_on_stop {
+                        argv.push("--reap".into());
+                    }
                     crate::data_lock::lock_path(&data_root, id)
                 });
                 argv.extend(args.iter().cloned());

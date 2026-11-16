@@ -11,7 +11,7 @@
 | 授权与设备 | `authz` | 22 | 2 | — |
 | 会话与轮次 | `sessions` | 92 | 33 | — |
 | 无头会话 | `headless` | 4 | 1 | — |
-| 实例层 | `instances` | 27 | — 实例层没有自己的界面；界面上看实例是系统 space 的事（system） | — |
+| 实例层 | `instances` | 28 | — 实例层没有自己的界面；界面上看实例是系统 space 的事（system） | — |
 | 扩展契约 | `modules` | 20 | 1 | — |
 | space 与会话绑定 | `spaces` | 10 | 6 | — |
 | 会话 space | `session-space` | 18 | 17 | — |
@@ -31,7 +31,7 @@
 | 扩展包后端的闲置休眠（on-demand、冷启动、并发唤醒只起一个实例、订阅与定时器保持常驻、系统 space 的扩展包页签） | `packages-idle` | 6 | 1 | 7 |
 | 应用构建 | `build` | — 在脚本层检查（check-pins、check-lock、sync-app-deps），不经协议 | — 构建没有界面 | — |
 | 桌面壳 | `desktop` | — 桌面壳不加协议面：webview 加载的就是服务端的页面 | — 桌面壳是模板（templates/desktop）：它不调 IPC 由 check-no-ipc.mjs 在 offline 层查，本机模式由它的 --smoke 查 | — |
-| **合计** | | **406** | **206** | **96** |
+| **合计** | | **407** | **206** | **96** |
 
 ## 已知缺口（`@gap`）
 
@@ -40,5 +40,4 @@
 | 功能模块 | 层 | 用例 | 等什么修 |
 |---|---|---|---|
 | `authz` | api | api/audit.spec.ts › audit › deleting a session takes its audit entry with it | a durable sink for harnix.session.delete that is not the deleted transcript (crates/assembly/src/audit_log.rs) |
-| `instances` | api | api/instances-daemon.spec.ts › reap_on_stop: a daemon killed outright leaves its session's processes running when it is restarted (ipdrun-07) | Harnix: a spawned daemon keeps the engine's list of its commands' process groups (agix::process::orphans::persist_to) and stops a previous run's on start (reap_previous) |
 | `system` | ui | ui/system.spec.ts › system-ops: a model switched from the system space is not named in the pane until the session is rebuilt | Agix: `engine.session.inspectContext` names the model `engine.session.setModel` chose for the next turn |

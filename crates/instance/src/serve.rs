@@ -20,6 +20,9 @@ pub struct DaemonArgs {
     /// instance to let go before it builds anything (ipdrun-08).
     pub instance: Option<String>,
     pub lock_wait: std::time::Duration,
+    /// The instance reaps on stop: the engine records its commands' process groups in the data
+    /// root, and stops what a daemon that was killed left there before it builds anything.
+    pub reap: bool,
 }
 
 /// Serve the engine `args` describe. What a template contributes natively is not built here: the
@@ -41,7 +44,10 @@ pub async fn serve_daemon(args: DaemonArgs) -> anyhow::Result<()> {
         }
         None => None,
     };
-    let config = EngineConfig { socket: Some(args.socket.clone()), ..EngineConfig::from_profile(&args.engine, &args.data_root) };
+    let mut config = EngineConfig { socket: Some(args.socket.clone()), ..EngineConfig::from_profile(&args.engine, &args.data_root) };
+    if args.reap {
+        config = config.reaping();
+    }
     harnix_engine::serve_daemon(config, args.exit_with_stdin).await
 }
 

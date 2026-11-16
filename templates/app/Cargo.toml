@@ -44,7 +44,7 @@ harnix-kernel    = { path = "harnix/crates/kernel" }
 harnix-router    = { path = "harnix/crates/router" }
 harnix-transport = { path = "harnix/crates/transport" }
 harnix-wasm      = { path = "harnix/crates/wasm" }
-agix = { path = "harnix/agix/crates/agix" }
+agix = { path = "harnix/agix/crates/agix", default-features = false, features = ["mcp", "agents", "skills", "web", "structured-output", "ptc", "scripts", "plugin-packages", "sandbox"] }
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["full"] }
 tokio-stream = "0.1"
