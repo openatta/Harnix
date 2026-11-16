@@ -530,6 +530,10 @@ pub(crate) struct HostToolCall {
     pub input: Value,
     /// The delegate's own session, when a delegate made the call.
     pub agent_session: Option<String>,
+    /// The calling session's working directory: a delegate in a worktree works in that worktree.
+    pub cwd: Option<PathBuf>,
+    /// The calling session's depth: 0 for the root, one more for each delegate down.
+    pub depth: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -549,6 +553,9 @@ pub(crate) struct HostHookCall {
     pub event: HookEvent,
     pub input: Value,
     pub agent_session: Option<String>,
+    /// As in [`HostToolCall`]: the calling session's, the same as the input's own.
+    pub cwd: Option<PathBuf>,
+    pub depth: Option<u32>,
 }
 
 /// What a frame says of one session's activity, for a reader deciding whether to read again.
@@ -603,6 +610,8 @@ pub(crate) fn host_frame(frame: &Value) -> Option<HostFrame> {
     let call_id = text(event, "call_id")?;
     let session = text(params, "session_id").unwrap_or_default();
     let agent_session = text(event, "agent_session_id");
+    let cwd = text(event, "cwd").map(PathBuf::from);
+    let depth = event.get("depth").and_then(Value::as_u64).map(|d| d as u32);
     match event.get("kind").and_then(Value::as_str)? {
         HOST_TOOL_CALL => Some(HostFrame::ToolCall(HostToolCall {
             session,
@@ -611,6 +620,8 @@ pub(crate) fn host_frame(frame: &Value) -> Option<HostFrame> {
             name: text(event, "name")?,
             input: event.get("input").cloned().unwrap_or(Value::Null),
             agent_session,
+            cwd,
+            depth,
         })),
         HOST_TOOL_CALL_RESOLVED => Some(HostFrame::ToolCallResolved {
             call_id,
@@ -627,6 +638,8 @@ pub(crate) fn host_frame(frame: &Value) -> Option<HostFrame> {
             },
             input: event.get("input").cloned().unwrap_or(Value::Null),
             agent_session,
+            cwd,
+            depth,
         })),
         HOOK_CALL_RESOLVED => Some(HostFrame::HookCallResolved { call_id }),
         _ => None,
@@ -985,11 +998,13 @@ mod tests {
         let frame = |event: Value| json!({"jsonrpc": "2.0", "method": SESSION_EVENT, "params": {"session_id": "s", "turn_id": "t", "event": event}});
         let Some(HostFrame::ToolCall(call)) = host_frame(&frame(json!({
             "kind": "host_tool_call", "call_id": "c", "tool_use_id": "u", "name": "n", "input": {"a": 1}, "agent_session_id": "sub",
+            "cwd": "/w/.agix/worktrees/x", "depth": 2,
         }))) else {
             panic!()
         };
         assert_eq!((call.session.as_str(), call.call_id.as_str(), call.name.as_str()), ("s", "c", "n"));
         assert_eq!((call.input.clone(), call.agent_session.as_deref()), (json!({"a": 1}), Some("sub")));
+        assert_eq!((call.cwd.as_deref(), call.depth), (Some(std::path::Path::new("/w/.agix/worktrees/x")), Some(2)));
         assert!(matches!(
             host_frame(&frame(json!({"kind": "host_tool_call_resolved", "call_id": "c", "resolution": "withdrawn"}))),
             Some(HostFrame::ToolCallResolved { withdrawn: true, .. })
@@ -1002,6 +1017,14 @@ mod tests {
             panic!()
         };
         assert_eq!((hook.event, hook.turn_id.as_deref()), (HookEvent::UserPromptSubmit, Some("t")));
+        // An older engine's frame says neither.
+        assert_eq!((hook.cwd, hook.depth), (None, None));
+        let Some(HostFrame::HookCall(hook)) =
+            host_frame(&frame(json!({"kind": "hook_call", "call_id": "h", "hook_event": "PreToolUse", "input": {}, "cwd": "/w", "depth": 1})))
+        else {
+            panic!()
+        };
+        assert_eq!((hook.cwd, hook.depth), (Some(PathBuf::from("/w")), Some(1)));
         assert!(matches!(host_frame(&frame(json!({"kind": "hook_call_resolved", "call_id": "h"}))), Some(HostFrame::HookCallResolved { .. })));
         assert!(host_frame(&frame(json!({"kind": "text_delta", "text": "x"}))).is_none());
         assert!(host_frame(&json!({"jsonrpc": "2.0", "method": DAEMON_EVENT, "params": {"event": {"kind": "hook_call", "call_id": "h"}}})).is_none());

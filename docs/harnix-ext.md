@@ -331,7 +331,9 @@ fn register(&self, r: &mut Registrar<'_, ()>) {
 
 - **工具集是实例级的**：`ToolProvider::tools()` 与 `hooks()` 不带会话；实例的引擎连上时问一次，之后每次 `changes()` 响了再问一次。
   之后新建的会话有新的工具集，已有的会话保持原样。工具名要符合引擎的字母表（字母、数字、`_`、`-`），一个会话自己的工具至多 64 个。
-- **`ToolHook` 在权限检查之前就看到调用**；`ToolCallFacts` 带发起调用的会话（`session_id()`，子 Agent 的调用是它自己的 id）、`depth()`（人开的会话为 0）与 `cwd()`。
+- **`ToolHook` 在权限检查之前就看到调用**；`ToolCallFacts` 带发起调用的会话（`session_id()`，子 Agent 的调用是它自己的 id）、`depth()`（人开的会话为 0，子 Agent 逐层加 1）与 `cwd()`。
+- **工具在哪干活**：`ToolCx::project()` 是会话的项目；`cwd()` 是发起调用的会话的工作目录——模型在 git worktree 里起的子 Agent 是那个 worktree
+  （`<项目>/.agix/worktrees/<名>`），读写文件要照它，否则同 `project()`。`depth()` 与钩子的同义。
   `HookDecision::AddContext` 的文字在这次调用放行之后、模型的下一步之前，作为 system-reminder 交给模型。
 - **宿主工具的权限**由链路按 `Tool::permission` 代答：`Allow` 与 `Deny` 直接生效，`Ask` 时把工具自己的问句（`Permission::Ask(text)`）附在转给界面的询问上，界面显示它。
 - **场景层由中枢在建会话时展开**：会话建在层的基场景上，再按层补上 `prompt.append`、这个会话自己的宿主工具、`attended`、`auto_name` 与 `permission_rules`。
@@ -894,7 +896,7 @@ pub trait Extension: Send + Sync + 'static {
 | `TemplateCarrier` | `InProcess { engine }`（只有扩展的模板能带原生贡献）、`Spawn { engine, program: Option<PathBuf>, args }`（`None` = 本二进制的 `daemon` 子命令）、`Attach(AttachTo { socket \| tcp + token })` |
 | `EngineContribution`（`r.engine()`） | `.scene(SceneLayer)`、`.provider(Arc<dyn ToolProvider>)`、`.prompt_gate(Arc<dyn PromptGate>)` |
 | `engine::EngineProfile` | `scene = "harnix"`、`scenes = []`、`model = "claude-sonnet-4-6"`、`max_tokens = 2000`、`session_cap = 32`、`session_idle_timeout_secs = 3600`、`permission_prompt_timeout_secs = 300`（括号里是默认值）；builder：`EngineProfile::new().scene(..).scenes(..).model(..)` |
-| `engine::Tool` 等 | `Tool`、`ToolSpec::new(name, description, schema)`（`.doc`、`.source`、`.read_only`、`.concurrency_safe`、`.destructive`）、`ToolCx`（`session_id()`、`project()`、`chain()`、`cancel()`、`progress()`）、`ToolOutput`、`ToolError`、`Permission::{Allow, Ask, Deny}`、`ToolProvider`、`ToolHook`、`ToolCallFacts`、`HookDecision`、`SceneLayer`、`SceneBase::{builtin, builtin_with, named}`、`PromptText::{cached, plain}`、`PromptGate`、`PromptFacts`、`PromptDecision`、`Delivery`、读者 `engine::readers::{Recordings, Transcripts}` |
+| `engine::Tool` 等 | `Tool`、`ToolSpec::new(name, description, schema)`（`.doc`、`.source`、`.read_only`、`.concurrency_safe`、`.destructive`）、`ToolCx`（`session_id()`、`project()`、`cwd()`、`depth()`、`chain()`、`cancel()`、`progress()`）、`ToolOutput`、`ToolError`、`Permission::{Allow, Ask, Deny}`、`ToolProvider`、`ToolHook`、`ToolCallFacts`、`HookDecision`、`SceneLayer`、`SceneBase::{builtin, builtin_with, named}`、`PromptText::{cached, plain}`、`PromptGate`、`PromptFacts`、`PromptDecision`、`Delivery`、读者 `engine::readers::{Recordings, Transcripts}` |
 
 ### 17.4 `Access`、能力、`Trust`、`Subject`
 
