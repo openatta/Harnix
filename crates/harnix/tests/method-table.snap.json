@@ -2032,6 +2032,21 @@
         "scope": "session"
       },
       "kind": "method",
+      "name": "harnix.session.outline",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
       "name": "harnix.session.queue.edit",
       "owner": "kernel:hub"
     },

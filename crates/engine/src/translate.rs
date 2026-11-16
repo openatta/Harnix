@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use harnix_contract::RpcError;
 use harnix_engine_link::events::{Completion, DaemonEventKind, EngineEvent, FileWrite, Fragment, Joins, Prompt, SessionEventKind, Waiting};
-use harnix_engine_link::ops::{codes, Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
+use harnix_engine_link::ops::{codes, Answer, EngineOps, Entry, HistoryPage, Message, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
 use harnix_engine_api::{Delivery, ToolError, ToolOutput, ToolSpec};
 use serde_json::{json, Value};
 
@@ -198,6 +198,30 @@ impl EngineOps for AgixOps {
             .map(|m| Said::new(m.get("role").and_then(Value::as_str).unwrap_or("?"), message_text(m)))
             .collect();
         Ok(said)
+    }
+
+    async fn history(&self, session: &str, offset: u64, limit: usize) -> Answer<HistoryPage> {
+        let page = self
+            .call(SESSION_HISTORY, json!({"session_id": session, "offset": offset, "limit": limit}))
+            .await?;
+        let text = |m: &Value, k: &str| m.get(k).and_then(Value::as_str).map(str::to_string);
+        let messages = page
+            .get("messages")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .enumerate()
+            .map(|(i, m)| {
+                let seq = m.get("seq").and_then(Value::as_u64).unwrap_or(offset + i as u64);
+                let mut message = Message::new(seq, text(m, "role").unwrap_or_default(), message_text(m));
+                message.origin = text(m, "origin");
+                message.turn_id = text(m, "turn_id");
+                message.id = text(m, "id");
+                message.ts = text(m, "ts");
+                message
+            })
+            .collect();
+        Ok(HistoryPage::new(page.get("total").and_then(Value::as_u64).unwrap_or(0), messages))
     }
 
     async fn tasks(&self, session: &str) -> Answer<Tasks> {

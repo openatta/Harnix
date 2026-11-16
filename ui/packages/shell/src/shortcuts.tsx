@@ -21,6 +21,7 @@ import {
   modalUp,
   parseKeys,
   pickShortcut,
+  registerTurnShortcuts,
   scopesOverlap,
   shortcutConflicts,
   shortcutPlatform,
@@ -214,8 +215,8 @@ export class Shortcuts {
 
 /* ── the shell's own commands ─────────────────────────────────────────── */
 
-/** The shell's commands: a new conversation, the left column, the composer; the right column and
- *  the settings have no key until the person gives them one. */
+/** The shell's commands: a new conversation, the left column, the composer, the previous and next turn;
+ *  the right column and the settings have no key until the person gives them one. */
 export function registerShellShortcuts(app: App): void {
   const r = app.registry;
   r.register(
@@ -247,6 +248,8 @@ export function registerShellShortcuts(app: App): void {
   );
   r.register("shortcut", { id: "shell.details.toggle", title: () => t("shortcuts.cmd.toggleDetails"), run: () => app.toggleDetails() }, OWNER);
   r.register("shortcut", { id: "shell.settings.open", title: () => t("shortcuts.cmd.openSettings"), run: () => openSettings(app) }, OWNER);
+  // ⌥↑ / ⌥↓: the turn before or after the one being read, in the conversation's turn rail.
+  registerTurnShortcuts(r, OWNER);
 }
 
 /* ── dispatch ─────────────────────────────────────────────────────────── */

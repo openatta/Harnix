@@ -41,6 +41,7 @@ mod engine_rows;
 mod feedback;
 mod lifecycle;
 mod links;
+mod outline;
 mod prompt;
 mod replay;
 mod rows;
@@ -54,6 +55,7 @@ mod views;
 
 pub use clients::ClientId;
 pub use engine_rows::{ENGINE_REFUSALS, HUB_OWNED};
+pub use outline::{preview, PROMPT_CHARS, REPLY_CHARS};
 pub use links::{EXTENSION_BUFFER_FRAMES, FRAMES_BURST, FRAMES_PER_SECOND, FRAME_MAX_BYTES};
 pub use rows::{HubCell, HubRow, HUB_TOPICS};
 pub use replay::{MAX_BYTES as REPLAY_MAX_BYTES, MAX_FRAMES as REPLAY_MAX_FRAMES};
@@ -161,6 +163,9 @@ pub struct Hub {
     /// answers push it out: what the tool's own audit names as the person who
     /// confirmed.
     answerers: StdMutex<VecDeque<((String, String), String)>>,
+    /// The outlines of the sessions most recently asked about, to read each on from
+    /// (`outline.rs`).
+    outlines: StdMutex<VecDeque<(SessionKey, outline::Folded)>>,
     /// What each connected client said about itself (device, topology, user agent, since): who
     /// is connected, for the process's own view. A tap or another in-process client has none and
     /// is not listed.
@@ -213,6 +218,7 @@ impl Hub {
                 next_barrier: AtomicU64::new(1),
                 refreshing: StdMutex::new(views::Refreshes::default()),
                 answerers: StdMutex::new(VecDeque::new()),
+                outlines: StdMutex::new(VecDeque::new()),
                 described: StdMutex::new(BTreeMap::new()),
                 spaces: StdMutex::new(config.spaces),
                 skills: StdRwLock::new(BTreeMap::new()),

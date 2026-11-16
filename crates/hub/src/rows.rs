@@ -190,6 +190,7 @@ impl Hub {
                 h.tasks_view(&key).await
             }),
             own_session(hub, "harnix.session.rename", |h, _, p| async move { h.rename(p).await }),
+            own_session(hub, "harnix.session.outline", |h, _, p| async move { h.outline(p).await }),
             own_ext(hub, "harnix.session.entries.append", RowScope::Session, true, |h, cx, p| async move {
                 h.append_entry(&cx.subject, p).await
             }),

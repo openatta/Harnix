@@ -1145,6 +1145,10 @@ const en: Record<string, string> = {
   "chat.interruptStep": "Interrupt the current step (Esc)",
   "chat.openFailed": "Could not open the session: {error}",
   "chat.olderHidden": "{count} earlier messages are not shown",
+  "chat.turnRail.label": "Turns",
+  "chat.turnRail.tick": "Turn {n}: {prompt}",
+  "chat.turnRail.turn": "Turn {n}",
+  "chat.turnRail.noText": "(no text)",
   "chat.interruptFailed": "Interrupt failed: {error}",
   "chat.sendFailed": "Send failed: {error}",
   "chat.queued": "Queued {index}",
@@ -1253,5 +1257,7 @@ const en: Record<string, string> = {
   "shortcuts.cmd.focusComposer": "Focus the composer",
   "shortcuts.cmd.toggleDetails": "Open or close the right column",
   "shortcuts.cmd.openSettings": "Open the settings",
+  "shortcuts.cmd.turnPrevious": "Go to the previous turn",
+  "shortcuts.cmd.turnNext": "Go to the next turn",
 };
 export default en;

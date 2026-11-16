@@ -5,8 +5,8 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { ConnectionStatus, Hello, HarnixClient } from "@harnix/core";
-import { SessionController, MAIN_INSTANCE } from "@harnix/core/state";
-import type { SessionState } from "@harnix/core/state";
+import { OutlineController, SessionController, MAIN_INSTANCE } from "@harnix/core/state";
+import type { OutlineSnapshot, SessionState } from "@harnix/core/state";
 import { zhCN, type HarnixUiStrings } from "./strings";
 
 interface HarnixUiContextValue {
@@ -78,6 +78,21 @@ export function useSession(
   }, [controller]);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   return { state, controller };
+}
+
+/**
+ * 一个会话的各轮（`harnix.session.outline`）：打开时读一次，这个会话每结束一轮再读一次。`session` 是它的控制器（取实例、
+ * space 与会话 id），或者直接给这三样。
+ */
+export function useTurnOutline(session: { instance: string; space?: string; sessionId: string }): OutlineSnapshot {
+  const client = useHarnixClient();
+  const { instance, space, sessionId } = session;
+  const outline = useMemo(() => new OutlineController({ client, instance, space, sessionId }), [client, instance, space, sessionId]);
+  useEffect(() => {
+    outline.start();
+    return () => outline.stop();
+  }, [outline]);
+  return useSyncExternalStore(outline.subscribe, outline.getSnapshot);
 }
 
 /** 每个客户端只问一次 `harnix.hello`（场景、命令、上限）；失败就忘掉，下次连上再问。 */

@@ -443,6 +443,56 @@ pending_prompts: PromptEvent[], running_turn: string | null, queue: Array<QueueI
 trust?: EngineTrust, };
 
 /**
+ * `harnix.session.outline`'s answer: a session's turns, one row each, oldest first — what a turn
+ * rail draws and a trajectory groups its rows by.
+ */
+export type SessionOutline = { instance: string, session_id: string, turns: Array<OutlineTurn>, 
+/**
+ * How many messages the transcript held when it was read: `engine.session.history`'s
+ * `total`, the coordinate each turn's `seq` is in.
+ */
+total: number, };
+
+/**
+ * One turn of a [`SessionOutline`]: where it starts, and what was asked and answered, cut short.
+ */
+export type OutlineTurn = { 
+/**
+ * The turn's id, as its live frames carry it; null in a log written before turns had ids.
+ */
+turn_id: string | null, 
+/**
+ * Where the person's message that started it is in the transcript: an `engine.session.history`
+ * `offset`. Reading history from here on shows the turn.
+ */
+seq: number, 
+/**
+ * When it was asked, as the engine wrote it (ISO 8601); null when the log does not say.
+ */
+at: string | null, 
+/**
+ * What the person said, on one line, cut to about a line's worth of characters (ending `…`
+ * when cut).
+ */
+prompt: string, 
+/**
+ * The turn's last text reply, on one line, cut to about three lines' worth; empty for a turn
+ * that has said nothing yet.
+ */
+reply: string, 
+/**
+ * What else is known to happen at this turn, for a rail or a trajectory to mark: a flow's
+ * station starting, say. The hub writes none; absent when there are none.
+ */
+marks?: Array<OutlineMark>, };
+
+/**
+ * A mark on an [`OutlineTurn`]: `kind` says what it is (`station` for a flow's station), `label`
+ * is what it is called.
+ */
+export type OutlineMark = { kind: string, label: string, };
+
+/**
  * `harnix.event`: a session event, with the seq the hub gave it.
  */
 export type EventFrame = { instance: string, session_id: string, seq: number, turn_id: string, 

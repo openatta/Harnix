@@ -213,24 +213,34 @@ export class SessionController {
   private held: [string, Record<string, unknown>][] = [];
 
   private async loadHistory(state: SessionState, total: number, stale: () => boolean, replayed: Set<string>): Promise<SessionState> {
-    let next = state;
     const start = Math.max(0, total - HISTORY_PAGE * HISTORY_PAGES_AT_OPEN);
-    // The extension's entries go back between the messages they were written between; the
-    // ones before the first message shown are as hidden as those messages.
-    const entries = (await this.entries()).filter((e) => e.at >= start);
-    if (stale()) return next;
+    this.knownEntries = await this.entries();
+    if (stale()) return state;
+    let next: SessionState = { ...state, historyFrom: start };
+    if (start > 0) next = { ...note(next, this.strings.olderHidden(start)), hiddenNote: next.nextKey };
+    return this.readHistory(next, start, total, true, stale, replayed);
+  }
+
+  /**
+   * History from `from` up to `to`, read into `state` after what it has, with the extension's entries
+   * back between the messages they were written between: the ones before `from` are as hidden as
+   * those messages, and the ones from `to` on are left to what follows unless `tail` (the end of
+   * the transcript, where they go last).
+   */
+  private async readHistory(state: SessionState, from: number, to: number, tail: boolean, stale: () => boolean, replayed: Set<string>): Promise<SessionState> {
+    let next = state;
+    const entries = this.knownEntries.filter((e) => e.at >= from && (tail || e.at < to));
     let pending = 0;
     const placeUpTo = (seq: number) => {
       while (pending < entries.length && entries[pending]!.at <= seq) next = addEntry(next, entries[pending++]!);
     };
-    if (start > 0) next = note(next, this.strings.olderHidden(start));
-    for (let offset = start; offset < total; offset += HISTORY_PAGE) {
+    for (let offset = from; offset < to; offset += HISTORY_PAGE) {
       const page = await this.client.call("engine.session.history", {
         ...this.key(),
         session_id: next.sessionId,
         offset,
-        // 读到 total 为止：其后由重放接上，多读的部分会画两遍
-        limit: Math.min(HISTORY_PAGE, total - offset),
+        // 读到 to 为止：其后由已有的（或重放）接上，多读的部分会画两遍
+        limit: Math.min(HISTORY_PAGE, to - offset),
       });
       if (stale()) return next;
       for (const message of page.messages || []) {
@@ -241,6 +251,58 @@ export class SessionController {
     }
     placeUpTo(Number.POSITIVE_INFINITY);
     return next;
+  }
+
+  /** The entries read at open, oldest first: what history read later puts back in place. */
+  private knownEntries: SessionEntry[] = [];
+  /** A read of older history under way. */
+  private older: Promise<boolean> | null = null;
+
+  /**
+   * Read the history before what is shown, back to `seq` (an `engine.session.history` offset), and put it
+   * before the rest: what a jump to an older turn needs first. True once `seq` is shown; false when the
+   * session was opened again meanwhile, or the read failed (the banner says why).
+   */
+  async loadOlder(seq: number): Promise<boolean> {
+    if (this.older) await this.older;
+    const from = Math.max(0, Math.floor(seq));
+    const shownFrom = this.state.historyFrom ?? 0;
+    if (from >= shownFrom) return true;
+    if (this.state.loading || this.stopped) return false;
+    const generation = this.generation;
+    const stale = () => this.stopped || generation !== this.generation;
+    const read = async (): Promise<boolean> => {
+      let older: SessionState = { ...emptySession(this.state.sessionId), loading: false, nextKey: this.state.nextKey };
+      try {
+        older = await this.readHistory(older, from, shownFrom, false, stale, new Set());
+      } catch (e) {
+        if (!stale()) this.set({ ...this.state, banner: this.strings.openFailed(errorText(e)) });
+        return false;
+      }
+      if (stale()) return false;
+      const current = this.state;
+      let nextKey = older.nextKey;
+      let head = older.blocks;
+      let hiddenNote: number | undefined;
+      if (from > 0) {
+        hiddenNote = nextKey++;
+        head = [{ key: hiddenNote, kind: "note", text: this.strings.olderHidden(from), tone: "info" }, ...head];
+      }
+      this.set({
+        ...current,
+        blocks: [...head, ...current.blocks.filter((b) => b.key !== current.hiddenNote)],
+        nextKey,
+        tools: { ...older.tools, ...current.tools },
+        agents: { ...older.agents, ...current.agents },
+        historyFrom: from,
+        hiddenNote,
+      });
+      return true;
+    };
+    this.older = read().finally(() => {
+      this.older = null;
+    });
+    return this.older;
   }
 
   /** The session's entries, oldest first. An engine without them (before Agix 0.2.8) has none. */

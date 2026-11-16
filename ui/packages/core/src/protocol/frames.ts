@@ -18,6 +18,7 @@ import type {
   InstancesList,
   QueueItem,
   Rating,
+  SessionOutline,
   SessionsList,
   SpacesList,
   Topology,
@@ -137,6 +138,8 @@ export interface Methods {
     params: SessionKey & { offset?: number; limit?: number };
     result: HistoryPage;
   };
+  /** 会话的各轮：每轮从历史的哪里开始（`seq`），问了什么、最后答了什么（都截短）。见 `SessionOutline`。 */
+  "harnix.session.outline": { params: SessionKey; result: SessionOutline };
   "harnix.session.interrupt": { params: SessionKey; result: unknown };
   "harnix.session.respond": {
     params: SessionKey & { prompt_id: string; decision: Decision; tool_use_id?: string };

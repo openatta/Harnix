@@ -472,6 +472,52 @@ pub struct AttachResult {
     pub trust: Option<EngineTrust>,
 }
 
+/// `harnix.session.outline`'s answer: a session's turns, one row each, oldest first — what a turn
+/// rail draws and a trajectory groups its rows by.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct SessionOutline {
+    pub instance: String,
+    pub session_id: String,
+    pub turns: Vec<OutlineTurn>,
+    /// How many messages the transcript held when it was read: `engine.session.history`'s
+    /// `total`, the coordinate each turn's `seq` is in.
+    pub total: u64,
+}
+
+/// One turn of a [`SessionOutline`]: where it starts, and what was asked and answered, cut short.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct OutlineTurn {
+    /// The turn's id, as its live frames carry it; null in a log written before turns had ids.
+    pub turn_id: Option<String>,
+    /// Where the person's message that started it is in the transcript: an `engine.session.history`
+    /// `offset`. Reading history from here on shows the turn.
+    pub seq: u64,
+    /// When it was asked, as the engine wrote it (ISO 8601); null when the log does not say.
+    pub at: Option<String>,
+    /// What the person said, on one line, cut to about a line's worth of characters (ending `…`
+    /// when cut).
+    pub prompt: String,
+    /// The turn's last text reply, on one line, cut to about three lines' worth; empty for a turn
+    /// that has said nothing yet.
+    pub reply: String,
+    /// What else is known to happen at this turn, for a rail or a trajectory to mark: a flow's
+    /// station starting, say. The hub writes none; absent when there are none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub marks: Option<Vec<OutlineMark>>,
+}
+
+/// A mark on an [`OutlineTurn`]: `kind` says what it is (`station` for a flow's station), `label`
+/// is what it is called.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct OutlineMark {
+    pub kind: String,
+    pub label: String,
+}
+
 /* ── the hub's frames ──────────────────────────────────────────────────── */
 
 /// `harnix.event`: a session event, with the seq the hub gave it.

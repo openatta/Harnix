@@ -41,7 +41,11 @@ export type ToolStatus = "running" | "ok" | "error" | "interrupted";
  */
 export type Block =
   /** `steered`：运行中送来、在这一轮的步骤边界进了对话（历史里是 origin "steer"）。 */
-  | { key: number; kind: "user"; text: string; itemId?: string; at?: number; steered?: boolean }
+  /**
+   * `turnId`：开了这一轮的那条话所在的轮（实时的取帧的 `turn_id`，历史的取消息的）；`seq`：从历史读回来的，它在历史里的位置
+   * （`engine.session.history` 的 offset）。轮次导航按它们找到一轮的开头。
+   */
+  | { key: number; kind: "user"; text: string; itemId?: string; at?: number; steered?: boolean; turnId?: string; seq?: number }
   /** `turnId`：写下它的那一轮（帧与 transcript 的 `turn_id`）；旧日志里没有。反馈按它记。 */
   | { key: number; kind: "assistant"; text: string; streaming: boolean; at?: number; turnId?: string }
   | { key: number; kind: "think"; text: string; streaming?: boolean; startedAt?: number; endedAt?: number }
@@ -116,6 +120,10 @@ export interface SessionState {
   seq: number;
   /** 正在跑的一轮。 */
   turn: { turnId: string } | null;
+  /** 读进来的历史从哪里开始（`engine.session.history` 的 offset）：大于 0 时更早的还没读，`SessionController.loadOlder` 读进来。 */
+  historyFrom?: number;
+  /** 说「更早的还没显示」的那一行的 key。 */
+  hiddenNote?: number;
   /** 队列：整值快照，不做增量合并。 */
   queue: QueueItem[];
   /** 待送达：交给了正在跑的一轮、还没进对话的话。 */
@@ -334,7 +342,14 @@ export function applyHistoryMessage(state: SessionState, message: HistoryMessage
       next = push(
         next,
         message.role === "user"
-          ? { kind: "user", text, at, ...(message.origin === "steer" ? { steered: true } : {}) }
+          ? {
+              kind: "user",
+              text,
+              at,
+              ...(message.origin === "steer" ? { steered: true } : {}),
+              ...(message.turn_id ? { turnId: message.turn_id } : {}),
+              ...(typeof message.seq === "number" ? { seq: message.seq } : {}),
+            }
           : { kind: "assistant", text, streaming: false, at, ...(message.turn_id ? { turnId: message.turn_id } : {}) },
       )[0];
     } else if (part.type === "thinking") {
@@ -366,7 +381,7 @@ export function applyHistoryMessage(state: SessionState, message: HistoryMessage
 export interface ApplyOptions {
   promptTimeoutSecs: number;
   now: number;
-  /** 这一帧所属的一轮（`harnix.event` 与重放帧的 `turn_id`）：记在它产生的回答上。 */
+  /** 这一帧所属的一轮（`harnix.event` 与重放帧的 `turn_id`）：开一轮的那条人的话、它产生的回答都记下它。 */
   turnId?: string;
   /**
    * 是不是正在发生的事件。重放（attach 时中枢缓冲区里的帧）不是：它们发生在过去，`now` 不是它们的时间，
@@ -409,7 +424,7 @@ export function applyEvent(state: SessionState, event: EngineEvent, options: App
       }
       // 同一条话作为一轮送来（退回后排队、或引擎没能送进那一轮）：不再待送达
       const base = message.item_id ? dropSteering(state, [message.item_id]) : state;
-      return push(endStream(base, now), { kind: "user", text, itemId: message.item_id, at: now })[0];
+      return push(endStream(base, now), { kind: "user", text, itemId: message.item_id, at: now, ...(options.turnId ? { turnId: options.turnId } : {}) })[0];
     }
 
     // 待送达的话在步骤边界进了对话：画在此刻的位置（transcript 里它也在这里）
