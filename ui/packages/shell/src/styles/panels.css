@@ -453,6 +453,21 @@
   background: var(--bg-base);
 }
 
+/* A permission rule's tool and what its parentheses hold; a route's provider and model. */
+.settings-rule-tool,
+.settings-route {
+  display: flex;
+  gap: 4px;
+}
+
+.settings-rule-tool input:first-child {
+  flex: 0 0 34%;
+}
+
+.settings-route input {
+  width: 160px;
+}
+
 .settings-rules-actions {
   display: flex;
   gap: 6px;

@@ -25,7 +25,7 @@ describe("@harnix/settings", () => {
     r.activate(extension, () => register(r, host));
     expect(extension).toBe("settings");
     const sections = r.at("settings.section");
-    expect(sections.map((s) => s.id)).toEqual(["engine","scenes","models","mcp"]);
+    expect(sections.map((s) => s.id)).toEqual(["engine","scenes","models","mcp","permissions","sandbox","network"]);
     expect(sections.every((s) => s.owner === "settings" && typeof s.label() === "string")).toBe(true);
     // Each draws, and reads what it shows through the host.
     // Not connected: what reads hello waits, the rest draws.

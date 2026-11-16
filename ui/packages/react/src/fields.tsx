@@ -17,7 +17,7 @@ import { CONFLICT, errorText } from "@harnix/core";
 import { useT, type Translate } from "./i18n/index";
 import { SettingsRow, useSettingsVersion } from "./settings";
 
-export type FieldType = "toggle" | "select" | "number" | "text" | "secret" | "list" | "rules";
+export type FieldType = "toggle" | "select" | "number" | "text" | "secret" | "list" | "rules" | "route";
 
 /** A column of a `rules` field: text that is not blank, or one of its options. */
 export interface FieldColumn {
@@ -27,6 +27,9 @@ export interface FieldColumn {
   required?: boolean;
   /** Its heading's text key; the key itself when none. */
   label?: string;
+  /** A text cell's own shape. `tool`: a permission rule's tool, `Name` or `Name(content)`
+   *  ([`toolPattern`]); edited as the tool and what is in its parentheses. */
+  check?: "tool";
 }
 
 /** Values the page confirms before writing; none listed is every value. */
@@ -56,6 +59,9 @@ export interface FieldDecl {
   risk?: FieldRisk;
   /** The tiers that may write it (a tiered store's). */
   writable?: string[];
+  /** Every tier's value applies side by side (a list of rules): a tier edits its own, and the
+   *  value in force is all of them together. */
+  additive?: boolean;
 }
 
 /** A field with where it stands, as a store reads it. */
@@ -120,11 +126,52 @@ export function checkField(field: FieldDecl, value: unknown): { key: string; var
           }
           const fits = column.options ? typeof cell === "string" && column.options.includes(cell) : text(cell);
           if (!fits) return bad;
+          const shape = column.check === "tool" ? toolPattern(cell as string) : null;
+          if (shape) return { key: shape, vars: { row: i + 1 } };
         }
       }
       return null;
     }
+    case "route": {
+      if (text(value)) return null;
+      const route = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+      const ok =
+        route !== null &&
+        text(route.provider) &&
+        (route.model === undefined || route.model === null || text(route.model)) &&
+        Object.keys(route).every((k) => k === "provider" || k === "model");
+      return ok ? null : { key: "settings.invalid.route" };
+    }
   }
+}
+
+/**
+ * Why `text` is not a tool the engine's permission rules can name, as a text key; null when it is.
+ * `Name` or `Name(content)`, the name `__`-separated segments of letters, digits, `-`, `_`, `.`
+ * (`mcp__github` covers that server's tools); no wildcard in a name, no empty parentheses.
+ */
+export function toolPattern(text: string): string | null {
+  const whole = text.trim();
+  const open = whole.indexOf("(");
+  if (open >= 0 && !whole.endsWith(")")) return "settings.invalid.toolParen";
+  if (open < 0 && whole.includes(")")) return "settings.invalid.toolParen";
+  const name = (open >= 0 ? whole.slice(0, open) : whole).trim();
+  if (name.includes("*")) return "settings.invalid.toolWildcard";
+  if (!name || !name.split("__").every((s) => /^[A-Za-z0-9_.-]+$/.test(s))) return "settings.invalid.toolName";
+  if (open >= 0 && !whole.slice(open + 1, -1).trim()) return "settings.invalid.toolEmpty";
+  return null;
+}
+
+/** A tool cell as the tool and what is in its parentheses: `Bash(git push:*)` → `Bash`, `git push:*`. */
+function splitTool(text: string): { tool: string; content: string } {
+  const open = text.indexOf("(");
+  if (open < 0 || !text.endsWith(")")) return { tool: text, content: "" };
+  return { tool: text.slice(0, open), content: text.slice(open + 1, -1) };
+}
+
+/** Not trimmed: a space typed at the end of a command is the start of its next word. */
+function joinTool(tool: string, content: string): string {
+  return content ? `${tool}(${content})` : tool;
 }
 
 /** Whether writing `value` is one the page asks about first. */
@@ -413,13 +460,17 @@ function FieldRow({
   const own = tiered ? field.tiers![tier!] : undefined;
   const inherited = own === null || own === undefined;
   const writable = !tiered || !field.writable || field.writable.includes(tier!);
-  const value = draft ? draft.value : field.effective;
+  // An additive field edits this tier's own rows; the others' apply beside them.
+  const additive = tiered && field.additive === true;
+  const value = draft ? draft.value : additive ? (own ?? []) : field.effective;
+  const others = additive ? Math.max(0, (Array.isArray(field.effective) ? field.effective.length : 0) - (Array.isArray(own) ? own.length : 0)) : 0;
   const name = (id: string) => (tierName ? tierName(id) : id);
 
   const notes: string[] = [];
   if (field.hint) notes.push(t(field.hint));
   if (tiered) {
-    notes.push(inherited ? t("settings.inherited") : t("settings.setHere"));
+    if (additive) notes.push(t("settings.additive", { count: others }));
+    else notes.push(inherited ? t("settings.inherited") : t("settings.setHere"));
     if (field.source) notes.push(t("settings.sourceTier", { tier: name(field.source) }));
     if (field.withheld) notes.push(t("settings.withheld"));
     if (!writable) notes.push(t("settings.notWritableHere", { tiers: (field.writable ?? []).map(name).join(", ") }));
@@ -501,6 +552,10 @@ function shown(t: Translate, field: FieldDecl, value: unknown): string {
   if (field.type === "toggle") return value ? t("settings.on") : t("settings.off");
   if (field.type === "select" && typeof value === "string") return optionName(t, field, value);
   if (Array.isArray(value)) return field.type === "rules" ? t("settings.rulesCount", { count: value.length }) : value.join(", ");
+  if (field.type === "route" && typeof value === "object") {
+    const route = value as { provider?: unknown; model?: unknown };
+    return route.model ? `${String(route.provider)} · ${String(route.model)}` : String(route.provider);
+  }
   return String(value);
 }
 
@@ -539,7 +594,33 @@ function Control({ field, value, disabled, commit }: { field: FieldState; value:
       return <ListControl key={JSON.stringify(value ?? null)} testId={testId} value={value} disabled={disabled} commit={commit} />;
     case "rules":
       return <RulesControl key={JSON.stringify(value ?? null)} testId={testId} field={field} value={value} disabled={disabled} commit={commit} />;
+    case "route":
+      return <RouteControl key={JSON.stringify(value ?? null)} testId={testId} value={value} disabled={disabled} commit={commit} />;
   }
+}
+
+/** A provider and, optionally, its model: written as the provider's id alone when no model is named. */
+function RouteControl({ testId, value, disabled, commit }: { testId: string; value: unknown; disabled: boolean; commit: (value: unknown) => void }) {
+  const t = useT();
+  const start =
+    typeof value === "string"
+      ? { provider: value, model: "" }
+      : value && typeof value === "object"
+        ? { provider: String((value as { provider?: unknown }).provider ?? ""), model: String((value as { model?: unknown }).model ?? "") }
+        : { provider: "", model: "" };
+  const [route, setRoute] = useState(start);
+  const leave = () => {
+    if (same(route, start) || !route.provider.trim()) return;
+    const provider = route.provider.trim();
+    const model = route.model.trim();
+    commit(model ? { provider, model } : provider);
+  };
+  return (
+    <span className="settings-route" data-testid={testId}>
+      <input type="text" data-testid={`${testId}-provider`} disabled={disabled} placeholder={t("settings.routeProvider")} value={route.provider} onChange={(e) => setRoute({ ...route, provider: e.target.value })} onBlur={leave} />
+      <input type="text" data-testid={`${testId}-model`} disabled={disabled} placeholder={t("settings.routeModel")} value={route.model} onChange={(e) => setRoute({ ...route, model: e.target.value })} onBlur={leave} />
+    </span>
+  );
 }
 
 /** Text or a number, written when the input is left with something new in it. */
@@ -645,6 +726,8 @@ function RulesControl({ testId, field, value, disabled, commit }: { testId: stri
                         </option>
                       ))}
                     </select>
+                  ) : c.check === "tool" ? (
+                    <ToolCell disabled={disabled} value={String(row[c.key] ?? "")} onChange={(cell) => change(i, c.key, cell)} />
                   ) : (
                     <input type="text" disabled={disabled} value={String(row[c.key] ?? "")} onChange={(e) => change(i, c.key, e.target.value)} />
                   )}
@@ -665,13 +748,37 @@ function RulesControl({ testId, field, value, disabled, commit }: { testId: stri
           {t("common.add")}
         </button>
         {!same(rows, start) ? (
-          <button type="button" className="btn sm primary" disabled={disabled} data-testid="settings-rules-apply" onClick={() => commit(rows)}>
+          <button type="button" className="btn sm primary" disabled={disabled} data-testid="settings-rules-apply" onClick={() => commit(rows.map((row) => trimmed(row, columns)))}>
             {t("common.save")}
           </button>
         ) : null}
       </div>
     </div>
   );
+}
+
+/** A permission rule's tool, edited as the tool's name and the path, command or URL pattern its
+ *  parentheses hold — the same pair a flow's permission writes as `tools` and `paths`/`commands`. */
+function ToolCell({ value, disabled, onChange }: { value: string; disabled: boolean; onChange: (cell: string) => void }) {
+  const t = useT();
+  const { tool, content } = splitTool(value);
+  return (
+    <span className="settings-rule-tool">
+      <input type="text" data-testid="settings-rule-tool" disabled={disabled} placeholder="Bash" value={tool} onChange={(e) => onChange(joinTool(e.target.value, content))} />
+      <input type="text" data-testid="settings-rule-content" disabled={disabled} placeholder={t("settings.ruleContent")} title={t("settings.ruleContentHint")} value={content} onChange={(e) => onChange(joinTool(tool, e.target.value))} />
+    </span>
+  );
+}
+
+/** A row as it is written: its text without the spaces around it, a tool's inside its parentheses too. */
+function trimmed(row: Record<string, unknown>, columns: FieldColumn[]): Record<string, unknown> {
+  const trim = (key: string, v: unknown): unknown => {
+    if (typeof v !== "string") return v;
+    if (columns.find((c) => c.key === key)?.check !== "tool") return v.trim();
+    const { tool, content } = splitTool(v.trim());
+    return joinTool(tool.trim(), content.trim());
+  };
+  return cleaned(Object.fromEntries(Object.entries(row).map(([k, v]) => [k, trim(k, v)])));
 }
 
 /** A row without its empty cells: an optional column left empty is not written. */

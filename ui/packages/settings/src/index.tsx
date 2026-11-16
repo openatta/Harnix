@@ -26,6 +26,10 @@ export function register(r: Registry, host: HostApi): void {
   // Where the shell sends a reader when a turn has no model to go to.
   section("models", "settings.nav.models", () => <Models host={host} />, ["models"]);
   section("mcp", "settings.nav.mcp", () => <Mcp host={host} />);
+  // permissions, sandbox, network
+  section("permissions", "settings.nav.permissions", () => <EngineSettings host={host} section="permissions" title="settings.nav.permissions" />);
+  section("sandbox", "settings.nav.sandbox", () => <EngineSettings host={host} section="sandbox" title="settings.nav.sandbox" />);
+  section("network", "settings.nav.network", () => <EngineSettings host={host} section="network" title="settings.nav.network" />);
 }
 
 /* ── pieces ───────────────────────────────────────────────────────────── */
@@ -69,8 +73,8 @@ export function engineStore(host: HostApi, request: { scene?: string; project_ro
   };
 }
 
-/** The engine's fields of one section, with the tier they are written to. */
-function EngineSettings({ host, section }: { host: HostApi; section: string }) {
+/** The engine's fields of one section, with the tier they are written to; headed `title` (a text key). */
+function EngineSettings({ host, section, title = "settings.engineDefaults" }: { host: HostApi; section: string; title?: string }) {
   const t = useT();
   const reload = useSettingsReload();
   const hello = useHello();
@@ -79,7 +83,7 @@ function EngineSettings({ host, section }: { host: HostApi; section: string }) {
   const name = (id: string) => t(`settings.tier.${id}`, { scene: request.scene });
   return (
     <FieldForm<Described>
-      title={t("settings.engineDefaults")}
+      title={t(title)}
       store={engineStore(host, request, selected)}
       section={section}
       tier={selected}
