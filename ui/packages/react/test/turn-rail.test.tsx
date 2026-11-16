@@ -151,6 +151,8 @@ describe("the turn rail", () => {
     expect(first?.textContent).toContain("q0");
     // Nothing older is left to say is hidden.
     expect(document.body.textContent).not.toMatch(/earlier messages|未显示/);
+    // The turn jumped to is the one being read, though nothing in a test page scrolls.
+    expect(tick(0).getAttribute("aria-current")).toBe("true");
   });
 
   it("goes to the previous turn with ⌥↑, unless the focus is in a field with text in it", async () => {

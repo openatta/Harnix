@@ -61,6 +61,8 @@ export function TurnRail({ controller, state, scroller, pinned }: TurnRailProps)
   const wantFocus = useRef(false);
   /** The turn a jump waits on older history for. */
   const pending = useRef<string | null>(null);
+  /** Where the last jump left the transcript, and the turn it went to. */
+  const landed = useRef<{ key: string; top: number } | null>(null);
   const previewId = useId();
 
   const indexOf = useCallback((key: string | undefined) => (key == null ? -1 : turns.findIndex((turn) => turn.key === key)), [turns]);
@@ -94,10 +96,26 @@ export function TurnRail({ controller, state, scroller, pinned }: TurnRailProps)
       if (!node || !anchor) return false;
       pinned.current = false;
       node.scrollTop += topOf(anchor, node) - SLACK;
+      landed.current = { key, top: node.scrollTop };
       return true;
     },
     [scroller, pinned],
   );
+
+  /**
+   * The turn being read, after a jump the one jumped to while the transcript stays where the jump left it:
+   * near the end it cannot scroll a turn up to the top, and the position alone would say the last turn.
+   */
+  const current = useCallback((): { index: number; passed: boolean } => {
+    const node = scroller.current;
+    const at = landed.current;
+    if (node && at && Math.abs(node.scrollTop - at.top) < 2) {
+      const index = indexOf(at.key);
+      if (index >= 0) return { index, passed: false };
+    }
+    landed.current = null;
+    return reading();
+  }, [scroller, indexOf, reading]);
 
   const go = useCallback(
     (index: number) => {
@@ -128,7 +146,7 @@ export function TurnRail({ controller, state, scroller, pinned }: TurnRailProps)
     let frame = 0;
     const update = () => {
       frame = 0;
-      const { index } = reading();
+      const { index } = current();
       if (index >= 0) setActive(index);
     };
     const onScroll = () => {
@@ -140,13 +158,13 @@ export function TurnRail({ controller, state, scroller, pinned }: TurnRailProps)
       node.removeEventListener("scroll", onScroll);
       if (frame) cancelAnimationFrame(frame);
     };
-  }, [scroller, reading, state.blocks]);
+  }, [scroller, current, state.blocks]);
 
   // The keys: the turn before or after the one being read.
   const step = useRef<(delta: -1 | 1) => void>(() => {});
   step.current = (delta) => {
     if (!turns.length) return;
-    const { index, passed } = reading();
+    const { index, passed } = current();
     const target = index < 0 ? (delta < 0 ? turns.length - 1 : 0) : delta < 0 ? (passed ? index : index - 1) : index + 1;
     if (target >= 0 && target < turns.length) go(target);
   };
