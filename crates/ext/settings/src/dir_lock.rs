@@ -3,7 +3,8 @@
 //! allow" or `project.trust` into the same tier) through `flock` on the directory itself.
 //!
 //! The same lock as `harnix_contract::dir_lock`, kept here because an extension names no Harnix
-//! crate but `harnix-ext`; it goes when providers are written through the engine.
+//! crate but `harnix-ext`. Providers are written by the engine, which takes it itself; the other
+//! fields have no write method in the engine's protocol and are written here, under this.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

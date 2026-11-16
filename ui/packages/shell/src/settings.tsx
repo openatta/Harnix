@@ -9,7 +9,7 @@
 
 import { Fragment, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { errorText } from "@harnix/core";
-import { Contributed, Glyph, SettingsReload, SettingsRow, SettingsSection, SettingsValue, localeChoice, setLocale, t, useRegistry, useT, type LocaleChoice, type SettingsNeed } from "@harnix/react";
+import { Contributed, FieldForm, Glyph, SettingsReload, SettingsRow, SettingsSection, SettingsValue, localFieldStore, localeChoice, setLocale, t, useRegistry, useT, type LocaleChoice, type SettingsNeed } from "@harnix/react";
 
 import type { App, ThemeChoice } from "./app.ts";
 import { APPS_LIST } from "./constants.ts";
@@ -91,59 +91,49 @@ function Settings({ app }: { app: App }) {
   );
 }
 
-/* ── pieces ───────────────────────────────────────────────────────────── */
+/* ── the sections ───────────────────────────────────────────────────── */
 
-function Select({ options, value, onChange, testId }: { options: [string, string][]; value: string; onChange: (v: string) => void; testId?: string }) {
-  return (
-    <select value={value} data-testid={testId} onChange={(e) => onChange(e.target.value)}>
-      {options.map(([key, text]) => (
-        <option key={key} value={key}>
-          {text}
-        </option>
-      ))}
-    </select>
+/**
+ * This browser's preferences, drawn from their declarations like any section's fields: the theme
+ * the shell applies, the language. Kept here, not in the engine's settings; more come the same way
+ * (a row each).
+ */
+function preferences(app: App) {
+  return localFieldStore(
+    [
+      {
+        key: "theme",
+        type: "select",
+        label: "settings.theme",
+        hint: "settings.themeHint",
+        options: ["auto", "light", "dark"],
+        optionLabels: { auto: "settings.theme.auto", light: "settings.theme.light", dark: "settings.theme.dark" },
+        default: "auto",
+        get: () => app.snapshot.theme,
+        set: (value) => app.setTheme(value as ThemeChoice),
+      },
+      {
+        key: "language",
+        type: "select",
+        label: "settings.language",
+        hint: "settings.languageHint",
+        options: ["auto", "zh-CN", "en"],
+        optionLabels: { auto: "settings.language.auto", "zh-CN": "settings.language.zh-CN", en: "settings.language.en" },
+        default: "auto",
+        get: () => localeChoice(),
+        set: (value) => setLocale(value as LocaleChoice),
+      },
+    ],
+    { prefix: "harnix.pref.shell." },
   );
 }
 
-/* ── the sections ───────────────────────────────────────────────────── */
-
 function General({ app }: { app: App }) {
   const t = useT();
-  const [theme, setTheme] = useState<ThemeChoice>(app.snapshot.theme);
-  const [locale, setLocaleChoice] = useState<LocaleChoice>(localeChoice());
+  const [store] = useState(() => preferences(app));
   return (
     <>
-      <h3>{t("settings.appearance")}</h3>
-      <SettingsRow label={t("settings.theme")} hint={t("settings.themeHint")}>
-        <Select
-          testId="settings-theme"
-          options={[
-            ["auto", t("settings.theme.auto")],
-            ["light", t("settings.theme.light")],
-            ["dark", t("settings.theme.dark")],
-          ]}
-          value={theme}
-          onChange={(value) => {
-            setTheme(value as ThemeChoice);
-            app.setTheme(value as ThemeChoice);
-          }}
-        />
-      </SettingsRow>
-      <SettingsRow label={t("settings.language")} hint={t("settings.languageHint")}>
-        <Select
-          testId="settings-language"
-          options={[
-            ["auto", t("settings.language.auto")],
-            ["zh-CN", "简体中文"],
-            ["en", "English"],
-          ]}
-          value={locale}
-          onChange={(value) => {
-            setLocaleChoice(value as LocaleChoice);
-            setLocale(value as LocaleChoice);
-          }}
-        />
-      </SettingsRow>
+      <FieldForm title={t("settings.appearance")} store={store} />
       <PackagesMark app={app} />
     </>
   );

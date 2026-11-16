@@ -12,7 +12,7 @@
  * | `flow.block` | `match(块)`、`render(块)` | 后注册的先认领 |
  * | `sidebar.group` | `group(会话) → 组[]`、`label?()` | 只用最后注册的那一个 |
  * | `command` | `trigger?`（`/` 或 `@`）、`complete(query, ctx?) → 候选[]`（候选可带 `run`） | 全部，按注册顺序拼起来；`/` 与 `@` 两个菜单各问各的 |
- * | `settings.section` | `id`、`label()`、`render()`，可选的 `covers` | 全部，按注册顺序；外壳要人去配模型时打开 `covers` 里有 `"models"` 的那一节 |
+ * | `settings.section` | `id`、`label()`、`render()`，可选的 `covers`；或不给 `render`，给 `fields`（字段声明，见 `fields.tsx`）与可选的 `store` | 全部，按注册顺序；外壳要人去配模型时打开 `covers` 里有 `"models"` 的那一节；只给 `fields` 的按声明画表单，值缺省存在这个浏览器里 |
  * | `session.action` | `id`、`at`、`label(target)`、`match(target)`、`run(target)` | 标题栏、会话菜单、工具行各问 `at` 里有它的，按注册顺序 |
  * | `sidebar.tab` | `id`、`kind`、`title(address?)`、`render()`，可选的 `patterns`、`priority`、`canOpen`、`guide`、`multiple`、`keepMounted`、`scope` | 右栏的页签类型（`sidebar.ts`）：资源地址按优先级档、模式长度、注册顺序认领；一个 `kind` 至多一份 extension 加一份 builtin，extension 生效 |
  *
@@ -32,6 +32,7 @@ import type { SessionRow } from "@harnix/core";
 import type { ChatIds } from "./chat/types";
 import type { SessionRef } from "./host";
 import { addStrings, type Locale } from "./i18n/index";
+import { FieldsSection, type FieldStore, type LocalField } from "./fields";
 import { SIDEBAR_PRIORITIES, SIDEBAR_SCOPES, sameTier, type SidebarTabType } from "./sidebar";
 
 export const POINTS = [
@@ -262,10 +263,19 @@ export interface Contributions {
     render(): ReactNode;
     /** What the shell may send a reader here for: `"models"` — a turn has no model to go to. */
     covers?: SettingsNeed[];
+    /** The fields it declares, when it is drawn from them (a registration without `render`). */
+    fields?: LocalField[];
+    /** Where those fields' values are: this browser's (`harnix.pref.<owner>.<key>`) when none. */
+    store?: FieldStore;
   };
   "session.action": SessionAction;
   "sidebar.tab": SidebarTabType;
 }
+
+/** What a registration may give: a settings section may declare its fields in place of drawing itself. */
+export type ContributionInput<P extends Point> = P extends "settings.section"
+  ? Omit<Contributions["settings.section"], "render"> & ({ render(): ReactNode } | { render?: undefined; fields: LocalField[] })
+  : Contributions[P];
 
 /** What the shell itself sends a reader to the settings for, to whichever section `covers` it. */
 export type SettingsNeed = "models";
@@ -301,6 +311,19 @@ const SHAPE: { [P in Point]: string[] } = {
 
 const ACTION_PLACES: readonly string[] = ["header", "menu", "tool"];
 const SPACE_GROUPS = ["sidebar", "center", "conversation", "details", "store"] as const;
+
+const FIELD_TYPES: readonly string[] = ["toggle", "select", "number", "text", "secret", "list", "rules"];
+
+/** What is wrong with a settings section's `fields`; null when nothing. */
+function fieldsError(fields: unknown): string | null {
+  if (!Array.isArray(fields) || !fields.length) return "a settings section draws itself (`render`) or declares `fields`";
+  for (const f of fields as Record<string, unknown>[]) {
+    if (!f || typeof f.key !== "string" || !f.key || !FIELD_TYPES.includes(f.type as string)) {
+      return `a settings field needs a \`key\` and a \`type\`: ${FIELD_TYPES.join(", ")}`;
+    }
+  }
+  return null;
+}
 
 /** What is wrong with a kernel point's contribution beyond its functions; null when nothing. */
 function shapeError(point: Point, c: Record<string, unknown>): string | null {
@@ -380,14 +403,22 @@ export class Registry {
   private readonly listeners = new Set<() => void>();
   private version = 0;
 
-  register<P extends Point>(point: P, contribution: Contributions[P], owner: string, options?: RegisterOptions): boolean;
+  register<P extends Point>(point: P, contribution: ContributionInput<P>, owner: string, options?: RegisterOptions): boolean;
   /** Any other point: one an extension defines, or a name only known at run time. A kernel
    *  point's name goes through the typed overload above, so its shape is checked when compiled. */
   register<N extends string>(point: Exclude<N, Point>, contribution: unknown, owner: string, options?: RegisterOptions): boolean;
   register(point: string, contribution: unknown, owner: string, options: RegisterOptions = {}): boolean {
-    const c = contribution as Record<string, unknown> | null;
-    if (!c || typeof c !== "object" || typeof c.id !== "string") {
+    const given = contribution as Record<string, unknown> | null;
+    if (!given || typeof given !== "object" || typeof given.id !== "string") {
       return this.refuse({ point, owner, reason: "a contribution needs an `id`" });
+    }
+    let c: Record<string, unknown> & { id: string } = given as Record<string, unknown> & { id: string };
+    if (point === "settings.section" && typeof c.render !== "function" && c.fields !== undefined) {
+      const wrong = fieldsError(c.fields);
+      if (wrong) return this.refuse({ point, owner, id: c.id, reason: wrong });
+      const fields = c.fields as LocalField[];
+      const store = c.store as FieldStore | undefined;
+      c = { ...c, render: () => createElement(FieldsSection, { fields, store, owner }) };
     }
     const kernel = (POINTS as readonly string[]).includes(point);
     if (kernel) {

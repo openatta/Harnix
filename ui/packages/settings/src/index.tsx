@@ -2,15 +2,17 @@
  * @harnix/settings — the settings sections for the engine (the `settings` extension's interface):
  * its defaults, the scenes, the model providers and the MCP servers.
  *
- * Engine settings are written to a tier's settings.json through `settings.set`; the value a row
+ * Engine settings are drawn from the fields `settings.describe` declares and written to a tier's
+ * settings.json through `settings.write`, against the revision they were read at; the value a row
  * shows is the engine's own for the open (project, scene), and it says when the project tier wrote
- * one the engine does not use (an untrusted project can only tighten). Providers go through
- * `settings.setProvider`, the only path credentials take from the interface.
+ * one the engine does not use (an untrusted project can only tighten). A field's `section` is
+ * which of the sections below draws it. Providers go through `settings.setProvider`, the only path
+ * credentials take from the interface.
  */
 
 import { useState, type ReactNode } from "react";
 import { errorText, type Hello } from "@harnix/core";
-import { Glyph, SettingsRow, SettingsSection, SettingsValue, t, useHello, useSettingsReload, useT, type HostApi, type Registry, type SettingsNeed } from "@harnix/react";
+import { FieldForm, Glyph, SettingsRow, SettingsSection, SettingsValue, t, useHello, useSettingsReload, useT, type FieldDoc, type FieldStore, type HostApi, type Registry, type SettingsNeed } from "@harnix/react";
 
 /** The backend extension this is the interface of. */
 export const extension = "settings";
@@ -19,7 +21,7 @@ export const extension = "settings";
 export function register(r: Registry, host: HostApi): void {
   const section = (id: string, label: string, render: () => ReactNode, covers?: SettingsNeed[]) =>
     r.register("settings.section", { id, label: () => t(label), render, ...(covers ? { covers } : {}) }, extension);
-  section("engine", "settings.engineDefaults", () => <EngineSettings host={host} only={["permission_mode", "memory_enabled", "allow_client_permission_override"]} />);
+  section("engine", "settings.engineDefaults", () => <EngineSettings host={host} section="engine" />);
   section("scenes", "settings.nav.scenes", () => <Scenes host={host} />);
   // Where the shell sends a reader when a turn has no model to go to.
   section("models", "settings.nav.models", () => <Models host={host} />, ["models"]);
@@ -40,20 +42,8 @@ function Select({ options, value, onChange, testId }: { options: [string, string
   );
 }
 
-interface Field {
-  key: string;
-  kind: "choice" | "flag" | "count" | "text";
-  options?: string[];
-  effective?: unknown;
-  tiers: Record<string, unknown>;
-  source?: string | null;
-  /** The project tier wrote a value the engine does not use (an untrusted project may only tighten). */
-  withheld?: boolean;
-}
-
-interface Described {
+interface Described extends FieldDoc {
   paths?: Record<string, string>;
-  fields?: Field[];
   providers?: {
     providers?: Record<string, { api_type?: string | null; base_url?: string | null; api_key?: unknown; default_model?: string | null; models?: string[] }>;
     default_provider?: string | null;
@@ -71,83 +61,51 @@ function where(host: HostApi, hello: Hello | null): { scene?: string; project_ro
   return { scene: scene ?? hello?.engine?.active_scenes?.[0], project_root: root };
 }
 
-function EngineSettings({ host, only }: { host: HostApi; only: string[] }) {
+/** The engine's settings as a field store: read for (scene, project), written into one tier. */
+export function engineStore(host: HostApi, request: { scene?: string; project_root: string | null }, tier: string): FieldStore<Described> {
+  return {
+    load: () => host.call<Described>("settings.describe", request),
+    save: (changes, revision) => host.call("settings.write", { ...request, tier, changes, ...(revision ? { revision } : {}) }),
+  };
+}
+
+/** The engine's fields of one section, with the tier they are written to. */
+function EngineSettings({ host, section }: { host: HostApi; section: string }) {
   const t = useT();
   const reload = useSettingsReload();
   const hello = useHello();
   const request = where(host, hello);
   const [selected, setSelected] = useState(tier);
+  const name = (id: string) => t(`settings.tier.${id}`, { scene: request.scene });
   return (
-    <SettingsSection title={t("settings.engineDefaults")} load={() => host.call<Described>("settings.describe", request)}>
-      {(data) => {
+    <FieldForm<Described>
+      title={t("settings.engineDefaults")}
+      store={engineStore(host, request, selected)}
+      section={section}
+      tier={selected}
+      tierName={name}
+      header={(data) => {
         const paths = data.paths ?? {};
-        const write = (key: string, value: unknown) =>
-          host
-            .call("settings.set", { ...request, tier: selected, key, value })
-            .then(() => {
-              host.shell.notice(t("settings.written", { path: paths[selected] }));
-              reload();
-            })
-            .catch((e: unknown) => host.shell.notice(t("settings.writeFailed", { error: errorText(e) }), "error"));
-        const tiers = (
-          [
-            ["global", t("settings.tier.global")],
-            ["scene", t("settings.tier.scene", { scene: request.scene })],
-            ["project", t("settings.tier.project")],
-          ] as [string, string][]
-        ).filter(([id]) => paths[id]);
+        const tiers = (["global", "scene", "project"] as const).filter((id) => paths[id]).map((id) => [id, name(id)] as [string, string]);
         return (
-          <>
-            <SettingsRow label={t("settings.tier")} hint={paths[selected] ?? ""}>
-              <Select
-                options={tiers}
-                value={selected}
-                onChange={(value) => {
-                  tier = value;
-                  setSelected(value);
-                }}
-              />
-            </SettingsRow>
-            {(data.fields ?? [])
-              .filter((field) => only.includes(field.key))
-              .map((field) => {
-                const own = field.tiers?.[selected];
-                const inherited = own === null || own === undefined;
-                const notes = [inherited ? t("settings.inherited") : t("settings.setHere")];
-                if (field.source) notes.push(t("settings.sourceTier", { tier: t(`settings.tier.${field.source}`, { scene: request.scene }) }));
-                if (field.withheld) notes.push(t("settings.withheld"));
-                return (
-                  <SettingsRow key={field.key} label={t(`settings.field.${field.key}`)} hint={notes.join(" · ")}>
-                    <FieldControl field={field} write={(value) => void write(field.key, value)} />
-                    {!inherited ? (
-                      <button type="button" className="btn sm outline" title={t("settings.clearHint")} onClick={() => void write(field.key, null)}>
-                        {t("settings.clear")}
-                      </button>
-                    ) : null}
-                  </SettingsRow>
-                );
-              })}
-          </>
+          <SettingsRow label={t("settings.tier")} hint={paths[selected] ?? ""}>
+            <Select
+              testId="settings-tier"
+              options={tiers}
+              value={selected}
+              onChange={(value) => {
+                tier = value;
+                setSelected(value);
+              }}
+            />
+          </SettingsRow>
         );
       }}
-    </SettingsSection>
-  );
-}
-
-function FieldControl({ field, write }: { field: Field; write: (value: unknown) => void }) {
-  const [text, setText] = useState(String(field.effective ?? ""));
-  if (field.kind === "choice") {
-    return <Select options={(field.options ?? []).map((o) => [o, o])} value={String(field.effective ?? "")} onChange={write} />;
-  }
-  if (field.kind === "flag") {
-    return <input type="checkbox" checked={Boolean(field.effective)} onChange={(e) => write(e.target.checked)} />;
-  }
-  return (
-    <input
-      type={field.kind === "count" ? "number" : "text"}
-      value={text}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={() => write(field.kind === "count" ? Number(text) : text)}
+      onSaved={(_, data) => {
+        host.shell.notice(t("settings.written", { path: data?.paths?.[selected] }));
+        reload();
+      }}
+      onFailed={(e) => host.shell.notice(t("settings.writeFailed", { error: errorText(e) }), "error")}
     />
   );
 }
@@ -257,7 +215,7 @@ function Models({ host }: { host: HostApi }) {
           );
         }}
       </SettingsSection>
-      <EngineSettings host={host} only={["model.model_name", "model.max_tokens"]} />
+      <EngineSettings host={host} section="models" />
     </>
   );
 }

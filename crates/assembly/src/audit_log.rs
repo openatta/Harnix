@@ -100,6 +100,7 @@ fn is_consequential(method: &str) -> bool {
             | "devices.pair.complete"
             | "devices.revoke"
             | "settings.set"
+            | "settings.write"
             | "settings.setProvider"
             // Switching a package on or off changes what this process serves.
             | "packages.enable"

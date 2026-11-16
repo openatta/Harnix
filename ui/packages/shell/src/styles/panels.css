@@ -393,7 +393,9 @@
 }
 
 .srow-setting select,
-.srow-setting input[type="text"] {
+.srow-setting input[type="text"],
+.srow-setting input[type="number"],
+.srow-setting input[type="password"] {
   height: 36px;
   min-width: 160px;
   padding: 0 14px;
@@ -402,6 +404,77 @@
   background: var(--bg-base);
   font-size: 14px;
   line-height: 22px;
+}
+
+.srow-setting .hint .err {
+  color: var(--state-error);
+}
+
+/* A field drawn from its declaration that needs the row's width: a list, a table of rules. */
+.srow-wide {
+  padding: 0 0 10px;
+  border-bottom: 1px solid var(--border-l1);
+}
+
+.srow-wide textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border-l2);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  font: inherit;
+  font-size: 13px;
+}
+
+.settings-rules table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.settings-rules th {
+  color: var(--label-caption);
+  font-weight: normal;
+  text-align: left;
+  padding: 4px 6px;
+}
+
+.settings-rules td {
+  padding: 3px 6px;
+}
+
+.settings-rules td input,
+.settings-rules td select {
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border-l2);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+}
+
+.settings-rules-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* A risky value waiting for its confirmation; a write over settings that changed; a review. */
+.settings-risk,
+.settings-conflict,
+.settings-review {
+  margin: 6px 0;
+  flex-wrap: wrap;
+}
+
+.settings-risk .check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.srow-setting[data-state="draft"] .label {
+  color: var(--state-info);
 }
 
 .srow-setting input[type="checkbox"] {

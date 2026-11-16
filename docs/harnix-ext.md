@@ -892,7 +892,7 @@ pub trait Extension: Send + Sync + 'static {
 | `SpaceDecl` | `SpaceDecl::new(id)`、`.instance("main" \| "<实例 id>" \| "template:<模板>")`、`.scene(scene)`、`.cross_space()`（声称它的设备调用可以观看、操作任何 space 的会话：防误的标志，只限原生，诊断与披露列出）、`.default_space()`（不声称 space 的设备调用按它检查；一个进程至多一个，`[extensions] default_space` 能盖过）。原生扩展可以声明任何没被占的 id；不声明：`main` 实例、实例的默认场景。只有界面没有后端的 space 不用声明 |
 | 路由 | `harnix::ext::http`：`Request`、`Response`、`RouteHandler`（稳定，只依赖 `http` 1.x）；`harnix::ext::http::axum::router(axum::Router)`（feature `axum`，绑 axum 0.8，**不在稳定承诺内**） |
 | `UiDecl`（`r.ui()`） | `.bundle(id)`（编进外壳的 UI 包认的扩展 id，缺省自己的 id）、`.surface(..)`、`.inline()`、`.module(..)`、`.point(PointDecl)`：扩展定义的贡献点，进生成的贡献点目录。后三项里的 `surface`、`inline` 是给扩展包的；原生扩展的界面是编进外壳的 UI 包，后端只声明哪个包是它的 |
-| `InstanceTemplate` | `InstanceTemplate::in_process(id, EngineProfile)` / `::spawn(id, EngineProfile)` / `::attach(id, AttachTo)`，再 `.data_root(pattern)`、`.param(name)`、`.ui()`、`.max(n)`、`.inherit_providers()`、`.reap_on_stop()`、`.contribute(\|e\| …)`。全名 `<扩展 id>.<模板 id>`。实例的 id 就是建它时给的 `name`，全进程唯一；名字和参数只能是字母、数字、`-`、`_`、`.`，不能以 `.` 开头。`data_root` 默认 `{name}`，可用 `{name}` 和声明过的参数，在 `~/.<product_id>/instances/` 下；建过的实例记在 `kernel/instances.json`。`.ui()`：界面能按它建（只填 `param` 放开的参数）。`.max(n)`：至多 n 台。`.inherit_providers()`：这个模板的实例也看得到 `main` 的 provider（设置页配的）——建实例时、以及每次 `settings.setProvider` 之后，Harnix 把它们并进实例数据根的 `settings.json`（0600）再让它 `engine.config.reload`；Harnix 写过哪些 id 记在 `.inherited-providers.json`，只动这些，实例自己配的同名 provider 不覆盖。`.reap_on_stop()`（缺省关）：停下或重启时收掉会话留下的进程。spawn 的 daemon 自成一个会话（`setsid`），它退出、被杀、崩溃或看护重启时，Harnix 把还留在这个会话里的进程 TERM、等 1.5 s、KILL；两种载体都在实例的全局设置层打开引擎的 `sandbox.reap_process_groups`（正常退出时引擎自己先收，进程内实例只有这一半）。spawn 的 daemon 的引擎还把会话命令所在的进程组记在数据根的 `daemon/groups/harnix.json`：daemon 被 `kill -9` 后看护重启时，新引擎先停掉上一次留下的，再建会话。daemon 在自己的会话里收不到终端的 Ctrl-C，退出照旧跟着 stdin 关闭走；自己 `setsid` 出去的进程收不到；实例视图带 `reap: true`。`.contribute(\|e\| …)`：两种载体都有的原生贡献。进程内模板把它并在载体自己的贡献之后；spawn 模板的贡献留在产品进程里：它的工具、钩子与门经通往 daemon 的链路提供、在这里作答，场景层的会话建在 daemon 的基础场景上并带上该层追加的东西；attach 的 daemon 没有。场景层不是引擎自己的场景，不列进 `EngineProfile.scenes`：列了的会被滤掉，当缺省场景则被拒 |
+| `InstanceTemplate` | `InstanceTemplate::in_process(id, EngineProfile)` / `::spawn(id, EngineProfile)` / `::attach(id, AttachTo)`，再 `.data_root(pattern)`、`.param(name)`、`.ui()`、`.max(n)`、`.inherit_providers()`、`.reap_on_stop()`、`.contribute(\|e\| …)`。全名 `<扩展 id>.<模板 id>`。实例的 id 就是建它时给的 `name`，全进程唯一；名字和参数只能是字母、数字、`-`、`_`、`.`，不能以 `.` 开头。`data_root` 默认 `{name}`，可用 `{name}` 和声明过的参数，在 `~/.<product_id>/instances/` 下；建过的实例记在 `kernel/instances.json`。`.ui()`：界面能按它建（只填 `param` 放开的参数）。`.max(n)`：至多 n 台。`.inherit_providers()`：这个模板的实例也看得到 `main` 的 provider（设置页配的）——建实例时、以及每次 `settings.setProvider` 之后，Harnix 把它们（连同引擎放在 `main` 全局层 `settings.local.json` 里的密钥）并进实例数据根的 `settings.json`（0600）再让它 `engine.config.reload`；Harnix 写过哪些 id 记在 `.inherited-providers.json`，只动这些，实例自己配的同名 provider 不覆盖。`.reap_on_stop()`（缺省关）：停下或重启时收掉会话留下的进程。spawn 的 daemon 自成一个会话（`setsid`），它退出、被杀、崩溃或看护重启时，Harnix 把还留在这个会话里的进程 TERM、等 1.5 s、KILL；两种载体都在实例的全局设置层打开引擎的 `sandbox.reap_process_groups`（正常退出时引擎自己先收，进程内实例只有这一半）。spawn 的 daemon 的引擎还把会话命令所在的进程组记在数据根的 `daemon/groups/harnix.json`：daemon 被 `kill -9` 后看护重启时，新引擎先停掉上一次留下的，再建会话。daemon 在自己的会话里收不到终端的 Ctrl-C，退出照旧跟着 stdin 关闭走；自己 `setsid` 出去的进程收不到；实例视图带 `reap: true`。`.contribute(\|e\| …)`：两种载体都有的原生贡献。进程内模板把它并在载体自己的贡献之后；spawn 模板的贡献留在产品进程里：它的工具、钩子与门经通往 daemon 的链路提供、在这里作答，场景层的会话建在 daemon 的基础场景上并带上该层追加的东西；attach 的 daemon 没有。场景层不是引擎自己的场景，不列进 `EngineProfile.scenes`：列了的会被滤掉，当缺省场景则被拒 |
 | `TemplateCarrier` | `InProcess { engine }`（只有扩展的模板能带原生贡献）、`Spawn { engine, program: Option<PathBuf>, args }`（`None` = 本二进制的 `daemon` 子命令）、`Attach(AttachTo { socket \| tcp + token })` |
 | `EngineContribution`（`r.engine()`） | `.scene(SceneLayer)`、`.provider(Arc<dyn ToolProvider>)`、`.prompt_gate(Arc<dyn PromptGate>)` |
 | `engine::EngineProfile` | `scene = "harnix"`、`scenes = []`、`model = "claude-sonnet-4-6"`、`max_tokens = 2000`、`session_cap = 32`、`session_idle_timeout_secs = 3600`、`permission_prompt_timeout_secs = 300`（括号里是默认值）；builder：`EngineProfile::new().scene(..).scenes(..).model(..)` |
@@ -1334,6 +1334,24 @@ export function register(r: Registry, host: HostApi): Dispose | void
 | `settings.section` | 设置里的一节；`covers: ["models"]`：外壳要人去配模型时打开它 |
 | `session.action` | 对一个会话、或它里面一次工具调用的动作：外壳在标题栏、会话菜单、工具行上问它 |
 | `sidebar.tab` | 右栏的一种页签类型：按 `patterns` 认领 `harnix-resource://` 地址，或按 `kind` 打开的页；§22.7 |
+
+`settings.section` 可以不给 `render`，只声明字段，外壳按声明画表单（类型对应控件、「恢复缺省」、有风险的值先确认、
+值在读取之后被别处改过时提示「保留我的修改并复核」）：
+
+```ts
+r.register("settings.section", {
+  id: "prefs", label: () => t("myext.prefs"),
+  fields: [                                  // FieldDecl[]，见 @harnix/react 的 fields.tsx
+    { key: "wrap", type: "toggle", label: "myext.wrap", default: false },
+    { key: "size", type: "number", label: "myext.size", min: 10, max: 24, default: 14 },
+  ],
+  store,                                     // 可选：FieldStore {load(), save(changes, revision?)}；缺省存在这个浏览器（harnix.pref.<owner>.<key>）
+}, owner);
+```
+
+`type` 是 `toggle`、`select`（`options`）、`number`（`min`、`max`）、`text`、`secret`（只写不读）、`list`、`rules`（`columns`）；
+`risk: {values?, message}` 让这些值先确认。引擎设置的字段由后端 `settings` 扩展的字段表声明，`settings.describe` 发给界面，
+`settings.write {tier, changes, revision?}` 整份校验、按版本号拒绝过期的写入（`CONFLICT`）。
 
 扩展定义的点（0.4.4 的第一方）：`system.console.tab`、`system.inspector.tab`，不算进「10 个」。
 `space` 的分组（0.4.2 的 25 个平铺成员按画在哪分四组）：
