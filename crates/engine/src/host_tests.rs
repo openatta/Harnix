@@ -114,6 +114,9 @@ impl Tool for Echo {
         if input["missing"].as_bool() == Some(true) {
             return Err(ToolError::NotFound("nothing there".into()));
         }
+        if input["panic"].as_bool() == Some(true) {
+            panic!("a tool that breaks");
+        }
         if input["wait"].as_bool() == Some(true) {
             cx.cancel().cancelled().await;
             return Err(ToolError::Cancelled);
@@ -300,6 +303,11 @@ async fn a_tool_that_fails_or_is_missing_answers_as_the_engine_reads_it() {
     let (_, missing) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
     assert_eq!(missing["error"], json!({"message": "nothing there"}));
     assert!(missing.get("result").is_none());
+
+    // One that panics fails its call, rather than leave the turn waiting for it.
+    fake.push("s1", tool_call("c4", json!({"panic": true}))).await;
+    let (_, panicked) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
+    assert_eq!(panicked["result"], json!({"content": "the tool `echo` failed; the host's log says where", "is_error": true}));
 
     // One the session was made with that is offered no more is answered as not there, not left
     // to time out; the hub does not see it.

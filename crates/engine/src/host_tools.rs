@@ -5,8 +5,11 @@
 //! carries is the root session's turn, which the delegate's call is part of. Its project is the
 //! root session's.
 
+use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
+
+use futures::FutureExt as _;
 
 use harnix_contract::sync::lock;
 use harnix_engine_api::{Cancel, Permission, Progress, SessionRef, Tool, ToolCx, ToolError, ToolOutput};
@@ -40,7 +43,15 @@ pub(crate) async fn run(host: Arc<HostSide>, wire: Arc<dyn Wired>, tool: Arc<dyn
         .with_depth(call.agent_session.is_some() as u32)
         .with_cancel(cancel.clone())
         .with_progress(progress(wire.clone(), &call.session, &call.call_id));
-    let out = if cancel.is_cancelled() { Err(ToolError::Cancelled) } else { tool.call(cx, call.input).await };
+    let out = if cancel.is_cancelled() {
+        Err(ToolError::Cancelled)
+    } else {
+        // A tool that panics fails its call, rather than leave the turn waiting for it.
+        AssertUnwindSafe(tool.call(cx, call.input)).catch_unwind().await.unwrap_or_else(|_| {
+            tracing::error!(instance = %host.instance(), tool = %call.name, "a tool panicked in a call");
+            Err(ToolError::Failed(format!("the tool `{}` failed; the host's log says where", call.name)))
+        })
+    };
     if let Ok(out) = &out {
         if out.structured().is_some() {
             tracing::debug!(tool = %call.name, "a tool's structured content has nowhere to go in the engine's answer; left out");
