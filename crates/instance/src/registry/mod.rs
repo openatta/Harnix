@@ -27,8 +27,8 @@ use harnix_contract::sync::lock;
 use harnix_contract::{codes, RpcError};
 use harnix_kernel::instances::{holding, holds, Holding, Side};
 use harnix_engine::ReplayLink;
-use harnix_engine_api::link::{EngineControl, EngineLink, LinkStatus};
-use harnix_engine_api::readers::Readers;
+use harnix_engine_link::link::{EngineControl, EngineLink, LinkStatus};
+use harnix_engine_link::Readers;
 use harnix_kernel::{GrantBook, InstanceBook, InstanceObserver, InstanceTrust, Listed, Rpc};
 use serde_json::{json, Value};
 use tokio::sync::watch;
@@ -347,7 +347,7 @@ impl InstanceRegistry {
     }
 
     /// What one instance's engine says it is, when it is listed.
-    pub fn identity(&self, id: &str) -> Option<harnix_engine_api::EngineIdentity> {
+    pub fn identity(&self, id: &str) -> Option<harnix_engine_link::EngineIdentity> {
         self.slot(id).map(|slot| slot.control.identity())
     }
 

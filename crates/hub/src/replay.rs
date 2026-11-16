@@ -16,7 +16,7 @@
 
 use std::collections::VecDeque;
 
-use harnix_engine_api::events::{Joins, SessionEventKind};
+use harnix_engine_link::events::{Joins, SessionEventKind};
 use serde_json::Value;
 
 /// Frames of one turn kept for catch-up, and the byte ceiling over them. A
@@ -152,7 +152,7 @@ impl Buffer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use harnix_engine_api::events::Fragment;
+    use harnix_engine_link::events::Fragment;
     use serde_json::json;
 
     /// What the engine's translation makes of these events.

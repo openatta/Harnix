@@ -12,8 +12,8 @@ use std::sync::Arc;
 
 use harnix_contract::sync::{lock, read, write};
 use harnix_contract::{RpcError, SkillSource};
-use harnix_engine_api::ops::{EngineOps, SessionSetup};
-use harnix_engine_api::SessionInfo;
+use harnix_engine_link::ops::{EngineOps, SessionSetup};
+use harnix_engine_link::SessionInfo;
 use serde_json::Value;
 
 use crate::{Hub, SessionKey};
@@ -114,7 +114,7 @@ impl Hub {
         ops: &dyn EngineOps,
         params: Value,
         setup: SessionSetup,
-    ) -> Result<harnix_engine_api::SessionCreated, RpcError> {
+    ) -> Result<harnix_engine_link::SessionCreated, RpcError> {
         let dirs = setup.skill_dirs.clone();
         match ops.create(params.clone(), setup.clone()).await {
             Err(e) => match refused_dirs(&e, dirs.len()) {

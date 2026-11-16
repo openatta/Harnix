@@ -49,7 +49,7 @@ pub use call::{Call, Deadline};
 pub use context::{
     ConfigError, ConfigFiles, Devices, EngineView, ExtensionContext, GrantsView, Listen, ProcessInfo, Service,
 };
-pub use credentials::{CredentialRef, Credentials, EnvCredentials};
+pub use credentials::{CredentialRef, Credentials, EnvCredentials, Secret};
 pub use descriptor::{
     DescriptorBuilder, ExtensionDescriptor, MethodBuilder, MethodDecl, MethodHandler, RouteDecl, TopicBuilder,
     TopicCompute, TopicDecl,
@@ -66,30 +66,21 @@ pub use topics::{TopicStream, TopicValue, Topics};
 /// Who calls, under which id, with which privileges, trusted how far, how far a row is open:
 /// the contract's words, which are this interface's.
 pub use harnix_contract::s1::{
-    caps, Access, CallMeta, Capability, CapabilitySpec, ExtId, IdError, InstanceTrust, PackageCarrier, RowScope,
-    Subject, Trust,
-};
-pub use harnix_contract::{
-    codes, ChainLink, DefaultInstance, RpcError, SessionRef, SpaceDecl, CONTRIB_API_VERSION, MAIN_INSTANCE,
+    caps, codes, Access, CallMeta, Capability, CapabilitySpec, ChainLink, DefaultInstance, ExtId, IdError,
+    InstanceTrust, PackageCarrier, RowScope, RpcError, SessionRef, SpaceDecl, Subject, Trust, CONTRIB_API_VERSION,
+    MAIN_INSTANCE,
 };
 /// The largest frame a connection carries: what an answer has to fit in.
-pub use harnix_contract::MAX_FRAME_BYTES;
+pub use harnix_contract::s1::MAX_FRAME_BYTES;
 
 /// What every handler answers.
 pub type Rpc<T> = Result<T, RpcError>;
 
-/// What an extension gives an engine, in Harnix's words: tools, tool providers, hooks, scene
-/// layers, prompt gates, instance templates, and the readers of what an
-/// engine writes down.
+/// What an extension gives an engine, in Harnix's words — tools, tool providers, hooks, scene
+/// layers, prompt gates, instance templates — and the readers of what an engine writes down: the
+/// engine interface (`harnix-engine-api`) whole, one list.
 pub mod engine {
-    pub use harnix_engine_api::readers;
-    pub use harnix_engine_api::{
-        AttachTo, BaseKind, BuiltinArgs, Cancel, CancelGuard, Delivery, EngineContribution,
-        EngineProfile, HookDecision, InstanceTemplate, Interaction, Permission, Progress, PromptDecision,
-        PromptFacts, PromptGate, PromptText, SceneBase, SceneLayer, Secret,
-        TemplateCarrier, Tool, ToolCallFacts, ToolCx, ToolError, ToolHook, ToolOutput, ToolProvider, ToolSpec,
-        ToolsChanged, ToolsWatch,
-    };
+    pub use harnix_engine_api::*;
 }
 
 /// An internal error, with what went wrong.

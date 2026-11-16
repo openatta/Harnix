@@ -4,9 +4,9 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 
 use harnix_contract::{Frame, RpcError};
-use harnix_engine_api::events::{Completion, Joins, Prompt, SessionEventKind};
+use harnix_engine_link::events::{Completion, Joins, Prompt, SessionEventKind};
 use harnix_contract::sync::lock;
-use harnix_engine_api::ops::{SessionInfo, SessionSetup};
+use harnix_engine_link::ops::{SessionInfo, SessionSetup};
 use harnix_kernel::CallContext;
 use serde_json::{json, Value};
 
@@ -307,7 +307,7 @@ impl Hub {
             None => {
                 ops.resume(session_id, info).await?;
                 ops.subscribe(session_id).await?.ok_or_else(|| {
-                    RpcError::new(harnix_engine_api::ops::codes::SESSION_NOT_FOUND, "the session was resumed and is not there")
+                    RpcError::new(harnix_engine_link::ops::codes::SESSION_NOT_FOUND, "the session was resumed and is not there")
                 })?
             }
         };
@@ -424,7 +424,7 @@ pub(crate) fn client_of(cx: &CallContext) -> Result<ClientId, RpcError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use harnix_engine_api::events::Waiting;
+    use harnix_engine_link::events::Waiting;
 
     fn asked(id: &str) -> SessionEventKind {
         SessionEventKind::Asked(Prompt::new(json!({"prompt_id": id}), Some(id.into()), None, Waiting::Approval))

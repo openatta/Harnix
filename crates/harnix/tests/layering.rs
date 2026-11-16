@@ -142,7 +142,7 @@ fn the_hub_does_not_know_about_connections() {
     );
     // Nor does it name the engine's crate: it reaches an instance through an `EngineLink`, and
     // the engine's error codes it tells apart come with the link's interface
-    // (`harnix_engine_api::ops::codes`).
+    // (`harnix_engine_link::ops::codes`).
     assert_ignorant_of(
         "hub",
         &["daemon"],
@@ -663,6 +663,7 @@ fn every_harnix_dependency_resolves() {
         "contract",
         "engine",
         "engine-api",
+        "engine-link",
         "ext/api",
         "ext/devices",
         "ext/flow",
@@ -734,6 +735,7 @@ mod rules {
         pub const HUB: &str = "harnix-hub";
         pub const INSTANCE: &str = "harnix-instance";
         pub const ENGINE_API: &str = "harnix-engine-api";
+        pub const ENGINE_LINK: &str = "harnix-engine-link";
         pub const ENGINE: &str = "harnix-engine";
         pub const SUPERVISE: &str = "harnix-supervise";
         pub const ASSEMBLY: &str = "harnix-assembly";
@@ -765,7 +767,7 @@ mod rules {
         ];
         /// Every crate the workspace may have (C12).
         pub const ALL: &[&str] = &[
-            CONTRACT, KERNEL, AUTHZ, ROUTER, TRANSPORT, HUB, INSTANCE, ENGINE_API, ENGINE, SUPERVISE,
+            CONTRACT, KERNEL, AUTHZ, ROUTER, TRANSPORT, HUB, INSTANCE, ENGINE_API, ENGINE_LINK, ENGINE, SUPERVISE,
             ASSEMBLY, EXT, HOST_API, PACKAGES, CARRIER_SHARED, CARRIER_WASM, CARRIER_PROC, PROC, PACKAGE, WASM_PORT,
             WASM_HOST, WASM, CLIENT, FACADE, CLI, TESTAPP,
             "harnix-ext-system",
@@ -778,7 +780,7 @@ mod rules {
         ];
         /// The skeleton: what no first-party extension, carrier or extension process is part of.
         pub const SKELETON: &[&str] = &[
-            CONTRACT, KERNEL, AUTHZ, ROUTER, TRANSPORT, HUB, INSTANCE, ENGINE_API, ENGINE, SUPERVISE,
+            CONTRACT, KERNEL, AUTHZ, ROUTER, TRANSPORT, HUB, INSTANCE, ENGINE_API, ENGINE_LINK, ENGINE, SUPERVISE,
             ASSEMBLY,
         ];
     }
@@ -1075,31 +1077,39 @@ mod rules {
 
     #[test]
     fn l05_transport() {
-        let forbidden = agix_and(&[ROUTER, HUB, INSTANCE, ENGINE, ENGINE_API]);
+        let forbidden = agix_and(&[ROUTER, HUB, INSTANCE, ENGINE, ENGINE_API, ENGINE_LINK]);
         depends(TRANSPORT, &[CONTRACT, KERNEL, AUTHZ], &forbidden, &[]);
     }
 
     #[test]
     fn l06_hub() {
         let forbidden = agix_and(&[INSTANCE, ENGINE, "axum", "bytes", "futures"]);
-        depends(HUB, &[CONTRACT, KERNEL, ENGINE_API], &forbidden, &[]);
+        depends(HUB, &[CONTRACT, KERNEL, ENGINE_API, ENGINE_LINK], &forbidden, &[]);
     }
 
     #[test]
     fn l07_instance() {
-        depends(INSTANCE, &[CONTRACT, KERNEL, ENGINE_API, ENGINE, SUPERVISE], &agix_and(&["axum"]), &[]);
+        depends(INSTANCE, &[CONTRACT, KERNEL, ENGINE_API, ENGINE_LINK, ENGINE, SUPERVISE], &agix_and(&["axum"]), &[]);
     }
 
     #[test]
     fn l08_engine_api() {
-        depends(ENGINE_API, &[CONTRACT], &agix_and(&["axum"]), &[]);
+        // The extension's half of the engine vocabulary (S1): it never names the skeleton's half.
+        depends(ENGINE_API, &[CONTRACT], &agix_and(&["axum", ENGINE_LINK]), &[]);
+    }
+
+    #[test]
+    fn l08_engine_link() {
+        // The skeleton's half (S3): the link, what the engine is asked, what it says unasked. It
+        // builds on the extension's half and on the contract, and on nothing of Agix.
+        depends(ENGINE_LINK, &[CONTRACT, ENGINE_API], &agix_and(&["axum"]), &[]);
     }
 
     #[test]
     fn l09_engine() {
         // Of Agix's crates, the facade `agix` and no other.
         let others: Vec<&str> = AGIX.iter().copied().filter(|c| *c != "agix").chain(["axum"]).collect();
-        depends(ENGINE, &[CONTRACT, ENGINE_API], &others, &[]);
+        depends(ENGINE, &[CONTRACT, ENGINE_API, ENGINE_LINK], &others, &[]);
         assert!(normal(ENGINE).iter().any(|(dep, _)| dep == "agix"), "`{ENGINE}` does not depend on the `agix` facade");
     }
 
@@ -1111,19 +1121,22 @@ mod rules {
     #[test]
     fn l11_assembly() {
         let allowed = [
-            CONTRACT, KERNEL, AUTHZ, ROUTER, TRANSPORT, HUB, INSTANCE, ENGINE_API, ENGINE, EXT, HOST_API, SUPERVISE,
+            CONTRACT, KERNEL, AUTHZ, ROUTER, TRANSPORT, HUB, INSTANCE, ENGINE_API, ENGINE_LINK, ENGINE, EXT, HOST_API,
+            SUPERVISE,
         ];
         depends(ASSEMBLY, &allowed, &agix_and(&[]), &[]);
     }
 
     #[test]
     fn l12_ext() {
-        depends(EXT, &[CONTRACT, KERNEL, ENGINE_API], &agix_and(&[ENGINE, "wasmtime"]), &["axum"]);
+        // The extension interface names the extension's half of the engine vocabulary and never
+        // the skeleton's: an extension cannot reach an engine link.
+        depends(EXT, &[CONTRACT, KERNEL, ENGINE_API], &agix_and(&[ENGINE, ENGINE_LINK, "wasmtime"]), &["axum"]);
     }
 
     #[test]
     fn l13_host_api() {
-        depends(HOST_API, &[CONTRACT, EXT, ENGINE_API], &agix_and(&[KERNEL, ENGINE]), &[]);
+        depends(HOST_API, &[CONTRACT, EXT, ENGINE_API], &agix_and(&[KERNEL, ENGINE, ENGINE_LINK]), &[]);
     }
 
     #[test]
@@ -1160,7 +1173,7 @@ mod rules {
 
     #[test]
     fn l18_proc() {
-        depends(PROC, &[WASM_HOST, WASM, WASM_PORT, PACKAGE, ENGINE_API, ENGINE], &[], &[]);
+        depends(PROC, &[WASM_HOST, WASM, WASM_PORT, PACKAGE, ENGINE_API, ENGINE_LINK, ENGINE], &[], &[]);
     }
 
     #[test]
@@ -1283,6 +1296,15 @@ mod rules {
         // And the test application's, whose fake host registers a package as `packages` does.
         only_used_by(HOST_API, &[ASSEMBLY, PACKAGES, CARRIER_WASM, CARRIER_PROC, TESTAPP], &[]);
         assert!(member_names().iter().any(|n| n == HOST_API), "`{HOST_API}` does not exist (yet)");
+    }
+
+    #[test]
+    fn l25_the_engine_link_is_the_skeletons_and_the_extension_processs() {
+        // The hub holds links, the instance layer builds them, the engine implements them, the
+        // assembly asks a carrier's kind, and the extension process builds a link to its own
+        // engine. No extension, host component or carrier: that is what makes it S3.
+        only_used_by(ENGINE_LINK, &[HUB, INSTANCE, ENGINE, ASSEMBLY, PROC], &[]);
+        assert!(member_names().iter().any(|n| n == ENGINE_LINK), "`{ENGINE_LINK}` does not exist (yet)");
     }
 
     #[test]
@@ -1495,6 +1517,11 @@ mod rules {
     #[test]
     fn c06_the_extension_interface_hides_nothing_and_names_no_agix() {
         assert_interface_crate_is_clean(EXT);
+    }
+
+    #[test]
+    fn c06_the_engine_link_names_no_agix() {
+        says_nothing_of(&[ENGINE_LINK], &["agix::"], false, &nobody);
     }
 
     fn host_components_and_first_party() -> Vec<String> {
@@ -1822,6 +1849,33 @@ mod rules {
             "an `aliases.rs` is left"
         );
         assert!(members.iter().any(|n| n == ASSEMBLY), "`{ASSEMBLY}` does not exist (yet)");
+    }
+
+    /// The S1 crates name the contract's types through `s1` alone, so that what they re-export is
+    /// what c14 and c15 check; the engine interface re-exports nothing but the contract's `s1`.
+    #[test]
+    fn c19_the_s1_crates_re_export_the_contract_through_s1_alone() {
+        let mut offenders = Vec::new();
+        for name in [EXT, ENGINE_API] {
+            for (path, text) in sources(name) {
+                let code = lex(&text, true);
+                for (i, line) in code.lines().enumerate() {
+                    let flat = line.replace(' ', "");
+                    if flat.contains("pubuseharnix_contract::") && !flat.contains("pubuseharnix_contract::s1::") {
+                        offenders.push(format!("{}:{} re-exports the contract outside `s1`", rel(&path), i + 1));
+                    }
+                }
+            }
+        }
+        assert!(offenders.is_empty(), "\n{}", offenders.join("\n"));
+    }
+
+    /// The skeleton's half of the engine vocabulary is not in the extension interface, its host
+    /// API or the facade, by dependency (l12, l13, l24) and by name.
+    #[test]
+    fn c19_the_engine_link_is_not_named_by_the_extension_interface_or_the_facade() {
+        let names = ["harnix_engine_link", "EngineLink", "EngineOps", "EngineControl", "EngineEvent", "SceneLayers", "ExpandedScene"];
+        says_nothing_of(&[EXT, HOST_API, FACADE], &names, false, &nobody);
     }
 
     #[test]

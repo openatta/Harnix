@@ -8,11 +8,12 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use harnix_contract::sync::lock;
-use harnix_engine_api::link::{EngineControl, EngineLink, EventReceiver, InstanceCarrier};
 use harnix_engine_api::{
-    EngineContribution, EngineEvent, HookDecision, Permission, PromptDecision, PromptFacts, PromptGate, SceneBase, SceneLayer, SessionEventKind,
-    Tool, ToolCallFacts, ToolCx, ToolError, ToolHook, ToolOutput, ToolProvider, ToolSpec, ToolsChanged,
+    EngineContribution, HookDecision, Permission, PromptDecision, PromptFacts, PromptGate, SceneBase, SceneLayer, Tool,
+    ToolCallFacts, ToolCx, ToolError, ToolHook, ToolOutput, ToolProvider, ToolSpec, ToolsChanged,
 };
+use harnix_engine_link::link::{EngineControl, EngineLink, EventReceiver, InstanceCarrier};
+use harnix_engine_link::{EngineEvent, SessionEventKind};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream, ReadHalf, WriteHalf};
 
@@ -250,7 +251,7 @@ async fn a_host_tool_call_is_answered_by_its_tool_and_not_handed_to_the_hub() {
     assert_eq!(answer["result"], json!({"content": "s1 /p 0 \"hi\"", "is_error": false}), "the structured part is left out");
     fake.answer(id, json!({"call_id": "c1"})).await;
     match first_event(&mut events).await {
-        EngineEvent::Session { kind: SessionEventKind::Fragment(f), .. } => assert_eq!(f, harnix_engine_api::Fragment::new(harnix_engine_api::Joins::Answer, "text", "after")),
+        EngineEvent::Session { kind: SessionEventKind::Fragment(f), .. } => assert_eq!(f, harnix_engine_link::Fragment::new(harnix_engine_link::Joins::Answer, "text", "after")),
         other => panic!("the hub was handed {other:?} first"),
     }
 }

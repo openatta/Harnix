@@ -101,7 +101,8 @@ crates/authz           admission and audit
 crates/transport       channel semantics, topologies, handshake, static face, /ext/<id>/…
 crates/hub             the session hub
 crates/instance        the instance registry: Agix instances behind one link
-crates/engine-api      the engine vocabulary without Agix: Tool, SceneLayer, PromptGate, …
+crates/engine-api      the engine vocabulary an extension uses, without Agix (S1): Tool, SceneLayer, PromptGate, …
+crates/engine-link     the engine as the skeleton reaches it (S3): the link, what it is asked, what it says
 crates/engine          the one crate that uses Agix
 crates/supervise       child processes: fork + exec, sandbox, reaping
 crates/ext/api         harnix-ext, the extension interface (S1)

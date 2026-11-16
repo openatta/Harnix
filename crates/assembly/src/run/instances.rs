@@ -6,7 +6,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use harnix_router::RouteTable;
-use harnix_engine_api::InstanceCarrier;
+use harnix_engine_link::InstanceCarrier;
 use harnix_instance::{Built, DownLink, Factory, Facts, Ledger, Owner, Recording, RegistryConfig};
 use harnix_ext::Credentials;
 

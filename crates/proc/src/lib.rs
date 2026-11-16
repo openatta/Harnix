@@ -41,7 +41,8 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Context};
 use harnix_engine::{Chains, Engine, EngineConfig, HostSide, InProcessEngine};
-use harnix_engine_api::{EngineContribution, EngineControl, EngineProfile};
+use harnix_engine_api::{EngineContribution, EngineProfile};
+use harnix_engine_link::EngineControl;
 use harnix_wasm_host::{Host, HostOptions};
 use harnix_wasm_port::rpc::{KernelClient, Wire};
 use harnix_wasm_port::socket::{now_ms, CallMeta, CancellationToken, Hello, Options as WireOptions, SocketWire, HELLO};

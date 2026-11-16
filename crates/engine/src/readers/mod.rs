@@ -22,8 +22,9 @@ use std::sync::Arc;
 
 use harnix_contract::RpcError;
 use harnix_engine_api::readers::{
-    CallDetail, Envelopes, ReadError, Readers, Recordings, SearchLimits, SearchResult, SessionUsage, Trace, Transcripts, Turns,
+    CallDetail, Envelopes, ReadError, Recordings, SearchLimits, SearchResult, SessionUsage, Trace, Transcripts, Turns,
 };
+use harnix_engine_link::Readers;
 use serde_json::Value;
 
 use crate::activity::Activity;

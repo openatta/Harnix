@@ -18,6 +18,7 @@ members = [
     "crates/contract",
     "crates/engine",
     "crates/engine-api",
+    "crates/engine-link",
     "crates/ext/api",
     "crates/ext/devices",
     "crates/ext/flow",
@@ -95,6 +96,7 @@ harnix-client    = { path = "crates/client" }
 harnix-contract  = { path = "crates/contract" }
 harnix-engine    = { path = "crates/engine" }
 harnix-engine-api = { path = "crates/engine-api" }
+harnix-engine-link = { path = "crates/engine-link" }
 harnix-ext       = { path = "crates/ext/api" }
 harnix-ext-devices = { path = "crates/ext/devices" }
 harnix-ext-flow    = { path = "crates/ext/flow" }

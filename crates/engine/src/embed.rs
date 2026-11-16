@@ -18,7 +18,7 @@ use std::time::Duration;
 use agix::embed::{EmbedConfig, Embedded};
 use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
-use harnix_engine_api::link::{EngineControl, EngineIdentity, InstanceCarrier, LinkStatus};
+use harnix_engine_link::link::{EngineControl, EngineIdentity, InstanceCarrier, LinkStatus};
 use harnix_engine_api::EngineProfile;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 use tokio::sync::watch;
@@ -311,7 +311,7 @@ pub fn active_scenes(scene: &str, scenes: &[String]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use harnix_engine_api::{EngineEvent, EngineLink};
+    use harnix_engine_link::{EngineEvent, EngineLink};
     use serde_json::json;
 
     fn config(dir: &Path) -> EngineConfig {
@@ -331,7 +331,7 @@ mod tests {
     /// The engine's error codes the hub tells apart are the engine's own numbers.
     #[test]
     fn the_codes_the_hub_tells_apart_are_the_engines() {
-        use harnix_engine_api::ops::codes;
+        use harnix_engine_link::ops::codes;
         assert_eq!(codes::SESSION_NOT_FOUND, agix::rpc::codes::SESSION_NOT_FOUND);
         assert_eq!(codes::SESSION_BUSY, agix::rpc::codes::SESSION_BUSY);
         assert_eq!(codes::PROJECT_REQUIRED, agix::rpc::codes::PROJECT_REQUIRED);

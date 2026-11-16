@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use harnix_contract::sync::lock;
 use harnix_contract::{codes, RpcError, Subject};
-use harnix_engine_api::ops::SessionInfo;
+use harnix_engine_link::ops::SessionInfo;
 use harnix_contract::s1::{caps, Capability, RowScope};
 use harnix_kernel::{Access, CallContext, Owner, Rpc};
 use serde_json::{json, Value};

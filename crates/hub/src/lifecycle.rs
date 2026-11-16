@@ -16,8 +16,8 @@
 use std::sync::Arc;
 
 use harnix_contract::{Frame, RpcError};
-use harnix_engine_api::events::{DaemonEventKind, EngineEvent, SessionEventKind};
-use harnix_engine_api::EventReceiver;
+use harnix_engine_link::events::{DaemonEventKind, EngineEvent, SessionEventKind};
+use harnix_engine_link::EventReceiver;
 use serde_json::{json, Value};
 
 use crate::{notification, Hub, SessionKey};

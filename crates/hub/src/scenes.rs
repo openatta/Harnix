@@ -1,7 +1,7 @@
 //! Scene layers, as the hub sets a session up from one.
 //!
 //! The engine serves only its own scenes. An instance's scene layers come with its link
-//! ([`EngineControl::scene_layers`](harnix_engine_api::EngineControl::scene_layers)): a session
+//! ([`EngineControl::scene_layers`](harnix_engine_link::EngineControl::scene_layers)): a session
 //! created in one is created in the engine's scene the layer runs on, set up with what the layer
 //! adds, and the ledger records which layer it was (`spaces.rs`). The engine reports the session's
 //! scene as its own; the hub adds `scene_layer` wherever it describes the session.
@@ -11,8 +11,8 @@
 //! base.
 
 use harnix_contract::RpcError;
-use harnix_engine_api::ops::codes;
-use harnix_engine_api::{ExpandedScene, SceneLayers};
+use harnix_engine_link::ops::codes;
+use harnix_engine_link::{ExpandedScene, SceneLayers};
 use serde_json::{json, Map, Value};
 
 /// The layer a session is created in, when `params` name one; refused when it needs a project

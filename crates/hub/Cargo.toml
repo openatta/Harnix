@@ -11,6 +11,7 @@ description  = "The session hub: subscription, replay, seq, turn ownership, queu
 harnix-contract = { workspace = true }
 harnix-kernel   = { workspace = true }
 harnix-engine-api = { workspace = true }
+harnix-engine-link = { workspace = true }
 tokio       = { workspace = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }

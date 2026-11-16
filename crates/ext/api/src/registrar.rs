@@ -2,8 +2,7 @@
 
 use std::path::PathBuf;
 
-use harnix_contract::s1::{Access, ExtId};
-use harnix_contract::SpaceDecl;
+use harnix_contract::s1::{Access, ExtId, SpaceDecl};
 use harnix_engine_api::{EngineContribution, InstanceTemplate, ToolSpec};
 
 use crate::descriptor::{DescriptorBuilder, MethodBuilder, TopicBuilder};

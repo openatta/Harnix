@@ -10,6 +10,7 @@ description  = "App::builder(): a Harnix process assembled from extensions, and 
 [dependencies]
 harnix-instance  = { workspace = true }
 harnix-engine-api = { workspace = true }
+harnix-engine-link = { workspace = true }
 harnix-engine    = { workspace = true }
 harnix-authz     = { workspace = true }
 harnix-kernel    = { workspace = true }

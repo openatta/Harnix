@@ -11,8 +11,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use harnix_contract::RpcError;
-use harnix_engine_api::events::{Completion, DaemonEventKind, EngineEvent, Fragment, Joins, Prompt, SessionEventKind, Waiting};
-use harnix_engine_api::ops::{codes, Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
+use harnix_engine_link::events::{Completion, DaemonEventKind, EngineEvent, Fragment, Joins, Prompt, SessionEventKind, Waiting};
+use harnix_engine_link::ops::{codes, Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
 use harnix_engine_api::{Delivery, ToolError, ToolOutput, ToolSpec};
 use serde_json::{json, Value};
 
@@ -1019,9 +1019,9 @@ mod tests {
         }
     }
 
-    fn layer(scene: harnix_engine_api::SceneLayer) -> harnix_engine_api::ExpandedScene {
+    fn layer(scene: harnix_engine_api::SceneLayer) -> harnix_engine_link::ExpandedScene {
         let id = scene.id().to_string();
-        harnix_engine_api::SceneLayers::new(&[scene]).unwrap().get(&id).cloned().unwrap()
+        harnix_engine_link::SceneLayers::new(&[scene]).unwrap().get(&id).cloned().unwrap()
     }
 
     #[test]

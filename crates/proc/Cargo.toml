@@ -14,6 +14,7 @@ description  = "An extension process: the product re-executed as `ext-proc`, its
 [dependencies]
 harnix-engine    = { workspace = true }
 harnix-engine-api = { workspace = true }
+harnix-engine-link = { workspace = true }
 harnix-package   = { workspace = true }
 harnix-wasm-host = { workspace = true }
 harnix-wasm-port = { workspace = true, features = ["socket"] }
