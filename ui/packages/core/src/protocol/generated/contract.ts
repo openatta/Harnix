@@ -314,9 +314,9 @@ export type SessionActivity = "idle" | "running" | "queued";
  */
 export type HubSessionRow = { instance: string, 
 /**
- * The space it belongs to; null when none is recorded.
+ * The space it belongs to: the one recorded for it, else the instance's default.
  */
-space: string | null, 
+space: string, 
 /**
  * A turn is running.
  */

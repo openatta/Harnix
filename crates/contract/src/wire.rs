@@ -335,8 +335,8 @@ pub enum SessionActivity {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct HubSessionRow {
     pub instance: String,
-    /// The space it belongs to; null when none is recorded.
-    pub space: Option<String>,
+    /// The space it belongs to: the one recorded for it, else the instance's default.
+    pub space: String,
     /// A turn is running.
     pub running: bool,
     /// Messages waiting their turn.

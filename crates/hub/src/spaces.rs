@@ -29,6 +29,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use harnix_contract::sync::{lock, read, write};
+use harnix_contract::wire::{self, SessionsList, SpaceRow, SpacesList, StartedBy};
 use harnix_contract::{codes, DefaultInstance, RpcError, SpaceDecl, Subject};
 use harnix_kernel::{CallContext, Listed};
 use serde::{Deserialize, Serialize};
@@ -608,12 +609,12 @@ impl Hub {
         }
     }
 
-    /// `"harnix"` for a session a module or the kernel started, `"user"` otherwise.
-    pub(crate) fn starter_of(&self, key: &SessionKey) -> &'static str {
+    /// `harnix` for a session a module or the kernel started, `user` otherwise.
+    pub(crate) fn starter_of(&self, key: &SessionKey) -> StartedBy {
         if lock(&self.spaces).started_by_harnix(key) {
-            "harnix"
+            StartedBy::Harnix
         } else {
-            "user"
+            StartedBy::User
         }
     }
 
@@ -656,27 +657,25 @@ impl Hub {
                 }
             }
         }
-        Ok(json!({"space": space, "sessions": rows}))
+        Ok(wire::params(&SessionsList { instance: None, space: Some(space.to_string()), sessions: rows }))
     }
 
     /// `harnix.spaces.list`: every space the backend knows, with where its sessions land.
     pub(crate) fn spaces_view(&self) -> Value {
         let spaces = lock(&self.spaces);
-        let list: Vec<Value> = spaces
+        let list: Vec<SpaceRow> = spaces
             .decls
             .values()
-            .map(|d| {
-                json!({
-                    "id": d.id,
-                    "instance": d.instance.to_string(),
-                    "built": spaces.ledger.instances.get(&d.id),
-                    "scene": d.scene,
-                    "cross_space": d.cross_space,
-                    "default": d.default_space,
-                })
+            .map(|d| SpaceRow {
+                id: d.id.clone(),
+                instance: d.instance.to_string(),
+                built: spaces.ledger.instances.get(&d.id).cloned(),
+                scene: d.scene.clone(),
+                cross_space: d.cross_space,
+                default_space: d.default_space,
             })
             .collect();
-        json!({"spaces": list})
+        wire::params(&SpacesList { spaces: list })
     }
 
     /// A referenced session's transcript, as a text attachment for a turn in another space

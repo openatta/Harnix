@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use harnix_contract::sync::{lock, read, write};
+use harnix_contract::wire::{self, TopicEnded, TopicFrame};
 use harnix_contract::{Frame, RpcError};
 use harnix_kernel::TopicSource;
 use serde_json::{json, Value};
@@ -149,7 +150,8 @@ impl Topics {
             }
         }
         let frame = |value: &Value| {
-            Frame::host(notification("harnix.topic", json!({"topic": key.0, "params": params, "value": value})))
+            let frame = TopicFrame { topic: key.0.clone(), params: params.clone(), value: value.clone() };
+            Frame::host(notification("harnix.topic", wire::params(&frame)))
         };
         let mut told = vec![(free, frame(&value))];
         for (space, clients) in by_space {
@@ -199,7 +201,7 @@ impl crate::Hub {
             count += clients.len();
             let frame = Frame::host(notification(
                 TOPIC_ENDED,
-                json!({"topic": name, "params": params, "reason": reason}),
+                wire::params(&TopicEnded { topic: name.to_string(), params, reason: reason.to_string() }),
             ));
             out.push(guard.clients.to_many(&clients, frame));
         }

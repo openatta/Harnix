@@ -7,6 +7,7 @@
 use std::sync::{Arc, OnceLock, RwLock, Weak};
 
 use harnix_contract::sync::read;
+use harnix_contract::wire::ExtensionEntry;
 use harnix_hub::HubCell;
 use harnix_router::Router;
 use serde_json::{json, Value};
@@ -108,24 +109,28 @@ impl Diagnostics {
     /// Each extension as `harnix.ui` tells the page of it: its id, trust, carrier, version, whether
     /// it is enabled, and what it declared of its interface. One registered while the process runs
     /// is enabled for as long as it is registered.
-    pub(crate) fn ui_entries(&self) -> Vec<Value> {
-        let mut out: Vec<Value> = read(&self.extensions)
+    pub(crate) fn ui_entries(&self) -> Vec<ExtensionEntry> {
+        let mut out: Vec<ExtensionEntry> = read(&self.extensions)
             .iter()
-            .map(|e| {
-                json!({
-                    "id": e.id,
-                    "trust": e.trust,
-                    "carrier": e.carrier,
-                    "version": e.version,
-                    "enabled": e.enabled,
-                    "ui": e.ui,
-                })
+            .map(|e| ExtensionEntry {
+                id: e.id.clone(),
+                trust: e.trust.to_string(),
+                carrier: e.carrier.to_string(),
+                version: Some(e.version.clone()),
+                enabled: e.enabled,
+                bundle: None,
+                ui: Some(e.ui.clone()),
             })
             .collect();
         if let Some(packages) = self.dynamic.get() {
-            out.extend(packages.registered().into_iter().map(|a| {
-                let carrier = harnix_host_api::carrier_name(a.carrier);
-                json!({ "id": a.id, "trust": "consent", "carrier": carrier, "version": null, "enabled": true, "ui": null })
+            out.extend(packages.registered().into_iter().map(|a| ExtensionEntry {
+                id: a.id.clone(),
+                trust: "consent".to_string(),
+                carrier: harnix_host_api::carrier_name(a.carrier).to_string(),
+                version: None,
+                enabled: true,
+                bundle: None,
+                ui: Some(Value::Null),
             }));
         }
         out

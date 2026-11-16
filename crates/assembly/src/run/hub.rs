@@ -5,10 +5,11 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use harnix_contract::wire::{Brand, HelloShell};
 use harnix_hub::{Hub, HubConfig};
 use harnix_instance::link::now_ms;
 use harnix_instance::{InstanceRegistry, Owner, INSTANCES_TOPIC};
-use serde_json::{json, Value};
+use serde_json::json;
 
 use super::instances::Instances;
 use crate::cli::Cli;
@@ -86,7 +87,7 @@ pub(super) async fn assemble(
     let _ = behind.hello.set(Arc::new(Hello {
         hub: hub.clone(),
         instances: registry.clone(),
-        limits: serde_json::to_value(limits).unwrap_or(json!({})),
+        limits,
         prompt_timeout_secs: profile.instances.engine.permission_prompt_timeout_secs,
         shell: shell(profile, roots, brand_icon.is_some()),
         ui: ui.clone(),
@@ -164,22 +165,22 @@ fn brand_icon(profile: &Profile, profile_path: Option<&Path>) -> Option<PathBuf>
 /// What the shell is told at hello: the brand, whether installed packages' interface modules
 /// load (concept §5.8), whether it starts new sessions at all (`new_session`, ipdrun-46), and
 /// whether the composer switches a session's model (`model_switch`).
-fn shell(profile: &Profile, roots: &Roots, has_icon: bool) -> Value {
-    json!({
-        "brand": {
-            "name": profile.brand.name,
-            "icon": has_icon.then_some(harnix_transport::BRAND_ICON_PATH),
-            "product_id": profile.brand.product_id.as_deref().unwrap_or("harnix"),
+fn shell(profile: &Profile, roots: &Roots, has_icon: bool) -> HelloShell {
+    HelloShell {
+        brand: Brand {
+            name: profile.brand.name.clone(),
+            icon: has_icon.then(|| harnix_transport::BRAND_ICON_PATH.to_string()),
+            product_id: profile.brand.product_id.clone().unwrap_or_else(|| "harnix".to_string()),
         },
-        "runtime_modules": profile.ui.runtime_modules,
-        "new_session": profile.shell.new_session,
-        "model_switch": profile.shell.model_switch,
-        "narrow_details": profile.shell.narrow_details.as_str(),
-        "state_dir": roots.state.display().to_string(),
-        "projects_dir": roots.projects.display().to_string(),
+        runtime_modules: profile.ui.runtime_modules,
+        new_session: profile.shell.new_session,
+        model_switch: profile.shell.model_switch,
+        narrow_details: profile.shell.narrow_details,
+        state_dir: roots.state.display().to_string(),
+        projects_dir: roots.projects.display().to_string(),
         // Whose process this is: the avatar's name. One process, one person (concept §10).
-        "user": std::env::var("USER").or_else(|_| std::env::var("USERNAME")).ok(),
-    })
+        user: std::env::var("USER").or_else(|_| std::env::var("USERNAME")).ok(),
+    }
 }
 
 #[cfg(test)]
@@ -209,9 +210,9 @@ mod tests {
             state: "/s".into(),
         };
         let profile = Profile::default();
-        assert_eq!(shell(&profile, &roots, false)["brand"]["icon"], Value::Null);
-        assert_eq!(shell(&profile, &roots, true)["brand"]["icon"], harnix_transport::BRAND_ICON_PATH);
-        assert_eq!(shell(&profile, &roots, false)["brand"]["product_id"], "harnix");
-        assert_eq!(shell(&profile, &roots, false)["state_dir"], "/s");
+        assert_eq!(shell(&profile, &roots, false).brand.icon, None);
+        assert_eq!(shell(&profile, &roots, true).brand.icon.as_deref(), Some(harnix_transport::BRAND_ICON_PATH));
+        assert_eq!(shell(&profile, &roots, false).brand.product_id, "harnix");
+        assert_eq!(shell(&profile, &roots, false).state_dir, "/s");
     }
 }

@@ -167,23 +167,8 @@ pub(crate) struct ShellProfile {
     pub narrow_details: NarrowDetails,
 }
 
-/// `[shell] narrow_details` (ipdrun-50).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum NarrowDetails {
-    #[default]
-    Over,
-    Beside,
-}
-
-impl NarrowDetails {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            NarrowDetails::Over => "over",
-            NarrowDetails::Beside => "beside",
-        }
-    }
-}
+/// `[shell] narrow_details` (ipdrun-50): the wire's enum, read from the profile as it is told at hello.
+pub(crate) use harnix_contract::wire::NarrowDetails;
 
 impl Default for ShellProfile {
     fn default() -> Self {

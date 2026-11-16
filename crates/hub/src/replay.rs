@@ -17,6 +17,7 @@
 use std::collections::VecDeque;
 
 use harnix_engine_link::events::{Joins, SessionEventKind};
+use harnix_contract::wire::ReplayFrame as WireFrame;
 use serde_json::Value;
 
 /// Frames of one turn kept for catch-up, and the byte ceiling over them. A
@@ -141,10 +142,10 @@ impl Buffer {
         self.truncated = false;
     }
 
-    pub fn snapshot(&self) -> Vec<Value> {
+    pub fn snapshot(&self) -> Vec<WireFrame> {
         self.frames
             .iter()
-            .map(|f| serde_json::json!({"seq": f.seq, "turn_id": f.turn_id, "event": f.event}))
+            .map(|f| WireFrame { seq: f.seq, turn_id: f.turn_id.clone(), event: f.event.clone() })
             .collect()
     }
 }
@@ -205,10 +206,10 @@ mod tests {
         b.add(2, "t", &delta("lo"));
         let snap = b.snapshot();
         assert_eq!(snap.len(), 1);
-        assert_eq!(snap[0]["event"]["text"], "hello");
+        assert_eq!(snap[0].event["text"], "hello");
         // The merged frame carries the newest seq, so a client that has seen
         // it does not ask for the first half again.
-        assert_eq!(snap[0]["seq"], 2);
+        assert_eq!(snap[0].seq, 2);
     }
 
     #[test]
@@ -227,7 +228,7 @@ mod tests {
         b.add(3, "t", &delta("so"));
         let snap = b.snapshot();
         assert_eq!(snap.len(), 2);
-        assert_eq!(snap[0]["event"]["text"], "hmm");
+        assert_eq!(snap[0].event["text"], "hmm");
     }
 
     #[test]
@@ -243,7 +244,7 @@ mod tests {
         b.add(3, "t", &args("a", "\"x\"}"));
         let snap = b.snapshot();
         assert_eq!(snap.len(), 2);
-        assert_eq!(snap[1]["event"]["partial_json"], "{\"path\":\"x\"}");
+        assert_eq!(snap[1].event["partial_json"], "{\"path\":\"x\"}");
 
         b.add(
             4,
@@ -253,7 +254,7 @@ mod tests {
         let kinds: Vec<_> = b
             .snapshot()
             .iter()
-            .map(|f| f["event"]["kind"].as_str().unwrap().to_string())
+            .map(|f| f.event["kind"].as_str().unwrap().to_string())
             .collect();
         assert_eq!(kinds, ["tool_use_start", "tool_use"]);
     }

@@ -15,6 +15,7 @@
 
 use std::sync::Arc;
 
+use harnix_contract::wire::{self, SessionResync};
 use harnix_contract::{Frame, RpcError};
 use harnix_engine_link::events::{DaemonEventKind, EngineEvent, SessionEventKind};
 use harnix_engine_link::EventReceiver;
@@ -338,7 +339,7 @@ impl Hub {
                 &session_id,
                 notification(
                     "harnix.session_resync",
-                    json!({"instance": instance, "session_id": session_id}),
+                    wire::params(&SessionResync { instance: instance.to_string(), session_id: session_id.to_string() }),
                 ),
             ),
         )

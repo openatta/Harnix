@@ -12,6 +12,7 @@
 
 use std::sync::Arc;
 
+use harnix_contract::wire::{self, QueueFrame, TurnOutcome, TurnSettled};
 use harnix_contract::{Frame, RpcError};
 use harnix_engine_link::events::Completion;
 use harnix_engine_link::ops::{codes as engine_codes, TurnInput};
@@ -332,25 +333,20 @@ impl Hub {
             (state.watchers(), state.queue.pop_front(), state.last_complete.take().map(|c| (c, answer)))
         };
 
-        let mut params = match &outcome {
-            Ok(result) => json!({"instance": instance, "session_id": session_id, "turn_id": turn_id, "result": result}),
-            Err(error) => json!({
-                "instance": instance, "session_id": session_id, "turn_id": turn_id,
-                "error": {"code": error.code, "message": error.message},
-            }),
+        // The engine's account of a failure (its kind, whether a retry may work) rides along in
+        // the error's `data`. How the turn ended, as the engine said when it completed, is here
+        // too, so a watcher that missed that frame (a tap that fell behind) still has it (ipdrun-17).
+        let params = TurnSettled {
+            instance: instance.to_string(),
+            session_id: session_id.to_string(),
+            turn_id: turn_id.to_string(),
+            result: outcome.as_ref().ok().cloned(),
+            error: outcome.as_ref().err().cloned(),
+            outcome: complete.map(|(complete, answer)| outcome_of(&complete, &answer)),
         };
-        // The engine's account of a failure (its kind, whether a retry may work) rides along.
-        if let (Err(RpcError { data: Some(data), .. }), Some(error)) = (&outcome, params.get_mut("error")) {
-            error["data"] = data.clone();
-        }
-        // How the turn ended, as the engine said when it completed: here too, so a watcher that
-        // missed that frame (a tap that fell behind) still has it (ipdrun-17).
-        if let Some((complete, answer)) = complete {
-            params["outcome"] = outcome_of(&complete, &answer);
-        }
         self.fan_out(
             &watchers,
-            Frame::session(session_id, notification("harnix.turn_settled", params)),
+            Frame::session(session_id, notification("harnix.turn_settled", wire::params(&params))),
         )
         .await;
 
@@ -517,19 +513,9 @@ impl Hub {
     /// The queue is pushed **whole**, never as a delta. A merge bug only shows
     /// up in one order of arrival, and that order is not one tests reliably
     /// produce (concept §3.2).
-    async fn push_queue(&self, key: &SessionKey, watchers: &[crate::ClientId], items: Vec<Value>) {
-        let (instance, session_id) = (&key.0, key.1.as_str());
-        self.fan_out(
-            watchers,
-            Frame::session(
-                session_id,
-                notification(
-                    "harnix.queue",
-                    json!({"instance": instance, "session_id": session_id, "items": items}),
-                ),
-            ),
-        )
-        .await;
+    async fn push_queue(&self, key: &SessionKey, watchers: &[crate::ClientId], items: Vec<wire::QueueItem>) {
+        let frame = QueueFrame { instance: key.0.clone(), session_id: key.1.clone(), items };
+        self.fan_out(watchers, Frame::session(&key.1, notification("harnix.queue", wire::params(&frame)))).await;
     }
 }
 
@@ -538,23 +524,16 @@ impl Hub {
 /// up to [`ANSWER_TEXT_MAX`](crate::session::ANSWER_TEXT_MAX) (`text_truncated` past it; the whole
 /// of it is in the transcript), and each tool call's `id`, `name` and `is_error` once it has a
 /// result.
-fn outcome_of(complete: &Completion, answer: &crate::session::Answer) -> Value {
-    let mut outcome = json!({
-        "stop_reason": complete.stop_reason,
-        "usage": complete.usage,
-        "text": answer.text,
-        "tool_calls": answer.tool_calls,
-    });
-    if answer.truncated {
-        outcome["text_truncated"] = json!(true);
+fn outcome_of(complete: &Completion, answer: &crate::session::Answer) -> TurnOutcome {
+    TurnOutcome {
+        stop_reason: complete.stop_reason.clone(),
+        usage: complete.usage.clone(),
+        text: answer.text.clone(),
+        tool_calls: answer.tool_calls.clone(),
+        text_truncated: answer.truncated,
+        structured_output: complete.structured_output.clone(),
+        message: complete.message.clone(),
     }
-    if let Some(output) = &complete.structured_output {
-        outcome["structured_output"] = output.clone();
-    }
-    if let Some(message) = &complete.message {
-        outcome["message"] = message.clone();
-    }
-    outcome
 }
 
 #[cfg(test)]
@@ -588,7 +567,7 @@ mod outcome_tests {
             .with_structured_output(Some(json!({"ok": true})))
             .with_message(Some(json!("the hook said no")));
         assert_eq!(
-            outcome_of(&complete, &Default::default()),
+            wire::params(&outcome_of(&complete, &Default::default())),
             json!({
                 "stop_reason": "stopped_by_hook",
                 "usage": {"input_tokens": 10, "output_tokens": 3},
@@ -598,7 +577,7 @@ mod outcome_tests {
                 "tool_calls": [],
             })
         );
-        let plain = outcome_of(&Completion::new(json!("end_turn"), json!({})), &Default::default());
+        let plain = wire::params(&outcome_of(&Completion::new(json!("end_turn"), json!({})), &Default::default()));
         assert!(plain.get("structured_output").is_none() && plain.get("message").is_none());
     }
 
@@ -620,7 +599,7 @@ mod outcome_tests {
         ] {
             answer.take_event(&kind);
         }
-        let outcome = outcome_of(&Completion::new(json!("end_turn"), json!({})), &answer);
+        let outcome = wire::params(&outcome_of(&Completion::new(json!("end_turn"), json!({})), &answer));
         assert_eq!(outcome["text"], "Let me look. Done.");
         assert_eq!(
             outcome["tool_calls"],
@@ -642,6 +621,6 @@ mod outcome_tests {
         answer.take_event(&text("more"));
         assert!(answer.text.len() <= crate::session::ANSWER_TEXT_MAX);
         let outcome = outcome_of(&Completion::new(json!("end_turn"), json!({})), &answer);
-        assert_eq!(outcome["text_truncated"], true);
+        assert!(outcome.text_truncated);
     }
 }

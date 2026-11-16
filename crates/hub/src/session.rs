@@ -3,6 +3,7 @@
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 
+use harnix_contract::wire::{self, AttachResult, EventFrame, ToolCallOutcome};
 use harnix_contract::{Frame, RpcError};
 use harnix_engine_link::events::{Completion, Joins, Prompt, SessionEventKind};
 use harnix_contract::sync::lock;
@@ -35,12 +36,8 @@ impl QueueItem {
     /// a running turn draws as a bare question, and there is no other call
     /// that would tell the client otherwise. They reach the turn either way —
     /// what was missing was the client being able to see that they would.
-    pub fn view(&self) -> Value {
-        json!({
-            "item_id": self.item_id,
-            "message": self.message,
-            "attachments": self.attachments,
-        })
+    pub fn view(&self) -> wire::QueueItem {
+        wire::QueueItem { item_id: self.item_id.clone(), message: self.message.clone(), attachments: self.attachments.clone() }
     }
 }
 
@@ -92,7 +89,7 @@ pub(crate) struct SessionState {
 pub(crate) struct Answer {
     pub text: String,
     pub truncated: bool,
-    pub tool_calls: Vec<Value>,
+    pub tool_calls: Vec<ToolCallOutcome>,
 }
 
 /// The most answer text `outcome.text` carries; the rest is in `engine.session.history`.
@@ -112,14 +109,12 @@ impl Answer {
                     self.truncated = true;
                 }
             }
-            SessionEventKind::ToolCall { id, name } => self.tool_calls.push(json!({"id": id, "name": name})),
+            SessionEventKind::ToolCall { id, name } => {
+                self.tool_calls.push(ToolCallOutcome { id: id.clone(), name: name.clone(), is_error: None })
+            }
             SessionEventKind::ToolResult { id, is_error } => {
-                if let Some(call) = self
-                    .tool_calls
-                    .iter_mut()
-                    .find(|c| c.get("id").and_then(Value::as_str) == Some(id.as_str()))
-                {
-                    call["is_error"] = json!(is_error);
+                if let Some(call) = self.tool_calls.iter_mut().find(|c| c.id == *id) {
+                    call.is_error = Some(*is_error);
                 }
             }
             _ => {}
@@ -132,7 +127,7 @@ impl SessionState {
         self.watchers.iter().copied().collect()
     }
 
-    pub fn queue_view(&self) -> Vec<Value> {
+    pub fn queue_view(&self) -> Vec<wire::QueueItem> {
         self.queue.iter().map(QueueItem::view).collect()
     }
 
@@ -193,11 +188,15 @@ pub(crate) async fn route_event(
     let seq = state.seq;
     state.replay.push(seq, turn_id, kind, &event);
     let watchers = state.watchers();
-    let mut params = json!({"instance": instance, "session_id": session_id, "seq": seq, "turn_id": turn_id, "event": event});
-    if extension {
-        params["trust"] = json!("extension");
-    }
-    let frame = Frame::session(session_id.to_string(), notification("harnix.event", params));
+    let params = EventFrame {
+        instance: instance.to_string(),
+        session_id: session_id.to_string(),
+        seq,
+        turn_id: turn_id.to_string(),
+        event,
+        trust: extension.then_some(wire::EngineTrust::Extension),
+    };
+    let frame = Frame::session(session_id.to_string(), notification("harnix.event", wire::params(&params)));
     let out = guard.clients.to_many(&watchers, frame);
     crate::send_after(guard, [out]).await;
 }
@@ -259,21 +258,19 @@ impl Hub {
         } else {
             Vec::new()
         };
-        let mut attached = json!({
-            "instance": instance,
-            "session": session,
-            "history_total": history_total,
-            "replay": replay,
-            "truncated": state.replay.truncated,
-            "pending_prompts": state.prompts_view(),
-            "running_turn": state.running_turn,
-            "queue": state.queue_view(),
-            "seq": state.seq,
-        });
-        if extension {
-            attached["trust"] = json!("extension");
-        }
-        Ok(attached)
+        let attached = AttachResult {
+            instance,
+            session,
+            history_total,
+            replay,
+            truncated: state.replay.truncated,
+            pending_prompts: state.prompts_view(),
+            running_turn: state.running_turn.clone(),
+            queue: state.queue_view(),
+            seq: state.seq,
+            trust: extension.then_some(wire::EngineTrust::Extension),
+        };
+        Ok(wire::params(&attached))
     }
 
     /// Subscribe the hub to a session once, resuming it first if it exists
