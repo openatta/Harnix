@@ -52,6 +52,7 @@ mod records;
 mod skills;
 mod snapshot;
 mod starting;
+pub mod wire;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -375,27 +376,28 @@ pub(crate) async fn status(state: &State, id: &harnix_ext::ExtId) -> Value {
 }
 
 /// What the list's top says of the carrier.
-pub(crate) fn runtime(state: &State, sandbox: Value) -> Value {
-    json!({
-        "carrier": state.carrier.name(),
-        "fingerprint": state.carrier.fingerprint(),
-        "dev": state.dev,
-        "sandbox": sandbox,
-    })
+pub(crate) fn runtime(state: &State, sandbox: Option<wire::Sandbox>) -> wire::PackagesRuntime {
+    wire::PackagesRuntime {
+        carrier: state.carrier.name().to_string(),
+        fingerprint: state.carrier.fingerprint(),
+        dev: state.dev,
+        sandbox,
+    }
 }
 
-/// The sandbox the carrier's processes start in, as the host applies it; `null` for a carrier that
-/// starts none.
-pub(crate) fn sandbox(state: &State) -> Value {
+/// The sandbox the carrier's processes start in, as the host applies it; `None` for a carrier
+/// that starts none.
+pub(crate) fn sandbox(state: &State) -> Option<wire::Sandbox> {
     if state.carrier.kind() != PackageCarrier::Process {
-        return Value::Null;
+        return None;
     }
-    match state.host.child_sandbox() {
-        ChildSandbox::On(mechanism) => json!({"mode": "on", "mechanism": mechanism}),
-        ChildSandbox::Off => json!({"mode": "off"}),
-        ChildSandbox::Unavailable(why) => json!({"mode": "unavailable", "why": why}),
-        other => json!({"mode": "unavailable", "why": format!("{other:?}")}),
-    }
+    let sandbox = |mode: &str, mechanism: Option<String>, why: Option<String>| wire::Sandbox { mode: mode.to_string(), mechanism, why };
+    Some(match state.host.child_sandbox() {
+        ChildSandbox::On(mechanism) => sandbox("on", Some(mechanism.to_string()), None),
+        ChildSandbox::Off => sandbox("off", None, None),
+        ChildSandbox::Unavailable(why) => sandbox("unavailable", None, Some(why.to_string())),
+        other => sandbox("unavailable", None, Some(format!("{other:?}"))),
+    })
 }
 
 #[cfg(test)]

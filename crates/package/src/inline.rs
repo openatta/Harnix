@@ -65,6 +65,7 @@ const MAX_TEXT: usize = 200;
 const MAX_BODY: usize = 4000;
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct Inline {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -79,6 +80,7 @@ pub struct Inline {
 
 /// A string, or one per locale.
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(untagged)]
 pub enum Text {
     One(String),
@@ -95,6 +97,7 @@ impl Text {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct ToolRow {
     pub tool: String,
@@ -113,6 +116,7 @@ fn folded() -> bool {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct FlowBlock {
     pub kind: String,
@@ -128,6 +132,7 @@ pub struct FlowBlock {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct Field {
     pub label: Text,
@@ -135,6 +140,7 @@ pub struct Field {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct Button {
     pub label: Text,
@@ -142,6 +148,7 @@ pub struct Button {
     pub method: String,
     /// The params, as a table; its strings may be templates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub params: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confirm: Option<Text>,
@@ -150,6 +157,7 @@ pub struct Button {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct Command {
     pub trigger: String,
@@ -162,6 +170,7 @@ pub struct Command {
 pub const GROUP_BY: &[&str] = &["scene", "field", "method"];
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct SidebarGroup {
     /// One of its `[[space]]`s; the package's id when absent.

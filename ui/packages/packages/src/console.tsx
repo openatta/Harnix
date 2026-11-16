@@ -13,68 +13,14 @@
  */
 
 import { Fragment, useEffect, useState } from "react";
+import type { PackageRow, PackagesList } from "@harnix/core";
 import { megabytes, rowKeys, useT, type HostApi } from "@harnix/react";
 
-import { SandboxAlert, type Sandbox } from "./sandbox.tsx";
-
-interface Health {
-  world?: "tools" | "backend";
-  state?: "running" | "stopped" | "disabled";
-  reason?: string;
-  calls?: number;
-  faults?: number;
-  timeouts?: number;
-  rebuilds?: number;
-  recycles?: number;
-  last_error?: string | null;
-  memory_bytes?: number;
-  memory_limit_bytes?: number;
-  storage_bytes?: number;
-  storage_limit_bytes?: number;
-  subscriptions?: number;
-  timers?: number;
-  /** An on-demand backend stopped while idle; the next call starts it again. */
-  hibernating?: boolean;
-  wakes?: number;
-}
-
-interface Refusal {
-  method: string;
-  reason: string;
-  at_ms: number;
-}
-
-interface Runtime {
-  state: "running" | "hibernating" | "faulted" | "stopped" | "failed";
-  reason?: string | null;
-  world?: string | null;
-  methods?: string[];
-  topics?: string[];
-  calls?: { calls: number; errors: number; hub_calls: number; refused: Refusal[]; recent_errors: { method: string; message: string }[] };
-  health?: Health | null;
-  /** On the process carrier: its process, with the last lines it wrote to its stderr. */
-  process?: { pid?: number | null; starts?: number; stderr?: string[] } | null;
-}
-
-interface AppRow {
-  id: string;
-  version: string;
-  title?: string | null;
-  enabled: boolean;
-  registered: boolean;
-  runtime?: Runtime;  /** On the process carrier: the mode of the sandbox its process starts in. */
-  sandbox?: Sandbox["mode"];
-}
-
-interface PackagesList {
-  packages: AppRow[];
-  unreadable?: { dir: string; reason: string }[];
-  runtime?: { sandbox?: Sandbox | null };
-}
+import { SandboxAlert } from "./sandbox.tsx";
 
 /** What the row's dot says: running, idle with its backend stopped until the next call, set aside
  *  after faulting, switched off, or did not start. */
-function appState(row: AppRow): Runtime["state"] {
+function appState(row: PackageRow): string {
   if (!row.enabled) return "stopped";
   return row.runtime?.state ?? "stopped";
 }

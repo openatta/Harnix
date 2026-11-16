@@ -15,7 +15,7 @@
  */
 
 import { createRoot } from "react-dom/client";
-import type { UiView } from "@harnix/core";
+import type { PackagesList, UiView } from "@harnix/core";
 import type { ReactNode } from "react";
 import type { SpaceSecondary, SpaceTab } from "@harnix/react";
 
@@ -218,16 +218,12 @@ function register(app: App, iface: PackageInterface): void {
   }
 }
 
-interface Listed {
-  packages?: { id: string; enabled?: boolean; runtime?: { state?: string; ui_rev?: string | null } }[];
-}
-
 /** Follow the packages' state: frames go with a stopped package, reload with a changed `ui/`. */
 function follow(app: App, ids: Set<string>): void {
   if (!app.snapshot.reachable.includes("packages.list")) return;
   const revs = new Map<string, string>();
   topicsOf(app.conn).subscribe("packages.list", {}, (value) => {
-    for (const row of (value as Listed | null)?.packages ?? []) {
+    for (const row of (value as PackagesList | null)?.packages ?? []) {
       if (!ids.has(row.id)) continue;
       const running = Boolean(row.enabled) && row.runtime?.state === "running";
       surfaces.setStopped(row.id, !running);

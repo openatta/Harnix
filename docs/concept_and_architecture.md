@@ -984,7 +984,7 @@ IPDrun 已经有能对着 Harnix 协议跑的 React 对话组件，直接回流�
 
 | 包 | 依赖框架吗 | 职责 |
 |---|---|---|
-| `@harnix/core` | 否 | `/protocol`（从 `harnix-contract` **生成**的类型，漂移就失败）、`/client`（握手、拓扑与回退、追赶）、`/state`（会话事件归约、实例树、每个 space 的当前会话）。**唯一认识 Agix 事件形状的解析层** |
+| `@harnix/core` | 否 | `/protocol`（从序列化到线上的 Rust 类型**生成**：`harnix-contract` 的帧与行、readers 的答、`packages.list` 的行；漂移就失败）、`/client`（握手、拓扑与回退、追赶）、`/state`（会话事件归约、实例树、每个 space 的当前会话）。**唯一认识 Agix 事件形状的解析层** |
 | `@harnix/react` | React | 注册表（9 个内核点 + 扩展定义的点）、宿主 API `HostApi`/`useHost()`、i18n、令牌、图标、对话组件、对话框与菜单原语、不受信内容的渲染。**写界面只依赖它** |
 | `@harnix/shell` | React | **外壳核心**（§5.3）。应用的入口，不被 import |
 | `@harnix/system` | React | 系统 space；定义 `system.console.tab`、`system.inspector.tab` |

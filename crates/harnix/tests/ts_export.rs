@@ -186,6 +186,25 @@ fn readers(cfg: &Config) -> Generated {
     }
 }
 
+/// `harnix-ext-packages`: `packages.list`'s rows, with the manifest's `[inline]` they carry.
+fn packages(cfg: &Config) -> Generated {
+    use harnix_ext_packages::wire::*;
+    use harnix_package::inline::{Button, Command, Field, FlowBlock, Inline, SidebarGroup, Text, ToolRow};
+    Generated {
+        path: "core/src/protocol/generated/packages.ts",
+        text: joined(
+            header(""),
+            declarations![cfg;
+                // The manifest's `[inline]`: what the shell draws for a package from its declaration alone.
+                Text, Inline, ToolRow, FlowBlock, Field, Button, Command, SidebarGroup,
+                // The list.
+                PackagesList, Unreadable, PackagesRuntime, Sandbox, PackageRow, PackageRuntime, CallStats, Refusal,
+                RecentError, PackageHealth, ProcessFacts, PackageDescribed, CapabilityLine, UiModuleDecl,
+            ],
+        ),
+    }
+}
+
 fn ui_packages() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/packages")
 }
@@ -193,7 +212,7 @@ fn ui_packages() -> PathBuf {
 #[test]
 fn export_the_protocol_types() {
     let cfg = Config::new().with_large_int("number");
-    let files = [contract(&cfg), readers(&cfg)];
+    let files = [contract(&cfg), readers(&cfg), packages(&cfg)];
     let root = ui_packages();
     // `HARNIX_TS_CHECK`: compare instead of writing, and fail on a difference.
     let check = std::env::var_os("HARNIX_TS_CHECK").is_some_and(|v| !v.is_empty() && v != "0");

@@ -5,14 +5,11 @@
  * WASM carrier) start no process and say nothing of one (`null`).
  */
 
+import type { Sandbox } from "@harnix/core";
 import { useT } from "@harnix/react";
 
-/** `packages.list`'s `runtime.sandbox`: what the host applies to each process it starts. */
-export interface Sandbox {
-  mode: "on" | "off" | "unavailable";
-  mechanism?: string;
-  why?: string;
-}
+/** `packages.list`'s `runtime.sandbox`: what the host applies to each process it starts (`on`, `off` or `unavailable`). */
+export type { Sandbox };
 
 export function SandboxAlert({ sandbox }: { sandbox?: Sandbox | null }) {
   const tr = useT();

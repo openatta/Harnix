@@ -16,36 +16,13 @@
  */
 
 import { useState } from "react";
-import { errorText } from "@harnix/core";
+import { errorText, type CapabilityLine, type Inline, type PackageRow, type PackagesList } from "@harnix/core";
 import { DialogBody, DialogFoot, SettingsRow, SettingsSection, SettingsValue, fileSize, t, useSettingsReload, useT, type HostApi } from "@harnix/react";
 
-import { SandboxAlert, type Sandbox } from "./sandbox.tsx";
+import { SandboxAlert } from "./sandbox.tsx";
 
-/** What the shell draws for a package from its manifest: the names, a line each. */
-export interface Inline {
-  tool_row?: { tool: string }[];
-  flow_block?: { kind: string }[];
-  command?: { trigger: string; name: string }[];
-  sidebar_group?: { space?: string }[];
-}
-
-interface Line {
-  capability: string;
-  value: string | number | boolean;
-  from?: number;
-}
-
-interface Installed {
-  id: string;
-  version: string;
-  title?: string | null;
-  enabled: boolean;
-  trust?: string;
-  source?: string;
-  data_bytes?: number;
-  runtime?: { state?: string; reason?: string };
-  ext?: { publisher?: string; description?: string | null; lines?: Line[]; ui?: unknown[]; inline?: Inline | null } | null;
-}
+/** A disclosure's line: the list's, and in an update's `added`, since which version. */
+type Line = CapabilityLine & { from?: number };
 
 interface CatalogPackage {
   id: string;
@@ -209,7 +186,7 @@ export function PackagesSettings({ host }: { host: HostApi }) {
 
   return (
     <>
-      <SettingsSection title={t("packages.installed")} load={() => host.call<{ packages?: Installed[]; runtime?: { sandbox?: Sandbox | null } }>("packages.list", {})}>
+      <SettingsSection title={t("packages.installed")} load={() => host.call<Partial<PackagesList>>("packages.list", {})}>
         {(data) => {
           const rows = data.packages ?? [];
           const sandbox = <SandboxAlert sandbox={data.runtime?.sandbox} />;
@@ -283,10 +260,10 @@ export function PackagesSettings({ host }: { host: HostApi }) {
                       <Lines lines={a.ext?.lines ?? []} empty={t("packages.asksNothing")} />
                       <InlinePoints inline={a.ext?.inline} />
                     </div>
-                    <SettingsRow label={t("packages.data", { size: fileSize(a.data_bytes) })}>
+                    <SettingsRow label={t("packages.data", { size: fileSize(a.data_bytes ?? undefined) })}>
                       <SettingsValue>
                         <span data-testid="package-data" data-bytes={a.data_bytes ?? 0}>
-                          {fileSize(a.data_bytes)}
+                          {fileSize(a.data_bytes ?? undefined)}
                         </span>
                       </SettingsValue>
                       <button
@@ -295,7 +272,7 @@ export function PackagesSettings({ host }: { host: HostApi }) {
                         data-testid="package-clear"
                         disabled={busy || !a.data_bytes}
                         onClick={() =>
-                          void confirmed(t("packages.clearData"), t("packages.clearDataConfirm", { name, size: fileSize(a.data_bytes) }), async () => {
+                          void confirmed(t("packages.clearData"), t("packages.clearDataConfirm", { name, size: fileSize(a.data_bytes ?? undefined) }), async () => {
                             const done = await host.call<{ cleared_bytes?: number }>("packages.clearData", { id: a.id });
                             host.shell.notice(t("packages.cleared", { name, size: fileSize(done.cleared_bytes) }));
                           })

@@ -1288,7 +1288,7 @@ cookie。一帧最大 16 MiB（`MAX_FRAME_BYTES`），一次上传最大 32 MiB�
 | 包 | 用不用 |
 |---|---|
 | `@harnix/react` | 用：`Registry`、`useHost()`、`ChatPanel` 与对话部件、i18n（`t`、`useT`、`setLocale`）、`Glyph`、`markdown`、样式 `@harnix/react/styles.css`（只用令牌） |
-| `@harnix/core` | 少用：`/client`（连接）、`/state`（会话状态机）、`/protocol`（帧与生成的契约类型）；**唯一认识 Agix 事件形状的解析层** |
+| `@harnix/core` | 少用：`/client`（连接）、`/state`（会话状态机）、`/protocol`（从 Rust 生成的协议类型：`harnix.hello`、帧与行、`observability.*` 与 `packages.list` 的答，见 [testing.md](testing.md) §10；引擎的形状手写在 `engine.ts`）；**唯一认识 Agix 事件形状的解析层** |
 | `@harnix/shell` | 不 import；它是外壳核心 |
 | `@harnix/{system,harnix-app,settings,plugins,devices,packages,observability,flow}` | 第一方 UI 包，各是一个第一方扩展的界面；不 import，构建编进外壳 |
 | `@harnix/ext-sdk`、`@harnix/ext-kit` | iframe 一侧：桥与令牌、基础部件；扩展包的界面用（[扩展包](harnix-ext-package.md)） |
