@@ -103,6 +103,7 @@
       "harnix.session.queue.remove",
       "harnix.session.rename",
       "harnix.session.respond",
+      "harnix.session.rewind",
       "harnix.session.send",
       "harnix.session.tasks",
       "harnix.sessions.list",

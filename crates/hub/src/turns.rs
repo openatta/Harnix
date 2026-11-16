@@ -421,17 +421,25 @@ impl Hub {
             .ok_or_else(|| RpcError::invalid_params("missing model"))?
             .to_string();
         let provider = params.get("provider").and_then(Value::as_str).map(str::to_string);
+        self.within_own_space(&key, &params, "a session's model is changed")?;
+        self.engine(&key.0)?.ops().set_model(&key.1, &model, provider.as_deref()).await
+    }
+
+    /// A session of the space the call claims (the default space when it claims none), and never
+    /// across spaces: what a device decides about a session from where it is shown. `what` says
+    /// what is done, for the refusal.
+    pub(crate) fn within_own_space(&self, key: &SessionKey, params: &Value, what: &str) -> Result<(), RpcError> {
         self.home_of(&key.0);
         let (claimed, crosses, bound) = {
             let spaces = harnix_contract::sync::lock(&self.spaces);
-            let claimed = spaces.claimed_space(&params);
+            let claimed = spaces.claimed_space(params);
             let crosses = spaces.crosses(&claimed);
-            (claimed, crosses, spaces.bound(&key).to_string())
+            (claimed, crosses, spaces.bound(key).to_string())
         };
         if crosses {
             return Err(RpcError::new(
                 harnix_contract::codes::SPACE_MISMATCH,
-                format!("`{claimed}` reaches across spaces; a session's model is changed within its own"),
+                format!("`{claimed}` reaches across spaces; {what} within its own"),
             ));
         }
         if bound != claimed {
@@ -441,7 +449,7 @@ impl Hub {
                 json!({"space": bound, "instance": key.0, "session_id": key.1}),
             ));
         }
-        self.engine(&key.0)?.ops().set_model(&key.1, &model, provider.as_deref()).await
+        Ok(())
     }
 
     /// Close a session, or `delete` it. Deleting it deletes its recording too, which is the link's

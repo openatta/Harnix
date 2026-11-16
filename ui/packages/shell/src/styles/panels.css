@@ -1034,3 +1034,17 @@
   font-size: 12px;
   line-height: 18px;
 }
+
+/* The rewind dialog: what a dry run says, then the choices. */
+.rewind section { margin: 0 0 12px; }
+.rewind h4 { margin: 0 0 4px; font-size: 13px; font-weight: 600; }
+.rewind ul { margin: 0; padding-left: 18px; font-size: 13px; max-height: 160px; overflow: auto; }
+.rewind li { overflow-wrap: anywhere; }
+.rewind .check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--label-secondary);
+  margin: 6px 0 0;
+}

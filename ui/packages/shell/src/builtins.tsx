@@ -17,12 +17,13 @@ import { ActionArg, ActionButtons } from "./actions.tsx";
 import { GUIDE_KIND } from "./sidebar/controller.ts";
 import { GuideTab } from "./sidebar/Guide.tsx";
 import { registerShellShortcuts } from "./shortcuts.tsx";
+import { registerRewind } from "./rewind.tsx";
 
 const OWNER = "builtin";
 
 /**
  * The shell's own registrations: the "open in details" door on a tool row, the request envelope
- * and its pane, the engine's commands, the right column's guide page, and the settings sections every product has. No space:
+ * and its pane, rewinding from a message's menu or a file tool's row, the engine's commands, the right column's guide page, and the settings sections every product has. No space:
  * every space is a UI package's or the application's. Then what extension packages declare
  * inline, drawn by the shell.
  */
@@ -30,6 +31,8 @@ export function registerBuiltins(app: App): void {
   const r = app.registry;
   r.register("tool.row", { id: "builtin.tool", match: () => true, render: (block) => <ToolRow app={app} block={block} /> }, OWNER);
   registerShellShortcuts(app);
+  // Going back to a message, or the files to before a call (`rewind.tsx`).
+  registerRewind(app);
 
   r.register(
     "flow.block",

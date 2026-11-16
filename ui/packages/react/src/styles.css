@@ -185,6 +185,8 @@
 .hx-cv-a > .hx-card { margin-top: 4px; line-height: 1.75; }
 .hx-cv-act { display: flex; gap: 2px; margin-left: -4px; opacity: 0; transition: opacity 0.15s; }
 .hx-cv-a:hover .hx-cv-act, .hx-cv-a:focus-within .hx-cv-act { opacity: 1; }
+.hx-cv-u:hover .hx-cv-act, .hx-cv-u:focus-within .hx-cv-act { opacity: 1; }
+.hx-cv-uact { margin-left: 0; margin-right: -4px; }
 @media (hover: none) { .hx-cv-act { opacity: 1; } }
 .hx-cv-act button { background: none; border: 0; padding: 4px; border-radius: 6px; color: var(--hx-fg-faint); display: inline-grid; place-items: center; }
 .hx-chat .hx-cv-act button { color: var(--hx-fg-faint); }

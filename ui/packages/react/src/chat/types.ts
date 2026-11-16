@@ -124,6 +124,8 @@ export interface ChatRenderers {
   userRows?: readonly UserRowContribution[];
   /** 助手一段话后面的附加内容（例如疑点卡、动作按钮） */
   assistantExtras?: (block: BlockOf<"assistant">) => ReactNode;
+  /** 人的一条话旁边的附加内容（例如它的菜单：回到这里）；气泡画它，认领了这条话的 userRows 自己决定 */
+  userExtras?: (block: BlockOf<"user">) => ReactNode;
   /** 工具行"⎿"后面那一句（领域工具的结果怎么说最明白）；返回空就用内建的摘要 */
   toolSummary?: (block: BlockOf<"tool">) => string | null | undefined;
 }

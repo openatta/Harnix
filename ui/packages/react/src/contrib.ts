@@ -13,7 +13,7 @@
  * | `sidebar.group` | `group(会话) → 组[]`、`label?()` | 只用最后注册的那一个 |
  * | `command` | `trigger?`（`/` 或 `@`）、`complete(query, ctx?) → 候选[]`（候选可带 `run`） | 全部，按注册顺序拼起来；`/` 与 `@` 两个菜单各问各的 |
  * | `settings.section` | `id`、`label()`、`render()`，可选的 `covers`；或不给 `render`，给 `fields`（字段声明，见 `fields.tsx`）与可选的 `store` | 全部，按注册顺序；外壳要人去配模型时打开 `covers` 里有 `"models"` 的那一节；只给 `fields` 的按声明画表单，值缺省存在这个浏览器里 |
- * | `session.action` | `id`、`at`、`label(target)`、`match(target)`、`run(target)` | 标题栏、会话菜单、工具行（按钮与参数）各问 `at` 里有它的，按注册顺序 |
+ * | `session.action` | `id`、`at`、`label(target)`、`match(target)`、`run(target)`，可选的 `disabled(target)` | 标题栏、会话菜单、工具行（按钮与参数）、人的消息的菜单（`message`）各问 `at` 里有它的，按注册顺序 |
  * | `sidebar.tab` | `id`、`kind`、`title(address?)`、`render()`，可选的 `patterns`、`priority`、`canOpen`、`guide`、`multiple`、`keepMounted`、`scope` | 右栏的页签类型（`sidebar.ts`）：资源地址按优先级档、模式长度、注册顺序认领；一个 `kind` 至多一份 extension 加一份 builtin，extension 生效 |
  * | `shortcut` | `id`、`title()`、`run(ctx)`，可选的 `keys`、`scope`、`enabled()` | 一条有快捷键的命令（`shortcuts.ts`）：设置里列出、可改键；一个键按下时焦点所在处的先于全局的，再按注册顺序；`id` 在全页唯一 |
  *
@@ -118,16 +118,19 @@ export function tabsOf(space: SpaceContribution | undefined): SpaceTab[] {
 /** A badge on a space's entry: a number or a very short text; nothing for null, undefined, 0, "". */
 export type Badge = string | number | null | undefined;
 
-/** What a session action is asked about: a session, or one tool call in it. `space` is the interface
- *  space it is asked in (a space's `sessions` says which backend space that lists). */
+/** What a session action is asked about: a session, one tool call in it, or a message a person sent
+ *  in it (`turnId`: the turn it started; `text`: what it said). `space` is the interface space it is
+ *  asked in (a space's `sessions` says which backend space that lists). */
 export type ActionTarget =
   | { kind: "session"; session: SessionRef; space: string }
-  | { kind: "tool"; session: SessionRef; space: string; toolUseId: string; tool: string; input?: unknown };
+  | { kind: "tool"; session: SessionRef; space: string; toolUseId: string; tool: string; input?: unknown }
+  | { kind: "message"; session: SessionRef; space: string; turnId: string; text: string };
 
 /** Where the shell asks for session actions: the title bar, the session menu, a tool row — its
  *  buttons, and its argument (`arg`: the first action that matches makes the argument a link, its
- *  label the link's title; a file tool's path opening the file, say). */
-export type ActionPlace = "header" | "menu" | "tool" | "arg";
+ *  label the link's title; a file tool's path opening the file, say) — and a person's message's
+ *  menu (`message`). */
+export type ActionPlace = "header" | "menu" | "tool" | "arg" | "message";
 
 /**
  * A space as the interface draws it (concept §5.4), its members grouped by where they are drawn.
@@ -240,6 +243,9 @@ export interface SessionAction {
   label(target: ActionTarget): string;
   /** Read at every draw; a throw drops this one only. */
   match(target: ActionTarget): boolean;
+  /** Shown but not for now: why, as its hover text (a turn running, say). Read at every draw; a
+   *  throw counts as enabled. */
+  disabled?(target: ActionTarget): string | false | null | undefined;
   run(target: ActionTarget): void | Promise<void>;
 }
 
@@ -316,7 +322,7 @@ const SHAPE: { [P in Point]: string[] } = {
   shortcut: ["title", "run"],
 };
 
-const ACTION_PLACES: readonly string[] = ["header", "menu", "tool", "arg"];
+const ACTION_PLACES: readonly string[] = ["header", "menu", "tool", "arg", "message"];
 const SPACE_GROUPS = ["sidebar", "center", "conversation", "details", "store"] as const;
 
 const FIELD_TYPES: readonly string[] = ["toggle", "select", "number", "text", "secret", "list", "rules", "route"];

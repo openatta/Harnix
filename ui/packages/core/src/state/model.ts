@@ -45,7 +45,7 @@ export type Block =
   /** `steered`：运行中送来、在这一轮的步骤边界进了对话（历史里是 origin "steer"）。 */
   /**
    * `turnId`：开了这一轮的那条话所在的轮（实时的取帧的 `turn_id`，历史的取消息的）；`seq`：从历史读回来的，它在历史里的位置
-   * （`engine.session.history` 的 offset）。轮次导航按它们找到一轮的开头。
+   * （`engine.session.history` 的 offset）。轮次导航按它们找到一轮的开头，回退「回到这里」按 `turnId` 找那一轮。
    */
   | { key: number; kind: "user"; text: string; itemId?: string; at?: number; steered?: boolean; turnId?: string; seq?: number }
   /** `turnId`：写下它的那一轮（帧与 transcript 的 `turn_id`）；旧日志里没有。反馈按它记。 */

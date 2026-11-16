@@ -137,6 +137,17 @@ mod tests {
     }
 
     #[test]
+    fn a_row_a_person_decides_opens_to_a_device_and_to_an_extension_only_holding_its_capability() {
+        let grants = GrantTable::new();
+        grants.set(id("system"), [caps::ENGINE_CONTROL], Trust::Origin);
+        let access = Access::device_or_capability(caps::ENGINE_CONTROL);
+        assert_eq!(decide(&device(), &grants, &access), Decision::Allow);
+        assert_eq!(decide(&ext("system"), &grants, &access), Decision::Allow);
+        assert_eq!(decide(&ext("other"), &grants, &access), Decision::Refuse(LACKS_CAPABILITY));
+        assert_eq!(missing_capability(&device(), &grants, &access), None);
+    }
+
+    #[test]
     fn a_package_is_narrowed_to_its_own_space() {
         let me = id("acme.notes");
         assert_eq!(narrow(&me, RowScope::Open, None), Decision::Allow);

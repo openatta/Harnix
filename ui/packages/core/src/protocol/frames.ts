@@ -19,6 +19,8 @@ import type {
   QueueItem,
   Rating,
   SessionOutline,
+  RewindParams,
+  RewindResult,
   SessionsList,
   SpacesList,
   Topology,
@@ -160,6 +162,8 @@ export interface Methods {
   "settings.mcp.logout": { params: McpAt & { name: string }; result: McpList };
   /** 会话下一次调模型时带的 MCP 部分：每个服务器的工具与指令。 */
   "settings.mcp.context": { params: SessionKey; result: McpContext };
+  /** 文件、对话或两者回到之前一点；先 `dry_run` 看计划，人确认后再做（docs/harnix-app.md §5.1）。 */
+  "harnix.session.rewind": { params: RewindParams; result: RewindResult };
 }
 
 /** `settings.mcp.*` 定位到哪一对 (项目, 场景)：省略即引擎缺省的场景、无项目。 */

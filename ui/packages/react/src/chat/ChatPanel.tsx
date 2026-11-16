@@ -919,7 +919,7 @@ function FlowItem({
         const contribution = rows[i]!;
         if (contribution.match(block)) return <>{contribution.render(block)}</>;
       }
-      return <UserBubble block={block} />;
+      return <UserBubble block={block} extras={renderers?.userExtras?.(block)} />;
     }
     case "assistant":
       return <TranscriptText block={block} extras={renderers?.assistantExtras?.(block)} />;

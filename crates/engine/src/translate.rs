@@ -10,6 +10,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use harnix_contract::wire::{RemovedTurn, RewindParams, RewindResult, RewindScope, RewindTo, RewoundConversation, RewoundFiles};
 use harnix_contract::RpcError;
 use harnix_engine_link::events::{Completion, DaemonEventKind, EngineEvent, FileWrite, Fragment, Joins, Prompt, SessionEventKind, Waiting};
 use harnix_engine_link::ops::{codes, Answer, EngineOps, Entry, HistoryPage, Message, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
@@ -48,6 +49,8 @@ pub const SESSION_CALLS: &str = "session.calls";
 pub const SESSION_CALL: &str = "session.call";
 pub const SESSION_CALL_BLOB: &str = "session.callBlob";
 pub const SESSION_SEARCH: &str = "session.search";
+pub const SESSION_REWIND: &str = "session.rewind";
+pub const SESSION_CHECKPOINTS: &str = "session.checkpoints";
 pub const CONFIG_GET: &str = "config.get";
 
 /// What a daemon must say it has (`daemon.ping`'s `capabilities`) for a link to take it: the
@@ -88,6 +91,8 @@ const TASK_FINISHED: &str = "task_finished";
 const TASK_UPDATED: &str = "task_updated";
 const COMPACT: &str = "compact";
 const TURN_COMPLETE: &str = "turn_complete";
+/// A host rewound the session (daemon protocol §6.3): `seq` is how many messages it has now.
+const REWOUND: &str = "rewound";
 const SUBSCRIPTION_DROPPED: &str = "subscription_dropped";
 const HOST_TOOL_CALL: &str = "host_tool_call";
 const HOST_TOOL_CALL_RESOLVED: &str = "host_tool_call_resolved";
@@ -309,6 +314,82 @@ impl EngineOps for AgixOps {
     async fn passthrough(&self, method: &str, params: Value) -> Answer<Value> {
         self.call(agix_method(method), params).await
     }
+
+    async fn rewind(&self, session: &str, ask: &RewindParams) -> Answer<RewindResult> {
+        let params = rewind_params(session, ask)?;
+        let answer = self.call(SESSION_REWIND, params).await?;
+        Ok(rewound(session, ask, &answer))
+    }
+
+    async fn live_turns(&self, session: &str) -> Answer<Vec<String>> {
+        let listed = self.call(SESSION_CHECKPOINTS, json!({"session_id": session})).await?;
+        let turns = listed.get("turns").and_then(Value::as_array).into_iter().flatten();
+        Ok(turns.filter_map(|t| t.get("turn_id").and_then(Value::as_str).map(str::to_string)).collect())
+    }
+}
+
+/// What a rewind puts back when the ask does not say: the files alone for a tool use (the only
+/// scope it takes), both otherwise.
+fn rewind_scope(ask: &RewindParams) -> RewindScope {
+    match (ask.scope, &ask.to) {
+        (Some(scope), _) => scope,
+        (None, RewindTo::ToolUse(_)) => RewindScope::Files,
+        (None, _) => RewindScope::Both,
+    }
+}
+
+/// A rewind as the engine takes it: exactly one target, the scope always said.
+fn rewind_params(session: &str, ask: &RewindParams) -> Answer<Value> {
+    let mut params = json!({
+        "session_id": session,
+        "scope": rewind_scope(ask),
+        "dry_run": ask.dry_run,
+        "fork_first": ask.fork_first,
+        "force": ask.force,
+        "allow_partial": ask.allow_partial,
+    });
+    match &ask.to {
+        RewindTo::Start => params["to_start"] = json!(true),
+        RewindTo::Turn(turn) => params["to_turn"] = json!(turn),
+        RewindTo::ToolUse(call) => params["to_tool_use"] = json!(call),
+        RewindTo::BeforeTurn(_) => return Err(RpcError::invalid_params("a rewind goes to a turn, a tool use or the start")),
+    }
+    Ok(params)
+}
+
+/// The engine's rewind answer in the hub's terms: a removed turn's prompt as the text it was
+/// started with (the composer takes text), the rest as the engine said it.
+fn rewound(session: &str, ask: &RewindParams, answer: &Value) -> RewindResult {
+    let conversation = answer.get("conversation").filter(|c| c.is_object()).map(|c| {
+        let count = |k: &str| c.get(k).and_then(Value::as_u64).unwrap_or(0);
+        let removed = c.get("removed_turns").and_then(Value::as_array).into_iter().flatten();
+        RewoundConversation {
+            messages_before: count("messages_before"),
+            messages_after: count("messages_after"),
+            removed_turns: removed
+                .filter_map(|t| {
+                    let turn_id = t.get("turn_id").and_then(Value::as_str)?.to_string();
+                    let prompt = message_text(&json!({"content": t.get("prompt").cloned().unwrap_or(Value::Null)}));
+                    Some(RemovedTurn { turn_id, prompt })
+                })
+                .collect(),
+        }
+    });
+    let files = answer
+        .get("files")
+        .filter(|f| f.is_object())
+        .map(|f| serde_json::from_value::<RewoundFiles>(f.clone()).unwrap_or_default());
+    RewindResult {
+        instance: String::new(),
+        session_id: session.to_string(),
+        rewind_id: answer.get("rewind_id").and_then(Value::as_str).unwrap_or_default().to_string(),
+        dry_run: answer.get("dry_run").and_then(Value::as_bool).unwrap_or(ask.dry_run),
+        scope: rewind_scope(ask),
+        to: ask.to.clone(),
+        conversation,
+        files,
+        fork_session_id: answer.get("fork_session_id").and_then(Value::as_str).map(str::to_string),
+    }
 }
 
 /// A session's creation, with what the hub set it up with in its options: the scene layer's base
@@ -477,6 +558,7 @@ fn session_event(mut params: Value) -> Option<EngineEvent> {
         // transcript is not shorter for it.
         COMPACT if event.get("trim").and_then(Value::as_bool) == Some(true) => SessionEventKind::Other,
         COMPACT => SessionEventKind::Compacted,
+        REWOUND => SessionEventKind::Rewound { messages: event.get("seq").and_then(Value::as_u64).unwrap_or(0) },
         TURN_COMPLETE => SessionEventKind::TurnComplete(completion(&event)),
         _ => SessionEventKind::Other,
     };
@@ -1249,6 +1331,62 @@ mod tests {
         assert_eq!(sent, json!({"method": "session.setPrompt", "params": {"session_id": "s", "append": "a"}}));
         let sent = ops.set_prompt("s", Some(None), Some(Some("o".into()))).await.unwrap();
         assert_eq!(sent["params"], json!({"session_id": "s", "append": null, "override": "o"}));
+    }
+
+    fn ask(to: RewindTo) -> RewindParams {
+        serde_json::from_value(json!({"session_id": "s", "to": to})).unwrap()
+    }
+
+    #[test]
+    fn a_rewind_names_one_target_and_always_its_scope() {
+        let mut dry = ask(RewindTo::Turn("t1".into()));
+        dry.dry_run = true;
+        let sent = rewind_params("s", &dry).unwrap();
+        assert_eq!(
+            sent,
+            json!({"session_id": "s", "to_turn": "t1", "scope": "both", "dry_run": true, "fork_first": false, "force": false, "allow_partial": false})
+        );
+        assert_eq!(rewind_params("s", &ask(RewindTo::Start)).unwrap()["to_start"], true);
+        let call = rewind_params("s", &ask(RewindTo::ToolUse("u1".into()))).unwrap();
+        assert_eq!((&call["to_tool_use"], &call["scope"]), (&json!("u1"), &json!("files")), "a tool use takes the files alone");
+        let mut conversation = ask(RewindTo::Start);
+        conversation.scope = Some(RewindScope::Conversation);
+        assert_eq!(rewind_params("s", &conversation).unwrap()["scope"], "conversation");
+        assert!(rewind_params("s", &ask(RewindTo::BeforeTurn("t2".into()))).is_err(), "the hub resolves it first");
+    }
+
+    #[test]
+    fn a_rewinds_answer_gives_each_removed_turn_its_text() {
+        let answer = json!({
+            "session_id": "s", "rewind_id": "r1", "dry_run": true, "scope": "both",
+            "cut": {"to_turn": "t1", "to_tool_use": null, "to_start": false},
+            "conversation": {"messages_before": 6, "messages_after": 2, "removed_turns": [
+                {"turn_id": "t2", "prompt": [{"type": "text", "text": "fix a"}, {"type": "image"}, {"type": "text", "text": "and b"}]}
+            ]},
+            "files": {"restored": [{"path": "a.rs", "to": "file", "sha256": "x", "outside_project": false, "unverified": false}],
+                      "skipped": [{"path": "b.rs", "issue": "modified", "detail": "changed", "overridable_by": "force"}],
+                      "overwrote_external": []},
+            "fork_session_id": null
+        });
+        let mut dry = ask(RewindTo::Turn("t1".into()));
+        dry.dry_run = true;
+        let got = rewound("s", &dry, &answer);
+        assert_eq!((got.rewind_id.as_str(), got.dry_run, got.scope), ("r1", true, RewindScope::Both));
+        let conversation = got.conversation.unwrap();
+        assert_eq!((conversation.messages_before, conversation.messages_after), (6, 2));
+        assert_eq!(conversation.removed_turns, [RemovedTurn { turn_id: "t2".into(), prompt: "fix a\nand b".into() }]);
+        let files = got.files.unwrap();
+        assert_eq!((files.restored[0].path.as_str(), files.restored[0].to.as_str()), ("a.rs", "file"));
+        assert_eq!((files.skipped[0].issue.as_str(), files.skipped[0].overridable_by.as_str()), ("modified", "force"));
+        let files_only = rewound("s", &ask(RewindTo::ToolUse("u".into())), &json!({"rewind_id": "r2", "conversation": null, "files": {"restored": [], "skipped": [], "overwrote_external": []}, "fork_session_id": "s2"}));
+        assert!(files_only.conversation.is_none());
+        assert_eq!(files_only.fork_session_id.as_deref(), Some("s2"));
+    }
+
+    #[test]
+    fn a_rewound_frame_says_how_long_the_conversation_is_now() {
+        let e = session(json!({"kind": "rewound", "rewind_id": "r", "scope": "both", "seq": 4, "files_restored": [], "files_skipped": [], "overwrote_external": []}));
+        assert_eq!(kind(e), SessionEventKind::Rewound { messages: 4 });
     }
 
     #[test]

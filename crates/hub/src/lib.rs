@@ -44,6 +44,7 @@ mod links;
 mod outline;
 mod prompt;
 mod replay;
+mod rewind;
 mod rows;
 mod scenes;
 mod session;

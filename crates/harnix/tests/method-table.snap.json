@@ -2188,6 +2188,23 @@
         ],
         "hub_owned": false,
         "refused": null,
+        "requires": [
+          "engine.control"
+        ],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix.session.rewind",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
         "requires": [],
         "scope": "session"
       },
