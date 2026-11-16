@@ -35,15 +35,20 @@
 //! What is here is a re-export: the application builder (`harnix-assembly`), the extension
 //! interface ([`ext`]), Harnix's own extensions ([`first_party`]), and what an extension gives the
 //! engine — tools, tool providers, hooks, scene layers, prompt gates ([`engine`]).
-//! An application depends on this crate alone. See `docs/harnix-ext.md`.
+//! An application depends on this crate alone, and this crate on the assembly and the extension
+//! interface alone: everything at its root is one of those two re-exported, so the extension
+//! interface has one source (`crates/harnix/tests/layering.rs`, l24 and c19). See
+//! `docs/harnix-ext.md`.
 
 /// What an extension gives the engine, in Harnix's words: a tool (`engine::Tool`), a provider of
 /// tools for every session (`engine::ToolProvider`), a hook before a call (`engine::ToolHook`), a
-/// scene as a layer over another (`engine::SceneLayer`), a gate on messages (`engine::PromptGate`).
-pub use harnix_engine_api as engine;
+/// scene as a layer over another (`engine::SceneLayer`), a gate on messages (`engine::PromptGate`),
+/// and the readers of what the engine writes down. The same list as [`ext::engine`]: the engine
+/// interface crate whole, with nothing of the skeleton's half in it.
+pub use harnix_ext::engine;
 
 /// The extension interface: [`ext::Extension`], its registrar and descriptor, its context.
-/// Stable from 0.4.3 on: it only grows.
+/// Stable from 0.4.4 on: it only grows.
 pub use harnix_ext as ext;
 
 /// Harnix's own extensions, each granted what Harnix grants it: the source is Harnix's own grant
@@ -51,8 +56,7 @@ pub use harnix_ext as ext;
 /// the ones it wants, each by its type.
 #[cfg(feature = "first-party")]
 pub mod first_party {
-    use harnix_contract::s1::caps;
-    use harnix_ext::ExtensionSet;
+    use harnix_ext::{caps, ExtensionSet};
 
     pub use harnix_ext_devices::Devices;
     pub use harnix_ext_harnix_app::HarnixApp;
@@ -70,7 +74,7 @@ pub mod first_party {
     /// What the `packages` component is granted: registering packages as extensions, installing
     /// their agent packages.
     #[cfg(any(feature = "wasm", feature = "proc"))]
-    pub const PACKAGES_GRANTS: [harnix_contract::s1::Capability; 2] = [caps::EXTENSIONS_MANAGE, caps::ENGINE_PLUGINS];
+    pub const PACKAGES_GRANTS: [harnix_ext::Capability; 2] = [caps::EXTENSIONS_MANAGE, caps::ENGINE_PLUGINS];
 
     /// The `packages` component, on the carriers this build links: in this process (`wasm`, mode
     /// 2), in processes of their own (`proc`, mode 3), or both, the profile choosing.
@@ -92,7 +96,7 @@ pub mod first_party {
 
     /// What the flow extension is granted: naming the sessions it opens, a main session's tasks.
     #[cfg(feature = "flow")]
-    pub const FLOW_GRANTS: [harnix_contract::s1::Capability; 2] = [caps::ENGINE_CONTROL, caps::ENGINE_INSPECT];
+    pub const FLOW_GRANTS: [harnix_ext::Capability; 2] = [caps::ENGINE_CONTROL, caps::ENGINE_INSPECT];
 
     /// [`standard`], and `flow` as the product configured it.
     #[cfg(feature = "flow")]
@@ -125,6 +129,10 @@ pub mod testing {
 }
 
 pub use async_trait::async_trait;
+
+/// The axum crate [`ext::http::axum::router`] takes its router from, at the version it is bound to.
+/// With the `axum` feature; **not stable**, like that module.
+#[cfg(feature = "axum")]
 pub use axum;
 
 /// The application: [`App::builder`].
@@ -142,13 +150,11 @@ impl App {
     }
 }
 pub use harnix_assembly::{AppBuilder, ExtensionSlot, ExtensionStatus, HARNIX_VERSION, SHUTDOWN_GRACE};
-pub use harnix_contract::s1::{caps, Capability, CapabilitySpec, ExtId};
-pub use harnix_contract::{codes, RpcError, Subject, MAIN_INSTANCE};
 pub use harnix_ext::{
-    Access, Attachment, Call, CredentialRef, Credentials, DescriptorBuilder, Entry, EnvCredentials, Extension,
-    ExtensionContext, ExtensionSet, Manifest, MigrateContext, MigrationReport, OnBusy, Registrar, RowScope,
-    SendOptions, SessionRef, SessionSpec, SpaceDecl, Tap, TapEvent, CONTRIB_API_VERSION, EXT_API_VERSION,
-    SETTLED_HELD, TAP_CAPACITY,
+    caps, codes, Access, Attachment, Call, Capability, CapabilitySpec, CredentialRef, Credentials, Entry,
+    EnvCredentials, ExtId, Extension, ExtensionContext, ExtensionSet, Manifest, MigrateContext, MigrationReport,
+    OnBusy, Registrar, RowScope, RpcError, Secret, SendOptions, SessionRef, SessionSpec, SpaceDecl, Subject, Tap,
+    TapEvent, CONTRIB_API_VERSION, EXT_API_VERSION, MAIN_INSTANCE, SETTLED_HELD, TAP_CAPACITY,
 };
 
 /// Everything an extension's source usually needs.

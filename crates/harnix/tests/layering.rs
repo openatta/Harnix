@@ -1216,18 +1216,32 @@ mod rules {
 
     #[test]
     fn l24_facade() {
-        // Always: the assembly, the extension interface, the engine's, and the contract's types it
-        // re-exports (`caps`, `RpcError`, `Subject`). Optionally: the
-        // engine, every first-party extension and host component, both carriers, the process.
-        let always = [ASSEMBLY, EXT, ENGINE_API, CONTRACT];
+        // Always: the assembly and the extension interface, and nothing else of Harnix — what the
+        // facade re-exports (`engine`, `caps`, `RpcError`, …) it takes from the extension interface,
+        // so the interface has one source and the facade cannot reach the engine's link, the
+        // contract's root or the kernel. Optionally: every first-party extension and host
+        // component, both carriers, the process. Of the web framework, only behind its feature.
+        let always = [ASSEMBLY, EXT];
         for (dep, optional) in normal(FACADE) {
-            if !is_harnix(&dep) || always.contains(&dep.as_str()) {
+            if always.contains(&dep.as_str()) {
                 continue;
             }
-            let may_be_optional =
-                dep == ENGINE || dep.starts_with(FIRST_PARTY_PREFIX) || dep.starts_with("harnix-carrier-") || dep == PROC;
+            if dep == "axum" {
+                assert!(optional, "`{FACADE}` depends on `axum`, and only behind the `axum` feature");
+                continue;
+            }
+            if !is_harnix(&dep) {
+                continue;
+            }
+            let may_be_optional = dep.starts_with(FIRST_PARTY_PREFIX) || dep.starts_with("harnix-carrier-") || dep == PROC;
             assert!(may_be_optional, "`{FACADE}` depends on `{dep}`; of Harnix it names {always:?} and optional extras");
             assert!(optional, "`{FACADE}` depends on `{dep}`, and only optionally");
+        }
+        for (dep, _) in normal(FACADE) {
+            assert!(
+                ![CONTRACT, KERNEL, ENGINE_API, ENGINE_LINK, ENGINE].contains(&dep.as_str()),
+                "`{FACADE}` depends on `{dep}`: what it re-exports of it comes through `{EXT}`"
+            );
         }
         let _ = package(ASSEMBLY);
     }
@@ -1852,7 +1866,8 @@ mod rules {
     }
 
     /// The S1 crates name the contract's types through `s1` alone, so that what they re-export is
-    /// what c14 and c15 check; the engine interface re-exports nothing but the contract's `s1`.
+    /// what c14 and c15 check; and the facade re-exports Harnix through the extension interface
+    /// and the assembly alone, so the extension interface has one source.
     #[test]
     fn c19_the_s1_crates_re_export_the_contract_through_s1_alone() {
         let mut offenders = Vec::new();
@@ -1864,6 +1879,18 @@ mod rules {
                     if flat.contains("pubuseharnix_contract::") && !flat.contains("pubuseharnix_contract::s1::") {
                         offenders.push(format!("{}:{} re-exports the contract outside `s1`", rel(&path), i + 1));
                     }
+                }
+            }
+        }
+        for (path, text) in sources(FACADE) {
+            let code = lex(&text, true);
+            for (i, line) in code.lines().enumerate() {
+                let words: Vec<&str> = line.split_whitespace().collect();
+                let Some(rest) = (words.len() > 2 && words[0] == "pub" && words[1] == "use").then(|| words[2]) else { continue };
+                let Some(rest) = rest.strip_prefix("harnix_") else { continue };
+                let krate: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+                if !(krate == "ext" || krate.starts_with("ext_") || krate == "assembly") {
+                    offenders.push(format!("{}:{} re-exports Harnix outside `harnix_ext` and `harnix_assembly`", rel(&path), i + 1));
                 }
             }
         }

@@ -17,7 +17,7 @@
 //! path, a carrier's pipes. A host component that needs the last of those asks for it as a
 //! [`Service`] (`harnix-host-api`), which takes a capability of its own.
 //!
-//! **Stability.** Everything public here is the extension interface, and from 0.4.3 on it only
+//! **Stability.** Everything public here is the extension interface, and from 0.4.4 on it only
 //! grows: every public struct and enum is `#[non_exhaustive]` or has private fields only, a type
 //! in a signature is this crate's, the contract's or the engine interface's, and a feature adds
 //! functions and modules, never a field or a variant. [`http::axum`] (feature `axum`) is outside
@@ -41,7 +41,7 @@ pub mod ui;
 
 /// The number the documentation and `--version` print for this interface. Not a compile-time
 /// check — an assertion an author writes against it is always true — compatibility is the
-/// crate's version: from 0.4.3 on this interface only grows.
+/// crate's version: from 0.4.4 on this interface only grows.
 pub const EXT_API_VERSION: u32 = 1;
 
 pub use bulk::{Bulk, UploadGrant};
