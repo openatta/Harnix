@@ -57,7 +57,7 @@ type Read =
   | { kind: "too_large"; path: string; size: number };
 
 /** Where a call about a session claims it is: the backend space the front space lists. */
-function claimFor(r: Registry, host: HostApi): string {
+export function claimFor(r: Registry, host: HostApi): string {
   const front = host.spaces.current();
   return r.at("space").find((c) => c.id === front)?.sessions ?? front;
 }

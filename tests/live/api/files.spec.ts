@@ -2,8 +2,14 @@
 //
 // The picker's fence is the point: it opens on the projects directory, walks
 // under `$HOME` or an explicitly configured root, and refuses everything
-// else. A picker that can be walked out of is a file browser.
+// else. A picker that can be walked out of is a file browser. The `@` menu's
+// fence is a project: a session's, or one that is a project here.
 
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { INVALID_PARAMS, REFUSED } from "@harnix/core/protocol";
 import { assert, defineSuite } from "@harnix/testkit";
 
 defineSuite("files", { feature: "session-space" }, {
@@ -41,11 +47,47 @@ defineSuite("files", { feature: "session-space" }, {
       assert(listing.entries.some((e: { name: string }) => e.name === name), "the new project is not listed");
     },
 
-    "file mentions resolve inside a project": async ({ backend, client }) => {
-      const result = await client.call("harnix-app.files",
-        { project_root: client.project, query: "Cargo" });
+    "file mentions resolve inside a session's project": async ({ client }) => {
+      const created = await client.call("harnix.session.create", { project_root: client.project, space: "sessions" });
+      const s = { instance: created.instance, session_id: created.session_id, space: "sessions" };
+      const result = await client.call("harnix-app.files", { ...s, query: "Cargo" });
       assert(Array.isArray(result.files), "no file list");
       assert(result.files.some((f: { path: string }) => f.path.includes("Cargo")), "Cargo.toml was not found");
+      // A session's project may also be named, now that a session runs in it.
+      const named = await client.call("harnix-app.files", { project_root: client.project, query: "Cargo" });
+      assert(named.files.some((f: { path: string }) => f.path.includes("Cargo")), "naming the session's project found nothing");
+      // A claim on another space is checked like any session call's.
+      const wrong = await client.refused("harnix-app.files", { ...s, space: "flow", query: "Cargo" });
+      assert(wrong, "a session claimed in another space was walked");
+    },
+
+    "file mentions walk no directory that is not a project here": async ({ client }) => {
+      const elsewhere = mkdtempSync(join(tmpdir(), "harnix-not-a-project-"));
+      const link = `${client.project}-link-${Date.now()}`;
+      symlinkSync(elsewhere, link);
+      try {
+        // Somewhere on the disk, the parent of a project, a path that climbs
+        // out of one, a link that leads elsewhere: none is a project.
+        for (const project_root of ["/", "/etc", elsewhere, join(client.project, ".."), `${client.project}/../..`, link]) {
+          const e = await client.refused("harnix-app.files", { project_root, query: "" });
+          assert(e?.code === REFUSED, `${project_root}: ${JSON.stringify(e)}`);
+        }
+        // Naming nothing is not the projects directory.
+        const bare = await client.refused("harnix-app.files", { query: "" });
+        assert(bare?.code === INVALID_PARAMS, `no root: ${JSON.stringify(bare)}`);
+      } finally {
+        rmSync(link, { force: true });
+        rmSync(elsewhere, { recursive: true, force: true });
+      }
+    },
+
+    "the picker cannot be climbed out of with ..": async ({ client }) => {
+      const { home } = await client.call("harnix-app.listDirectory", {});
+      for (const path of [`${home}/..`, `${home}/../..`, `${home}/../definitely-not-here`]) {
+        // Resolved before it is fenced: written under home is not inside it.
+        const e = await client.refused("harnix-app.listDirectory", { path });
+        assert(e?.code === INVALID_PARAMS, `${path}: ${JSON.stringify(e)}`);
+      }
     },
 
     "an upload grant is one-shot and the payload lands on disk": async ({ client, backend }) => {

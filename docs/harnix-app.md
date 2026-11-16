@@ -195,6 +195,18 @@ agent 类型、skill、规则），没有时是 `null`。主题 `harnix-app.trus
 路径只能是相对的、不往上走：`..`、绝对路径一律 `REFUSED`，不管它存不存在；然后顺着符号链接解析，落到项目根外面的同样 `REFUSED`——项目里一个指向 `/etc` 的链接不是出口。
 会话没有项目时答 `INVALID_PARAMS`（文件页说「这个会话没有项目」），不存在的文件答 `NOT_FOUND`。
 
+**输入框 `@` 的文件补全**（`harnix-app.files`，设备调用，`RowScope::Session`）走同一道围栏：
+
+| 参数 | 走哪个目录 |
+|---|---|
+| `{instance?, session_id, space?, query?, limit?}`（输入框用这个） | 这个会话的项目根，像上表一样声明 space、由 `engine.session.get` 查；同时给了 `project_root` 时不看它 |
+| `{project_root, query?, limit?}` | 只在它**是这里的项目**时：登记过的项目（工作区），或某个会话跑在里面的目录；按解析过符号链接的真实目录比，和项目信任（§3.1）认的是同一批。别的目录一律 `REFUSED`，`..`、指向别处的链接也是。隔离 iframe 里的页面不能这样给，只能给会话 |
+| 两个都不给 | `INVALID_PARAMS`：不再退到项目目录 |
+
+答 `{project_root, files: [{path, size}]}`：`project_root` 是解析过的真实目录，`path` 相对它；不跟符号链接走，`.gitignore` 忽略的和隐藏文件不列，至多 30 条。
+
+**目录选择器**（`harnix-app.listDirectory`，§3）先把 `path` 顺着 `..` 和符号链接解析成真实目录，再看在不在 `$HOME` 或项目根之内；解析不了的（不存在、读不了）答 `INVALID_PARAMS`，不按写法比。
+
 **改动卡与改动的来历**。引擎只在 `Write`、`Edit`、`NotebookEdit` 的工具结果旁边报一次写了哪些文件（daemon 协议 §7.5 的 `file_changes`），
 transcript 里没有 diff。所以**一轮结束时，中枢把这一轮写过的文件（子 Agent 写的也算）记成会话日志里的一条条目**，命名空间 `harnix.changes`，
 事件 `turn`——和审计用的是同一条路，引擎不解析它，不认识它的界面跳过它；刷新、重开会话、分叉之后都还在：

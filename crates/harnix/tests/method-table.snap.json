@@ -1360,7 +1360,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": "open"
+        "scope": "session"
       },
       "kind": "method",
       "name": "harnix-app.files",

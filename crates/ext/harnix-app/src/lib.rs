@@ -97,7 +97,10 @@ impl Extension for HarnixApp {
             .raw(|c, p| with(c, |a, c| async move { a.import(&c, p).await }));
         r.method("prefs.set").access(open()).raw(|c, p| with(c, |a, _| async move { a.prefs_set(p).await }));
         r.method("search").access(open()).raw(|c, p| with(c, |a, c| async move { a.search(&c, p).await }));
-        r.method("files").access(open()).raw(|c, p| with(c, |a, _| async move { a.files(p).await }));
+        r.method("files")
+            .access(session())
+            .describe("files for the `@` menu {session_id | project_root, query?, limit?}: a session's project, or a project here")
+            .raw(|c, p| with(c, |a, c| async move { a.files(&c, p).await }));
         r.method("files.list")
             .access(session())
             .describe("one directory of a session's project {session_id, path?, all?}: entries, the hidden count")

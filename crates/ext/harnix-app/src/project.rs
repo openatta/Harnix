@@ -60,7 +60,7 @@ impl App {
 }
 
 /// The session's project root, canonical: what the reads are fenced in.
-async fn session_root(call: &Call, params: &Value) -> Result<PathBuf, RpcError> {
+pub(crate) async fn session_root(call: &Call, params: &Value) -> Result<PathBuf, RpcError> {
     let session_id = require_session_id(params)?;
     let instance = params.get("instance").cloned().unwrap_or(json!(MAIN_INSTANCE));
     let mut target = json!({"instance": instance, "session_id": session_id});
