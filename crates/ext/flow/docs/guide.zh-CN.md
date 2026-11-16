@@ -30,6 +30,7 @@
 | 对象 | 含义 |
 |---|---|
 | **运行**（run） | 一个流程在一个主题上的一次执行。状态见下文。 |
+| **项目任务** | 在一个项目里跑的运行：启动时带上 `project_root`（已存在的绝对目录）。还可以带 `workspace`（在哪干活：`project` 项目本身，有项目时缺省；`worktree` 项目的一个 worktree；`scratch` 运行自己的目录，没有项目时缺省）、`output_dir`（交付物放哪），运行都记下来，连同它是怎么起的（`trigger`：手动，或定时）。`flow.list {project}` 列出一个项目的任务。 |
 | **执行者**（executor） | 谁来做：`session`（会话，照 skill 做）、`agent`（主 Agent 交给的子 Agent）、`program`（应用自己的代码）、`external`（人或外部 Agent 认领）、`subflow`（另一个流程）。 |
 | **主会话 / 主 Agent** | 每个运行都有一个主会话，就是这个流程的主 Agent。没写 `scene` 的会话站、所有子 Agent 站，都在主会话里一轮一轮地做。在流程 space 的运行页选中运行，中间就是它；可以在里面插话。 |
 | **子 Agent**（`kind: agent`） | 主会话下的子 Agent：主 Agent 用 `Agent` 工具把任务交给它（可指定 `agent_type`、`model`），拿到结果后交给流程。 |

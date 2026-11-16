@@ -437,7 +437,9 @@ function RunTab({ station: s, view, module }: { station: Station; view: RunView;
               <span className="hx-flow-faint">{t("flowui.run.noTasks")}</span>
             ) : (
               <ul className="hx-flow-tasks">
-                {rec.tasks.map((task) => {
+                {rec.tasks.map((t0) => {
+                  // A dry run's view carries what each session task would have been sent.
+                  const task: TaskRec = t0;
                   const session = sessionOf(task);
                   return (
                     <li key={task.id} className="hx-flow-task" data-testid={`flow-task-${task.id}`} data-status={task.status}>
@@ -516,7 +518,7 @@ function RunTab({ station: s, view, module }: { station: Station; view: RunView;
             <Field label={t("flowui.run.checks")} testid="flow-checks">
               <ul className="hx-flow-list">
                 {rec.checks.map((c, i) => (
-                  <li key={i} className={`hx-flow-tone-${checkOk(c) ? "ok" : c.status === "wait" ? "muted" : "error"}`} data-status={c.status ?? (c.ok ? "pass" : "fail")}>
+                  <li key={i} className={`hx-flow-tone-${checkOk(c) ? "ok" : c.status === "wait" ? "muted" : "error"}`} data-status={c.status}>
                     {checkOk(c) ? "✓" : c.status === "wait" ? "…" : "✗"} {c.label || t("flowui.exit." + c.kind)} {c.detail !== undefined && c.detail !== null && c.detail !== "" ? <span className="hx-flow-faint">{clipped(c.detail)}</span> : null}
                   </li>
                 ))}

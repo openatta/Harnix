@@ -208,6 +208,7 @@
 |---|---|---|
 | **流程** | `FlowDef` | 站组成的有向无环图，一份 YAML，随流程包分发 |
 | **运行** | `RunRecord`，`run` | 一条流程的一次执行，处理一个对象（`subject`）。不叫「实例」：实例只指 Agix 实例 |
+| **项目任务** | `RunRecord.project_root`，`flow.start {project_root}` | 在一个项目里按指定流程执行的运行，界面上简称「**任务**」：带 `project_root`（已存在的绝对目录），`workspace` 是 `project`（缺省）或 `worktree`；`trigger` 记下是手动还是定时起的。不带项目的运行在自己的 `scratch` 目录里干活。和流程里的执行单位 `TaskRec`、引擎的后台任务都不是一回事 |
 | **站** | `Station` | 流程里的判定单位：出口条件、返工、确认、强制通过都按站算 |
 | **任务** | `TaskRec` | 流程里的执行单位：一站 0..N 个，每个交一份结构化输出 |
 | **执行者** | `Executor` | 做一个任务的那一方：`session`（会话）· `agent`（主会话下的子 Agent，xops-03）· `program`（应用代码）· `external`（人或外部 Agent 来认领）· `subflow`（子运行） |

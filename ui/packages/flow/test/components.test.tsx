@@ -53,27 +53,31 @@ function view(stations: Record<string, StationRec>, status: "active" | "finished
       rev: 3,
       created_at: 0,
       created_by: { kind: "device", id: "x" },
+      inputs: {},
+      seq: 3,
+      workspace: "scratch",
+      trigger: { kind: "manual", by: { kind: "device", id: "x" } },
       stations,
       // Where the kernel pins it.
       def: DEF,
     },
-    unmet: { review: [{ kind: "confirm", label: "confirm by reviewer", status: "wait" }] },
+    unmet: { review: [{ kind: "confirm", label: "confirm by reviewer", status: "wait", round: 1, at: 0 }] },
   };
 }
 
 const RUNNING = view({
-  collect: { status: "passed", round: 1, tasks: [{ id: "collect", status: "submitted", attempt: 1, output: { modules: ["a", "b"] } }] },
+  collect: { status: "passed", round: 1, rounds_total: 1, auto_reworks: 0, tasks: [{ id: "collect", status: "submitted", attempt: 1, output: { modules: ["a", "b"] } }] },
   analyze: {
     status: "passed",
-    round: 2,
+    round: 2, rounds_total: 2, auto_reworks: 0,
     tasks: [
       { id: "0", status: "submitted", attempt: 1, item: "a", session: "flow/s-a" },
       { id: "1", status: "submitted", attempt: 1, item: "b" },
     ],
-    forced: { by: { kind: "device", id: "x" }, at: 0, reason: "ok" },
+    forced: { by: { kind: "device", id: "x" }, at: 0, reason: "ok", unmet: [] },
   },
-  lint: { status: "passed", round: 1, tasks: [] },
-  review: { status: "working", round: 1, tasks: [] },
+  lint: { status: "passed", round: 1, rounds_total: 1, auto_reworks: 0, tasks: [] },
+  review: { status: "working", round: 1, rounds_total: 1, auto_reworks: 0, tasks: [] },
 });
 
 function fakeHost(answers: Record<string, unknown> = {}) {
@@ -170,9 +174,9 @@ describe("StationPanel", () => {
       ...RUNNING.record.stations,
       analyze: {
         status: "working",
-        round: 1,
+        round: 1, rounds_total: 1, auto_reworks: 0,
         tasks: [
-          { id: "0", status: "failed", attempt: 1, error: "boom", session: { instance: "flow", session_id: "s-a" } },
+          { id: "0", status: "failed", attempt: 1, error: "boom", session: "flow/s-a" },
           { id: "1", status: "submitted", attempt: 1 },
         ],
       },

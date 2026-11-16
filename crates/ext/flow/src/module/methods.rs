@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::future::Future;
 use std::sync::Arc;
 
-use harnix_ext::{Access, Call, Registrar, RpcError};
+use harnix_ext::{Access, Call, Registrar, RpcError, Subject};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -23,12 +23,50 @@ use crate::kernel::def::definition_schema;
 use crate::kernel::engine::{CreateIn, Engine};
 use crate::kernel::host::Packs;
 use crate::kernel::protocol;
-use crate::kernel::run::{run_schema, Actor, RunQuery};
+use crate::kernel::run::{run_schema, Actor, RunQuery, Trigger};
+use crate::wire::{StartParams, StartTrigger};
 use crate::kernel::validate::validate;
 use crate::kernel::FlowError;
 
 fn device(cx: &Call) -> Actor {
     Actor::device(cx.device().unwrap_or("unknown"))
+}
+
+/// Whoever calls, as a run records it: the device, or an extension or the kernel acting as itself.
+fn caller(cx: &Call) -> Actor {
+    match cx.subject() {
+        Subject::Extension { id } => Actor::new("extension", id.to_string()),
+        Subject::Kernel => Actor::new("kernel", "harnix"),
+        _ => device(cx),
+    }
+}
+
+/// How a start came about, as the run will hold it. Started by hand is by the caller, whatever
+/// the params say; only the kernel and extensions (a scheduler) may say a schedule started it.
+fn start_trigger(device: bool, given: Option<StartTrigger>, by: &Actor) -> Result<Trigger, RpcError> {
+    match given {
+        None | Some(StartTrigger::Manual {}) => Ok(Trigger::manual(by.clone())),
+        Some(StartTrigger::Schedule { .. }) if device => Err(RpcError::refused(
+            "a device starts a run by hand: only the kernel and extensions start one on a schedule",
+        )),
+        Some(StartTrigger::Schedule { schedule, fire_at }) => Ok(Trigger::Schedule { schedule, fire_at }),
+    }
+}
+
+/// A start's project: an existing absolute directory, as given. The same holds for every caller,
+/// as for a session's project: a person may open a session in any directory they name, so a task
+/// too (`docs/glossary.md`, «项目任务»).
+fn project_dir(root: Option<String>) -> Result<Option<String>, RpcError> {
+    let Some(root) = root.map(|r| r.trim().to_string()).filter(|r| !r.is_empty()) else {
+        return Ok(None);
+    };
+    if !std::path::Path::new(&root).is_absolute() {
+        return Err(RpcError::invalid_params(format!("project_root {root:?} is not an absolute path")));
+    }
+    match std::fs::metadata(&root) {
+        Ok(m) if m.is_dir() => Ok(Some(root)),
+        _ => Err(RpcError::invalid_params(format!("project_root {root:?} is not an existing directory"))),
+    }
 }
 
 #[derive(Deserialize)]
@@ -83,16 +121,6 @@ struct FocusIn {
     session_id: String,
     #[serde(default)]
     flow: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct StartIn {
-    flow: String,
-    subject: String,
-    #[serde(default)]
-    inputs: Value,
-    #[serde(default)]
-    title: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -408,7 +436,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         sh,
         packs,
         "list",
-        "runs, newest first: {flow?, status?, subject?, parent?, limit?}",
+        "runs, newest first: {flow?, status?, subject?, parent?, project?, limit?}; project: the runs of that project (its tasks)",
         |sh, _, _, q: RunQuery| async move { to_value(engine(&sh)?.list(q).await.map_err(rpc_error)?) },
     );
     method(
@@ -445,8 +473,8 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         sh,
         packs,
         "defs",
-        "the flows on offer, as the `defs` topic has them: [{name, title, digest, origin, valid}]",
-        |_, packs, _, _: Value| async move { Ok(Value::Array(publish::defs_list(packs.as_ref()))) },
+        "the flows on offer, as the `defs` topic has them: [{name, title, description?, digest, origin, valid, inputs}]; inputs: a JSON Schema of what a run is started with",
+        |_, packs, _, _: Value| async move { to_value(publish::defs_list(packs.as_ref())) },
     );
     method(
         m,
@@ -765,8 +793,10 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         sh,
         packs,
         "start",
-        "start a run: {flow, subject, inputs?, title?} → {run}",
-        |sh, _, cx, p: StartIn| async move {
+        "start a run: {flow, subject, inputs?, title?, project_root?, workspace?: project|worktree|scratch, output_dir?, trigger?: {kind: manual} | {kind: schedule, schedule, fire_at}} → {run}; with a project_root (an existing absolute directory) the run is a task of that project; only the kernel and extensions start one on a schedule",
+        |sh, _, cx, p: StartParams| async move {
+            let by = caller(&cx);
+            let trigger = start_trigger(cx.device().is_some(), p.trigger, &by)?;
             let r = engine(&sh)?
                 .create(
                     CreateIn {
@@ -775,8 +805,12 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
                         inputs: p.inputs,
                         title: p.title,
                         parent: None,
+                        project_root: project_dir(p.project_root)?,
+                        workspace: p.workspace,
+                        output_dir: p.output_dir,
+                        trigger: Some(trigger),
                     },
-                    device(&cx),
+                    by,
                 )
                 .await;
             change(&sh, None, r).await
@@ -1162,4 +1196,81 @@ fn part_info(packs: &dyn Packs, kind: crate::PartKind, name: &str) -> Answer {
         "parsed": parsed, "problems": crate::kernel::validate::part_problems(kind, name, &text, packs),
         "flows": users_of(packs, kind, name), "writable": packs.writable(),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_project_root_is_an_existing_absolute_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+        assert_eq!(project_dir(Some(root.clone())).unwrap(), Some(root.clone()));
+        assert_eq!(project_dir(None).unwrap(), None);
+        assert_eq!(project_dir(Some("  ".into())).unwrap(), None);
+        let file = dir.path().join("f");
+        std::fs::write(&file, "").unwrap();
+        for bad in [
+            "relative/dir".to_string(),
+            dir.path().join("missing").to_string_lossy().to_string(),
+            file.to_string_lossy().to_string(),
+        ] {
+            let e = project_dir(Some(bad.clone())).unwrap_err();
+            assert_eq!(e.code, harnix_ext::codes::INVALID_PARAMS, "{bad}");
+        }
+    }
+
+    #[test]
+    fn only_the_kernel_and_extensions_start_a_run_on_a_schedule() {
+        let me = Actor::device("d1");
+        let fired = || Some(StartTrigger::Schedule { schedule: "nightly".into(), fire_at: 7 });
+        assert_eq!(start_trigger(true, None, &me).unwrap(), Trigger::manual(me.clone()));
+        assert_eq!(start_trigger(true, Some(StartTrigger::Manual {}), &me).unwrap(), Trigger::manual(me.clone()));
+        assert_eq!(start_trigger(true, fired(), &me).unwrap_err().code, harnix_ext::codes::REFUSED);
+        let ext = Actor::new("extension", "schedule");
+        assert_eq!(
+            start_trigger(false, fired(), &ext).unwrap(),
+            Trigger::Schedule { schedule: "nightly".into(), fire_at: 7 }
+        );
+    }
+
+    #[test]
+    fn start_params_take_a_task_s_fields() {
+        let p: StartParams = serde_json::from_value(json!({
+            "flow": "f", "subject": "s", "project_root": "/p", "workspace": "worktree",
+            "output_dir": "out/${date}", "trigger": {"kind": "manual"},
+        }))
+        .unwrap();
+        assert_eq!(p.workspace, Some(crate::kernel::run::Workspace::Worktree));
+        assert_eq!(p.trigger, Some(StartTrigger::Manual {}));
+        assert_eq!(p.output_dir.as_deref(), Some("out/${date}"));
+        let bare: StartParams = serde_json::from_value(json!({"flow": "f", "subject": "s"})).unwrap();
+        assert_eq!((bare.project_root, bare.workspace, bare.trigger), (None, None, None));
+    }
+
+    #[test]
+    fn a_defs_row_carries_its_inputs_as_a_schema() {
+        let packs = crate::MemPacks::new().flow(
+            "name: f\ntitle: F\ndescription: does f\ninputs:\n  topic: {schema: {type: string}, description: what about}\n  depth: {schema: {type: integer}, default: 2}\nstations: [{id: a, exit: [{kind: confirm}]}]",
+        );
+        let rows = super::publish::defs_list(&packs);
+        let row = serde_json::to_value(&rows[0]).unwrap();
+        assert_eq!(row["name"], "f");
+        assert_eq!(row["description"], "does f");
+        assert_eq!(row["origin"], "builtin");
+        assert_eq!(row["valid"], true);
+        assert_eq!(
+            row["inputs"],
+            json!({
+                "type": "object",
+                "properties": {
+                    "depth": {"type": "integer", "default": 2},
+                    "topic": {"type": "string", "description": "what about"},
+                },
+                "required": ["topic"],
+                "additionalProperties": false,
+            })
+        );
+    }
 }

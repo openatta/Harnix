@@ -50,7 +50,7 @@ import { STRINGS, STRINGS_OWNER } from "../src/strings";
 import type { Station, StationRec, StationStatus, TaskRec } from "../src/types";
 
 const task = (id: string, status: TaskRec["status"], extra: Partial<TaskRec> = {}): TaskRec => ({ id, status, attempt: 1, ...extra });
-const rec = (status: StationStatus, tasks: TaskRec[] = []): StationRec => ({ status, round: 1, tasks });
+const rec = (status: StationStatus, tasks: TaskRec[] = []): StationRec => ({ status, round: 1, rounds_total: 1, auto_reworks: 0, tasks });
 
 const review: Station = { id: "review", needs: ["self-check"], exit: [{ kind: "confirm", who: "reviewer" }], rework_to: ["analyze", "lint"] };
 const analyze: Station = {
@@ -59,12 +59,12 @@ const analyze: Station = {
   executor: { kind: "session", scene: "flow-harnix" },
   skill: "analyze",
   exit: [{ kind: "output" }],
-  on_unmet: { rework_to: "collect" },
+  on_unmet: { rework_to: "collect", max: 1 },
 };
 
 describe("work", () => {
   it("tells one executor, static tasks, foreach and a pure gate apart", () => {
-    expect(workOf({ id: "a", executor: { kind: "program", step: "collect" } })).toEqual({ shape: "one", kinds: ["program"], count: 1, skills: [] });
+    expect(workOf({ id: "a", executor: { kind: "program", step: "collect" }, exit: [] })).toEqual({ shape: "one", kinds: ["program"], count: 1, skills: [] });
     expect(workOf(analyze)).toEqual({ shape: "foreach", kinds: ["session"], count: null, skills: ["analyze"] });
     const report: Station = {
       id: "report",
@@ -72,6 +72,7 @@ describe("work", () => {
         { id: "summary", executor: { kind: "session", scene: "flow-harnix" }, skill: "report" },
         { id: "sign", executor: { kind: "external", who: "reviewer" } },
       ],
+      exit: [],
     };
     expect(workOf(report)).toEqual({ shape: "tasks", kinds: ["session", "external"], count: 2, skills: ["report"] });
     expect(workOf(review).shape).toBe("none");
@@ -162,7 +163,6 @@ describe("wire helpers", () => {
   });
 
   it("reads a task's session", () => {
-    expect(sessionOf(task("a", "claimed", { session: { instance: "i", session_id: "s" } }))).toEqual({ instance: "i", sessionId: "s" });
     expect(sessionOf(task("a", "claimed"))).toBe(null);
     // As the flow module writes it.
     expect(sessionOf(task("a", "claimed", { session: "main/abc" }))).toEqual({ instance: "main", sessionId: "abc" });
@@ -171,16 +171,17 @@ describe("wire helpers", () => {
 
   it("reads the kernel's shapes: the pinned definition, open stations, check status, digests", () => {
     const def = { name: "f", stations: [] };
-    const record = { id: "r", flow: "f", def_digest: "d", subject: "s", status: "active" as const, rev: 1, created_at: 1, created_by: { kind: "device", id: "x" }, stations: {} };
+    const by = { kind: "device", id: "x" };
+    const record = { id: "r", flow: "f", def_digest: "d", subject: "s", inputs: {}, status: "active" as const, rev: 1, seq: 0, created_at: 1, created_by: by, stations: {}, workspace: "scratch" as const, trigger: { kind: "manual" as const, by } };
     expect(defOf({ record: { ...record, def } })).toBe(def);
-    expect(defOf({ record, def })).toBe(def);
-    expect(openOf({ id: "r", flow: "f", subject: "s", status: "active", created_at: 1, open: ["a"] })).toEqual(["a"]);
-    expect(openOf({ id: "r", flow: "f", subject: "s", status: "active", created_at: 1 })).toEqual([]);
-    expect([checkOk({ status: "pass" }), checkOk({ status: "wait" }), checkOk({ status: "fail" }), checkOk({ ok: true })]).toEqual([true, false, false, true]);
+    const summary = { id: "r", flow: "f", subject: "s", status: "active" as const, rev: 1, created_at: 1, workspace: "scratch" as const, trigger: { kind: "manual" as const, by } };
+    expect(openOf({ ...summary, open: ["a"] })).toEqual(["a"]);
+    expect(openOf(summary)).toEqual([]);
+    expect([checkOk({ status: "pass" }), checkOk({ status: "wait" }), checkOk({ status: "fail" })]).toEqual([true, false, false]);
     expect(digestLines({ analyze: "abc" })).toEqual(["analyze: abc"]);
     expect(digestLines(null)).toEqual([]);
     // A station without tasks has none on the wire.
-    expect(stationActions("active", review, { status: "working", round: 1 }).confirm).toBe(true);
+    expect(stationActions("active", review, { status: "working", round: 1, rounds_total: 1, auto_reworks: 0 }).confirm).toBe(true);
   });
 
   it("claims only the flow's proposal entries", () => {
@@ -315,8 +316,8 @@ describe("what a run is doing and what it spent (xops-03)", () => {
     const rec = {
       usage_other: { input_tokens: 5, output_tokens: 5, turns: 1 },
       stations: {
-        a: { status: "passed", round: 1, tasks: [{ id: "a", status: "submitted", attempt: 1, usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 80, turns: 2 } }] },
-        b: { status: "pending", round: 0 },
+        a: { status: "passed", round: 1, rounds_total: 1, auto_reworks: 0, tasks: [{ id: "a", status: "submitted", attempt: 1, usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 80, turns: 2 } }] },
+        b: { status: "pending", round: 0, rounds_total: 0, auto_reworks: 0 },
       },
     } as never;
     expect(tokensOf(stationUsage((rec as { stations: Record<string, never> }).stations.a))).toBe(200);
@@ -330,9 +331,9 @@ describe("what a run is doing and what it spent (xops-03)", () => {
   });
 
   it("times a station and a run, open ones up to now", () => {
-    expect(stationElapsed({ status: "passed", round: 1, entered_at: 1000, left_at: 4500 }, 9999)).toBe(3500);
-    expect(stationElapsed({ status: "working", round: 1, entered_at: 1000 }, 3000)).toBe(2000);
-    expect(stationElapsed({ status: "pending", round: 0 }, 3000)).toBe(null);
+    expect(stationElapsed({ status: "passed", round: 1, rounds_total: 1, auto_reworks: 0, entered_at: 1000, left_at: 4500 }, 9999)).toBe(3500);
+    expect(stationElapsed({ status: "working", round: 1, rounds_total: 1, auto_reworks: 0, entered_at: 1000 }, 3000)).toBe(2000);
+    expect(stationElapsed({ status: "pending", round: 0, rounds_total: 0, auto_reworks: 0 }, 3000)).toBe(null);
     expect(runElapsed({ created_at: 0, finished_at: 61_000 }, 0)).toBe(61_000);
     expect(formatDuration(850)).toBe("850ms");
     expect(formatDuration(42_000)).toBe("42s");
@@ -379,7 +380,7 @@ describe("rules, policies and permissions, gates (xops-04)", () => {
     rules: ["no-secrets"],
     policies: ["tables"],
     permissions: [{ effect: "deny" as const, tools: ["Bash"] }],
-    stations: [{ id: "emit", rules: ["house", "no-secrets"], policies: ["ro"], permissions: [{ effect: "ask" as const, tools: ["mcp__desk__emit_row"], args: { table: ["orders"] } }] }],
+    stations: [{ id: "emit", rules: ["house", "no-secrets"], policies: ["ro"], permissions: [{ effect: "ask" as const, tools: ["mcp__desk__emit_row"], args: { table: ["orders"] } }], exit: [] }],
   };
   const policies = {
     tables: { name: "tables", permissions: [{ effect: "allow" as const, tools: ["mcp__desk__*"] }] },

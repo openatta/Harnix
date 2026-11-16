@@ -87,6 +87,7 @@ pub struct StartIn {
 
 /// One dry run in the list: `{id, flow, status, created_at}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct DryRunSummary {
     pub id: String,
     pub flow: String,
@@ -102,6 +103,7 @@ pub struct DryRunSummary {
 
 /// One work item a dry run took: `{kind, run, station?, task?, gate?, result}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(rename = "DryStep"))]
 pub struct Stepped {
     /// `task`, `gate`, `hook`, `close_session`.
     pub kind: String,
@@ -118,6 +120,7 @@ pub struct Stepped {
 
 /// What a step or a run did, and what is left.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(rename = "DryProgress"))]
 pub struct Progress {
     pub run: String,
     pub steps: Vec<Stepped>,
@@ -363,6 +366,7 @@ impl Sandbox {
                     inputs: input.inputs.clone(),
                     title: input.title.clone(),
                     parent: None,
+                    ..Default::default()
                 },
                 by,
             )

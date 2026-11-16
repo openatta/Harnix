@@ -8,6 +8,10 @@
  * a restart — never the model.
  */
 
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { type Backend, type TestClient, connect, expect, test } from "@harnix/testkit";
 
 import { startTestApp } from "./testapp";
@@ -358,6 +362,58 @@ test("tasks sharing the run's session take turns in it, each handing in under it
   const hist = await api.call("flow.history", { run });
   expect(hist.filter((h: any) => h.op === "submit").map((h: any) => h.station)).toEqual(["first", "second"]);
   expect(hist.some((h: any) => h.op === "fail")).toBe(false);
+});
+
+test("a task: a run in a project carries its root, workspace, output directory and trigger, and runs list by project", TAGS, async () => {
+  const project = realpathSync(mkdtempSync(join(tmpdir(), "harnix-task-")));
+  try {
+    // Every flow on offer says what a run of it is started with, as a JSON Schema a form is drawn from.
+    const defs = await api.call("flow.defs");
+    for (const d of defs) {
+      expect(d.inputs, d.name).toMatchObject({ type: "object", properties: expect.any(Object), required: expect.any(Array) });
+    }
+
+    const task = await start("demo-review", { project_root: `${project}/`, output_dir: "flows/${flow}-${date}${seq}" });
+    const plain = await start("demo-review");
+    const rec = (await api.call("flow.get", { run: task })).record;
+    // The root as given, but for its trailing `/`; the project is where it works.
+    expect(rec.project_root).toBe(project);
+    expect(rec.workspace).toBe("project");
+    expect(rec.output_dir).toBeTruthy();
+    expect(rec.trigger).toMatchObject({ kind: "manual", by: { kind: "device" } });
+    const other = (await api.call("flow.get", { run: plain })).record;
+    expect(other.project_root).toBeUndefined();
+    expect(other.workspace).toBe("scratch");
+    expect(other.trigger.kind).toBe("manual");
+
+    // `flow.list {project}`: that project's runs alone; the topic's rows carry the same fields.
+    const listed = await api.call("flow.list", { project });
+    expect(listed.map((r: any) => r.id)).toEqual([task]);
+    expect(listed[0]).toMatchObject({ project_root: project, workspace: "project", trigger: { kind: "manual" } });
+    expect(listed[0].output_dir).toBe(rec.output_dir);
+    const rows = (await api.call("harnix.topics.subscribe", { topic: "flow.runs" })).value;
+    expect(rows.find((r: any) => r.id === task)).toMatchObject({ project_root: project, workspace: "project" });
+    expect(rows.find((r: any) => r.id === plain)).toMatchObject({ workspace: "scratch" });
+
+    // A root that is not an existing absolute directory, a workspace in a project without one, a
+    // device saying a schedule started it: refused, nothing started.
+    const file = join(project, "file");
+    writeFileSync(file, "");
+    for (const project_root of ["relative/dir", join(project, "missing"), file]) {
+      expect((await api.refused("flow.start", { flow: "demo-review", subject: "repo", project_root }))?.code, project_root).toBe(INVALID);
+    }
+    expect((await api.refused("flow.start", { flow: "demo-review", subject: "repo", workspace: "worktree" }))?.code).toBe(INVALID);
+    const scheduled = await api.refused("flow.start", {
+      flow: "demo-review", subject: "repo", project_root: project, trigger: { kind: "schedule", schedule: "s1", fire_at: 1 },
+    });
+    expect(scheduled?.code).toBe(REFUSED);
+    expect((await api.call("flow.list", { project })).length).toBe(1);
+
+    await api.call("flow.cancel", { run: task, reason: "done" });
+    await api.call("flow.cancel", { run: plain, reason: "done" });
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+  }
 });
 
 test("only a device may drive a flow: another module is refused", TAGS, async () => {

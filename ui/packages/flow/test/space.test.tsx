@@ -17,7 +17,7 @@ import { FlowSpaceState } from "../src/state";
 import { StationPanel } from "../src/StationPanel";
 import { registerFlowStrings } from "../src/strings";
 import { DryControls, EmptyConversation, FlowSecondary, FlowsTab, FocusNotice, ReferenceTab, RunsTab, type FlowTabs } from "../src/tabs";
-import type { DefInfo, DefSummary, FlowDef, RunView } from "../src/types";
+import type { DefInfo, DefSummary, FlowDef, RunView, TaskRec } from "../src/types";
 
 afterEach(cleanup);
 setLocale("en");
@@ -34,8 +34,8 @@ const DEF: FlowDef = {
 };
 
 const DEFS: DefSummary[] = [
-  { name: "example-review", title: "Example: review and approve", digest: "aaaa1111", origin: "builtin", valid: true },
-  { name: "broken", title: "Broken", digest: "bbbb", origin: "user", valid: false },
+  { name: "example-review", title: "Example: review and approve", digest: "aaaa1111", origin: "builtin", valid: true, inputs: { type: "object", properties: {}, required: [] } },
+  { name: "broken", title: "Broken", digest: "bbbb", origin: "user", valid: false, inputs: { type: "object", properties: {}, required: [] } },
 ];
 
 const INFO: DefInfo = {
@@ -60,11 +60,15 @@ const DRY: RunView = {
     rev: 2,
     created_at: 2,
     created_by: { kind: "device", id: "d" },
+    inputs: {},
+    seq: 2,
+    workspace: "scratch",
+    trigger: { kind: "manual", by: { kind: "device", id: "d" } },
     def: DEF,
     stations: {
       review: {
         status: "passed",
-        round: 1,
+        round: 1, rounds_total: 1, auto_reworks: 0,
         tasks: [
           {
             id: "review",
@@ -72,13 +76,14 @@ const DRY: RunView = {
             attempt: 1,
             output: { summary: "" },
             preview: { round: 1, attempt: 1, scene: "flow-harnix", delivery: "flow_submit", message: "# Flow protocol\n\n## Skill `review`\nLook at the subject." },
-          },
+          } as TaskRec,
         ],
       },
-      approve: { status: "working", round: 1, tasks: [] },
-      sign: { status: "pending", round: 0 },
+      approve: { status: "working", round: 1, rounds_total: 1, auto_reworks: 0, tasks: [] },
+      sign: { status: "pending", round: 0, rounds_total: 0, auto_reworks: 0 },
     },
   },
+  unmet: {},
 };
 
 /** A host whose topics can be pushed to, with an open session, a front space and a right column. */
@@ -446,12 +451,12 @@ const LIVE: RunView = {
     created_at: 1_000,
     session_keys: { "@main": "main/main-1" },
     stations: {
-      review: { status: "passed", round: 1, entered_at: 1_000, left_at: 4_000, tasks: [{ id: "review", status: "submitted", attempt: 1, started_at: 1_000, ended_at: 4_000, usage: usage(1500) }] },
-      approve: { status: "working", round: 1, entered_at: 4_000, tasks: [] },
-      sign: { status: "pending", round: 0 },
+      review: { status: "passed", round: 1, rounds_total: 1, auto_reworks: 0, entered_at: 1_000, left_at: 4_000, tasks: [{ id: "review", status: "submitted", attempt: 1, started_at: 1_000, ended_at: 4_000, usage: usage(1500) }] },
+      approve: { status: "working", round: 1, rounds_total: 1, auto_reworks: 0, entered_at: 4_000, tasks: [] },
+      sign: { status: "pending", round: 0, rounds_total: 0, auto_reworks: 0 },
     },
   },
-  unmet: { approve: [{ kind: "confirm", status: "wait" }] },
+  unmet: { approve: [{ kind: "confirm", label: "confirm", status: "wait", round: 1, at: 4_000 }] },
   phase: { state: "waiting", reason: "confirm", stations: ["approve"] },
 };
 
@@ -698,7 +703,8 @@ describe("a station in a dry run", () => {
 
   it("hands in an external task: claimed, then submitted with the token", async () => {
     const ready: RunView = {
-      record: { ...DRY.record, stations: { ...DRY.record.stations, sign: { status: "working", round: 1, tasks: [{ id: "sign", status: "ready", attempt: 1 }] } } },
+      record: { ...DRY.record, stations: { ...DRY.record.stations, sign: { status: "working", round: 1, rounds_total: 1, auto_reworks: 0, tasks: [{ id: "sign", status: "ready", attempt: 1 }] } } },
+      unmet: {},
     };
     const fake = fakeHost({ "flow.claim": { token: "tok", until: 1 } });
     render(
@@ -727,7 +733,8 @@ describe("a station in a dry run", () => {
 
   it("offers no hand-in while the station is held: its task is ready, but cannot be claimed until it is let in", () => {
     const held: RunView = {
-      record: { ...DRY.record, stations: { ...DRY.record.stations, sign: { status: "held", round: 1, tasks: [{ id: "sign", status: "ready", attempt: 0 }] } } },
+      record: { ...DRY.record, stations: { ...DRY.record.stations, sign: { status: "held", round: 1, rounds_total: 1, auto_reworks: 0, tasks: [{ id: "sign", status: "ready", attempt: 0 }] } } },
+      unmet: {},
     };
     const fake = fakeHost();
     render(
@@ -741,7 +748,8 @@ describe("a station in a dry run", () => {
 
 describe("a hand-in the module refuses", () => {
   const ready = (status: "ready" | "claimed"): RunView => ({
-    record: { ...DRY.record, stations: { ...DRY.record.stations, sign: { status: "working", round: 1, tasks: [{ id: "sign", status, attempt: 1 }] } } },
+    record: { ...DRY.record, stations: { ...DRY.record.stations, sign: { status: "working", round: 1, rounds_total: 1, auto_reworks: 0, tasks: [{ id: "sign", status, attempt: 1 }] } } },
+    unmet: {},
   });
 
   it("keeps the claim: the error is shown, the same token hands in again, and it can be given up", async () => {

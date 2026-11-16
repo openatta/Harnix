@@ -20,7 +20,7 @@ use super::host::{
 };
 use super::run::{
     Actor, CheckRec, CheckStatus, ConfirmRec, ForcedRec, History, ParentRef, RunQuery, RunRecord,
-    RunStatus, RunSummary, RunView, StationStatus, TaskStatus,
+    RunStatus, RunSummary, RunView, StationStatus, TaskStatus, Trigger, Workspace,
 };
 use super::txn::{apply_inputs, check_output, new_record, new_token, Txn};
 use super::validate::{validate, validate_yaml, Problem};
@@ -49,6 +49,60 @@ pub struct CreateIn {
     /// Recorded only. Children the kernel spawns for subflow tasks set it themselves.
     #[serde(default)]
     pub parent: Option<ParentRef>,
+    /// The project the run works in: an absolute directory. That it exists, and that whoever
+    /// starts the run may use it, is the host's to check.
+    #[serde(default)]
+    pub project_root: Option<String>,
+    /// Where it works; absent: the project when there is one, else a scratch directory.
+    #[serde(default)]
+    pub workspace: Option<Workspace>,
+    /// Where its deliverables go, as the host gives it; recorded.
+    #[serde(default)]
+    pub output_dir: Option<String>,
+    /// How it came to be started; absent: by hand, by whoever starts it.
+    #[serde(default)]
+    pub trigger: Option<Trigger>,
+}
+
+/// Where a new run works and how it came to be, checked.
+struct Place {
+    project_root: Option<String>,
+    workspace: Workspace,
+    output_dir: Option<String>,
+    trigger: Trigger,
+}
+
+impl Place {
+    fn apply(&self, rec: &mut RunRecord) {
+        rec.project_root = self.project_root.clone();
+        rec.workspace = self.workspace;
+        rec.output_dir = self.output_dir.clone();
+        rec.trigger = self.trigger.clone();
+    }
+}
+
+/// A start's project, workspace, output directory and trigger, as the run will hold them: the
+/// root absolute (kept as given, but for trailing `/`s), a workspace in the project only with one.
+fn placement(input: &CreateIn, by: &Actor) -> Result<Place> {
+    let project_root = match input.project_root.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(r) if !std::path::Path::new(r).is_absolute() => {
+            return invalid(format!("project_root {r:?} is not an absolute path"))
+        }
+        Some(r) => Some(super::run::trim_root(r).to_string()),
+    };
+    let workspace = input
+        .workspace
+        .unwrap_or_else(|| Workspace::default_for(project_root.as_deref()));
+    if workspace.in_project() && project_root.is_none() {
+        return invalid(format!("workspace {} needs a project_root", workspace.as_str()));
+    }
+    Ok(Place {
+        project_root,
+        workspace,
+        output_dir: input.output_dir.clone().filter(|d| !d.trim().is_empty()),
+        trigger: input.trigger.clone().unwrap_or_else(|| Trigger::manual(by.clone())),
+    })
 }
 
 /// The kernel. Cheap to share behind an `Arc`; it holds no state of its own.
@@ -367,9 +421,10 @@ impl Engine {
             .ok_or_else(|| FlowError::NotFound(format!("flow {}", input.flow)))?;
         check_def(&def, self.packs.as_ref())?;
         let inputs = apply_inputs(&def, &input.inputs).map_err(FlowError::Invalid)?;
+        let place = placement(&input, &by)?;
         transact!(self, by.clone(), |t| {
             let id = self.store.alloc_id(&def.name).await?;
-            let rec = new_record(
+            let mut rec = new_record(
                 id.clone(),
                 def.clone(),
                 super::parts::pin(&def, self.packs.as_ref()),
@@ -381,6 +436,7 @@ impl Engine {
                 t.fx.now,
                 input.parent.clone(),
             );
+            place.apply(&mut rec);
             t.insert_new(rec);
             t.m(&id).created();
             t.fx.advance.insert(id.clone());

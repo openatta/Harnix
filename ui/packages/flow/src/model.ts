@@ -184,10 +184,10 @@ export function toolTarget(name: string | undefined, input: unknown): ToolTarget
   return out;
 }
 
-/** A problem as one line: `station path: message`. */
+/** A problem as one line: `station: message`. */
 export function problemText(p: Problem | string): string {
   if (typeof p === "string") return p;
-  return [p.station, p.path].filter(Boolean).join(" ") + (p.station || p.path ? ": " : "") + p.message;
+  return (p.station ? `${p.station}: ` : "") + p.message;
 }
 
 /** The run id in what `start` answered: an id, `{run}`, `{id}`, `{value: …}` or a run view. */
@@ -209,19 +209,19 @@ export function runsOf(value: unknown): RunSummary[] {
   return Array.isArray(runs) ? (runs as RunSummary[]) : [];
 }
 
-/** A run view's pinned definition: `record.def`, or a `def` beside the record. */
-export function defOf(view: Pick<RunView, "record" | "def"> | null | undefined): FlowDef | undefined {
-  return view?.def ?? view?.record?.def ?? undefined;
+/** A run view's pinned definition. */
+export function defOf(view: Pick<RunView, "record"> | null | undefined): FlowDef | undefined {
+  return view?.record?.def ?? undefined;
 }
 
 /** The stations a run summary says are open. */
 export function openOf(r: RunSummary): string[] {
-  return r.open ?? r.current ?? [];
+  return r.open ?? [];
 }
 
-/** Whether a judged condition passed: `status: "pass"`, or a bare `ok`. */
-export function checkOk(c: Pick<CheckRec, "status" | "ok">): boolean {
-  return c.status !== undefined ? c.status === "pass" : !!c.ok;
+/** Whether a judged condition passed. */
+export function checkOk(c: Pick<CheckRec, "status">): boolean {
+  return c.status === "pass";
 }
 
 /** A station's pinned skill digests as `name: digest` lines (a bare digest as itself). */

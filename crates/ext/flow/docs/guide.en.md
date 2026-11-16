@@ -30,6 +30,7 @@ A **run** carries one subject through the graph; each task is done by an **execu
 | Object | What it is |
 |---|---|
 | **Run** | One execution of a flow on one subject. Its states are below. |
+| **Project task** | A run in a project: started with a `project_root` (an existing absolute directory). It may also be given a `workspace` (where it works: `project`, the project itself, the default with a project; `worktree`, a worktree of it; `scratch`, a directory of the run's own, the default without one) and an `output_dir` (where its deliverables go); the run records them, with how it was started (`trigger`: by hand, or on a schedule). `flow.list {project}` lists a project's tasks. |
 | **Executor** | Who does it: `session` (a session working from a skill), `agent` (a sub-agent the main Agent hands it to), `program` (the application's code), `external` (a person or an outside agent claims it), `subflow` (another flow). |
 | **Main session / main Agent** | Every run has one main session: the flow's main Agent. Session stations without a `scene`, and every sub-agent station, take their turns in it. Select the run in the flow space's Runs tab and it is the conversation in the middle; you can talk to it. |
 | **Sub-agent** (`kind: agent`) | A sub-agent of the main session: the main Agent hands the task to it with its `Agent` tool (`agent_type`, `model` optional) and hands the result in. |

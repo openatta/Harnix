@@ -205,6 +205,34 @@ fn packages(cfg: &Config) -> Generated {
     }
 }
 
+/// `harnix-ext-flow`: the definitions and run records `flow.*` answers with and its topics carry,
+/// and the module's own rows and params. Only `@harnix/flow` reads them.
+fn flow(cfg: &Config) -> Generated {
+    use harnix_ext_flow::dryrun::{DryRunSummary, Progress, Stepped};
+    use harnix_ext_flow::kernel::run::RunQuery;
+    use harnix_ext_flow::wire::{DefRow, StartParams, StartTrigger};
+    use harnix_ext_flow::*;
+    Generated {
+        path: "flow/src/generated/flow.ts",
+        text: joined(
+            header(""),
+            declarations![cfg;
+                // The definition, as written in YAML.
+                FlowDef, MainSession, InputDef, Station, TaskSpec, Executor, SessionBinding, Retry, OnUnmet,
+                ExitCond, Assert,
+                // The parts of a pack: permissions, policies, gates, hooks.
+                PartKind, Effect, Permission, Granted, PolicyDef, GateKind, GateDef, HookKind, HookDef, Pinned,
+                // The run record, its summary and view, its history.
+                Actor, RunStatus, StationStatus, TaskStatus, Lease, AskRec, Usage, TaskRec, PauseRec, CheckStatus,
+                CheckRec, ConfirmRec, ForcedRec, StationRec, ParentRef, Workspace, Trigger, RunRecord, Phase,
+                History, RunSummary, RunQuery, RunView,
+                // The module's rows and params.
+                Origin, Delivery, Problem, DefRow, StartParams, StartTrigger, DryRunSummary, Stepped, Progress,
+            ],
+        ),
+    }
+}
+
 fn ui_packages() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/packages")
 }
@@ -212,7 +240,7 @@ fn ui_packages() -> PathBuf {
 #[test]
 fn export_the_protocol_types() {
     let cfg = Config::new().with_large_int("number");
-    let files = [contract(&cfg), readers(&cfg), packages(&cfg)];
+    let files = [contract(&cfg), readers(&cfg), packages(&cfg), flow(&cfg)];
     let root = ui_packages();
     // `HARNIX_TS_CHECK`: compare instead of writing, and fail on a difference.
     let check = std::env::var_os("HARNIX_TS_CHECK").is_some_and(|v| !v.is_empty() && v != "0");

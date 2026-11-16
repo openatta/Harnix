@@ -24,6 +24,7 @@
 //! store.rs            MemStore, FileStore
 //! packs.rs            MemPacks, DirPacks (both can be writable)
 //! dryrun.rs           dry runs: the kernel in a sandbox, everything outside it mocked
+//! wire.rs             the module's own rows and params (`flow.start`, `flow.defs`)
 //! module/             the Harnix extension (feature `extension`, on by default): Flow, FlowHandle
 //! ```
 
@@ -33,6 +34,7 @@ pub mod kernel;
 pub mod module;
 pub mod packs;
 pub mod store;
+pub mod wire;
 
 pub use dryrun::{Mocks, Sandbox};
 pub use kernel::def::{
@@ -56,7 +58,7 @@ pub use kernel::protocol::{agent_tag, ask_rules, skill_body, STRUCTURED_OUTPUT_T
 pub use kernel::run::{
     run_schema, Actor, CheckRec, CheckStatus, ConfirmRec, ForcedRec, History, Lease, ParentRef,
     AskRec, PauseRec, Phase, RunQuery, RunRecord, RunStatus, RunSummary, RunView, StationRec,
-    StationStatus, TaskRec, TaskStatus, Usage, AGENT_KIND, DEVICE_KIND, FLOW_KIND,
+    StationStatus, TaskRec, TaskStatus, Trigger, Usage, Workspace, AGENT_KIND, DEVICE_KIND, FLOW_KIND,
 };
 pub use kernel::schema::minimal;
 pub use kernel::validate::{part_problems, validate, validate_yaml, Problem};

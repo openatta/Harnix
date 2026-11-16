@@ -22,6 +22,7 @@ use super::def::{Assert, FlowDef, Station};
 
 /// The kinds of part a pack holds besides flows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum PartKind {
     Skill,
@@ -92,6 +93,7 @@ pub fn rule_parts(name: &str, text: &str) -> (String, String) {
 // ── permissions ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum Effect {
     Allow,
@@ -118,6 +120,7 @@ impl Effect {
 /// `*` is anything) and may hold references (`${run}`, `${inputs.k}`, `${item…}`, `${workspace}`),
 /// resolved when the task is dispatched.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct Permission {
     pub effect: Effect,
@@ -165,6 +168,7 @@ impl Permission {
 
 /// A policy: a named set of permissions.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct PolicyDef {
     pub name: String,
@@ -177,6 +181,7 @@ pub struct PolicyDef {
 
 /// A permission with where it came from, as a task holds it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Granted {
     #[serde(flatten)]
     pub permission: Permission,
@@ -542,6 +547,7 @@ pub fn glob(pattern: &str, text: &str, path: bool) -> bool {
 // ── gates ────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum GateKind {
     /// Call a read-only, idempotent application tool and assert on its result; judged on the spot.
@@ -560,6 +566,7 @@ pub const DEFAULT_GATE_SECONDS: u64 = 600;
 
 /// A gate: a named deterministic check a `gate` exit refers to.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct GateDef {
     pub name: String,
@@ -573,6 +580,7 @@ pub struct GateDef {
     pub tool: Option<String>,
     /// `tool`: its arguments (references resolved against the run).
     #[serde(default, skip_serializing_if = "Value::is_null")]
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
     pub args: Value,
     /// `tool`: what must hold of its result.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -610,6 +618,7 @@ impl GateDef {
 
 /// How a hook tells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum HookKind {
     /// `POST` the event as JSON to the URL in `action`.
@@ -619,6 +628,7 @@ pub enum HookKind {
 /// A hook: when an event of a run happens, tell something outside. No flow names a hook; one
 /// put in the pack applies at once, and blocks nothing.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct HookDef {
     pub name: String,
@@ -659,6 +669,7 @@ impl HookDef {
 /// judging a call or a station reads only what the run holds. (Skills and rules, read only when
 /// a task is sent, are pinned by digest when their station is entered.)
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Pinned {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub policies: BTreeMap<String, PolicyDef>,

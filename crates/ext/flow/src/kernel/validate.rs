@@ -15,6 +15,7 @@ use super::parts::{
 use super::refs::{refs_in, refs_in_value, ROOTS};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Problem {
     /// The station it is about; `None` for the flow as a whole.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -412,7 +412,8 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
 `@harnix/core/protocol` 的 `generated/` 由 Rust 里真正序列化到线上的类型生成（`crates/harnix/tests/ts_export.rs`，ts-rs），
 一个来源一个文件：`contract.ts` 是 `harnix-contract`（版本号、错误码、握手，`harnix.hello`、中枢的帧与行，
 `harnix_contract::wire`），`readers.ts` 是 `harnix-engine-api` 的 readers（`observability.*` 的答），
-`packages.ts` 是 `harnix-ext-packages`（`packages.list` 的行，连同清单的 `[inline]`）：
+`packages.ts` 是 `harnix-ext-packages`（`packages.list` 的行，连同清单的 `[inline]`）。只有一个第一方包读的生成进那个包：
+`@harnix/flow` 的 `src/generated/flow.ts` 是 `harnix-ext-flow`（流程定义、运行记录、`flow.*` 的行与参数），由它的 `types.ts` 转出：
 
 ```sh
 cargo test -p harnix --features ts --test ts_export                     # 改了这些类型后：重新生成，连生成的文件一起提交
