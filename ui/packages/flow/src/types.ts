@@ -53,6 +53,9 @@ export type {
   PauseRec,
   Workspace,
   Trigger,
+  WorktreeEnd,
+  WorktreeOutcome,
+  WorktreeRec,
   RunRecord,
   RunView,
   RunSummary,
@@ -336,4 +339,16 @@ export type FlowMethod =
   | "dry_run.start"
   | "dry_run.step"
   | "dry_run.run"
-  | "dry_run.list";
+  | "dry_run.list"
+  | "workspace_info"
+  | "worktree.merge"
+  | "worktree.keep"
+  | "worktree.discard";
+
+/**
+ * `workspace_info {project_root}`: whether a task of the project can run in a worktree — a git
+ * repository with a commit — and, when not, why (`reason`, with git's words in `detail`).
+ */
+export type WorkspaceInfo =
+  | { git: true; branch?: string | null; prefix?: string }
+  | { git: false; reason: "not_a_repository" | "bare" | "no_commit" | "no_git" | string; detail?: string };

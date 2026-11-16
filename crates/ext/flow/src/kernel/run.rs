@@ -470,6 +470,88 @@ pub struct RunRecord {
     /// `show_in_space`): where the interface opens the task.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub show_in_space: Option<String>,
+    /// Its worktree of the project, for a run that works in one (`workspace: worktree`): made at
+    /// start, and what became of it once the run was over. A child run holds its parent's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<WorktreeRec>,
+}
+
+/// A run's worktree of its project (`docs/glossary.md`, 项目任务): `<project>/.harnix/worktrees/<run>`
+/// on the branch `harnix/<run>`, made from the project's `HEAD` when the run started.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct WorktreeRec {
+    /// The worktree's directory, absolute.
+    pub path: String,
+    /// The project's place in its repository (`sub/dir`; empty at the top): the run works in
+    /// `<path>/<prefix>`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub prefix: String,
+    /// Its branch: `harnix/<run>`.
+    pub branch: String,
+    /// The commit it was made from.
+    pub base: String,
+    /// What became of it, once someone decided; absent while nobody has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<WorktreeOutcome>,
+}
+
+impl WorktreeRec {
+    /// Where the run works: the project's place in the worktree.
+    pub fn dir(&self) -> std::path::PathBuf {
+        let path = std::path::Path::new(&self.path);
+        if self.prefix.is_empty() {
+            path.to_path_buf()
+        } else {
+            path.join(&self.prefix)
+        }
+    }
+
+    /// Whether nothing more is to be done with it: merged, or discarded. A kept branch may still
+    /// be merged or discarded.
+    pub fn settled(&self) -> bool {
+        self.outcome.as_ref().is_some_and(|o| o.kind != WorktreeEnd::Kept)
+    }
+}
+
+/// What became of a run's worktree.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct WorktreeOutcome {
+    pub kind: WorktreeEnd,
+    pub at: u64,
+    pub by: Actor,
+    /// `merged`: the project's branch it went into.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub into: Option<String>,
+    /// `merged`: the commit that branch is at after; `kept`: the run's branch's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    /// `merged`: how — `fast_forward`, `merge` (a merge commit), `up_to_date` (nothing to bring).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(type = "\"fast_forward\" | \"merge\" | \"up_to_date\" | null"))]
+    pub how: Option<String>,
+}
+
+/// The three ends of a run's worktree: its branch merged into the project's current branch (the
+/// worktree removed); kept (the worktree removed, the branch left); discarded (both removed).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum WorktreeEnd {
+    Merged,
+    Kept,
+    Discarded,
+}
+
+impl WorktreeEnd {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Merged => "merged",
+            Self::Kept => "kept",
+            Self::Discarded => "discarded",
+        }
+    }
 }
 
 /// Where a run works.
@@ -494,6 +576,14 @@ impl Workspace {
         } else {
             Self::Scratch
         }
+    }
+
+    /// What a run works in: what its start says, else — with a project — what its flow says, else
+    /// [`Self::default_for`]. A flow's word means nothing to a run of no project.
+    pub fn chosen(given: Option<Self>, defined: Option<Self>, project_root: Option<&str>) -> Self {
+        given
+            .or_else(|| defined.filter(|_| project_root.is_some()))
+            .unwrap_or_else(|| Self::default_for(project_root))
     }
 
     pub fn as_str(self) -> &'static str {
@@ -719,6 +809,7 @@ impl RunRecord {
             output_dir: self.output_dir.clone(),
             trigger: self.trigger.clone(),
             show_in_space: self.show_in_space.clone(),
+            worktree: self.worktree.clone(),
         }
     }
 }
@@ -813,6 +904,9 @@ pub struct RunSummary {
     /// Where its main session is shown besides the flow's space (`RunRecord::show_in_space`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub show_in_space: Option<String>,
+    /// Its worktree, branch and what became of them (`RunRecord::worktree`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<WorktreeRec>,
 }
 
 /// Which runs to list. Every field set must match.

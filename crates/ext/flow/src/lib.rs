@@ -44,7 +44,7 @@ pub use kernel::def::{
     MAIN_SESSION_KEY, MAX_REWORK_LIMIT,
 };
 pub use kernel::engine::{
-    view, CreateIn, Engine, DEFAULT_LEASE_MS, DEFAULT_RETRIES, MAX_LEASE_MS, MAX_SUBFLOW_DEPTH,
+    view, worktree_may_end, CreateIn, Engine, Prepared, DEFAULT_LEASE_MS, DEFAULT_RETRIES, MAX_LEASE_MS, MAX_SUBFLOW_DEPTH,
 };
 pub use kernel::host::{
     digest, AllowAll, Authorizer, Catalog, ChangeSet, Clock, Delivery, Event, FixedClock,
@@ -59,7 +59,8 @@ pub use kernel::protocol::{agent_tag, ask_rules, skill_body, STRUCTURED_OUTPUT_T
 pub use kernel::run::{
     run_schema, Actor, CheckRec, CheckStatus, ConfirmRec, ForcedRec, History, Lease, ParentRef,
     AskRec, PauseRec, Phase, RunQuery, RunRecord, RunStatus, RunSummary, RunView, StationRec,
-    StationStatus, TaskRec, TaskStatus, Trigger, Usage, Workspace, AGENT_KIND, DEVICE_KIND, FLOW_KIND,
+    StationStatus, TaskRec, TaskStatus, Trigger, Usage, Workspace, WorktreeEnd, WorktreeOutcome,
+    WorktreeRec, AGENT_KIND, DEVICE_KIND, FLOW_KIND,
 };
 pub use kernel::schema::minimal;
 pub use kernel::validate::{part_problems, validate, validate_yaml, Problem};

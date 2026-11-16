@@ -260,6 +260,7 @@ impl<'e> Txn<'e> {
                             child.project_root = up.project_root.clone();
                             child.workspace = up.workspace;
                             child.output_dir = up.output_dir.clone();
+                            child.worktree = up.worktree.clone();
                             Ok(child)
                         }
                     }
@@ -359,6 +360,7 @@ pub(crate) fn new_record(
         project_root: None,
         workspace: Workspace::Scratch,
         output_dir: None,
+        worktree: None,
         def,
     }
 }

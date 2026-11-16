@@ -2,8 +2,9 @@
  * The new-task dialog, from a project's "+" menu: a flow (every one on offer, its origin marked,
  * one that does not validate disabled with why), a form drawn from the flow's `inputs` schema, the
  * subject, a title, the output directory (the default shown, as the module will resolve it), and
- * whether to run in a worktree; then `start {flow, subject, inputs, title, project_root, …}` and
- * the task opened.
+ * whether to run in a worktree (the flow's `workspace` to begin with; only for a project that is a
+ * git repository, asked of the module by `workspace_info`, the reason shown when it is not); then
+ * `start {flow, subject, inputs, title, project_root, …}` and the task opened.
  *
  * The form is deliberately small: a string, a number, a boolean, an enumeration, a list of strings;
  * anything else is a JSON field. The schema is the module's (`DefRow.inputs`,
@@ -15,10 +16,24 @@ import { DialogBody, DialogFoot, Glyph, t, useHost, useT, type HostApi } from "@
 
 import { errorText, useDefs, useMethod } from "./hooks";
 import { defBlockedKey, methodName, runIdOf, runningIn, sameRoot } from "./model";
-import type { DefInfo, DefSummary, RunSummary } from "./types";
+import type { DefInfo, DefSummary, RunSummary, WorkspaceInfo } from "./types";
 
-/** Whether a task may be run in a worktree from here: not until the module makes them. */
-export const WORKTREE_READY = false;
+/**
+ * What the dialog sends as `workspace`: nothing while the toggle was not touched (the flow's own
+ * `workspace`, else the project), else what it says. A project that is not a git repository sends
+ * nothing: a flow that asks for a worktree there is refused by the module, with why.
+ */
+export function workspaceParam(git: boolean, picked: boolean | null): "worktree" | "project" | undefined {
+  if (!git || picked === null) return undefined;
+  return picked ? "worktree" : "project";
+}
+
+/** Why a project cannot have a worktree, in a sentence: the reason's own, else git's words. */
+export function noWorktreeText(info: WorkspaceInfo | undefined): string | null {
+  if (!info || info.git) return null;
+  const known = ["not_a_repository", "bare", "no_commit", "no_git"];
+  return known.includes(info.reason) ? t("flowui.task.worktreeNo." + info.reason) : (info.detail ?? info.reason);
+}
 
 export type FieldKind = "string" | "number" | "integer" | "boolean" | "enum" | "strings" | "json";
 
@@ -174,7 +189,10 @@ function NewTaskForm({ host, module, options, onStarted, close }: { host: HostAp
   const flow = picked ?? defs.list.find((d) => d.valid !== false)?.name ?? null;
   const def = defs.list.find((d) => d.name === flow);
   const info = useMethod<DefInfo>(module, "def", flow && def?.valid !== false ? { name: flow, project: options.root } : null, def?.digest);
-  const { guard, outputDir: definedDir } = defOptions(info.value);
+  const { guard, outputDir: definedDir, workspace: definedWorkspace } = defOptions(info.value);
+  const repo = useMethod<WorkspaceInfo>(module, "workspace_info", { project_root: options.root });
+  const git = repo.value?.git === true;
+  const noWorktree = noWorktreeText(repo.value) ?? (repo.error ? repo.error : null);
   // By the schema's text, not its object: the list pushed again with the same schema keeps what was typed.
   const schema = JSON.stringify(def?.inputs ?? null);
   const fields = useMemo(() => fieldsOf(def?.inputs), [schema]);
@@ -184,7 +202,10 @@ function NewTaskForm({ host, module, options, onStarted, close }: { host: HostAp
   const [subject, setSubject] = useState("");
   const [title, setTitle] = useState("");
   const [outputDir, setOutputDir] = useState("");
-  const [worktree, setWorktree] = useState(false);
+  // Untouched (null): as the flow says.
+  const [worktree, setWorktree] = useState<boolean | null>(null);
+  useEffect(() => setWorktree(null), [flow]);
+  const inWorktree = git && (worktree ?? definedWorkspace === "worktree");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
@@ -209,8 +230,8 @@ function NewTaskForm({ host, module, options, onStarted, close }: { host: HostAp
         inputs: Object.keys(collected.inputs).length ? collected.inputs : undefined,
         title: title.trim() || undefined,
         output_dir: outputDir.trim() || undefined,
-        // Sent only when a worktree was asked for and can be had; the module's default otherwise.
-        workspace: WORKTREE_READY && worktree ? "worktree" : undefined,
+        // Sent only when the toggle was touched in a git repository; the flow's own otherwise.
+        workspace: workspaceParam(git, worktree),
         show_in_space: options.space || undefined,
       };
       const run = runIdOf(await nest.call(methodName(module, "start"), params));
@@ -267,10 +288,21 @@ function NewTaskForm({ host, module, options, onStarted, close }: { host: HostAp
         </div>
         <div className="field">
           <label className="hx-flow-task-check">
-            <input type="checkbox" data-testid="task-worktree" checked={worktree} disabled={!WORKTREE_READY} onChange={(e) => setWorktree(e.target.checked)} />
+            <input type="checkbox" data-testid="task-worktree" checked={inWorktree} disabled={!git} onChange={(e) => setWorktree(e.target.checked)} />
             {t("flowui.task.worktree")}
           </label>
-          {!WORKTREE_READY ? <div className="hint">{t("flowui.task.worktreeSoon")}</div> : null}
+          {git ? <div className="hint">{t("flowui.task.worktreeHint")}</div> : null}
+          {!git && noWorktree ? (
+            <div className="hint" data-testid="task-worktree-reason">
+              {noWorktree}
+            </div>
+          ) : null}
+          {!git && repo.value && definedWorkspace === "worktree" ? (
+            <div className="hx-flow-task-note hx-flow-tone-warn" data-testid="task-worktree-needed" role="status">
+              <Glyph name="alert" className="glyph" />
+              {t("flowui.task.worktreeNeeded")}
+            </div>
+          ) : null}
         </div>
         {running.length ? (
           <div className="hx-flow-task-note hx-flow-tone-warn" data-testid="task-running-warning" role="status">
@@ -279,9 +311,9 @@ function NewTaskForm({ host, module, options, onStarted, close }: { host: HostAp
           </div>
         ) : null}
         {guard !== "strict" ? (
-          <div className="hx-flow-task-note" data-testid="task-modifies">
+          <div className="hx-flow-task-note" data-testid="task-modifies" data-worktree={inWorktree ? "true" : undefined}>
             <Glyph name="info" className="glyph" />
-            {t("flowui.task.modifies")}
+            {t(inWorktree ? "flowui.task.modifiesWorktree" : "flowui.task.modifies")}
           </div>
         ) : null}
         {error ? (

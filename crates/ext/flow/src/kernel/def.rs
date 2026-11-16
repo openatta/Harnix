@@ -62,6 +62,11 @@ pub struct FlowDef {
     /// [`DEFAULT_OUTPUT_DIR`]. A start may give its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_dir: Option<String>,
+    /// Where a task of it works: `project` (the default: the project itself) or `worktree` (a
+    /// worktree of the project's git repository, on a branch of the run's). A start may say
+    /// otherwise; a run of no project works in its own directory whatever this says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<super::run::Workspace>,
     pub stations: Vec<Station>,
 }
 

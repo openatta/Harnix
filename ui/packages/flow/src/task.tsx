@@ -2,7 +2,8 @@
  * A task — a run of a flow in a project (`docs/glossary.md`, 项目任务) — as the projects space shows
  * it. The projects space defines `harnix-app.project.items` and knows no item kind by name; this
  * package registers the kind `flow.task` there: the project's runs from the `runs` topic as rows
- * (flow, state, "station k of n", a clock for one a schedule started), "新任务" in the project's
+ * (flow, state, "station k of n", the branch of one run in a worktree, a clock for one a schedule
+ * started), "新任务" in the project's
  * "+" menu (`NewTask.tsx`), and a row opened as its main session in the middle with the 流程 tab
  * (`TaskTab.tsx`) in the right column.
  *
@@ -189,6 +190,7 @@ export function TaskRow({ run, module, tasks }: { run: RunSummary; module: strin
   const step = taskStep(view);
   const flow = defs.list.find((d) => d.name === run.flow)?.title || run.flow;
   const scheduled = run.trigger?.kind === "schedule";
+  const branch = run.worktree?.branch ?? null;
   return (
     <>
       {runLive(run) ? <span className="live" /> : null}
@@ -199,6 +201,11 @@ export function TaskRow({ run, module, tasks }: { run: RunSummary; module: strin
         <span className="hx-flow-task-flow">{flow}</span>
         <PhaseBadge phase={phase} />
         {step ? <span className="hx-flow-task-step">{t("flowui.task.step", { k: step.k, n: step.n })}</span> : null}
+        {branch ? (
+          <span className="hx-flow-task-branch" data-testid="task-branch" data-outcome={run.worktree?.outcome?.kind ?? undefined} title={t("flowui.task.inWorktree", { branch })}>
+            {branch}
+          </span>
+        ) : null}
         {/* Badges about time: the clock of one a schedule started; a schedule's next firing goes here too. */}
         <span className="hx-flow-task-badges" data-testid="task-badges">
           {scheduled ? (

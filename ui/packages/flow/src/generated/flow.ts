@@ -46,7 +46,13 @@ guard?: Guard,
  * more than the highest already there), `${title}` and `${inputs.<k>}`. Absent:
  * [`DEFAULT_OUTPUT_DIR`]. A start may give its own.
  */
-output_dir?: string | null, stations: Array<Station>, };
+output_dir?: string | null, 
+/**
+ * Where a task of it works: `project` (the default: the project itself) or `worktree` (a
+ * worktree of the project's git repository, on a branch of the run's). A start may say
+ * otherwise; a run of no project works in its own directory whatever this says.
+ */
+workspace?: Workspace | null, stations: Array<Station>, };
 
 /**
  * How a flow's tool calls are judged where no permission speaks for them. An explicit `ask`, a
@@ -490,6 +496,56 @@ export type Workspace = "project" | "worktree" | "scratch";
 export type Trigger = { "kind": "manual", by: Actor, } | { "kind": "schedule", schedule: string, fire_at: number, };
 
 /**
+ * The three ends of a run's worktree: its branch merged into the project's current branch (the
+ * worktree removed); kept (the worktree removed, the branch left); discarded (both removed).
+ */
+export type WorktreeEnd = "merged" | "kept" | "discarded";
+
+/**
+ * What became of a run's worktree.
+ */
+export type WorktreeOutcome = { kind: WorktreeEnd, at: number, by: Actor, 
+/**
+ * `merged`: the project's branch it went into.
+ */
+into?: string | null, 
+/**
+ * `merged`: the commit that branch is at after; `kept`: the run's branch's.
+ */
+commit?: string | null, 
+/**
+ * `merged`: how — `fast_forward`, `merge` (a merge commit), `up_to_date` (nothing to bring).
+ */
+how?: "fast_forward" | "merge" | "up_to_date" | null, };
+
+/**
+ * A run's worktree of its project (`docs/glossary.md`, 项目任务): `<project>/.harnix/worktrees/<run>`
+ * on the branch `harnix/<run>`, made from the project's `HEAD` when the run started.
+ */
+export type WorktreeRec = { 
+/**
+ * The worktree's directory, absolute.
+ */
+path: string, 
+/**
+ * The project's place in its repository (`sub/dir`; empty at the top): the run works in
+ * `<path>/<prefix>`.
+ */
+prefix?: string, 
+/**
+ * Its branch: `harnix/<run>`.
+ */
+branch: string, 
+/**
+ * The commit it was made from.
+ */
+base: string, 
+/**
+ * What became of it, once someone decided; absent while nobody has.
+ */
+outcome?: WorktreeOutcome | null, };
+
+/**
  * One execution of a flow on one subject.
  */
 export type RunRecord = { id: string, flow: string, 
@@ -548,7 +604,12 @@ trigger: Trigger,
  * A space the main session is shown in besides the flow's own (the start's
  * `show_in_space`): where the interface opens the task.
  */
-show_in_space?: string | null, };
+show_in_space?: string | null, 
+/**
+ * Its worktree of the project, for a run that works in one (`workspace: worktree`): made at
+ * start, and what became of it once the run was over. A child run holds its parent's.
+ */
+worktree?: WorktreeRec | null, };
 
 /**
  * What a run is doing now, for people (xops-03 §3): `running` (work in hand), `waiting` (on a
@@ -598,7 +659,11 @@ project_root?: string | null, workspace: Workspace, output_dir?: string | null, 
 /**
  * Where its main session is shown besides the flow's space (`RunRecord::show_in_space`).
  */
-show_in_space?: string | null, };
+show_in_space?: string | null, 
+/**
+ * Its worktree, branch and what became of them (`RunRecord::worktree`).
+ */
+worktree?: WorktreeRec | null, };
 
 /**
  * Which runs to list. Every field set must match.
