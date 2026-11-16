@@ -163,7 +163,7 @@ fn expand(layer: &SceneLayer, before: &BTreeMap<String, ExpandedScene>) -> Resul
         let name = tool.spec().name();
         if !session_tool_name(name) {
             return Err(format!(
-                "the scene `{id}` has a tool named `{name}`: a scene's tool is named ^[A-Za-z][A-Za-z0-9_]{{0,63}}$, and not ext__… or mcp__…"
+                "the scene `{id}` has a tool named `{name}`: a scene's tool is named ^[A-Za-z][A-Za-z0-9_-]{{0,63}}$, and not ext__… or mcp__…"
             ));
         }
         if tools.iter().any(|t| t.spec().name() == name) {
@@ -208,7 +208,7 @@ fn session_tool_name(name: &str) -> bool {
     let mut chars = name.chars();
     chars.next().is_some_and(|c| c.is_ascii_alphabetic())
         && name.len() <= 64
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
         && !name.starts_with("ext__")
         && !name.starts_with("mcp__")
 }
@@ -314,9 +314,10 @@ mod tests {
         let one = |layer: SceneLayer| SceneLayers::new(&[layer]);
         let base = || SceneLayer::new("a", SceneBase::builtin("harnix"));
         assert!(one(base().tool(tool("t")).tool(tool("t"))).is_err(), "two by one name");
-        for bad in ["ext__acme__t", "mcp__s__t", "1t", "a-b", ""] {
+        for bad in ["ext__acme__t", "mcp__s__t", "1t", "-t", "a.b", ""] {
             assert!(one(base().tool(tool(bad))).is_err(), "{bad}");
         }
+        assert!(one(base().tool(tool("a-b"))).is_ok(), "the engine takes a `-`");
         let many = (0..65).fold(base(), |l, n| l.tool(tool(&format!("t{n}"))));
         assert!(one(many).unwrap_err().contains("at most 64"));
         let over = SceneLayers::new(&[base().tool(tool("t")), SceneLayer::new("b", SceneBase::named("a")).tool(tool("t"))]);

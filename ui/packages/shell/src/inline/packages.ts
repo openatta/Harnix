@@ -165,7 +165,7 @@ export function packagesOf(app: App): PackagesWatch {
   return watch;
 }
 
-/** The names a session knows a package's tool by: the same in every session, of any instance. */
+/** The names a session knows a package's tool by (`harnix_package::tool_name`): the same in every session, of any instance. */
 export function toolNames(id: string, tool: string): string[] {
-  return [`ext__${id.replace(/[.-]/g, "_")}__${tool.replace(/-/g, "_")}`];
+  return [`ext__${id.replace(/\./g, "_")}__${tool}`];
 }

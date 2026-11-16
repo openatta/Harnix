@@ -128,6 +128,9 @@ impl Tool for Echo {
                 cx.progress().send(step);
             }
         }
+        if input["where"].as_bool() == Some(true) {
+            return Ok(ToolOutput::text(format!("{} {}", cx.cwd().display(), cx.depth())));
+        }
         let said = format!("{} {} {} {}", cx.session_id(), cx.project().display(), cx.depth(), input["text"]);
         Ok(ToolOutput::text(said).with_structured(Some(json!(1))))
     }
@@ -302,6 +305,27 @@ async fn a_delegates_call_is_its_own_and_answered_for_the_root() {
     let (_, answer) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
     assert_eq!(answer["session_id"], "s1");
     assert_eq!(answer["result"]["content"], "sub /p 1 \"hi\"");
+}
+
+/// Where a call is made and how deep are the engine's to say: a delegate in a worktree works there.
+/// Not said, the call works in its project.
+#[tokio::test]
+async fn a_call_works_where_the_engine_says_its_session_does() {
+    let (_link, mut fake, _taken, _events) = ready(&provider(vec![])).await;
+    let mut call = tool_call("c1", json!({"where": true}));
+    call["agent_session_id"] = json!("sub");
+    call["cwd"] = json!("/p/.agix/worktrees/x");
+    call["depth"] = json!(2);
+    fake.push("s1", call).await;
+    let (id, _) = fake.expect(translate::SESSION_GET).await;
+    fake.answer(id, json!({"project_root": "/p"})).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
+    assert_eq!(answer["result"]["content"], "/p/.agix/worktrees/x 2");
+
+    // The project is known by now.
+    fake.push("s1", tool_call("c2", json!({"where": true}))).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
+    assert_eq!(answer["result"]["content"], "/p 0");
 }
 
 #[tokio::test]

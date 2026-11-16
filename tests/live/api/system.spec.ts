@@ -389,11 +389,11 @@ test.describe("on", () => {
 
   test("a session's model is switched from the system space, and says so", TAGS, async () => {
     const s = await oneTurn(api, "fleet");
-    // The engine's answer: the model the session's next turn runs. (`fleet.model` reads the engine's
-    // `engine.session.inspectContext`, which in Agix 0.3.15 names the settings' model, not the one chosen
-    // here, until the session is rebuilt: reported upstream, so not asserted on.)
+    // The engine's answer: the model the session's next turn runs; `fleet.model` reads the engine's
+    // `engine.session.inspectContext`, which names the one chosen here before that turn.
     const chosen = await api.call("system.model", { ...s, model: "claude-haiku-5-5" });
     expect(chosen).toMatchObject({ session_id: s.session_id, model: "claude-haiku-5-5", applies: "next_turn" });
+    expect((await api.call("fleet.model", s)).model).toBe("claude-haiku-5-5");
     expect((await api.refused("system.model", { ...s, session_id: "no-such-session", model: "x" }))).toBeTruthy();
   });
 

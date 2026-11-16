@@ -56,6 +56,10 @@ pub(crate) struct DaemonCommand {
     /// How long to wait for that lock, in seconds.
     #[arg(long, default_value = "10")]
     pub lock_wait: u64,
+    /// The instance reaps on stop: record the commands' process groups in the data root, and
+    /// stop what a daemon that was killed left there before building the engine.
+    #[arg(long)]
+    pub reap: bool,
 }
 
 impl DaemonCommand {
@@ -77,6 +81,7 @@ impl DaemonCommand {
             exit_with_stdin: self.exit_with_stdin,
             instance: self.instance.clone(),
             lock_wait: std::time::Duration::from_secs(self.lock_wait),
+            reap: self.reap,
         }
     }
 }

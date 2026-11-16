@@ -64,6 +64,7 @@ describe("the applications the shell draws for", () => {
 
   it("are known by their tools' names, the same in every instance", () => {
     expect(toolNames("example.showcase", "echo")).toEqual(["ext__example_showcase__echo"]);
+    expect(toolNames("acme.my-notes", "do-it")).toEqual(["ext__acme_my-notes__do-it"]);
   });
 
   it("have what the shell registered for them taken back", () => {

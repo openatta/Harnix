@@ -207,6 +207,7 @@ pub struct ToolCx {
     instance: String,
     session: String,
     project: PathBuf,
+    cwd: Option<PathBuf>,
     depth: u32,
     tool_use_id: String,
     cancel: Cancel,
@@ -221,6 +222,7 @@ impl ToolCx {
             instance: String::new(),
             session: session.to_string(),
             project: PathBuf::new(),
+            cwd: None,
             depth: 0,
             tool_use_id: tool_use_id.to_string(),
             cancel: Cancel::new(),
@@ -237,6 +239,12 @@ impl ToolCx {
 
     pub fn with_project(mut self, project: impl Into<PathBuf>) -> Self {
         self.project = project.into();
+        self
+    }
+
+    /// Where the calling session works, when it is not the project: a delegate in a worktree.
+    pub fn with_cwd(mut self, cwd: impl Into<PathBuf>) -> Self {
+        self.cwd = Some(cwd.into());
         self
     }
 
@@ -273,6 +281,13 @@ impl ToolCx {
     /// The directory the session works in.
     pub fn project(&self) -> &Path {
         &self.project
+    }
+
+    /// The directory the calling session works in, as the engine has it: a delegate the model
+    /// started in a git worktree works in that worktree, whose files are the ones it changes;
+    /// otherwise the session's [`project`](Self::project).
+    pub fn cwd(&self) -> &Path {
+        self.cwd.as_deref().unwrap_or(&self.project)
     }
 
     /// 0 for a session a host created, one more for each delegate down.

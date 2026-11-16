@@ -32,11 +32,11 @@ test("with model_switch, a space changes its own session's model", TAGS, async (
 
     const created = await api.call("harnix.session.create", { space: "fleet" });
     const session = { instance: created.instance, session_id: created.session_id };
-    // The engine's answer: the model the session's next turn runs. (Neither `engine.session.get` nor,
-    // in Agix 0.3.15, `engine.session.inspectContext` names it: the latter says the settings' model until
-    // the session is rebuilt. Reported upstream.)
+    // The engine's answer: the model the session's next turn runs; its context, read before that turn,
+    // names it too (`fleet.model` reads `engine.session.inspectContext`).
     const chosen = await api.call("harnix.session.setModel", { ...session, space: "fleet", model: "switched-model" });
     expect(chosen).toMatchObject({ session_id: session.session_id, model: "switched-model", applies: "next_turn" });
+    expect((await api.call("fleet.model", session)).model).toBe("switched-model");
   } finally {
     api.close();
   }

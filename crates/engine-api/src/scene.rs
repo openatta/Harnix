@@ -7,7 +7,7 @@
 //! The engine serves only its own scenes. A layer is not built into it: the hub expands the one a
 //! session is created in into the engine's scene it runs on and what the session is created
 //! with (`harnix-engine-link`), and the session's own tools are answered on the link that created
-//! it. A layer's own tools are named `^[A-Za-z][A-Za-z0-9_]{0,63}$`, not `ext__…` or `mcp__…`, at
+//! it. A layer's own tools are named `^[A-Za-z][A-Za-z0-9_-]{0,63}$`, not `ext__…` or `mcp__…`, at
 //! most 64 to a session, and a tool by one name is one object shared by every layer that has it:
 //! the expansion refuses what breaks that.
 //!
@@ -66,7 +66,7 @@ impl SceneLayer {
         self
     }
 
-    /// A tool of the scene's own, in its sessions alone. Its name is `^[A-Za-z][A-Za-z0-9_]{0,63}$`,
+    /// A tool of the scene's own, in its sessions alone. Its name is `^[A-Za-z][A-Za-z0-9_-]{0,63}$`,
     /// not `ext__…` or `mcp__…`, and one session has at most 64.
     ///
     /// The link answers a call by the tool's name, without asking which scene the session is in:

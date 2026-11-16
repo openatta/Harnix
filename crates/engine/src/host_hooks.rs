@@ -33,9 +33,11 @@ pub(crate) async fn run(host: Arc<HostSide>, wire: Arc<dyn Wired>, call: HostHoo
 /// blocks decides, and what the others add is joined.
 async fn before_tool(host: &HostSide, call: &HostHookCall, cancel: &Cancel) -> HookVerdict {
     let (tool, input, session, cwd) = translate::pre_tool_use(&call.input);
+    // An engine that does not say how deep knows only whether a delegate made the call.
+    let depth = call.depth.unwrap_or(call.agent_session.is_some() as u32);
     let facts = ToolCallFacts::new(&tool, input, cancel.clone())
-        .with_session(session.as_deref().unwrap_or(&call.session), call.agent_session.is_some() as u32)
-        .with_cwd(cwd.unwrap_or_default());
+        .with_session(session.as_deref().unwrap_or(&call.session), depth)
+        .with_cwd(cwd.or_else(|| call.cwd.clone()).unwrap_or_default());
     let mut notes = Vec::new();
     for provider in host.providers() {
         for hook in provider.hooks() {

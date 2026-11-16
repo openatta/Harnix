@@ -3,7 +3,7 @@
 //!
 //! A call made by a delegate is the delegate's: its session is the delegate's own. The chain it
 //! carries is the root session's turn, which the delegate's call is part of. Its project is the
-//! root session's.
+//! root session's; where it works is the engine's to say (a delegate in a worktree works there).
 
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -39,10 +39,14 @@ pub(crate) async fn run(host: Arc<HostSide>, wire: Arc<dyn Wired>, tool: Arc<dyn
         .with_instance(host.instance())
         .with_chain(chain)
         .with_project(project)
-        // The engine says only whether a delegate made the call.
-        .with_depth(call.agent_session.is_some() as u32)
+        // An engine that does not say how deep knows only whether a delegate made the call.
+        .with_depth(call.depth.unwrap_or(call.agent_session.is_some() as u32))
         .with_cancel(cancel.clone())
         .with_progress(progress(wire.clone(), &call.session, &call.call_id));
+    let cx = match call.cwd {
+        Some(cwd) => cx.with_cwd(cwd),
+        None => cx,
+    };
     let out = if cancel.is_cancelled() {
         Err(ToolError::Cancelled)
     } else {
