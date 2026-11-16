@@ -111,7 +111,7 @@ pub(crate) fn spawn(children: &Arc<ChildBindings>, id: &ExtId, req: ChildRequest
     let (ends_tx, ends) = mpsc::unbounded_channel::<Ends>();
     let with_engine = req.has_engine();
     // One tail for the run: an exit's last lines are still there once it is started again.
-    let tail = Tail::new(id.to_string());
+    let tail = Tail::extension(id.to_string());
     let stderr = tail.clone();
     let make = move || {
         let (product, process) = UnixStream::pair()?;

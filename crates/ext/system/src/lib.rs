@@ -66,7 +66,7 @@ impl Extension for System {
             .disclosure(
                 "系统 space：看任何实例的会话与任务、读上下文、任务的输出；给在跑的子 Agent 发话；设定、暂停、继续、\
                  编辑、清除会话的目标；压缩、清空、换模型、改名、改写或删除消息、停止任务；停、重起、建任何实例；\
-                 读本进程的版本、内存与连接。每次操作写审计",
+                 读本进程的版本、内存与连接，读各扩展的日志。每次操作写审计",
             )
             .requires([caps::INSTANCES_ADMIN, caps::ENGINE_INSPECT, caps::ENGINE_CONTROL, caps::PROCESS_OBSERVE])
     }
@@ -92,11 +92,26 @@ impl Extension for System {
             .describe("this process's versions, uptime, memory, threads and who is connected")
             .raw(|call: Call, _| async move { Ok(call.ext().process()?.to_json()) });
         r.topic("process").computed(Some(PROCESS_EVERY), Process);
+        r.method("extensions.log")
+            .access(Access::device())
+            .describe("each extension's log, the newest lines: by extension, least level and after a line")
+            .raw(|call: Call, params| async move { call.call("harnix.extensions.log", log_params(&params)).await });
         // Its UI package defines the console's tabs and the inspector's pages for others to fill.
         for point in catalog::points_of(ID) {
             r.ui().point(point.decl());
         }
     }
+}
+
+/// What a read of the extension log passes on: its filter, nothing else the caller sent.
+fn log_params(params: &Value) -> Value {
+    let mut out = json!({});
+    for key in ["extension", "level", "after", "limit"] {
+        if let Some(value) = params.get(key) {
+            out[key] = value.clone();
+        }
+    }
+    out
 }
 
 /// `system.process`, the topic: the same value as the method.
@@ -171,11 +186,19 @@ mod tests {
         assert!(engine_params(&json!({"instance": "side"}), &[]).is_err());
     }
 
+    /// A read of the extension log passes on its filter and nothing else.
+    #[test]
+    fn a_log_read_passes_on_only_its_filter() {
+        let params = json!({"extension": "flow", "level": "warn", "after": 3, "limit": 10, "space": "acme", "session_id": "S"});
+        assert_eq!(log_params(&params), json!({"extension": "flow", "level": "warn", "after": 3, "limit": 10}));
+        assert_eq!(log_params(&json!({})), json!({}));
+    }
+
     /// Every method has a name of its own.
     #[test]
     fn every_method_is_named_once() {
         let mut names: Vec<&str> = ENGINE.iter().map(|(n, _, _)| *n).chain(INSTANCES.iter().map(|(n, _)| *n)).collect();
-        names.extend(["context", "process"]);
+        names.extend(["context", "process", "extensions.log"]);
         let count = names.len();
         names.sort();
         names.dedup();

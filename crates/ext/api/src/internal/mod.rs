@@ -17,6 +17,7 @@ use harnix_kernel::seat::{DeviceAdmin, InstanceView, Listening, Seat, Seated, Un
 use harnix_kernel::{CallContext, Handler, TopicSource};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
+use tracing::Instrument;
 
 use crate::call::{Call, Deadline};
 use crate::context::{ExtensionContext, GrantsView, Listen};
@@ -58,8 +59,14 @@ impl Handler for MethodDecl {
         let Some(ext) = self.slot.get().cloned() else {
             return Err(RpcError::not_found(format!("method `{}` is not served here (yet)", self.name)));
         };
-        self.handler.call(Call::new(CallInner(cx), ext), params).await
+        let span = extension_span(ext.id());
+        self.handler.call(Call::new(CallInner(cx), ext), params).instrument(span).await
     }
+}
+
+/// What an extension logs while it answers is its own (`harnix_kernel::EXTENSION_SPAN`).
+pub(crate) fn extension_span(id: &ExtId) -> tracing::Span {
+    tracing::info_span!(harnix_kernel::EXTENSION_SPAN, extension = %id)
 }
 
 #[async_trait::async_trait]
@@ -68,12 +75,12 @@ impl TopicSource for TopicDecl {
         let (TopicKind::Computed { compute, .. }, Some(ext)) = (&self.kind, self.slot.get()) else {
             return Err(internal_error(format!("`{}` is not computed here", self.name)));
         };
-        compute.compute(ext, params).await
+        compute.compute(ext, params).instrument(extension_span(ext.id())).await
     }
 
     async fn on_subscribe(&self, params: &Value) {
         if let (TopicKind::Computed { compute, .. }, Some(ext)) = (&self.kind, self.slot.get()) {
-            compute.on_subscribe(ext, params).await;
+            compute.on_subscribe(ext, params).instrument(extension_span(ext.id())).await;
         }
     }
 

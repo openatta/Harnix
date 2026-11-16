@@ -823,6 +823,20 @@ pub(crate) fn hooks_params(tool_hooks: bool, gates: bool) -> Value {
     json!({"hooks": hooks})
 }
 
+/// The hooks [`hooks_params`] registers, one per event, as a link reports them.
+pub(crate) fn registered_hooks(tool_hooks: bool, gates: bool) -> Vec<harnix_engine_link::HostHook> {
+    let params = hooks_params(tool_hooks, gates);
+    let mut out = Vec::new();
+    for hook in params["hooks"].as_array().into_iter().flatten() {
+        let tools: Vec<String> = hook["tools"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
+        let on_error = hook["on_error"].as_str().unwrap_or("allow");
+        for event in hook["events"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+            out.push(harnix_engine_link::HostHook::new(event, tools.clone(), on_error));
+        }
+    }
+    out
+}
+
 /// A tool's answer, as the engine reads it. A tool that failed, ran: only a call that could not
 /// be made is an `error`, which also stops the calls running beside it. Structured content has
 /// nowhere to go and is left out: a value's text is in the content already.
@@ -1210,6 +1224,15 @@ mod tests {
         assert_eq!(both["hooks"][1]["events"], json!(["UserPromptSubmit"]));
         assert_eq!(hooks_params(false, true)["hooks"].as_array().unwrap().len(), 1);
         assert_eq!(hook_answer("s", "h", HookVerdict::Block(String::new())), json!({"session_id": "s", "call_id": "h", "decision": "block"}));
+    }
+
+    #[test]
+    fn the_registered_hooks_are_reported_as_registered() {
+        assert!(registered_hooks(false, false).is_empty());
+        let both = registered_hooks(true, true);
+        assert_eq!(both.len(), 2);
+        assert_eq!((both[0].event.as_str(), both[0].tools.clone(), both[0].on_error.as_str()), ("PreToolUse", vec!["*".to_string()], "allow"));
+        assert_eq!((both[1].event.as_str(), both[1].tools.is_empty(), both[1].on_error.as_str()), ("UserPromptSubmit", true, "block"));
     }
 
     #[test]

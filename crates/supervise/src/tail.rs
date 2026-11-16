@@ -32,6 +32,9 @@ impl std::fmt::Debug for Tail {
 struct Inner {
     /// Whose lines these are, as the log names them.
     name: String,
+    /// The child is an extension's process, `name` its id: its lines are logged as that
+    /// extension's (`extension` and `stream` in place of `child`).
+    extension: bool,
     ring: Mutex<Ring>,
 }
 
@@ -44,7 +47,12 @@ struct Ring {
 impl Tail {
     /// An empty tail for the child the log calls `name`.
     pub fn new(name: impl Into<String>) -> Self {
-        Self(Arc::new(Inner { name: name.into(), ring: Mutex::default() }))
+        Self(Arc::new(Inner { name: name.into(), extension: false, ring: Mutex::default() }))
+    }
+
+    /// An empty tail for the process of the extension `id`.
+    pub fn extension(id: impl Into<String>) -> Self {
+        Self(Arc::new(Inner { name: id.into(), extension: true, ring: Mutex::default() }))
     }
 
     /// The lines kept, oldest first.
@@ -93,7 +101,10 @@ impl Tail {
     fn take(&self, line: &mut Vec<u8>, pid: u32) {
         let text = String::from_utf8_lossy(line).trim_end_matches('\r').to_string();
         line.clear();
-        log(&self.0.name, pid, &text);
+        match self.0.extension {
+            true => log_extension(&self.0.name, pid, &text),
+            false => log(&self.0.name, pid, &text),
+        }
         self.push(text);
     }
 }
@@ -108,6 +119,18 @@ fn log(name: &str, pid: u32, line: &str) {
         Some("DEBUG") => tracing::debug!(child = %name, pid, "{message}"),
         Some("TRACE") => tracing::trace!(child = %name, pid, "{message}"),
         _ => tracing::warn!(child = %name, pid, "{message}"),
+    }
+}
+
+/// [`log`], for an extension's process.
+fn log_extension(id: &str, pid: u32, line: &str) {
+    let (level, message) = parse(line);
+    match level {
+        Some("ERROR") => tracing::error!(extension = %id, stream = "stderr", pid, "{message}"),
+        Some("INFO") => tracing::info!(extension = %id, stream = "stderr", pid, "{message}"),
+        Some("DEBUG") => tracing::debug!(extension = %id, stream = "stderr", pid, "{message}"),
+        Some("TRACE") => tracing::trace!(extension = %id, stream = "stderr", pid, "{message}"),
+        _ => tracing::warn!(extension = %id, stream = "stderr", pid, "{message}"),
     }
 }
 

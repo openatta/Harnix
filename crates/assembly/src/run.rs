@@ -30,6 +30,9 @@ use std::sync::Arc;
 
 use harnix_ext::{Credentials, EnvCredentials};
 use harnix_instance::EngineProfile;
+use tracing_subscriber::layer::SubscriberExt as _;
+use tracing_subscriber::util::SubscriberInitExt as _;
+use tracing_subscriber::Layer as _;
 
 use crate::cli::{self, Cli, Command, UiCommand};
 use crate::host::{lifecycle, Entry, ExtensionStatus, Record};
@@ -125,11 +128,13 @@ pub(crate) async fn start_process(app: AppBuilder, cli: &Cli, basis: &Basis) -> 
 }
 
 pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,harnix=debug")),
-        )
+    // The process's log, filtered by `RUST_LOG`; beside it, each extension's own, filtered apart
+    // (`ext_log`).
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,harnix=debug"));
+    let _ = tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_filter(filter))
+        .with(crate::ext_log::layer(crate::ext_log::LOG.clone()))
         .try_init();
 
     let cli = cli::parse(&app.name, &app.version, app.args.clone());

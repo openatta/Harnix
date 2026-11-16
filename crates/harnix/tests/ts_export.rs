@@ -160,6 +160,10 @@ fn contract(cfg: &Config) -> Generated {
         SpacesList, QueueItem, ReplayFrame, AttachResult,
         // The hub's frames.
         EventFrame, ToolCallOutcome, TurnOutcome, TurnSettled, QueueFrame, SessionResync, TopicFrame, TopicEnded,
+        // What a session sees: its skills and hooks.
+        SkillTier, SkillRow, ShadowedSkill, SkillDirRow, SessionSkills, HookSource, HookRow, SessionHooks,
+        // Each extension's log.
+        ExtensionLogOrigin, ExtensionLogLine, ExtensionLogCount, ExtensionLog,
     ]);
     Generated {
         path: "core/src/protocol/generated/contract.ts",

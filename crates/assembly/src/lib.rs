@@ -20,6 +20,7 @@
 
 mod audit_log;
 mod cli;
+mod ext_log;
 mod pairing;
 mod gate;
 mod host;

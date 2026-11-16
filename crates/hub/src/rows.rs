@@ -166,6 +166,22 @@ impl Hub {
         }
     }
 
+    /// `harnix.session.skills` and `harnix.session.hooks`: what a session sees beyond its
+    /// conversation, by where each comes from. A person's to look at, so a device's alone: a
+    /// package has no need of what the settings tiers configure.
+    fn seen_rows(hub: &HubCell) -> Vec<HubRow> {
+        let row = |name: &'static str, handler: Arc<dyn Handler>| HubRow::Method {
+            name,
+            owner: Owner::Kernel(KernelPart::Hub),
+            access: Access::device().scoped(RowScope::Session),
+            handler: Some(handler),
+        };
+        vec![
+            row("harnix.session.skills", answer(hub, "harnix.session.skills", true, |h, _, p| async move { h.session_skills(p).await })),
+            row("harnix.session.hooks", answer(hub, "harnix.session.hooks", true, |h, _, p| async move { h.session_hooks(p).await })),
+        ]
+    }
+
     /// Every row the hub answers: its own methods and topics, and the engine's that pass through
     /// it. `hub` holds the hub once it is built; until then each answers that it is not up.
     pub fn rows(hub: &HubCell) -> Vec<HubRow> {
@@ -214,6 +230,7 @@ impl Hub {
                 .iter()
                 .map(|(name, _)| HubRow::Topic { name, access: Access::device().with_extensions().scoped(topic_scope(name)) }),
         );
+        rows.extend(Self::seen_rows(hub));
         rows.extend(crate::engine_rows::rows(hub));
         rows
     }

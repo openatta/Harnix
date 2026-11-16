@@ -1673,6 +1673,23 @@
     },
     {
       "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "process.observe"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix.extensions.log",
+      "owner": "kernel:assembly"
+    },
+    {
+      "access": {
         "device": true,
         "extensions": [
           "*"
@@ -1945,6 +1962,19 @@
     },
     {
       "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix.session.hooks",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
         "device": false,
         "extensions": [
           "*"
@@ -2080,6 +2110,19 @@
       },
       "kind": "method",
       "name": "harnix.session.setPrompt",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix.session.skills",
       "owner": "kernel:hub"
     },
     {
@@ -2534,6 +2577,19 @@
       },
       "kind": "method",
       "name": "system.context",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "system.extensions.log",
       "owner": "ext:system"
     },
     {

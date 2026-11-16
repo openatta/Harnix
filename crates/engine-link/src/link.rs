@@ -58,6 +58,31 @@ impl EngineIdentity {
     }
 }
 
+/// One hook a link registered on its connection (`daemon.setHooks`).
+#[non_exhaustive]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct HostHook {
+    /// The engine's event.
+    pub event: String,
+    /// The tool patterns it applies to; empty for an event about no tool.
+    pub tools: Vec<String>,
+    /// `allow` or `block`: what a failure to answer does.
+    pub on_error: String,
+    /// The providers whose hooks it asks, by name: before a tool call.
+    pub providers: Vec<String>,
+}
+
+impl HostHook {
+    pub fn new(event: impl Into<String>, tools: Vec<String>, on_error: impl Into<String>) -> Self {
+        Self { event: event.into(), tools, on_error: on_error.into(), providers: Vec::new() }
+    }
+
+    pub fn providers(mut self, providers: Vec<String>) -> Self {
+        self.providers = providers;
+        self
+    }
+}
+
 /// The half of a link its builder keeps: how it is, and how to stop it. It cannot reach a
 /// session: that is the hub's, through the whole [`EngineLink`].
 #[async_trait::async_trait]
@@ -89,6 +114,12 @@ pub trait EngineControl: Send + Sync + 'static {
     /// one, and the link answers that session's own tools. None by default.
     fn scene_layers(&self) -> SceneLayers {
         SceneLayers::default()
+    }
+
+    /// The hooks the link registered on its connection, as of its last registration: what this
+    /// process answers in every session of the engine. None by default.
+    fn host_hooks(&self) -> Vec<HostHook> {
+        Vec::new()
     }
 
     /// Have the engine read its settings again: what its builder does after writing them.

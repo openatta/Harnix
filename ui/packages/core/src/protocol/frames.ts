@@ -9,12 +9,15 @@
 import type {
   AttachResult,
   EngineTrust,
+  ExtensionLog,
   Handshake,
   Hello,
   HelloEngine,
   InstanceRow,
   InstancesList,
   QueueItem,
+  SessionHooks,
+  SessionSkills,
   SessionsList,
   SpacesList,
   Topology,
@@ -133,6 +136,15 @@ export interface Methods {
   "harnix.session.respond": {
     params: SessionKey & { prompt_id: string; decision: Decision; tool_use_id?: string };
     result: { prompt_id: string };
+  };
+  /** 会话看得到的 skill，各自的来源层与目录；未受信项目里被扣下一部分的标 `withheld`。只开给设备。 */
+  "harnix.session.skills": { params: SessionKey; result: SessionSkills };
+  /** 会话的轮次跑的 hook：设置三层的与本进程登记的，只有事件、种类、匹配，不带命令、地址、请求头。只开给设备。 */
+  "harnix.session.hooks": { params: SessionKey; result: SessionHooks };
+  /** 各扩展的日志（系统 space 读，`harnix.extensions.log` 凭 `process.observe`）：最新的若干行，按扩展、最低级别、某行之后过滤。 */
+  "system.extensions.log": {
+    params: { extension?: string | null; level?: "error" | "warn" | "info" | "debug" | "trace" | null; after?: number; limit?: number };
+    result: ExtensionLog;
   };
 }
 

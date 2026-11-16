@@ -43,6 +43,11 @@ pub use turns::{TurnChains, TurnWatch};
 
 use harnix_contract::{RpcError, Subject};
 
+/// The span the host opens around everything one extension is asked to do — a call, a topic, its
+/// start and stop — with the extension's id in its `extension` field: what is logged inside it is
+/// that extension's log (`harnix-ext.md` §25).
+pub const EXTENSION_SPAN: &str = "harnix.extension";
+
 /// Whether `subject` may reach the routes an extension serves under its id. The transport asks
 /// this and nothing else: what a route row is, and who decides it, are not its business.
 pub trait RouteDecider: Send + Sync {
