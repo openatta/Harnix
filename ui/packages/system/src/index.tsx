@@ -4,7 +4,8 @@
  * Its three columns: on the left, the instances; in the centre, the console — the process at a
  * glance, then the Agents (the active ones, or all of them: each main Agent on a row with its
  * sub-agents, tasks, tokens and model time, opened into its sub-agents and tasks), then the tabs
- * other packages put on it (`system.console.tab`: the flows, the extensions); on the right,
+ * put on it (`system.console.tab`: the flows and the extension packages from other packages, and
+ * its own extension log); on the right,
  * whatever was picked there: an instance's facts and its restart, or a session's facts and
  * operations, the context the next call will carry, its tasks, its frames as they arrive, and the
  * tabs other packages put there (`system.inspector.tab`: every model call, each turn). There is no
@@ -19,6 +20,7 @@ import { Contributed, t, type ActionTarget, type HostApi, type HostSessionRef as
 
 import { CONSOLE_TAB, INSPECTOR_TAB, SYSTEM } from "./constants.ts";
 import { Console, ConsoleAbout, Drawn } from "./console.tsx";
+import { ExtensionLogTab } from "./extlog.tsx";
 import { InstanceList } from "./instances.tsx";
 import { ContextTab } from "./pane/context.tsx";
 import { FramesTab } from "./pane/frames.tsx";
@@ -82,6 +84,12 @@ export function register(r: Registry, host: HostApi): void {
       // Drawn again when what the badge counts changes.
       store: { subscribe: (fn) => view.watch("harnix.sessions.status", {}, fn), getSnapshot: () => view.running().size },
     },
+    SYSTEM,
+  );
+  // Each extension's log, a tab of the console like the ones other packages put there.
+  r.register(
+    CONSOLE_TAB,
+    { id: "system.extlog", order: 60, title: () => t("system.extlog"), about: () => t("system.about.extlog"), render: () => <ExtensionLogTab host={host} /> },
     SYSTEM,
   );
   // Into this space from a conversation elsewhere, or from one tool call in it.
