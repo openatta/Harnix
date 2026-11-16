@@ -22,6 +22,7 @@ import type {
 } from "./generated/contract.ts";
 import type { EventFrame, QueueFrame, SessionResync, TopicEnded, TopicFrame, TurnSettled } from "./generated/contract.ts";
 import type { Decision, HistoryPage, TaskRow } from "./engine.ts";
+import type { McpAuthDone, McpAuthStarted, McpContext, McpList } from "./generated/settings.ts";
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
@@ -134,7 +135,42 @@ export interface Methods {
     params: SessionKey & { prompt_id: string; decision: Decision; tool_use_id?: string };
     result: { prompt_id: string };
   };
+  "settings.mcp.list": { params: McpAt; result: McpList };
+  "settings.mcp.add": { params: McpTarget & { config: McpServerConfig }; result: McpList };
+  "settings.mcp.update": { params: McpTarget & { config: McpServerConfig }; result: McpList };
+  "settings.mcp.remove": { params: McpTarget; result: McpList };
+  "settings.mcp.enable": { params: McpTarget & { enabled: boolean }; result: McpList };
+  "settings.mcp.reconnect": { params: McpTarget; result: McpList };
+  /** `origin` 是页面的 `location.origin`：浏览器登录完回到这个源上扩展的路由。 */
+  "settings.mcp.authorize": { params: McpAt & { name: string; origin?: string; scopes?: string[] }; result: McpAuthStarted };
+  "settings.mcp.authComplete": { params: { callback_url: string }; result: McpAuthDone };
+  "settings.mcp.authCancel": { params: { flow_id: string }; result: { server: string } };
+  "settings.mcp.logout": { params: McpAt & { name: string }; result: McpList };
+  /** 会话下一次调模型时带的 MCP 部分：每个服务器的工具与指令。 */
+  "settings.mcp.context": { params: SessionKey; result: McpContext };
 }
+
+/** `settings.mcp.*` 定位到哪一对 (项目, 场景)：省略即引擎缺省的场景、无项目。 */
+export interface McpAt {
+  scene?: string;
+  project_root?: string | null;
+}
+
+/** 一个环境变量或请求头的值：取自引擎的环境变量、新给的值，或保留已写的（页面从来拿不到它）。 */
+export type McpGiven = { var: string } | { secret: string } | { keep: true };
+
+/** 表单给的一个 MCP 服务器。 */
+export interface McpServerConfig {
+  transport: "stdio" | "http" | "sse";
+  command?: string;
+  args?: string[];
+  env?: Record<string, McpGiven>;
+  url?: string;
+  headers?: Record<string, McpGiven>;
+}
+
+/** 一层里的一个服务器。 */
+export type McpTarget = McpAt & { tier: "global" | "scene" | "project"; name: string };
 
 export type MethodName = keyof Methods;
 export type ParamsOf<M extends MethodName> = Methods[M]["params"];

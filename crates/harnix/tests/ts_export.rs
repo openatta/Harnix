@@ -205,6 +205,22 @@ fn packages(cfg: &Config) -> Generated {
     }
 }
 
+/// `harnix-ext-settings`: the MCP methods' answers — the settings page's servers, and the MCP part
+/// of a session's next call that the right column's context tab draws.
+fn settings(cfg: &Config) -> Generated {
+    use harnix_ext_settings::wire::*;
+    Generated {
+        path: "core/src/protocol/generated/settings.ts",
+        text: joined(
+            header(""),
+            declarations![cfg;
+                McpList, McpPaths, McpServer, McpValue, McpOAuth, McpStatus, McpAuthStatus, McpAuthStarted, McpAuthDone,
+                McpContext, McpContextServer, McpContextTool,
+            ],
+        ),
+    }
+}
+
 fn ui_packages() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/packages")
 }
@@ -212,7 +228,7 @@ fn ui_packages() -> PathBuf {
 #[test]
 fn export_the_protocol_types() {
     let cfg = Config::new().with_large_int("number");
-    let files = [contract(&cfg), readers(&cfg), packages(&cfg)];
+    let files = [contract(&cfg), readers(&cfg), packages(&cfg), settings(&cfg)];
     let root = ui_packages();
     // `HARNIX_TS_CHECK`: compare instead of writing, and fail on a difference.
     let check = std::env::var_os("HARNIX_TS_CHECK").is_some_and(|v| !v.is_empty() && v != "0");

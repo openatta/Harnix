@@ -112,7 +112,7 @@ fn first_party(without: &str) -> Modules {
         modules = modules.extension(Observability, [caps::RECORDINGS_READ]);
     }
     if without != "settings" {
-        modules = modules.extension(Settings, [caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE]);
+        modules = modules.extension(Settings, [caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE, caps::ENGINE_MCP, caps::ENGINE_INSPECT]);
     }
     if without != "plugins" {
         modules = modules.extension(Plugins::default(), [caps::ENGINE_PLUGINS]);
@@ -229,7 +229,9 @@ mod capabilities {
         let system = r.extensions.iter().find(|m| m.id == "system").unwrap();
         assert_eq!(system.granted, ["instances.admin", "engine.inspect", "engine.control", "process.observe"]);
         // What each requires, and what it lists as optional and Harnix grants it too: the Harnix
-        // app reads and changes a project's trust with `engine.control`.
+        // app reads and changes a project's trust with `engine.control`; the settings page writes a
+        // project's MCP servers and signs in to them with `engine.mcp`, and reads a session's MCP
+        // context with `engine.inspect`.
         for status in &r.extensions {
             let held = [status.requires.clone(), status.optional.clone()].concat();
             assert_eq!(status.granted, held, "{}", status.id);
@@ -237,7 +239,9 @@ mod capabilities {
         let app = r.extensions.iter().find(|m| m.id == "harnix-app").unwrap();
         assert_eq!(app.optional, ["engine.control"]);
         assert!(r.grants.holds(&id("settings"), &caps::ENGINE_CONFIG_WRITE));
-        assert!(!r.grants.holds(&id("settings"), &caps::ENGINE_INSPECT));
+        let settings = r.extensions.iter().find(|m| m.id == "settings").unwrap();
+        assert_eq!(settings.optional, ["engine.mcp", "engine.inspect"]);
+        assert!(!r.grants.holds(&id("settings"), &caps::ENGINE_CONTROL));
     }
 }
 

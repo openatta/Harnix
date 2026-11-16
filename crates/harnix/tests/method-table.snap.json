@@ -285,6 +285,74 @@
     },
     {
       "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": "an MCP server's sign-in hands its tokens to the engine: it goes through the settings page, which says which server",
+        "requires": [
+          "engine.mcp"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.mcp.auth.cancel",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": "an MCP server's sign-in hands its tokens to the engine: it goes through the settings page, which says which server",
+        "requires": [
+          "engine.mcp"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.mcp.auth.complete",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": "an MCP server's sign-in hands its tokens to the engine: it goes through the settings page, which says which server",
+        "requires": [
+          "engine.mcp"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.mcp.auth.logout",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": "an MCP server's sign-in hands its tokens to the engine: it goes through the settings page, which says which server",
+        "requires": [
+          "engine.mcp"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.mcp.auth.start",
+      "owner": "engine"
+    },
+    {
+      "access": {
         "device": true,
         "extensions": [
           "*"
@@ -296,6 +364,23 @@
       },
       "kind": "method",
       "name": "engine.mcp.status",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": "changing an MCP server is equivalent to installing a tool that runs subprocesses",
+        "requires": [
+          "engine.mcp"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.mcp.updateServer",
       "owner": "engine"
     },
     {
@@ -2468,6 +2553,149 @@
         "scope": "open"
       },
       "kind": "method",
+      "name": "settings.mcp.add",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.mcp.authCancel",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.mcp.authComplete",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.mcp.authorize",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "settings.mcp.context",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.mcp.enable",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.mcp.list",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.mcp.logout",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.mcp.reconnect",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.mcp.remove",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.mcp.update",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
       "name": "settings.set",
       "owner": "ext:settings"
     },
@@ -2743,6 +2971,19 @@
       "kind": "route",
       "name": "plugins",
       "owner": "ext:plugins"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "route",
+      "name": "settings",
+      "owner": "ext:settings"
     },
     {
       "access": {
