@@ -11,7 +11,9 @@
  * 实时是 step_start … step_end 之间的帧；正文段、思考、工具调用各成一块，次序相同。
  */
 
+import { answeredBy, askForm, type AskAnswer, type AskForm } from "./asks.ts";
 import type {
+  AskAnswered,
   AttachResult,
   ContextUsage,
   EngineEvent,
@@ -61,7 +63,20 @@ export type Block =
       startedAt?: number;
       endedAt?: number;
     }
-  | { key: number; kind: "ask"; prompt: PromptEvent; deadline: number; answered?: AskAnswer }
+  /**
+   * 一个提问：`form` 是要人答的是什么（`asks.ts`）。答了之后 `answered` 是结局，`reply` 是一起显示的话（提问的答案、
+   * 要求修改的意见）；`elsewhere`：不是这个页面答的，是从中枢（`ask_answered`）或引擎（`prompt_resolved`）听说的。
+   */
+  | {
+      key: number;
+      kind: "ask";
+      prompt: PromptEvent;
+      form: AskForm;
+      deadline: number;
+      answered?: AskAnswer;
+      reply?: string;
+      elsewhere?: boolean;
+    }
   | { key: number; kind: "note"; text: string; tone: NoteTone }
   /**
    * 注入进对话、不是人说的话：提醒、召回、技能指令，或者压缩留下的消息。`compact` 说它和压缩有关：实时看到的是一次压缩，
@@ -83,10 +98,6 @@ export interface CompactFacts {
   after?: number;
   saved?: number;
 }
-/**
- * 权限卡的结局：允许、拒绝、超时（引擎超时即按拒绝处理）；引擎撤回（取消）；别处已答（不知道是允许还是拒绝）。
- */
-export type AskAnswer = "allow" | "deny" | "timeout" | "withdrawn" | "answered";
 export interface AgentLine {
   text: string;
   streaming?: boolean;
@@ -534,11 +545,22 @@ export function applyEvent(state: SessionState, event: EngineEvent, options: App
       const prompt = event as PromptEvent;
       // 同一个提问可能既在重放里又在 pending_prompts 里：按 prompt_id 去重。
       if (state.blocks.some((b) => b.kind === "ask" && b.prompt.prompt_id === prompt.prompt_id)) return state;
-      return push(endStream(state, now), {
+      const ended = endStream(state, now);
+      return push(ended, {
         kind: "ask",
         prompt,
+        form: askForm(prompt, ended.blocks),
         deadline: options.now + options.promptTimeoutSecs * 1000,
       })[0];
+    }
+
+    // 中枢说第一个回答被引擎收下了、答的是什么：别处答的卡片也画出答案。本页答的已经是那个结局，不动。
+    case "ask_answered": {
+      const told = event as AskAnswered;
+      const block = state.blocks.find((b) => b.kind === "ask" && b.prompt.prompt_id === told.prompt_id);
+      if (!block || block.kind !== "ask" || (block.answered && !block.elsewhere)) return state;
+      const { answered, reply } = answeredBy(block.form, told);
+      return update(state, block.key, (b) => (b.kind === "ask" ? { ...b, answered, reply, elsewhere: true } : b));
     }
 
     // 提问不再悬着：本地已答的不动；别处答的、被撤回的把卡片收起（超时与取消分开说）
@@ -548,7 +570,7 @@ export function applyEvent(state: SessionState, event: EngineEvent, options: App
       if (!block || block.kind !== "ask" || block.answered) return state;
       const how: AskAnswer =
         resolved.resolution === "answered" ? "answered" : resolved.reason === "timed_out" ? "timeout" : "withdrawn";
-      return answerAsk(state, block.key, how);
+      return update(state, block.key, (b) => (b.kind === "ask" ? { ...b, answered: how, elsewhere: true } : b));
     }
 
     // 引擎的提示（模型要人回来看，或引擎自己的提醒）：原文说出来
@@ -708,9 +730,20 @@ export function applySettled(
   return next;
 }
 
-/** 一张权限卡被回答（或超时）。 */
-export function answerAsk(state: SessionState, key: number, answer: AskAnswer): SessionState {
-  return update(state, key, (block) => (block.kind === "ask" && !block.answered ? { ...block, answered: answer } : block));
+/** 一张卡在这个页面被回答（或超时）；`reply` 是一起显示的话。 */
+export function answerAsk(state: SessionState, key: number, answer: AskAnswer, reply?: string): SessionState {
+  return update(state, key, (block) =>
+    block.kind === "ask" && !block.answered ? { ...block, answered: answer, ...(reply ? { reply } : {}) } : block,
+  );
+}
+
+/** 回答没被收下（例如表单不合 schema，提问不撤）：卡片回到没答，可以改了再答。 */
+export function reopenAsk(state: SessionState, key: number): SessionState {
+  return update(state, key, (block) => {
+    if (block.kind !== "ask" || block.elsewhere) return block;
+    const { answered: _answered, reply: _reply, ...open } = block;
+    return open;
+  });
 }
 
 /** 用量的合计：四项互不重叠，总量是四项之和；缓存一项是总量的一部分。 */

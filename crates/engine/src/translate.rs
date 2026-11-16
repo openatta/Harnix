@@ -115,6 +115,12 @@ const MCP_MODULE: &str = "mcp";
 
 /// A question whose answer is words, not a permission.
 const QUESTION: &str = "question";
+/// An MCP server's ask of the person, in one of its tool calls.
+const MCP_ELICITATION: &str = "mcp_elicitation";
+/// Why a question was not answered, when the person said no more than that.
+const DECLINED: &str = "declined";
+/// What a session names the asks its host answers with (`session.create`'s `options`).
+const PROMPT_TYPES: &str = "prompt_types";
 /// The tool a plan is handed in by: leaving plan mode is asked as a permission, and the plan waits
 /// on a review.
 const PLAN_TOOL: &str = "ExitPlanMode";
@@ -297,7 +303,7 @@ impl EngineOps for AgixOps {
     }
 
     async fn respond(&self, params: Value) -> Answer<Value> {
-        self.call(SESSION_RESPOND, params).await
+        self.call(SESSION_RESPOND, respond_params(params)).await
     }
 
     async fn passthrough(&self, method: &str, params: Value) -> Answer<Value> {
@@ -325,6 +331,11 @@ fn set_up(mut params: Value, setup: &SessionSetup) -> Value {
     let options = options.as_object_mut().expect("an object just now");
     let attended = scene.and_then(|s| s.attended).unwrap_or(true);
     options.insert("attended".into(), json!(attended));
+    // A person answers the model's questions and an MCP server's forms too; without them the
+    // session has no `AskUserQuestion` and the server is told no.
+    if attended && setup.person {
+        options.insert(PROMPT_TYPES.into(), json!([PERMISSION, QUESTION, MCP_ELICITATION]));
+    }
     if let Some(scene) = scene {
         if let Some(on) = scene.auto_name {
             options.insert("auto_name".into(), json!(on));
@@ -348,6 +359,26 @@ fn set_up(mut params: Value, setup: &SessionSetup) -> Value {
     if !setup.skill_dirs.is_empty() {
         let dirs: Vec<Value> = setup.skill_dirs.iter().map(|d| json!({"path": d.display().to_string()})).collect();
         options.insert("skill_dirs".into(), json!(dirs));
+    }
+    params
+}
+
+/// `harnix.session.respond`'s answer as the engine takes it: a question's `decline` gives a
+/// reason (the model reads "has not answered: <reason>"), an MCP server's gives none.
+fn respond_params(mut params: Value) -> Value {
+    let kind = params.get("prompt_type").and_then(Value::as_str).map(str::to_string);
+    if let Some(Value::Object(answer)) = params.get_mut("answer") {
+        if answer.get("type").and_then(Value::as_str) == Some("decline") {
+            match kind.as_deref() {
+                Some(QUESTION) => {
+                    answer.entry("reason").or_insert_with(|| json!(DECLINED));
+                }
+                Some(MCP_ELICITATION) => {
+                    answer.remove("reason");
+                }
+                _ => {}
+            }
+        }
     }
     params
 }
@@ -532,7 +563,7 @@ pub(crate) fn mcp_failures(status: &Value) -> Vec<(String, EngineEvent)> {
 fn prompt(value: Value) -> Prompt {
     let field = |k: &str| value.get(k).and_then(Value::as_str).map(str::to_string);
     let waiting = match (field("prompt_type").as_deref(), field("tool_name").as_deref()) {
-        (Some(QUESTION), _) => Waiting::Answer,
+        (Some(QUESTION | MCP_ELICITATION), _) => Waiting::Answer,
         (_, Some(PLAN_TOOL)) => Waiting::Plan,
         _ => Waiting::Approval,
     };
@@ -1024,6 +1055,7 @@ mod tests {
         let p = asked(json!({"kind": "prompt", "prompt_id": "p", "tool_use_id": "u", "tool_name": "Bash"}));
         assert_eq!((p.prompt_id.as_deref(), p.tool_use_id.as_deref(), p.waiting), (Some("p"), Some("u"), Waiting::Approval));
         assert_eq!(asked(json!({"kind": "prompt", "prompt_type": "question"})).waiting, Waiting::Answer);
+        assert_eq!(asked(json!({"kind": "prompt", "prompt_type": "mcp_elicitation"})).waiting, Waiting::Answer);
         assert_eq!(asked(json!({"kind": "prompt", "tool_name": "ExitPlanMode"})).waiting, Waiting::Plan);
         assert_eq!(
             kind_of(json!({"kind": "prompt_resolved", "prompt_id": "p", "resolution": "withdrawn", "reason": "timed_out"})),
@@ -1164,6 +1196,43 @@ mod tests {
 
         let plain = set_up(Value::Null, &SessionSetup::new().skill_dirs(vec![PathBuf::from("/s/a")]));
         assert_eq!(plain, json!({"options": {"attended": true, "skill_dirs": [{"path": "/s/a"}]}}));
+    }
+
+    #[test]
+    fn a_persons_session_takes_questions_and_forms_unless_nobody_attends_it() {
+        use harnix_engine_api::{SceneBase, SceneLayer};
+        let sent = set_up(Value::Null, &SessionSetup::new().person(true));
+        assert_eq!(sent["options"]["prompt_types"], json!(["permission", "question", "mcp_elicitation"]));
+        assert!(set_up(Value::Null, &SessionSetup::new()).pointer("/options/prompt_types").is_none(), "an extension's");
+        let quiet = layer(SceneLayer::new("quiet", SceneBase::builtin("code")).interactive(false));
+        let sent = set_up(Value::Null, &SessionSetup::new().scene(Some(quiet)).person(true));
+        assert!(sent.pointer("/options/prompt_types").is_none(), "an unattended one's");
+    }
+
+    #[tokio::test]
+    async fn an_answer_reaches_the_engine_in_its_shape() {
+        struct Echo;
+        #[async_trait::async_trait]
+        impl Rpc for Echo {
+            async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
+                Ok(json!({"method": method, "params": params}))
+            }
+        }
+        let ops = AgixOps(Arc::new(Echo));
+        let sent = |params: Value| {
+            let ops = &ops;
+            async move { ops.respond(params).await.unwrap() }
+        };
+        let decision = json!({"session_id": "s", "prompt_id": "p", "decision": {"type": "permit"}});
+        assert_eq!(sent(decision.clone()).await, json!({"method": "session.respondToPrompt", "params": decision}));
+        let declined = sent(json!({"session_id": "s", "prompt_id": "p", "prompt_type": "question", "answer": {"type": "decline"}})).await;
+        assert_eq!(declined["params"]["answer"], json!({"type": "decline", "reason": "declined"}));
+        let said = sent(json!({"prompt_type": "question", "answer": {"type": "decline", "reason": "later"}})).await;
+        assert_eq!(said["params"]["answer"]["reason"], "later");
+        let form = sent(json!({"prompt_type": "mcp_elicitation", "answer": {"type": "decline", "reason": "no"}})).await;
+        assert_eq!(form["params"]["answer"], json!({"type": "decline"}));
+        let accepted = sent(json!({"prompt_type": "mcp_elicitation", "answer": {"type": "accept", "content": {"n": 1}}})).await;
+        assert_eq!(accepted["params"]["answer"], json!({"type": "accept", "content": {"n": 1}}));
     }
 
     #[tokio::test]

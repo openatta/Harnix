@@ -24,8 +24,8 @@ import type {
   Topology,
   UiView,
 } from "./generated/contract.ts";
-import type { EventFrame, QueueFrame, SessionResync, TopicEnded, TopicFrame, TurnSettled } from "./generated/contract.ts";
-import type { Decision, HistoryPage, TaskRow } from "./engine.ts";
+import type { EventFrame, QueueFrame, RespondParams, SessionResync, TopicEnded, TopicFrame, TurnSettled } from "./generated/contract.ts";
+import type { HistoryPage, TaskRow } from "./engine.ts";
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
@@ -141,8 +141,9 @@ export interface Methods {
   /** 会话的各轮：每轮从历史的哪里开始（`seq`），问了什么、最后答了什么（都截短）。见 `SessionOutline`。 */
   "harnix.session.outline": { params: SessionKey; result: SessionOutline };
   "harnix.session.interrupt": { params: SessionKey; result: unknown };
+  /** 回答一个提问：权限给 `decision`，模型的提问和 MCP server 的询问给 `answer`；先答者生效。 */
   "harnix.session.respond": {
-    params: SessionKey & { prompt_id: string; decision: Decision; tool_use_id?: string };
+    params: RespondParams;
     result: { prompt_id: string };
   };
 }

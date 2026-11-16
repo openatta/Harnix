@@ -13,7 +13,7 @@ use harnix_contract::s1::caps;
 use harnix_contract::{codes, ExtId, Frame, FrameSink, RpcError, SpaceDecl, Subject};
 use harnix_engine_link::events::EngineEvent;
 use harnix_engine_link::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
-use harnix_engine_link::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
+use harnix_engine_link::ops::{Answer, EngineOps, Entry, HistoryPage, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
 use harnix_hub::{Hub, HubCell, HubConfig, HubRow, Spaces};
 use harnix_kernel::{Access, CallContext, RowScope, Handler, InstanceBook, InstanceObserver, InstanceTrust, Listed, Rpc};
 use serde_json::{json, Value};
@@ -93,6 +93,9 @@ impl EngineOps for FakeLink {
     }
     async fn transcript(&self, _: &str, _: usize) -> Answer<Vec<Said>> {
         Ok(Vec::new())
+    }
+    async fn history(&self, _: &str, _: u64, _: usize) -> Answer<HistoryPage> {
+        Ok(HistoryPage::default())
     }
     async fn tasks(&self, _: &str) -> Answer<Tasks> {
         Ok(Tasks::new(json!({"tasks": []}), Default::default()))

@@ -748,6 +748,154 @@ pub struct FeedbackNotice {
     pub feedback: Feedback,
 }
 
+/* ── answering a session's asks ────────────────────────────────────────── */
+
+/// Which kind of ask an answer is for: the `prompt_type` of the ask's `prompt` event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum AskKind {
+    /// May a tool call run — leaving plan mode is one, answered as a plan's review.
+    Permission,
+    /// A question the model put to the person.
+    Question,
+    /// A form, or a page to visit, an MCP server asked the person for in a tool call.
+    McpElicitation,
+}
+
+/// `harnix.session.respond`'s `answer`: to a question (`answer`, `decline`) or an MCP server's ask
+/// (`accept`, `decline`, `cancel`). A permission is answered with `decision`, as before.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AskReply {
+    /// A question's answer: one of its options' `key`, or words of the person's own.
+    Answer { text: String },
+    /// Not answered: the person said no. `reason` is for a question; an MCP server is told no more
+    /// than that.
+    Decline {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        reason: Option<String>,
+    },
+    /// An MCP server's ask, accepted: a form's fields filled in by its `requested_schema`; no
+    /// `content` for a page the person has visited.
+    Accept {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional, type = "Record<string, unknown>"))]
+        content: Option<serde_json::Map<String, Value>>,
+    },
+    /// An MCP server's ask, left without a choice.
+    Cancel,
+}
+
+impl AskReply {
+    /// Whether this is an answer to `kind` at all.
+    pub fn answers(&self, kind: AskKind) -> bool {
+        match kind {
+            AskKind::Permission => false,
+            AskKind::Question => matches!(self, AskReply::Answer { .. } | AskReply::Decline { .. }),
+            AskKind::McpElicitation => matches!(self, AskReply::Accept { .. } | AskReply::Decline { .. } | AskReply::Cancel),
+        }
+    }
+}
+
+/// `harnix.session.respond`'s params. Whoever answers first is the answer; a later one succeeds
+/// and changes nothing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct RespondParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub instance: Option<String>,
+    pub session_id: String,
+    pub prompt_id: String,
+    /// The ask's `prompt_type`; absent: a permission.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub prompt_type: Option<AskKind>,
+    /// A permission's answer (the engine's shape).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional, type = "Decision"))]
+    pub decision: Option<Value>,
+    /// A question's answer, or an MCP server's ask's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub answer: Option<AskReply>,
+    /// The call the ask is about: the hub keeps who answered it for that tool's audit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub tool_use_id: Option<String>,
+}
+
+impl RespondParams {
+    /// The answer fits the kind of ask: a `decision` for a permission, an `answer` of the right
+    /// kind otherwise, never both.
+    pub fn check(&self) -> Result<AskKind, RpcError> {
+        let kind = self.prompt_type.unwrap_or(AskKind::Permission);
+        let fits = match (kind, &self.decision, &self.answer) {
+            (AskKind::Permission, Some(Value::Object(_)), None) => true,
+            (_, None, Some(answer)) => answer.answers(kind),
+            _ => false,
+        };
+        if !fits {
+            let wants = match kind {
+                AskKind::Permission => "a `decision`",
+                AskKind::Question => "an `answer` of type `answer` or `decline`",
+                AskKind::McpElicitation => "an `answer` of type `accept`, `decline` or `cancel`",
+            };
+            return Err(RpcError::invalid_params(format!("this kind of ask is answered with {wants}, and nothing else")));
+        }
+        Ok(kind)
+    }
+}
+
+/// The kind of [`AskAnswered`]'s event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum AskAnsweredKind {
+    AskAnswered,
+}
+
+/// A `harnix.event` the hub adds after the engine took the first answer to an ask through
+/// `harnix.session.respond`: what it was, so that every device's card shows it, not only the one
+/// that gave it. An MCP server's form goes out without what was filled in.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct AskAnswered {
+    pub kind: AskAnsweredKind,
+    pub prompt_id: String,
+    pub prompt_type: AskKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional, type = "Decision"))]
+    pub decision: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub answer: Option<AskReply>,
+    /// The extension that answered (`flow`, by its policy); absent when a person did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub extension: Option<String>,
+}
+
+impl AskAnswered {
+    pub fn new(params: &RespondParams, kind: AskKind, extension: Option<String>) -> Self {
+        let answer = params.answer.clone().map(|answer| match answer {
+            AskReply::Accept { .. } => AskReply::Accept { content: None },
+            other => other,
+        });
+        AskAnswered {
+            kind: AskAnsweredKind::AskAnswered,
+            prompt_id: params.prompt_id.clone(),
+            prompt_type: kind,
+            decision: params.decision.clone(),
+            answer,
+            extension,
+        }
+    }
+}
+
 /// Build a frame's `params` from one of these: a structure that does not serialize is a bug, and
 /// an empty object is the frame a client can at least parse.
 pub fn params<T: Serialize>(frame: &T) -> Value {
@@ -834,6 +982,51 @@ mod tests {
         assert_eq!(params(&given), json!({"turn_id": "t", "rating": "down", "category": "slow", "at": 7, "by": "device:d"}));
         let taken_back = Feedback { rating: None, category: None, ..given };
         assert_eq!(params(&taken_back)["rating"], Value::Null);
+    }
+
+    fn respond(value: Value) -> Result<AskKind, RpcError> {
+        serde_json::from_value::<RespondParams>(value).map_err(|e| RpcError::invalid_params(e.to_string()))?.check()
+    }
+
+    #[test]
+    fn an_answer_fits_its_kind_of_ask() {
+        let key = json!({"session_id": "s", "prompt_id": "p"});
+        let with = |extra: Value| {
+            let mut v = key.clone();
+            v.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            v
+        };
+        assert_eq!(respond(with(json!({"decision": {"type": "permit"}}))).unwrap(), AskKind::Permission);
+        let question = json!({"prompt_type": "question", "answer": {"type": "answer", "text": "a"}});
+        assert_eq!(respond(with(question)).unwrap(), AskKind::Question);
+        assert!(respond(with(json!({"prompt_type": "question", "answer": {"type": "decline"}}))).is_ok());
+        let form = json!({"prompt_type": "mcp_elicitation", "answer": {"type": "accept", "content": {"color": "blue"}}});
+        assert_eq!(respond(with(form)).unwrap(), AskKind::McpElicitation);
+        assert!(respond(with(json!({"prompt_type": "mcp_elicitation", "answer": {"type": "cancel"}}))).is_ok());
+        for wrong in [
+            json!({}),
+            json!({"answer": {"type": "answer", "text": "a"}}),
+            json!({"prompt_type": "question", "decision": {"type": "permit"}}),
+            json!({"prompt_type": "question", "answer": {"type": "cancel"}}),
+            json!({"prompt_type": "mcp_elicitation", "answer": {"type": "answer", "text": "a"}}),
+            json!({"prompt_type": "mcp_elicitation", "answer": {"type": "accept", "content": "blue"}}),
+            json!({"prompt_type": "question", "answer": {"type": "answer"}}),
+            json!({"prompt_type": "host_tool_call", "answer": {"type": "answer", "text": "a"}}),
+            json!({"decision": {"type": "permit"}, "answer": {"type": "cancel"}}),
+        ] {
+            assert!(respond(with(wrong.clone())).is_err(), "{wrong}");
+        }
+    }
+
+    #[test]
+    fn an_answer_told_to_every_device_leaves_out_a_forms_content() {
+        let given: RespondParams = serde_json::from_value(json!({
+            "session_id": "s", "prompt_id": "p", "prompt_type": "mcp_elicitation",
+            "answer": {"type": "accept", "content": {"token": "secret"}},
+        }))
+        .unwrap();
+        let told = params(&AskAnswered::new(&given, AskKind::McpElicitation, None));
+        assert_eq!(told, json!({"kind": "ask_answered", "prompt_id": "p", "prompt_type": "mcp_elicitation", "answer": {"type": "accept"}}));
     }
 
     #[test]

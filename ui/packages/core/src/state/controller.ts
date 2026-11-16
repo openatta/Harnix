@@ -13,7 +13,8 @@
  */
 
 import { errorText, type HarnixClient } from "../client/index.ts";
-import type { Decision, FeedbackCategory, Notifications, Rating } from "../protocol/index.ts";
+import type { AskReply, Decision, FeedbackCategory, Notifications, Rating } from "../protocol/index.ts";
+import { answerOf } from "./asks.ts";
 import {
   addCustom,
   addEntry,
@@ -26,7 +27,7 @@ import {
   blockByKey,
   emptySession,
   note,
-  type AskAnswer,
+  reopenAsk,
   type SessionEntry,
   type SessionState,
 } from "./model.ts";
@@ -439,24 +440,41 @@ export class SessionController {
   }
 
   /**
-   * 回答一张权限卡。任何一个观看者都能答，先答者生效，第二个回答是静默成功——所以每个
+   * 回答一张权限卡或计划审阅（`decision`）。任何一个观看者都能答，先答者生效，第二个回答是静默成功——所以每个
    * 打开的页面上按钮都保持可用，而不是只留一个。
    */
   async answer(key: number, decision: Decision): Promise<void> {
+    await this.respond(key, { decision });
+  }
+
+  /**
+   * 回答模型的提问或 MCP server 的询问（`answer`）。没被收下（表单不合 server 的 schema，提问不撤）时卡片回到没答，
+   * 横幅说为什么，可以改了再答。
+   */
+  async reply(key: number, answer: AskReply): Promise<boolean> {
+    return this.respond(key, { answer });
+  }
+
+  private async respond(key: number, given: { decision: Decision } | { answer: AskReply }): Promise<boolean> {
     const block = blockByKey(this.state, key);
-    if (!block || block.kind !== "ask" || block.answered) return;
-    const answer: AskAnswer = decision.type === "deny" ? "deny" : "allow";
-    this.set(answerAsk(this.state, key, answer));
+    if (!block || block.kind !== "ask" || block.answered) return false;
+    const { answered, reply } = answerOf(block.form, given);
+    this.set(answerAsk(this.state, key, answered, reply));
+    const kind = block.prompt.prompt_type;
     try {
       await this.client.answer("harnix.session.respond", {
         ...this.key(),
         prompt_id: block.prompt.prompt_id,
+        ...(kind === "question" || kind === "mcp_elicitation" ? { prompt_type: kind } : {}),
         // Who answered is kept by the hub for the tool's audit; the engine never sees it.
         ...(block.prompt.tool_use_id ? { tool_use_id: block.prompt.tool_use_id } : {}),
-        decision,
+        ...given,
       });
+      return true;
     } catch (e) {
-      this.set({ ...this.state, banner: this.strings.answerFailed(errorText(e)) });
+      const state = "answer" in given ? reopenAsk(this.state, key) : this.state;
+      this.set({ ...state, banner: this.strings.answerFailed(errorText(e)) });
+      return false;
     }
   }
 

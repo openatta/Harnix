@@ -41,6 +41,7 @@ struct FakeLink {
     created: Mutex<Vec<(Value, SessionSetup)>>,
     prompted: Mutex<Vec<PromptAsked>>,
     passed: Mutex<Vec<(String, Value)>>,
+    responded: Mutex<Vec<Value>>,
     busy: Mutex<bool>,
     _tx: mpsc::Sender<EngineEvent>,
 }
@@ -56,6 +57,7 @@ impl FakeLink {
             created: Mutex::default(),
             prompted: Mutex::default(),
             passed: Mutex::default(),
+            responded: Mutex::default(),
             busy: Mutex::new(false),
             _tx: tx,
         })
@@ -144,8 +146,10 @@ impl EngineOps for FakeLink {
     async fn append_entry(&self, _: &str, _: Entry) -> Answer<Value> {
         Ok(json!({}))
     }
-    async fn respond(&self, _: Value) -> Answer<Value> {
-        Ok(json!({}))
+    async fn respond(&self, params: Value) -> Answer<Value> {
+        let prompt_id = params["prompt_id"].clone();
+        self.responded.lock().unwrap().push(params);
+        Ok(json!({"prompt_id": prompt_id}))
     }
     async fn rename(&self, session: &str, _: &str) -> Answer<Value> {
         Ok(described(session))
@@ -238,7 +242,11 @@ impl Rig {
     }
 
     async fn call(&self, method: &str, params: Value) -> Rpc<Value> {
-        let cx = CallContext::root(Subject::Kernel, None);
+        self.call_as(Subject::Kernel, method, params).await
+    }
+
+    async fn call_as(&self, subject: Subject, method: &str, params: Value) -> Rpc<Value> {
+        let cx = CallContext::root(subject, None);
         self.rows.get(method).unwrap_or_else(|| panic!("no row `{method}`")).call(cx, params).await
     }
 
@@ -331,6 +339,40 @@ async fn the_engines_own_set_prompt_and_prompt_options_are_the_hubs() {
     assert!(!rig.rows.contains_key("engine.session.setPrompt"), "it has a handler");
     let refused = rig.call("harnix.session.create", json!({"options": {"prompt_types": ["question"]}})).await.unwrap_err();
     assert!(refused.message.contains("prompt_types"), "{}", refused.message);
+}
+
+#[tokio::test]
+async fn a_persons_session_is_set_up_for_more_than_permissions() {
+    let rig = Rig::new().await;
+    rig.call_as(Subject::device("d1"), "harnix.session.create", json!({})).await.unwrap();
+    assert!(rig.last_setup().1.person, "a person's");
+    rig.call("harnix.session.create", json!({})).await.unwrap();
+    assert!(!rig.last_setup().1.person, "the kernel's");
+}
+
+#[tokio::test]
+async fn an_answer_is_checked_against_its_kind_of_ask_and_reaches_the_engine_as_given() {
+    let rig = Rig::new().await;
+    let device = || Subject::device("d1");
+    for wrong in [
+        json!({"session_id": "s1", "prompt_id": "p"}),
+        json!({"session_id": "s1", "prompt_id": "p", "prompt_type": "question", "decision": {"type": "permit"}}),
+        json!({"session_id": "s1", "prompt_id": "p", "prompt_type": "mcp_elicitation", "answer": {"type": "answer", "text": "a"}}),
+    ] {
+        let refused = rig.call_as(device(), "harnix.session.respond", wrong.clone()).await.unwrap_err();
+        assert_eq!(refused.code, harnix_contract::codes::INVALID_PARAMS, "{wrong}");
+    }
+    assert!(rig.link.responded.lock().unwrap().is_empty(), "nothing misshapen reaches the engine");
+
+    let question = json!({
+        "session_id": "s1", "prompt_id": "p", "prompt_type": "question",
+        "answer": {"type": "answer", "text": "b"}, "tool_use_id": "u",
+    });
+    rig.call_as(device(), "harnix.session.respond", question).await.unwrap();
+    let sent = rig.link.responded.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(sent, json!({"session_id": "s1", "prompt_id": "p", "prompt_type": "question", "answer": {"type": "answer", "text": "b"}}));
+    let answerer = rig.call("harnix.session.answerer", json!({"session_id": "s1", "tool_use_id": "u"})).await;
+    assert_eq!(answerer.unwrap()["answerer"], "device:d1");
 }
 
 #[tokio::test]

@@ -4,6 +4,7 @@
  */
 
 export * from "./model.ts";
+export * from "./asks.ts";
 export { SessionController, MAIN_INSTANCE, type SessionControllerOptions, type SessionStrings } from "./controller.ts";
 export {
   OutlineController,

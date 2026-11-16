@@ -51,6 +51,9 @@ pub(crate) struct SessionState {
     pub turn_started_ms: Option<u64>,
     pub queue: VecDeque<QueueItem>,
     pub pending_prompts: Vec<Prompt>,
+    /// The asks an answer is on its way to the engine for, by `prompt_id`: the first answer through
+    /// the hub claims its ask, and only that one is told to every watcher (`ask_answered`).
+    pub answering: HashSet<String>,
     pub watchers: HashSet<ClientId>,
     /// Projected-message count before the running turn began, so settling can
     /// tell whether the transcript has caught up.
@@ -365,7 +368,10 @@ impl Hub {
         let instance = self.instance_of(&params)?;
         let linked = self.engine(&instance)?;
         let layer = crate::scenes::layer_for(&linked.link.scene_layers(), &params)?;
-        let setup = SessionSetup::new().scene(layer.clone()).skill_dirs(self.skill_dirs_for(&instance, &space));
+        let setup = SessionSetup::new()
+            .scene(layer.clone())
+            .skill_dirs(self.skill_dirs_for(&instance, &space))
+            .person(matches!(subject, harnix_contract::Subject::Device { .. }));
         let created = self.create_listing(linked.ops(), without_instance(params), setup).await?;
         let mut value = created.value;
         if let Some(sid) = &created.session_id {
@@ -405,6 +411,31 @@ impl Hub {
         let out = guard.clients.to_many(watchers, frame);
         crate::send_after(guard, [out]).await;
     }
+}
+
+/// Claim an ask for the answer on its way to the engine: true when it is still waiting and no other
+/// answer is on its way. Whoever answers first is the answer, and the claim is how the hub knows
+/// which one that was: the engine answers a later one with the same silent success.
+pub(crate) async fn claim_ask(inner: &Arc<InnerLock>, key: &SessionKey, prompt_id: &str) -> bool {
+    let mut guard = inner.lock().await;
+    let Some(state) = guard.sessions.get_mut(key) else { return false };
+    let waiting = state.pending_prompts.iter().any(|p| p.prompt_id.as_deref() == Some(prompt_id));
+    waiting && state.answering.insert(prompt_id.to_string())
+}
+
+/// The claimed answer is back from the engine, taken or refused (a form that does not fit its
+/// schema stays asked, and may be answered again).
+pub(crate) async fn release_ask(inner: &Arc<InnerLock>, key: &SessionKey, prompt_id: &str) {
+    if let Some(state) = inner.lock().await.sessions.get_mut(key) {
+        state.answering.remove(prompt_id);
+    }
+}
+
+/// The engine took the claimed answer: written into the session's stream as the hub's own event,
+/// so every watcher's card shows it, and a client that attaches later finds it in the replay.
+pub(crate) async fn tell_answered(inner: &Arc<InnerLock>, key: &SessionKey, event: Value, extension: bool) {
+    let turn = inner.lock().await.sessions.get(key).and_then(|s| s.running_turn.clone()).unwrap_or_default();
+    route_event(inner, &key.0, &key.1, &turn, &SessionEventKind::Other, event, extension).await;
 }
 
 /// Which client this call is on behalf of.
@@ -451,5 +482,26 @@ mod tests {
         let resolved = SessionEventKind::AskResolved { prompt_id: "p1".into(), answered: false };
         route_event(&inner, "main", "s", "t", &resolved, json!({"kind": "prompt_resolved"}), false).await;
         assert_eq!(pending(&inner).await, ["p2"]);
+    }
+
+    /// The first answer claims its ask; a second while it is on its way, or one to an ask nobody
+    /// is waiting on, does not. A refused answer gives the claim back.
+    #[tokio::test]
+    async fn the_first_answer_claims_its_ask() {
+        let inner = Arc::new(InnerLock::default());
+        let key = ("main".to_string(), "s".to_string());
+        assert!(!claim_ask(&inner, &key, "p1").await, "a session the hub has not heard of");
+        route_event(&inner, "main", "s", "t", &asked("p1"), json!({"kind": "prompt"}), false).await;
+        assert!(claim_ask(&inner, &key, "p1").await);
+        assert!(!claim_ask(&inner, &key, "p1").await, "another answer on its way");
+        assert!(!claim_ask(&inner, &key, "p2").await, "not asked");
+        release_ask(&inner, &key, "p1").await;
+        assert!(claim_ask(&inner, &key, "p1").await, "the first was refused");
+
+        tell_answered(&inner, &key, json!({"kind": "ask_answered", "prompt_id": "p1"}), false).await;
+        let guard = inner.lock().await;
+        let state = &guard.sessions[&key];
+        assert_eq!(state.seq, 2);
+        assert_eq!(state.pending_prompts.len(), 1, "the engine's own frame resolves it");
     }
 }

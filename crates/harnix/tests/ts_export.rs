@@ -165,11 +165,13 @@ fn contract(cfg: &Config) -> Generated {
         EventFrame, ToolCallOutcome, TurnOutcome, TurnSettled, QueueFrame, SessionResync, TopicFrame, TopicEnded,
         // Feedback on an answer.
         Rating, FeedbackCategory, Feedback, FeedbackFiled, FeedbackNotice,
+        // Answering a session's asks.
+        AskKind, AskReply, RespondParams, AskAnsweredKind, AskAnswered,
     ]);
     Generated {
         path: "core/src/protocol/generated/contract.ts",
         text: joined(
-            header("import type { EngineEvent, Goal, PromptEvent, Scene, SessionInfo, SessionRow, Usage } from \"../engine.ts\";\n"),
+            header("import type { Decision, EngineEvent, Goal, PromptEvent, Scene, SessionInfo, SessionRow, Usage } from \"../engine.ts\";\n"),
             parts,
         ),
     }

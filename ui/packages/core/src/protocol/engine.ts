@@ -6,7 +6,8 @@
  * Harnix 自己的形状不在这里：它们从 Rust 生成（`generated/`）。
  */
 
-import type { HubSessionRow } from "./generated/contract.ts";
+// `AskAnswered` is the hub's own event in the stream: the first answer to an ask the engine took, and what it was.
+import type { AskAnswered, HubSessionRow } from "./generated/contract.ts";
 
 /* ── 引擎的场景、会话 ─────────────────────────────────────────────────── */
 
@@ -237,7 +238,8 @@ export interface ToolResultEvent {
 }
 export interface PromptEvent {
   kind: "prompt";
-  prompt_type?: string;
+  /** `permission`（缺省）、`question`（模型的 AskUserQuestion）、`mcp_elicitation`（MCP server 在工具调用里问人）。 */
+  prompt_type?: "permission" | "question" | "mcp_elicitation" | (string & {});
   prompt_id: string;
   tool_name?: string;
   message?: string;
@@ -246,6 +248,18 @@ export interface PromptEvent {
   tool_use_id?: string;
   /** 宿主工具自己的问句（Harnix 的链路附上的）：卡片优先显示它。 */
   tool_question?: string;
+  /** `question`：问句、短标题（可为 null）、选项；没有选项就是自由回答。 */
+  question?: string;
+  header?: string | null;
+  options?: { key: string; label: string }[];
+  /** `mcp_elicitation`：问的是哪个 server（它写的东西要标明出处），`form` 带 `requested_schema`，`url` 带 `url` 与 `url_host`。 */
+  server?: string;
+  mode?: "form" | "url" | (string & {});
+  requested_schema?: Record<string, unknown> | null;
+  url?: string | null;
+  url_host?: string | null;
+  /** `message` 被截断了（超过 4 KiB）。 */
+  limited?: boolean;
 }
 /**
  * 本轮结束，transcript 已落盘。被 hook 拦下、被中断、被截停的轮同样以它结束；没调模型的轮（hook 拦下、本地命令）
@@ -321,6 +335,7 @@ export type EngineEvent =
   | ToolResultEvent
   | PromptEvent
   | PromptResolvedEvent
+  | AskAnswered
   | NotificationEvent
   | TurnCompleteEvent
   | ErrorEvent
