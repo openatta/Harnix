@@ -108,7 +108,7 @@ export function SceneStep({ host, store }: { host: HostApi; store: AppStore }) {
           <button type="button" className="btn sm outline" data-testid="setup-scene-new" onClick={() => void newSessionDialog(host, store)}>
             {t("setup.scene.choose")}
           </button>
-          <button type="button" className="btn sm ghost" data-testid="setup-scene-settings" onClick={() => host.settings.open("engine")}>
+          <button type="button" className="btn sm ghost" data-testid="setup-scene-settings" onClick={() => host.settings.open("permissions")}>
             {t("setup.scene.change")}
           </button>
           <button type="button" className="btn sm ghost" data-testid="setup-scene-got" onClick={() => dismissSetupStep(SCENE_STEP)}>

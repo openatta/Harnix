@@ -156,7 +156,7 @@ agent 类型、skill、规则），没有时是 `null`。主题 `harnix-app.trus
 |---|---|---|---|
 | 模型（`settings.setup.model`，`order` 10） | `@harnix/settings` | `harnix.hello` 说有模型可用：配了 provider，或引擎启动时带着 `ANTHROPIC_*` 的密钥（同输入框上的「配置模型」提示；读不到 provider 时算有）。卡画出来时读一次，此后每关一次对话框（设置页就是在对话框里配的）再读 | 说还没有模型，「打开模型设置」到设置 · 模型与凭据 |
 | 项目（`harnix-app.setup.project`，20） | `@harnix/harnix-app` | `harnix-app.workspaces.list` 里有项目 | 说会话可以跑在一个项目（目录）里，「新建或选择项目…」打开添加项目的对话框（§3）；做完了是「打开项目」：到项目 space 并展开它 |
-| 场景与权限（`harnix-app.setup.scene`，30） | `@harnix/harnix-app` | 没有可读的完成状态：读过、点「知道了」或关掉就算 | 各一行：新会话缺省的场景（`hello.engine.scene` 和它的说明），缺省的权限模式（引擎设置的 `permission_mode`，经 `settings.describe` 按缺省场景读，读不到是 `default`）和它意味着什么。`code` 在、又不是缺省场景时，加一行推荐它，「用 code 新建会话…」打开停在 `code` 上的新会话对话框；「选场景与权限新建…」打开新会话对话框；「更改缺省…」到设置的引擎一节 |
+| 场景与权限（`harnix-app.setup.scene`，30） | `@harnix/harnix-app` | 没有可读的完成状态：读过、点「知道了」或关掉就算 | 各一行：新会话缺省的场景（`hello.engine.scene` 和它的说明），缺省的权限模式（引擎设置的 `permission_mode`，经 `settings.describe` 按缺省场景读，读不到是 `default`）和它意味着什么。`code` 在、又不是缺省场景时，加一行推荐它，「用 code 新建会话…」打开停在 `code` 上的新会话对话框；「选场景与权限新建…」打开新会话对话框；「更改缺省…」到设置的权限一节 |
 
 - **做完的一步**：这一页看着它从没做完变成做完的，画成做完（一个勾，模型那步写出新会话用的模型）；页面起来时就已经做完的，不画。
 - **关掉**：每张卡右上角的「不再显示」。关掉的记在这个浏览器的 `localStorage`（`harnix.setup.dismissed`，卡的 id 的数组），以后不再画。

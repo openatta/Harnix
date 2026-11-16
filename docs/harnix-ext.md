@@ -1351,9 +1351,12 @@ r.register("settings.section", {
 }, owner);
 ```
 
-`type` 是 `toggle`、`select`（`options`）、`number`（`min`、`max`）、`text`（`suggestions`：可选的候选，不在其中的也收）、
-`secret`（只写不读）、`list`、`rules`（`columns`）、`route`（`routes: [{provider, default_model, models}]`：值是一个 provider 的 id，
+`type` 是 `toggle`、`select`（`options`，`optionLabels` 给选项的文案键）、`number`（`min`、`max`）、
+`text`（`suggestions`：可选的候选，不在其中的也收）、`secret`（只写不读）、`list`、
+`rules`（`columns`：`{key, options?, required?, label?, check?}`，`check: "tool"` 的格是权限规则的工具，`Name` 或 `Name(内容)`，
+分成工具名和括号里的路径、命令或网址两格来填）、`route`（`routes: [{provider, default_model, models}]`：值是一个 provider 的 id，
 或 `{provider, model}`，引擎 `task_models` 条目的两种写法）、`json`（只显示，不写；`writable` 为空）；
+`additive: true` 的字段各层并联生效（`permission_rules`）：表单改的是所选那层自己的行；
 `risk: {values?, message}` 让这些值先确认。引擎设置的字段由后端 `settings` 扩展的字段表声明，`settings.describe` 发给界面
 （模型名的 `suggestions`、路由的 `routes` 按这一对 (项目, 场景) 已配置的 provider 填），
 `settings.write {tier, changes, revision?}` 整份校验、按版本号拒绝过期的写入（`CONFLICT`），路由到没配置的 provider 也拒绝。

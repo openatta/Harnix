@@ -453,6 +453,16 @@
   background: var(--bg-base);
 }
 
+/* A permission rule's tool and what its parentheses hold. */
+.settings-rule-tool {
+  display: flex;
+  gap: 4px;
+}
+
+.settings-rule-tool input:first-child {
+  flex: 0 0 34%;
+}
+
 .settings-rules-actions {
   display: flex;
   gap: 6px;

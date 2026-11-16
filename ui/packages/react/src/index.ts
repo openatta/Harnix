@@ -62,6 +62,7 @@ export {
   routeOf,
   isRisky,
   localFieldStore,
+  toolPattern,
   type FieldColumn,
   type FieldDecl,
   type FieldDoc,

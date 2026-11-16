@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CONFLICT } from "@harnix/core";
 
-import { FieldForm, Registry, checkField, isRisky, localFieldStore, routeOf, setLocale, type FieldDoc, type FieldState, type FieldStore } from "../src/index";
+import { FieldForm, Registry, checkField, isRisky, localFieldStore, routeOf, setLocale, toolPattern, type FieldDoc, type FieldState, type FieldStore } from "../src/index";
 
 afterEach(cleanup);
 setLocale("en");
@@ -58,6 +58,30 @@ describe("a field's type", () => {
     render(<FieldForm store={store} tier="global" />);
     expect((await screen.findByTestId("settings-execution")).textContent).toBe('{"max_agent_depth":3}');
     expect(document.querySelector("input, select")).toBeNull();
+  });
+
+  it("takes a permission rule's tool only in a shape the engine can match", () => {
+    for (const good of ["Bash", "Bash(git push:*)", "Edit(src/**)", "WebFetch(https://*.example.com/**)", "mcp__github", "plugin__github-tools__open_pr", "Bash(echo (hi))"]) {
+      expect(toolPattern(good), good).toBeNull();
+    }
+    expect(toolPattern("Bash(git")).toBe("settings.invalid.toolParen");
+    expect(toolPattern("Bash)")).toBe("settings.invalid.toolParen");
+    expect(toolPattern("mcp__github__*")).toBe("settings.invalid.toolWildcard");
+    expect(toolPattern("(git status)")).toBe("settings.invalid.toolName");
+    expect(toolPattern("mcp__")).toBe("settings.invalid.toolName");
+    expect(toolPattern("Bash Tool")).toBe("settings.invalid.toolName");
+    expect(toolPattern("Bash()")).toBe("settings.invalid.toolEmpty");
+    const rules = {
+      key: "permission_rules",
+      type: "rules" as const,
+      columns: [
+        { key: "tool", required: true, check: "tool" as const },
+        { key: "action", options: ["allow", "ask", "deny"], required: true },
+        { key: "match", options: ["pattern", "exact"] },
+      ],
+    };
+    expect(checkField(rules, [{ tool: "Bash(git push:*)", action: "deny" }, { tool: "Read", action: "allow", match: "exact" }])).toBeNull();
+    expect(checkField(rules, [{ tool: "Bash", action: "allow" }, { tool: "mcp__x__*", action: "deny" }])).toEqual({ key: "settings.invalid.toolWildcard", vars: { row: 2 } });
   });
 
   it("says which values are a risk", () => {
@@ -292,6 +316,86 @@ describe("the form", () => {
     await waitFor(() => expect(screen.queryByTestId("settings-review")).toBeNull());
   });
 
+  it("edits a permission rule as its tool and what the parentheses hold, and writes the engine's shape", async () => {
+    const rules: FieldState = {
+      key: "permission_rules",
+      type: "rules",
+      columns: [
+        { key: "tool", required: true, check: "tool", label: "settings.column.permission_rules.tool" },
+        { key: "action", type: "select", options: ["allow", "ask", "deny"], required: true, label: "settings.column.permission_rules.action" },
+        { key: "match", type: "select", options: ["pattern", "exact"] },
+      ],
+      effective: [{ tool: "Bash(git push:*)", action: "deny" }],
+    };
+    const m = memory({ fields: [rules] });
+    render(<FieldForm store={m.store} />);
+    const table = await screen.findByTestId("settings-permission_rules");
+    expect(table.textContent).toContain("Effect");
+    expect((table.querySelector('[data-testid="settings-rule-tool"]') as HTMLInputElement).value).toBe("Bash");
+    expect((table.querySelector('[data-testid="settings-rule-content"]') as HTMLInputElement).value).toBe("git push:*");
+
+    fireEvent.click(table.querySelector('[data-testid="settings-rule-add"]')!);
+    const row = table.querySelectorAll("tbody tr")[1]!;
+    fireEvent.change(row.querySelector('[data-testid="settings-rule-tool"]')!, { target: { value: "Edit" } });
+    // A space typed at the end stays while typing; what is written is trimmed.
+    fireEvent.change(row.querySelector('[data-testid="settings-rule-content"]')!, { target: { value: "src/** " } });
+    expect((row.querySelector('[data-testid="settings-rule-content"]') as HTMLInputElement).value).toBe("src/** ");
+    fireEvent.click(table.querySelector('[data-testid="settings-rules-apply"]')!);
+    await waitFor(() =>
+      expect(m.saved.at(-1)?.changes).toEqual({ permission_rules: [{ tool: "Bash(git push:*)", action: "deny" }, { action: "allow", tool: "Edit(src/**)" }] }),
+    );
+
+    // A wildcard in the tool's name is said at the row, and nothing is written.
+    const before = m.saved.length;
+    const table2 = await screen.findByTestId("settings-permission_rules");
+    fireEvent.change(table2.querySelector('[data-testid="settings-rule-tool"]')!, { target: { value: "mcp__github__*" } });
+    fireEvent.click(table2.querySelector('[data-testid="settings-rules-apply"]')!);
+    expect(await screen.findByText(/Row 1: a tool's name has no wildcard/)).toBeTruthy();
+    expect(m.saved).toHaveLength(before);
+  });
+
+  it("edits a tier's own rules of an additive field, and says how many the other tiers add", async () => {
+    const deny = { tool: "Bash(rm:*)", action: "deny" };
+    const allow = { tool: "Bash(ls)", action: "allow" };
+    const rules: FieldState = {
+      key: "permission_rules",
+      type: "rules",
+      additive: true,
+      columns: [
+        { key: "tool", required: true, check: "tool" },
+        { key: "action", options: ["allow", "ask", "deny"], required: true },
+      ],
+      writable: WRITABLE,
+      effective: [deny, allow],
+      source: "project",
+      withheld: false,
+      tiers: tiers([deny], null, [allow]),
+    };
+    const m = memory({ fields: [rules], revision: "r" });
+    render(<FieldForm store={m.store} tier="global" />);
+    const table = await screen.findByTestId("settings-permission_rules");
+    expect(table.querySelectorAll("tbody tr")).toHaveLength(1);
+    expect((table.querySelector('[data-testid="settings-rule-content"]') as HTMLInputElement).value).toBe("rm:*");
+    expect(screen.getByText(/every tier's rules apply together; 1 more from the other tiers/)).toBeTruthy();
+    fireEvent.click(table.querySelector('[data-testid="settings-rule-remove"]')!);
+    fireEvent.click(table.querySelector('[data-testid="settings-rules-apply"]')!);
+    // Only this tier's rows: the project's allow is not copied into the global tier.
+    await waitFor(() => expect(m.saved.at(-1)?.changes).toEqual({ permission_rules: [] }));
+  });
+
+  it("names a select's options by their text keys", async () => {
+    const mode: FieldState = {
+      key: "permission_mode",
+      type: "select",
+      options: ["default", "bypassPermissions"],
+      optionLabels: { default: "settings.option.permission_mode.default", bypassPermissions: "settings.option.permission_mode.bypassPermissions" },
+      effective: "default",
+    };
+    render(<FieldForm store={memory({ fields: [mode] }).store} />);
+    const select = (await screen.findByTestId("settings-permission_mode")) as HTMLSelectElement;
+    expect([...select.options].map((o) => o.textContent)).toEqual(["Ask (default)", "Full access"]);
+  });
+
   it("draws only its section's fields", async () => {
     const doc = { fields: [{ ...every[0]!, section: "engine" }, { ...every[3]!, section: "models" }] };
     render(<FieldForm store={memory(doc).store} section="models" />);
@@ -368,6 +472,16 @@ describe("a model route", () => {
     fireEvent.change(model, { target: { value: "deepseek-reasoner" } });
     fireEvent.blur(model);
     await waitFor(() => expect(m.saved).toEqual([{ changes: { "task_models.title": { provider: "deepseek", model: "deepseek-reasoner" } }, revision: "r1" }]));
+  });
+
+  it("goes back to the provider alone when its model is cleared", async () => {
+    const m = memory({ fields: [route({ provider: "deepseek", model: "deepseek-chat" })], revision: "r1" });
+    render(<FieldForm store={m.store} />);
+    const model = (await screen.findByTestId("settings-task_models.title-model")) as HTMLInputElement;
+    expect(model.value).toBe("deepseek-chat");
+    fireEvent.change(model, { target: { value: "" } });
+    fireEvent.blur(model);
+    await waitFor(() => expect(m.saved).toEqual([{ changes: { "task_models.title": "deepseek" }, revision: "r1" }]));
   });
 
   it("says so when no provider is configured", async () => {
