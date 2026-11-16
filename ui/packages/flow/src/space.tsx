@@ -174,8 +174,7 @@ function conversationParts(state: FlowSpaceState, tabs: FlowTabs, options: FlowS
 
 /** The conversation's own rows and blocks, under `space`'s ids. */
 function registerBlocks(registry: Registry, space: string, module: string, owner: string): void {
-  // A call of the conversation's tools that changes something, named by what it acts on, in the
-  // row as well as in the permission card under it.
+  // A call of the conversation's tools that changes something, named in its row by what it acts on.
   registry.register(
     "tool.row",
     {
