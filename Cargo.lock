@@ -1417,6 +1417,7 @@ dependencies = [
  "harnix-ext-observability",
  "harnix-ext-packages",
  "harnix-ext-plugins",
+ "harnix-ext-schedule",
  "harnix-ext-settings",
  "harnix-ext-system",
  "harnix-package",

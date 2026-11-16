@@ -263,6 +263,26 @@ fn settings(cfg: &Config) -> Generated {
     }
 }
 
+/// `harnix-ext-schedule`: the schedules `schedule.*` answer with and the topic `schedule.list`
+/// carries, and their params. In `@harnix/core`: the session menu, the project's overview and the
+/// system space all show them.
+fn schedule(cfg: &Config) -> Generated {
+    use harnix_ext_schedule::wire::*;
+    Generated {
+        path: "core/src/protocol/generated/schedule.ts",
+        text: joined(
+            header(""),
+            declarations![cfg;
+                // A schedule: when, where to, and what became of each time.
+                Schedule, Timing, Target, SessionTarget, NewSessionTarget, NewMode, SessionKey, TaskTarget, Missed,
+                Concurrency, Receipt, Outcome, DeliveredTo, ModelJob, ScheduleList,
+                // The params.
+                ListParams, IdParams, CreateParams, UpdateParams, HistoryParams, History, ModelDeleteParams, Deleted,
+            ],
+        ),
+    }
+}
+
 fn ui_packages() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/packages")
 }
@@ -270,7 +290,7 @@ fn ui_packages() -> PathBuf {
 #[test]
 fn export_the_protocol_types() {
     let cfg = Config::new().with_large_int("number");
-    let files = [contract(&cfg), readers(&cfg), packages(&cfg), flow(&cfg), settings(&cfg)];
+    let files = [contract(&cfg), readers(&cfg), packages(&cfg), flow(&cfg), settings(&cfg), schedule(&cfg)];
     let root = ui_packages();
     // `HARNIX_TS_CHECK`: compare instead of writing, and fail on a difference.
     let check = std::env::var_os("HARNIX_TS_CHECK").is_some_and(|v| !v.is_empty() && v != "0");

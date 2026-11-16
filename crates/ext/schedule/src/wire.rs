@@ -42,8 +42,10 @@ pub struct Schedule {
 
 /// When a schedule is due. Every wall-clock time is in the schedule's zone: a time a
 /// daylight-saving change skips is not due that day, and one it repeats is due the first time.
+/// `ScheduleTiming` in TypeScript, beside the readers' `Timing`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(rename = "ScheduleTiming"))]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Timing {
     /// Once: RFC 3339 with an offset, or a wall-clock `YYYY-MM-DDTHH:MM[:SS]` in the zone.
@@ -135,8 +137,11 @@ pub enum NewMode {
     NewOnceThenReuse,
 }
 
+/// A session by its full name. `ScheduledSession` in TypeScript, beside the interface's own
+/// `SessionKey`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(rename = "ScheduledSession"))]
 pub struct SessionKey {
     pub instance: String,
     pub session_id: String,
@@ -204,8 +209,7 @@ pub struct Receipt {
     #[cfg_attr(feature = "ts", ts(optional))]
     pub delivered_at: Option<u64>,
     /// Asked for by hand (`schedule.runNow`).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    #[cfg_attr(feature = "ts", ts(optional))]
+    #[serde(default)]
     pub manual: bool,
     pub outcome: Outcome,
     /// Skipped: `missed`, `min_interval`, `previous_run` or `merged` ([`SKIP_REASONS`]). Failed:
@@ -246,8 +250,7 @@ pub struct DeliveredTo {
     #[cfg_attr(feature = "ts", ts(optional))]
     pub session_id: Option<String>,
     /// The session was opened for this delivery.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    #[cfg_attr(feature = "ts", ts(optional))]
+    #[serde(default)]
     pub created: bool,
     /// The queued item it waits as, while the session is busy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -288,8 +291,7 @@ pub struct ScheduleList {
     /// What models made (source «model»). The topic carries them as last read.
     pub model: Vec<ModelJob>,
     /// The instances whose jobs could not be read.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    #[cfg_attr(feature = "ts", ts(optional))]
+    #[serde(default)]
     pub unreachable: Vec<String>,
 }
 
