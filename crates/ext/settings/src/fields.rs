@@ -25,19 +25,51 @@ pub(crate) enum Type {
     /// Text that is not blank and is never read back: `describe` says only whether it is set.
     Secret,
     /// Strings, each not blank.
-    #[allow(dead_code)] // no field of the five is one; the page draws it all the same
     List,
     /// Rows of the columns; a column marked required must be in every row, no other key may be.
-    #[allow(dead_code)] // as `List`
     Rules(&'static [Column]),
+    /// Where a kind of call goes: a provider's id, or `{provider, model}` with the model optional.
+    Route,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Column {
     pub key: &'static str,
-    /// `None`: text that is not blank. `Some`: one of the options.
+    /// `None`: text that is not blank. `Some`: one of the options; an optional one left out is its
+    /// first.
     pub options: Option<&'static [&'static str]>,
     pub required: bool,
+    /// The text key of its heading; the key itself when none.
+    pub label: Option<&'static str>,
+    /// What a text cell must be, beyond not blank.
+    pub check: Option<Cell>,
+}
+
+/// A text cell's own shape, checked the same way on the page.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Cell {
+    /// A permission rule's tool: `Name` or `Name(content)`, the name `__`-separated segments.
+    Tool,
+}
+
+impl Column {
+    /// Text that is not blank, optional.
+    pub(crate) const fn text(key: &'static str) -> Self {
+        Column { key, options: None, required: false, label: None, check: None }
+    }
+    /// One of the options, optional.
+    pub(crate) const fn select(key: &'static str, options: &'static [&'static str]) -> Self {
+        Column { options: Some(options), ..Column::text(key) }
+    }
+    pub(crate) const fn required(self) -> Self {
+        Column { required: true, ..self }
+    }
+    pub(crate) const fn label(self, label: &'static str) -> Self {
+        Column { label: Some(label), ..self }
+    }
+    pub(crate) const fn check(self, check: Cell) -> Self {
+        Column { check: Some(check), ..self }
+    }
 }
 
 /// What a field is when no tier writes it, as far as the page is told. `None` when it depends on
@@ -76,39 +108,94 @@ pub(crate) struct Field {
     pub label: Option<&'static str>,
     pub hint: Option<&'static str>,
     pub risk: Option<Risk>,
+    /// The prefix of its options' text keys (`<prefix>.<option>`); `None`: shown as they are.
+    pub option_labels: Option<&'static str>,
+    /// Every tier's value applies side by side instead of the highest one standing for the rest:
+    /// a tier's own rows are what it edits, and the engine's value is all of them together.
+    pub additive: bool,
 }
 
 impl Field {
     /// A field every tier may write, with no default the page is told, its label by its key.
     pub(crate) const fn new(key: &'static str, ty: Type, section: &'static str) -> Self {
-        Field { key, ty, default: Default::None, tiers: TIERS, section, label: None, hint: None, risk: None }
+        Field {
+            key,
+            ty,
+            default: Default::None,
+            tiers: TIERS,
+            section,
+            label: None,
+            hint: None,
+            risk: None,
+            option_labels: None,
+            additive: false,
+        }
     }
     pub(crate) const fn default(self, default: Default) -> Self {
         Field { default, ..self }
     }
-    #[allow(dead_code)]
     pub(crate) const fn tiers(self, tiers: &'static [&'static str]) -> Self {
         Field { tiers, ..self }
     }
-    #[allow(dead_code)]
     pub(crate) const fn hint(self, hint: &'static str) -> Self {
         Field { hint: Some(hint), ..self }
     }
     pub(crate) const fn risk(self, values: &'static [&'static str], message: &'static str) -> Self {
         Field { risk: Some(Risk { values, message }), ..self }
     }
+    pub(crate) const fn option_labels(self, prefix: &'static str) -> Self {
+        Field { option_labels: Some(prefix), ..self }
+    }
+    pub(crate) const fn additive(self) -> Self {
+        Field { additive: true, ..self }
+    }
 }
 
 /// The settings a person changes from the page. Every entry is a promise that writing it does
 /// something predictable; the order is the order a section draws them in.
 pub(crate) const FIELDS: &[Field] = &[
-    Field::new("permission_mode", Type::Select(&["default", "acceptEdits", "plan", "bypassPermissions"]), "engine")
-        .default(Default::Str("default"))
-        .risk(&["bypassPermissions"], "settings.risk.bypassPermissions"),
     Field::new("memory_enabled", Type::Toggle, "engine").default(Default::Bool(true)),
-    Field::new("allow_client_permission_override", Type::Toggle, "engine").default(Default::Bool(false)),
     Field::new("model.model_name", Type::Text, "models"),
     Field::new("model.max_tokens", Type::Number { min: 1, max: 1_000_000 }, "models"),
+    // permissions, sandbox, network
+    Field::new("permission_mode", Type::Select(&["default", "acceptEdits", "plan", "dontAsk", "bypassPermissions"]), "permissions")
+        .default(Default::Str("default"))
+        .option_labels("settings.option.permission_mode")
+        .hint("settings.hint.permission_mode")
+        .risk(&["bypassPermissions"], "settings.risk.bypassPermissions"),
+    Field::new("allow_client_permission_override", Type::Toggle, "permissions").default(Default::Bool(false)),
+    // Every tier's rules apply together, and a project's `allow` counts only once it is trusted.
+    Field::new("permission_rules", Type::Rules(PERMISSION_RULE), "permissions")
+        .additive()
+        .hint("settings.hint.permission_rules"),
+    Field::new("sandbox.network_mode", Type::Select(&["unrestricted", "deny_all", "allowlist", "proxy"]), "sandbox")
+        .default(Default::Str("unrestricted"))
+        .option_labels("settings.option.sandbox.network_mode")
+        .hint("settings.hint.sandbox.network_mode"),
+    // The string form only (`127.0.0.1:3128`); one with `socks` or `no_proxy` is written in the file.
+    Field::new("sandbox.egress_proxy", Type::Text, "sandbox").hint("settings.hint.sandbox.egress_proxy"),
+    Field::new("sandbox.additional_directories", Type::List, "sandbox").hint("settings.hint.sandbox.additional_directories"),
+    Field::new("sandbox.read_directories", Type::List, "sandbox").hint("settings.hint.sandbox.read_directories"),
+    Field::new("sandbox.require_enforcement", Type::Toggle, "sandbox")
+        .default(Default::Bool(false))
+        .hint("settings.hint.sandbox.require_enforcement"),
+    // The engine reads it from the global tier only, at start.
+    Field::new("network.use_system_proxy", Type::Toggle, "network")
+        .default(Default::Bool(true))
+        .tiers(&["global"])
+        .hint("settings.hint.network.use_system_proxy"),
+    Field::new("sandbox.allowed_domains", Type::List, "network").hint("settings.hint.sandbox.allowed_domains"),
+    Field::new("task_models.web_search", Type::Route, "network").hint("settings.hint.task_models.web_search"),
+    Field::new("task_models.web_fetch", Type::Route, "network").hint("settings.hint.task_models.web_fetch"),
+];
+
+/// A `permission_rules` entry as the engine reads it: `{tool, action, match?}`, the path, command
+/// or URL pattern inside the tool's parentheses (`Bash(git push:*)`, `Edit(src/**)`).
+const PERMISSION_RULE: &[Column] = &[
+    Column::text("tool").required().label("settings.column.permission_rules.tool").check(Cell::Tool),
+    Column::select("action", &["allow", "ask", "deny"]).required().label("settings.column.permission_rules.action"),
+    // `exact`: what "allow every time" keeps; the engine reads it on an allow only.
+    Column::select("match", &["pattern", "exact"]).label("settings.column.permission_rules.match"),
 ];
 
 pub(crate) fn find(key: &str) -> Option<&'static Field> {
@@ -153,13 +240,68 @@ pub(crate) fn check(ty: Type, value: &Value) -> Result<(), String> {
                             if !fits {
                                 return Err(format!("row {}: `{}` does not accept that", i + 1, column.key));
                             }
+                            if let (Some(Cell::Tool), Some(text)) = (column.check, cell.as_str()) {
+                                tool_pattern(text).map_err(|why| format!("row {}: `{}` {why}", i + 1, column.key))?;
+                            }
                         }
                     }
                 }
             }
             Ok(())
         }
+        Type::Route => match value {
+            Value::String(_) if not_blank(value) => Ok(()),
+            Value::Object(route) => {
+                let model_ok = route.get("model").is_none_or(|m| m.is_null() || not_blank(m));
+                let only_known = route.keys().all(|k| k == "provider" || k == "model");
+                if route.get("provider").is_some_and(not_blank) && model_ok && only_known {
+                    Ok(())
+                } else {
+                    Err("a provider, and a model or none".into())
+                }
+            }
+            _ => Err("a provider's id, or {provider, model}".into()),
+        },
     }
+}
+
+/// Whether two rows of the columns say the same: an optional select left out is its first option,
+/// which is how the engine writes a default back (a rule's `match` is `pattern` unless it says not).
+pub(crate) fn same_row(columns: &[Column], a: &Value, b: &Value) -> bool {
+    let cell = |row: &Value, column: &Column| match (row.get(column.key), column.options) {
+        (None | Some(Value::Null), Some(options)) if !column.required => options.first().map(|o| json!(o)),
+        (cell, _) => cell.filter(|c| !c.is_null()).cloned(),
+    };
+    let known = |row: &Value| row.as_object().is_some_and(|o| o.keys().all(|k| columns.iter().any(|c| c.key == k.as_str())));
+    if !known(a) || !known(b) {
+        return a == b;
+    }
+    columns.iter().all(|column| cell(a, column) == cell(b, column))
+}
+
+/// Whether `text` is a tool the engine's rules can name: `Name` or `Name(content)`, the name one
+/// or more `__`-separated segments (`mcp__github` covers that server's tools). A name has no
+/// wildcard: a rule names a prefix, and `mcp__github__*` would match no tool at all.
+pub(crate) fn tool_pattern(text: &str) -> Result<(), String> {
+    let text = text.trim();
+    let (name, content) = match text.find('(') {
+        Some(open) if text.ends_with(')') => (&text[..open], Some(&text[open + 1..text.len() - 1])),
+        Some(_) => return Err("opens a `(` it does not close at the end".into()),
+        None if text.contains(')') => return Err("closes a `)` it did not open".into()),
+        None => (text, None),
+    };
+    let name = name.trim();
+    if name.contains('*') {
+        return Err("has a wildcard in the tool's name: write the prefix (`mcp__github`) for all its tools".into());
+    }
+    let segment = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'));
+    if name.is_empty() || !name.split("__").all(segment) {
+        return Err(format!("`{name}` is not a tool's name: letters, digits, `-`, `_`, segments joined by `__`"));
+    }
+    if content.is_some_and(|c| c.trim().is_empty()) {
+        return Err("has `()` with nothing in it: leave them out for every call of the tool".into());
+    }
+    Ok(())
 }
 
 /// The name of a type as the page reads it.
@@ -172,6 +314,7 @@ fn type_name(ty: Type) -> &'static str {
         Type::Secret => "secret",
         Type::List => "list",
         Type::Rules(_) => "rules",
+        Type::Route => "route",
     }
 }
 
@@ -207,6 +350,10 @@ pub(crate) fn declaration(field: &Field) -> Map<String, Value> {
             _ => Value::Null,
         },
     );
+    if let (Type::Select(options), Some(prefix)) = (field.ty, field.option_labels) {
+        let labels: Map<String, Value> = options.iter().map(|o| ((*o).to_string(), json!(format!("{prefix}.{o}")))).collect();
+        out.insert("optionLabels".into(), Value::Object(labels));
+    }
     if let Type::Number { min, max } = field.ty {
         out.insert("min".into(), json!(min));
         out.insert("max".into(), json!(max));
@@ -215,12 +362,19 @@ pub(crate) fn declaration(field: &Field) -> Map<String, Value> {
         let columns: Vec<Value> = columns
             .iter()
             .map(|c| {
-                json!({
+                let mut column = json!({
                     "key": c.key,
                     "type": if c.options.is_some() { "select" } else { "text" },
                     "options": c.options,
                     "required": c.required,
-                })
+                });
+                if let Some(label) = c.label {
+                    column["label"] = json!(label);
+                }
+                if let Some(Cell::Tool) = c.check {
+                    column["check"] = json!("tool");
+                }
+                column
             })
             .collect();
         out.insert("columns".into(), json!(columns));
@@ -236,6 +390,9 @@ pub(crate) fn declaration(field: &Field) -> Map<String, Value> {
     }
     if let Some(risk) = field.risk {
         out.insert("risk".into(), json!({"values": risk.values, "message": risk.message}));
+    }
+    if field.additive {
+        out.insert("additive".into(), json!(true));
     }
     out
 }
@@ -260,9 +417,9 @@ mod tests {
     use super::*;
 
     const RULES: Type = Type::Rules(&[
-        Column { key: "tool", options: None, required: true },
-        Column { key: "action", options: Some(&["allow", "deny", "ask"]), required: true },
-        Column { key: "match", options: Some(&["exact"]), required: false },
+        Column::text("tool").required(),
+        Column::select("action", &["allow", "deny", "ask"]).required(),
+        Column::select("match", &["exact"]),
     ]);
 
     #[test]
@@ -308,10 +465,80 @@ mod tests {
     }
 
     #[test]
-    fn the_five_fields_are_the_ones_there_were() {
-        let keys: Vec<&str> = FIELDS.iter().map(|f| f.key).collect();
-        assert_eq!(keys, ["permission_mode", "memory_enabled", "allow_client_permission_override", "model.model_name", "model.max_tokens"]);
-        assert!(FIELDS.iter().all(|f| f.tiers == TIERS));
+    fn every_key_is_declared_once() {
+        let mut keys: Vec<&str> = FIELDS.iter().map(|f| f.key).collect();
+        let all = keys.len();
+        keys.sort_unstable();
+        keys.dedup();
+        assert_eq!(keys.len(), all, "a key declared twice");
+        for key in ["permission_mode", "memory_enabled", "allow_client_permission_override", "model.model_name", "model.max_tokens"] {
+            assert_eq!(find(key).map(|f| f.tiers), Some(TIERS), "{key}");
+        }
+    }
+
+    #[test]
+    fn a_rule_names_a_tool_the_engine_can_match() {
+        for good in ["Bash", "Bash(git push:*)", "Edit(src/**)", "Read(~/.ssh/**)", "WebFetch(https://*.example.com/**)", "mcp__github", "plugin__github-tools__open_pr", "Bash(echo (hi))"] {
+            assert!(tool_pattern(good).is_ok(), "{good}");
+        }
+        for bad in ["", "  ", "Bash(git", "Bash)", "(git status)", "Bash()", "mcp__github__*", "*", "mcp__", "__x", "Bash Tool", "Bash (ls"] {
+            assert!(tool_pattern(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn permission_rules_take_the_engine_s_shape_and_refuse_a_tool_it_cannot_match() {
+        let rules = find("permission_rules").unwrap();
+        assert!(check(rules.ty, &json!([{"tool": "Bash(git push:*)", "action": "deny"}, {"tool": "Edit(src/**)", "action": "allow", "match": "pattern"}])).is_ok());
+        assert!(check(rules.ty, &json!([{"tool": "Bash(ls)", "action": "allow", "match": "exact"}])).is_ok());
+        let e = check(rules.ty, &json!([{"tool": "Bash", "action": "allow"}, {"tool": "mcp__x__*", "action": "deny"}])).unwrap_err();
+        assert!(e.starts_with("row 2: `tool`") && e.contains("wildcard"), "{e}");
+        assert!(check(rules.ty, &json!([{"tool": "Bash", "effect": "allow"}])).is_err(), "the engine's key is `action`");
+        assert!(check(rules.ty, &json!([{"tool": "Bash", "action": "maybe"}])).is_err());
+        let view = declaration(rules);
+        assert_eq!(view["additive"], json!(true));
+        assert_eq!(view["columns"][0]["check"], json!("tool"));
+        assert_eq!(view["columns"][1]["options"], json!(["allow", "ask", "deny"]));
+        assert_eq!(view["columns"][1]["label"], json!("settings.column.permission_rules.action"));
+        assert!(view["columns"][2].get("check").is_none());
+    }
+
+    #[test]
+    fn a_row_left_at_an_optional_select_s_first_option_is_the_same_row() {
+        let Type::Rules(columns) = find("permission_rules").unwrap().ty else { panic!() };
+        let bare = json!({"tool": "Bash(ls)", "action": "allow"});
+        assert!(same_row(columns, &bare, &json!({"tool": "Bash(ls)", "action": "allow", "match": "pattern"})));
+        assert!(!same_row(columns, &bare, &json!({"tool": "Bash(ls)", "action": "allow", "match": "exact"})));
+        assert!(!same_row(columns, &bare, &json!({"tool": "Bash(ls)", "action": "deny"})));
+    }
+
+    #[test]
+    fn a_route_is_a_provider_with_a_model_or_none() {
+        assert!(check(Type::Route, &json!("deepseek")).is_ok());
+        assert!(check(Type::Route, &json!({"provider": "deepseek"})).is_ok());
+        assert!(check(Type::Route, &json!({"provider": "deepseek", "model": "deepseek-chat"})).is_ok());
+        assert!(check(Type::Route, &json!({"provider": "deepseek", "model": null})).is_ok());
+        assert!(check(Type::Route, &json!({"model": "deepseek-chat"})).is_err());
+        assert!(check(Type::Route, &json!({"provider": "a", "model": " "})).is_err());
+        assert!(check(Type::Route, &json!({"provider": "a", "base_url": "x"})).is_err());
+        assert!(check(Type::Route, &json!(" ")).is_err());
+        assert!(check(Type::Route, &json!(3)).is_err());
+    }
+
+    #[test]
+    fn the_permissions_sandbox_and_network_fields_are_the_engine_s_keys() {
+        let mode = declaration(find("permission_mode").unwrap());
+        assert_eq!(mode["section"], json!("permissions"));
+        assert!(mode["options"].as_array().unwrap().contains(&json!("dontAsk")));
+        assert_eq!(mode["optionLabels"]["bypassPermissions"], json!("settings.option.permission_mode.bypassPermissions"));
+        assert_eq!(declaration(find("sandbox.network_mode").unwrap())["default"], json!("unrestricted"));
+        assert_eq!(declaration(find("network.use_system_proxy").unwrap())["writable"], json!(["global"]));
+        for key in ["sandbox.additional_directories", "sandbox.read_directories", "sandbox.allowed_domains"] {
+            assert_eq!(declaration(find(key).unwrap())["type"], json!("list"), "{key}");
+        }
+        assert_eq!(declaration(find("task_models.web_fetch").unwrap())["type"], json!("route"));
+        assert!(check(find("sandbox.network_mode").unwrap().ty, &json!("allowlist")).is_ok());
+        assert!(check(find("sandbox.network_mode").unwrap().ty, &json!("none")).is_err());
     }
 
     #[test]
