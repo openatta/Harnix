@@ -8,12 +8,12 @@
  */
 
 import type { Block, BlockOf } from "@harnix/core/state";
-import { Disclosure, STATUS_GLYPH, ToolDetails, t, toolArgs, toolDisplayName, TOOL_NAMES, useToolState, type DetailItem, Glyph } from "@harnix/react";
+import { Disclosure, STATUS_GLYPH, ToolDetails, t, toolArgs, toolDisplayName, TOOL_NAMES, useToolState, type ActionTarget, type DetailItem, Glyph } from "@harnix/react";
 
 import type { App } from "./app.ts";
 import { Labelled, RequestPanel, RequestRow, type RequestBlock } from "./envelope.tsx";
 import { startInline } from "./inline/index.tsx";
-import { ActionButtons } from "./actions.tsx";
+import { ActionArg, ActionButtons } from "./actions.tsx";
 import { GUIDE_KIND } from "./sidebar/controller.ts";
 import { GuideTab } from "./sidebar/Guide.tsx";
 
@@ -96,6 +96,11 @@ export function registerBuiltins(app: App): void {
 
 function ToolRow({ app, block }: { app: App; block: BlockOf<"tool"> }) {
   const { state, tail } = useToolState(block);
+  const current = app.snapshot.current;
+  const target: ActionTarget | null =
+    current && block.id
+      ? { kind: "tool", session: { instance: current.instance, sessionId: current.sessionId }, space: app.snapshot.space, toolUseId: block.id, tool: block.name, input: block.input }
+      : null;
   return (
     <Disclosure
       testId="conv-tool"
@@ -109,9 +114,15 @@ function ToolRow({ app, block }: { app: App; block: BlockOf<"tool"> }) {
           <span className="hx-tool-name" data-testid="conv-tool-name" title={block.name}>
             {toolDisplayName(block.name, TOOL_NAMES)}
           </span>
-          <span className="hx-tool-arg" data-testid="conv-tool-args">
-            {toolArgs(block.input)}
-          </span>
+          {target ? (
+            <ActionArg app={app} target={target} className="hx-tool-arg" testId="conv-tool-args">
+              {toolArgs(block.input)}
+            </ActionArg>
+          ) : (
+            <span className="hx-tool-arg" data-testid="conv-tool-args">
+              {toolArgs(block.input)}
+            </span>
+          )}
         </>
       }
       tail={tail}
@@ -126,13 +137,7 @@ function ToolRow({ app, block }: { app: App; block: BlockOf<"tool"> }) {
         >
           {t("flow.openInDetails")}
         </button>
-        {app.snapshot.current && block.id ? (
-          <ActionButtons
-            app={app}
-            place="tool"
-            target={{ kind: "tool", session: { instance: app.snapshot.current.instance, sessionId: app.snapshot.current.sessionId }, space: app.snapshot.space, toolUseId: block.id, tool: block.name }}
-          />
-        ) : null}
+        {target ? <ActionButtons app={app} place="tool" target={target} /> : null}
       </div>
     </Disclosure>
   );

@@ -13,7 +13,7 @@
  * | `sidebar.group` | `group(会话) → 组[]`、`label?()` | 只用最后注册的那一个 |
  * | `command` | `trigger?`（`/` 或 `@`）、`complete(query, ctx?) → 候选[]`（候选可带 `run`） | 全部，按注册顺序拼起来；`/` 与 `@` 两个菜单各问各的 |
  * | `settings.section` | `id`、`label()`、`render()`，可选的 `covers` | 全部，按注册顺序；外壳要人去配模型时打开 `covers` 里有 `"models"` 的那一节 |
- * | `session.action` | `id`、`at`、`label(target)`、`match(target)`、`run(target)` | 标题栏、会话菜单、工具行各问 `at` 里有它的，按注册顺序 |
+ * | `session.action` | `id`、`at`、`label(target)`、`match(target)`、`run(target)` | 标题栏、会话菜单、工具行（按钮与参数）各问 `at` 里有它的，按注册顺序 |
  * | `sidebar.tab` | `id`、`kind`、`title(address?)`、`render()`，可选的 `patterns`、`priority`、`canOpen`、`guide`、`multiple`、`keepMounted`、`scope` | 右栏的页签类型（`sidebar.ts`）：资源地址按优先级档、模式长度、注册顺序认领；一个 `kind` 至多一份 extension 加一份 builtin，extension 生效 |
  *
  * 扩展还可以定义自己的点（`definePoint("<扩展 id>.<名>")`），别的包往里注册；注册进还没定义的点先挂着，全部注册完
@@ -118,10 +118,12 @@ export type Badge = string | number | null | undefined;
  *  space it is asked in (a space's `sessions` says which backend space that lists). */
 export type ActionTarget =
   | { kind: "session"; session: SessionRef; space: string }
-  | { kind: "tool"; session: SessionRef; space: string; toolUseId: string; tool: string };
+  | { kind: "tool"; session: SessionRef; space: string; toolUseId: string; tool: string; input?: unknown };
 
-/** Where the shell asks for session actions: the title bar, the session menu, a tool row. */
-export type ActionPlace = "header" | "menu" | "tool";
+/** Where the shell asks for session actions: the title bar, the session menu, a tool row — its
+ *  buttons, and its argument (`arg`: the first action that matches makes the argument a link, its
+ *  label the link's title; a file tool's path opening the file, say). */
+export type ActionPlace = "header" | "menu" | "tool" | "arg";
 
 /**
  * A space as the interface draws it (concept §5.4), its members grouped by where they are drawn.
@@ -299,7 +301,7 @@ const SHAPE: { [P in Point]: string[] } = {
   "sidebar.tab": ["title", "render"],
 };
 
-const ACTION_PLACES: readonly string[] = ["header", "menu", "tool"];
+const ACTION_PLACES: readonly string[] = ["header", "menu", "tool", "arg"];
 const SPACE_GROUPS = ["sidebar", "center", "conversation", "details", "store"] as const;
 
 /** What is wrong with a kernel point's contribution beyond its functions; null when nothing. */

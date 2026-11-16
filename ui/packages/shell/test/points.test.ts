@@ -31,11 +31,14 @@ describe("contribution points", () => {
     expect(unread).toEqual([]);
   });
 
-  it("asks for session actions at each of the three places", () => {
+  it("asks for session actions at each of the four places", () => {
     const read = (f: string) => readFileSync(join(process.cwd(), "src", f), "utf8");
     // The title bar, the tool row (drawn by the built-in row), the session menu.
     expect(read("Shell.tsx")).toContain('place="header"');
     expect(read("builtins.tsx")).toContain('place="tool"');
+    // A tool row's argument asks the actions at `arg`.
+    expect(read("builtins.tsx")).toContain("<ActionArg");
+    expect(read("actions.tsx")).toContain('asked(app, "arg", target)');
     expect(read("dialogs.tsx")).toContain("actionMenuItems(app, target)");
   });
 });

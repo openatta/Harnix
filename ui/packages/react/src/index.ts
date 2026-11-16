@@ -11,7 +11,7 @@ export { ChatPanel, type ChatPanelProps } from "./chat/ChatPanel";
 export { ChatComposer, type Attached, type ChatComposerProps, type ComposerApi, type ModelOption } from "./chat/ChatComposer";
 export { TranscriptList, type TranscriptListProps } from "./chat/TranscriptList";
 export { readDraft, writeDraft } from "./chat/drafts";
-export { Avatar, ComposerNote, DiffView, QueuedBubble, SegmentRow, TranscriptToolRow } from "./chat/messages";
+export { Avatar, ComposerNote, DiffView, QueuedBubble, SegmentRow, TranscriptToolRow, UnifiedDiffView } from "./chat/messages";
 export type { ContextRingConfig } from "./chat/ChatComposer";
 export {
   type ChatCommand,
@@ -38,6 +38,8 @@ export {
   toolArgs,
   toolDisplayName,
   toolSummary,
+  unifiedDiffRows,
+  type DiffRow,
   type NumberedDiffLine,
 } from "./chat/format";
 export { SessionView, type SessionViewProps } from "./components/SessionView";

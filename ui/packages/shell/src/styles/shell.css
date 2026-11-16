@@ -666,3 +666,13 @@
 #main .hx-cmp .steer:disabled {
   opacity: 0.45;
 }
+
+/* A tool row's argument that an action at `arg` opens (`ActionArg`): a link inside the row's toggle. */
+#main .hx-tool-arg.arg-link {
+  color: var(--accent);
+  cursor: pointer;
+}
+
+#main .hx-tool-arg.arg-link:hover {
+  text-decoration: underline;
+}

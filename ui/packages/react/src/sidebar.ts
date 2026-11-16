@@ -219,6 +219,9 @@ export interface TabInfo {
     kind: string;
     /** The resource it shows; null for a page. */
     address: string | null;
+    /** The session whose surface it is in: what a page about "this session" reads. Null for a type
+     *  standing in the space's side of the strip (`scope: "space"`). */
+    session: { instance: string; sessionId: string } | null;
     /** The body is the one in front: not hidden behind another tab, nor kept for a session in the background. */
     visible: boolean;
     /** How it was last navigated to: the params the opener gave, and a count that goes up at each

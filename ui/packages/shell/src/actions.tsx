@@ -53,6 +53,40 @@ export function actionMenuItems(app: App, target: ActionTarget): MenuEntry[] {
   }));
 }
 
+/**
+ * A tool row's argument: a link when an action at `arg` matches the call — the first one, in
+ * registration order, its label the link's title — and plain text otherwise. A click runs it and
+ * leaves the row as it was (open or closed). The argument sits in the row's toggle, a button, so it
+ * is not a second control for the keyboard: the same action is a button under the call when it is
+ * also `at: ["tool"]`.
+ */
+export function ActionArg({ app, target, className, testId, children }: { app: App; target: ActionTarget; className: string; testId: string; children: string }) {
+  useRegistry(app.registry);
+  const first = asked(app, "arg", target)[0];
+  if (!first) {
+    return (
+      <span className={className} data-testid={testId}>
+        {children}
+      </span>
+    );
+  }
+  return (
+    <span
+      className={`${className} arg-link`}
+      data-testid={testId}
+      data-action={first.action.id}
+      title={first.label}
+      onClick={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        void runAction(app, first.action, target, first.label);
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
 /** The actions of a place, as buttons: icon ones at the title bar, text ones under a tool call. */
 export function ActionButtons({ app, place, target }: { app: App; place: "header" | "tool"; target: ActionTarget }) {
   useRegistry(app.registry);
