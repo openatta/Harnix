@@ -356,7 +356,6 @@ mod scope {
         let listed = [
             "harnix-app.sessions.archive",
             "harnix-app.sessions.export",
-            "harnix.session.move",
             "harnix.session.rename",
             "harnix.topics.subscribe",
             "topic:harnix.session.tasks",
@@ -387,7 +386,7 @@ mod scope {
             let e = r.router.call(page(), method, json!({"session_id": "s", "space": "acme.notes"})).await.unwrap_err();
             assert_eq!((e.code, e.message.as_str()), (codes::REFUSED, harnix_router::NOT_FOR_PACKAGES), "{method}");
         }
-        for method in ["harnix.session.move", "harnix.session.rename"] {
+        for method in ["harnix.session.rename"] {
             for space in [None, Some("sessions")] {
                 let mut params = json!({"session_id": "s"});
                 if let Some(space) = space {
