@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
-use harnix_engine_api::{Cancel, ChainSource, EngineContribution, NoChains, PromptGate, SceneLayers, Tool, ToolProvider, ToolsWatch};
+use harnix_engine_api::{Cancel, ChainSource, EngineContribution, NoChains, PromptGate, SceneLayers, Tool, ToolError, ToolProvider, ToolsWatch};
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio::task::AbortHandle;
@@ -66,6 +66,11 @@ pub(crate) trait Wired: Send + Sync + 'static {
 /// What one link offers its daemon, and its calls in flight.
 pub struct HostSide {
     instance: Arc<str>,
+    /// Whether the link is the host of its daemon's sessions: a call of a tool it does not have
+    /// is answered as not there. One that offers nothing ([`HostSide::none`]: an attached daemon,
+    /// an adopted instance) only looks on, and such a call is another host's to answer (Agix
+    /// §7.4: only a host that implements a tool runs it).
+    hosts: bool,
     chains: Arc<dyn ChainSource>,
     providers: Vec<Arc<dyn ToolProvider>>,
     gates: Vec<Arc<dyn PromptGate>>,
@@ -99,6 +104,16 @@ impl HostSide {
     /// What `contrib`'s providers, gates and scene layers offer the sessions of `instance`, whose
     /// turns' chains `chains` says; refused when its scene layers do not expand.
     pub fn new(instance: &str, chains: Chains, contrib: &EngineContribution) -> Result<Arc<Self>, String> {
+        Self::build(instance, chains, contrib, true)
+    }
+
+    /// Nothing offered: a link that registers nothing, and only looks on at the calls of the
+    /// tools on its daemon.
+    pub fn none() -> Arc<Self> {
+        Self::build("", Chains::default(), &EngineContribution::new(), false).expect("no scene layers expand")
+    }
+
+    fn build(instance: &str, chains: Chains, contrib: &EngineContribution, hosts: bool) -> Result<Arc<Self>, String> {
         let layers = SceneLayers::new(contrib.scenes())?;
         let unattended = layers
             .ids()
@@ -108,6 +123,7 @@ impl HostSide {
             .collect();
         Ok(Arc::new(Self {
             instance: instance.into(),
+            hosts,
             chains: chains.0,
             providers: contrib.providers().to_vec(),
             gates: contrib.prompt_gates().to_vec(),
@@ -122,11 +138,6 @@ impl HostSide {
             unheard: StdMutex::new(contrib.providers().iter().flat_map(|p| p.changes()).map(|c| c.watch()).collect()),
             tasks: StdMutex::default(),
         }))
-    }
-
-    /// Nothing offered: a link that registers nothing.
-    pub fn none() -> Arc<Self> {
-        Self::new("", Chains::default(), &EngineContribution::new()).expect("no scene layers expand")
     }
 
     /// The scene layers its sessions may be created in.
@@ -251,12 +262,19 @@ impl HostSide {
     }
 
     /// Take `frame` when it is this link's: a call of a tool it declared or a hook it
-    /// registered, or one of those taken back. Never waits: the call is answered on a task of its
-    /// own. `false` hands the frame on to the hub.
+    /// registered, or one of those taken back, and on a link that hosts its daemon's sessions,
+    /// any tool's call. Never waits: the call is answered on a task of its own. `false` hands the
+    /// frame on to the hub.
     pub(crate) fn offer(self: &Arc<Self>, frame: HostFrame, wire: &Arc<dyn Wired>) -> bool {
         match frame {
             HostFrame::ToolCall(call) => {
-                let Some(tool) = self.tool(&call.name) else { return false };
+                let Some(tool) = self.tool(&call.name) else {
+                    if !self.hosts {
+                        return false;
+                    }
+                    self.not_here(call, wire);
+                    return true;
+                };
                 let cancel = self.begin(&call.call_id);
                 let call_id = call.call_id.clone();
                 let task = tokio::spawn(crate::host_tools::run(self.clone(), wire.clone(), tool, call, cancel));
@@ -284,6 +302,18 @@ impl HostSide {
                 true
             }
         }
+    }
+
+    /// A call of a tool the link does not have, answered on the spot: one a session was created
+    /// with that this build no longer offers (its scene layer renamed or gone, its extension
+    /// stopped). Left to the engine, the turn would wait for it until it times out.
+    fn not_here(self: &Arc<Self>, call: translate::HostToolCall, wire: &Arc<dyn Wired>) {
+        tracing::warn!(instance = %self.instance, tool = %call.name, session = %call.session, "a call of a tool this host does not offer");
+        let missing = Err(ToolError::NotFound(format!("this host offers no tool `{}`", call.name)));
+        let answer = translate::tool_answer(&call.session, &call.call_id, missing);
+        let (host, wire) = (self.clone(), wire.clone());
+        let task = tokio::spawn(async move { host.answer(&*wire, translate::SESSION_RESPOND_TOOL_CALL, answer).await });
+        self.keep(task.abort_handle());
     }
 
     fn begin(&self, call_id: &str) -> Cancel {

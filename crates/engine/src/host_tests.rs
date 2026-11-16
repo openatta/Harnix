@@ -301,11 +301,31 @@ async fn a_tool_that_fails_or_is_missing_answers_as_the_engine_reads_it() {
     assert_eq!(missing["error"], json!({"message": "nothing there"}));
     assert!(missing.get("result").is_none());
 
-    let mut other = tool_call("c3", json!({}));
-    other["name"] = json!("not_ours");
-    fake.push("s1", other).await;
+    // One the session was made with that is offered no more is answered as not there, not left
+    // to time out; the hub does not see it.
+    let mut gone = tool_call("c3", json!({}));
+    gone["name"] = json!("not_ours");
+    fake.push("s1", gone).await;
+    fake.push("s1", json!({"kind": "text_delta", "text": "after"})).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
+    assert_eq!((&answer["call_id"], &answer["error"]["message"]), (&json!("c3"), &json!("this host offers no tool `not_ours`")));
+    assert!(answer.get("result").is_none());
+    assert!(fragment(&first_event(&mut events).await).is_some(), "the hub saw the call");
+}
+
+/// A link that offers nothing only looks on: a tool's call it does not know is another host's,
+/// and goes to the hub unanswered.
+#[tokio::test]
+async fn a_link_that_offers_nothing_leaves_a_call_to_its_host() {
+    let link = DaemonLink::new(InstanceCarrier::Adopted, "test");
+    let mut events = link.take_events().unwrap();
+    let (connection, mut fake) = pair();
+    let taken = taking(&link, connection);
+    fake.greet(crate::REQUIRED_CAPABILITIES).await;
+    let _taken = taken.await.unwrap().map_err(|r| format!("{r:?}")).unwrap();
+    fake.push("s1", tool_call("c1", json!({}))).await;
     match first_event(&mut events).await {
-        EngineEvent::Session { kind: SessionEventKind::Other, event, .. } => assert_eq!(event["call_id"], "c3"),
+        EngineEvent::Session { kind: SessionEventKind::Other, event, .. } => assert_eq!(event["call_id"], "c1"),
         other => panic!("{other:?}"),
     }
 }
