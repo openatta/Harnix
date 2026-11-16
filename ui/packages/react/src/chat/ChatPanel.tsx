@@ -474,7 +474,7 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
             contextRing={ring}
             options={options}
             attachments={features.attachments !== false}
-            voice={features.voice !== false}
+            voice={features.voice === true}
             model={model}
             modelUnset={props.modelUnset}
             models={props.models}

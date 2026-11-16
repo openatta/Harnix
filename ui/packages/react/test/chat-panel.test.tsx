@@ -75,6 +75,16 @@ describe("抬头与框架", () => {
     view.unmount();
   });
 
+  it("语音键：后端没有，缺省不画；features.voice 打开才画（不可用的键）", async () => {
+    mount();
+    await settle();
+    expect(screen.queryByTestId("conv-voice")).toBeNull();
+    cleanup();
+    mount({ features: { voice: true } });
+    await settle();
+    expect((screen.getByTestId("conv-voice") as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("空状态按上下文给；只读时输入框换成说明", async () => {
     mount({ emptyState: <p data-testid="custom-empty">这一条的对话会长期保留</p>, readOnly: "这个工位已归档" });
     await settle();
