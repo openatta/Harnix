@@ -22,7 +22,8 @@ pub(crate) async fn run(host: Arc<HostSide>, wire: Arc<dyn Wired>, call: HostHoo
         // Not registered for: let through.
         HookEvent::Other(_) => HookVerdict::Proceed { context: None },
     };
-    host.answer(&*wire, translate::SESSION_RESPOND_HOOK, translate::hook_answer(&call.session, &call.call_id, verdict)).await;
+    // One that does not go fails as the hook says it fails (`on_error`) when the engine times it out.
+    let _ = host.answer(&*wire, translate::SESSION_RESPOND_HOOK, translate::hook_answer(&call.session, &call.call_id, verdict)).await;
     host.done(&call.call_id);
 }
 

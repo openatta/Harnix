@@ -621,6 +621,39 @@ async fn a_host_tools_ask_is_answered_by_the_tool() {
     assert_eq!(answer["decision"], json!({"type": "deny", "reason": "not that"}));
 }
 
+/// An ask whose answer the engine does not take goes to the person, and its resolution to the
+/// hub; one resolved before the answer was turned away is over, and goes nowhere.
+#[tokio::test]
+async fn an_ask_whose_answer_does_not_go_is_handed_to_the_person() {
+    let (_link, mut fake, _taken, mut events) = ready(&provider(vec![])).await;
+    fake.push("s1", tool_use("u1", json!({}))).await;
+    fake.push("s1", permission_ask("p1", "u1")).await;
+    // The first try and every one after it, turned away for too many in flight.
+    for _ in 0..4 {
+        let (id, _) = fake.expect(translate::SESSION_RESPOND).await;
+        fake.fail(id, crate::embed::TOO_MANY_IN_FLIGHT, "too many requests in flight").await;
+    }
+    match next_but_calls(&mut events).await {
+        EngineEvent::Session { kind: SessionEventKind::Asked(prompt), .. } => assert_eq!(prompt.prompt_id.as_deref(), Some("p1")),
+        other => panic!("{other:?}"),
+    }
+    fake.push("s1", json!({"kind": "prompt_resolved", "prompt_id": "p1", "resolution": "withdrawn", "reason": "timed_out"})).await;
+    match next_but_calls(&mut events).await {
+        EngineEvent::Session { event, .. } => assert_eq!((&event["kind"], &event["prompt_id"]), (&json!("prompt_resolved"), &json!("p1"))),
+        other => panic!("{other:?}"),
+    }
+
+    fake.push("s1", tool_use("u2", json!({}))).await;
+    fake.push("s1", permission_ask("p2", "u2")).await;
+    let (id, _) = fake.expect(translate::SESSION_RESPOND).await;
+    fake.push("s1", json!({"kind": "prompt_resolved", "prompt_id": "p2", "resolution": "withdrawn", "reason": "timed_out"})).await;
+    fake.fail(id, -32602, "no prompt p2 is waiting").await;
+    fake.push("s1", json!({"kind": "text_delta", "text": "after"})).await;
+    assert_eq!(fragment(&next_but_calls(&mut events).await).as_deref(), Some("after"), "the hub saw p2");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(events.try_recv().is_err(), "the hub saw p2");
+}
+
 /// A tool that asks has its ask handed to the person, with its own question beside the engine's.
 #[tokio::test]
 async fn a_host_tool_that_asks_is_asked_with_its_own_question() {

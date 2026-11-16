@@ -339,7 +339,10 @@ impl HostSide {
         let missing = Err(ToolError::NotFound(format!("this host offers no tool `{}`", call.name)));
         let answer = translate::tool_answer(&call.session, &call.call_id, missing);
         let (host, wire) = (self.clone(), wire.clone());
-        let task = tokio::spawn(async move { host.answer(&*wire, translate::SESSION_RESPOND_TOOL_CALL, answer).await });
+        // One that does not go is the engine's to end, as it would have been.
+        let task = tokio::spawn(async move {
+            let _ = host.answer(&*wire, translate::SESSION_RESPOND_TOOL_CALL, answer).await;
+        });
         self.keep(task.abort_handle());
     }
 
@@ -376,23 +379,24 @@ impl HostSide {
     }
 
     /// Send an answer, again when the connection had too many requests in flight to take it.
-    /// One that still does not go is left to the engine, which ends the call when it times out.
-    pub(crate) async fn answer(&self, wire: &dyn Wired, method: &str, params: Value) {
+    /// One that still does not go is logged, and what it failed with said: left alone, the
+    /// engine ends the call when it times out.
+    pub(crate) async fn answer(&self, wire: &dyn Wired, method: &str, params: Value) -> Result<(), RpcError> {
         let mut retries = RETRIES.iter();
         loop {
             match wire.send(method, params.clone()).await {
                 Err(e) if e.code == crate::embed::TOO_MANY_IN_FLIGHT => match retries.next() {
                     Some(wait) => tokio::time::sleep(*wait).await,
                     None => {
-                        tracing::error!(instance = %self.instance, method, "an answer the engine had no room for; it ends the call when it times out");
-                        return;
+                        tracing::error!(instance = %self.instance, method, "an answer the engine had no room for");
+                        return Err(e);
                     }
                 },
                 Err(e) => {
                     tracing::warn!(instance = %self.instance, method, error = %e.message, "an answer the engine did not take");
-                    return;
+                    return Err(e);
                 }
-                Ok(_) => return,
+                Ok(_) => return Ok(()),
             }
         }
     }

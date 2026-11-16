@@ -25,7 +25,7 @@ pub(crate) async fn run(host: Arc<HostSide>, wire: Arc<dyn Wired>, tool: Arc<dyn
     };
     if let Some(why) = refused {
         let out = Ok(ToolOutput::error(format!("refused: {why}")));
-        host.answer(&*wire, translate::SESSION_RESPOND_TOOL_CALL, translate::tool_answer(&call.session, &call.call_id, out)).await;
+        let _ = host.answer(&*wire, translate::SESSION_RESPOND_TOOL_CALL, translate::tool_answer(&call.session, &call.call_id, out)).await;
         host.done(&call.call_id);
         return;
     }
@@ -46,8 +46,9 @@ pub(crate) async fn run(host: Arc<HostSide>, wire: Arc<dyn Wired>, tool: Arc<dyn
             tracing::debug!(tool = %call.name, "a tool's structured content has nowhere to go in the engine's answer; left out");
         }
     }
-    // Answered even once taken back: the engine takes it and does nothing with it.
-    host.answer(&*wire, translate::SESSION_RESPOND_TOOL_CALL, translate::tool_answer(&call.session, &call.call_id, out)).await;
+    // Answered even once taken back: the engine takes it and does nothing with it. One that does
+    // not go is the engine's to end when it times out.
+    let _ = host.answer(&*wire, translate::SESSION_RESPOND_TOOL_CALL, translate::tool_answer(&call.session, &call.call_id, out)).await;
     host.done(&call.call_id);
 }
 

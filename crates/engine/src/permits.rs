@@ -7,12 +7,14 @@
 //! call's `tool_use` on the same stream — a delegate's mirrored in its progress — which may come
 //! after the ask: an ask waits for it up to [`HOLD`], and goes on as it is if it does not come.
 //!
-//! An ask already waiting when the link subscribed has lost its input, and goes to the person.
+//! An ask already waiting when the link subscribed has lost its input, and goes to the person; so
+//! does one whose answer the engine did not take.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
+use harnix_contract::codes;
 use harnix_contract::sync::lock;
 use harnix_engine_api::{EngineEvent, Permission, Tool};
 use serde_json::Value;
@@ -46,6 +48,7 @@ impl Permits {
         lock(&self.calls).iter().find(|(k, _, _)| k == key).map(|(_, t, i)| (t.clone(), i.clone()))
     }
 
+    /// Whether `prompt` was answered here and is not resolved yet: forgotten either way.
     fn was_answered(&self, prompt: &str) -> bool {
         let mut answered = lock(&self.answered);
         match answered.iter().position(|p| p == prompt) {
@@ -93,7 +96,7 @@ impl HostSide {
                 let mut out = vec![frame];
                 let held = lock(&permits.held).remove(&key);
                 if let Some(ask) = held {
-                    if let Judged::Asked(ask) = self.judge(&tool, &input, ask, &key.0, wire) {
+                    if let Judged::Asked(ask) = self.judge(&tool, &input, ask, &key.0, wire, events) {
                         out.push(ask);
                     }
                 }
@@ -110,7 +113,7 @@ impl HostSide {
                 }
                 let key = (session, tool_use_id);
                 match permits.call(&key) {
-                    Some((tool, input)) => match self.judge(&tool, &input, frame, &key.0, wire) {
+                    Some((tool, input)) => match self.judge(&tool, &input, frame, &key.0, wire, events) {
                         Judged::Answered => Vec::new(),
                         Judged::Asked(ask) => vec![ask],
                     },
@@ -131,8 +134,18 @@ impl HostSide {
         }
     }
 
-    /// Answer `ask` as the tool says of `input`, or hand it on with the tool's question.
-    fn judge(self: &Arc<Self>, tool: &Arc<dyn Tool>, input: &Value, mut ask: Value, session: &str, wire: &Arc<dyn Wired>) -> Judged {
+    /// Answer `ask` as the tool says of `input`, or hand it on with the tool's question. An
+    /// answer the engine does not take hands the ask on to `events` as it is, unless it was
+    /// resolved meanwhile or went with the connection.
+    fn judge(
+        self: &Arc<Self>,
+        tool: &Arc<dyn Tool>,
+        input: &Value,
+        mut ask: Value,
+        session: &str,
+        wire: &Arc<dyn Wired>,
+        events: &mpsc::Sender<EngineEvent>,
+    ) -> Judged {
         let decision = match tool.permission(input) {
             Permission::Allow => Ok(()),
             Permission::Deny(why) => Err(why),
@@ -150,9 +163,22 @@ impl HostSide {
             }
             answered.push_back(prompt.clone());
         }
-        let (host, wire, session) = (self.clone(), wire.clone(), session.to_string());
+        let (host, wire, session, events) = (self.clone(), wire.clone(), session.to_string(), events.clone());
         let task = tokio::spawn(async move {
-            host.answer(&*wire, translate::SESSION_RESPOND, translate::permit_answer(&session, &prompt, decision)).await;
+            let answer = translate::permit_answer(&session, &prompt, decision);
+            let Err(e) = host.answer(&*wire, translate::SESSION_RESPOND, answer).await else { return };
+            // Lost with the connection: the hub has it from the engine when it subscribes again.
+            if e.code == codes::INSTANCE_UNAVAILABLE {
+                return;
+            }
+            // Resolved first (it timed out, say): nothing waits for an answer.
+            if !host.permits.was_answered(&prompt) {
+                return;
+            }
+            tracing::error!(instance = %host.instance(), prompt = %prompt, error = %e.message, "the engine did not take the answer the tool gave; the person is asked");
+            if let Some(event) = translate::event(ask) {
+                let _ = events.send(event).await;
+            }
         });
         self.keep(task.abort_handle());
         Judged::Answered
