@@ -423,6 +423,55 @@ async fn a_reconnection_registers_again_before_the_hub_hears_of_it() {
     assert!(matches!(first_event(&mut events).await, EngineEvent::Reconnected));
 }
 
+/// The hub hears of a reconnection once the link takes calls again: what it does on hearing it
+/// (asking the engine of each session it had) is not refused as the instance being unavailable.
+/// The hub reads its events on a thread of its own, and checks the moment it hears.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_hub_hears_of_a_reconnection_once_the_link_takes_calls() {
+    const ROUNDS: usize = 300;
+    let link = DaemonLink::new(InstanceCarrier::InProcess, "test");
+    let mut events = link.take_events().unwrap();
+    let (connection, mut fake) = pair();
+    let taking_first = taking(&link, connection);
+    fake.greet(crate::REQUIRED_CAPABILITIES).await;
+    let mut taken = taking_first.await.unwrap().map_err(|r| format!("{r:?}")).unwrap();
+    // Whether the link took calls when the hub heard, once for each reconnection.
+    let (said, mut heard) = tokio::sync::mpsc::unbounded_channel();
+    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let hub = {
+        let (link, done) = (link.clone(), done.clone());
+        std::thread::spawn(move || {
+            while !done.load(std::sync::atomic::Ordering::Relaxed) {
+                match events.try_recv() {
+                    Ok(EngineEvent::Reconnected) => {
+                        let _ = said.send(link.status().borrow().is_ready());
+                    }
+                    Ok(_) => {}
+                    Err(_) => std::hint::spin_loop(),
+                }
+            }
+        })
+    };
+    let mut refused = 0;
+    for _ in 0..ROUNDS {
+        drop(fake);
+        taken.lost().await;
+        link.disconnect().await;
+        link.degrade("the connection closed".into());
+        let (connection, next) = pair();
+        fake = next;
+        let again = taking(&link, connection);
+        fake.greet(crate::REQUIRED_CAPABILITIES).await;
+        taken = again.await.unwrap().map_err(|r| format!("{r:?}")).unwrap();
+        // Heard before the next round loses the connection again.
+        let ready = tokio::time::timeout(WAIT, heard.recv()).await.expect("heard in time").unwrap();
+        refused += usize::from(!ready);
+    }
+    done.store(true, std::sync::atomic::Ordering::Relaxed);
+    hub.join().unwrap();
+    assert_eq!(refused, 0, "of {ROUNDS} reconnections, the hub heard of {refused} before the link took calls");
+}
+
 #[tokio::test]
 async fn a_change_declares_the_tools_again() {
     let provider = provider(vec![]);
