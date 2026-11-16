@@ -18,7 +18,7 @@
 
 import { Contributed, t, type ActionTarget, type HostApi, type HostSessionRef as SessionKey, type Registry, type SpaceTab } from "@harnix/react";
 
-import { CONSOLE_TAB, INSPECTOR_TAB, SYSTEM } from "./constants.ts";
+import { CONSOLE_TAB, INSPECTOR_TAB, METRICS_LINK, SYSTEM } from "./constants.ts";
 import { Console, ConsoleAbout, Drawn } from "./console.tsx";
 import { ExtensionLogTab } from "./extlog.tsx";
 import { InstanceList } from "./instances.tsx";
@@ -36,7 +36,7 @@ import "./system.css";
 
 export type { ConsoleTab, InspectorTab, InspectorTarget } from "./types.ts";
 export type { Selection } from "./view.ts";
-export { SYSTEM, CONSOLE_TAB, INSPECTOR_TAB };
+export { SYSTEM, CONSOLE_TAB, INSPECTOR_TAB, METRICS_LINK };
 
 /** The tools that start a task whose output can be followed. */
 const OUTPUT_TOOLS = new Set(["Bash", "Monitor"]);
@@ -63,6 +63,8 @@ async function openInSystem(view: View, target: { session: SessionKey; space: st
 export function register(r: Registry, host: HostApi): void {
   r.definePoint(CONSOLE_TAB, { kind: "register" });
   r.definePoint(INSPECTOR_TAB, { kind: "render" });
+  // Where a count leads: the list it counts, kept by whoever has one (the Harnix app's 待我处理).
+  r.definePoint(METRICS_LINK, { kind: "register" });
   const view = new View(host, r);
   r.register(
     "space",

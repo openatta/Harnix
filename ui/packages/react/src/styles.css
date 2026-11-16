@@ -290,6 +290,19 @@
 .hx-cc-sys.hx-tone-error { color: var(--hx-danger); }
 .hx-cc-work { display: flex; align-items: center; gap: 8px; color: var(--hx-fg-soft); font-size: 13px; }
 
+/* 上下文报告（ContextReport）：系统块、工具、消息各占多长的一条，图例，事实表。系统 space 与右栏的上下文页共用。 */
+.hx-ctx-stack { display: flex; height: 14px; margin: 8px 0 4px; overflow: hidden; border-radius: 6px; background: var(--hx-line); }
+.hx-ctx-stack i { display: block; height: 100%; }
+.hx-ctx-stack .sys, .hx-ctx-legend .sys::before { background: var(--state-info); }
+.hx-ctx-stack .tools, .hx-ctx-legend .tools::before { background: var(--state-warn); }
+.hx-ctx-stack .msgs, .hx-ctx-legend .msgs::before { background: var(--state-success); }
+.hx-ctx-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 10px; font-size: 12px; color: var(--hx-fg-soft); }
+.hx-ctx-legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 5px; border-radius: 2px; vertical-align: -1px; }
+.hx-facts { margin: 0; display: grid; gap: 4px; }
+.hx-fact { display: grid; grid-template-columns: 120px 1fr; gap: 8px; font-size: 12.5px; }
+.hx-fact dt { color: var(--hx-fg-faint); }
+.hx-fact dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--hx-mono); }
+
 /* 工具行展开后的输入与结果、注入的上下文、权限卡、子 agent、图片 */
 .hx-label { font-size: 11px; color: var(--hx-fg-faint); letter-spacing: 0.04em; }
 .hx-pre { margin: 2px 0 0; font-family: var(--hx-mono); font-size: 12px; background: var(--hx-bg-sunk); border-radius: 6px; padding: 6px 8px; max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }

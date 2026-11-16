@@ -9,6 +9,7 @@ use serde_json::json;
 
 const RULED: &str = r#"
 name: ruled
+guard: strict
 inputs: {table: {schema: {type: string}, default: orders}}
 rules: [no-secrets]
 policies: [tables]
@@ -96,6 +97,24 @@ async fn a_task_is_handed_its_rules_and_its_permissions_resolved() {
             "emit",
         );
         assert_eq!(v.effect, want, "{tool} {input}: {}", v.reason);
+    }
+    // The same permissions under `auto`: a guarded tool works inside the project, nothing outside
+    // it is asked of anyone.
+    for ((tool, input), want) in [
+        (call("Write", json!({"file_path": "/data/ws/ruled-1/src/a.rs"})), Effect::Allow),
+        (call("Write", json!({"file_path": "/etc/passwd"})), Effect::Deny),
+        (call("Bash", json!({"command": "ls"})), Effect::Deny),
+        (call("mcp__desk__emit_row", json!({"table": "orders"})), Effect::Ask),
+        (call("Read", json!({"file_path": "/etc/passwd"})), Effect::Deny),
+    ] {
+        let v = judge_under(
+            Guard::Auto,
+            &permissions,
+            h.eng.guarded(),
+            &Call { tool, input: Some(&input), paths: &[], workspace: Some("/data/ws/ruled-1"), root: Some("/data/ws/ruled-1") },
+            "emit",
+        );
+        assert_eq!(v.effect, want, "auto: {tool} {input}: {}", v.reason);
     }
 
     // A pack changed after the run started does not change it.

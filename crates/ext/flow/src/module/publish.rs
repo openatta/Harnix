@@ -14,7 +14,8 @@ use crate::wire::DefRow;
 /// How many runs the `runs` topic carries, newest first.
 pub const RUNS_LISTED: usize = 200;
 
-/// The newest snapshot of each run, and the list; bindings of claims that are over dropped.
+/// The newest snapshot of each run, and the list; bindings of claims that are over dropped; each
+/// run's process directory written (`project.rs`).
 pub(crate) async fn publish(sh: &Arc<Shared>, runs: &BTreeSet<String>) {
     publish_runs(sh, runs, true).await;
 }
@@ -29,6 +30,10 @@ pub(crate) async fn publish_runs(sh: &Arc<Shared>, runs: &BTreeSet<String>, list
     for run in runs {
         if let Ok(rec) = engine.record(run).await {
             sh.prune_bindings(run, |b| binding_current(&rec, b));
+            // Its process directory follows each change; bookkeeping changes nothing shown there.
+            if list {
+                super::project::project_run(engine, &rec);
+            }
             if let Err(e) = events.publish("run", json!({"run": run}), view(rec)).await {
                 tracing::warn!(run, error = %e, "run not published");
             }
@@ -81,9 +86,10 @@ pub(crate) async fn publish_all(sh: &Arc<Shared>) {
     publish(sh, &listed).await;
 }
 
-/// The flows on offer, as `flow.defs` and the `defs` topic carry them.
+/// The flows on offer, as `flow.defs` and the `defs` topic carry them; and, for a project, the
+/// project's own that are withheld (not valid, with the reason), in name order with the rest.
 pub(crate) fn defs_list(packs: &dyn crate::kernel::host::Packs) -> Vec<DefRow> {
-    packs
+    let mut rows: Vec<DefRow> = packs
         .flows()
         .into_iter()
         .filter_map(|n| {
@@ -97,9 +103,26 @@ pub(crate) fn defs_list(packs: &dyn crate::kernel::host::Packs) -> Vec<DefRow> {
                 description: def.description,
                 digest,
                 valid,
+                reason: None,
             })
         })
-        .collect()
+        .collect();
+    let withheld = packs.withheld_flows();
+    if withheld.is_empty() {
+        return rows;
+    }
+    rows.extend(withheld.into_iter().map(|(name, why)| DefRow {
+        origin: packs.origin(&name),
+        title: String::new(),
+        description: String::new(),
+        digest: String::new(),
+        valid: false,
+        reason: Some(why),
+        inputs: json!({"type": "object"}),
+        name,
+    }));
+    rows.sort_by(|a, b| a.name.cmp(&b.name));
+    rows
 }
 
 /// The `defs` topic, after the packs changed.

@@ -158,7 +158,7 @@ fn run_named() -> Value {
 pub(crate) const TOOLS: &[ToolSpec] = &[
     ToolSpec {
         name: TOOL_LIST,
-        description: "The flows on offer: name, title, origin (builtin, override, user) and whether each is valid; and which one is current.",
+        description: "The flows on offer: name, title, origin (builtin, override, user, project) and whether each is valid; which one is current; and the project the conversation works in, if any.",
         schema: no_input,
         read_only: true,
         does: Does::List,
@@ -186,8 +186,8 @@ pub(crate) const TOOLS: &[ToolSpec] = &[
     },
     ToolSpec {
         name: TOOL_CREATE,
-        description: "Create a new flow from its YAML (and, optionally, parts it uses: [{kind: skill|rule|policy|gate, name, text}]). Everything is validated first and nothing is saved if anything has problems. It becomes the current flow.",
-        schema: || json!({"type": "object", "required": ["yaml"], "properties": {"yaml": {"type": "string"}, "parts": parts_given()}}),
+        description: "Create a new flow from its YAML (and, optionally, parts it uses: [{kind: skill|rule|policy|gate, name, text}]). Everything is validated first and nothing is saved if anything has problems. It becomes the current flow. With `project_root`, it is saved in that project (its `.harnix/flows/`, committed with it; the project must be trusted) and the conversation works in that project from then on.",
+        schema: || json!({"type": "object", "required": ["yaml"], "properties": {"yaml": {"type": "string"}, "parts": parts_given(), "project_root": {"type": "string", "description": "the project to save it in, when the user asks for that: its absolute directory"}}}),
         read_only: false,
         does: Does::Save { creating: true },
     },
@@ -332,8 +332,14 @@ that names them is told to keep — never enforced), **policies** (`policies/<na
 permissions), **gates** (`gates/<name>.yaml`: a check a `gate` exit names — `tool`, `command` or \
 `host`) and **hooks** (`hooks/<name>.yaml`: tell a URL about runs' events — no flow names them). \
 Flows and stations name `rules` and `policies` and may write `permissions` of their own: each tool \
-call of a task is judged against them, deny over ask over allow; `ask` waits for a person; a \
-guarded tool nothing allows is refused.\n\n\
+call of a task is judged against them, deny over ask over allow; `ask` waits for a person. Where \
+none speaks, the flow's `guard` decides: `auto` (the default) lets a task work freely inside its \
+project and refuses any path outside it (an `allow` whose `paths` name the place lets it through); \
+`strict` refuses a guarded tool nothing allows and asks a person about a path outside. A task asks \
+no questions: where a person must look, write a `confirm` station. A run's deliverables go to its \
+`output_dir` (a template relative to the project — `${flow}`, `${date}`, `${seq}`, `${title}`, \
+`${inputs.<k>}`; default `flows/${flow}-${date}${seq}`), made when it starts; skills, permissions \
+and gates name it `${output_dir}`.\n\n\
 How to work:\n\
 - Read `flow_schema` before writing: the fields, the parts' shapes, and the names this application \
   offers (scenes, program steps, checks, tools, templates, and the parts on offer). Use only those.\n\
@@ -352,6 +358,9 @@ How to work:\n\
   session of its own.\n\
 - Saving, deleting and starting take effect at once, without asking the user: validate first, \
   and do only what the user asked for.\n\
+- A flow for one project is saved in it (`flow_create` with `project_root`): it is committed \
+  with the project and offered only there. A conversation in a project saves everything there \
+  and starts its runs as tasks of that project.\n\
 - The runs of the current flow: `flow_runs`, `flow_run`. When the user asks, you may pause, resume, \
   cancel, confirm (pass or reject), force, rework, retry or release with the run tools. Never do \
   one the user did not ask for.";
@@ -614,7 +623,32 @@ impl Tool for AuthorTool {
         let instance = if me.instance.is_empty() { sh.cfg.instance.clone() } else { me.instance };
         let session = me.session_id;
         let by = Actor::agent(format!("{instance}/{session}"));
-        let packs = engine.packs().clone();
+        // A conversation in a project reads and saves the project's packs
+        // (`<project>/.harnix/flows/`); `flow_create` with a project moves it into that one.
+        let asked = match (self.spec.does, str_of(&input, "project_root")) {
+            (Does::Save { creating: true }, Some(root)) => match super::project_packs::project_root(root) {
+                Ok(root) => Some(root),
+                Err(m) => return error(m),
+            },
+            _ => None,
+        };
+        let project = asked.clone().or_else(|| sh.conversation_project(&instance, &session));
+        let packs = match &project {
+            Some(root) => {
+                if !super::project_packs::hear(sh, root).await
+                    && matches!(self.spec.does, Does::Save { .. } | Does::Delete | Does::PartSet | Does::PartDelete)
+                {
+                    return error(format!(
+                        "the project {root} is not trusted: nothing is saved in it until the user trusts it (in the projects space)"
+                    ));
+                }
+                engine.packs_for(Some(root))
+            }
+            None => engine.packs().clone(),
+        };
+        if asked.is_some() {
+            sh.set_conversation_project(&instance, &session, asked);
+        }
         let focus = sh
             .focus(&instance, &session)
             .filter(|f| packs.flow(f).is_some());
@@ -631,6 +665,7 @@ impl Tool for AuthorTool {
                 })).collect::<Vec<_>>(),
                 "current": focus,
                 "writable": packs.writable(),
+                "project": project,
             })),
             Does::Schema => text(json!({
                 "definition": definition_schema(),
@@ -730,7 +765,7 @@ impl Tool for AuthorTool {
                 let mut saved_parts: Vec<(PartKind, String)> = vec![];
                 let mut failed = None;
                 for ((k, n), t) in &parts {
-                    match engine.save_part(*k, n, t, by.clone()).await {
+                    match engine.save_part_in(packs.as_ref(), *k, n, t, by.clone()).await {
                         Ok(_) => saved_parts.push((*k, n.clone())),
                         Err(e) => {
                             failed = Some(format!("{k} {n} not saved: {e}"));
@@ -743,7 +778,7 @@ impl Tool for AuthorTool {
                     "parts": saved_parts.iter().map(|(k, n)| json!({"kind": k, "name": n})).collect::<Vec<_>>(),
                 });
                 if let (None, Some(y)) = (&failed, yaml) {
-                    match engine.save_flow(y, by.clone()).await {
+                    match engine.save_flow_in(packs.as_ref(), y, by.clone()).await {
                         Ok(v) => out["flow"] = v,
                         Err(e) => failed = Some(format!("not saved: {e}")),
                     }
@@ -784,7 +819,7 @@ impl Tool for AuthorTool {
                     Ok(n) => n,
                     Err(m) => return error(m),
                 };
-                match engine.delete_flow(&name, by).await {
+                match engine.delete_flow_in(packs.as_ref(), &name, by).await {
                     Ok(v) => {
                         publish::publish_defs(sh).await;
                         if packs.flow(&name).is_none() {
@@ -807,7 +842,7 @@ impl Tool for AuthorTool {
                 else {
                     return error("give the part's `kind` (skill, rule, policy, gate, hook), `name` and `text`");
                 };
-                match engine.save_part(kind, name, body, by).await {
+                match engine.save_part_in(packs.as_ref(), kind, name, body, by).await {
                     Ok(v) => {
                         publish::publish_defs(sh).await;
                         text(v)
@@ -820,7 +855,7 @@ impl Tool for AuthorTool {
                 let (Some(kind), Some(name)) = (kind, str_of(&input, "name")) else {
                     return error("give the part's `kind` and `name`");
                 };
-                match engine.delete_part(kind, name, by).await {
+                match engine.delete_part_in(packs.as_ref(), kind, name, by).await {
                     Ok(v) => {
                         publish::publish_defs(sh).await;
                         text(v)
@@ -881,19 +916,16 @@ impl Tool for AuthorTool {
                 let Some(subject) = str_of(&input, "subject") else {
                     return error("give the run's `subject`");
                 };
-                let r = engine
-                    .create(
-                        CreateIn {
-                            flow: name,
-                            subject: subject.to_string(),
-                            inputs: input.get("inputs").cloned().unwrap_or(Value::Null),
-                            title: str_of(&input, "title").map(String::from),
-                            parent: None,
-                            ..Default::default()
-                        },
-                        by,
-                    )
-                    .await;
+                let start = CreateIn {
+                    flow: name,
+                    subject: subject.to_string(),
+                    inputs: input.get("inputs").cloned().unwrap_or(Value::Null),
+                    title: str_of(&input, "title").map(String::from),
+                    parent: None,
+                    project_root: project.clone(),
+                    ..Default::default()
+                };
+                let r = super::project::start(sh, &engine, start, by).await;
                 match r {
                     Ok(o) => {
                         let value = o.value.clone();
@@ -914,6 +946,7 @@ impl Tool for AuthorTool {
                 match engine
                     .list(crate::RunQuery {
                         flow: Some(name),
+                        project: project.clone(),
                         limit: Some(50),
                         ..Default::default()
                     })
@@ -1160,5 +1193,75 @@ mod tests {
         assert_eq!(p[&(PartKind::Rule, "a".to_string())], "A.");
         assert!(parts_of(&json!({"parts": [{"kind": "nope", "name": "a", "text": "A."}]})).is_err());
         assert!(parts_of(&json!({"parts": {"a": "A."}})).is_err());
+    }
+
+    /// A module with an engine over `MemPacks` and its project packs, before start (no context:
+    /// a project's trust is what the test sets).
+    fn started() -> Arc<Shared> {
+        let sh = Arc::new(Shared::for_tests());
+        let packs = super::super::CatalogPacks {
+            inner: std::sync::OnceLock::new(),
+            scenes: vec!["flow-harnix".into()],
+            templates: vec![],
+            guarded: vec![],
+            main_scene: None,
+            command_gates: false,
+            projects: Some(sh.projects.clone()),
+        };
+        let _ = packs.inner.set(Arc::new(crate::MemPacks::new().skill("look", "Look.").writable()));
+        let engine = crate::Engine::new(Arc::new(crate::MemStore::new()), Arc::new(packs));
+        let _ = sh.engine.set(Arc::new(engine));
+        sh
+    }
+
+    async fn call(sh: &Arc<Shared>, tool: &str, session: &str, input: Value) -> ToolOutput {
+        let row = TOOLS.iter().find(|t| t.name == tool).unwrap();
+        let cx = ToolCx::new(session, "t1").with_instance("main");
+        AuthorTool::new(row, sh.clone()).call(cx, input).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_flow_created_for_a_project_is_saved_in_it_and_the_conversation_stays_there() {
+        let sh = started();
+        let root = tempfile::tempdir().unwrap();
+        let at = root.path().to_str().unwrap().to_string();
+        let yaml = "name: fresh\nstations: [{id: a, executor: {kind: session, scene: flow-harnix}, skill: house, output: {type: object}, exit: [{kind: output}]}]";
+        let parts = json!([{"kind": "skill", "name": "house", "text": "The house way."}]);
+
+        // Not trusted: nothing is written in it.
+        let out = call(&sh, TOOL_CREATE, "s1", json!({"yaml": yaml, "parts": parts, "project_root": at})).await;
+        assert!(out.is_error() && out.content().contains("not trusted"), "{}", out.content());
+        assert!(!crate::project_pack_dir(root.path()).exists());
+        assert!(sh.conversation_project("main", "s1").is_none(), "refused: the conversation is not moved");
+
+        sh.projects.set(&at, true);
+        let out = call(&sh, TOOL_CREATE, "s1", json!({"yaml": yaml, "parts": parts, "project_root": at})).await;
+        assert!(!out.is_error() && out.content().contains("\"saved\": true"), "{}", out.content());
+        let dir = crate::project_pack_dir(root.path());
+        assert!(dir.join("fresh.yaml").is_file() && dir.join("skills/house/SKILL.md").is_file());
+        let engine = sh.engine().unwrap();
+        assert!(engine.packs().flow("fresh").is_none() && engine.packs().skill("house").is_none(), "only the project has them");
+        assert_eq!(sh.conversation_project("main", "s1").as_deref(), Some(at.as_str()));
+
+        // The conversation lists and changes the project's, and saves there.
+        let list: Value = serde_json::from_str(call(&sh, TOOL_LIST, "s1", json!({})).await.content()).unwrap();
+        assert_eq!(list["project"], at);
+        assert!(list["flows"].as_array().unwrap().iter().any(|f| f["name"] == "fresh" && f["origin"] == "project"));
+        let out = call(&sh, TOOL_PART_SET, "s1", json!({"kind": "rule", "name": "tone", "text": "# Tone"})).await;
+        assert!(!out.is_error(), "{}", out.content());
+        assert!(dir.join("rules/tone.md").is_file());
+        // Validation as ever; a name that would leave the directory is not a name.
+        let out = call(&sh, TOOL_PART_SET, "s1", json!({"kind": "rule", "name": "../../x", "text": "# X"})).await;
+        assert!(out.is_error(), "{}", out.content());
+        assert!(!root.path().join("x.md").exists() && !root.path().join(".harnix/x.md").exists());
+        let bad = "name: worse\nstations: [{id: a, executor: {kind: session, scene: flow-harnix}, skill: nowhere, output: {type: object}, exit: [{kind: output}]}]";
+        let out = call(&sh, TOOL_CREATE, "s1", json!({"yaml": bad})).await;
+        assert!(out.content().contains("\"saved\": false"), "{}", out.content());
+        assert!(!dir.join("worse.yaml").exists());
+
+        // Another conversation is not in the project.
+        let list: Value = serde_json::from_str(call(&sh, TOOL_LIST, "s2", json!({})).await.content()).unwrap();
+        assert!(list["project"].is_null());
+        assert!(!list["flows"].as_array().unwrap().iter().any(|f| f["name"] == "fresh"));
     }
 }

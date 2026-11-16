@@ -17,6 +17,7 @@
 | **骨架** | — | 传输、路由与准入、中枢、装配四件事。写死，不可插拔 |
 | **应用** | `App::builder()` | 在 Harnix 上做出来的产品，例如 Helm、IPDrun。一个应用 = 一个二进制 + 一份界面产物 |
 | **Harnix app** | 扩展 `harnix-app`、UI 包 `@harnix/harnix-app` | Harnix 自带的一个第一方扩展：会话 space、项目 space，新建会话、按时间看、按项目管理。不叫「最小应用」。见 [Harnix app](harnix-app.md) |
+| **定时** | 扩展 `schedule`（`harnix-ext-schedule`），`Schedule`、`Receipt` | 到点由 Harnix 投递的一件事：往已有会话发一轮、在项目里新建会话发一轮、或起一个项目任务；时间按它的 IANA 时区算。每个到点留一条**投递回执**（已投递、跳过、失败），只说明交出去了。Harnix 没在跑时不投递，起来后按「错过」策略补最近一次或跳过。模型用引擎的 `CronCreate` 建的是「**模型建的定时**」：存在引擎里、按会话、按 UTC，这里只能看和删。不叫「定时任务」：「任务」另有所指。见 [Harnix app](harnix-app.md) §9 |
 | **二开** | — | 在 Harnix 上做应用，不 fork Harnix |
 | **profile** | `profiles/*.toml` | 一份声明式配置：引擎、实例、拓扑、品牌、各扩展的配置节。每一节有一个所有者，没有所有者的节、不认识的键都拒绝启动 |
 | **状态目录** / **账本** | `~/.<product_id>/` | 程序自己的持久状态：令牌、设备、会话与 space 的绑定、实例账本、各扩展的数据与扩展包。不是会话内容。缺省 `~/.harnix/`，`HARNIX_STATE_DIR` 能挪 |
@@ -131,8 +132,8 @@
 | **space 的缺省实例** | `SpaceDecl::instance(..)` | space 里新建会话缺省落在哪台实例：`main`、一台固定实例、或 `template:<id>` |
 | **系统 space** | 扩展 `system`、`@harnix/system` | 第一方扩展：开发调测用的面，按实例 → 会话 → 任务看一切、能操作，可以观看与操作任何 space 的会话。见 [系统 space](system-space.md) |
 | **固定部分** | — | 外壳里不随 space 变的东西：顶部的标识、新建对话、搜索，底部的头像（设置入口，外圈表示连接）。其余都是 space 的 |
-| **贡献点** | contribution point | 前端的接缝。**内核点** 11 个：`space`、`home.card`、`tool.row`、`flow.block`、`details.panel`、`sidebar.group`、`command`、`settings.section`、`session.action`、`sidebar.tab`、`shortcut`。外加扩展定义的点 |
-| **扩展定义的贡献点** | `r.definePoint("<id>.<名>", ..)` | 一个原生扩展的界面定义、别的扩展往里注册的点，例如 `system.console.tab`。不算进 11 个 |
+| **贡献点** | contribution point | 前端的接缝。**内核点** 12 个：`space`、`home.card`、`tool.row`、`flow.block`、`details.panel`、`sidebar.group`、`command`、`settings.section`、`session.action`、`sidebar.tab`、`shortcut`、`conversation.view`。外加扩展定义的点 |
+| **扩展定义的贡献点** | `r.definePoint("<id>.<名>", ..)` | 一个原生扩展的界面定义、别的扩展往里注册的点，例如 `system.console.tab`。不算进 12 个 |
 | **宿主 API** | `HostApi`、`useHost()` | 前端代码拿到的全部能力。拿不到 Harnix 自己的连接 |
 | **停靠面** | `SurfaceState`，`harnix.sidebar.v1.<会话>` | 一个会话在右栏里的那一份：开着的页签、哪一页在前、布局树（本版一格）。存在浏览器本地，刷新后还在；会话之间互不影响 |
 | **页签类型** | 贡献点 `sidebar.tab` | 右栏能打开的一种页：资源类按 `patterns` 认领资源地址，页类按 `kind` 打开。一个 `kind` 至多一份 extension 加一份 builtin，extension 生效 |
@@ -140,6 +141,8 @@
 | **导航控制器** | `host.sidebar` | 进右栏的每条路：`openResource`、`openTab`、`close`、`active`、`isExpanded`、`toggleExpanded`。同一内容只开一份 |
 | **页签域** | `useTabInfo()` | 一个打开的页签的正文拿到的东西：它是哪一页、怎么被导航到的（`params`、`revision`）、`signal`、它能做的动作、关闭处理器 |
 | **引导页** | `kind: "guide"` | 停靠面的缺省页：列出各页签类型 `guide` 入口的卡片；恰好一个入口时直接开那一页。外壳的 builtin，扩展可以顶替 |
+| **中区的视图** | 贡献点 `conversation.view`，`host.conversation` | 中区画一个打开的会话的一种画法：对话是缺省，别的由注册方给；顶上「对话 \| …」切换，每个会话各记自己的选择 |
+| **轨迹** | trajectory，`@harnix/observability` | 一个会话记录下来的每一次模型调用，按轮列成一张表（人的话、调用与它的工具调用、子 Agent、旁边的调用），带时间概览和检查器。中区的一种视图；系统 space 的检查器里是同一个 |
 | **令牌覆盖** | `r.tokens` | 扩展改主题已有令牌的值；不能新增令牌名 |
 | **语言包** | `r.strings` | 扩展带的文案；key 以它的 owner 开头 |
 | **引擎贡献** | `EngineContribution`，`Registrar::engine()` / `engine_everywhere()` | 原生扩展交给进程内实例的东西：场景层、原生工具（`Tool`、`ToolProvider`）、`PromptGate`。扩展包没有 |
@@ -237,7 +240,8 @@
 | **落点** | placement，`Placement` | 站的会话建在哪：space、实例或模板实例（`instance` / `template` + `params`），用哪个模型（`model` / `provider`）（xops-02） |
 | **交付方式** | `Delivery` | 会话怎么交输出：结构化输出（`structured_output`，缺省：契约作为会话的 `output_schema`，模型调 `StructuredOutput`）或 `flow_submit`（`flow-*` 包装 scene） |
 | **受限工具** | `guarded_tools` | 没有权限放行就拒绝的工具（缺省引擎的 shell、文件编辑、notebook、解释器）；流程会话对它们都 `ask`，由 `flow` 扩展判 |
-| **来源** | `Origin` | 流程包里一条流程从哪来：`builtin`（随应用）· `override`（可写层里覆盖内置的那份）· `user`（只在可写层） |
+| **来源** | `Origin` | 流程包里一条流程从哪来：`builtin`（随应用）· `override`（可写层里覆盖内置的那份）· `user`（只在可写层）· `project`（项目自带，`<项目>/.harnix/flows/`，只对这个项目的任务生效，项目受信才读） |
+| **项目自带的流程** | `ProjectPacks`，`Origin::Project`，`flow.defs {project}` | 随项目仓库提交的流程包，放在 `<项目>/.harnix/flows/`：在这个项目里是最上面一层，同名的流程和件以它为准；项目没受信时只按文件名列出（`reason: "untrusted"`，「信任项目后可用」），不读、不跑 |
 | **当前流程** | focus | 一个 `flow-author` 对话操作的那条流程：流程会话的就是它自己那条；别的对话是 `flow.focus` 设的，或 `flow_create` 刚建的 |
 | **试运行** | dry run，`dry-` 运行 | 在沙箱里真跑流程的内核、外部全部模拟：不建会话、不调应用代码、不花模型费用；`mocks` 给站的输出、命令 / 宿主门禁、工具门禁的工具结果 |
 
@@ -247,7 +251,7 @@
   流程扩展的界面文案用 owner `flowui`。
 - 「运行」不是「实例」，也不是「会话」：一条运行有一个主会话，还可能有独立会话与子 Agent 的侧链会话。
 - 流程的「子 Agent」就是 Agix 的子 Agent（父会话的一件**任务**、一条侧链会话）；流程的「任务」（`TaskRec`）是另一回事。
-- 流程的「来源」（`Origin`：`builtin`、`override`、`user`）和扩展的「信任」（`Trust::Origin`）是两回事。
+- 流程的「来源」（`Origin`：`builtin`、`override`、`user`、`project`）和扩展的「信任」（`Trust::Origin`）是两回事；项目自带的流程等的「信任」是项目信任（引擎的 `project.status`），也不是扩展的信任。
 - 「试运行」是一条真的运行，只是活在沙箱里：运行号以 `dry-` 开头，不进 `runs`，最多留最近 20 条；不叫「模拟运行」。
   这个沙箱是流程自己的模拟环境，和扩展进程的操作系统沙箱无关。
 - 界面上，人还没答的权限询问（`ask`，运行的 `waiting: approval`）说「待批准」；站的 `hold`（进站后等人放行）说「等人放行」

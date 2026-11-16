@@ -20,6 +20,7 @@ import type {
   QueueItem,
   Rating,
   SessionOutline,
+  Inbox,
   RewindParams,
   RewindResult,
   SessionHooks,
@@ -32,6 +33,19 @@ import type {
 import type { EventFrame, QueueFrame, RespondParams, SessionResync, TopicEnded, TopicFrame, TurnSettled } from "./generated/contract.ts";
 import type { Decision, HistoryPage, TaskRow } from "./engine.ts";
 import type { McpAuthDone, McpAuthStarted, McpContext, McpList } from "./generated/settings.ts";
+import type {
+  CreateParams,
+  Deleted,
+  History,
+  HistoryParams,
+  IdParams,
+  ListParams,
+  ModelDeleteParams,
+  Receipt,
+  Schedule,
+  ScheduleList,
+  UpdateParams,
+} from "./generated/schedule.ts";
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
@@ -146,6 +160,8 @@ export interface Methods {
   };
   /** 会话的各轮：每轮从历史的哪里开始（`seq`），问了什么、最后答了什么（都截短）。见 `SessionOutline`。 */
   "harnix.session.outline": { params: SessionKey; result: SessionOutline };
+  /** 等人处理的：各会话正在等的权限、计划审阅、提问与询问，带会话所属的 space、名字和项目；声称一个 space 时只答它的。同名主题推同样的值。 */
+  "harnix.inbox": { params: { space?: string }; result: Inbox };
   "harnix.session.interrupt": { params: SessionKey; result: unknown };
   /** 回答一个提问：权限给 `decision`，模型的提问和 MCP server 的询问给 `answer`；先答者生效。 */
   "harnix.session.respond": {
@@ -171,6 +187,19 @@ export interface Methods {
   "harnix.session.skills": { params: SessionKey; result: SessionSkills };
   /** 会话的轮次跑的 hook：设置三层的与本进程登记的，只有事件、种类、匹配，不带命令、地址、请求头。只开给设备。 */
   "harnix.session.hooks": { params: SessionKey; result: SessionHooks };
+  /** 定时（docs/harnix-app.md §9）：带 `space` 的调用只够得着那个 space 的定时；`model` 是模型在引擎里建的，只能删。 */
+  "schedule.list": { params: ListParams; result: ScheduleList };
+  "schedule.get": { params: IdParams; result: Schedule };
+  "schedule.create": { params: CreateParams; result: Schedule };
+  /** `revision` 是读到的那一版；有人改过就是 `CONFLICT`，`data.revision` 是现在的。 */
+  "schedule.update": { params: UpdateParams; result: Schedule };
+  "schedule.delete": { params: IdParams; result: Deleted };
+  "schedule.enable": { params: IdParams; result: Schedule };
+  "schedule.disable": { params: IdParams; result: Schedule };
+  /** 现在投一次（开着关着都行），下一次的时间不变；离上次投递不到一分钟时回执是 `skipped`、`min_interval`。 */
+  "schedule.runNow": { params: IdParams; result: Receipt };
+  "schedule.history": { params: HistoryParams; result: History };
+  "schedule.model.delete": { params: ModelDeleteParams; result: Deleted };
   /** 各扩展的日志（系统 space 读，`harnix.extensions.log` 凭 `process.observe`）：最新的若干行，按扩展、最低级别、某行之后过滤。 */
   "system.extensions.log": {
     params: { extension?: string | null; level?: "error" | "warn" | "info" | "debug" | "trace" | null; after?: number; limit?: number };

@@ -7,9 +7,9 @@
 > `@harnix/harnix-app`（`ui/packages/harnix-app`）。用词照 [术语](glossary.md)；扩展接口见 [Harnix 扩展](harnix-ext.md)。
 >
 > 本文照代码写：后端在 `crates/ext/harnix-app/src/`（`lib.rs`、`workspaces.rs`、`files.rs`、`project.rs`、`export.rs`、`store.rs`），界面在
-> `ui/packages/harnix-app/src/`（`index.tsx`、`sessions.tsx`、`projects.tsx`、`sidebar.tsx`、`dialogs.tsx`、`store.ts`），一轮的改动由中枢记（`crates/hub/src/changes.rs`），外壳的菜单、层与新对话页在
+> `ui/packages/harnix-app/src/`（`index.tsx`、`sessions.tsx`、`projects.tsx`、`items.ts`、`overview.tsx`、`inbox.tsx`、`sidebar.tsx`、`dialogs.tsx`、`store.ts`），一轮的改动由中枢记（`crates/hub/src/changes.rs`），外壳的菜单、层与新对话页在
 > `ui/packages/shell/src/`（`Menu.tsx`、`Shell.tsx`、`dialogs.tsx`；层与菜单的底子在 `ui/packages/react/src/layers.ts`），profile 在
-> `crates/assembly/src/profile.rs`。对不上时以代码为准。
+> `crates/assembly/src/profile.rs`，定时（§9）在 `crates/ext/schedule/src/`。对不上时以代码为准。
 
 ---
 
@@ -21,7 +21,7 @@
 | 标题 | 会话（Sessions）：全部会话，按时间 | 项目（Projects）：按项目看会话 |
 | 左栏 | 搜索框 + 全部会话，按时间分组 | 一棵树：项目（工作区），一次只展开一个，它的会话和别的包登记的条目（流程的任务，§3.2）挂在下面 |
 | 中区 | 对话（`center: "chat"`） | 对话；新建的会话跑在展开的项目里 |
-| 右栏 | 会话的停靠面：引导页，文件、预览、改动（§6），`@harnix/system` 的「输出」（Agent 后台 Shell 与监视器的只读输出流，一个任务一个页签，从对话里工具行的「查看输出」打开），别的包注册的页签，和 `reveal` 打开的详情 | 同左 |
+| 右栏 | 会话的停靠面：引导页，文件、预览、改动（§6），`@harnix/system` 的「输出」（Agent 后台 Shell 与监视器的只读输出流，一个任务一个页签，从对话里工具行的「查看输出」打开），别的包注册的页签，和 `reveal` 打开的详情 | 同左；展开了项目、没有打开会话时是项目的「概况」（§3.2） |
 | 后端 space | `sessions` | **同一个** `sessions`（界面注册里 `sessions: "sessions"`） |
 
 **项目 space 是界面上的一个视图，不是第二个会话集合。** 「按时间看」和「按项目看」是同一批会话的两种排法；会话按 space 绑定是
@@ -45,6 +45,7 @@ Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方�
 
 **左栏**：
 
+- **待我处理**：有等人处理的事时，最上面一行「待我处理 N」，点了打开整张列表（§3.3）。
 - **搜索**：打字按名字筛；回车经 `harnix-app.search {query}` 搜对话内容（只搜最近的会话时会说），Esc 清掉。
 - **分组**：问 `sidebar.group` 的注册，最后注册的那个生效。`@harnix/harnix-app` 注册的是 `harnix-app.time`（「按时间」）：今天、近 7 天、更早，按最近活动排，
   空的组不画。应用注册自己的 `sidebar.group` 就换掉它。
@@ -54,6 +55,13 @@ Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方�
 
 **数据**：`harnix.sessions.list {space: "sessions"}` 列会话，`harnix-app.workspaces.list` 列项目，外壳把两者按 `project_root` 拼起来
 （标题、归档、属于哪个项目）；谁在跑来自主题 `harnix.sessions.status`。
+
+**中区的视图**：会话打开时中区顶上是「对话 | 轨迹」的切换（贡献点 `conversation.view`，[Harnix 扩展](harnix-ext.md) §22.10）。对话是缺省；
+轨迹是 `@harnix/observability` 注册的，把这个会话记录下来的每一次模型调用按轮列成一张表，带时间概览与检查器。每个会话各记自己的选择，刷新后还在；
+产品没链 `observability` 就没有切换。
+
+**会话头**一行：状态点（等你、正在跑一轮、空闲、打不开）、会话名与它的菜单、space、场景、上下文环（和输入框旁边的是同一个，读会话自己的 `context`）、
+这一轮的用量。
 
 **对回答的反馈**（中区的对话，`@harnix/react` 的 `ChatPanel`，`features.feedback` 缺省开）：
 
@@ -93,7 +101,7 @@ Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方�
 
 **项目就是工作区**：一个目录，加一个名字。它只是分组：去掉一个项目只是忘了这个分组，会话与历史都还在。
 
-- 左栏顶上「项目」与「+」（添加项目）。先列 5 个，「更多（N）」。
+- 左栏顶上「项目」与「+」（添加项目）。先列 5 个，「更多（N）」。有等人处理的事时，最上面是「待我处理 N」（§3.3）。
 - **一次只展开一个**（记在页面的 `localStorage`，`harnix.project`）。点一个没展开的项目：展开它，并且停在新对话的空页上。
 - 展开的项目列它的会话，和别的包登记的条目（§3.2：`@harnix/flow` 的任务）混在一起按最近活动排，先列 8 行，「全部 N 个」。
   项目行上的数字是两者之和；有在跑的会话或条目时，收起的项目行上有活动点。
@@ -137,7 +145,7 @@ Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方�
 | `harnix-app.projects.trust` | `{project_root, trusted, instance?}` | 写完之后的状态，另带 `written_to` |
 | `harnix-app.sessions.projectStatus` | `{instance?, session_id, space?}`，按 `RowScope::Session` 判 | 会话所在项目的状态（按会话的场景判），另带 `session_id`；无项目会话是 `trust: "none"`、什么都不扣 |
 
-状态的形状，引擎原样的字段加上 `harnix-app` 算好的三项——项目 space、右栏的「上下文」页、项目自带的流程读的都是这一份：
+状态的形状，引擎原样的字段加上 `harnix-app` 算好的三项——项目 space、右栏的「上下文」页读的都是这一份：
 
 ```jsonc
 { "project_root": "/Users/x/repo",          // 解析之后的真实目录
@@ -160,6 +168,12 @@ agent 类型、skill、规则），没有时是 `null`。主题 `harnix-app.trus
 
 设置页的「项目层写了但不生效」照旧由 `settings.describe` 的 `withheld` 逐个字段说，和这里互不重复：那里说某个值没用上，这里说为什么、
 怎么放开。
+
+**项目自带的流程**也等信任：`<项目>/.harnix/flows/` 里的流程和件随仓库提交（[流程指南](../crates/ext/flow/docs/guide.zh-CN.md)
+「项目自带的流程」），只对这个项目的任务生效，同名时项目的优先。流程扩展自己持 `engine.control`，直接读引擎的
+`engine.project.status`，不经 `harnix-app`。没受信时 `flow.defs {project}` 照样列出它们，但不读内容：`origin: "project"`、
+`valid: false`、`reason: "untrusted"`，界面显示「信任项目后可用」；`flow.start {project_root}` 启动它答 `REFUSED`。
+`flow.defs {project}`、`flow.def {name, project}`、`flow.start` 每次都重读信任和文件，信任之后、文件改了之后不用重启。
 
 ### 3.2 项目里的条目与概况：`harnix-app.project.items`、`harnix-app.project.panels`
 
@@ -189,7 +203,22 @@ r.register("harnix-app.project.items", {
 行在树里是 `[data-testid="project-item"][data-kind="<id>"][data-item="<row.id>"]`，和会话行一样是 `.srow`、树的一项；它的「⋯」是 `project-item-more`，
 项目的「＋」是 `project-new`。
 
-**`harnix-app.project.panels`**（`render`）：项目概况页的一个区块，`{ id, title(), order?, render(context) }`，`context` 同上。本版只定义，概况页随后补。
+**`harnix-app.project.panels`**（`render`）：项目概况页的一个区块，`{ id, title(), order?, render(context) }`，`context` 同上。
+
+**项目概况**（`ui/packages/harnix-app/src/overview.tsx`）：项目 space 里展开了一个项目、又没有打开会话（新对话的空页）时，右栏是它的「概况」。
+它是项目 space 自己的页签（`details.tabs`，`id` 是 `harnix-app.overview`），只在这时出现：一打开会话，右栏就是那个会话的停靠面，和别处一样。
+展开一个项目时如果没有打开的会话，右栏打开并停在概况上。页面是 `harnix-app.project.panels` 的全部区块，按 `order` 从小到大（没写算 100）；
+`@harnix/harnix-app` 自己的几块也是这样注册的，别的包的插在中间。每块抛错只丢那一块。都是只读的，要改的地方给链接。
+
+| `order` | 区块 | 谁 | 内容 |
+|---|---|---|---|
+| 10 | 待我处理 | `harnix-app.inbox` | 这个项目里等人处理的（§3.3），至多 6 行 |
+| 20 | 会话 | `harnix-app.sessions` | 项目最近的 5 个会话（按最近活动，在跑的带点），点了打开；更多时写「全部 N 个」 |
+| 30 | 任务 | `flow.tasks`（`@harnix/flow`） | 运行中、等待、已结束各几个；最近的 5 个任务，点了照 §3.2 打开；「新任务」 |
+| 40 | 定时 | 留给定时的界面 | |
+| 50 | 最近改动 | `harnix-app.changes` | 项目最近 5 个会话的 `harnix.changes` 条目里改过的文件，每个文件只列最近一次，至多 8 个，相对项目根；点了打开那个会话、右栏的「改动」停在那一轮。项目里的会话一轮结束时重读 |
+| 60 | 生效的设置 | `harnix-app.settings` | 权限模式（生效的值与写它的层，`settings.describe {project_root}`）、权限规则（各层几条）、MCP 服务器（生效的那些与它们的层，`settings.mcp.list {project_root}`）、Skill（项目最近一个会话看得到的，按来源层计数，`harnix.session.skills`；没有会话时说「项目里有会话后列出」）；项目层有被扣下的值时标「部分被扣下」；每行「去设置」打开对应的一节。产品没有 `settings` 扩展时，读不到的行不画 |
+| 70 | 信任 | `harnix-app.trust` | 已信任、未信任（连同扣下了哪几类）或无需信任（§3.1）；「信任…」或「不再信任这个项目」 |
 
 **任务**（`@harnix/flow`，`ui/packages/flow/src/task.tsx`）：`flow.runs` 主题里 `project_root` 是这个项目的运行（试运行不算），
 一行写标题（没有就是对象）、流程名、状态（运行中、等待及原因、已暂停、已完成、已取消）、「第 k/n 站」，由定时启动的带时钟。
@@ -203,6 +232,27 @@ r.register("harnix-app.project.items", {
 「新任务」对话框：流程（全部，标来源，不合法的不能选）、按 `inputs` 的 schema 生成的表单（字符串、数字、布尔、枚举、字符串数组，其余是 JSON 框）、
 对象（必填）、标题、输出目录（留空用缺省 `flows/<流程>-<YYYYMMDD><NN>`，对话框预估当天序号，由扩展最终定）、在 worktree 里跑（本版不可选）；
 项目里已有任务在跑时提示；流程不是 `guard: strict` 时写明「这个流程会直接修改项目文件」。确认即 `flow.start {flow, subject, inputs?, title?, project_root, output_dir?, show_in_space}`，然后打开这个任务。
+
+### 3.3 待我处理：`harnix-app.inbox`
+
+一张列表，列出这台设备看得到的、在等人的事：会话里的权限询问、计划审阅、模型的提问、MCP server 的询问（§2.1），流程里等确认、
+等放行（hold）、等外部任务领取的任务。点一行直达能答它的地方。
+
+**来源**是贡献点 `harnix-app.inbox`（`register`，`ui/packages/harnix-app/src/inbox.tsx`）：`{ id, items(), subscribe(fn), open(item) }`。
+一项是 `{ id, kind, label, title, detail?, project_root?, data? }`：`kind` 是等什么（`approval`、`plan`、`answer`、`elicitation`；
+`confirm`、`held`、`external`），`label` 是它的说法，`title` 是在等的会话或任务，`detail` 多一行（工具、问句、server、站），
+`project_root` 让概况只列自己项目的。列表不认识任何一种来源；`items` 抛错只丢那个来源、记进诊断。
+
+| 来源 | 数据 | 点了 |
+|---|---|---|
+| `harnix-app.asks`（本包） | 中枢的主题 `harnix.inbox`（[Harnix 扩展](harnix-ext.md) §21.3）：每个会话正在等的每一个提问，带会话的 space、名字、项目和引擎原样的 `prompt` | `host.session.open(会话, {switchSpace: true})`：到会话所属的 space 打开它，卡片就在对话里，照 §2.1 作答；答了这一行就消失 |
+| `flow.waiting`（`@harnix/flow`） | 流程自己的 `flow.runs` 主题里阶段是 `waiting`、原因是 `confirm`、`held` 或 `external` 的运行（试运行不算） | 照 §3.2 打开这个任务，右栏「流程」页签上确认、放行 |
+
+中枢不认识流程：它只给会话的提问，流程的部分由流程的界面包从它自己的主题来，页面把两者合在一起。
+
+**在哪里**：项目概况的第一块（只列这个项目的）；会话 space 与项目 space 左栏最上面，有等人的事时出「待我处理 N」（`inbox-open`），
+点了在对话框里打开整张列表（`inbox-list`，每行 `inbox-item`，`data-kind`、`data-source`）；系统 space 指标条的「等你处理」那一格
+（`system.metrics.link`，[系统 space](system-space.md) §2）也打开它。
 
 ## 4. 新建会话
 
@@ -334,7 +384,10 @@ r.register("harnix-app.project.items", {
 
 ## 6. 右栏：文件、预览、改动
 
-右栏是每个会话一个停靠面（[Harnix 扩展](harnix-ext.md) §22.7）。`@harnix/harnix-app` 往里注册三种页签类型，都只读、都限在**这个会话的项目根**
+右栏是每个会话一个停靠面（[Harnix 扩展](harnix-ext.md) §22.7）。引导页上还有 `@harnix/observability` 的两页——**上下文**（下一次调用带什么：
+系统 space 在时上下文的组成与系统块，生效的技能与钩子，MCP 服务器的工具与指令，被项目信任扣下的项与「信任这个项目」）和**用量**
+（本会话这次运行的轮数、调用、token、缓存命中、用时，带「打开轨迹」）；它们读的是设备自己的方法，在 [Harnix 扩展](harnix-ext.md) §22.7、§22.10。
+`@harnix/harnix-app` 往里注册三种页签类型，都只读、都限在**这个会话的项目根**
 （引擎记的 `project_root`）里：
 
 | 页签 | `sidebar.tab` | 打开它 | 内容 |
@@ -507,3 +560,41 @@ Harnix app 是原生扩展最小的例子：一个后端扩展、一个界面包
 **要一个不同的 Harnix app**：不 fork 外壳，在自己的产品里把 `harnix-app` 写进 `[extensions] off`，用自己的扩展声明 space、用自己的 UI 包
 注册 space 顶替（[Harnix 扩展](harnix-ext.md)）。0.4.2 里后端随框架链进来、只能藏不能去；现在它是一个独立扩展，关掉就是整个不在，
 `harnix-app.*` 的方法也不再登记。
+
+## 9. 定时
+
+到点替人做一件事：往一个会话里发一轮、在项目里新建一个会话发一轮、或在项目里起一个任务（一次流程运行）。
+**由 Harnix 调度**，是第一方扩展 `schedule`（`crates/ext/schedule`，`harnix` 二进制带它，`harnix` 门面的 feature `schedule`）：
+引擎自己的定时只能发给已有会话、按 UTC 算、开不了新会话（`agix/docs/daemon_rpc_protocol.md` §6.7）。
+**Harnix 没在跑时不投递**：一个定时器在进程里，进程起来时按每条的「错过」策略处理停着的那段（见下）。
+
+| 项 | 怎么做 |
+|---|---|
+| 时间（`timing.kind`） | `once {at}`（RFC 3339 带偏移，或时区里的墙钟 `YYYY-MM-DDTHH:MM[:SS]`）· `after {seconds}`（建好之后多久，一次）· `every {minutes}`（每 N 分钟，≥ 1，按经过的时间算）· `daily {time: "HH:MM"}` · `weekly {weekdays: [1..7], time}`（周一 1 … 周日 7）· `cron {expr}`（5 段，照 Vixie：`*`、数字、范围、列表、步长；不认名字和宏；日、周两段都写了时任一满足即可）。每月、工作日由界面拼成 `cron`、`weekly` |
+| 时区 | `time_zone` 是 IANA 名字，缺省是本机的；墙钟时间都按它算。夏令时跳过的那段钟点当天不到期，重复的那段只算第一次；`once` 落在跳过的那段里，顺延到跳过之后 |
+| 目标（`target.kind`） | `session {instance, session_id, prompt}`：已有会话发一轮，会话忙就排队（`OnBusy::Queue`）；上一次投的还在队列里时这一次并进去（回执 `skipped`、`merged`）。`new_session {mode, project_root?, scene?, instance?, provider?, model?, prompt}`：新会话，`new_once_then_reuse`（缺省，第一次新建、之后都发给它）或 `new_each`（每次新建），标题是「定时标题 · 计划时间」（时区里的 `YYYY-MM-DD HH:MM`）。`task {flow, subject, inputs?, project_root, title?, output_dir?, workspace?, show_in_space?}`：每次 `flow.start` 一个运行，`trigger` 是 `{kind: schedule, schedule, fire_at}`；`show_in_space` 原样交给 `flow.start`（建定时的界面传它列项目会话的 space，任务就在项目 space 里打开） |
+| 错过（`missed`） | 晚了一分钟以上的算错过（Harnix 没在跑、机器睡着）：`catch_up_latest`（缺省）只补最近一次，`skip` 一次也不补、记一条 `skipped`、`missed` |
+| 并发（`concurrency`） | 只对任务：上一次的运行还在跑时 `skip`（缺省，记 `previous_run`）或 `parallel`（再起一个，配合 `workspace: worktree`）。会话目标按会话排队 |
+| 最小间隔 | 同一条定时两次投递至少隔 60 秒，「立即执行」也算；不到就记 `skipped`、`min_interval` |
+| 回执（`Receipt`） | `scheduled_at`（计划时间；立即执行是按下的时间）、`delivered_at`、`manual`、`outcome`（`pending` · `delivered` · `skipped` · `failed`）、`reason`（跳过的四种理由，或失败的错误）、`target`（`{instance, session_id, created, item?}` 或 `{run}`）。只说明交出去了，不说明模型做得怎样。**失败不重试**。每条留最近 200 条、30 天以内的，最近一条总留着 |
+| 幂等 | 投递一条一条来。先写下 `pending` 回执；新会话一建好就把它的 id 写进回执（`new_once_then_reuse` 还写进 `target.session`），再发提示词——重启后沿用，不会再开一个。启动时还是 `pending` 的回执改成 `failed`（`interrupted…`），不重投：一个时间至多投一次 |
+| 存储 | 扩展数据目录下的 `schedules.json`：整份写到临时文件再改名，带版本号；读不了的放到一边（`.json.unread`），从空开始，不迁移旧格式 |
+| 归属与授权 | 一条定时属于一个 space（`space`，建时声称的，缺省是缺省 space）；带 `space` 的调用只够得着那个 space 的定时（不是的答 `SPACE_MISMATCH`），不带的够得着全部（系统 space 的总览这样调）。会话目标建时核对会话属于这个 space。设备不要能力：人管自己的定时，不审批；别的扩展要被授予 `schedule.manage`（定时扩展声明的） |
+| 改 | `update` 带读到的 `revision`；别人改过了答 `CONFLICT`，`data.revision` 是现在的。改了时间就从现在重新算下一次；`every`、`after` 原样送回不会重新起算。开关（`enable`、`disable`）也算一次改；重新打开从现在算，关着期间到期的不补 |
+| 模型建的 | 模型用引擎的 `CronCreate` 建的（存在引擎里，按会话、按 UTC）也列在 `schedule.list` 的 `model` 里，标「模型建的」，只能删（`schedule.model.delete {instance, id}`）。读、删走 `engine.schedule.list`、`engine.schedule.delete`，定时扩展为此被授予 `engine.inspect`、`engine.control`；够不着的实例列在 `unreachable` |
+
+**方法**（参数、答的类型从 `crates/ext/schedule/src/wire.rs` 生成到 `@harnix/core`：`Schedule`、`ScheduleTiming`、`Target`、`Receipt`、`ScheduleList`……）：
+
+| 方法 | 参数 → 答 |
+|---|---|
+| `schedule.list` | `{space?, project?}` → `{schedules, model, unreachable}`：按下一次时间排，不再到期的排在后面 |
+| `schedule.get` | `{id, space?}` → `Schedule`（`next_fire`、`last_delivery`、`revision`、`created_by`……） |
+| `schedule.create` | `{space?, title, timing, time_zone?, target, missed?, concurrency?, enabled?}` → `Schedule`；一次性的时间已经过了、cron 永远不到期、项目目录不在，答 `INVALID_PARAMS` |
+| `schedule.update` | `{id, revision, space?, title?, timing?, time_zone?, target?, missed?, concurrency?}` → `Schedule` |
+| `schedule.delete` | `{id, space?}` → `{deleted}`：连同回执，不删它开过的会话 |
+| `schedule.enable` / `disable` | `{id, space?}` → `Schedule` |
+| `schedule.runNow` | `{id, space?}` → `Receipt`：开着关着都能立即执行，下一次的时间不变 |
+| `schedule.history` | `{id, space?, limit?}` → `{receipts, total}`，新的在前 |
+| `schedule.model.delete` | `{instance, id, space?}` → `{deleted}` |
+
+主题 `schedule.list`：全部定时，和上次读到的模型建的，每次变了推整值。

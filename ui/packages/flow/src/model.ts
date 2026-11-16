@@ -75,6 +75,20 @@ export function defsOf(value: unknown): DefSummary[] {
   return Array.isArray(defs) ? (defs as DefSummary[]) : [];
 }
 
+/** Where a flow on offer may come from, in the order a filter lists them. */
+export const ORIGINS = ["builtin", "override", "user", "project"] as const;
+
+/**
+ * Why a flow on offer cannot be started, as a string key: the project's own while the project
+ * is not trusted (`flowui.def.untrusted`, "trust the project first"), a project file that is not
+ * its definition (`flowui.def.unreadable`), any other invalid one (`flowui.def.invalid`); `null`
+ * when it can be.
+ */
+export function defBlockedKey(d: Pick<DefSummary, "valid" | "reason">): string | null {
+  if (d.reason) return `flowui.def.${d.reason}`;
+  return d.valid === false ? "flowui.def.invalid" : null;
+}
+
 /** The dry runs' list: the list itself, or `{runs: […]}`. */
 export function dryRunsOf(value: unknown): DryRunSummary[] {
   if (Array.isArray(value)) return value as DryRunSummary[];

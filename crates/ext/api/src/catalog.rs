@@ -71,7 +71,7 @@ pub struct Point {
     pub frequency: Frequency,
 }
 
-/// The eleven points the interface is built out of.
+/// The twelve points the interface is built out of.
 ///
 /// The number is part of the design (concept §5.6): one more is an argument to
 /// be made, not a commit to be pushed. The ninth, `session.action`, was argued:
@@ -84,7 +84,10 @@ pub struct Point {
 /// argued as well: the shell's keys were three branches of one listener, any package's key would
 /// have been another, and the settings could list none of them — a command with a key per platform,
 /// where it is in force and what it runs is one kind of thing, and `command` (completions for what is
-/// typed) is not it. Every one of them is drawn by a built-in
+/// typed) is not it. The twelfth, `conversation.view`: the centre shows a session as its
+/// conversation, and a trajectory (the session's calls by turn) is the same session another way —
+/// a view of the centre, switched to at its top, which no `space` member or right-column tab
+/// could carry: it takes the conversation's place, it does not sit beside it. Every one of them is drawn by a built-in
 /// registration **and asked for by the shell**, which is what makes the count
 /// honest — a seam nothing uses is not a seam, it is a line in this list.
 /// It has happened: five of the seven points there were once went unasked.
@@ -166,13 +169,20 @@ pub const POINTS: &[Point] = &[
         when: "按下一个键时；设置的「快捷键」打开时",
         frequency: Frequency::PerInteraction,
     },
+    Point {
+        id: "conversation.view",
+        kind: PointKind::Render,
+        what: "中间区里对话之外的另一种视图（轨迹……）：有会话打开、有注册方时，中间区顶部出现「对话 | …」的切换；每个会话各记自己的选择",
+        when: "有会话打开的中间区画出时，以及切换时",
+        frequency: Frequency::PerInteraction,
+    },
 ];
 
 pub fn point(id: &str) -> Option<&'static Point> {
     POINTS.iter().find(|p| p.id == id)
 }
 
-/// A point a first-party extension defines for the others to fill, beside the shell's eleven and not
+/// A point a first-party extension defines for the others to fill, beside the shell's twelve and not
 /// counted among them: the extension declares it (`UiDecl::point`) and its UI package defines it.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy)]
@@ -213,6 +223,14 @@ pub const EXTENSION_POINTS: &[ExtensionPoint] = &[
         frequency: Frequency::PerInteraction,
     },
     ExtensionPoint {
+        owner: "system",
+        id: "system.metrics.link",
+        kind: PointKind::Register,
+        what: "系统 space 指标条上一格数字去哪（`{id, metric, title(), open()}`）：`metric: \"waiting\"` 的「等你处理」打开待我处理",
+        when: "指标条画出时、点那一格时",
+        frequency: Frequency::PerInteraction,
+    },
+    ExtensionPoint {
         owner: "harnix-app",
         id: "harnix-app.project.items",
         kind: PointKind::Register,
@@ -226,6 +244,14 @@ pub const EXTENSION_POINTS: &[ExtensionPoint] = &[
         kind: PointKind::Render,
         what: "项目概况页的一个区块（`{id, title(), order?, render(context)}`）",
         when: "项目的概况页画出时",
+        frequency: Frequency::PerInteraction,
+    },
+    ExtensionPoint {
+        owner: "harnix-app",
+        id: "harnix-app.inbox",
+        kind: PointKind::Register,
+        what: "待我处理的一个来源（`{id, items(), subscribe(fn), open(item)}`）：中枢的提问、流程的确认、hold、外部任务",
+        when: "来源的 `subscribe` 说变了时、点一项时",
         frequency: Frequency::PerInteraction,
     },
 ];
@@ -287,14 +313,14 @@ mod tests {
             assert!(p.id.starts_with(&format!("{}.", p.owner)), "{} is not under {}", p.id, p.owner);
             assert!(point(p.id).is_none(), "{} is one of the shell's", p.id);
         }
-        assert_eq!(points_of("system").count(), 2);
-        assert_eq!(points_of("harnix-app").count(), 2);
+        assert_eq!(points_of("system").count(), 3);
+        assert_eq!(points_of("harnix-app").count(), 3);
     }
 
-    /// Eleven, and adding one is a decision (concept §5.6).
+    /// Twelve, and adding one is a decision (concept §5.6).
     #[test]
-    fn the_interface_has_eleven_points() {
-        assert_eq!(POINTS.len(), 11);
+    fn the_interface_has_twelve_points() {
+        assert_eq!(POINTS.len(), 12);
     }
 
     /// Nothing here may fire per streaming delta — the whole reason frequency

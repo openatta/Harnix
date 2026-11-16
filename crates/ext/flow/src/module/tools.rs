@@ -53,6 +53,10 @@ impl FlowTools {
 /// its task's permissions, or by asking a person in the flow space), so they must reach the host
 /// rather than be refused as no one's to answer. And no model call outside its task: naming the
 /// session would be one (and, under replay, one that is not recorded and goes to the network).
+///
+/// No one answers a task's questions: its sessions are the module's own, and a session an
+/// extension opens has no `AskUserQuestion` (the hub lists questions among the prompts it answers
+/// only for a person's sessions). A person is reached through a station's `confirm`.
 pub(crate) fn flow_scene(base: SceneBase, tools: &FlowTools, requires_project: Option<bool>) -> SceneLayer {
     let layer = SceneLayer::new("flow-{base}", base)
         .name("{base} (flow)")

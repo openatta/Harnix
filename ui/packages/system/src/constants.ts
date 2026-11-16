@@ -6,6 +6,8 @@ export const SYSTEM = "system";
 /** The points this package defines for others to fill. */
 export const CONSOLE_TAB = "system.console.tab";
 export const INSPECTOR_TAB = "system.inspector.tab";
+/** Where a count of the metrics bar leads: `{ id, metric, title(), open() }`, `metric` a cell's id. */
+export const METRICS_LINK = "system.metrics.link";
 
 export const LIVE = new Set(["running", "waiting", "pending"]);
 

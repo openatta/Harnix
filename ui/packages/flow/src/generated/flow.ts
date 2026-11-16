@@ -33,7 +33,26 @@ policies?: Array<string>,
 /**
  * Permissions every station works under, written here.
  */
-permissions?: Array<Permission>, stations: Array<Station>, };
+permissions?: Array<Permission>, 
+/**
+ * How a call no permission speaks for is judged: `auto` (the default) lets it through inside
+ * the run's project and refuses it outside; `strict` refuses a guarded tool and asks a person
+ * about a path outside.
+ */
+guard?: Guard, 
+/**
+ * Where a run's deliverables go: a path relative to the project (a run of no project: to its
+ * own directory) that may say `${flow}`, `${date}` (`YYYYMMDD`), `${seq}` (two digits: one
+ * more than the highest already there), `${title}` and `${inputs.<k>}`. Absent:
+ * [`DEFAULT_OUTPUT_DIR`]. A start may give its own.
+ */
+output_dir?: string | null, stations: Array<Station>, };
+
+/**
+ * How a flow's tool calls are judged where no permission speaks for them. An explicit `ask`, a
+ * `confirm` and a `hold` wait for a person under both.
+ */
+export type Guard = "auto" | "strict";
 
 /**
  * The run's main session: what session tasks bound to `main` and sub-agent tasks work in.
@@ -517,7 +536,8 @@ project_root?: string | null,
  */
 workspace: Workspace, 
 /**
- * Where its deliverables go, as the run holds it.
+ * Where its deliverables go: a directory in the project (a run of no project: in its own
+ * directory), resolved from its template when the run was started; `${output_dir}`.
  */
 output_dir?: string | null, 
 /**
@@ -610,7 +630,12 @@ phase?: Phase | null, };
 /**
  * Where the flow a pack offers under a name comes from.
  */
-export type Origin = "builtin" | "override" | "user";
+export type Origin = "builtin" | "override" | "user" | "project";
+
+/**
+ * Why a flow the packs have is not offered (`Packs::withheld_flows`).
+ */
+export type Withheld = "untrusted" | "unreadable";
 
 /**
  * How a session task hands in its output.
@@ -628,7 +653,8 @@ station?: string | null, message: string, };
  */
 export type DefRow = { name: string, title: string, description?: string, digest: string, 
 /**
- * Where it comes from: built in, saved over a built-in one, or saved here.
+ * Where it comes from: built in, saved over a built-in one, saved here, or the project's own
+ * (listed for a project: `flow.defs {project}`).
  */
 origin: Origin, 
 /**
@@ -636,6 +662,12 @@ origin: Origin,
  * started.
  */
 valid: boolean, 
+/**
+ * Why it is not valid without being read, when that is so: `untrusted` — the project's
+ * own, waiting on the project being trusted (title, digest and inputs are not read until
+ * then); `unreadable` — its file is not a definition of this name.
+ */
+reason?: Withheld, 
 /**
  * What a run of it is started with, as one JSON Schema of the `inputs` object
  * (`FlowDef::inputs_schema`): a form can be drawn from it.
@@ -655,7 +687,9 @@ project_root?: string,
  */
 workspace?: Workspace, 
 /**
- * Where its deliverables go: a path or a template, recorded as given.
+ * Where its deliverables go: a template relative to the project (`${flow}`, `${date}`,
+ * `${seq}`, `${title}`, `${inputs.<k>}`), or an absolute path inside it; absent: the flow's,
+ * else `flows/${flow}-${date}${seq}`. Made at start; the run holds it resolved.
  */
 output_dir?: string, 
 /**

@@ -297,9 +297,15 @@ fn the_flow_extension_uses_only_the_extension_interface() {
 #[test]
 fn the_library_does_not_carry_the_empty_applications_flow_module() {
     assert_eq!(normal_dependencies("harnix").get("harnix-ext-flow"), Some(&true), "flow is the facade's only optionally");
+    assert_eq!(
+        normal_dependencies("harnix").get("harnix-ext-schedule"),
+        Some(&true),
+        "the schedules are the facade's only optionally"
+    );
     let facade = std::fs::read_to_string(workspace_root().join("crates/harnix/Cargo.toml")).unwrap();
     let default = facade.lines().find(|l| l.starts_with("default")).unwrap_or_default();
     assert!(!default.contains("flow"), "the library's default features carry no flow: {default}");
+    assert!(!default.contains("schedule"), "the library's default features carry no schedules: {default}");
     let manifest =
         std::fs::read_to_string(workspace_root().join("crates/harnix/Cargo.toml")).unwrap();
     assert!(
@@ -671,6 +677,7 @@ fn every_harnix_dependency_resolves() {
         "ext/observability",
         "ext/packages",
         "ext/plugins",
+        "ext/schedule",
         "ext/settings",
         "ext/system",
         "harnix",
@@ -764,6 +771,7 @@ mod rules {
             "harnix-ext-observability",
             "harnix-ext-devices",
             "harnix-ext-flow",
+            "harnix-ext-schedule",
         ];
         /// Every crate the workspace may have (C12).
         pub const ALL: &[&str] = &[
@@ -777,6 +785,7 @@ mod rules {
             "harnix-ext-observability",
             "harnix-ext-devices",
             "harnix-ext-flow",
+            "harnix-ext-schedule",
         ];
         /// The skeleton: what no first-party extension, carrier or extension process is part of.
         pub const SKELETON: &[&str] = &[
@@ -1363,7 +1372,7 @@ mod rules {
     /// The identifiers of the first-party extensions and their spaces.
     const FIRST_PARTY_IDS: &[&str] = &[
         "system", "sessions", "projects", "flow", "harnix-app", "settings", "plugins", "packages", "devices",
-        "observability",
+        "observability", "schedule",
     ];
 
     /// `code` without the places an id is a JSON field or a path component, not a space or an

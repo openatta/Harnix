@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::future::Future;
 use std::sync::Arc;
 
-use harnix_ext::{Access, Call, Registrar, RpcError, Subject};
+use harnix_ext::{Access, Call, ExtId, Registrar, RpcError, Subject};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -147,6 +147,17 @@ struct FocusIn {
     session_id: String,
     #[serde(default)]
     flow: Option<String>,
+    /// The project the conversation works in from now on; `""` takes it out of one.
+    #[serde(default)]
+    project: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DefIn {
+    name: String,
+    /// Read as a task of this project would: the project's own over the rest.
+    #[serde(default)]
+    project: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -261,12 +272,38 @@ fn method<C, P, F, Fut>(
     F: Fn(Arc<Shared>, Arc<dyn Packs>, Call, P) -> Fut + Send + Sync + Copy + 'static,
     Fut: Future<Output = Answer> + Send + 'static,
 {
+    method_for(m, sh, packs, name, Access::device(), describe, f);
+}
+
+/// [`method`], open as `access` says.
+fn method_for<C, P, F, Fut>(
+    m: &mut Registrar<'_, C>,
+    sh: &Arc<Shared>,
+    packs: &Arc<dyn Packs>,
+    name: &str,
+    access: Access,
+    describe: &str,
+    f: F,
+) where
+    P: DeserializeOwned + Send + 'static,
+    F: Fn(Arc<Shared>, Arc<dyn Packs>, Call, P) -> Fut + Send + Sync + Copy + 'static,
+    Fut: Future<Output = Answer> + Send + 'static,
+{
     let sh = sh.clone();
     let packs = packs.clone();
     m.method(name)
-        .access(Access::device())
+        .access(access)
         .describe(describe)
         .handler(move |cx: Call, p: P| f(sh.clone(), packs.clone(), cx, p));
+}
+
+/// The scheduler, which starts a project's task when its schedule says (`docs/harnix-app.md`
+/// §9) and reads whether the last one still runs: `flow.start` and `flow.get` are open to it by
+/// name, and to no other extension.
+const SCHEDULER: &str = "schedule";
+
+fn devices_and_the_scheduler() -> Access {
+    Access::device().with_extension(ExtId::native(SCHEDULER).expect("a native extension's id"))
 }
 
 /// Run a change, carry out what it produced (a dry run's: queue it in the sandbox), answer its
@@ -465,11 +502,12 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         "runs, newest first: {flow?, status?, subject?, parent?, project?, limit?}; project: the runs of that project (its tasks)",
         |sh, _, _, q: RunQuery| async move { to_value(engine(&sh)?.list(q).await.map_err(rpc_error)?) },
     );
-    method(
+    method_for(
         m,
         sh,
         packs,
         "get",
+        devices_and_the_scheduler(),
         "a run with its pinned definition and what each open station lacks (a dry run's session tasks carry `preview`): {run}",
         |sh, _, _, p: RunIn| async move {
             if in_sandbox(&sh, &p.run).await {
@@ -499,16 +537,29 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         sh,
         packs,
         "defs",
-        "the flows on offer, as the `defs` topic has them: [{name, title, description?, digest, origin, valid, inputs}]; inputs: a JSON Schema of what a run is started with",
-        |_, packs, _, _: Value| async move { to_value(publish::defs_list(packs.as_ref())) },
+        "the flows on offer, as the `defs` topic has them: [{name, title, description?, digest, origin, valid, reason?, inputs}]; inputs: a JSON Schema of what a run is started with. {project?}: the flows a task of that project may run, the project's own (origin project, <project>/.harnix/flows/) over the rest; while the project is not trusted its own are listed unread, valid false, reason untrusted",
+        |sh, packs, _, p: Value| async move {
+            let project = p.get("project").and_then(Value::as_str).filter(|r| !r.trim().is_empty());
+            match project {
+                Some(root) => to_value(publish::defs_list(super::project_packs::packs_in(&sh, Some(root)).await?.as_ref())),
+                None => to_value(publish::defs_list(packs.as_ref())),
+            }
+        },
     );
     method(
         m,
         sh,
         packs,
         "def",
-        "one flow: {def, yaml, digest, origin, valid, problems, writable, skills: {name: body}, protocol: {station: text}}",
-        |sh, packs, _, p: NameIn| async move { def_info(&*engine(&sh)?, packs.as_ref(), &p.name) },
+        "one flow: {name, project?} → {def, yaml, digest, origin, valid, problems, writable, skills: {name: body}, protocol: {station: text}}; project: as a task of that project reads it",
+        |sh, packs, _, p: DefIn| async move {
+            let packs = match p.project.as_deref() {
+                Some(root) if !root.trim().is_empty() => super::project_packs::packs_in(&sh, Some(root)).await?,
+                _ => packs,
+            };
+            super::project_packs::withheld(packs.as_ref(), &p.name).map_err(rpc_error)?;
+            def_info(&*engine(&sh)?, packs.as_ref(), &p.name)
+        },
     );
     method(
         m,
@@ -635,7 +686,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         sh,
         packs,
         "focus",
-        "the flow a conversation works on (the panel's selection): {instance, session_id, flow | null} → {flow}; the session must be a flow-author conversation",
+        "the flow a conversation works on (the panel's selection): {instance, session_id, flow | null, project?} → {flow, project}; the session must be a flow-author conversation; project: the project it works in from now on (its flows are read and saved in <project>/.harnix/flows/), \"\" for none",
         |sh, packs, cx, p: FocusIn| async move {
             // Only a conversation that can use it: an existing session in the flow-author scene.
             let session = cx
@@ -659,6 +710,19 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
                     super::AUTHOR_SCENE
                 )));
             }
+            match p.project.as_deref().map(str::trim) {
+                None => {}
+                Some("") => sh.set_conversation_project(&p.instance, &p.session_id, None),
+                Some(root) => {
+                    let root = super::project_packs::project_root(root).map_err(RpcError::invalid_params)?;
+                    sh.set_conversation_project(&p.instance, &p.session_id, Some(root));
+                }
+            }
+            let project = sh.conversation_project(&p.instance, &p.session_id);
+            let packs = match &project {
+                Some(root) => super::project_packs::packs_in(&sh, Some(root)).await?,
+                None => packs,
+            };
             let flow = p.flow.filter(|f| !f.is_empty());
             if let Some(f) = &flow {
                 if packs.flow(f).is_none() {
@@ -676,11 +740,11 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
                         own.map_or("the general conversation".to_string(), |f| format!("flow {f}'s conversation")),
                     )));
                 }
-                return Ok(json!({"flow": own}));
+                return Ok(json!({"flow": own, "project": project}));
             }
             sh.set_focus(&p.instance, &p.session_id, flow.clone());
             publish::publish_focus(&sh, &p.instance, &p.session_id).await;
-            Ok(json!({"flow": flow}))
+            Ok(json!({"flow": flow, "project": project}))
         },
     );
 
@@ -814,32 +878,30 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
     );
 
     // ── runs ─────────────────────────────────────────────────────────────────
-    method(
+    method_for(
         m,
         sh,
         packs,
         "start",
-        "start a run: {flow, subject, inputs?, title?, project_root?, workspace?: project|worktree|scratch, output_dir?, trigger?: {kind: manual} | {kind: schedule, schedule, fire_at}, show_in_space?} → {run}; with a project_root (an existing absolute directory) the run is a task of that project; only the kernel and extensions start one on a schedule; show_in_space names a space the main session is also shown in, to be looked at and talked to there",
+        devices_and_the_scheduler(),
+        "start a run: {flow, subject, inputs?, title?, project_root?, workspace?: project|worktree|scratch, output_dir?, trigger?: {kind: manual} | {kind: schedule, schedule, fire_at}, show_in_space?} → {run}; with a project_root (an existing absolute directory) the run is a task of that project; output_dir (a template relative to the project, before the flow's and flows/${flow}-${date}${seq}) is made at start and must stay inside it; only the kernel and extensions start one on a schedule; show_in_space names a space the main session is also shown in, to be looked at and talked to there",
         |sh, _, cx, p: StartParams| async move {
             let by = caller(&cx);
             let trigger = start_trigger(cx.device().is_some(), p.trigger, &by)?;
-            let r = engine(&sh)?
-                .create(
-                    CreateIn {
-                        flow: p.flow,
-                        subject: p.subject,
-                        inputs: p.inputs,
-                        title: p.title,
-                        parent: None,
-                        project_root: project_dir(p.project_root)?,
-                        workspace: p.workspace,
-                        output_dir: p.output_dir,
-                        trigger: Some(trigger),
-                        show_in_space: shown_in(p.show_in_space)?,
-                    },
-                    by,
-                )
-                .await;
+            let input = CreateIn {
+                flow: p.flow,
+                subject: p.subject,
+                inputs: p.inputs,
+                title: p.title,
+                parent: None,
+                project_root: project_dir(p.project_root)?,
+                workspace: p.workspace,
+                output_dir: p.output_dir,
+                trigger: Some(trigger),
+                show_in_space: shown_in(p.show_in_space)?,
+            };
+            let engine = engine(&sh)?;
+            let r = super::project::start(&sh, &engine, input, by).await;
             change(&sh, None, r).await
         },
     );
@@ -1132,6 +1194,9 @@ fn def_info(engine: &Engine, packs: &dyn Packs, name: &str) -> Answer {
                 gates: &pinned.gates,
                 delivery,
                 executor: Some(&t.executor),
+                guard: def.guard,
+                root: Some("<project>"),
+                output_dir: Some("<output_dir>"),
             });
             // What the session is told before its skill: the rules too.
             let rules: Vec<(String, String)> = crate::kernel::parts::rules_of(&def, s)

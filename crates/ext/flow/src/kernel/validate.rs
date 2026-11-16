@@ -121,6 +121,11 @@ pub fn validate(def: &FlowDef, packs: &dyn Packs) -> Vec<Problem> {
             }
         }
     }
+    if let Some(t) = &def.output_dir {
+        for m in super::output::template_problems(t, &def.inputs) {
+            c.flow(format!("output_dir {t:?}: {m}"));
+        }
+    }
     names_problems(&mut c, None, &def.rules, &def.policies);
     for (i, p) in def.permissions.iter().enumerate() {
         for m in permission_problems(p) {

@@ -431,6 +431,39 @@ external: boolean, };
 export type SessionsStatus = { sessions: Array<SessionStatusRow>, };
 
 /**
+ * One ask a session is waiting on a person for, in `harnix.inbox`: a permission, a plan's review,
+ * a question or an MCP server's form. A session waiting on two has two.
+ */
+export type InboxRow = { instance: string, session_id: string, 
+/**
+ * The space the session belongs to.
+ */
+space: string, waiting: Waiting, 
+/**
+ * The ask as the engine put it: what `harnix.session.attach` hands a client as one of its
+ * `pending_prompts`, answered with `harnix.session.respond`.
+ */
+prompt: PromptEvent, 
+/**
+ * The session's name, when it has one.
+ */
+name: string | null, 
+/**
+ * The project it works in, when it has one.
+ */
+project_root: string | null, started_by: StartedBy, 
+/**
+ * An engine in an extension's process: rendered as untrusted content.
+ */
+trust?: EngineTrust, };
+
+/**
+ * `harnix.inbox`'s answer and the topic's value: every ask waiting on a person, in the spaces the
+ * caller sees, by instance and session.
+ */
+export type Inbox = { items: Array<InboxRow>, };
+
+/**
  * A space, as `harnix.spaces.list` and the topic `harnix.spaces` list it.
  */
 export type SpaceRow = { id: string, 

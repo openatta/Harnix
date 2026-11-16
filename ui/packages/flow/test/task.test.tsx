@@ -15,7 +15,7 @@ import { register } from "../src/register";
 import { currentStation, taskStep } from "../src/RunPanel";
 import { registerSystemFlows } from "../src/space";
 import { registerFlowStrings } from "../src/strings";
-import { PROJECT_ITEMS, ProjectTasks, TASK_KIND, TASK_TAB_KIND, TaskRow, enterTask, openTask, taskRows } from "../src/task";
+import { INBOX, PROJECT_ITEMS, PROJECT_PANELS, ProjectTasks, TASK_KIND, TASK_TAB_KIND, TaskRow, TasksPanel, enterTask, openTask, taskCounts, taskRows, waitingItems } from "../src/task";
 import { TaskTab } from "../src/TaskTab";
 import type { DefSummary, FlowDef, RunSummary, RunView } from "../src/types";
 
@@ -257,6 +257,82 @@ describe("the registration", () => {
   });
 });
 
+describe("what waits on a person, and the overview's block", () => {
+  it("a run waiting on a confirm, a hold or an external task is an item; one waiting on its own work, a dry run or a running one is not", () => {
+    const runs = [
+      summary({ id: "r-confirm", title: "Ship it", phase: { state: "waiting", reason: "confirm", stations: ["approve"] } }),
+      summary({ id: "r-held", phase: { state: "waiting", reason: "held", stations: ["a", "b"] }, project_root: "/work/beta" }),
+      summary({ id: "r-external", phase: { state: "waiting", reason: "external" } }),
+      summary({ id: "r-work", phase: { state: "waiting", reason: "work" } }),
+      summary({ id: "r-running", phase: { state: "running" } }),
+      summary({ id: "dry-r-1", dry: true, phase: { state: "waiting", reason: "confirm" } }),
+    ];
+    expect(waitingItems(runs).map((i) => [i.id, i.kind, i.label, i.title, i.detail, i.project_root])).toEqual([
+      ["r-confirm", "confirm", "To confirm", "Ship it", "example-review · approve", ROOT],
+      ["r-held", "held", "Held", "repo", "example-review · a, b", "/work/beta"],
+      ["r-external", "external", "External task", "repo", "example-review", ROOT],
+    ]);
+  });
+
+  it("counts a project's tasks running, waiting and over", () => {
+    const runs = [
+      summary({ id: "a", phase: { state: "running" } }),
+      summary({ id: "b", phase: { state: "waiting", reason: "confirm" } }),
+      summary({ id: "c", status: "finished", phase: { state: "finished" } }),
+      summary({ id: "d", status: "cancelled", phase: { state: "cancelled" } }),
+      summary({ id: "e", phase: { state: "running" }, project_root: "/work/beta" }),
+    ];
+    expect(taskCounts(runs, ROOT)).toEqual({ running: 1, waiting: 1, finished: 2 });
+  });
+
+  it("registers its source and its block where the Harnix app defines them; the source opens the task", async () => {
+    const fake = fakeHost({ "flow.get": view(), "flow.session": { instance: "main", session_id: "general" } });
+    const r = new Registry();
+    r.activate("system", () => r.definePoint("system.console.tab", { kind: "register" }));
+    r.activate("harnix-app", () => {
+      r.definePoint(PROJECT_ITEMS, { kind: "register" });
+      r.definePoint(PROJECT_PANELS, { kind: "render" });
+      r.definePoint(INBOX, { kind: "register" });
+      r.register("space", { id: "projects", icon: "folder", title: () => "Projects" }, "harnix-app");
+    });
+    r.activate("flow", () => register(r, fake.host));
+    r.settle();
+    const source = r.list<{ id: string; items(): { id: string }[]; subscribe(fn: () => void): () => void; open(item: unknown): Promise<void> }>(INBOX)[0]!;
+    expect([source.id, source.owner]).toEqual(["flow.waiting", "flow"]);
+    source.subscribe(() => undefined);
+    fake.push("flow.runs", {}, { runs: [summary({ phase: { state: "waiting", reason: "confirm" } })] });
+    const items = source.items();
+    expect(items.map((i) => i.id)).toEqual(["example-review-1"]);
+    await source.open(items[0]);
+    expect(fake.opened.at(-1)).toEqual({ instance: "main", sessionId: "main-1" });
+    expect(fake.tabs.at(-1)).toEqual([TASK_TAB_KIND, { params: { run: "example-review-1" } }]);
+    const panel = r.list<{ id: string; order: number; title(): string }>(PROJECT_PANELS)[0]!;
+    expect([panel.id, panel.order, panel.title()]).toEqual(["flow.tasks", 30, "Tasks"]);
+    expect(r.refusals()).toEqual([]);
+  });
+
+  it("the block: the counts, the latest tasks each opening, and 新任务", async () => {
+    const fake = fakeHost({ "flow.defs": DEFS });
+    const tasks = new ProjectTasks(fake.host, "flow");
+    const opened: string[] = [];
+    const created = vi.fn();
+    const page = render(
+      <HostProvider host={fake.host}>
+        <TasksPanel tasks={tasks} module="flow" root={ROOT} open={(run) => void opened.push(run.id)} create={created} />
+      </HostProvider>,
+    );
+    expect(page.queryAllByTestId("overview-task")).toEqual([]);
+    act(() => fake.push("flow.runs", {}, { runs: [summary({ phase: { state: "waiting", reason: "confirm" } }), summary({ id: "other", project_root: "/work/beta" })] }));
+    await settle();
+    expect(page.getAllByTestId("overview-task").map((el) => el.dataset.run)).toEqual(["example-review-1"]);
+    expect(page.getByTestId("overview-tasks-counts").dataset.waiting).toBe("1");
+    fireEvent.click(page.getByTestId("overview-task"));
+    expect(opened).toEqual(["example-review-1"]);
+    fireEvent.click(page.getByTestId("overview-task-new"));
+    expect(created).toHaveBeenCalled();
+  });
+});
+
 describe("opening a task", () => {
   it("opens the main session where it is shown (show_in_space), in the space in front, and opens the tab; the flow space is left alone", async () => {
     const fake = fakeHost({ "flow.get": view({ show_in_space: "sessions" }) });
@@ -448,5 +524,25 @@ describe("the new-task dialog", () => {
     expect(fake.calls.find(([m]) => m === "flow.start")?.[1]).toEqual({ flow: "example-review", subject: "the repo", project_root: ROOT, inputs: { depth: 2, target: "src/" }, title: "Review src", show_in_space: "sessions" });
     expect(close).toHaveBeenCalledWith(true);
     expect(started).toEqual([["example-review-2", "example-review"]]);
+    // The flows a task of this project may run, the project's own among them.
+    expect(fake.calls.find(([m]) => m === "flow.defs")?.[1]).toEqual({ project: ROOT });
+  });
+
+  it("offers the project's own flows with their origin, and an untrusted project's as waiting on trust", async () => {
+    const defs = [
+      ...DEFS,
+      { name: "house", title: "House review", digest: "h", origin: "project", valid: true, inputs: { type: "object" } },
+      { name: "pending", title: "", digest: "", origin: "project", valid: false, reason: "untrusted", inputs: { type: "object" } },
+    ];
+    const fake = fakeHost({ "flow.defs": defs, "flow.def": { def: DEF, yaml: "", digest: "a" } });
+    await newTaskDialog(fake.host, "flow", { root: ROOT, runs: () => [] }, () => undefined);
+    const page = render(<HostProvider host={fake.host}>{fake.dialogs[0]!(vi.fn()) as never}</HostProvider>);
+    await settle();
+    expect(page.getByTestId("task-flow-house").dataset.origin).toBe("project");
+    expect(page.getByTestId("task-flow-house").textContent).toContain("this project's");
+    const pending = page.getByTestId("task-flow-pending") as HTMLButtonElement;
+    expect(pending.disabled).toBe(true);
+    expect(pending.dataset.reason).toBe("untrusted");
+    expect(pending.textContent).toContain("trust the project first");
   });
 });

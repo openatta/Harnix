@@ -1,14 +1,13 @@
 /** The context tab: what the next call carries, and the messages. */
 
 import { useEffect, useState } from "react";
-import { Disclosure, clip, useT, Glyph, type HostSessionRef as SessionKey } from "@harnix/react";
+import { ContextReport, clip, useT, Glyph, type HostSessionRef as SessionKey } from "@harnix/react";
 
 import { SYSTEM } from "../constants.ts";
 import { Failure } from "../failure.tsx";
-import { isPlainText, messageText, originLabel } from "../format.ts";
+import { isPlainText, messageText } from "../format.ts";
 import type { Context, HistoryMessage } from "../types.ts";
 import { act, type View } from "../view.ts";
-import { Facts } from "./facts.tsx";
 
 export function ContextTab({ view, session }: { view: View; session: SessionKey }) {
   const host = view.host;
@@ -49,66 +48,10 @@ export function ContextTab({ view, session }: { view: View; session: SessionKey 
   if (!context) return null;
   const total = history?.total ?? 0;
   const again = () => setRound((n) => n + 1);
-  const systemTokens = (context.system ?? []).reduce((n, b) => n + b.tokens, 0);
-  const toolTokens = (context.tools ?? []).reduce((n, b) => n + (b.tokens ?? 0), 0);
-  const messageTokens = context.messages?.tokens ?? 0;
-  // The bar is as long as the provider's own count of the last call (when there is one), against the
-  // window; the estimates only divide it. An estimate is never shown as if it were a count: `~`.
-  const estimated = Math.max(systemTokens + toolTokens + messageTokens, 1);
-  const measured = context.measured?.tokens ?? null;
-  const threshold = context.measured?.compact_threshold ?? context.compact_threshold ?? 0;
-  const length = measured ?? estimated;
-  const budget = Math.max(context.measured?.window ?? 0, threshold, length, 1);
-  const pct = (n: number) => `${Math.min(100, ((n / estimated) * length * 100) / budget)}%`;
-  const about = (n: number) => `~${n}`;
   return (
     <div className="system-pane" data-testid="system-context">
       <div className="note">{tr("system.contextNote")}</div>
-      <div className="stack" data-testid="context-stack" data-measured={measured ?? undefined} title={measured != null ? tr("system.tokens", { count: measured }) : tr("system.tokens", { count: about(estimated) })}>
-        <i className="sys" style={{ width: pct(systemTokens) }} />
-        <i className="tools" style={{ width: pct(toolTokens) }} />
-        <i className="msgs" style={{ width: pct(messageTokens) }} />
-      </div>
-      <div className="legend2">
-        <span className="sys">{tr("system.legend.system", { count: about(systemTokens) })}</span>
-        <span className="tools">{tr("system.legend.tools", { count: about(toolTokens) })}</span>
-        <span className="msgs">{tr("system.legend.messages", { count: about(messageTokens) })}</span>
-      </div>
-      <Facts
-        rows={[
-          [tr("system.fact.model"), context.model ?? ""],
-          [
-            tr("system.fact.measured"),
-            measured != null
-              ? context.measured?.window
-                ? tr("system.tokensOf", { count: measured, of: context.measured.window })
-                : tr("system.tokens", { count: measured })
-              : tr("system.notMeasured"),
-          ],
-          [tr("system.fact.estimated"), tr("system.tokens", { count: about(context.total_tokens ?? estimated) })],
-          [tr("system.fact.threshold"), threshold ? tr("system.tokens", { count: threshold }) : ""],
-          [tr("system.fact.messages"), tr("system.messagesTokens", { count: context.messages?.count ?? 0, tokens: about(context.messages?.tokens ?? 0) })],
-        ]}
-      />
-      <div className="label">{tr("system.blocks", { count: context.system?.length ?? 0 })}</div>
-      {(context.system ?? []).map((block, i) => (
-        <Disclosure
-          key={i}
-          testId="system-block"
-          state="ok"
-          summary={
-            <>
-              <span className="hx-tool-name">{block.name}</span>
-              <span className="hx-tool-arg">{originLabel(block.origin)}</span>
-            </>
-          }
-          tail={tr("system.tokens", { count: about(block.tokens) })}
-        >
-          <pre className="hx-pre">{block.text}</pre>
-        </Disclosure>
-      ))}
-      <div className="label">{tr("system.toolsCount", { count: context.tools?.length ?? 0 })}</div>
-      <div className="note">{(context.tools ?? []).map((tool) => tool.name).join(", ") || tr("request.noTools")}</div>
+      <ContextReport context={context} />
       <div className="label">{tr("system.messages")}</div>
       <div className="messages" data-testid="system-messages">
         {(history?.messages ?? []).map((message) => {

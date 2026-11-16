@@ -91,10 +91,11 @@ pub(crate) async fn offer_result(
 ///
 /// The command sees none of this process's environment but the basics (`PATH`, `HOME`, the
 /// locale, `TMPDIR`…): no provider key, no hook secret. The run reaches it there, never in the
-/// command line — `FLOW_RUN`, `FLOW_STATION`, `FLOW_WORKSPACE`, `FLOW_CONTEXT_FILE` (the reference
-/// context as JSON, written under the workspace's `.flow/`) and, when it is small,
-/// `FLOW_CONTEXT` itself. It runs in a process group of its own, killed whole when it runs out of
-/// time; only the end of its output is kept.
+/// command line — `FLOW_RUN`, `FLOW_STATION`, `FLOW_WORKSPACE` (the project, or the run's own
+/// directory), `FLOW_CONTEXT_FILE` (the reference context as JSON, `context.json` of the station in
+/// the run's process directory) and, when it is small, `FLOW_CONTEXT` itself. It runs in a process
+/// group of its own, killed whole when it runs out of time; the end of its output is the result,
+/// and what was read of it is kept beside the context as `gate-<gate>.log`.
 pub(crate) async fn command_gate(sh: &Shared, engine: &Engine, rec: &RunRecord, station: &str, g: &crate::GateDef) -> GateResult {
     use tokio::io::AsyncReadExt;
     let fail = |detail: String| GateResult { pass: false, detail };
@@ -104,7 +105,7 @@ pub(crate) async fn command_gate(sh: &Shared, engine: &Engine, rec: &RunRecord, 
     let Some(command) = g.command.clone().filter(|c| !c.trim().is_empty()) else {
         return fail(format!("gate {} has no command", g.name));
     };
-    let Some(ws) = engine.workspace(&rec.id) else {
+    let (Some(ws), Some(station_dir)) = (engine.workspace_for(rec), super::project::station_dir(engine, rec, station)) else {
         return fail(format!("gate {}: the run has no workspace", g.name));
     };
     let ctx = crate::kernel::refs::context_in(rec, None, None, ws.to_str());
@@ -123,9 +124,9 @@ pub(crate) async fn command_gate(sh: &Shared, engine: &Engine, rec: &RunRecord, 
         None => ws.clone(),
     };
     let context = ctx.to_string();
-    let context_file = ws.join(".flow").join(format!("context-{station}.json"));
+    let context_file = station_dir.join("context.json");
     let written = std::fs::create_dir_all(&cwd)
-        .and_then(|_| std::fs::create_dir_all(ws.join(".flow")))
+        .and_then(|_| std::fs::create_dir_all(&station_dir))
         .and_then(|_| std::fs::write(&context_file, &context));
     if let Err(e) = written {
         return fail(format!("gate {}: {}: {e}", g.name, cwd.display()));
@@ -198,6 +199,10 @@ pub(crate) async fn command_gate(sh: &Shared, engine: &Engine, rec: &RunRecord, 
     };
     let mut text = String::from_utf8_lossy(&o).into_owned();
     text.push_str(&String::from_utf8_lossy(&e));
+    let log = station_dir.join(format!("gate-{}.log", g.name));
+    if let Err(e) = std::fs::write(&log, &text) {
+        tracing::warn!(run = rec.id, gate = g.name, error = %e, "a gate's log not written");
+    }
     let tail: String = {
         let chars: Vec<char> = text.trim().chars().collect();
         chars[chars.len().saturating_sub(GATE_OUTPUT_KEPT)..].iter().collect()
@@ -338,6 +343,12 @@ mod tests {
         let (station, check, detail) = g.judged().await;
         assert_eq!((station, check), (StationStatus::Passed, CheckStatus::Pass), "{detail}");
         assert_eq!(detail, format!("built {}", g.run));
+        // The context it read and what it printed, in the station's process directory.
+        let dir = g._ws.path().join(&g.run).join(".harnix/runs").join(&g.run).join("stations/a");
+        let context: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("context.json")).unwrap()).unwrap();
+        assert_eq!(context["run"], g.run.as_str());
+        assert_eq!(std::fs::read_to_string(dir.join("gate-build.log")).unwrap().trim(), format!("built {}", g.run));
+        assert!(!g._ws.path().join(&g.run).join(".flow").exists());
     }
 
     #[tokio::test]

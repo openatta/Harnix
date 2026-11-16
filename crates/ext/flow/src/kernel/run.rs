@@ -459,7 +459,8 @@ pub struct RunRecord {
     /// Where it works: the project itself, a worktree of it, or its own scratch directory.
     #[serde(default)]
     pub workspace: Workspace,
-    /// Where its deliverables go, as the run holds it.
+    /// Where its deliverables go: a directory in the project (a run of no project: in its own
+    /// directory), resolved from its template when the run was started; `${output_dir}`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_dir: Option<String>,
     /// How it came to be started.

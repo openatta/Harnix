@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::kernel::host::Origin;
+use crate::kernel::host::{Origin, Withheld};
 use crate::kernel::run::Workspace;
 
 /// `flow.start`'s params.
@@ -26,7 +26,9 @@ pub struct StartParams {
     /// Where it works; absent: the project when there is one, else a scratch directory.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<Workspace>,
-    /// Where its deliverables go: a path or a template, recorded as given.
+    /// Where its deliverables go: a template relative to the project (`${flow}`, `${date}`,
+    /// `${seq}`, `${title}`, `${inputs.<k>}`), or an absolute path inside it; absent: the flow's,
+    /// else `flows/${flow}-${date}${seq}`. Made at start; the run holds it resolved.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_dir: Option<String>,
     /// How it came to be started; absent: by the caller's hand. Only the kernel and extensions
@@ -59,11 +61,18 @@ pub struct DefRow {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub description: String,
     pub digest: String,
-    /// Where it comes from: built in, saved over a built-in one, or saved here.
+    /// Where it comes from: built in, saved over a built-in one, saved here, or the project's own
+    /// (listed for a project: `flow.defs {project}`).
     pub origin: Origin,
     /// Whether it validates against this application's catalog; one that does not cannot be
     /// started.
     pub valid: bool,
+    /// Why it is not valid without being read, when that is so: `untrusted` — the project's
+    /// own, waiting on the project being trusted (title, digest and inputs are not read until
+    /// then); `unreadable` — its file is not a definition of this name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub reason: Option<Withheld>,
     /// What a run of it is started with, as one JSON Schema of the `inputs` object
     /// (`FlowDef::inputs_schema`): a form can be drawn from it.
     #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]

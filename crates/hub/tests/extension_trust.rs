@@ -440,7 +440,10 @@ async fn nobody_reaches_an_extensions_engines_settings_or_plugins() {
     assert_eq!(rig.own.0.passed().len(), methods.len());
     // What is not its settings passes through as for any engine.
     rig.call(kernel(), "engine.scene.list", json!({"instance": "ext"})).await.unwrap();
-    assert_eq!(rig.ext.0.passed(), ["engine.scene.list"]);
+    // Its own schedule's jobs, the model's, are its sessions' and no setting.
+    rig.call(kernel(), "engine.schedule.list", json!({"instance": "ext"})).await.unwrap();
+    rig.call(kernel(), "engine.schedule.delete", json!({"instance": "ext", "id": "j1"})).await.unwrap();
+    assert_eq!(rig.ext.0.passed(), ["engine.scene.list", "engine.schedule.list", "engine.schedule.delete"]);
 }
 
 #[tokio::test]

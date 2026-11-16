@@ -29,7 +29,7 @@ pub(crate) fn task_work(
     digest: Option<String>,
 ) -> WorkItem {
     let (guarded, submit_scenes, main_scene) = (&eng.guarded, &eng.submit_scenes, eng.main_scene.as_deref());
-    let workspace = eng.workspace(&rec.id);
+    let workspace = eng.workspace_for(rec);
     let ctx = context_in(rec, item.as_ref(), Some(tid), workspace.as_ref().and_then(|p| p.to_str()));
     let session_key = match &spec.executor {
         Executor::Agent { .. } => Some(MAIN_SESSION_KEY.to_string()),
@@ -107,6 +107,9 @@ pub(crate) fn task_work(
             gates: &rec.parts.gates,
             delivery: delivery.unwrap_or(Delivery::StructuredOutput),
             executor: Some(&spec.executor),
+            guard: rec.def.guard,
+            root: workspace.as_ref().and_then(|p| p.to_str()),
+            output_dir: rec.output_dir.as_deref(),
         })),
         _ => None,
     };

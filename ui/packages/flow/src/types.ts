@@ -26,6 +26,7 @@ export type {
   Station,
   MainSession,
   FlowDef,
+  Guard,
   // The parts of a pack.
   PartKind,
   PolicyDef,
@@ -304,6 +305,7 @@ export type FlowMethod =
   | "get"
   | "history"
   | "start"
+  | "runOf"
   | "defs"
   | "def"
   | "schema"

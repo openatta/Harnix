@@ -613,7 +613,7 @@ r.space(SpaceDecl::new("watchlist").instance("template:helm.research").scene("re
 
 构建：模板的 `scripts/build.sh` 把 `spaces/*/ui/src/index.tsx` 自动接进去；手工怎么构建、去重了哪些包见 §22.5。
 
-`space` 只是十一个内核贡献点之一：往工具行、对话流、右栏详情、右栏页签、左栏分组、命令菜单、设置、会话动作、快捷键里加东西的是另外十个，
+`space` 只是十二个内核贡献点之一：往工具行、对话流、右栏详情、右栏页签、左栏分组、命令菜单、设置、会话动作、快捷键、中区的视图里加东西的是另外十一个，
 你的扩展还能自己定义点（`<你的 id>.<名>`）。每个点的形状见 §22.3 与 [贡献点](contribution_points.md)。
 
 ### 8.3 `useHost()`
@@ -832,7 +832,7 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 |---|---|---|---|
 | Harnix 版本 | `0.4.4-2026111502` | 各 crate 的 `Cargo.toml`；`harnix::HARNIX_VERSION` | 每次发布（`scripts/set-version.sh` 连这一格一起改，`tests/crate-metadata.mjs` 查它和 crate 一致） |
 | 扩展 API | `1` | `harnix::ext::EXT_API_VERSION` | 写进文档、`--version` 打印的数，不做编译期检查：兼容靠 crate 的版本，从 0.4.4 起扩展接口只做加法（公开的结构与枚举都是 `non_exhaustive` 或只有私有字段，一个 feature 只加函数与模块）；破坏性的变化升它，也升 crate 的大版本。`harnix::ext::http::axum` 与 `harnix::axum`（feature `axum`）、`harnix::testing`（feature `testing`）不在承诺内 |
-| 贡献点 API | `4` | `harnix::CONTRIB_API_VERSION`；`harnix.hello` 里也有 | 贡献点的契约变了。2：运行期包的界面模块是预编译的 ES 模块，从页面的 import map 拿 React；**React 的大版本是它的一部分**。3：宿主 API `HostApi`/`useHost()`、第九个内核点 `session.action`、扩展自己定义的点（`definePoint`）、`space` 分组、按 `hello.extensions` 激活。4：第十个内核点 `sidebar.tab`（右栏的页签类型）、宿主 API `host.sidebar`（导航控制器）、页签域 `useTabInfo()`；第十一个内核点 `shortcut`（有快捷键的命令，§22.8）；只做加法，照 3 写的模块照常 |
+| 贡献点 API | `4` | `harnix::CONTRIB_API_VERSION`；`harnix.hello` 里也有 | 贡献点的契约变了。2：运行期包的界面模块是预编译的 ES 模块，从页面的 import map 拿 React；**React 的大版本是它的一部分**。3：宿主 API `HostApi`/`useHost()`、第九个内核点 `session.action`、扩展自己定义的点（`definePoint`）、`space` 分组、按 `hello.extensions` 激活。4：第十个内核点 `sidebar.tab`（右栏的页签类型）、宿主 API `host.sidebar`（导航控制器）、页签域 `useTabInfo()`；第十一个内核点 `shortcut`（有快捷键的命令，§22.8）；仍是 4、同一版里加的：第十二个内核点 `conversation.view`（中区里对话之外的视图，§22.10）、宿主 API `host.conversation`、`session.open(ref, { view })`；只做加法，照 3 写的模块照常 |
 | 协议 | `5` | `harnix_contract::PROTOCOL_VERSION` | 握手比对，不一致拒绝（`HANDSHAKE_REFUSED`）。5：名字规整（内核 `harnix.<区域>.<动词>`、引擎直通 `engine.*`、扩展在自己的 id 下），默认实例叫 `main`，新增错误码 `CANCELLED`、`DEADLINE_EXCEEDED`、`EXTENSION_UNAVAILABLE`。`harnix.event` 帧里的事件负载与 `engine.*` 的答是 Agix 的形状，不在加法承诺里，由 `hello.engine_protocol` 标明 |
 | 扩展包接口 | `2` | `harnix-ext.toml` 的 `[app] harnix_api`；`harnix_package::HARNIX_API` | 扩展包的契约（WIT world 与清单）有破坏性变化。见 [扩展包](harnix-ext-package.md) |
 | 扩展线 | `1` | `harnix_wasm_port::EXT_WIRE_VERSION` | 产品与它自己的扩展进程之间那条线（`harnix-ext-wire`）的帧或方法改了形状。两端是同一次构建，扩展进程的 `proc.hello` 报的数不等就被拒绝；应用不直接用它 |
@@ -870,7 +870,7 @@ harnix::{App, AppBuilder, ExtensionSlot, ExtensionStatus, HARNIX_VERSION, SHUTDO
 | 方法 | 说明 |
 |---|---|
 | `.name(name, version)` | 应用名与版本：`--version`、`--help` 用它。界面上的产品名、图标、产品 id 由 profile 的 `[brand]` 给 |
-| `.extensions(set)` | 加一组扩展（`ExtensionSet`），各带自己的授予。`harnix::first_party::standard()`：`harnix-app`、`system`、`observability`、`settings`、`plugins`、`devices`，各自带 Harnix 给它们的授予；`standard_with(packages)`、`standard_with_flow(flow)` 再加 `packages`、`flow` |
+| `.extensions(set)` | 加一组扩展（`ExtensionSet`），各带自己的授予。`harnix::first_party::standard()`：`harnix-app`、`system`、`observability`、`settings`、`plugins`、`devices`，各自带 Harnix 给它们的授予；`standard_with(packages)`、`standard_with_flow(flow)` 再加 `packages`、`flow`；定时 `Schedules` 照样另加（`.with(Schedules::new(), SCHEDULE_GRANTS)`，feature `schedule`） |
 | `.extension(e)` | 加一个扩展，返回 `ExtensionSlot`：`.grant([caps::…])` 或 `.ungranted()`。**顺序就是注册、`migrate`、`start` 的顺序**，也是引擎贡献的组合顺序 |
 | `.credentials(source)` | 换掉 `Credentials` 的实现（默认 `EnvCredentials`：`helm/quote-api` → `$HARNIX_CREDENTIAL_HELM_QUOTE_API`） |
 | `.profile_from_args()` / `.args(iter)` | 命令行从哪来；测试里用 `.args` |
@@ -878,8 +878,8 @@ harnix::{App, AppBuilder, ExtensionSlot, ExtensionStatus, HARNIX_VERSION, SHUTDO
 | `.default_engine(EngineProfile)` | 命令行没给 `--profile` 时用的 `[engine]`：产品自己的缺省，代替 `EngineProfile::default()`。给了 profile 就照 profile；`--scene`、`--scenes`、`--model` 照旧盖在两者上面。`harnix` 二进制用它把 `code` 列进可选场景（`scenes = ["code"]`，缺省场景仍是 `harnix`） |
 | `.run()` | 跑起来，`anyhow::Result<()>` |
 
-`harnix::first_party` 里还有每个第一方扩展的类型（`System`、`HarnixApp`、`Settings`、`Plugins`、`Observability`、`Devices`，以及按 feature 的 `Flow`、`Packages`）
-与它们的授予常量（`PACKAGES_GRANTS`、`FLOW_GRANTS`）：产品要自己挑几个、或调整配置时，各用它的类型。
+`harnix::first_party` 里还有每个第一方扩展的类型（`System`、`HarnixApp`、`Settings`、`Plugins`、`Observability`、`Devices`，以及按 feature 的 `Flow`、`Packages`、`Schedules`）
+与它们的授予常量（`PACKAGES_GRANTS`、`FLOW_GRANTS`、`SCHEDULE_GRANTS`）：产品要自己挑几个、或调整配置时，各用它的类型。
 
 ### 17.2 `trait Extension`
 
@@ -974,8 +974,8 @@ pub trait Extension: Send + Sync + 'static {
 | 内核能力 | 意思 | 原生 | 扩展包 | 谁用 |
 |---|---|---|---|---|
 | `instances.admin` | 停、重启任何非内核拥有的实例；按任何模板建实例、列出全部模板 | ✔ | | system |
-| `engine.inspect` | 读**任何**会话的内部：`inspectContext`、`tasks`、`taskOutput`、`goal`、`history` | ✔ | | system、flow、settings（会话的 MCP 上下文，可选） |
-| `engine.control` | 改任何会话的内部：`stopTask`、`messageTask`、`dropMessages`、`editMessage`、`compact`、`clear`、`setModel`、`rename`、`setGoal`、`updateGoal`；读、改项目的信任：`engine.project.status`、`engine.project.trust` | ✔ | | system、flow、harnix-app（项目信任，可选） |
+| `engine.inspect` | 读**任何**会话的内部：`inspectContext`、`tasks`、`taskOutput`、`goal`、`history`；引擎里模型建的定时 `engine.schedule.list` | ✔ | | system、flow、settings（会话的 MCP 上下文，可选）、schedule（可选） |
+| `engine.control` | 改任何会话的内部：`stopTask`、`messageTask`、`dropMessages`、`editMessage`、`compact`、`clear`、`setModel`、`rename`、`setGoal`、`updateGoal`；读、改项目的信任：`engine.project.status`、`engine.project.trust`；删引擎里模型建的定时 `engine.schedule.delete` | ✔ | | system、flow、harnix-app（项目信任，可选）、schedule（可选） |
 | `engine.config.read` / `engine.config.write` | 读 / 写引擎设置与 provider；后者含 `engine.config.reload`、`harnix.instances.inheritProviders`、宿主服务 `SettingsTiers`（§17.8） | ✔ | | settings、packages（写，可选） |
 | `engine.plugins` | Agix 插件的装、卸、启停、重读；往实例里放 skill | ✔ | | plugins、packages |
 | `engine.export` | `engine.session.export`、`harnix.session.import` | ✔ | | harnix-app |
@@ -988,6 +988,8 @@ pub trait Extension: Send + Sync + 'static {
 | `events.all_tools` | 看到每个会话的每一次工具调用 | | ✔ | — |
 | `feedback.read` | 订主题 `harnix.feedback`：收到人对回复的每一条反馈，评分、类别、备注原文，连同会话（§7.3） | ✔ | | —（缺省谁都没有） |
 | `net:<主机>` · `env:<名字>` · `storage:<MB>` · `fs:data` · `fs:project` | 扩展包的资源能力 | | ✔ | — |
+
+扩展自己声明的能力不在这张表里，列在 `harnix.extensions` 的那个扩展下：例如定时扩展的 `schedule.manage`（别的扩展要建、改、删定时、读投递记录，就要被授予它；设备不用，人管自己的定时，[Harnix app](harnix-app.md) §9）。
 
 **跨 space 不是一项能力**：同页的代码能声称任何 space，所以「在一个 space 里看别的 space 的会话」只防误。它是 space 声明上的标志 `cross_space()`，只有原生扩展能声明；
 真正的跨 space 读写权力在 `engine.inspect`、`engine.control`、`instances.admin`，它们才是安全边界。
@@ -1278,7 +1280,7 @@ cookie。一帧最大 16 MiB（`MAX_FRAME_BYTES`），一次上传最大 32 MiB�
 |---|---|---|
 | 握手与自述（装配） | `harnix.hello`（见下）、`harnix.reachable`、`harnix.diagnostics`、`harnix.audit`、`harnix.extensions`（每个扩展：id、信任、载体、版本、启用、授予、行数、停用理由）、`harnix.ui`（方法与主题同值：每个扩展的界面条目、Agix 包的界面模块、扩展包的面）、`harnix.bulk.upload` | 设备、扩展（`bulk.upload` 只设备） |
 | 展示（中枢） | `harnix.session.expose {instance?, session_id, to, interact?}`、`.unexpose {instance?, session_id, to}`：把会话展示到另一个 space、收回（§17.6）；`harnix.sessions.list {space}` 把展示来的会话也列出，带 `exposed_from` | 扩展（只有建它的那个） |
-| 会话驱动（中枢） | `harnix.sessions.list {space? \| instance?}`、`harnix.session.attach`、`.detach`、`.send`、`.queue.remove`、`.queue.edit {session_id, item_id, message}`（改排队中一条的话，位置与附件不变；已开始或已撤回的答 REFUSED）、`.create`、`.interrupt`、`.close`、`.delete`、`.fork`、`.respond {instance?, session_id, prompt_id, prompt_type?, decision? | answer?, tool_use_id?}`（回答一个提问，先答者生效、后来的静默成功；权限与计划审阅（`prompt_type` 缺省或 `permission`）给 `decision`，模型的提问（`question`）给 `answer: {type: answer, text} | {type: decline, reason?}`，MCP server 的询问（`mcp_elicitation`）给 `answer: {type: accept, content?} | {type: decline} | {type: cancel}`，形状不合答 -32602；第一个被收下的回答由中枢写进会话的流（事件 `ask_answered {prompt_id, prompt_type, decision? | answer?, extension?}`，表单的 `content` 不带），类型 `RespondParams`、`AskReply`、`AskAnswered` 在 `harnix_contract::wire`；提问与询问只推给设备建的会话；flow 按策略作答）、`.tasks`、`.rename`（引擎的标题，标题只在引擎）、`.move {instance?, session_id, space}`、`.entries.append`、`.feedback {instance?, session_id, space?, turn_id, call_id?, rating, category?, note?}`（对一轮回答的反馈，只设备调，§7.3）、`.answerer {session_id, tool_use_id}`（回答该工具权限卡的设备 `device:<id>`，没有设备回答时是 `null`；读一次即忘，最多留最近 1024 条）、`.outline {instance?, session_id, space?}`（会话的各轮，见下）、`harnix.topics.subscribe`、`.unsubscribe`、`harnix.spaces.list` | 设备、扩展（再按 `topic:<名>` 与范围判） |
+| 会话驱动（中枢） | `harnix.sessions.list {space? \| instance?}`、`harnix.session.attach`、`.detach`、`.send`、`.queue.remove`、`.queue.edit {session_id, item_id, message}`（改排队中一条的话，位置与附件不变；已开始或已撤回的答 REFUSED）、`.create`、`.interrupt`、`.close`、`.delete`、`.fork`、`.respond {instance?, session_id, prompt_id, prompt_type?, decision? | answer?, tool_use_id?}`（回答一个提问，先答者生效、后来的静默成功；权限与计划审阅（`prompt_type` 缺省或 `permission`）给 `decision`，模型的提问（`question`）给 `answer: {type: answer, text} | {type: decline, reason?}`，MCP server 的询问（`mcp_elicitation`）给 `answer: {type: accept, content?} | {type: decline} | {type: cancel}`，形状不合答 -32602；第一个被收下的回答由中枢写进会话的流（事件 `ask_answered {prompt_id, prompt_type, decision? | answer?, extension?}`，表单的 `content` 不带），类型 `RespondParams`、`AskReply`、`AskAnswered` 在 `harnix_contract::wire`；提问与询问只推给设备建的会话；flow 按策略作答）、`.tasks`、`.rename`（引擎的标题，标题只在引擎）、`.move {instance?, session_id, space}`、`.entries.append`、`.feedback {instance?, session_id, space?, turn_id, call_id?, rating, category?, note?}`（对一轮回答的反馈，只设备调，§7.3）、`.answerer {session_id, tool_use_id}`（回答该工具权限卡的设备 `device:<id>`，没有设备回答时是 `null`；读一次即忘，最多留最近 1024 条）、`.outline {instance?, session_id, space?}`（会话的各轮，见下）、`harnix.inbox {space?}`（等人处理的提问，同名主题的值，§21.3）、`harnix.topics.subscribe`、`.unsubscribe`、`harnix.spaces.list` | 设备、扩展（再按 `topic:<名>` 与范围判） |
 | 回退（中枢） | `harnix.session.rewind {instance?, session_id, space?, to: "start" \| {turn} \| {before_turn} \| {tool_use}, scope?, dry_run?, fork_first?, force?, allow_partial?}`：文件、对话或两者回到之前一点，先 `dry_run` 看计划（[Harnix app](harnix-app.md) §5.1）；答 `RewindResult`。设备只对它声称的 space 的会话，不跨 space（同 `setModel`）；做完向每个观看者推 `harnix.session_resync` | 设备、`engine.control` |
 | 会话看得到的（中枢） | `harnix.session.skills {instance?, session_id, space?}`：会话看得到的 skill（`engine.commands.list` 里展开成提示词的那些），每个带来源层 `tier`（`space`：Harnix 按 space 给会话列的扩展包目录，带 `package`；`project`：项目的 `.agents/skills`；`plugin`：Agix 插件包，带 `plugin`；`user`：引擎的全局层或场景层，引擎不分；`builtin`）、`dir`、`withheld`（项目未受信时被扣下一部分：内联命令不跑、`allowed-tools` 不给）；另有 `dirs`（Harnix 列的目录、状态、被遮住的同名 skill）、`listed`（会话不在引擎内存里时为 `false`、`skills` 为空）、`trust`。`harnix.session.hooks {instance?, session_id, space?}`：会话的轮次跑的 hook，`source` 是 `global` / `scene` / `project`（设置三层的 `hooks_config`）或 `host`（本进程在连接上登记的，带 `providers`），每条只有 `event`、`kind`（`command` / `prompt` / `http` / `agent` / `host` / `other`）、`matcher`（`if` 或工具模式，至多 80 字）、`label`、`on_error`、`in_force`、`withheld`（项目未受信）、`replaced_by`（同一事件被高层的列表整个替换）——**不带命令、地址、请求头、提示词**；`unread` 列出读不到的层。类型在 `harnix_contract::wire`（`SessionSkills`、`SessionHooks`） | 设备 |
 | 扩展日志（装配） | `harnix.extensions.log {extension?, level?, after?, limit?}`（§17.9） | `process.observe` |
@@ -1289,6 +1291,7 @@ cookie。一帧最大 16 MiB（`MAX_FRAME_BYTES`），一次上传最大 32 MiB�
 | 　 | `engine.session.tasks / taskOutput / inspectContext / goal` | `engine.inspect` |
 | 　 | `engine.session.stopTask / messageTask / dropMessages / editMessage / compact / clear / setModel / rename / setGoal / updateGoal` | `engine.control` |
 | 　 | `engine.project.status / trust`（项目信任；信任记在引擎的全局设置里，所以扩展的引擎上同它的设置一样拒绝） | `engine.control` |
+| 　 | `engine.schedule.list` · `engine.schedule.delete`（引擎自己的定时：模型建的，按会话、按 UTC；经这里只能读、删，建不了） | `engine.inspect` · `engine.control` |
 | 　 | `engine.session.export` · `engine.config.get / getProvider` · `engine.config.set / setProvider / update / reload` · `engine.plugin.install / uninstall / enable / disable / reload` · `engine.mcp.addServer / updateServer / auth.start / auth.complete / auth.cancel / auth.logout` | `engine.export` · `engine.config.read` · `engine.config.write`（设备永远不能） · `engine.plugins` · `engine.mcp`（设备永远不能；扩展的引擎上同它的设置一样拒绝） |
 | 　 | `engine.import.*` | 只有内核 |
 | 　 | `engine.session.run_turn / subscribe / unsubscribe`、`engine.daemon.subscribeEvents / shutdown` | **中枢独占**：谁都不能、不能授予 |
@@ -1297,7 +1300,8 @@ cookie。一帧最大 16 MiB（`MAX_FRAME_BYTES`），一次上传最大 32 MiB�
 | `observability` | `observability.trace`、`.trace.call {index}`、`.turns`、`.usage {instance?, session_ids}`（一次至多 200 个会话）、`.calls {instance?, session_id}` | 设备 |
 | `settings`、`plugins`、`devices` | `settings.*`（`setProvider` 的返回多一个 `reloaded_instances`；MCP 服务器的 `settings.mcp.*` 见 §22.9）、`plugins.*`、`devices.*` | 设备（`settings.mcp.context` 按会话） |
 | `packages` | `packages.*`：列、启停、装、升、卸、清数据、同意、商店。参数与答见 [扩展包](harnix-ext-package.md) | 设备 |
-| `flow` | `flow.*`（§23） | 设备 |
+| `flow` | `flow.*`（§23）；`flow.start`、`flow.get` 另对扩展 `schedule` 开（定时起任务、看上一次的运行还在不在） | 设备 |
+| `schedule` | `schedule.list {space?, project?}`、`.get`、`.create`、`.update {id, revision, …}`（版本不对答 `CONFLICT`）、`.delete`、`.enable`、`.disable`、`.runNow`、`.history`、`.model.delete {instance, id}`；主题 `schedule.list`（[Harnix app](harnix-app.md) §9） | 设备、持 `schedule.manage` 的扩展 |
 | 你的扩展 | `<id>.*` | 你声明的 |
 | 扩展包 | `<扩展包 id>.*` | 清单 `[[method]]` 的 `subject` |
 
@@ -1323,12 +1327,14 @@ cookie。一帧最大 16 MiB（`MAX_FRAME_BYTES`），一次上传最大 32 MiB�
 | `harnix.instances.sessions` | `instance` | 一台实例的会话：每行带 `running`（有一轮在跑）、`queued`、`tasks`（还在跑的任务数——任务可以比起它的那一轮活得久）、`waiting`（在等人：`approval` 是权限询问，`answer` 是模型的提问或 MCP server 的询问，`plan` 是离开计划模式要人审阅计划，没有为 null）、`started_by`（`harnix` 是扩展或内核起的，`user` 是设备上的人起的）、`turn_started_ms`、`goal`（hub 最近听到的目标；没有目标为 null，hub 还没听到过就没有这个键） |
 | `harnix.session.tasks` | `instance`、`session_id` | 一个会话的任务，和 `teams`：它的每个团队 hub 最近听到的 `team_progress`（`team, team_id, stage, stage_index, stage_count, status, members, failed`） |
 | `harnix.sessions.status` | — | 各会话的运行状态 |
+| `harnix.inbox` | — | 等人处理的：各会话正在等的每一个提问（权限、计划审阅、模型的提问、MCP server 的询问），`{items: [{instance, session_id, space, waiting, prompt, name, project_root, started_by, trust?}]}`；`prompt` 是引擎的原样（同 `attach` 的 `pending_prompts`）。也是同名方法（`{space?}`）。声称一个 space 时只有它的（跨 space 的 space 例外）；关掉的 space 的会话不列。类型 `harnix_contract::wire::{Inbox, InboxRow}` |
 | `harnix.feedback` | — | 最近记下的一条反馈：`{instance, session_id, space, entry_id, feedback}`，每记一条推一次；只有持 `feedback.read` 的扩展能订（§7.3） |
 | `harnix.spaces` | — | 同 `harnix.spaces.list` 的答；总在 |
 | `harnix.ui` | — | 每个扩展的界面条目、Agix 包的界面模块、扩展包的面（也是同名方法） |
 | `system.process` | — | 同 `system.process` 方法的答；有人订阅时每 5 秒重算一次推出 |
 | `packages.list`、`packages.progress` | — | 扩展包的快照、工具调用的进度；见 [扩展包](harnix-ext-package.md) |
 | `flow.*` | — | §23 |
+| `schedule.list` | — | 全部定时与上次读到的模型建的定时，同 `schedule.list {}` 的答；设备与持 `schedule.manage` 的扩展能订 |
 | `<id>.<主题>` | 你声明的 | 你推的整值快照 |
 
 扩展包撤下时，它的主题的每个订阅者按订阅的参数组各收到一次 `harnix.topic_ended { topic, params, reason }`，之后不再推；
@@ -1398,9 +1404,9 @@ export function register(r: Registry, host: HostApi): Dispose | void
   全部注册完还没人定义就丢掉并记进诊断。定义者用 `r.list(name)` / `useContributions(name)` 读；后端在 `UiDecl.points` 里声明同一个点，进生成的目录。
 - **接不上就自己来**：`r.register(point, c, owner, { orElse: () => … })`——点在全部注册结束时还没定义就调 `orElse`。
 
-### 22.3 十一个贡献点
+### 22.3 十二个贡献点
 
-内核贡献点 **11 个**，形状与每个点的字段见 [贡献点](contribution_points.md)（点的清单由代码生成）：
+内核贡献点 **12 个**，形状与每个点的字段见 [贡献点](contribution_points.md)（点的清单由代码生成）：
 
 | 点 | 什么 |
 |---|---|
@@ -1415,6 +1421,7 @@ export function register(r: Registry, host: HostApi): Dispose | void
 | `session.action` | 对一个会话、它里面一次工具调用、或人的一条话的动作：外壳在标题栏、会话菜单、工具行上问它；`at: ["arg"]` 的是工具行上的参数——第一个认领这次调用的把参数变成链接（文件工具的路径打开预览）。工具的 `target` 带调用的 `input`。`at: ["message"]` 的进人的一条话下面的消息菜单，`target` 是 `{kind: "message", session, space, turnId, text}`（外壳自己的「回到这里」在这里，[Harnix app](harnix-app.md) §5.1）。可选的 `disabled(target)` 答一句话时，这一项画成灰的、悬停说这句话 |
 | `sidebar.tab` | 右栏的一种页签类型：按 `patterns` 认领 `harnix-resource://` 地址，或按 `kind` 打开的页；§22.7 |
 | `shortcut` | 一条有快捷键的命令：按平台的缺省键、生效的地方、动作；设置的「快捷键」列出它、可改键；§22.8 |
+| `conversation.view` | 中区里对话之外的另一种视图（轨迹……）：有会话打开、有注册方时顶上出现「对话 \| …」的切换；§22.10 |
 
 `settings.section` 可以不给 `render`，只声明字段，外壳按声明画表单（类型对应控件、「恢复缺省」、有风险的值先确认、
 值在读取之后被别处改过时提示「保留我的修改并复核」）：
@@ -1441,8 +1448,8 @@ r.register("settings.section", {
 `settings.write {tier, changes, revision?}` 整份校验、按版本号拒绝过期的写入（`CONFLICT`），路由到没配置的 provider 也拒绝。
 provider 的 `api_key` 到界面只有 `***` 加末 4 位。
 
-扩展定义的点（第一方）：`system.console.tab`、`system.inspector.tab`（[系统 space](system-space.md) §11），`harnix-app.project.items`、`harnix-app.project.panels`
-（[Harnix app](harnix-app.md) §3.2），不算进「11 个」。
+扩展定义的点（第一方）：`system.console.tab`、`system.inspector.tab`、`system.metrics.link`（[系统 space](system-space.md) §2、§11），`harnix-app.project.items`、`harnix-app.project.panels`
+（[Harnix app](harnix-app.md) §3.2）、`harnix-app.inbox`（同上 §3.3），不算进「12 个」。
 `space` 的分组（0.4.2 的 25 个平铺成员按画在哪分四组）：
 
 ```ts
@@ -1472,6 +1479,8 @@ interface SpaceContribution {
 | `subscribe(topic, params \| undefined, fn)` | 返回取消函数。按 `(topic, 键排序后的 params)` 计数：同一页共用一份订阅，最后一个退订才发 `harnix.topics.unsubscribe`，后来者先拿到已有的值，重连后自动重订 |
 | `session.current() / context() / list() / open(ref) / create(spec?)` | 都是前台 space 的；`create` 自动绑定前台 space |
 | `session.open(ref, { switchSpace: true })` | 去会话所属的 space（按中枢账本）打开，先把它带到前台；返回的 promise 在打开后落定，没有这个会话就 reject |
+| `session.open(ref, { view })` | 打开时就用这个视图画它（`conversation.view` 的 id，或 `CONVERSATION_VIEW`）；可以和 `switchSpace`、`reveal` 一起给 |
+| `conversation.current() / show(view) / onChange(fn)` | 中区现在用哪个视图画打开的会话（§22.10）：`CONVERSATION_VIEW` 是对话；`show` 换视图并记在这个会话名下；没有注册的 id 退回对话 |
 | `session.open(ref, { switchSpace?, reveal: key })` / `session.reveal(key)` | 打开后等转录追上（有上限），在对话里找 `[data-reveal="<key>"]`，没有就找 id 是 `key` 的块，滚到中间、`data-revealed` 闪 2.4 秒；返回 `Promise<boolean>` |
 | `session.onChange(fn)` | 前台 space 的当前会话变了，同一个值不重复；`useCurrentSession()` 是它的 hook |
 | `session.isOpen(ref)` / `session.menu(ref, anchor)` | 这个页面有没有开着这个会话 / 外壳的会话菜单（自己的项加每个 `session.action` at `menu`） |
@@ -1703,6 +1712,36 @@ settings.mcp.context → {
 
 读自 `engine.session.inspectContext`（会话正在跑一轮时引擎答 `SESSION_BUSY`），先以设备的身份 `engine.session.get` 一次，看它能不能看这个会话。
 
+### 22.10 中区的视图：`conversation.view`
+
+中区把打开的会话画成对话；一个会话还可以有别的画法——**轨迹**（它记录下来的每一次模型调用，按轮列成一张表）就是一种。
+这样的画法是内核点 `conversation.view` 的一条注册：有会话打开、至少有一条适用的注册时，中区顶上出现「对话 | 轨迹 | …」的切换；
+对话是缺省；每个会话各记自己的选择（浏览器本地 `harnix.view`，会话删了就忘）。选了别的视图时对话仍在页上、只是不画：会话仍 attach 着，
+输入框仍绑着，流式照常跟。
+
+```ts
+r.register("conversation.view", {
+  id: "observability.trajectory",     // 全页唯一；也是 host.conversation.show() 和 session.open(ref, { view }) 用的名字
+  title: () => t("trajectory.title"), // 切换上的字，每次画时读
+  order: 10,                          // 在切换里的位置；缺省 100
+  match: (session) => true,           // 可选：适不适用于这个会话；抛错算不适用
+  render: (session) => <Trajectory session={session} />,   // 中区的正文；session 是 { instance, sessionId }
+}, owner);
+```
+
+宿主 API：`host.conversation.current()` 答现在的视图（`CONVERSATION_VIEW` 是对话），`show(id)` 换视图，`onChange(fn)` 在换了、或换了会话时告诉；
+`host.session.open(ref, { switchSpace: true, view })` 到会话所属的 space 打开它、直接用这个视图画。
+
+**轨迹**（`@harnix/observability`，`id: "observability.trajectory"`）：按轮分组的一张表——这一轮人说的话（`harnix.session.outline`）、
+每次模型调用（模型、进出 token、用时、首字、速度、停止原因、回答的开头）与它要的工具调用（名字、输入的开头、结果出没出错）、
+子 Agent 的调用、这一轮旁边的调用（压缩、记忆、标题）；轮、调用、子 Agent 都能折叠，搜索能找到折起来的；只看失败、只看工具、跳到失败处；
+上方一条时间概览（真实的开始时间与总时长，每条按首字分成等待与解码两段，一轮的调用之间是工具的时间，子 Agent 另一条道；拖选一段只列这段里活动的调用，
+滚轮缩放，「重置」）；选中一条在旁边开检查器（输入、输出、与上一次对比、复制 JSON、在对话里定位）；每一轮的行上有 `observability.turns` 的汇总
+（首字、模型与工具时间、进出、缓存命中、速度、上下文增量或累计）；长历史先列最近 50 轮，「更早的 N 轮」往前；只画看得见的行；
+流式时跟着末尾，往上滚了就不跟；任务的站的边界来自 outline 的 `marks`；对这一轮的反馈（§7.3）标在它最后一次调用上。
+读的都是设备自己够得着的方法：`observability.trace / trace.call / turns`（按会话判，声称前台 space）、`harnix.session.outline`、`engine.session.entries`。
+同一个组件也是系统 space 检查器的「轨迹」页签（[系统 space](system-space.md) §8.2），那里带「在会话里打开」。
+
 ---
 
 ## 23. 流程扩展：`harnix-ext-flow`、`@harnix/flow`
@@ -1714,7 +1753,7 @@ Harnix 自己的二进制注册了它（`crates/cli/src/main.rs`）。
 
 | 构建器 | 意思 |
 |---|---|
-| `.packs(impl Packs)` / `.packs_arc(Arc<dyn Packs>)` / `.packs_with(\|data_dir\| …)` | 流程包：`MemPacks`（代码里给）、`DirPacks`（目录分层，`with_builtin` + `with_writable`）；`packs_with` 在启动时从扩展的数据目录建 |
+| `.packs(impl Packs)` / `.packs_arc(Arc<dyn Packs>)` / `.packs_with(\|data_dir\| …)` | 流程包：`MemPacks`（代码里给）、`DirPacks`（目录分层，`with_builtin` + `with_writable`）；`packs_with` 在启动时从扩展的数据目录建。项目自带的流程包（`<项目>/.harnix/flows/`，`ProjectPacks`）由扩展自己叠在上面，只给这个项目的任务，项目受信才读，应用不用配 |
 | `.store(impl RunStore)` / `.store_with(…)` | 运行存在哪；缺省扩展数据目录下 `runs/` 的 `FileStore` |
 | `.scene(SceneBase)` | 给流程用的 scene 底，包装成 `flow-<id>`（带 `flow_submit`、`flow_state`、`flow_propose`）。一个都不给时用内置的 `harnix`、`code`、`mini`（`flow-harnix`、`flow-code`、`flow-mini`） |
 | `.author_scene(SceneBase)` | 流程的对话（`flow-author`）包装的 scene；缺省 `harnix` |

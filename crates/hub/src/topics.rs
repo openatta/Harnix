@@ -291,6 +291,12 @@ impl crate::Hub {
             }
             _ => {}
         }
+        // Each ask says its session's space.
+        if topic == wire::INBOX {
+            if let Some(Value::Array(items)) = value.get_mut("items") {
+                items.retain(|item| item.get("space").and_then(Value::as_str) == Some(space));
+            }
+        }
         value
     }
 
@@ -339,6 +345,8 @@ impl crate::Hub {
             let state = guard.sessions.entry(key).or_default();
             state.subscribed = true;
             state.pending_prompts = subscribed.pending;
+            drop(guard);
+            self.arc().refresh(wire::INBOX, json!({}));
         }
     }
 
