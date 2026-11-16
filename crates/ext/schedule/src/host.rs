@@ -42,7 +42,8 @@ impl Host for Hub {
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
-            .find(|s| s.get("default_space").and_then(Value::as_bool) == Some(true))
+            // A space row says it under `default`.
+            .find(|s| s.get("default").and_then(Value::as_bool) == Some(true))
             .and_then(|s| field(s, "id"))
             .unwrap_or_default()
             .to_string()
