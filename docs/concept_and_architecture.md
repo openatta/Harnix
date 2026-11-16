@@ -728,7 +728,7 @@ fn main() -> anyhow::Result<()> {
 | `engine.control` | 改任何会话的内部：任务、消息、压缩、清空、模型、名字、目标 | ✔ | | system、flow（给它开的会话改名） |
 | `engine.config.read` / `engine.config.write` | 读 / 写引擎设置与 provider；后者含重读设置、交给继承 provider 的实例 | ✔ | | settings · settings |
 | `engine.plugins` | Agix 插件的装、卸、启停、重读 | ✔ | | plugins、packages |
-| `engine.export` | 导出会话 | ✔ | | harnix-app |
+| `engine.export` | 导出、导入会话 | ✔ | | harnix-app |
 | `engine.mcp` | 给引擎加 MCP 服务器 | ✔ | | — |
 | `recordings.read` · `transcripts.read` | 录像与用量的读者 · 转录的读者；都经引擎的协议读（`session.calls`、`call`、`callBlob`、`search`），每台实例各有一套，实例连不上读者返回 `Unavailable` | ✔ | | observability · harnix-app |
 | `process.observe` | 版本、运行时长、内存、线程、已连接的客户端 | ✔ | | system |

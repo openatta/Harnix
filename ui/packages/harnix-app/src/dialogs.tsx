@@ -6,11 +6,11 @@
  * read its state.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { errorText, type Scene } from "@harnix/core";
 import { DialogBody, DialogFoot, Glyph, t, useHello, useT, type HostApi } from "@harnix/react";
 
-import type { AppStore, Workspace } from "./store.ts";
+import { SESSIONS, type AppStore, type Workspace } from "./store.ts";
 
 /** Run a call; a failure is said in the banner, in `failed`'s words when given. */
 async function attempt(host: HostApi, run: () => Promise<unknown>, failed?: (error: string) => string): Promise<boolean> {
@@ -318,6 +318,84 @@ function ExportForm({ host, target, close }: { host: HostApi; target: ExportTarg
         </button>
         <button type="button" className="btn primary" data-testid="export-go" onClick={() => void go()}>
           {t("dialog.exportGo")}
+        </button>
+      </DialogFoot>
+    </>
+  );
+}
+
+/* ── import ───────────────────────────────────────────────────────────── */
+
+/** What `harnix-app.sessions.import` answers: the engine's, plus where it landed. */
+interface Imported {
+  root_session_id: string;
+  instance?: string;
+  warnings?: string[];
+}
+
+type ImportState = { step: "idle" } | { step: "uploading" | "importing"; name: string } | { step: "failed"; error: string };
+
+/**
+ * Import a session bundle (an archive exported from here or from Agix): the zip goes up the
+ * large-payload channel, then the backend asks the engine to install it as new sessions in the
+ * session space. The bundle's project is kept when it exists on this machine, else the session
+ * has none (a warning says so). The imported session is opened.
+ */
+export async function importDialog(host: HostApi, store: AppStore): Promise<void> {
+  await host.dialogs.open<true>((close) => <ImportForm host={host} store={store} close={close} />, { title: t("dialog.importSession") });
+}
+
+function ImportForm({ host, store, close }: { host: HostApi; store: AppStore; close: Close }) {
+  const t = useT();
+  const pick = useRef<HTMLInputElement>(null);
+  const [state, setState] = useState<ImportState>({ step: "idle" });
+  const busy = state.step === "uploading" || state.step === "importing";
+  const run = async (file: File) => {
+    setState({ step: "uploading", name: file.name });
+    try {
+      const grant = await host.call<{ token: string; url: string }>("harnix-app.sessions.importUpload", { name: file.name, space: SESSIONS });
+      const response = await fetch(grant.url, { method: "POST", body: file });
+      if (!response.ok) throw new Error(await response.text());
+      setState({ step: "importing", name: file.name });
+      const done = await host.call<Imported>("harnix-app.sessions.import", { token: grant.token, space: SESSIONS });
+      await store.refresh();
+      for (const warning of done.warnings ?? []) host.shell.notice(warning);
+      close(true);
+      await host.session.open({ instance: done.instance ?? host.defaults.instance, sessionId: done.root_session_id });
+    } catch (e) {
+      setState({ step: "failed", error: errorText(e) });
+    }
+  };
+  return (
+    <>
+      <DialogBody>
+        <div className="field">
+          <div className="hint">{t("dialog.importHint")}</div>
+          <input
+            ref={pick}
+            type="file"
+            accept=".zip"
+            hidden
+            data-testid="import-file"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) void run(file);
+            }}
+          />
+          <button type="button" className="btn outline" data-testid="import-pick" disabled={busy} onClick={() => pick.current?.click()}>
+            {t("dialog.importPick")}
+          </button>
+          <div className="hint" data-testid="import-status" role="status">
+            {state.step === "uploading" ? t("dialog.importUploading", { name: state.name }) : null}
+            {state.step === "importing" ? t("dialog.importImporting", { name: state.name }) : null}
+            {state.step === "failed" ? t("dialog.importFailed", { error: state.error }) : null}
+          </div>
+        </div>
+      </DialogBody>
+      <DialogFoot>
+        <button type="button" className="btn outline" disabled={busy} onClick={() => close(null)}>
+          {t("common.cancel")}
         </button>
       </DialogFoot>
     </>

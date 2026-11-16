@@ -1430,6 +1430,32 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "harnix-app.sessions.import",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "harnix-app.sessions.importUpload",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
         "scope": "open"
       },
       "kind": "method",
@@ -1816,6 +1842,23 @@
       },
       "kind": "method",
       "name": "harnix.session.fork",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "engine.export"
+        ],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "harnix.session.import",
       "owner": "kernel:hub"
     },
     {
