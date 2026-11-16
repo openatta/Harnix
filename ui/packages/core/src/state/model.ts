@@ -12,6 +12,7 @@
  */
 
 import { answeredBy, askForm, type AskAnswer, type AskForm } from "./asks.ts";
+import { failureAction, failureClass, failureDetail, failureFacts, type FailureAction, type FailureClass, type FailureFacts } from "./failure.ts";
 import type {
   AskAnswered,
   AttachResult,
@@ -77,7 +78,7 @@ export type Block =
       reply?: string;
       elsewhere?: boolean;
     }
-  | { key: number; kind: "note"; text: string; tone: NoteTone }
+  | { key: number; kind: "note"; text: string; tone: NoteTone; /** 悬停提示：原话与错误码，给支持看 */ detail?: string; /** 说完之后给的入口 */ action?: FailureAction }
   /**
    * 注入进对话、不是人说的话：提醒、召回、技能指令，或者压缩留下的消息。`compact` 说它和压缩有关：实时看到的是一次压缩，
    * 带上压缩前后的消息数与省下的 token（`compact` 帧）；从历史读回来的是压缩替换进来的一条消息，只有它的内容。
@@ -259,8 +260,24 @@ export function addEntry(state: SessionState, entry: SessionEntry, at?: number):
   return seen ? state : addCustom(state, "entry", entry, at);
 }
 
-export function note(state: SessionState, text: string, tone: NoteTone = "info"): SessionState {
-  return push(state, { kind: "note", text, tone })[0];
+export function note(state: SessionState, text: string, tone: NoteTone = "info", extra?: { detail?: string; action?: FailureAction }): SessionState {
+  return push(state, { kind: "note", text, tone, ...extra })[0];
+}
+
+/**
+ * 一次失败说给人听：认得的（`failureClass`）用 `explain` 的话，原话与码放进 `detail`；不认得的照原话。
+ */
+export function failureNote(
+  state: SessionState,
+  error: unknown,
+  frame: (error: string) => string,
+  explain?: SettleTexts["explain"],
+): SessionState {
+  const facts = failureFacts(error);
+  const cls = failureClass(facts);
+  const said = cls ? explain?.(cls, facts) : undefined;
+  if (!cls || !said) return note(state, frame(facts.raw), "error");
+  return note(state, frame(said), "error", { detail: failureDetail(facts), action: failureAction(cls) });
 }
 
 /**
@@ -697,6 +714,8 @@ function subagentEvent(
 export interface SettleTexts {
   interrupted: string;
   failed: (error: string) => string;
+  /** 认得的失败说成一句话（做什么、下一步）；没有话说就不给，界面照原话。 */
+  explain?: (cls: FailureClass, facts: FailureFacts) => string | undefined;
 }
 
 /**
@@ -705,7 +724,7 @@ export interface SettleTexts {
  */
 export function applySettled(
   state: SessionState,
-  params: { error?: { message?: string }; result?: { usage?: Usage; name?: string | null } },
+  params: { error?: { message?: string; code?: number; data?: unknown }; result?: { usage?: Usage; name?: string | null } },
   wasInterrupted: boolean,
   texts: SettleTexts,
   now?: number,
@@ -722,7 +741,7 @@ export function applySettled(
   }
   if (wasInterrupted) next = note(next, texts.interrupted, "interrupted");
   if (params.error) {
-    if (!wasInterrupted) next = note(next, texts.failed(params.error.message ?? ""), "error");
+    if (!wasInterrupted) next = failureNote(next, params.error, texts.failed, texts.explain);
   } else if (params.result) {
     if (params.result.usage) next = { ...next, usage: params.result.usage };
     if (params.result.name && next.session) next = { ...next, session: { ...next.session, name: params.result.name } };

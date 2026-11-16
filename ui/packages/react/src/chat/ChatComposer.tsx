@@ -841,7 +841,7 @@ function PopRow({
   );
 }
 
-interface RingValue {
+export interface RingValue {
   tokens: number;
   max?: number;
   ratio?: number;
@@ -853,7 +853,7 @@ interface RingValue {
  * 上下文环的值：会话的 `context`——最后一次调用发出去的上下文（`tokens`）、窗口（`window`）与自动压缩的位置
  * （`compact_threshold`）。不是本轮用量的合计：一轮调几次模型，合计就是上下文的几倍。
  */
-function ringValue(config: ContextRingConfig, state: SessionState | null): RingValue | null {
+export function ringValue(config: ContextRingConfig, state: SessionState | null): RingValue | null {
   const context = state?.context;
   if (context && Number.isFinite(context.tokens)) {
     const max = context.window || config.max;
@@ -869,8 +869,8 @@ function ringValue(config: ContextRingConfig, state: SessionState | null): RingV
   return null;
 }
 
-/** 上下文环（原型 ctxBtn）：百分比；点开是上下文弹层 */
-function ContextRing({ value, testId, open, onClick }: { value: RingValue; testId?: string; open: boolean; onClick: () => void }) {
+/** 上下文环（原型 ctxBtn）：百分比；点开是上下文弹层。会话头也画它（同一份 `ringValue`，不另存状态）。 */
+export function ContextRing({ value, testId, open, onClick }: { value: RingValue; testId?: string; open: boolean; onClick: () => void }) {
   const strings = useStrings();
   const p = value.ratio != null ? Math.min(1, value.ratio) : 0;
   const C = 2 * Math.PI * 6;

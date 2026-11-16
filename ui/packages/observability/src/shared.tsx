@@ -1,10 +1,14 @@
 /**
- * What the calls and turns tabs share: the recording's shapes, how a call's usage and a message's
- * text are written, how a failure is said, and the way back to the conversation.
+ * What the trajectory and the tabs share: the recording's shapes, which space a call about a session
+ * claims, how a call's usage and a message's text are written, how a failure is said, and the ways
+ * from a call back to the conversation and from the system space into the session.
  */
 
 import { errorText, type CallSummary, type RecordingRun, type TurnSummary } from "@harnix/core";
-import { compact, t, useT, type HostApi, type HostSessionRef as SessionKey, type Registry } from "@harnix/react";
+import { CONVERSATION_VIEW, compact, t, useT, type HostApi, type HostSessionRef as SessionKey, type Registry, explainError } from "@harnix/react";
+
+/** The view this package registers for the centre: the session's trajectory. */
+export const TRAJECTORY_VIEW = "observability.trajectory";
 
 /** The tab's host and the page's registry: what a tab reaches out with. */
 export interface Observed {
@@ -20,6 +24,17 @@ export type Run = RecordingRun;
 
 /** One `observability.trace` row: a model call, what went in and what came out (its tool calls' inputs and results are in the call's detail). */
 export type TraceCall = CallSummary;
+
+/** Where a call about a session claims it is: the backend space the front space lists (the system space reaches across). */
+export function claimFor(r: Registry, host: HostApi): string {
+  const front = host.spaces.current();
+  return r.at("space").find((c) => c.id === front)?.sessions ?? front;
+}
+
+/** The parameters every read of a session carries: the session, and the space claimed for it. */
+export function sessionParams({ host, registry }: Observed, session: SessionKey): { instance: string; session_id: string; space: string } {
+  return { instance: session.instance, session_id: session.sessionId, space: claimFor(registry, host) };
+}
 
 /** What the page says of the run a reading covers: since when, and that an earlier one is gone. */
 export function RunNote({ run, testId = "run-note" }: { run?: Run | null; testId?: string }) {
@@ -42,6 +57,10 @@ export function usageText(usage: TraceCall["usage"]): string {
   return `in ${compact(input)} · out ${compact(usage.output_tokens ?? 0)}`;
 }
 
+export function seconds(ms?: number | null): string {
+  return ms != null ? `${(ms / 1000).toFixed(1)}s` : "—";
+}
+
 export function messageText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -57,7 +76,7 @@ export function messageText(content: unknown): string {
     .join(" ");
 }
 
-/** The codes these tabs have words for (the system space's words: they are drawn inside it). */
+/** The codes these pages have words for (the system space's words: they are drawn inside it too). */
 const SAID: Record<number, string> = {
   [-31000]: "system.error.refused",
   [-31002]: "system.error.noInstance",
@@ -74,7 +93,7 @@ function codeOf(e: unknown): number | undefined {
   return typeof code === "number" ? code : undefined;
 }
 
-/** A tab's failure: the page's own words for a code it knows, the backend's (with the code) in the title. */
+/** A page's failure: its own words for a code it knows, the backend's (with the code) in the title. */
 export function Failure({ error, testId, className = "empty" }: { error: unknown; testId?: string; className?: string }) {
   useT();
   const code = codeOf(error);
@@ -87,31 +106,23 @@ export function Failure({ error, testId, className = "empty" }: { error: unknown
 }
 
 /**
- * From a call back to the conversation: the session opened in the interface space that lists its
- * backend space, and the tool call it asked for (if it asked for one) scrolled to and flashed. The
- * row is drawn once the history is in, so it is looked for a few times.
+ * From a call back to the conversation: the session opened where it belongs, shown as its
+ * conversation, and the tool call it asked for (if it asked for one) scrolled to and highlighted.
  */
-export async function locateInConversation({ host, registry }: Observed, session: SessionKey, tool: string | null): Promise<void> {
-  const listed = await host.call<{ sessions: { session_id: string; instance?: string; space?: string }[] }>("harnix.sessions.list", { instance: session.instance }).catch(() => ({ sessions: [] }));
-  const backend = listed.sessions.find((r) => r.session_id === session.sessionId)?.space ?? host.defaults.space;
-  if (!backend) return;
-  const front = host.spaces.current();
-  const space = registry.at("space").find((c) => (c.sessions ?? c.id) === backend && c.id !== front)?.id ?? backend;
+export async function locateInConversation(host: HostApi, session: SessionKey, tool: string | null): Promise<void> {
   try {
-    await host.navigate.open({ space, session });
+    if (tool) await host.session.open(session, { switchSpace: true, view: CONVERSATION_VIEW, reveal: tool });
+    else await host.session.open(session, { switchSpace: true, view: CONVERSATION_VIEW });
   } catch (e) {
-    host.shell.notice(errorText(e), "error");
-    return;
+    host.shell.notice(explainError(e), "error");
   }
-  if (!tool) return;
-  for (let i = 0; i < 25; i += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    const node = document.querySelector<HTMLElement>(`[data-testid="conv-tool"][data-id="${CSS.escape(tool)}"]`);
-    if (!node) continue;
-    node.scrollIntoView({ block: "center" });
-    node.classList.add("hx-flash");
-    node.dataset.located = "true";
-    setTimeout(() => node.classList.remove("hx-flash"), 2000);
-    return;
+}
+
+/** Into the session's trajectory: the session opened where it belongs (the space it is in brought to the front), shown as its trajectory. */
+export async function openTrajectory(host: HostApi, session: SessionKey): Promise<void> {
+  try {
+    await host.session.open(session, { switchSpace: true, view: TRAJECTORY_VIEW });
+  } catch (e) {
+    host.shell.notice(explainError(e), "error");
   }
 }

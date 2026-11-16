@@ -10,7 +10,7 @@ export { HarnixUiProvider, useConnection, useHello, useHarnixClient, useSession,
 export { TurnRail, TICK_SPACING, type TurnRailProps } from "./chat/TurnRail";
 export { TURN_NEXT, TURN_PREVIOUS, addTurnRail, currentTurnRail, registerTurnShortcuts, type TurnRailHandle } from "./chat/turnNav";
 export { ChatPanel, type ChatPanelProps } from "./chat/ChatPanel";
-export { ChatComposer, type Attached, type ChatComposerProps, type ComposerApi, type ModelOption } from "./chat/ChatComposer";
+export { ChatComposer, ContextRing, ringValue, type Attached, type ChatComposerProps, type ComposerApi, type ModelOption, type RingValue } from "./chat/ChatComposer";
 export { TranscriptList, type TranscriptListProps } from "./chat/TranscriptList";
 export { readDraft, writeDraft } from "./chat/drafts";
 export { Avatar, ComposerNote, DiffView, QueuedBubble, SegmentRow, TranscriptToolRow, UnifiedDiffView } from "./chat/messages";
@@ -47,10 +47,11 @@ export {
 export { SessionView, type SessionViewProps } from "./components/SessionView";
 export { SessionList, type SessionListProps } from "./components/SessionList";
 export { ConnectionBadge } from "./components/ConnectionBadge";
+export { ContextReport, FactList, originLabel, type ContextReportData } from "./components/ContextReport";
 export { BuiltinToolRow, Disclosure, STATUS_GLYPH, ToolDetails, argumentSummary, askedTool, clip, rowTitle, toolAsks, useToolState, type ToolAsks, type ToolRowContribution, type UserRowContribution } from "./components/blocks";
 export { lineDiff, hunks, type DiffLine } from "./diff";
 export { markdown, escapeHtml, type MarkdownOptions } from "./markdown";
-export { zhCN, en, uiStrings, type HarnixUiStrings } from "./strings";
+export { zhCN, en, uiStrings, explainError, type HarnixUiStrings } from "./strings";
 export { Icon } from "./chat/icons";
 export { DISPLAY_DEFAULTS, FONT_SIZE_RANGE, accepts as displayAccepts, applyTypography, display, setDisplay, subscribeDisplay, useDisplay, type BusyEnter, type Display, type LinkOpening, type UsageDetail } from "./display";
 export { GLYPHS, Glyph, glyphHtml, iconsFrom, toolGlyph } from "./glyph";
@@ -111,6 +112,7 @@ export {
   type CommandCandidate,
   type CommandContext,
   type Contributions,
+  type ConversationView,
   type DetailItem,
   type Point,
   type Refusal,
@@ -168,6 +170,7 @@ export {
 export { t, translate, useT, useLocale, setLocale, onLocaleChoice, currentLocale, localeChoice, addStrings, DICTIONARIES, type Locale, type LocaleChoice, type Translate } from "./i18n/index";
 export type { FlowBlockContribution } from "./chat/types";
 export {
+  CONVERSATION_VIEW,
   HostProvider,
   useCurrentSession,
   useHost,

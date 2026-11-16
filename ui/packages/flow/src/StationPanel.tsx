@@ -416,6 +416,10 @@ function RunTab({ station: s, view, module }: { station: Station; view: RunView;
           ) : null}
           {unmet.length && rec.status !== "passed" && rec.status !== "skipped" ? (
             <Field label={t("flowui.run.unmet")} testid="flow-unmet">
+              <div className="hx-flow-faint" data-testid="flow-unmet-hint">
+                {t("flowui.run.unmetHint")}
+                {unmet.some((u) => u.kind === "gate") ? ` ${t("flowui.run.gateLog", { run: run.id, station: s.id })}` : ""}
+              </div>
               <ul className="hx-flow-list">
                 {unmet.map((u, i) => (
                   <li key={i}>

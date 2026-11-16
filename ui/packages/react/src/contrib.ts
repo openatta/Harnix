@@ -1,7 +1,7 @@
 /**
  * 贡献点注册表（概念 §5.6）：界面上哪些地方可以由内建、UI 包或运行期包填，以及怎么填。
  *
- * v4 的十一个内核点：
+ * v4 的十二个内核点：
  *
  * | 点 | 形状 | 怎么用 |
  * |---|---|---|
@@ -16,6 +16,7 @@
  * | `session.action` | `id`、`at`、`label(target)`、`match(target)`、`run(target)`，可选的 `disabled(target)` | 标题栏、会话菜单、工具行（按钮与参数）、人的消息的菜单（`message`）各问 `at` 里有它的，按注册顺序 |
  * | `sidebar.tab` | `id`、`kind`、`title(address?)`、`render()`，可选的 `patterns`、`priority`、`canOpen`、`guide`、`multiple`、`keepMounted`、`scope` | 右栏的页签类型（`sidebar.ts`）：资源地址按优先级档、模式长度、注册顺序认领；一个 `kind` 至多一份 extension 加一份 builtin，extension 生效 |
  * | `shortcut` | `id`、`title()`、`run(ctx)`，可选的 `keys`、`scope`、`enabled()` | 一条有快捷键的命令（`shortcuts.ts`）：设置里列出、可改键；一个键按下时焦点所在处的先于全局的，再按注册顺序；`id` 在全页唯一 |
+ * | `conversation.view` | `id`、`title()`、`render(session)`，可选的 `match(session)`、`order` | 中间区里对话之外的一种视图：有会话打开、有注册方时顶上出现「对话 \| …」的切换，全部按 `order` 再按注册顺序；每个会话各记自己的选择 |
  *
  * 扩展还可以定义自己的点（`definePoint("<扩展 id>.<名>")`），别的包往里注册；注册进还没定义的点先挂着，全部注册完
  * （`settle`）还没人定义就丢掉并记进诊断，给了 `orElse` 的调它。一个扩展激活时注册的（`activate`）记在它名下，
@@ -49,8 +50,27 @@ export const POINTS = [
   "session.action",
   "sidebar.tab",
   "shortcut",
+  "conversation.view",
 ] as const;
 export type Point = (typeof POINTS)[number];
+
+/**
+ * A view of the centre beside the conversation (a trajectory, say): the same session another way,
+ * taking the conversation's place while it is chosen. The shell draws the switch at the top of the
+ * centre whenever a session is open and at least one view applies; the conversation stays the
+ * default, and each session remembers its own choice in this browser.
+ */
+export interface ConversationView {
+  id: string;
+  /** The switch's label. Read at every draw. */
+  title(): string;
+  /** Whether it applies to this session; absent, it applies to every one. A throw drops it. */
+  match?(session: SessionRef): boolean;
+  /** Where it goes among the views; 100 when absent. */
+  order?: number;
+  /** The centre while it is chosen. */
+  render(session: SessionRef): ReactNode;
+}
 
 /** 右栏详情里打开的东西：一行工具调用、一次请求信封，或贡献自己的。 */
 export interface DetailItem {
@@ -282,6 +302,7 @@ export interface Contributions {
   "session.action": SessionAction;
   "sidebar.tab": SidebarTabType;
   shortcut: ShortcutCommand;
+  "conversation.view": ConversationView;
 }
 
 /** What a registration may give: a settings section may declare its fields in place of drawing itself. */
@@ -320,6 +341,7 @@ const SHAPE: { [P in Point]: string[] } = {
   "session.action": ["label", "match", "run"],
   "sidebar.tab": ["title", "render"],
   shortcut: ["title", "run"],
+  "conversation.view": ["title", "render"],
 };
 
 const ACTION_PLACES: readonly string[] = ["header", "menu", "tool", "arg", "message"];
@@ -407,7 +429,7 @@ interface Defined {
 }
 
 export class Registry {
-  /** Every registration, by point name: the kernel's eleven, and whatever else was named — a point an
+  /** Every registration, by point name: the kernel's twelve, and whatever else was named — a point an
    *  extension defines, or one nobody has defined yet. */
   private readonly entries = new Map<string, Entry<Point>[]>(POINTS.map((p) => [p, []]));
   private readonly meta = new WeakMap<object, Meta>();
