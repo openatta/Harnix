@@ -9,7 +9,7 @@
 > 本文照代码写：后端在 `crates/ext/harnix-app/src/`（`lib.rs`、`workspaces.rs`、`files.rs`、`project.rs`、`export.rs`、`store.rs`），界面在
 > `ui/packages/harnix-app/src/`（`index.tsx`、`sessions.tsx`、`projects.tsx`、`sidebar.tsx`、`dialogs.tsx`、`store.ts`），一轮的改动由中枢记（`crates/hub/src/changes.rs`），外壳的菜单、层与新对话页在
 > `ui/packages/shell/src/`（`Menu.tsx`、`Shell.tsx`、`dialogs.tsx`；层与菜单的底子在 `ui/packages/react/src/layers.ts`），profile 在
-> `crates/assembly/src/profile.rs`。对不上时以代码为准。
+> `crates/assembly/src/profile.rs`，定时（§9）在 `crates/ext/schedule/src/`。对不上时以代码为准。
 
 ---
 
@@ -461,3 +461,41 @@ Harnix app 是原生扩展最小的例子：一个后端扩展、一个界面包
 **要一个不同的 Harnix app**：不 fork 外壳，在自己的产品里把 `harnix-app` 写进 `[extensions] off`，用自己的扩展声明 space、用自己的 UI 包
 注册 space 顶替（[Harnix 扩展](harnix-ext.md)）。0.4.2 里后端随框架链进来、只能藏不能去；现在它是一个独立扩展，关掉就是整个不在，
 `harnix-app.*` 的方法也不再登记。
+
+## 9. 定时
+
+到点替人做一件事：往一个会话里发一轮、在项目里新建一个会话发一轮、或在项目里起一个任务（一次流程运行）。
+**由 Harnix 调度**，是第一方扩展 `schedule`（`crates/ext/schedule`，`harnix` 二进制带它，`harnix` 门面的 feature `schedule`）：
+引擎自己的定时只能发给已有会话、按 UTC 算、开不了新会话（`agix/docs/daemon_rpc_protocol.md` §6.7）。
+**Harnix 没在跑时不投递**：一个定时器在进程里，进程起来时按每条的「错过」策略处理停着的那段（见下）。
+
+| 项 | 怎么做 |
+|---|---|
+| 时间（`timing.kind`） | `once {at}`（RFC 3339 带偏移，或时区里的墙钟 `YYYY-MM-DDTHH:MM[:SS]`）· `after {seconds}`（建好之后多久，一次）· `every {minutes}`（每 N 分钟，≥ 1，按经过的时间算）· `daily {time: "HH:MM"}` · `weekly {weekdays: [1..7], time}`（周一 1 … 周日 7）· `cron {expr}`（5 段，照 Vixie：`*`、数字、范围、列表、步长；不认名字和宏；日、周两段都写了时任一满足即可）。每月、工作日由界面拼成 `cron`、`weekly` |
+| 时区 | `time_zone` 是 IANA 名字，缺省是本机的；墙钟时间都按它算。夏令时跳过的那段钟点当天不到期，重复的那段只算第一次；`once` 落在跳过的那段里，顺延到跳过之后 |
+| 目标（`target.kind`） | `session {instance, session_id, prompt}`：已有会话发一轮，会话忙就排队（`OnBusy::Queue`）；上一次投的还在队列里时这一次并进去（回执 `skipped`、`merged`）。`new_session {mode, project_root?, scene?, instance?, provider?, model?, prompt}`：新会话，`new_once_then_reuse`（缺省，第一次新建、之后都发给它）或 `new_each`（每次新建），标题是「定时标题 · 计划时间」（时区里的 `YYYY-MM-DD HH:MM`）。`task {flow, subject, inputs?, project_root, title?, output_dir?, workspace?}`：每次 `flow.start` 一个运行，`trigger` 是 `{kind: schedule, schedule, fire_at}` |
+| 错过（`missed`） | 晚了一分钟以上的算错过（Harnix 没在跑、机器睡着）：`catch_up_latest`（缺省）只补最近一次，`skip` 一次也不补、记一条 `skipped`、`missed` |
+| 并发（`concurrency`） | 只对任务：上一次的运行还在跑时 `skip`（缺省，记 `previous_run`）或 `parallel`（再起一个，配合 `workspace: worktree`）。会话目标按会话排队 |
+| 最小间隔 | 同一条定时两次投递至少隔 60 秒，「立即执行」也算；不到就记 `skipped`、`min_interval` |
+| 回执（`Receipt`） | `scheduled_at`（计划时间；立即执行是按下的时间）、`delivered_at`、`manual`、`outcome`（`pending` · `delivered` · `skipped` · `failed`）、`reason`（跳过的四种理由，或失败的错误）、`target`（`{instance, session_id, created, item?}` 或 `{run}`）。只说明交出去了，不说明模型做得怎样。**失败不重试**。每条留最近 200 条、30 天以内的，最近一条总留着 |
+| 幂等 | 投递一条一条来。先写下 `pending` 回执；新会话一建好就把它的 id 写进回执（`new_once_then_reuse` 还写进 `target.session`），再发提示词——重启后沿用，不会再开一个。启动时还是 `pending` 的回执改成 `failed`（`interrupted…`），不重投：一个时间至多投一次 |
+| 存储 | 扩展数据目录下的 `schedules.json`：整份写到临时文件再改名，带版本号；读不了的放到一边（`.json.unread`），从空开始，不迁移旧格式 |
+| 归属与授权 | 一条定时属于一个 space（`space`，建时声称的，缺省是缺省 space）；带 `space` 的调用只够得着那个 space 的定时（不是的答 `SPACE_MISMATCH`），不带的够得着全部（系统 space 的总览这样调）。会话目标建时核对会话属于这个 space。设备不要能力：人管自己的定时，不审批；别的扩展要被授予 `schedule.manage`（定时扩展声明的） |
+| 改 | `update` 带读到的 `revision`；别人改过了答 `CONFLICT`，`data.revision` 是现在的。改了时间就从现在重新算下一次；`every`、`after` 原样送回不会重新起算。开关（`enable`、`disable`）也算一次改；重新打开从现在算，关着期间到期的不补 |
+| 模型建的 | 模型用引擎的 `CronCreate` 建的（存在引擎里，按会话、按 UTC）也列在 `schedule.list` 的 `model` 里，标「模型建的」，只能删（`schedule.model.delete {instance, id}`）。读、删走 `engine.schedule.list`、`engine.schedule.delete`，定时扩展为此被授予 `engine.inspect`、`engine.control`；够不着的实例列在 `unreachable` |
+
+**方法**（参数、答的类型从 `crates/ext/schedule/src/wire.rs` 生成到 `@harnix/core`：`Schedule`、`ScheduleTiming`、`Target`、`Receipt`、`ScheduleList`……）：
+
+| 方法 | 参数 → 答 |
+|---|---|
+| `schedule.list` | `{space?, project?}` → `{schedules, model, unreachable}`：按下一次时间排，不再到期的排在后面 |
+| `schedule.get` | `{id, space?}` → `Schedule`（`next_fire`、`last_delivery`、`revision`、`created_by`……） |
+| `schedule.create` | `{space?, title, timing, time_zone?, target, missed?, concurrency?, enabled?}` → `Schedule`；一次性的时间已经过了、cron 永远不到期、项目目录不在，答 `INVALID_PARAMS` |
+| `schedule.update` | `{id, revision, space?, title?, timing?, time_zone?, target?, missed?, concurrency?}` → `Schedule` |
+| `schedule.delete` | `{id, space?}` → `{deleted}`：连同回执，不删它开过的会话 |
+| `schedule.enable` / `disable` | `{id, space?}` → `Schedule` |
+| `schedule.runNow` | `{id, space?}` → `Receipt`：开着关着都能立即执行，下一次的时间不变 |
+| `schedule.history` | `{id, space?, limit?}` → `{receipts, total}`，新的在前 |
+| `schedule.model.delete` | `{instance, id, space?}` → `{deleted}` |
+
+主题 `schedule.list`：全部定时，和上次读到的模型建的，每次变了推整值。
