@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::future::Future;
 use std::sync::Arc;
 
-use harnix_ext::{Access, Call, Registrar, RpcError, Subject};
+use harnix_ext::{Access, Call, ExtId, Registrar, RpcError, Subject};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -235,12 +235,38 @@ fn method<C, P, F, Fut>(
     F: Fn(Arc<Shared>, Arc<dyn Packs>, Call, P) -> Fut + Send + Sync + Copy + 'static,
     Fut: Future<Output = Answer> + Send + 'static,
 {
+    method_for(m, sh, packs, name, Access::device(), describe, f);
+}
+
+/// [`method`], open as `access` says.
+fn method_for<C, P, F, Fut>(
+    m: &mut Registrar<'_, C>,
+    sh: &Arc<Shared>,
+    packs: &Arc<dyn Packs>,
+    name: &str,
+    access: Access,
+    describe: &str,
+    f: F,
+) where
+    P: DeserializeOwned + Send + 'static,
+    F: Fn(Arc<Shared>, Arc<dyn Packs>, Call, P) -> Fut + Send + Sync + Copy + 'static,
+    Fut: Future<Output = Answer> + Send + 'static,
+{
     let sh = sh.clone();
     let packs = packs.clone();
     m.method(name)
-        .access(Access::device())
+        .access(access)
         .describe(describe)
         .handler(move |cx: Call, p: P| f(sh.clone(), packs.clone(), cx, p));
+}
+
+/// The scheduler, which starts a project's task when its schedule says (`docs/harnix-app.md`
+/// §9) and reads whether the last one still runs: `flow.start` and `flow.get` are open to it by
+/// name, and to no other extension.
+const SCHEDULER: &str = "schedule";
+
+fn devices_and_the_scheduler() -> Access {
+    Access::device().with_extension(ExtId::native(SCHEDULER).expect("a native extension's id"))
 }
 
 /// Run a change, carry out what it produced (a dry run's: queue it in the sandbox), answer its
@@ -439,11 +465,12 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         "runs, newest first: {flow?, status?, subject?, parent?, project?, limit?}; project: the runs of that project (its tasks)",
         |sh, _, _, q: RunQuery| async move { to_value(engine(&sh)?.list(q).await.map_err(rpc_error)?) },
     );
-    method(
+    method_for(
         m,
         sh,
         packs,
         "get",
+        devices_and_the_scheduler(),
         "a run with its pinned definition and what each open station lacks (a dry run's session tasks carry `preview`): {run}",
         |sh, _, _, p: RunIn| async move {
             if in_sandbox(&sh, &p.run).await {
@@ -788,11 +815,12 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
     );
 
     // ── runs ─────────────────────────────────────────────────────────────────
-    method(
+    method_for(
         m,
         sh,
         packs,
         "start",
+        devices_and_the_scheduler(),
         "start a run: {flow, subject, inputs?, title?, project_root?, workspace?: project|worktree|scratch, output_dir?, trigger?: {kind: manual} | {kind: schedule, schedule, fire_at}} → {run}; with a project_root (an existing absolute directory) the run is a task of that project; only the kernel and extensions start one on a schedule",
         |sh, _, cx, p: StartParams| async move {
             let by = caller(&cx);
