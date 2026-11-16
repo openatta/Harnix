@@ -131,6 +131,19 @@ impl Hub {
             DaemonEventKind::Lagged => {
                 tokio::spawn(self.clone().reconcile(instance.to_string()));
             }
+            DaemonEventKind::McpServer { ref server, failed } if !extension => {
+                let key = (instance.to_string(), server.clone());
+                let mut told = event.clone();
+                if let Some(obj) = told.as_object_mut() {
+                    obj.insert("instance".into(), json!(instance));
+                }
+                let mut guard = self.inner.lock().await;
+                if failed {
+                    guard.failed_servers.insert(key, told);
+                } else {
+                    guard.failed_servers.remove(&key);
+                }
+            }
             _ => {}
         }
         if extension {

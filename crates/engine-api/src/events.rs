@@ -174,6 +174,8 @@ pub enum DaemonEventKind {
     /// The engine dropped some of these events: what the hub knows of turns elsewhere may be
     /// stale.
     Lagged,
+    /// An MCP server of the engine connected, or `failed` to.
+    McpServer { server: String, failed: bool },
     Other,
 }
 

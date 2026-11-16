@@ -20,7 +20,7 @@
 //! (Agix §5.1), so a daemon serves one Harnix: whoever hands this link a stream has made sure
 //! nobody else holds one.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -171,6 +171,9 @@ struct Wire {
     /// Where the engine records, as it said when asked: forgotten when its settings are reloaded
     /// and when a connection is taken, the two times it can have changed unannounced.
     recorder_root: Arc<RootCache>,
+    /// The servers the engine announced as failed on this connection: what `mcp.status` need not
+    /// announce again.
+    mcp_announced: StdMutex<HashSet<String>>,
 }
 
 impl DaemonLink {
@@ -221,6 +224,7 @@ impl DaemonLink {
             host,
             activity: Arc::default(),
             recorder_root: Arc::default(),
+            mcp_announced: StdMutex::new(HashSet::new()),
         });
         let wired: Arc<dyn Wired> = wire.clone();
         wire.host.watch(Arc::downgrade(&wired));
@@ -251,6 +255,7 @@ impl DaemonLink {
         let Connection { reader, writer } = connection;
         *self.wire.writer.lock().await = Some(writer);
         let lost = CancellationToken::new();
+        lock(&self.wire.mcp_announced).clear();
         let reading = tokio::spawn(self.wire.clone().read(reader, lost.clone()));
         let taken = Taken { lost, reading };
         if let Err(refusal) = self.wire.handshake(token).await {
@@ -268,6 +273,7 @@ impl DaemonLink {
         }
         self.wire.status.send_replace(LinkStatus::Ready);
         tracing::info!(daemon = %self.wire.label, "daemon link ready");
+        tokio::spawn(self.wire.clone().announce_mcp_failures());
         Ok(taken)
     }
 
@@ -369,6 +375,25 @@ impl Wire {
         Ok(())
     }
 
+    /// The engine connects its MCP servers as it starts, before this link has subscribed to its
+    /// events: a server that failed then was announced to no one. Once subscribed, ask what
+    /// failed and announce those the engine did not announce on this connection. Events come in
+    /// the order read, so those ahead of the answer are already counted.
+    async fn announce_mcp_failures(self: Arc<Self>) {
+        if !translate::has_mcp(&lock(&self.identity).modules) {
+            return;
+        }
+        let Ok(status) = self.call(translate::MCP_STATUS, json!({})).await else { return };
+        for (server, event) in translate::mcp_failures(&status) {
+            if !lock(&self.mcp_announced).insert(server) {
+                continue;
+            }
+            if self.events_tx.send(event).await.is_err() {
+                return;
+            }
+        }
+    }
+
     /// Route every line: replies to their callers, the daemon's calls of what this link offers to
     /// it, everything else to the event stream, in the order read. A reply is therefore never
     /// handed over before the events the daemon wrote ahead of it, and a call of this link's never
@@ -382,6 +407,9 @@ impl Wire {
             };
             if let Some((session, stir)) = translate::stir(&frame) {
                 self.activity.saw(&session, stir);
+            }
+            if let Some(server) = translate::mcp_failed_server(&frame) {
+                lock(&self.mcp_announced).insert(server.to_string());
             }
             match frame.get("id").and_then(Value::as_u64) {
                 Some(id) if frame.get("method").is_none() => {
@@ -643,6 +671,56 @@ mod tests {
             link.degrade("the connection closed".into());
         }
         assert!(events.try_recv().is_err(), "the first connection is not a reconnection");
+    }
+
+    /// A server that failed before the link subscribed is announced once from `mcp.status`; one the
+    /// engine announced itself is not announced again.
+    #[tokio::test]
+    async fn a_server_that_failed_before_the_subscription_is_announced_once_from_the_status() {
+        let dir = tempfile::tempdir().unwrap();
+        let (link, listener, socket) = pair(dir.path(), CALL_TIMEOUT).await;
+        let mut events = link.take_events().unwrap();
+        let endpoint = Endpoint::Unix(socket);
+        let (taken, mut fake) = tokio::join!(
+            async { link.take(Connection::open(&endpoint).await.unwrap(), None).await },
+            async {
+                let mut fake = Fake::accept(&listener).await;
+                for _ in 0..2 {
+                    let (id, method) = fake.request().await.unwrap();
+                    let result = if method == translate::DAEMON_PING {
+                        json!({"version": "x", "protocol_version": crate::AGIX_PROTOCOL,
+                               "capabilities": crate::REQUIRED_CAPABILITIES, "modules": ["mcp"]})
+                    } else {
+                        json!({})
+                    };
+                    fake.answer(id, result).await;
+                }
+                fake
+            }
+        );
+        let _taken = taken.map_err(|r| format!("{r:?}")).unwrap();
+        let (id, method) = fake.request().await.unwrap();
+        assert_eq!(method, translate::MCP_STATUS);
+        // One failure the engine announced on this connection, one it did not.
+        let seen = json!({"method": "daemon.event", "params": {"kind": "mcp_connect_failed", "server": "seen", "error": "x"}});
+        fake.writer.write_all(format!("{seen}\n").as_bytes()).await.unwrap();
+        let servers = json!({"servers": [
+            {"name": "seen", "state": "failed", "error": "x"},
+            {"name": "up", "state": "connected"},
+            {"name": "early", "state": "failed", "error": "no such binary"},
+        ]});
+        fake.answer(id, servers).await;
+        let mut told = Vec::new();
+        while told.len() < 2 {
+            let Some(EngineEvent::Daemon { event, .. }) = events.recv().await else { panic!("not a daemon event") };
+            told.push(event);
+        }
+        assert_eq!(told[0]["server"], "seen");
+        assert_eq!(told[1], json!({"kind": "mcp_connect_failed", "server": "early", "error": "no such binary"}));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), events.recv()).await.is_err(),
+            "the one the engine announced is not announced again"
+        );
     }
 
     #[tokio::test]

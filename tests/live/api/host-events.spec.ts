@@ -11,10 +11,10 @@
 // can make one: that is what the channel's own rules are checked with. An MCP
 // server that fails is different. The engine connects its servers as it starts,
 // before the link has subscribed to its events, and `engine.mcp.addServer` is
-// refused here on purpose (concept §3.4): so a server that fails at startup is
-// announced to no one, and a client learns of it from `engine.mcp.status`, which
-// lists the servers that failed, with why. The first is a gap, written down; the
-// second is what a client does today.
+// refused here on purpose (concept §3.4): so a server that fails at startup fails
+// before the link has subscribed. The link asks `engine.mcp.status` once it has,
+// and announces the failures the engine did not, so the host event comes either
+// way and a client can also read the same from the status.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -57,10 +57,6 @@ async function announced(client: TestClient, maker: TestClient): Promise<Frame[]
 
 defineSuite("host-events", {
   feature: "sessions",
-  gaps: {
-    "an MCP server that fails as the engine starts is announced to no one":
-      "Harnix: once a link is taken, announce the failures `engine.mcp.status` already holds — they happen before the link subscribes to the engine's events",
-  },
 }, {
   tests: {
     "a process-level fact reaches a client that subscribed to nothing":
@@ -126,18 +122,21 @@ defineSuite("host-events", {
         }
       },
 
-    "an MCP server that fails as the engine starts is announced to no one":
+    "an MCP server that fails as the engine starts is announced, with its name and why":
       async ({ client: { topology } }) => {
-        // Not an assertion that this is right — it is the gap, written down.
         const backend = await startBackend({
           env: { ANTHROPIC_API_KEY: "host-events" },
           seed: seedFailingMcp,
         });
         try {
           const client = await connect(backend, { topology });
-          await sleep(3_000);
-          const told = client.events.filter((f) => f.method === "harnix.host_event" && f.params?.kind === "mcp_connect_failed");
-          assert(!told.length, "the failure is announced now — assert that it names the server and why, and drop the @gap");
+          const told = await hostEvents(client, (f) => f.params?.kind === "mcp_connect_failed" && f.params?.server === SERVER);
+          assert(told.length, `no host event named the server; saw ${client.events.map((e) => e.method).join(", ") || "nothing"}`);
+          assert(told[0].params?.error, `the event does not say why: ${JSON.stringify(told[0].params)}`);
+          // Once: the engine's own announcement and the link's are one.
+          await sleep(1_000);
+          const all = client.events.filter((f) => f.method === "harnix.host_event" && f.params?.kind === "mcp_connect_failed" && f.params?.server === SERVER);
+          assert(all.length === 1, `announced ${all.length} times`);
           client.close();
         } finally {
           await backend.dispose();

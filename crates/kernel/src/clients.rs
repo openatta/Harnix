@@ -16,4 +16,6 @@ pub trait ClientRegistry: Send + Sync {
     async fn add_client(&self, sink: Arc<dyn FrameSink>) -> ClientId;
     fn describe_client(&self, id: ClientId, description: serde_json::Value);
     async fn remove_client(&self, id: ClientId);
+    /// A client opened its host-event stream: what it missed before it was open can be told now.
+    async fn host_face_opened(&self, _id: ClientId) {}
 }

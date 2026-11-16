@@ -36,6 +36,7 @@ pub const SESSION_APPEND_ENTRY: &str = "session.appendEntry";
 pub const SESSION_RESPOND: &str = "session.respondToPrompt";
 pub const CONFIG_RELOAD: &str = "config.reload";
 pub const DAEMON_SUBSCRIBE_EVENTS: &str = "daemon.subscribeEvents";
+pub const MCP_STATUS: &str = "mcp.status";
 pub const DAEMON_PING: &str = "daemon.ping";
 pub const DAEMON_AUTH: &str = "daemon.auth";
 pub const DAEMON_SET_HOST_TOOLS: &str = "daemon.setHostTools";
@@ -105,6 +106,10 @@ const SESSION_EVICTED: &str = "session_evicted";
 const SESSION_CLOSED: &str = "session_closed";
 const SESSION_DELETED: &str = "session_deleted";
 const EVENTS_LAGGED: &str = "events_lagged";
+/// An MCP server the engine could not connect, and the module whose methods report on it.
+const MCP_CONNECT_FAILED: &str = "mcp_connect_failed";
+const MCP_CONNECTED: &str = "mcp_connected";
+const MCP_MODULE: &str = "mcp";
 
 /// A question whose answer is words, not a permission.
 const QUESTION: &str = "question";
@@ -424,9 +429,45 @@ fn daemon_event(params: Value) -> EngineEvent {
             DaemonEventKind::SessionsChanged { session, ended: true }
         }
         (EVENTS_LAGGED, _) => DaemonEventKind::Lagged,
+        (kind @ (MCP_CONNECT_FAILED | MCP_CONNECTED), _) => match field("server") {
+            Some(server) => DaemonEventKind::McpServer { server, failed: kind == MCP_CONNECT_FAILED },
+            None => DaemonEventKind::Other,
+        },
         _ => DaemonEventKind::Other,
     };
     EngineEvent::Daemon { kind, event: params }
+}
+
+/// Whether an engine's build has the module that answers `mcp.status`.
+pub(crate) fn has_mcp(modules: &[String]) -> bool {
+    modules.iter().any(|m| m == MCP_MODULE)
+}
+
+/// The server a frame says failed to connect, when it is the engine's own event for that.
+pub(crate) fn mcp_failed_server(frame: &Value) -> Option<&str> {
+    if frame.get("method").and_then(Value::as_str) != Some(DAEMON_EVENT) {
+        return None;
+    }
+    let params = frame.get("params")?;
+    if params.get("kind").and_then(Value::as_str) != Some(MCP_CONNECT_FAILED) {
+        return None;
+    }
+    params.get("server").and_then(Value::as_str)
+}
+
+/// The failures an `mcp.status` answer lists, as the events the engine would have sent when they
+/// happened: `(server, event)`.
+pub(crate) fn mcp_failures(status: &Value) -> Vec<(String, EngineEvent)> {
+    let servers = status.get("servers").and_then(Value::as_array).into_iter().flatten();
+    servers
+        .filter(|s| s.get("state").and_then(Value::as_str) == Some("failed"))
+        .filter_map(|s| {
+            let name = s.get("name").and_then(Value::as_str)?;
+            let error = s.get("error").and_then(Value::as_str).unwrap_or("connect failed");
+            let params = json!({"kind": MCP_CONNECT_FAILED, "server": name, "error": error});
+            Some((name.to_string(), event(json!({"method": DAEMON_EVENT, "params": params}))?))
+        })
+        .collect()
 }
 
 /// A question as the engine put it, with what it waits for.
@@ -915,6 +956,14 @@ mod tests {
             DaemonEventKind::SessionsChanged { session: Some("s".into()), ended: true }
         );
         assert_eq!(daemon(json!({"kind": "events_lagged"})), DaemonEventKind::Lagged);
+        assert_eq!(
+            daemon(json!({"kind": "mcp_connect_failed", "server": "x", "error": "e"})),
+            DaemonEventKind::McpServer { server: "x".into(), failed: true }
+        );
+        assert_eq!(
+            daemon(json!({"kind": "mcp_connected", "server": "x"})),
+            DaemonEventKind::McpServer { server: "x".into(), failed: false }
+        );
         assert!(super::event(json!({"jsonrpc": "2.0", "id": 3, "result": {}})).is_none(), "a reply is no event");
     }
 

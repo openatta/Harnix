@@ -98,6 +98,9 @@ struct Inner {
     dispatch: clients::Dispatch,
     sessions: HashMap<SessionKey, SessionState>,
     topics: topics::Topics,
+    /// The MCP servers an engine could not connect, as the host event said it: a client that
+    /// connects later is told too, since the failure happened before it came.
+    failed_servers: HashMap<(String, String), Value>,
 }
 
 /// The hub's lock, marked held while it is, so that a call into the instance registry can assert
@@ -375,7 +378,19 @@ impl Hub {
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         );
         self.inner.lock().await.clients.insert(id, sink);
+        self.tell_held_failures(id).await;
         id
+    }
+
+    /// The MCP servers that failed before this client could hear of it, told to it now.
+    async fn tell_held_failures(&self, id: ClientId) {
+        let guard = self.inner.lock().await;
+        let told: Vec<_> = guard
+            .failed_servers
+            .values()
+            .map(|event| guard.clients.to_many(&[id], harnix_contract::Frame::host(notification("harnix.host_event", event.clone()))))
+            .collect();
+        send_after(guard, told).await;
     }
 
     /// What a client is, as the transport saw it at handshake: shown in the system space.
@@ -486,6 +501,10 @@ impl harnix_kernel::ClientRegistry for Hub {
 
     async fn remove_client(&self, id: ClientId) {
         Hub::remove_client(self, id).await
+    }
+
+    async fn host_face_opened(&self, id: ClientId) {
+        self.tell_held_failures(id).await
     }
 }
 
