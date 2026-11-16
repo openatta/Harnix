@@ -42,6 +42,7 @@ mod lifecycle;
 mod links;
 mod prompt;
 mod replay;
+mod rewind;
 mod rows;
 mod scenes;
 mod session;

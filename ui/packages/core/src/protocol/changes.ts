@@ -9,6 +9,11 @@
 /** 条目的命名空间与事件名。 */
 export const CHANGES_NS = "harnix.changes";
 export const CHANGES_EVENT = "turn";
+/**
+ * 回退撤掉了几轮：中枢记一条 `rewind`（`{rewind_id, turn_ids}`），日志只追加不删。它之前、这几轮的 `turn` 条目
+ * 中枢列条目（`engine.session.entries`）时已经去掉，界面不必再筛；这条本身不画。
+ */
+export const CHANGES_REWIND = "rewind";
 
 /** 一个文件在这一轮里的改动（同一文件写了几次合成一行）。 */
 export interface FileChange {

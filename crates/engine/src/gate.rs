@@ -7,6 +7,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use harnix_contract::wire::{RewindParams, RewindResult};
 use harnix_contract::RpcError;
 use harnix_engine_link::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
 use serde_json::Value;
@@ -125,5 +126,13 @@ impl EngineOps for GatedOps {
     async fn passthrough(&self, method: &str, params: Value) -> Answer<Value> {
         self.awake().await?;
         self.agix.passthrough(method, params).await
+    }
+    async fn rewind(&self, session: &str, ask: &RewindParams) -> Answer<RewindResult> {
+        self.awake().await?;
+        self.agix.rewind(session, ask).await
+    }
+    async fn live_turns(&self, session: &str) -> Answer<Vec<String>> {
+        self.awake().await?;
+        self.agix.live_turns(session).await
     }
 }

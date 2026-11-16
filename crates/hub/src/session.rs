@@ -76,6 +76,8 @@ pub(crate) struct SessionState {
     /// it (a schedule), or the link that was running it went away. Its end
     /// arrives as `turn_completed` or is found by a resync.
     pub external: bool,
+    /// A rewind of the hub's is under way: the engine's frame for it is the hub's to follow up.
+    pub rewinding: bool,
     /// How the running turn ended, once the engine has said: what settling reports as the
     /// turn's `outcome` (ipdrun-17).
     pub last_complete: Option<Completion>,
@@ -168,6 +170,12 @@ pub(crate) async fn route_event(
     }
     match kind {
         SessionEventKind::Compacted => state.compacted = true,
+        // What was drawn past the point it went back to is gone, its frames with it; the frame
+        // itself goes to whoever watches, and no one catches up on it.
+        SessionEventKind::Rewound { messages } => {
+            state.replay.clear();
+            state.history_total_before_turn = *messages;
+        }
         SessionEventKind::Asked(prompt) => state.pending_prompts.push(prompt.clone()),
         SessionEventKind::GoalChanged { goal } => state.goal = Some(goal.clone()),
         SessionEventKind::TeamProgress { team_id } => {
@@ -190,7 +198,9 @@ pub(crate) async fn route_event(
     }
     state.seq += 1;
     let seq = state.seq;
-    state.replay.push(seq, turn_id, kind, &event);
+    if !matches!(kind, SessionEventKind::Rewound { .. }) {
+        state.replay.push(seq, turn_id, kind, &event);
+    }
     let watchers = state.watchers();
     let params = EventFrame {
         instance: instance.to_string(),

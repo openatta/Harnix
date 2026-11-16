@@ -49,6 +49,9 @@ pub struct Access {
     extensions: Reach,
     /// What an extension must hold besides being let in. A device holds nothing.
     requires: Option<Capability>,
+    /// Devices are let in whatever an extension must hold: what a person decides about their own
+    /// session, which an extension does only when granted.
+    device_free: bool,
     scope: RowScope,
     /// Why it is refused to whoever it is not open to, when that is on purpose.
     refused: Option<&'static str>,
@@ -62,6 +65,7 @@ impl Access {
             device: false,
             extensions: Reach::Only(BTreeSet::new()),
             requires: None,
+            device_free: false,
             scope: RowScope::Open,
             refused: None,
             hub_owned: false,
@@ -92,6 +96,12 @@ impl Access {
     /// The kernel, and an extension holding `cap`. Never a device.
     pub fn capability(cap: Capability) -> Self {
         Self::extensions().requiring(cap)
+    }
+
+    /// Any device, the kernel, and an extension holding `cap`: a person decides it for themselves,
+    /// an extension only when granted.
+    pub fn device_or_capability(cap: Capability) -> Self {
+        Self { device_free: true, ..Self::capability(cap).with_device() }
     }
 
     /// The kernel alone, with a reason everyone else is told.
@@ -142,7 +152,7 @@ impl Access {
     }
 
     pub fn opens_devices(&self) -> bool {
-        self.device && self.requires.is_none()
+        self.device && (self.requires.is_none() || self.device_free)
     }
 
     /// Whether every extension is let in by the row's own declaration.
@@ -197,6 +207,10 @@ mod tests {
         assert_eq!(row.requirement(), Some(&caps::ENGINE_INSPECT));
         assert!(!Access::device().requiring(caps::ENGINE_EXPORT).opens_devices());
         assert_eq!(Access::device().scope(), RowScope::Open);
+        // Unless the row says a device decides it for itself.
+        let either = Access::device_or_capability(caps::ENGINE_CONTROL);
+        assert!(either.opens_devices() && either.opens_every_extension());
+        assert_eq!(either.requirement(), Some(&caps::ENGINE_CONTROL));
         // A device's row is no extension's unless it says so.
         assert!(Access::device().opens_devices());
         assert!(!Access::device().opens_every_extension());

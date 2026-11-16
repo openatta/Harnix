@@ -472,6 +472,152 @@ pub struct AttachResult {
     pub trust: Option<EngineTrust>,
 }
 
+/* ── harnix.session.rewind ─────────────────────────────────────────────── */
+
+/// Where a rewind goes back to: `"start"`, or one of `{turn}`, `{before_turn}`, `{tool_use}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum RewindTo {
+    /// Before the first turn.
+    Start,
+    /// Just after this turn ended.
+    Turn(String),
+    /// Just before this turn began: where the turn before it ended, or the start. Going back to
+    /// a message a person sent, which this turn answered.
+    BeforeTurn(String),
+    /// Just before this tool call wrote anything. Files only: a conversation cut in the middle of a
+    /// turn would leave calls without results.
+    ToolUse(String),
+}
+
+/// What a rewind puts back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum RewindScope {
+    /// The files the session's file tools wrote; the conversation stays.
+    Files,
+    /// The conversation; the files stay as they are.
+    Conversation,
+    Both,
+}
+
+/// `harnix.session.rewind`'s params.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct RewindParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub instance: Option<String>,
+    pub session_id: String,
+    /// The space the caller claims; a device rewinds only a session of the space it claims.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub space: Option<String>,
+    pub to: RewindTo,
+    /// `both` when absent; `files` for a tool use, the only one it takes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub scope: Option<RewindScope>,
+    /// Work out the plan and its issues; change nothing.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dry_run: bool,
+    /// Fork the session as it is first, so the turns rewound stay in the fork.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fork_first: bool,
+    /// Restore over files changed since the session last wrote them (`modified`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub force: bool,
+    /// Leave out the files that cannot be restored rather than refusing.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub allow_partial: bool,
+}
+
+/// A turn a rewind takes out of the conversation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct RemovedTurn {
+    pub turn_id: String,
+    /// The text the turn was started with: what goes back into the composer.
+    pub prompt: String,
+}
+
+/// What a rewind does to the conversation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct RewoundConversation {
+    pub messages_before: u64,
+    pub messages_after: u64,
+    /// Oldest first.
+    pub removed_turns: Vec<RemovedTurn>,
+}
+
+/// A file a rewind restores.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct RestoredFile {
+    pub path: String,
+    /// `file`: its earlier contents; `absent`: deleted, as it did not exist then.
+    pub to: String,
+    /// A write outside the project, approved when it was made.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub outside_project: bool,
+    /// The session's last write of it left no record to check it against: restored with `force`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unverified: bool,
+}
+
+/// A file a rewind cannot restore as asked.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct RewindIssue {
+    pub path: String,
+    /// `modified` (changed since the session wrote it), `unavailable`, `denied`, `symlink`,
+    /// `worktree_removed`; more may come.
+    pub issue: String,
+    pub detail: String,
+    /// What lets it through: `force` (a `modified` file is overwritten) or `allow_partial` (it is
+    /// skipped).
+    pub overridable_by: String,
+}
+
+/// What a rewind does to the files.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct RewoundFiles {
+    pub restored: Vec<RestoredFile>,
+    /// Skipped (`allow_partial`); on a dry run, every issue.
+    pub skipped: Vec<RewindIssue>,
+    /// Restored over a change made outside the session (`force`).
+    pub overwrote_external: Vec<String>,
+}
+
+/// `harnix.session.rewind`'s answer: what a rewind did, or on a dry run would do.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct RewindResult {
+    pub instance: String,
+    pub session_id: String,
+    pub rewind_id: String,
+    pub dry_run: bool,
+    pub scope: RewindScope,
+    /// Where it went back to: a `before_turn` as the turn it came to, or the start.
+    pub to: RewindTo,
+    /// Absent when the conversation was not part of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub conversation: Option<RewoundConversation>,
+    /// Absent when the files were not part of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub files: Option<RewoundFiles>,
+    /// The fork made first (`fork_first`): the turns rewound are still in it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub fork_session_id: Option<String>,
+}
+
 /* ── the hub's frames ──────────────────────────────────────────────────── */
 
 /// `harnix.event`: a session event, with the seq the hub gave it.
@@ -629,6 +775,17 @@ mod tests {
         let value = params(&row);
         assert_eq!(value["status"], json!({"state": "degraded", "since_ms": 1, "reason": "lost"}));
         assert!(value.get("trust").is_none() && value.get("reap").is_none());
+    }
+
+    #[test]
+    fn where_a_rewind_goes_is_a_word_or_one_field() {
+        let to = |v: serde_json::Value| serde_json::from_value::<RewindTo>(v).unwrap();
+        assert_eq!(to(json!("start")), RewindTo::Start);
+        assert_eq!(to(json!({"before_turn": "t2"})), RewindTo::BeforeTurn("t2".into()));
+        assert_eq!(params(&RewindTo::ToolUse("u1".into())), json!({"tool_use": "u1"}));
+        let ask: RewindParams = serde_json::from_value(json!({"session_id": "s", "to": {"turn": "t1"}, "dry_run": true})).unwrap();
+        assert!(ask.dry_run && !ask.fork_first && ask.scope.is_none());
+        assert_eq!(params(&ask), json!({"session_id": "s", "to": {"turn": "t1"}, "dry_run": true}));
     }
 
     #[test]

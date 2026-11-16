@@ -61,6 +61,9 @@ pub enum SessionEventKind {
     TaskChanged { task_id: String, live: bool },
     /// The turn compacted the transcript, which is shorter for it.
     Compacted,
+    /// A host rewound the session: the conversation is `messages` long now, and what was drawn
+    /// past it is gone. Not a turn's.
+    Rewound { messages: u64 },
     /// The turn ended, as the engine says.
     TurnComplete(Completion),
     Other,

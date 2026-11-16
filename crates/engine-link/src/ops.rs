@@ -11,6 +11,7 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+use harnix_contract::wire::{RewindParams, RewindResult};
 use harnix_contract::RpcError;
 use serde_json::{json, Value};
 
@@ -28,6 +29,11 @@ pub mod codes {
     pub const SESSION_BUSY: i32 = -32015;
     /// The scene needs a project, and the session was created with none.
     pub const PROJECT_REQUIRED: i32 = -32012;
+    /// A rewind: files that cannot be restored as asked, and nothing was changed; `data.issues`
+    /// lists them.
+    pub const REWIND_PRECONDITION: i32 = -32023;
+    /// A rewind failed part way; what it had restored was put back unless `data.partial`.
+    pub const REWIND_FAILED: i32 = -32024;
 }
 
 /// The longest session title an extension's engine may give: past it, the hub cuts it.
@@ -106,6 +112,21 @@ pub trait EngineOps: Send + Sync {
 
     /// Any other engine method, under the name the hub's row gives it; the answer as it is.
     async fn passthrough(&self, method: &str, params: Value) -> Answer<Value>;
+
+    /// Put the session's files, its conversation or both back to an earlier point between turns
+    /// — or, with `dry_run`, say what that would do. `ask.to` is never a `before_turn`: the hub
+    /// finds the turn it comes to first ([`EngineOps::live_turns`]). The answer's `instance` is
+    /// the hub's to fill.
+    async fn rewind(&self, session: &str, ask: &RewindParams) -> Answer<RewindResult> {
+        let _ = (session, ask);
+        Err(RpcError::new(harnix_contract::codes::METHOD_NOT_FOUND, "this engine does not rewind"))
+    }
+
+    /// The turns still in the session's conversation, oldest first: what a rewind can go back to.
+    async fn live_turns(&self, session: &str) -> Answer<Vec<String>> {
+        let _ = session;
+        Err(RpcError::new(harnix_contract::codes::METHOD_NOT_FOUND, "this engine does not rewind"))
+    }
 }
 
 /// What the hub sets a new session up with, beyond what its caller gave.

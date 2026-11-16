@@ -18,8 +18,11 @@ use serde_json::{json, Value};
 /// The namespace the entries are filed under: the hub's own, as the audit's `harnix.audit` is the
 /// assembly's.
 pub(crate) const NS: &str = "harnix.changes";
-/// The one event in it.
+/// A turn's changes.
 pub(crate) const EVENT: &str = "turn";
+/// A rewind took turns out of the conversation: their `turn` entries before it are void. The log
+/// is append-only, the engine's as the hub's, so a mark is added rather than an entry taken out.
+pub(crate) const REWIND: &str = "rewind";
 
 /// The most files one entry lists; the rest are counted (`more`).
 pub(crate) const MAX_FILES: usize = 200;
@@ -116,9 +119,55 @@ pub(crate) fn payload(turn_id: &str, wrote: &[FileWrite]) -> Option<Value> {
     Some(payload)
 }
 
+/// The payload of the mark a rewind leaves: which rewind, and the turns it took out.
+pub(crate) fn voided(rewind_id: &str, turns: &[String]) -> Value {
+    json!({"rewind_id": rewind_id, "turn_ids": turns})
+}
+
+/// `engine.session.entries`' answer without the changes of turns a rewind took out: a `turn`
+/// entry goes when a `rewind` entry after it names its turn. The marks stay, and so does a turn
+/// of the same id filed after one (a turn id is not counted on to be new).
+pub(crate) fn drop_rewound(answer: &mut Value) {
+    let Some(Value::Array(entries)) = answer.get_mut("entries") else { return };
+    let ours = |e: &Value, event: &str| e.get("ns").and_then(Value::as_str) == Some(NS) && e.get("event").and_then(Value::as_str) == Some(event);
+    let mut voided = std::collections::HashSet::new();
+    let mut keep = vec![true; entries.len()];
+    for (i, entry) in entries.iter().enumerate().rev() {
+        if ours(entry, REWIND) {
+            let turns = entry.pointer("/payload/turn_ids").and_then(Value::as_array).into_iter().flatten();
+            voided.extend(turns.filter_map(Value::as_str).map(str::to_string));
+        } else if ours(entry, EVENT) {
+            let turn = entry.pointer("/payload/turn_id").and_then(Value::as_str).unwrap_or_default();
+            keep[i] = !voided.contains(turn);
+        }
+    }
+    let mut kept = keep.into_iter();
+    entries.retain(|_| kept.next().unwrap_or(true));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_rewind_takes_its_turns_changes_out_of_the_entries_listed() {
+        let turn = |id: &str| json!({"ns": NS, "event": EVENT, "payload": {"turn_id": id, "files": []}, "at": 2});
+        let mark = |ids: &[&str]| json!({"ns": NS, "event": REWIND, "payload": {"rewind_id": "r", "turn_ids": ids}, "at": 2});
+        let other = json!({"ns": "flow", "event": "turn", "payload": {"turn_id": "t2"}, "at": 3});
+        let mut answer = json!({"entries": [turn("t1"), turn("t2"), other.clone(), turn("t3"), mark(&["t2", "t3"]), turn("t2")]});
+        drop_rewound(&mut answer);
+        let left: Vec<(&str, &str, &str)> = answer["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| (e["ns"].as_str().unwrap(), e["event"].as_str().unwrap(), e["payload"]["turn_id"].as_str().unwrap_or("")))
+            .collect();
+        // t2 and t3 before the mark go; another namespace's entry, the mark and a t2 after it stay.
+        assert_eq!(left, [(NS, EVENT, "t1"), ("flow", "turn", "t2"), (NS, REWIND, ""), (NS, EVENT, "t2")]);
+        let mut none = json!({"other": 1});
+        drop_rewound(&mut none);
+        assert_eq!(none, json!({"other": 1}));
+    }
 
     fn write(path: &str, created: bool, diff: Option<&str>) -> FileWrite {
         FileWrite::new(path, created).lines(2, 1).bytes(Some(10)).diff(diff.map(str::to_string), false, None)

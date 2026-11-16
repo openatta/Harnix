@@ -15,6 +15,8 @@ import type {
   InstanceRow,
   InstancesList,
   QueueItem,
+  RewindParams,
+  RewindResult,
   SessionsList,
   SpacesList,
   Topology,
@@ -134,6 +136,8 @@ export interface Methods {
     params: SessionKey & { prompt_id: string; decision: Decision; tool_use_id?: string };
     result: { prompt_id: string };
   };
+  /** 文件、对话或两者回到之前一点；先 `dry_run` 看计划，人确认后再做（docs/harnix-app.md §5.1）。 */
+  "harnix.session.rewind": { params: RewindParams; result: RewindResult };
 }
 
 export type MethodName = keyof Methods;

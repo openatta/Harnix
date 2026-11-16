@@ -434,6 +434,129 @@ pending_prompts: PromptEvent[], running_turn: string | null, queue: Array<QueueI
 trust?: EngineTrust, };
 
 /**
+ * Where a rewind goes back to: `"start"`, or one of `{turn}`, `{before_turn}`, `{tool_use}`.
+ */
+export type RewindTo = "start" | { "turn": string } | { "before_turn": string } | { "tool_use": string };
+
+/**
+ * What a rewind puts back.
+ */
+export type RewindScope = "files" | "conversation" | "both";
+
+/**
+ * `harnix.session.rewind`'s params.
+ */
+export type RewindParams = { instance?: string, session_id: string, 
+/**
+ * The space the caller claims; a device rewinds only a session of the space it claims.
+ */
+space?: string, to: RewindTo, 
+/**
+ * `both` when absent; `files` for a tool use, the only one it takes.
+ */
+scope?: RewindScope, 
+/**
+ * Work out the plan and its issues; change nothing.
+ */
+dry_run?: boolean, 
+/**
+ * Fork the session as it is first, so the turns rewound stay in the fork.
+ */
+fork_first?: boolean, 
+/**
+ * Restore over files changed since the session last wrote them (`modified`).
+ */
+force?: boolean, 
+/**
+ * Leave out the files that cannot be restored rather than refusing.
+ */
+allow_partial?: boolean, };
+
+/**
+ * A turn a rewind takes out of the conversation.
+ */
+export type RemovedTurn = { turn_id: string, 
+/**
+ * The text the turn was started with: what goes back into the composer.
+ */
+prompt: string, };
+
+/**
+ * What a rewind does to the conversation.
+ */
+export type RewoundConversation = { messages_before: number, messages_after: number, 
+/**
+ * Oldest first.
+ */
+removed_turns: Array<RemovedTurn>, };
+
+/**
+ * A file a rewind restores.
+ */
+export type RestoredFile = { path: string, 
+/**
+ * `file`: its earlier contents; `absent`: deleted, as it did not exist then.
+ */
+to: string, 
+/**
+ * A write outside the project, approved when it was made.
+ */
+outside_project?: boolean, 
+/**
+ * The session's last write of it left no record to check it against: restored with `force`.
+ */
+unverified?: boolean, };
+
+/**
+ * A file a rewind cannot restore as asked.
+ */
+export type RewindIssue = { path: string, 
+/**
+ * `modified` (changed since the session wrote it), `unavailable`, `denied`, `symlink`,
+ * `worktree_removed`; more may come.
+ */
+issue: string, detail: string, 
+/**
+ * What lets it through: `force` (a `modified` file is overwritten) or `allow_partial` (it is
+ * skipped).
+ */
+overridable_by: string, };
+
+/**
+ * What a rewind does to the files.
+ */
+export type RewoundFiles = { restored: Array<RestoredFile>, 
+/**
+ * Skipped (`allow_partial`); on a dry run, every issue.
+ */
+skipped: Array<RewindIssue>, 
+/**
+ * Restored over a change made outside the session (`force`).
+ */
+overwrote_external: Array<string>, };
+
+/**
+ * `harnix.session.rewind`'s answer: what a rewind did, or on a dry run would do.
+ */
+export type RewindResult = { instance: string, session_id: string, rewind_id: string, dry_run: boolean, scope: RewindScope, 
+/**
+ * Where it went back to: a `before_turn` as the turn it came to, or the start.
+ */
+to: RewindTo, 
+/**
+ * Absent when the conversation was not part of it.
+ */
+conversation?: RewoundConversation, 
+/**
+ * Absent when the files were not part of it.
+ */
+files?: RewoundFiles, 
+/**
+ * The fork made first (`fork_first`): the turns rewound are still in it.
+ */
+fork_session_id?: string, };
+
+/**
  * `harnix.event`: a session event, with the seq the hub gave it.
  */
 export type EventFrame = { instance: string, session_id: string, seq: number, turn_id: string, 

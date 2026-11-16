@@ -34,6 +34,8 @@ enum After {
     SceneList,
     /// The call is about one scene: a scene layer is asked of as its base, and answered as itself.
     OneScene,
+    /// The answer lists the session's entries: the changes of turns a rewind took out are left out.
+    Entries,
 }
 
 /// The engine's scene list, as the hub's row names it.
@@ -45,7 +47,7 @@ const DEVICE: &[(&str, RowScope, After, bool)] = &[
     ("engine.session.list", RowScope::Space, After::Sessions, false),
     ("engine.session.get", RowScope::Session, After::OneSession, false),
     ("engine.session.history", RowScope::Session, After::Nothing, false),
-    ("engine.session.entries", RowScope::Session, After::Nothing, false),
+    ("engine.session.entries", RowScope::Session, After::Entries, false),
     ("engine.session.resume", RowScope::Session, After::Nothing, false),
     (SCENE_LIST, RowScope::Open, After::SceneList, false),
     ("engine.scene.describe", RowScope::Open, After::OneScene, false),
@@ -218,6 +220,14 @@ pub(crate) fn rows(hub: &HubCell) -> Vec<HubRow> {
             access: Access::capability(caps::ENGINE_CONTROL).scoped(RowScope::Session),
             handler: Some(answer(hub, "harnix.session.setPrompt", true, |h, _, p| async move { h.set_prompt(p).await })),
         },
+        // Files, conversation or both back to an earlier point: a person decides it about a session
+        // of the space they are in; an extension acts for one holding `engine.control`.
+        HubRow::Method {
+            name: "harnix.session.rewind",
+            owner: Owner::Kernel(harnix_kernel::KernelPart::Hub),
+            access: Access::device_or_capability(caps::ENGINE_CONTROL).scoped(RowScope::Session),
+            handler: Some(answer(hub, "harnix.session.rewind", true, |h, cx, p| async move { h.rewind(&cx, p).await })),
+        },
         HubRow::Method {
             name: "harnix.session.respond",
             owner: Owner::Kernel(harnix_kernel::KernelPart::Hub),
@@ -293,6 +303,7 @@ impl Hub {
         match (through.after, &layer) {
             (After::OneScene, Some(layer)) => answer = crate::scenes::one_described(layer, answer),
             (After::SceneList, _) => answer = crate::scenes::listed(&layers, answer),
+            (After::Entries, _) => crate::changes::drop_rewound(&mut answer),
             (After::OneSession, _) => {
                 if let Some(sid) = answer.get("session_id").and_then(Value::as_str).map(str::to_string) {
                     lock(&self.spaces).decorate(&(instance.clone(), sid), &mut answer);
@@ -316,7 +327,7 @@ impl Hub {
             }
         }
         match through.after {
-            After::Nothing | After::OneSession | After::Sessions | After::SceneList | After::OneScene => {}
+            After::Nothing | After::OneSession | After::Sessions | After::SceneList | After::OneScene | After::Entries => {}
             After::Goal => {
                 if let (Some(goal), Some(session)) = (answer.get("goal"), session) {
                     self.goal_heard(&(instance.clone(), session), goal.clone()).await;

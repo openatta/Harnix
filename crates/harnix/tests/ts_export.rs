@@ -158,6 +158,9 @@ fn contract(cfg: &Config) -> Generated {
         // Sessions: the hub's lists, topics and answers.
         Waiting, StartedBy, SessionActivity, HubSessionRow, SessionsList, SessionStatusRow, SessionsStatus, SpaceRow,
         SpacesList, QueueItem, ReplayFrame, AttachResult,
+        // `harnix.session.rewind`.
+        RewindTo, RewindScope, RewindParams, RemovedTurn, RewoundConversation, RestoredFile, RewindIssue, RewoundFiles,
+        RewindResult,
         // The hub's frames.
         EventFrame, ToolCallOutcome, TurnOutcome, TurnSettled, QueueFrame, SessionResync, TopicFrame, TopicEnded,
     ]);
