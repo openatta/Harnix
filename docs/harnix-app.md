@@ -201,6 +201,44 @@ agent 类型、skill、规则），没有时是 `null`。主题 `harnix-app.trus
 - **横幅的提示排队**：一次显示一条，后面还有几条会写出来；普通的 6 秒后自己走，错误 12 秒，要重新加载页面这类状态一直在。
   横幅是播报区（错误 `role=alert`，其余 `role=status`）；对话里来了权限询问，也单独播报一句「需要批准：工具名」。
 
+### 5.1 消息菜单与回退
+
+人的一条话（开启了一轮的那条，不是运行中送进去的）下面有 `⋯`，悬停或聚焦时出现，是**消息菜单**：外壳问 `session.action` 里 `at` 有
+`message` 的（`target` 是 `{kind: "message", session, space, turnId, text}`）。外壳自己往里放一项「**回到这里**」；文件工具
+（`Write`、`Edit`、`MultiEdit`、`NotebookEdit`）的工具行下面也有一项「**把文件退回到这次调用之前**」。space 把对话设成只读时没有消息菜单。
+
+两项都走 `harnix.session.rewind`，也都先问一次 `dry_run`，弹一个对话框写清楚：
+
+| 列出的 | 来自 |
+|---|---|
+| 要撤掉的轮（每轮开头那句话） | `conversation.removed_turns` |
+| 要恢复的文件；那时还没有的，标「删除」；项目外但当时批准过的，标出来 | `files.restored`（`to: "file" \| "absent"`） |
+| 之后在会话之外改过的文件（手改、`Bash` 改、别的程序改） | `files.skipped` 里 `overridable_by: "force"` 的（`issue: "modified"`） |
+| 回不去的文件（写前内容没留下、写路径策略拒绝、是符号链接、worktree 已删） | `files.skipped` 里其余的 |
+
+有冲突时要勾「覆盖这些改动」（`force`），有回不去的要勾「跳过回不去的文件」（`allow_partial`），否则「回退」按不下去；「先分叉一份」（`fork_first`）
+把当前全貌先分叉出去，撤掉的轮留在分叉里，分叉落在同一个 space。对话框还写一句：**只退回文件工具写的，命令做的（`Bash` 里的重定向、`git`、
+包安装）不退回**——这是引擎的规则（daemon 协议 §6.3）。确认后执行；撤掉的第一轮（就是点的那句话）放回输入框，横幅说撤了几轮、恢复了几个文件。
+一轮在跑或在排队时这两项是灰的，悬停说为什么。
+
+| 方法 | 参数 | 答 |
+|---|---|---|
+| `harnix.session.rewind` | `{instance?, session_id, space?, to, scope?, dry_run?, fork_first?, force?, allow_partial?}`。`to` 是 `"start"`（第一轮之前）、`{turn}`（这一轮刚结束时）、`{before_turn}`（这一轮开始前：前一轮结束时，第一轮就是 `start`；「回到这里」用它）或 `{tool_use}`（这次调用写任何东西之前，只回文件）。`scope` 是 `files`、`conversation`、`both`，缺省 `both`，`tool_use` 缺省 `files` | `RewindResult`（`harnix_contract::wire`）：`{instance, session_id, rewind_id, dry_run, scope, to, conversation?: {messages_before, messages_after, removed_turns: [{turn_id, prompt}]}, files?: {restored: [{path, to, outside_project?, unverified?}], skipped: [{path, issue, detail, overridable_by}], overwrote_external}, fork_session_id?}`；`to` 是解析过的（`before_turn` 换成它落到的那一轮或 `start`） |
+
+**谁能调**：设备，只对它声称的 space 的会话（不声称时是缺省 space），不能跨 space——系统 space 的跨 space 也不行，答 `SPACE_MISMATCH`，同
+`harnix.session.setModel`；扩展要 `engine.control`，扩展包只到自己的 space。**什么时候不行**：这个会话有一轮在跑、在排队，或另一次回退没完，中枢答
+`SESSION_BUSY`（-32015），不排队；后台任务在跑时引擎也这样答。有文件不能照要求恢复时引擎答 `REWIND_PRECONDITION`（-32023，`data.issues`
+同 `skipped` 的形状，什么都没改）；做到一半失败答 `REWIND_FAILED`（-32024，已恢复的退回原样，除非 `data.partial`）。会话不记 checkpoint
+（引擎设置 `checkpoints.enabled = false`）却要回文件，答 `INVALID_PARAMS`。
+
+**之后**。引擎的日志只追加：撤掉的轮在磁盘上还在、标了作废，`engine.session.history` 不再有它们（`total` 变小，`seq` 从切点接着编），
+导出的数据包（`engine.session.export`）里的 `transcript.jsonl` 有原样的行。中枢清掉这个会话的追赶缓冲（切点之后画过的帧），向每个观看者推 `harnix.session_resync`——
+各台设备照刷新那条路重新 attach、重读历史，撤掉的轮在哪儿都消失；引擎推的 `rewound` 帧照常作为 `harnix.event` 送到，不进缓冲。
+回退不是经中枢做的（直接连引擎的客户端），中枢收到 `rewound` 帧也一样处理。**改动卡**：撤掉的轮的 `harnix.changes` / `turn` 条目在日志里
+也还在，所以中枢接着记一条 `harnix.changes` / `rewind`（`{rewind_id, turn_ids}`）；`engine.session.entries` 经过中枢时，**某条 `rewind` 之前、
+它列出的那几轮的 `turn` 条目不列**，改动卡、改动页签跟着消失，`rewind` 条目本身照列、界面不画。别的命名空间的条目（扩展自己的）不受影响：
+它们的 `at` 落到切点，扩展要自己看 `rewound` 帧或这条 `rewind` 条目决定怎么办。
+
 ## 6. 右栏：文件、预览、改动
 
 右栏是每个会话一个停靠面（[Harnix 扩展](harnix-ext.md) §22.7）。`@harnix/harnix-app` 往里注册三种页签类型，都只读、都限在**这个会话的项目根**
@@ -253,6 +291,7 @@ transcript 里没有 diff。所以**一轮结束时，中枢把这一轮写过�
 
 一条条目里的 diff 合计至多 512 KiB，超出的文件只留行数、写 `omitted: "too_large"`：打开会话时要整个读回日志，一轮改了一大片不能让以后每次打开都付这个代价。
 `Bash` 改了哪些文件引擎不知道，不报，这里也就没有。界面里只有 `@harnix/core` 的 `parseTurnChanges` 认识这个形状。
+回退（§5.1）撤掉的轮，它们的这条条目由中枢在列条目时去掉。
 对话里，这条条目画成一张卡「改了 N 个文件 +增 −删」，后面是前几个文件名；点它打开改动页签到这一轮。
 
 **工具行里的文件**：`Read`、`Write`、`Edit`、`NotebookEdit` 这类参数里有 `file_path`（或 `notebook_path`）、而且在项目里的调用，工具行上的路径是链接，
