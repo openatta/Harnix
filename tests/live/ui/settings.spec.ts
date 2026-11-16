@@ -132,6 +132,9 @@ test("a permission rule is added from its editor as a tool and a pattern, and on
     await editor.getByTestId("settings-rules-apply").click();
     // The engine's shape: the pattern inside the tool's parentheses.
     await expect.poll(async () => (await field(page, "permission_rules")).tiers.global).toEqual([{ tool: "Bash(git push:*)", action: "deny" }]);
+    // Written is not yet shown: the page reads the settings again and draws the editor anew from
+    // them, dropping what was typed into the one before. Its save goes once it holds what was saved.
+    await expect(editor.getByTestId("settings-rules-apply")).toHaveCount(0);
 
     // A wildcard in a tool's name matches nothing in the engine: said at the row, not written.
     const again = page.getByTestId("settings-permission_rules");
