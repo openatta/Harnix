@@ -176,6 +176,23 @@
   overflow: auto;
 }
 
+#details .output-tab .output-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+#details .output-tab .output-head .what {
+  flex: 1;
+  min-width: 0;
+}
+
+#details .output-tab .task-output pre {
+  max-height: none;
+  height: calc(100vh - 220px);
+}
+
 #details .new-instance {
   display: flex;
   flex-direction: column;

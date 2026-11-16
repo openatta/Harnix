@@ -1501,7 +1501,7 @@ r.register("sidebar.tab", {
 **存储**：浏览器本地 `harnix.sidebar.v1.<instance>/<session>`，读出时校验（版本、格里的页签都在、选中项在格里、计数器不回头），不合法就只清这一份；
 存不进去就只留在内存。`params`、`revision`、`signal`、关闭处理器不存。会话被删，它那一份随之删掉。
 
-本版的页签由各自的 UI 包注册：`@harnix/observability` 的上下文、用量，`@harnix/harnix-app` 的文件、预览、改动，`@harnix/flow` 的流程，输出流（`multiple: true`）。
+本版的页签由各自的 UI 包注册：`@harnix/observability` 的上下文、用量，`@harnix/harnix-app` 的文件、预览、改动，`@harnix/flow` 的流程，`@harnix/system` 的输出（`kind: "output"`，`multiple` 且 `keepMounted`，地址 `harnix-resource://output/<实例>/<会话>/<任务>`，由 Bash、Monitor 工具行的 `session.action`「查看输出」打开）。
 外壳只有引导页。
 
 ---
