@@ -85,15 +85,19 @@ conversations; delete the directory to start over.
   operating-system sandbox, and Harnix only routes. Either way it is registered as the same kind of
   extension, on the same route table.
 - **The interface is three columns per space**: a space's own left column, a centre that is the
-  conversation unless it says otherwise (with an optional second side panel beside it), and its own
-  right tabs. Harnix's spaces — the Harnix app's two and the system space — are examples a
+  conversation unless it says otherwise (with an optional second side panel beside it), and a right
+  column that is the open conversation's own dock — tabs any package registers (files, changes,
+  output, a flow's progress) beside the space's own. Harnix's spaces — the Harnix app's two and the system space — are examples a
   product keeps or drops.
 - **Cards in the conversation**: an extension writes entries into a session's log — they
   survive a refresh, a replay and a fork, and the model never sees them.
 - **Flows** (`harnix-ext-flow`, optional): a graph of stations that moves one subject through work done
   by the run's main Agent, its sub-agents, the application's code or someone outside; each tool call
   judged against the flow's permissions, each station judged by its exit conditions and gates, hooks
-  telling other systems about the progress.
+  telling other systems about the progress. Run in a project, a flow is a task: started from the project,
+  by `/flow` in one of its conversations or on a schedule, working in the project or a worktree of it.
+- **Schedules** (`harnix-ext-schedule`, optional): at set times, a turn in a conversation, a new
+  conversation, or a task — run by Harnix, in the schedule's own time zone.
 
 Why it has this shape, layer by layer: [docs/concept_and_architecture.md](docs/concept_and_architecture.md).
 

@@ -1,10 +1,11 @@
 //! Ending every process left in a spawned child's session (ipdrun-07).
 //!
 //! A child that asks for it (`ChildSpec::own_session`) starts a session of its own
-//! (`setsid`), so its id is its pid. Every command the engine runs stays in
-//! that session even after it makes a process group of its own, and so does whatever such a
-//! command leaves in the background. Once the child is gone — stopped, killed, crashed, about to
-//! be started again — the supervisor ends what is still in it: TERM, a grace, KILL.
+//! (`setsid`), so its id is its pid. Whatever the child starts stays in that session unless it
+//! leaves it — and the engine's commands do: each runs in a session of its own, ended by the
+//! engine itself (its `sandbox.reap_process_groups`, and the groups a `--reap` daemon records).
+//! Once the child is gone — stopped, killed, crashed, about to be started again — the supervisor
+//! ends what is still in its session: TERM, a grace, KILL.
 //!
 //! Listing processes is the platform part, and it is all here: Linux reads the session field of
 //! `/proc/<pid>/stat`, macOS lists every pid (`proc_listallpids`) and asks each `getsid`. A

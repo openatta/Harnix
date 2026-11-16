@@ -524,7 +524,7 @@ ext.onEnv((env) => (document.documentElement.dataset.theme = env.theme));
 - **外壳的手**：`spaces.switch`、`details.open` / `details.show`（只画它自己 `kinds` 的项）、`secondary.open` / `close`、`settings.open`（它自己的节）、
   `composer.insert`、`badge`（落在它自己 space 的入口上）、`notify`、`copy`、`openModal`（它自己的模态框）、`confirm`、`openLink`、`upload`。
   `confirm` 是外壳画的对话框，包造不出假的确认；`openLink` 要 `[interface] links`，每次先问人；`upload` 由外壳代传，答落盘路径，给下一条消息当附件。
-- **被拒**的请求答 `refused`，记进系统 space 控制台「扩展」页签的「最近被拒的界面请求」，也进设置 → 诊断。
+- **被拒**的请求答 `refused`，记进设置 → 诊断的「最近被拒的界面请求」（这一页的，刷新就清零）。
 
 ### 6.4 `@harnix/ext-kit`
 
@@ -610,7 +610,7 @@ ext.onEnv((env) => (document.documentElement.dataset.theme = env.theme));
 - **卸载**：`packages.uninstall {id}`：停下，撤掉安装放进去的一切（Agix 插件、skill、界面），删掉它的目录，连同数据。
 - **清数据**：`packages.clearData {id}`：只删它存的东西（`run/` 下的数据目录与 kv）；在跑的先停、清完再起（`init` 从空开始）。
 - **从文件装**：`packages.installFile {path}`：签了的验签后装；未签名的只在 `[ext.packages] dev = true` 时装。
-- **界面**：设置 → 扩展（`@harnix/packages`：装、升、卸、启停、同意、数据大小与清空；披露是一个模态框），系统 space 控制台的「扩展」页签（只看，[系统 space](system-space.md)）。
+- **界面**：设置 → 扩展包（`@harnix/packages`：装、升、卸、启停、同意、数据大小与清空；披露是一个模态框），系统 space 控制台的「扩展包」页签（只看，[系统 space](system-space.md)）。
   模式 3 的行带「无沙箱」标记（沙箱没套上时），`off` 与 `unavailable` 标红并带原因。
 - 产品可以换自己的商店（`[ext.packages] store`）与受信发布者，也可以不开商店，只用开发模式的 `installFile`。
 
@@ -941,7 +941,7 @@ greeting = "hi"
 
 | 东西 | 名字 |
 |---|---|
-| 包 id、扩展 id | `<发布者>.<名字>`，例如 `acme.notes`；第一段是保留字（`harnix`、`engine`、`ext`、`topic`、`route`、`proc`、`ctl`、`agix`）、第一方扩展的 id（`system`、`harnix-app`、`settings`、`plugins`、`observability`、`devices`、`flow`、`packages`）或产品链进的原生扩展 id，装的时候就拒 |
+| 包 id、扩展 id | `<发布者>.<名字>`，例如 `acme.notes`；第一段是保留字（`harnix`、`engine`、`ext`、`topic`、`route`、`proc`、`ctl`、`agix`）、第一方扩展的 id（`system`、`harnix-app`、`settings`、`plugins`、`observability`、`devices`、`flow`、`schedule`、`packages`）或产品链进的原生扩展 id，装的时候就拒 |
 | 方法、主题 | `<id>.<名字>`，例如 `acme.notes.notes.list`；名字的所有者是已登记的、整段前缀匹配的最长 id：原生与包跨类重叠一律拒，原生优先，包标 `failed: namespace_taken` |
 | 后端 space、界面 space | `<id>` 或 `<id>.<名字>` |
 | 会话里的工具（进程内与 spawn 的 daemon 里一样） | `ext__<id 的 . 换成 _>__<工具>`，例如 `ext__acme_notes__search` |
