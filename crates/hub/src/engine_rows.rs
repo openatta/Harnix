@@ -94,6 +94,16 @@ const BY_CAPABILITY: &[(&str, Capability, After)] = &[
     ("engine.plugin.reload", caps::ENGINE_PLUGINS, After::Nothing),
 ];
 
+/// A project's trust: whether its own hooks, MCP servers, looser settings, agent types and skills
+/// are in force (`docs/harnix-app.md` §3). Read and written by an extension holding
+/// `engine.control` — a device decides through the projects space's own methods, which say what
+/// they are doing. Trust is kept in the engine's global settings, so an extension's engine refuses
+/// it as it refuses its settings.
+const PROJECT_TRUST: &[(&str, Capability)] = &[
+    ("engine.project.status", caps::ENGINE_CONTROL),
+    ("engine.project.trust", caps::ENGINE_CONTROL),
+];
+
 /// The engine methods that change credentials, repoint model endpoints, or hand the caller the
 /// process itself. Refused to devices always, with the reason written out — the engine trusts
 /// whoever reaches its dispatch, and in this process that is the hub (concept §3.4). The kernel may
@@ -225,6 +235,10 @@ pub(crate) fn rows(hub: &HubCell) -> Vec<HubRow> {
         let scope = if on_a_session { RowScope::Session } else { RowScope::Open };
         let through = Through { after: *after, checked: false, settings: SETTINGS.contains(cap) };
         engine(hub, name, Access::capability(cap.clone()).scoped(scope), through)
+    }));
+    rows.extend(PROJECT_TRUST.iter().map(|(name, cap)| {
+        let through = Through { after: After::Nothing, checked: false, settings: true };
+        engine(hub, name, Access::capability(cap.clone()), through)
     }));
     rows.extend(ENGINE_REFUSALS.iter().map(|(name, why, cap)| {
         let access = match cap {

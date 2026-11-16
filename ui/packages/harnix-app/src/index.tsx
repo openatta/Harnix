@@ -1,8 +1,9 @@
 /**
  * @harnix/harnix-app — the Harnix app's interface (the `harnix-app` extension's): the session
  * space and the projects space, which list the same conversations by time and by project; the
- * grouping by time; a session's archiving and export, offered on the shell's session menu; and
- * the composer's `@` files of the open session's project.
+ * grouping by time; a session's archiving and export, offered on the shell's session menu; the
+ * composer's `@` files of the open session's project; and a project's trust (its menu, its shield,
+ * the banner over a conversation in a project that is not trusted).
  *
  * Only the host API: the sessions come from the hub (`harnix.sessions.list`, kept current by the
  * instance's pushed session list) and what this product notes about them from its own methods
@@ -13,11 +14,11 @@
 import { t, type ActionTarget, type CommandCandidate, type Dispose, type HostApi, type Registry } from "@harnix/react";
 
 import { exportDialog } from "./dialogs.tsx";
-import { ProjectsSidebar } from "./projects.tsx";
+import { ProjectsSidebar, TrustBanner } from "./projects.tsx";
 import { SessionsSidebar, byTime } from "./sessions.tsx";
 import { AppStore, SESSIONS } from "./store.ts";
 
-export { AppStore, SESSIONS, type AppSession, type AppState, type Workspace } from "./store.ts";
+export { AppStore, SESSIONS, type AppSession, type AppState, type TrustItem, type TrustStatus, type Workspace } from "./store.ts";
 export { byTime } from "./sessions.tsx";
 
 /** The backend extension this is the interface of. */
@@ -56,6 +57,8 @@ export function register(r: Registry, host: HostApi): Dispose {
           const root = store.projectRoot();
           return root ? { project_root: root } : undefined;
         },
+        // A project that is not trusted, with its own settings held back: an offer to trust it.
+        pinned: (session) => <TrustBanner host={host} store={store} session={session} />,
       },
       center: { mode: "chat" },
       sessions: SESSIONS,

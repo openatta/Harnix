@@ -100,7 +100,8 @@ pub mod caps {
     pub const INSTANCES_ADMIN: Capability = Capability::new("instances.admin");
     /// Read the inside of any session: its context, tasks, task output, goal.
     pub const ENGINE_INSPECT: Capability = Capability::new("engine.inspect");
-    /// Change the inside of any session: tasks, messages, compaction, model, name, goal.
+    /// Change the inside of any session: tasks, messages, compaction, model, name, goal; and trust a
+    /// project, which changes what every session in it may do.
     pub const ENGINE_CONTROL: Capability = Capability::new("engine.control");
     pub const ENGINE_CONFIG_READ: Capability = Capability::new("engine.config.read");
     /// Write the engine's settings and providers, reload them, hand them to inheriting instances.
@@ -124,7 +125,7 @@ pub mod caps {
     pub const KERNEL: &[CapabilitySpec] = &[
         CapabilitySpec::new("instances.admin", "停、重启任何不属于内核的实例；按任何模板建实例"),
         CapabilitySpec::new("engine.inspect", "读任何会话的内部：上下文、任务、任务输出、目标"),
-        CapabilitySpec::new("engine.control", "改任何会话的内部：任务、消息、压缩、清空、模型、名字、目标"),
+        CapabilitySpec::new("engine.control", "改任何会话的内部：任务、消息、压缩、清空、模型、名字、目标；读、改项目的信任"),
         CapabilitySpec::new("engine.config.read", "读引擎设置与 provider"),
         CapabilitySpec::new("engine.config.write", "写引擎设置与 provider，重读设置，交给继承它的实例"),
         CapabilitySpec::new("engine.plugins", "装、卸、启停、重读 Agix 插件"),

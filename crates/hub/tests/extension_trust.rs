@@ -418,13 +418,23 @@ async fn what_an_extensions_engine_says_of_a_session_is_held_to_what_a_session_c
 async fn nobody_reaches_an_extensions_engines_settings_or_plugins() {
     let rig = Rig::new().await;
     let kernel = || CallContext::root(Subject::Kernel, None);
-    for method in ["engine.config.get", "engine.config.reload", "engine.plugin.install", "engine.plugin.list", "engine.config.setProvider"] {
+    let methods = [
+        "engine.config.get",
+        "engine.config.reload",
+        "engine.plugin.install",
+        "engine.plugin.list",
+        "engine.config.setProvider",
+        // Trust is kept in its global settings too.
+        "engine.project.status",
+        "engine.project.trust",
+    ];
+    for method in methods {
         let refused = rig.call(kernel(), method, json!({"instance": "ext"})).await.unwrap_err();
         assert_eq!(refused.code, codes::REFUSED, "{method}: {}", refused.message);
         rig.call(kernel(), method, json!({"instance": "own"})).await.unwrap_or_else(|e| panic!("{method}: {}", e.message));
     }
     assert!(rig.ext.0.passed().is_empty(), "{:?}", rig.ext.0.passed());
-    assert_eq!(rig.own.0.passed().len(), 5);
+    assert_eq!(rig.own.0.passed().len(), methods.len());
     // What is not its settings passes through as for any engine.
     rig.call(kernel(), "engine.scene.list", json!({"instance": "ext"})).await.unwrap();
     assert_eq!(rig.ext.0.passed(), ["engine.scene.list"]);

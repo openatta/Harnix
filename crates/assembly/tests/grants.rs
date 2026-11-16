@@ -103,7 +103,7 @@ impl Extension for Billing {
 fn first_party(without: &str) -> Modules {
     let mut modules = Modules::default();
     if without != "harnix-app" {
-        modules = modules.extension(HarnixApp, [caps::TRANSCRIPTS_READ, caps::ENGINE_EXPORT]);
+        modules = modules.extension(HarnixApp, [caps::TRANSCRIPTS_READ, caps::ENGINE_EXPORT, caps::ENGINE_CONTROL]);
     }
     if without != "system" {
         modules = modules.extension(System, system_caps());
@@ -228,9 +228,14 @@ mod capabilities {
         let r = registered(first_party("")).unwrap();
         let system = r.extensions.iter().find(|m| m.id == "system").unwrap();
         assert_eq!(system.granted, ["instances.admin", "engine.inspect", "engine.control", "process.observe"]);
+        // What each requires, and what it lists as optional and Harnix grants it too: the Harnix
+        // app reads and changes a project's trust with `engine.control`.
         for status in &r.extensions {
-            assert_eq!(status.granted, status.requires, "{}", status.id);
+            let held = [status.requires.clone(), status.optional.clone()].concat();
+            assert_eq!(status.granted, held, "{}", status.id);
         }
+        let app = r.extensions.iter().find(|m| m.id == "harnix-app").unwrap();
+        assert_eq!(app.optional, ["engine.control"]);
         assert!(r.grants.holds(&id("settings"), &caps::ENGINE_CONFIG_WRITE));
         assert!(!r.grants.holds(&id("settings"), &caps::ENGINE_INSPECT));
     }

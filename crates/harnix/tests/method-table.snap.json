@@ -400,6 +400,40 @@
     },
     {
       "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "engine.control"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.project.status",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "engine.control"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.project.trust",
+      "owner": "engine"
+    },
+    {
+      "access": {
         "device": true,
         "extensions": [
           "*"
@@ -1381,6 +1415,32 @@
         "scope": "open"
       },
       "kind": "method",
+      "name": "harnix-app.projects.status",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix-app.projects.trust",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
       "name": "harnix-app.recentProjects",
       "owner": "ext:harnix-app"
     },
@@ -1447,6 +1507,19 @@
       },
       "kind": "method",
       "name": "harnix-app.sessions.importUpload",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix-app.sessions.projectStatus",
       "owner": "ext:harnix-app"
     },
     {
@@ -2706,6 +2779,21 @@
       "kind": "topic",
       "name": "flow.runs",
       "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "topic",
+      "name": "harnix-app.trust",
+      "owner": "ext:harnix-app"
     },
     {
       "access": {
