@@ -1832,6 +1832,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml",
+ "url",
  "zip",
 ]
 
