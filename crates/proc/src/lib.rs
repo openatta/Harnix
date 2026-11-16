@@ -103,14 +103,7 @@ pub fn entry(args: Vec<OsString>) -> anyhow::Result<()> {
     if let Some(targets) = &args.probe {
         return probe::run(targets, &args, stream);
     }
-    let _ = tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
-        .with_ansi(false)
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
-        )
-        .try_init();
+    log_to_stderr();
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     let options = Options {
         ext: args.ext,
@@ -273,6 +266,33 @@ impl std::fmt::Display for Setup {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("the extension process could not be set up")
     }
+}
+
+/// This process's log, on stderr, which the product reads into its own log and the extension's.
+/// `RUST_LOG` filters the process's own lines; the package's and its host's lines about it (the
+/// `app` and `extension` fields) are written at `info` and above whatever it says, as the
+/// product keeps them in-process: `RUST_LOG` does not decide what an extension's log holds.
+fn log_to_stderr() {
+    use tracing_subscriber::filter::FilterExt as _;
+    use tracing_subscriber::layer::SubscriberExt as _;
+    use tracing_subscriber::util::SubscriberInitExt as _;
+    use tracing_subscriber::Layer as _;
+
+    let own = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
+    let extensions = tracing_subscriber::filter::filter_fn(|meta| {
+        meta.is_event()
+            && *meta.level() <= tracing::Level::INFO
+            && (meta.fields().field("app").is_some() || meta.fields().field("extension").is_some())
+    });
+    let _ = tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_ansi(false)
+                .with_filter(own.or(extensions)),
+        )
+        .try_init();
 }
 
 fn setup_failed(why: &anyhow::Error) -> ! {
