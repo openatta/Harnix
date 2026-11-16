@@ -156,7 +156,7 @@ describe("the first-run steps", () => {
     expect((dialog.getByTestId("new-scene") as HTMLSelectElement).value).toBe("code");
 
     fireEvent.click(page.getByTestId("setup-scene-settings"));
-    expect(host.sections).toEqual(["engine"]);
+    expect(host.sections).toEqual(["permissions"]);
     fireEvent.click(page.getByTestId("setup-scene-got"));
     expect(page.container.querySelector('[data-card="scene"]')!.innerHTML).toBe("");
   });

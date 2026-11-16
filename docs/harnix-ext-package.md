@@ -477,7 +477,8 @@ export!(Ext);
 - **外框**：外壳给每个面画一圈外框（标题、加载中、出错、重新加载），包只画框里的东西。一个崩掉的包看起来是「这一块出错了，重试」。
   15 秒内不说 `hello`、连续 5 次心跳没答（每秒一次）、或页面第二次加载（它自己导航走了），都算失败；5 分钟内失败 3 次，这个面置于一旁。
 - **常驻的面**（space 的中区与左栏、右栏页签）画在 React 树之外、叠在槽位上，所以换 space 再回来状态还在。
-- **键盘**：外壳的快捷键（⌘K、⌘\、⌘/）在 iframe 里按下也交给外壳；在外壳的对话框（模态框、设置节）里，Esc 也交给外壳；外壳的
+- **键盘**：外壳的全局快捷键在 iframe 里按下也交给外壳：外壳在环境的 `keys` 里说它们现在是哪些（人在设置里改了键，跟着变；
+  旧的外壳不说时是 ⌘K、⌘\、⌘/ 三个）；在外壳的对话框（模态框、设置节）里，Esc 也交给外壳；外壳的
   对话框开着时，iframe 一个键都收不到（整个 inert）。所以一个键只落在一处。
 
 ### 6.3 桥与 `@harnix/ext-sdk`
@@ -891,7 +892,7 @@ greeting = "hi"
 | 方法 | 请求 | 答 |
 |---|---|---|
 | `connect(options?)` | `hello {sdk}` | `HarnixExt`；`options`：`port`（测试给 mock 的）、`timeoutMs`（缺省 10000）、`autoHeight`、`keys`（缺省 true） |
-| `surface`、`env` | — | 它是哪个面：`{ext, point, id, space, params, autoHeight, links}`；外观：`{theme, tokens, locale, narrow, visible, modal}` |
+| `surface`、`env` | — | 它是哪个面：`{ext, point, id, space, params, autoHeight, links}`；外观：`{theme, tokens, locale, narrow, visible, modal, keys?}`（`keys`：外壳的全局快捷键，`pressChord` 的写法，如 `Meta+KeyK`） |
 | `onEnv(fn)`、`onParams(fn)` | — | 外观变了；模态框、二级栏、详情面板拿到新的参数 |
 | `call(method, params?)` | `call` | 方法的结果 |
 | `subscribe(topic, params, fn)` | `subscribe` / `unsubscribe` | 返回取消函数，带 `.ready`（被拒时 reject） |

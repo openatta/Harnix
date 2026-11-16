@@ -29,6 +29,7 @@ import {
   PROTOCOL,
   admits,
   inDialog,
+  pressChord,
   shellKey,
   type Connect,
   type DetailItem,
@@ -443,7 +444,7 @@ export class FrameBridge {
    */
   private key(press: KeyPress): void {
     const which = shellKey(press);
-    if (!which || (which === "escape" && !inDialog(this.host.decl.point))) return;
+    if (which === "escape" ? !inDialog(this.host.decl.point) : !which && !this.host.app.shortcuts.globalKeys().includes(pressChord(press))) return;
     window.dispatchEvent(
       new KeyboardEvent("keydown", { key: press.key, code: press.code, metaKey: press.meta, ctrlKey: press.ctrl, shiftKey: press.shift, altKey: press.alt, bubbles: true, cancelable: true }),
     );
@@ -461,6 +462,7 @@ export class FrameBridge {
       this.send({ kind: "request", id: this.nextRequest++, method: "ping", params: {} });
     }, PING_MS);
     this.offs.push(onShellEnvironment(() => this.pushEnv()));
+    this.offs.push(this.host.app.shortcuts.subscribe(() => this.pushEnv()));
     this.lastSession = JSON.stringify(this.current());
     this.offs.push(
       this.host.app.subscribe(() => {
@@ -474,7 +476,7 @@ export class FrameBridge {
   }
 
   private env(): Environment {
-    return { ...shellEnvironment(), visible: this.local.visible && document.visibilityState === "visible", modal: this.local.modal };
+    return { ...shellEnvironment(), visible: this.local.visible && document.visibilityState === "visible", modal: this.local.modal, keys: this.host.app.shortcuts.globalKeys() };
   }
 
   private pushEnv(): void {

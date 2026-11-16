@@ -41,6 +41,7 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
   const t = useT();
   const registry = useRegistry(app.registry);
   const space = spacesOf(app).find((c) => c.id === s.space);
+  const newKey = useSyncExternalStore(app.shortcuts.subscribe, () => app.shortcuts.label("shell.session.new"));
   const [phase, setPhase] = useState<"" | "fading" | "rail-in">("");
 
   /* Collapse in three phases: the expanded content fades in place, the rail lands, then the
@@ -106,7 +107,7 @@ export function Sidebar({ app, s }: { app: App; s: ShellState }) {
           <button type="button" id="new" className="nav new" title={t("sidebar.newSessionHint")} onClick={() => void startNew()}>
             <Glyph name="edit" className="glyph" />
             <span className="lbl">{t("sidebar.newSession")}</span>
-            <kbd className="lbl">⌘K</kbd>
+            {newKey ? <kbd className="lbl">{newKey}</kbd> : null}
           </button>
           <div className="sep" />
         </>

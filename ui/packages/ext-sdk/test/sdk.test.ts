@@ -168,6 +168,17 @@ describe("keys", () => {
     }
   });
 
+  it("hands over the keys the shell says it has now, and not the first three any more", async () => {
+    const { host } = await connected({ point: "space" });
+    host.setEnv({ keys: ["Ctrl+Alt+KeyJ", "Meta+Slash"] });
+    await tick();
+    expect(press("j", { code: "KeyJ", ctrlKey: true, altKey: true }).defaultPrevented).toBe(true);
+    expect(press("/", { code: "Slash", metaKey: true }).defaultPrevented).toBe(true);
+    expect(press("k", { code: "KeyK", metaKey: true }).defaultPrevented).toBe(false);
+    await tick();
+    expect(host.events.filter((e) => e.name === "key").map((e) => (e.data as { code: string }).code)).toEqual(["KeyJ", "Slash"]);
+  });
+
   it("in a dialog, gives Escape to the shell and to nobody else", async () => {
     const { host } = await connected({ point: "modal", id: "edit" });
     const page: string[] = [];

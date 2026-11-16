@@ -38,6 +38,7 @@ import { openSettingsFor } from "./settings.tsx";
 import { Sidebar, spacesOf } from "./Sidebar.tsx";
 import { ActionButtons } from "./actions.tsx";
 import { Details } from "./sidebar/Details.tsx";
+import { listenForShortcuts } from "./shortcuts.tsx";
 
 export function Shell({ app }: { app: App }) {
   const s = useSyncExternalStore(app.subscribe, app.getSnapshot);
@@ -261,31 +262,12 @@ export function isDark(): boolean {
 
 /**
  * The shell's keys. Escape belongs to the layers (`@harnix/react`'s `layers.ts`): their listener comes first and
- * takes it while one is open. The shortcuts do nothing while a dialog is: what is under it is not
- * the page's to act on.
+ * takes it while one is open. Every other key is a `shortcut` command's (`shortcuts.tsx`), and
+ * none runs while a dialog is open: what is under it is not the page's to act on.
  */
 function useShortcuts(app: App) {
   useEffect(() => listenForLayers(), []);
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (modalUp()) return;
-      const mod = event.metaKey || event.ctrlKey;
-      if (mod && event.key.toLowerCase() === "k") {
-        // `[shell] new_session = false` (ipdrun-46): ⌘K is not the shell's — left to the page.
-        if (!app.startsSessions()) return;
-        event.preventDefault();
-        document.querySelector<HTMLButtonElement>("#new")?.click();
-      } else if (mod && event.key === "\\") {
-        event.preventDefault();
-        app.toggleSidebar();
-      } else if (mod && event.key === "/") {
-        event.preventDefault();
-        document.querySelector<HTMLTextAreaElement>('[data-testid="conv-input"]')?.focus();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [app]);
+  useEffect(() => listenForShortcuts(app), [app]);
 }
 
 /* ── banner ───────────────────────────────────────────────────────────── */

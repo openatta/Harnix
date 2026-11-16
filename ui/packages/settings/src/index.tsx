@@ -1,6 +1,7 @@
 /**
  * @harnix/settings — the settings sections for the engine (the `settings` extension's interface):
- * its defaults, the scenes, the model providers and the MCP servers.
+ * its defaults, the scenes, the model providers and the models by task, the MCP servers, the
+ * permissions, the sandbox and the network, privacy, and the advanced values it only shows.
  *
  * Engine settings are drawn from the fields `settings.describe` declares and written to a tier's
  * settings.json through `settings.write`, against the revision they were read at; the value a row
@@ -33,6 +34,10 @@ export function register(r: Registry, host: HostApi): void {
   section("models", "settings.nav.models", () => <Models host={host} />, ["models"]);
   section("task-models", "settings.nav.taskModels", () => <EngineSettings host={host} section="task-models" title="settings.taskModels" />);
   section("mcp", "settings.nav.mcp", () => <Mcp host={host} />);
+  // permissions, sandbox, network
+  section("permissions", "settings.nav.permissions", () => <EngineSettings host={host} section="permissions" title="settings.nav.permissions" />);
+  section("sandbox", "settings.nav.sandbox", () => <EngineSettings host={host} section="sandbox" title="settings.nav.sandbox" />);
+  section("network", "settings.nav.network", () => <Network host={host} />);
   // privacy & advanced
   section("privacy", "settings.nav.privacy", () => <Privacy host={host} />);
   section("advanced", "settings.nav.advanced", () => <Advanced host={host} />);
@@ -196,8 +201,9 @@ function SettingsFiles({ paths, name }: { paths: Record<string, string | null | 
   );
 }
 
-/** The engine's fields of one section, with the tier they are written to. `only` fixes the tier:
- *  what the section's fields are written in, for fields only one tier may have. */
+/** The engine's fields of one section, with the tier they are written to; headed `title` (a text
+ *  key). `only` fixes the tier: what the section's fields are written in, for fields only one tier
+ *  may have. */
 function EngineSettings({ host, section, title = "settings.engineDefaults", only }: { host: HostApi; section: string; title?: string; only?: string }) {
   const t = useT();
   const reload = useSettingsReload();
@@ -241,6 +247,24 @@ function EngineSettings({ host, section, title = "settings.engineDefaults", only
       }}
       onFailed={(e) => host.shell.notice(t("settings.writeFailed", { error: errorText(e) }), "error")}
     />
+  );
+}
+
+/* ── network and web ──────────────────────────────────────────────────── */
+
+/** The engine's own proxy and the domains WebFetch may reach; which models search and read the web
+ *  are routes, set with the others in "models by task". */
+function Network({ host }: { host: HostApi }) {
+  const t = useT();
+  return (
+    <>
+      <EngineSettings host={host} section="network" title="settings.nav.network" />
+      <SettingsRow setting="web-routes" label={t("settings.webRoutes")}>
+        <button type="button" className="btn sm outline" data-testid="settings-web-routes" onClick={() => host.settings.open("task-models")}>
+          {t("settings.webRoutesOpen")}
+        </button>
+      </SettingsRow>
+    </>
   );
 }
 

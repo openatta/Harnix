@@ -128,7 +128,14 @@ agent 类型、skill、规则），没有时是 `null`。主题 `harnix-app.trus
 ## 4. 新建会话
 
 - **左栏顶上的「新会话」**（⌘K）：不建会话，只打开新对话的空页。前台是系统 space、`center: "hidden"` 的 space 或嵌在别的
-  space 里的 space 时，先换到第一个能对话的 space。⌘\ 收起左栏，⌘/ 聚焦输入框。对话框开着时这三个键都不生效。
+  space 里的 space 时，先换到第一个能对话的 space。⌘\ 收起左栏，⌘/ 聚焦输入框。
+- **快捷键**：上面三个是外壳自己的命令（`shell.session.new`、`shell.sidebar.toggle`、`shell.composer.focus`），缺省键在 Mac 上是
+  ⌘K、⌘\、⌘/，别的平台是 Ctrl+K、Ctrl+\、Ctrl+/；「打开或关闭右栏」（`shell.details.toggle`）与「打开设置」（`shell.settings.open`）
+  缺省没有键。UI 包可以加自己的命令（贡献点 `shortcut`，[Harnix 扩展](harnix-ext.md) §22.8）。设置的「快捷键」一节列出全部命令（名字、谁的、
+  现在的键）：点键位、按下新组合就录下（Esc 放弃）；要带 Ctrl、⌘ 或 ⌥（功能键除外），复制、粘贴、撤销与浏览器自己的窗口、标签键不收；
+  和别的命令同键时提示「已被『…』占用」、不改；可以逐条或全部恢复缺省。改过的键只存在这个浏览器里（`localStorage` 的
+  `harnix.shortcuts.<命令>`），别的标签页跟着变。一个键按下时，焦点在输入框或右栏里的命令先于全局的；对话框开着时都不生效；
+  焦点在文字框里时，不带 Ctrl、⌘、⌥ 的键是打字。扩展包的页面（iframe）里按下的全局键也交给外壳。
 - **窄窗口**（≤ 960 宽）：左栏是 56px 的轨，轨上的「会话」入口、收起键或 ⌘\ 把它作为抽屉盖在页面上打开；在抽屉里选了会话或 space、
   按 Esc、点幕布就收回。打开的右栏是从右边盖住中区的抽屉（`narrow_details = "beside"` 时 720–960 宽仍三栏并排），里面是同一条页签栏、同一个会话的停靠面（[Harnix 扩展](harnix-ext.md) §22.7）；
   会话头角落的按钮在右栏收起时把它展开。宽窗口里人自己
@@ -149,7 +156,7 @@ agent 类型、skill、规则），没有时是 `null`。主题 `harnix-app.trus
 |---|---|---|---|
 | 模型（`settings.setup.model`，`order` 10） | `@harnix/settings` | `harnix.hello` 说有模型可用：配了 provider，或引擎启动时带着 `ANTHROPIC_*` 的密钥（同输入框上的「配置模型」提示；读不到 provider 时算有）。卡画出来时读一次，此后每关一次对话框（设置页就是在对话框里配的）再读 | 说还没有模型，「打开模型设置」到设置 · 模型与凭据 |
 | 项目（`harnix-app.setup.project`，20） | `@harnix/harnix-app` | `harnix-app.workspaces.list` 里有项目 | 说会话可以跑在一个项目（目录）里，「新建或选择项目…」打开添加项目的对话框（§3）；做完了是「打开项目」：到项目 space 并展开它 |
-| 场景与权限（`harnix-app.setup.scene`，30） | `@harnix/harnix-app` | 没有可读的完成状态：读过、点「知道了」或关掉就算 | 各一行：新会话缺省的场景（`hello.engine.scene` 和它的说明），缺省的权限模式（引擎设置的 `permission_mode`，经 `settings.describe` 按缺省场景读，读不到是 `default`）和它意味着什么。`code` 在、又不是缺省场景时，加一行推荐它，「用 code 新建会话…」打开停在 `code` 上的新会话对话框；「选场景与权限新建…」打开新会话对话框；「更改缺省…」到设置的引擎一节 |
+| 场景与权限（`harnix-app.setup.scene`，30） | `@harnix/harnix-app` | 没有可读的完成状态：读过、点「知道了」或关掉就算 | 各一行：新会话缺省的场景（`hello.engine.scene` 和它的说明），缺省的权限模式（引擎设置的 `permission_mode`，经 `settings.describe` 按缺省场景读，读不到是 `default`）和它意味着什么。`code` 在、又不是缺省场景时，加一行推荐它，「用 code 新建会话…」打开停在 `code` 上的新会话对话框；「选场景与权限新建…」打开新会话对话框；「更改缺省…」到设置的权限一节 |
 
 - **做完的一步**：这一页看着它从没做完变成做完的，画成做完（一个勾，模型那步写出新会话用的模型）；页面起来时就已经做完的，不画。
 - **关掉**：每张卡右上角的「不再显示」。关掉的记在这个浏览器的 `localStorage`（`harnix.setup.dismissed`，卡的 id 的数组），以后不再画。
@@ -163,7 +170,7 @@ agent 类型、skill、规则），没有时是 `null`。主题 `harnix-app.trus
 （`AppBuilder::default_engine`，见 [Harnix 扩展](harnix-ext.md) §17.1）：新会话仍在 `harnix` 场景里，`code`（要一个项目的编程 Agent）在新会话
 对话框里可选。给了 profile 就照 profile 写的，`--scene`、`--scenes` 照旧盖在上面。
 
-**`[shell] new_session = false`**：整个外壳不画「新会话」、⌘K 不归外壳（会话由应用自己建）。**只是界面**：空页上的输入框只看 space
+**`[shell] new_session = false`**：整个外壳不画「新会话」、「新会话」的键不归外壳（会话由应用自己建）。**只是界面**：空页上的输入框只看 space
 自己的 `newSession`，所以空的 space 仍然给一个输入框；要一个 space 没有它，在那个 space 上写 `newSession: false`（这时画
 `placeholder()`）。服务端照旧收 `harnix.session.create`。
 

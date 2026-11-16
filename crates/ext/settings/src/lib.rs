@@ -231,6 +231,9 @@ fn locate(scene: Option<&str>, project_root: Option<&str>) -> Value {
 /// is the highest tier that wrote the field; `withheld` says the project tier wrote a value the
 /// engine does not use, which is what an untrusted project's looser setting looks like; `invalid`
 /// names the tiers whose value the field does not accept (written by hand), and why.
+///
+/// An additive field's value is every tier's rows together, so the project tier's is withheld when
+/// a row of it is not among the engine's (an untrusted project's `allow` rules are dropped).
 fn field_view(field: &fields::Field, mut per_tier: Map<String, Value>, engine: Option<&Value>) -> Value {
     let invalid: Map<String, Value> = per_tier
         .iter()
@@ -246,10 +249,30 @@ fn field_view(field: &fields::Field, mut per_tier: Map<String, Value>, engine: O
     let source = written.as_ref().map_or(Value::Null, |(tier, _)| json!(tier));
     let mut effective = match engine {
         Some(value) => value.clone(),
+        None if field.additive => {
+            let rows: Vec<Value> = TIERS
+                .iter()
+                .filter_map(|tier| per_tier.get(*tier).and_then(Value::as_array))
+                .flatten()
+                .cloned()
+                .collect();
+            if rows.is_empty() && written.is_none() { Value::Null } else { Value::Array(rows) }
+        }
         None => written.map_or(Value::Null, |(_, value)| value),
     };
     let project = per_tier.get("project").filter(|value| !value.is_null());
-    let withheld = engine.is_some() && project.is_some_and(|value| *value != effective);
+    let withheld = engine.is_some()
+        && project.is_some_and(|value| match (field.additive, value.as_array()) {
+            (true, Some(rows)) => {
+                let taken = effective.as_array().map(Vec::as_slice).unwrap_or_default();
+                let same = |a: &Value, b: &Value| match field.ty {
+                    Type::Rules(columns) => fields::same_row(columns, a, b),
+                    _ => a == b,
+                };
+                rows.iter().any(|row| !taken.iter().any(|t| same(row, t)))
+            }
+            _ => *value != effective,
+        });
     effective = fields::shown(field.ty, &effective);
     for value in per_tier.values_mut() {
         *value = fields::shown(field.ty, value);
@@ -537,7 +560,7 @@ mod tests {
 
     #[test]
     fn a_field_is_the_engines_value_and_says_when_the_project_tier_was_not_taken() {
-        let field = &FIELDS[0];
+        let field = fields::find("permission_mode").unwrap();
         let tiers = |global: Value, project: Value| {
             let mut m = Map::new();
             m.insert("global".into(), global);
@@ -708,6 +731,37 @@ mod tests {
         changes.insert("telemetry_enabled".into(), json!(true));
         assert!(check_changes("global", &changes).is_ok());
         assert!(check_changes("project", &changes).is_err(), "a project has no say in telemetry");
+    }
+
+    #[test]
+    fn an_additive_field_is_every_tier_s_rows_and_withheld_when_a_project_row_is_dropped() {
+        let field = fields::find("permission_rules").unwrap();
+        let deny = json!({"tool": "Bash(rm:*)", "action": "deny"});
+        let allow = json!({"tool": "Bash(ls)", "action": "allow"});
+        let tiers = |global: Value, project: Value| {
+            let mut m = Map::new();
+            m.insert("global".into(), global);
+            m.insert("scene".into(), Value::Null);
+            m.insert("project".into(), project);
+            m
+        };
+        // Trusted: the engine has both tiers' rows, and nothing is withheld.
+        let both = json!([deny.clone(), allow.clone()]);
+        let view = field_view(field, tiers(json!([deny.clone()]), json!([allow.clone()])), Some(&both));
+        assert_eq!((&view["effective"], &view["source"], &view["withheld"]), (&both, &json!("project"), &json!(false)));
+        assert_eq!(view["tiers"]["global"], json!([deny.clone()]), "a tier's own rows are what it edits");
+        // The engine leaves a rule's `match` out when it is `pattern`: still the same rule.
+        let spelled = json!({"tool": "Bash(ls)", "action": "allow", "match": "pattern"});
+        let view = field_view(field, tiers(json!([deny.clone()]), json!([spelled])), Some(&both));
+        assert_eq!(view["withheld"], json!(false));
+        // Untrusted: the project's allow is not among the engine's.
+        let view = field_view(field, tiers(json!([deny.clone()]), json!([allow.clone()])), Some(&json!([deny.clone()])));
+        assert_eq!(view["withheld"], json!(true));
+        // The engine could not be asked: the tiers' rows together stand in.
+        let view = field_view(field, tiers(json!([deny.clone()]), json!([allow.clone()])), None);
+        assert_eq!((&view["effective"], &view["withheld"]), (&both, &json!(false)));
+        let view = field_view(field, tiers(Value::Null, Value::Null), None);
+        assert_eq!(view["effective"], Value::Null);
     }
 
     #[test]

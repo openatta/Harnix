@@ -62,6 +62,7 @@ export {
   routeOf,
   isRisky,
   localFieldStore,
+  toolPattern,
   type FieldColumn,
   type FieldDecl,
   type FieldDoc,
@@ -141,6 +142,27 @@ export {
   type TabActions,
   type TabInfo,
 } from "./sidebar";
+export {
+  SHORTCUT_SCOPES,
+  chordId,
+  chordOf,
+  defaultKeys,
+  keyLabel,
+  keysProblem,
+  parseKeys,
+  pickShortcut,
+  scopesOverlap,
+  shortcutConflicts,
+  shortcutPlatform,
+  writeKeys,
+  type Chord,
+  type ShortcutBinding,
+  type ShortcutCommand,
+  type ShortcutContext,
+  type ShortcutKeys,
+  type ShortcutPlatform,
+  type ShortcutScope,
+} from "./shortcuts";
 export { t, translate, useT, useLocale, setLocale, onLocaleChoice, currentLocale, localeChoice, addStrings, DICTIONARIES, type Locale, type LocaleChoice, type Translate } from "./i18n/index";
 export type { FlowBlockContribution } from "./chat/types";
 export {

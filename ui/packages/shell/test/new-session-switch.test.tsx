@@ -6,6 +6,7 @@ import type { HarnixClient, Hello } from "@harnix/core";
 import { HarnixUiProvider } from "@harnix/react";
 
 import { Shell } from "../src/Shell";
+import { registerShellShortcuts } from "../src/shortcuts";
 import { scriptedApp, space } from "./scripted";
 
 afterEach(cleanup);
@@ -15,6 +16,7 @@ function hello(shell: Partial<Hello["shell"]>): Hello {
 }
 
 function draw(app: ReturnType<typeof scriptedApp>["app"]) {
+  registerShellShortcuts(app);
   return render(
     <HarnixUiProvider client={app.conn as HarnixClient}>
       <Shell app={app} />
@@ -22,9 +24,9 @@ function draw(app: ReturnType<typeof scriptedApp>["app"]) {
   );
 }
 
-/** ⌘K at the window; whether the shell took it. */
+/** ⌘K at the window (Ctrl+K: the test page is not a Mac); whether the shell took it. */
 function commandK(): boolean {
-  const event = new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true, cancelable: true });
+  const event = new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true, cancelable: true });
   act(() => {
     window.dispatchEvent(event);
   });

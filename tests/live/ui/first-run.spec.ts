@@ -55,9 +55,9 @@ test("a fresh profile's empty page has the three steps; the scene step says the 
   await page.keyboard.press("Escape");
   await expect(page.locator("#modal")).toHaveCount(0);
 
-  // "Change the defaults" is the settings' engine section, where the permission mode is.
+  // "Change the defaults" is the settings' permissions section, where the permission mode is.
   await scene.getByTestId("setup-scene-settings").click();
-  await expect(settingsSection(page, "engine")).toHaveAttribute("data-state", "current");
+  await expect(settingsSection(page, "permissions")).toHaveAttribute("data-state", "current");
   await page.keyboard.press("Escape");
   await expect(page.locator("#modal")).toHaveCount(0);
 

@@ -102,6 +102,10 @@ export interface Environment {
   visible: boolean;
   /** A dialog of the shell is over this frame: it takes no keys and no pointer until it closes. */
   modal: boolean;
+  /** The keys the shell's commands have wherever the focus is, as `pressChord` writes them
+   *  (`Meta+KeyK`): a press of one in the frame goes to the shell. Absent from an older shell: the
+   *  three of `shellKey`. */
+  keys?: string[];
 }
 
 /** A session, as the shell names one. */
@@ -198,7 +202,14 @@ export interface ShellEvents {
   params: { params: unknown };
 }
 
-/** The keys a frame hands to the shell: what the shell would act on, and Escape where it closes something. */
+/** A press as the shell names its keys (`Environment.keys`): the modifiers held, then the
+ *  physical key — `Ctrl+Alt+Shift+Meta+KeyK`, in that order. */
+export function pressChord(press: KeyPress): string {
+  return [press.ctrl && "Ctrl", press.alt && "Alt", press.shift && "Shift", press.meta && "Meta", press.code].filter(Boolean).join("+");
+}
+
+/** The keys a frame hands to the shell by default: its three shortcuts as they were first bound,
+ *  and Escape where it closes something. A shell that says its `keys` widens or replaces the three. */
 export function shellKey(press: KeyPress): "escape" | "new" | "sidebar" | "composer" | null {
   const mod = press.meta || press.ctrl;
   if (press.key === "Escape" && !mod) return "escape";
