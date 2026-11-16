@@ -51,7 +51,23 @@ export { Icon } from "./chat/icons";
 export { GLYPHS, Glyph, glyphHtml, iconsFrom, toolGlyph } from "./glyph";
 export { rowKeys, useRoving, type Roving } from "./roving";
 export { ago, clock, compact, fileSize, megabytes, millis, since } from "./format";
-export { DialogBody, DialogFoot, SettingsReload, SettingsRow, SettingsSection, SettingsValue, useSettingsReload } from "./settings";
+export { DialogBody, DialogFoot, SettingsReload, SettingsRow, SettingsSection, SettingsValue, useSettingsReload, useSettingsVersion } from "./settings";
+export {
+  FieldForm,
+  FieldsSection,
+  checkField,
+  isRisky,
+  localFieldStore,
+  type FieldColumn,
+  type FieldDecl,
+  type FieldDoc,
+  type FieldFormProps,
+  type FieldRisk,
+  type FieldState,
+  type FieldStore,
+  type FieldType,
+  type LocalField,
+} from "./fields";
 export {
   focusables,
   isTop,

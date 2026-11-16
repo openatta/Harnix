@@ -1333,6 +1333,24 @@ export function register(r: Registry, host: HostApi): Dispose | void
 | `settings.section` | 设置里的一节；`covers: ["models"]`：外壳要人去配模型时打开它 |
 | `session.action` | 对一个会话、或它里面一次工具调用的动作：外壳在标题栏、会话菜单、工具行上问它 |
 
+`settings.section` 可以不给 `render`，只声明字段，外壳按声明画表单（类型对应控件、「恢复缺省」、有风险的值先确认、
+值在读取之后被别处改过时提示「保留我的修改并复核」）：
+
+```ts
+r.register("settings.section", {
+  id: "prefs", label: () => t("myext.prefs"),
+  fields: [                                  // FieldDecl[]，见 @harnix/react 的 fields.tsx
+    { key: "wrap", type: "toggle", label: "myext.wrap", default: false },
+    { key: "size", type: "number", label: "myext.size", min: 10, max: 24, default: 14 },
+  ],
+  store,                                     // 可选：FieldStore {load(), save(changes, revision?)}；缺省存在这个浏览器（harnix.pref.<owner>.<key>）
+}, owner);
+```
+
+`type` 是 `toggle`、`select`（`options`）、`number`（`min`、`max`）、`text`、`secret`（只写不读）、`list`、`rules`（`columns`）；
+`risk: {values?, message}` 让这些值先确认。引擎设置的字段由后端 `settings` 扩展的字段表声明，`settings.describe` 发给界面，
+`settings.write {tier, changes, revision?}` 整份校验、按版本号拒绝过期的写入（`CONFLICT`）。
+
 扩展定义的点（0.4.4 的第一方）：`system.console.tab`、`system.inspector.tab`，不算进「9 个」。
 `space` 的分组（0.4.2 的 25 个平铺成员按画在哪分四组）：
 

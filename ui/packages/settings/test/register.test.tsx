@@ -1,11 +1,11 @@
 /** The @harnix/settings package is the `settings` extension's interface: its settings sections, by id. */
 
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { HarnixClient } from "@harnix/core";
 import { HarnixUiProvider, Registry, en, type HostApi } from "@harnix/react";
 
-import { apiTypeOf, extension, register } from "../src/index.tsx";
+import { apiTypeOf, engineStore, extension, register } from "../src/index.tsx";
 
 afterEach(cleanup);
 
@@ -52,7 +52,7 @@ describe("@harnix/settings", () => {
   });
 
   it("says when the project tier wrote a setting the engine does not use", async () => {
-    const field = { key: "permission_mode", kind: "choice", options: ["default", "plan"], effective: "default", source: "project", withheld: true, tiers: { global: "default", scene: null, project: "bypassPermissions" } };
+    const field = { key: "permission_mode", type: "select", kind: "choice", section: "engine", options: ["default", "plan"], effective: "default", source: "project", withheld: true, tiers: { global: "default", scene: null, project: "bypassPermissions" } };
     const host = {
       call: async () => ({ paths: { global: "/g", project: "/p" }, fields: [field] }),
       session: { current: () => null, context: () => null },
@@ -65,6 +65,51 @@ describe("@harnix/settings", () => {
     const client = { status: "closed", detail: undefined, onStatus: () => () => undefined, call: async () => ({}) } as unknown as HarnixClient;
     const { findByText } = render(<HarnixUiProvider client={client} strings={en}>{engine.render()}</HarnixUiProvider>);
     expect(await findByText(/not in force: an untrusted project can only tighten settings/)).toBeTruthy();
+  });
+
+  it("draws a section's engine fields from their declarations and writes one into the chosen tier, at the revision read", async () => {
+    const fields = [
+      { key: "permission_mode", type: "select", section: "engine", options: ["default", "plan"], default: "default", writable: ["global", "scene", "project"], effective: "default", source: null, withheld: false, tiers: { global: null, scene: null, project: null } },
+      { key: "memory_enabled", type: "toggle", section: "engine", default: true, writable: ["global", "scene", "project"], effective: true, source: null, withheld: false, tiers: { global: null, scene: null, project: null } },
+      { key: "model.max_tokens", type: "number", section: "models", min: 1, max: 1000000, writable: ["global", "scene", "project"], effective: 8000, source: "global", withheld: false, tiers: { global: 8000, scene: null, project: null } },
+    ];
+    const calls: [string, Record<string, unknown>][] = [];
+    const host = {
+      call: async (method: string, params: Record<string, unknown>) => {
+        calls.push([method, params]);
+        return method === "settings.describe" ? { paths: { global: "/g/settings.json", scene: "/s/settings.json" }, fields, revision: "rev-1" } : {};
+      },
+      session: { current: () => null, context: () => null },
+      shell: { notice: () => undefined },
+      dialogs: { confirm: async () => false },
+    } as unknown as HostApi;
+    const r = new Registry();
+    r.activate(extension, () => register(r, host));
+    const engine = r.at("settings.section").find((s) => s.id === "engine")!;
+    const client = { status: "closed", detail: undefined, onStatus: () => () => undefined, call: async () => ({}) } as unknown as HarnixClient;
+    render(<HarnixUiProvider client={client} strings={en}>{engine.render()}</HarnixUiProvider>);
+    // The engine section's two, not the models section's.
+    expect(await screen.findByTestId("settings-permission_mode")).toBeTruthy();
+    expect(screen.getByTestId("settings-memory_enabled")).toBeTruthy();
+    expect(screen.queryByTestId("settings-model.max_tokens")).toBeNull();
+    // The scene tier, then a write there.
+    fireEvent.change(screen.getByTestId("settings-tier"), { target: { value: "scene" } });
+    fireEvent.click(screen.getByTestId("settings-memory_enabled"));
+    await waitFor(() => expect(calls.some(([m]) => m === "settings.write")).toBe(true));
+    const [, params] = calls.find(([m]) => m === "settings.write")!;
+    expect(params).toMatchObject({ tier: "scene", changes: { memory_enabled: false }, revision: "rev-1" });
+  });
+
+  it("the engine's store reads describe and writes write", async () => {
+    const calls: [string, unknown][] = [];
+    const host = { call: async (method: string, params: unknown) => (calls.push([method, params]), { fields: [] }) } as unknown as HostApi;
+    const store = engineStore(host, { scene: "code", project_root: "/p" }, "project");
+    await store.load();
+    await store.save({ memory_enabled: null });
+    expect(calls).toEqual([
+      ["settings.describe", { scene: "code", project_root: "/p" }],
+      ["settings.write", { scene: "code", project_root: "/p", tier: "project", changes: { memory_enabled: null } }],
+    ]);
   });
 
   it("a provider's type is kept as it is: a known one, a new one, and one the table lacks", () => {
