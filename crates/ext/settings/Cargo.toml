@@ -13,7 +13,7 @@ name = "harnix_ext_settings"
 [dependencies]
 harnix-ext  = { workspace = true }
 # Where the engine's settings tiers are: a transitional host service, until the engine takes the
-# global tier's writes over its protocol (docs/harnix-ext.md §17.8).
+# tiers' writes over its protocol (docs/harnix-ext.md §17.8). Providers already go through it.
 harnix-host-api = { workspace = true }
 async-trait = { workspace = true }
 libc        = { workspace = true }
@@ -22,3 +22,4 @@ tracing     = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+tokio    = { workspace = true }

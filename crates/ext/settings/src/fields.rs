@@ -25,8 +25,10 @@ pub(crate) enum Type {
     /// Text that is not blank and is never read back: `describe` says only whether it is set.
     Secret,
     /// Strings, each not blank.
+    #[allow(dead_code)] // no field of the five is one; the page draws it all the same
     List,
     /// Rows of the columns; a column marked required must be in every row, no other key may be.
+    #[allow(dead_code)] // as `List`
     Rules(&'static [Column]),
 }
 

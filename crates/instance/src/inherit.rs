@@ -11,6 +11,9 @@
 //! `<data_root>/.inherited-providers.json`, and only ever adds, changes or removes those: a
 //! provider the instance configures itself under the same id is the instance's, and stays. The
 //! default provider likewise: set from `main`'s only when the instance has none of its own.
+//!
+//! `main`'s keys are not in its `settings.json`: the engine keeps them in the `settings.local.json`
+//! beside it, which outranks it key by key. They are read from there and go with the provider.
 
 use std::path::Path;
 
@@ -21,7 +24,8 @@ pub(crate) const RECORD: &str = ".inherited-providers.json";
 
 /// Bring one instance's global tier in line with `main`'s providers. `Ok(true)` when it changed.
 pub(crate) fn merge(system_root: &Path, instance_root: &Path) -> std::io::Result<bool> {
-    let upstream = read(&system_root.join("settings.json"))?;
+    let mut upstream = read(&system_root.join("settings.json"))?;
+    overlay_local(&mut upstream, &read(&system_root.join("settings.local.json"))?);
     // The instance's own tier is written by its engine too, under this lock: the read and the
     // writes below are one hold.
     let _held = harnix_contract::dir_lock::DirLock::acquire(instance_root)?;
@@ -94,6 +98,34 @@ pub(crate) fn merge(system_root: &Path, instance_root: &Path) -> std::io::Result
         &json!({"providers": now_owned, "default_provider": now_owned_default}),
     )?;
     Ok(changed)
+}
+
+/// A tier's `settings.local.json` providers laid over its `settings.json` ones, key by key, as the
+/// engine reads them; a `null` there is a key given up.
+fn overlay_local(settings: &mut Value, local: &Value) {
+    let Some(theirs) = local.get("providers").and_then(Value::as_object) else { return };
+    if !settings.is_object() {
+        *settings = json!({});
+    }
+    if !settings.get("providers").is_some_and(Value::is_object) {
+        settings["providers"] = json!({});
+    }
+    let providers = settings["providers"].as_object_mut().expect("an object");
+    for (id, fields) in theirs {
+        let Some(fields) = fields.as_object() else { continue };
+        let entry = providers.entry(id.clone()).or_insert_with(|| json!({}));
+        if !entry.is_object() {
+            *entry = json!({});
+        }
+        let entry = entry.as_object_mut().expect("an object");
+        for (key, value) in fields {
+            if value.is_null() {
+                entry.remove(key);
+            } else {
+                entry.insert(key.clone(), value.clone());
+            }
+        }
+    }
 }
 
 pub(crate) fn read(path: &Path) -> std::io::Result<Value> {
@@ -177,6 +209,21 @@ mod tests {
         assert!(s["providers"].get("shared").is_some() && s["providers"].get("mine").is_some());
         assert!(s.get("default_provider").is_none());
         assert!(!merge(&system, &instance).unwrap(), "nothing to change, and it changed");
+    }
+
+    #[test]
+    fn a_key_the_engine_keeps_beside_the_settings_goes_with_its_provider() {
+        let dir = tempfile::tempdir().unwrap();
+        let (system, instance) = (dir.path().join("system"), dir.path().join("instance"));
+        write(&system.join("settings.json"), json!({
+            "providers": {"a": {"api_type": "anthropic", "default_model": "m"}, "b": {"api_type": "anthropic", "api_key": "old"}},
+            "default_provider": "a",
+        }));
+        write(&system.join("settings.local.json"), json!({"providers": {"a": {"api_key": "k"}, "b": {"api_key": null}}}));
+        assert!(merge(&system, &instance).unwrap());
+        let s = settings(&instance);
+        assert_eq!(s["providers"]["a"], json!({"api_type": "anthropic", "default_model": "m", "api_key": "k"}));
+        assert!(s["providers"]["b"].get("api_key").is_none(), "a key given up came along");
     }
 
     #[test]

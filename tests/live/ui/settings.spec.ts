@@ -68,6 +68,8 @@ test("a provider is added, edited, made the default and deleted from Settings ·
   // A second one, then make it the default.
   await list.getByTestId("provider-add").click();
   await page.getByTestId("provider-form").getByTestId("provider-provider_id").fill("second");
+  // With a key: the engine tries a provider before it is written, and one with no key does not route.
+  await page.getByTestId("provider-form").getByTestId("provider-api_key").fill("sk-live-test-second");
   await page.getByTestId("provider-form").getByTestId("provider-default_model").fill("model-three");
   await page.getByTestId("provider-form").getByTestId("provider-save").click();
   const second = list.locator('[data-provider="second"]');

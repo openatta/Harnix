@@ -66,6 +66,8 @@ defineSuite("settings", { feature: "settings" }, {
       });
       assert(added.reloaded === true, "the engine was not asked to reload");
       assert(/settings\.json$/.test(added.written) && !added.written.includes("/.agix/.agix"), `written to ${added.written}`);
+      // The engine writes it, and keeps the key out of settings.json, in the uncommitted file beside it.
+      assert(/settings\.local\.json$/.test(added.secrets_written ?? ""), `the key went to ${added.secrets_written}`);
       const described = await client.call("settings.describe", {});
       const provider = described.providers?.providers?.[id];
       assert(provider, "the provider is not read back");
@@ -113,8 +115,23 @@ defineSuite("settings", { feature: "settings" }, {
     },
 
     "a provider of an unknown API type is refused": async ({ client }) => {
-      const e = await client.refused("settings.setProvider", { provider_id: "x", config: { api_type: "gemini" } });
+      // Everything else in order, so the type is what the engine's dry run stops at.
+      const config = { api_type: "gemini", base_url: "https://example.invalid/v1", api_key: "sk-secret-value", default_model: "m-1" };
+      const e = await client.refused("settings.setProvider", { provider_id: "x", config });
       assert(e && /api_type/.test(e.message), `says ${e?.message}`);
+      const after = await client.call("settings.describe", {});
+      assert(!after.providers?.providers?.x, "a provider the engine refused was written");
+    },
+
+    "a provider the engine could not build a client for is not written": async ({ client }) => {
+      // Tried first (`dry_run`): an OpenAI-compatible endpoint with no base URL does not route, and
+      // nothing is written — the providers already there keep routing.
+      const id = "test-no-url";
+      const e = await client.refused("settings.setProvider",
+        { provider_id: id, config: { api_type: "openai_compatible", api_key: "sk-secret-value", default_model: "m-1" } });
+      assert(e && !/not a provider setting/.test(e.message), `says ${e?.message}`);
+      const after = await client.call("settings.describe", {});
+      assert(!after.providers?.providers?.[id], "the provider was written all the same");
     },
 
     "setting a provider is reachable here and refused on the engine": async ({ client }) => {
