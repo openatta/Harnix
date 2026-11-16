@@ -1233,6 +1233,37 @@ pub struct SessionHooks {
     pub unread: Vec<HookSource>,
 }
 
+/// The most characters of a matcher a [`HookRow`] carries.
+pub const HOOK_MATCHER_CHARS: usize = 80;
+
+impl HookRow {
+    /// A hook in force, said by its kind and its matcher: the matcher cut to
+    /// [`HOOK_MATCHER_CHARS`], an ellipsis where it was cut, and blank taken as none.
+    pub fn new(event: impl Into<String>, source: HookSource, kind: impl Into<String>, matcher: Option<&str>, on_error: Option<String>) -> Self {
+        let kind = kind.into();
+        let matcher = matcher.map(str::trim).filter(|m| !m.is_empty()).map(|m| match m.char_indices().nth(HOOK_MATCHER_CHARS) {
+            Some((at, _)) => format!("{}…", &m[..at]),
+            None => m.to_string(),
+        });
+        let label = match &matcher {
+            Some(m) => format!("{kind} · {m}"),
+            None => kind.clone(),
+        };
+        Self {
+            event: event.into(),
+            source,
+            kind,
+            matcher,
+            label,
+            on_error,
+            in_force: true,
+            withheld: false,
+            replaced_by: None,
+            providers: Vec::new(),
+        }
+    }
+}
+
 /* ── extension logs ─────────────────────────────────────────────────────── */
 
 /// How a line came to be one extension's.
