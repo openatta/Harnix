@@ -797,7 +797,7 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 
 | 名字 | 现在 | 在哪 | 什么时候升 |
 |---|---|---|---|
-| Harnix 版本 | `0.4.3-2026111501` | 各 crate 的 `Cargo.toml`；`harnix::HARNIX_VERSION` | 每次发布（`scripts/set-version.sh` 连这一格一起改，`tests/crate-metadata.mjs` 查它和 crate 一致） |
+| Harnix 版本 | `0.4.4-2026111502` | 各 crate 的 `Cargo.toml`；`harnix::HARNIX_VERSION` | 每次发布（`scripts/set-version.sh` 连这一格一起改，`tests/crate-metadata.mjs` 查它和 crate 一致） |
 | 扩展 API | `1` | `harnix::ext::EXT_API_VERSION` | 写进文档、`--version` 打印的数，不做编译期检查：兼容靠 crate 的版本，从 0.4.4 起扩展接口只做加法（公开的结构与枚举都是 `non_exhaustive` 或只有私有字段，一个 feature 只加函数与模块）；破坏性的变化升它，也升 crate 的大版本。`harnix::ext::http::axum` 与 `harnix::axum`（feature `axum`）、`harnix::testing`（feature `testing`）不在承诺内 |
 | 贡献点 API | `3` | `harnix::CONTRIB_API_VERSION`；`harnix.hello` 里也有 | 贡献点的契约变了。2：运行期包的界面模块是预编译的 ES 模块，从页面的 import map 拿 React；**React 的大版本是它的一部分**。3：宿主 API `HostApi`/`useHost()`、第九个内核点 `session.action`、扩展自己定义的点（`definePoint`）、`space` 分组、按 `hello.extensions` 激活 |
 | 协议 | `5` | `harnix_contract::PROTOCOL_VERSION` | 握手比对，不一致拒绝（`HANDSHAKE_REFUSED`）。5：名字规整（内核 `harnix.<区域>.<动词>`、引擎直通 `engine.*`、扩展在自己的 id 下），默认实例叫 `main`，新增错误码 `CANCELLED`、`DEADLINE_EXCEEDED`、`EXTENSION_UNAVAILABLE`。`harnix.event` 帧里的事件负载与 `engine.*` 的答是 Agix 的形状，不在加法承诺里，由 `hello.engine_protocol` 标明 |
@@ -977,7 +977,7 @@ pub trait Extension: Send + Sync + 'static {
 | `bulk()` | 一次性上传凭据：`grant(max_bytes)`、`grant_named(name, max_bytes)`（文件名以清理过的 `name` 结尾，给按名字或后缀读它的，如 `plugins.upload`） |
 | `ui()` | `UiPublisher`：运行期发布的界面条目（`plugins` 发 Agix 包的 `[[ui]]`） |
 | `devices()` | `devices.manage`：`list`、`pair_begin`、`pair_complete`、`revoke` |
-| `service::<S>()` | 一个有名字的宿主服务；`S` 只给名字（`NAME`）和交出来的类型（`Handle`），要什么能力由提供它的宿主按名字定、按授予查——请求方自己写的类型说了不算。0.4.3 唯一的服务是 `harnix_host_api::HostServices`（`extensions.manage`），只有宿主组件用（§17.8） |
+| `service::<S>()` | 一个有名字的宿主服务；`S` 只给名字（`NAME`）和交出来的类型（`Handle`），要什么能力由提供它的宿主按名字定、按授予查——请求方自己写的类型说了不算。0.4.4 的服务是 `harnix_host_api::HostServices`（`extensions.manage`，只有宿主组件用）与过渡的 `SettingsTiers`（`engine.config.write`，只有 `settings` 用）（§17.8） |
 | `listen()` / `listening().await` | 进程监听在哪：`Listen { addrs, url }`（`addrs` 是实际绑上的地址，`--port 0` 时是系统给的端口；`url` 是 `http(s)://<第一个地址>/`，不带令牌）。扩展的 `start` 在监听**之前**，所以 `start` 里 `listen()` 是 `None`；要写运行记录就 `tokio::spawn` 一个任务 `listening().await` |
 | `provide(v)` / `provide_arc(arc)` / `state::<T>()` | 扩展状态，handler 里用 `call.state::<T>()` 拿 |
 
@@ -1165,7 +1165,7 @@ quote_api_key = { credential = "helm/quote-api" }
 | 路径 | 是什么 |
 |---|---|
 | `~/.agix/` | 引擎：设置分层、transcript、记忆、技能、录像。和 `agixd` 共用 |
-| `~/.<product_id>/`（不配 `[brand]` 就是 `~/.harnix/`；`HARNIX_STATE_DIR` 可挪） | 程序自己的配置与状态。每一处有一个所有者，0.4.3 只读写下面这些位置 |
+| `~/.<product_id>/`（不配 `[brand]` 就是 `~/.harnix/`；`HARNIX_STATE_DIR` 可挪） | 程序自己的配置与状态。每一处有一个所有者，0.4.4 只读写下面这些位置 |
 | 　`token`、`devices.json`、`harnix.lock` | 进程令牌、配对过的设备（与 `token` 一样只有属主可读；重启后仍在）、进程锁（进程活着就持有的独占锁，内容 `{"pid", "url"}`，`url` 在监听后写上：一个状态目录只能有一个进程，第二个启动时报「`<目录>` is in use by pid N (url)」并以非零退出） |
 | 　`kernel/spaces.json` | 会话 ↔ space 的绑定、space 按模板建的实例、Harnix 起的会话（中枢读写） |
 | 　`kernel/instances.json`、`instances/<data_root>/` | 实例账本、按模板建的实例的数据根 |
@@ -1331,7 +1331,7 @@ export function register(r: Registry, host: HostApi): Dispose | void
 | `settings.section` | 设置里的一节；`covers: ["models"]`：外壳要人去配模型时打开它 |
 | `session.action` | 对一个会话、或它里面一次工具调用的动作：外壳在标题栏、会话菜单、工具行上问它 |
 
-扩展定义的点（0.4.3 的第一方）：`system.console.tab`、`system.inspector.tab`，不算进「9 个」。
+扩展定义的点（0.4.4 的第一方）：`system.console.tab`、`system.inspector.tab`，不算进「9 个」。
 `space` 的分组（0.4.2 的 25 个平铺成员按画在哪分四组）：
 
 ```ts
@@ -1517,9 +1517,9 @@ Harnix 自己的二进制注册了它（`crates/cli/src/main.rs`）。
 
 | 缺口 | 影响 | 什么时候补 |
 |---|---|---|
-| 没有 MCP 服务端、角色令牌 | 外部 Agent 要连：扩展 `start()` 里自己起监听 | 0.4.3 之后 |
+| 没有 MCP 服务端、角色令牌 | 外部 Agent 要连：扩展 `start()` 里自己起监听 | 0.4.4 之后 |
 | 批准原语 | 不进 Harnix：照 §10.1 用条目 + 主题 + 只许设备的方法自己做 | 不做 |
-| `harnix.session.respond` 没有单独的能力 | 现状是对扩展开（flow 按策略作答），扩展包被收窄到自己的 space | 0.4.3 之后再议（如加 `sessions.answer`，只授 flow） |
+| `harnix.session.respond` 没有单独的能力 | 现状是对扩展开（flow 按策略作答），扩展包被收窄到自己的 space | 0.4.4 之后再议（如加 `sessions.answer`，只授 flow） |
 | Agix 插件新增 space | Agix 插件的 `[[ui]]` 只能贡献内核点里除 `space` 之外的 | 不做：要自己的 space 的第三方代码写成扩展包（[扩展包](harnix-ext-package.md)） |
 | 子 Agent 的进度 | 任务页能读 Shell / 监视器边跑边出的输出、子 Agent 的回答，但看不到子 Agent 正在第几步；要看过程走它的侧链会话 | 引擎，有需要再提 Harnix issue |
 | 应用自己的 pnpm workspace 怎么摆 | 外部应用靠 Vite 去重解析 `react`、`@harnix/react`；类型检查与别的依赖要应用自己装（见迁移说明） | 消费者落地时定 |

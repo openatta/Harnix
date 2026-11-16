@@ -13,7 +13,7 @@ system space among them.
 
 ![Harnix](docs/images/harnix.png)
 
-0.4.3. There is one concept, the **extension**, with three carriers: native (Rust in the binary),
+0.4.4. There is one concept, the **extension**, with three carriers: native (Rust in the binary),
 WebAssembly in the product's process, WebAssembly in a process of its own. The extension interface
 and the protocol only grow from 0.4.4 on; pin a tag (`Harnix-v<x.y.z>-<date><n>`) if you depend on one.
 

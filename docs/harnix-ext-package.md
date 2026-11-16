@@ -839,7 +839,7 @@ interface host {
 | `packages.list` | — | 同 `packages.list` 方法 | 载体的代际号动了（宿主每次启停、调用结束、投递、休眠、计数都让它动）才重读各包的状态，没动也至多 10 秒重读一次（虚拟机自己变的，比如内存）；清单的描述按（id, 版本）缓存。变了才推；只有设备能订 |
 | `packages.progress` | — | `{app, tool, session_id, tool_use_id, text}`（`tool` 是 `ext__…` 全名） | 进程内会话的工具调用每次 `host.progress`；模式 3 的是 `proc.progress` 转来的 |
 | `harnix.spaces` | — | 同 `harnix.spaces.list` | 包加减 space 时；内核的主题，总在 |
-| `<id>.<主题>` | 无 | 后端 `host.publish` 的值 | 设备与任何扩展可订，除非清单的主题另有 `Access`（0.4.3 的包主题缺省如此） |
+| `<id>.<主题>` | 无 | 后端 `host.publish` 的值 | 设备与任何扩展可订，除非清单的主题另有 `Access`（0.4.4 的包主题缺省如此） |
 
 包撤下时，它的主题的每个订阅者按订阅的参数组各收到一次 `harnix.topic_ended { topic, params, reason }`，之后再订答 `METHOD_NOT_FOUND`。
 
