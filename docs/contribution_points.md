@@ -1,7 +1,7 @@
 # 界面贡献点
 
-Harnix 的界面由九个具名的贡献点拼起来（贡献点 v3：在 0.4.2 的八个之上加了 `session.action`），外加第一方扩展自己定义、
-别的 UI 包往里注册的点（如 `system.console.tab`，见第二张表，不算进九个）。
+Harnix 的界面由十个具名的贡献点拼起来（贡献点 v3 在 0.4.2 的八个之上加了 `session.action`，v4 加了 `sidebar.tab`），外加第一方扩展自己定义、
+别的 UI 包往里注册的点（如 `system.console.tab`，见第二张表，不算进十个）。
 
 **这首先不是给第三方代码用的扩展面。** 扩展 agent 是 Agix 的事——脚本、manifest、能力门控、沙箱、披露，全在那边；
 Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发给浏览器，与页面同级（见[概念与架构](concept_and_architecture.md)，产品可以用
@@ -16,11 +16,13 @@ Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发
 什么都养不起。所以这里没有一个点跟着流式增量走——一轮十几次谁都养得起，一轮几千次谁都
 养不起。
 
-**九个，加第十个是一个需要论证的决定。** 一个没人用的点不是接缝，只是这张表里的一行，所以每个点
-都要有人在用：第一方 UI 包（`@harnix/harnix-app`、`@harnix/system`、`@harnix/settings` 等）注册 `space`（会话、项目、系统）、`sidebar.group`、`command`、`settings.section`、`session.action`，
-外壳自己注册 `tool.row`、`flow.block`、`details.panel`。`home.card` 是例外：外壳在新对话的输入框下读它，`examples/hello-app` 注册了一张。
+**十个，再加一个是一个需要论证的决定。** 一个没人用的点不是接缝，只是这张表里的一行，所以每个点
+都要有人在用：第一方 UI 包（`@harnix/harnix-app`、`@harnix/system`、`@harnix/settings` 等）注册 `space`（会话、项目、系统）、`sidebar.group`、`command`、`settings.section`、`session.action`、`sidebar.tab`，
+外壳自己注册 `tool.row`、`flow.block`、`details.panel`，以及 `sidebar.tab` 的引导页。`home.card` 是例外：外壳在新对话的输入框下读它，`examples/hello-app` 注册了一张。
 第九个 `session.action` 的理由：0.4.2 的外壳里写死了三样只属于某个扩展的东西——标题栏的「在系统里打开」、工具行的「在系统里看」、
 会话菜单里的归档与导出——它们是同一种东西，没有现成的点能承载。
+第十个 `sidebar.tab` 的理由：右栏是每个会话一个停靠面，在里面打开的页（文件预览、用量、流程进度、输出流）是同一种东西——认领一个地址、或按名字打开的页签类型；
+`details.tabs` 是 space 的、不是会话的，承载不了它。`details.*` 全部保留，适配成同一条页签栏里 space 那一侧（[Harnix 扩展](harnix-ext.md) §22.7）。
 
 **谁注册、什么时候撤。** 第一方 UI 包是编进外壳的，外壳按 `harnix.hello` 里启用的扩展激活它们：一个包只在它对应的扩展启用时才调自己的
 `register`，扩展被 `[extensions] off` 关掉，或被停用，它名下注册的点一起撤掉。点的注册带 owner（扩展 id），诊断按 owner 列。
@@ -93,7 +95,7 @@ Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发
 
 ## 扩展包落在哪些点上
 
-扩展包（[扩展包](harnix-ext-package.md)）不加新的贡献点：外壳照它的清单，替它往这九个点上注册，注册的 owner 是扩展的 id。两种载体（同进程、独立进程）
+扩展包（[扩展包](harnix-ext-package.md)）不加新的贡献点：外壳照它的清单，替它往这十个点上注册，注册的 owner 是扩展的 id。两种载体（同进程、独立进程）
 的包落在同一批点上，界面一侧没有区别。
 
 **面**（`[[surface]] point`，画在隔离的 iframe 里；iframe 的沙箱、CSP 与面的生命周期见 [扩展包](harnix-ext-package.md)）：
