@@ -17,7 +17,7 @@ import { followSurfaces } from "../src/surfaces/register";
 import { topicsOf } from "../src/topics";
 import { ScriptedClient, space, tick } from "./scripted";
 
-const ext = (id: string, enabled: boolean, bundle?: string): ExtensionEntry => ({ id, trust: "origin", enabled, ...(bundle ? { bundle } : {}) });
+const ext = (id: string, enabled: boolean, bundle?: string): ExtensionEntry => ({ id, trust: "origin", carrier: "native", version: null, enabled, ...(bundle ? { bundle } : {}) });
 
 function setup() {
   localStorage.clear();

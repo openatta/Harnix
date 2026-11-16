@@ -10,7 +10,7 @@ import { scriptedApp, space } from "./scripted";
 
 afterEach(cleanup);
 
-function hello(shell: Hello["shell"]): Hello {
+function hello(shell: Partial<Hello["shell"]>): Hello {
   return { shell } as unknown as Hello;
 }
 
