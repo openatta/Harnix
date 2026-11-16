@@ -1,11 +1,11 @@
 /** The @harnix/settings package is the `settings` extension's interface: its settings sections, by id. */
 
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { HarnixClient } from "@harnix/core";
-import { HarnixUiProvider, Registry, en, type HostApi } from "@harnix/react";
+import { HarnixUiProvider, Registry, en, resetSetupSteps, type HostApi } from "@harnix/react";
 
-import { apiTypeOf, engineStore, extension, register } from "../src/index.tsx";
+import { MODEL_STEP, ModelStep, apiTypeOf, engineStore, extension, register } from "../src/index.tsx";
 
 afterEach(cleanup);
 
@@ -117,5 +117,59 @@ describe("@harnix/settings", () => {
     expect(apiTypeOf({ api_type: "anthropic" }).id).toBe("anthropic");
     expect(apiTypeOf({}).id).toBe("anthropic");
     expect(apiTypeOf({ api_type: "mystery" })).toMatchObject({ id: "mystery", label: "" });
+  });
+});
+
+describe("the first-run model step", () => {
+  afterEach(() => {
+    localStorage.clear();
+    resetSetupSteps();
+  });
+
+  /** A host whose hello says what `engine` is now, and whose dialogs can be closed. */
+  function stepHost(engine: Record<string, unknown>) {
+    const modal = new Set<(open: boolean) => void>();
+    const opened: (string | undefined)[] = [];
+    const host = {
+      engine,
+      opened,
+      closeModal: () => modal.forEach((fn) => fn(false)),
+      call: async (method: string) => (method === "harnix.hello" ? { engine: host.engine } : {}),
+      modal: { onChange: (fn: (open: boolean) => void) => (modal.add(fn), () => modal.delete(fn)) },
+      settings: { open: (section?: string) => void opened.push(section) },
+    };
+    return host as unknown as HostApi & { engine: Record<string, unknown>; opened: (string | undefined)[]; closeModal(): void };
+  }
+
+  const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+
+  it("is a home card of the extension's, first", () => {
+    const r = new Registry();
+    r.activate(extension, () => register(r, stepHost({})));
+    expect(r.at("home.card").map((c) => [c.id, c.order, c.owner, c.title])).toEqual([[MODEL_STEP, 10, "settings", undefined]]);
+  });
+
+  it("asks for a model while none is configured, and says it is done once one is", async () => {
+    const host = stepHost({ has_credentials: false, providers: { providers: {}, default_provider: null } });
+    const page = render(<ModelStep host={host} />);
+    await settle();
+    const step = () => page.container.querySelector(`[data-step="${MODEL_STEP}"]`) as HTMLElement | null;
+    expect(step()?.dataset.state).toBe("todo");
+    fireEvent.click(page.getByTestId("setup-model-open"));
+    expect(host.opened).toEqual(["models"]);
+
+    // A provider is added in the settings; hello is read again when the panel closes.
+    host.engine = { has_credentials: true, providers: { providers: { anthropic: { default_model: "claude-x" } }, default_provider: "anthropic" } };
+    host.closeModal();
+    await settle();
+    expect(step()?.dataset.state).toBe("done");
+    expect(step()!.textContent).toContain("claude-x");
+  });
+
+  it("draws nothing when a model was there from the start", async () => {
+    const host = stepHost({ has_credentials: true, providers: { providers: {}, default_provider: null } });
+    const page = render(<ModelStep host={host} />);
+    await settle();
+    expect(page.container.innerHTML).toBe("");
   });
 });

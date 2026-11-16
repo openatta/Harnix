@@ -6,7 +6,7 @@
  * | 点 | 形状 | 怎么用 |
  * |---|---|---|
  * | `space` | `id`、`icon`、`title()`，与四组 `sidebar`、`center`、`conversation`、`details`，可选的 `store` | 全部，按 `order` 再按注册顺序 |
- * | `home.card` | `id`、`render()`、`title?()` | 全部，按 `order` 再按注册顺序 |
+ * | `home.card` | `id`、`render()`、`title?()` | 全部，按 `order` 再按注册顺序；没有 `title`、`render()` 什么都没画的卡不占位 |
  * | `tool.row` | `match(tool块)`、`render(tool块)` | 后注册的先认领 |
  * | `details.panel` | `match(item)`、`render(item)`、`title?(item)` | 后注册的先认领 |
  * | `flow.block` | `match(块)`、`render(块)` | 后注册的先认领 |

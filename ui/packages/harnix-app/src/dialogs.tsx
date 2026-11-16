@@ -81,17 +81,32 @@ interface Recents {
   projects_root?: string | null;
 }
 
-export async function newSessionDialog(host: HostApi, store: AppStore, preselect?: string): Promise<void> {
+/** The new-session dialog; `preselect` is the project it opens on, `scene` the scene. */
+export async function newSessionDialog(host: HostApi, store: AppStore, preselect?: string, scene?: string): Promise<void> {
   let recents: Recents = {};
   try {
     recents = await host.call<Recents>("harnix-app.recentProjects", {});
   } catch {
     /* the picker still works without recents */
   }
-  await host.dialogs.open<true>((close) => <NewSession host={host} store={store} recents={recents} preselect={preselect} close={close} />, { title: t("dialog.newSession") });
+  await host.dialogs.open<true>((close) => <NewSession host={host} store={store} recents={recents} preselect={preselect} initialScene={scene} close={close} />, { title: t("dialog.newSession") });
 }
 
-function NewSession({ host, store, recents, preselect, close }: { host: HostApi; store: AppStore; recents: Recents; preselect?: string; close: Close }) {
+function NewSession({
+  host,
+  store,
+  recents,
+  preselect,
+  initialScene,
+  close,
+}: {
+  host: HostApi;
+  store: AppStore;
+  recents: Recents;
+  preselect?: string;
+  initialScene?: string;
+  close: Close;
+}) {
   const t = useT();
   const hello = useHello();
   const scenes = (hello?.scenes ?? []) as (Scene & { capabilities?: { requires_project?: boolean } })[];
@@ -99,7 +114,7 @@ function NewSession({ host, store, recents, preselect, close }: { host: HostApi;
   // The engine's own default first: the active list is sorted by id, and a flow's wrapped scenes
   // (`flow-*`) sort before most.
   const preferred = hello?.engine?.scene;
-  const [picked, setScene] = useState<string | null>(null);
+  const [picked, setScene] = useState<string | null>(initialScene ?? null);
   const scene = picked ?? active.find((s) => s.scene === preferred)?.scene ?? active[0]?.scene ?? "harnix";
   const [mode, setMode] = useState("default");
   const [root, setRoot] = useState<string | null>(preselect ?? recents.cwd ?? null);

@@ -10,7 +10,7 @@
  */
 
 import type { ReactNode } from "react";
-import { TOKEN_STALE, errorText, type ConnectionStatus, type ExtensionEntry, type HarnixClient, type Hello, type SessionRow, type UiView } from "@harnix/core";
+import { TOKEN_STALE, errorText, modelConfigured, type ConnectionStatus, type ExtensionEntry, type HarnixClient, type Hello, type SessionRow, type UiView } from "@harnix/core";
 import { MAIN_INSTANCE, type SessionController } from "@harnix/core/state";
 import { sidebarTypes, t, tabsOf, type ComposerApi, type DetailItem, type Registry, type ShellContext, type SidebarTabType, type SpaceContribution, type SpaceTab } from "@harnix/react";
 
@@ -568,10 +568,7 @@ export class App {
    * with. Unknown (hello could not read the providers) counts as yes, so the page does not cry wolf.
    */
   modelReady(): boolean {
-    const engine = this.state.hello?.engine;
-    const providers = engine?.providers;
-    if (!providers) return true;
-    return Object.keys(providers.providers).length > 0 || engine?.has_credentials === true;
+    return modelConfigured(this.state.hello?.engine);
   }
 
   /** The model a new session runs on: the default provider's, else the engine's; none while no

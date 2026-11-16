@@ -28,6 +28,8 @@ cargo build --release
 不需要任何环境变量。没配模型也能启动，页面会提示：**配置模型**（或头像 → **设置 → 模型与凭据**）添加 provider——
 Anthropic 或兼容 OpenAI 的 API，其中一个是缺省——存在 `~/.agix/settings.json`，不会出现在浏览器或日志里。
 `ANTHROPIC_AUTH_TOKEN`（可加 `ANTHROPIC_BASE_URL`）也行。
+新对话的空页用三张卡带着走完第一次：模型、一个项目，以及会话从什么开始——`harnix` 场景和缺省的权限模式，
+旁边推荐 `code`（在项目里写代码的 Agent）。每一张做完或关掉就不再出现。
 
 想看带数据的样子：`scripts/harnix-demo.sh start`（还有 `stop`、`restart`、`status`）在单独的目录（`~/harnix-demo`）里
 跑 Harnix app，带示例流程、运行和会话；删掉这个目录就从头来。
