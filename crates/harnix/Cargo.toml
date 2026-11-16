@@ -43,6 +43,10 @@ testing = []
 # `harnix::ext::http::axum`: an `axum::Router` as an extension's route, and `harnix::axum`, the crate
 # it takes it from. Not stable: bound to axum's major version.
 axum = ["harnix-ext/axum", "dep:axum"]
+# `tests/ts_export.rs`: the interface's protocol declarations, generated from the Rust types that
+# serialize onto the wire — the kernel's (`harnix_contract::wire`), the readers', the packages'.
+# It reaches every crate whose types are declared there, so it is only ever a test's feature.
+ts = ["dep:ts-rs", "harnix-ext/ts", "harnix-ext-packages/ts"]
 
 [dependencies]
 harnix-assembly       = { workspace = true }
@@ -69,8 +73,10 @@ anyhow      = { workspace = true }
 axum        = { workspace = true, optional = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }
-
+ts-rs       = { workspace = true, optional = true }
 
 [dev-dependencies]
 # `tests/tool_names.rs` holds the host's copy of the tool-naming rule to the package crate's.
 harnix-package = { workspace = true }
+# `tests/ts_export.rs` declares the kernel's wire shapes (`harnix_contract::wire`) for the interface.
+harnix-contract = { workspace = true }

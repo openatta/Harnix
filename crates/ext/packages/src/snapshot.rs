@@ -14,13 +14,14 @@ use harnix_ext::ExtId;
 use serde_json::{json, Value};
 
 use crate::records::{self, InstallRecord};
+use crate::wire::{PackageDescribed, PackageRow, PackageRuntime, PackagesList};
 use crate::{lock, runtime, State, LIST_TOPIC, RESYNC_EVERY};
 
 /// What the last look at the packages read, to read again only what may have changed.
 #[derive(Default)]
 pub(crate) struct Looked {
     /// What each version's manifest describes, by id and version: it does not change under it.
-    pub described: HashMap<(String, String), Value>,
+    pub described: HashMap<(String, String), Option<PackageDescribed>>,
     /// The carrier's generation the statuses were read at, and when; `None`: read them again.
     pub generation: Option<u64>,
     at: Option<Instant>,
@@ -63,29 +64,22 @@ pub(crate) async fn snapshot(state: &State, fresh: bool) -> Value {
                 (status, kept)
             }
         };
-        let mut entry = json!({
-            "id": r.id,
-            "version": r.version,
-            "title": r.title,
-            "enabled": r.enabled,
-            "registered": registered.iter().any(|s| s.id() == r.id),
-            "trust": r.trust(),
-            "source": r.parts.get("source").cloned().unwrap_or(json!("file")),
-            "data_bytes": kept,
-            "runtime": status,
-            "ext": described(state, r, &app_dir),
+        statuses.insert(r.id.clone(), (status.clone(), kept));
+        packages.push(PackageRow {
+            id: r.id.clone(),
+            version: r.version.clone(),
+            title: r.title.clone(),
+            enabled: r.enabled,
+            registered: registered.iter().any(|s| s.id() == r.id),
+            trust: r.trust().to_string(),
+            source: r.parts.get("source").cloned().unwrap_or(json!("file")),
+            data_bytes: kept,
+            runtime: PackageRuntime::read(status),
+            ext: described(state, r, &app_dir),
+            sandbox: sandbox.as_ref().map(|s| s.mode.clone()),
+            revoked: r.revoked.clone(),
+            reason: r.reason.clone(),
         });
-        if !sandbox.is_null() {
-            entry["sandbox"] = sandbox["mode"].clone();
-        }
-        if let Some(why) = &r.revoked {
-            entry["revoked"] = json!(why);
-        }
-        if let Some(why) = &r.reason {
-            entry["reason"] = json!(why);
-        }
-        statuses.insert(r.id.clone(), (entry["runtime"].clone(), kept));
-        packages.push(entry);
     }
     {
         let mut looked = lock(&state.looked);
@@ -96,26 +90,35 @@ pub(crate) async fn snapshot(state: &State, fresh: bool) -> Value {
         looked.status = statuses;
         looked.described.retain(|(id, version), _| installed.iter().any(|r| r.id == *id && r.version == *version));
     }
-    json!({
-        "dir": state.dir.display().to_string(),
-        "packages": packages,
-        "unreadable": unreadable,
-        "registered": registered,
-        "runtime": runtime(state, sandbox),
-    })
+    let list = PackagesList {
+        dir: state.dir.display().to_string(),
+        packages,
+        unreadable,
+        registered: registered.iter().map(|s| serde_json::to_value(s).unwrap_or(Value::Null)).collect(),
+        runtime: runtime(state, sandbox),
+    };
+    serde_json::to_value(&list).unwrap_or_else(|_| Value::Object(Default::default()))
 }
 
 /// What an installed version's manifest describes, read once per id and version.
-fn described(state: &State, record: &InstallRecord, app_dir: &Path) -> Value {
+fn described(state: &State, record: &InstallRecord, app_dir: &Path) -> Option<PackageDescribed> {
     let key = (record.id.clone(), record.version.clone());
     if let Some(described) = lock(&state.looked).described.get(&key) {
         return described.clone();
     }
     let described = harnix_package::acquire::describe(&app_dir.join(&record.version));
     // One that does not read yet (being unpacked, or broken) is asked again next time.
-    if !described.is_null() {
-        lock(&state.looked).described.insert(key, described.clone());
+    if described.is_null() {
+        return None;
     }
+    let described = match serde_json::from_value::<PackageDescribed>(described) {
+        Ok(described) => Some(described),
+        Err(e) => {
+            tracing::warn!(id = %record.id, error = %e, "a package's description did not read");
+            None
+        }
+    };
+    lock(&state.looked).described.insert(key, described.clone());
     described
 }
 

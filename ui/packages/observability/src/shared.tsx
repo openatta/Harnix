@@ -3,7 +3,7 @@
  * text are written, how a failure is said, and the way back to the conversation.
  */
 
-import { errorText } from "@harnix/core";
+import { errorText, type CallSummary, type RecordingRun, type TurnSummary } from "@harnix/core";
 import { compact, t, useT, type HostApi, type HostSessionRef as SessionKey, type Registry } from "@harnix/react";
 
 /** The tab's host and the page's registry: what a tab reaches out with. */
@@ -12,54 +12,14 @@ export interface Observed {
   registry: Registry;
 }
 
-/** One `observability.turns` row: a turn's calls summed. */
-export interface TurnRow {
-  turn: number;
-  calls: number[];
-  auxiliary: number;
-  duration_ms?: number | null;
-  ttft_ms?: number | null;
-  model_ms: number;
-  tool_ms: number;
-  input_tokens: number;
-  output_tokens: number;
-  cache_hit?: number | null;
-  tokens_per_s?: number | null;
-  context_tokens?: number | null;
-  context_delta?: number | null;
-}
+/** One `observability.turns` row: a turn's calls summed (`TurnSummary`, generated from the readers). */
+export type TurnRow = TurnSummary;
 
 /** Which run of the session a reading covers: its recording starts over when the process running the session first calls the model. */
-export interface Run {
-  created_at: string;
-  generation: number;
-  /** An earlier run of this recording went since it was first read here. */
-  earlier_run?: boolean;
-}
+export type Run = RecordingRun;
 
 /** One `observability.trace` row: a model call, what went in and what came out (its tool calls' inputs and results are in the call's detail). */
-export interface TraceCall {
-  /** Its place in the recording of the session's root: not always one more than the call before. */
-  index: number;
-  session_id: string;
-  parent_session_id?: string | null;
-  agent_type?: string | null;
-  turn: number;
-  step: number;
-  purpose?: string | null;
-  model: string;
-  input: { system: { source?: string | null; chars: number }[]; tools: number; messages: number };
-  output: { chars: number; thinking_chars: number; tool_uses: number };
-  tools: { id: string; name: string }[];
-  /** `ok`, `cancelled`, `error`, `in_flight` or `unfinished`. */
-  status: string;
-  error?: { kind?: string; message?: string } | null;
-  stop_reason?: string | null;
-  usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | null;
-  /** When it was sent, how long to its first chunk, how long it streamed after it; absent without the times. */
-  timing?: { sent_at: number; ttft_ms?: number | null; generate_ms?: number | null; tokens_per_s?: number | null } | null;
-  duration_ms?: number | null;
-}
+export type TraceCall = CallSummary;
 
 /** What the page says of the run a reading covers: since when, and that an earlier one is gone. */
 export function RunNote({ run, testId = "run-note" }: { run?: Run | null; testId?: string }) {

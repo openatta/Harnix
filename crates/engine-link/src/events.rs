@@ -113,27 +113,9 @@ impl Prompt {
     }
 }
 
-/// What a session waiting on a question waits for, as its row shows it.
-#[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Waiting {
-    /// An answer to a question.
-    Answer,
-    /// A plan's review.
-    Plan,
-    /// A permission.
-    Approval,
-}
-
-impl Waiting {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Waiting::Answer => "answer",
-            Waiting::Plan => "plan",
-            Waiting::Approval => "approval",
-        }
-    }
-}
+/// What a session waiting on a question waits for, as its row shows it: the wire's word for it,
+/// declared with the kernel's wire shapes (`harnix_contract::wire`).
+pub use harnix_contract::wire::Waiting;
 
 /// How a turn ended, as the engine said: the points a caller acts on.
 #[non_exhaustive]

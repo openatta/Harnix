@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use harnix_contract::sync::lock;
+use harnix_contract::wire::{self, ExtensionEntry, UiView};
 use harnix_kernel::{Rpc, TopicChanged, TopicSource};
 use serde_json::{json, Value};
 
@@ -66,34 +67,28 @@ impl UiModules {
     /// `hello.extensions`: every extension, enabled or not — what the shell activates its
     /// compiled-in UI packages by, before the first draw. Of its interface only `bundle`, the UI
     /// package it is drawn by when that is not its own id.
-    pub fn extensions(&self) -> Value {
-        json!(self
-            .entries()
+    pub fn extensions(&self) -> Vec<ExtensionEntry> {
+        self.entries()
             .into_iter()
             .map(|mut e| {
-                if let Some(obj) = e.as_object_mut() {
-                    let bundle = obj.remove("ui").and_then(|ui| ui.get("bundle").cloned());
-                    if let Some(bundle) = bundle {
-                        obj.insert("bundle".into(), bundle);
-                    }
-                }
+                e.bundle = e.ui.take().and_then(|ui| ui.get("bundle").and_then(Value::as_str).map(str::to_string));
                 e
             })
-            .collect::<Vec<_>>())
+            .collect()
     }
 
     /// The whole value: each extension's entry with its interface, and the modules.
     pub fn view(&self) -> Value {
-        json!({ "extensions": self.entries(), "contributions": self.modules() })
+        wire::params(&UiView { extensions: self.entries(), contributions: self.modules() })
     }
 
-    fn entries(&self) -> Vec<Value> {
+    fn entries(&self) -> Vec<ExtensionEntry> {
         self.diagnostics.get().map(|d| d.ui_entries()).unwrap_or_default()
     }
 
-    fn modules(&self) -> Value {
+    fn modules(&self) -> Vec<Value> {
         let lists = lock(&self.lists);
-        json!(lists.values().flatten().cloned().collect::<Vec<_>>())
+        lists.values().flatten().cloned().collect()
     }
 }
 
@@ -137,6 +132,6 @@ mod tests {
         ui.changed();
         assert_eq!(counted.0.load(Ordering::SeqCst), 5);
         assert_eq!(ui.view(), json!({"extensions": [], "contributions": ["app", "pkg"]}));
-        assert_eq!(ui.extensions(), json!([]));
+        assert!(ui.extensions().is_empty());
     }
 }

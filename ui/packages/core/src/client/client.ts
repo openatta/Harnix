@@ -25,10 +25,9 @@ import type {
   ParamsOf,
   ResultOf,
   CallError,
-  Hello,
 } from "../protocol/frames.ts";
 import { engineProtocolRefusal } from "../protocol/events.ts";
-import { CONTRIB_API_VERSION, HANDSHAKE_REFUSED, PROTOCOL_VERSION, type Topology } from "../protocol/generated/contract.ts";
+import { CONTRIB_API_VERSION, HANDSHAKE_REFUSED, PROTOCOL_VERSION, type Hello, type Topology } from "../protocol/generated/contract.ts";
 import {
   connectSplit,
   type EventSourceCtor,

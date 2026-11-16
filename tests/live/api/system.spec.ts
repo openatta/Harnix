@@ -394,7 +394,8 @@ test.describe("on", () => {
     const zip = Buffer.from(archive.content, "base64");
     const send = async (name: string, body: Buffer) => {
       const grant = await api.call("harnix-app.sessions.importUpload", { name, space: "sessions" });
-      const sent = await fetch(`${backend.url.replace(/\/$/, "")}${grant.url}`, { method: "POST", body });
+      // A Node Buffer is not a `BodyInit` to the DOM's fetch types; its bytes, copied, are.
+      const sent = await fetch(`${backend.url.replace(/\/$/, "")}${grant.url}`, { method: "POST", body: new Uint8Array(body) });
       expect(sent.ok).toBe(true);
       return grant.token as string;
     };

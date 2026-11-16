@@ -17,6 +17,7 @@ pub mod handshake;
 pub mod s1;
 pub mod skills;
 pub mod sync;
+pub mod wire;
 
 pub use frame::{Channel, Frame, FrameSink};
 pub use handshake::{

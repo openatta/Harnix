@@ -6,13 +6,14 @@
  * 而不是把读不懂的事件画成别的东西。
  */
 
-import type { EngineEvent, Hello } from "./frames.ts";
+import type { EngineEvent } from "./engine.ts";
+import type { Hello } from "./generated/contract.ts";
 
 /** 这一层读得懂的引擎协议版本（`hello.engine_protocol`）。 */
 export const ENGINE_PROTOCOLS: readonly number[] = [4];
 
 /** 不认识的引擎协议：为什么拒绝；认识（或没说）时 null。 */
-export function engineProtocolRefusal(hello: Pick<Hello, "engine_protocol"> | null | undefined): string | null {
+export function engineProtocolRefusal(hello: Partial<Pick<Hello, "engine_protocol">> | null | undefined): string | null {
   const v = hello?.engine_protocol;
   if (v === undefined || ENGINE_PROTOCOLS.includes(v)) return null;
   return `the engine speaks protocol ${String(v)}; this interface reads ${ENGINE_PROTOCOLS.join(", ")} — use an interface built for this Harnix`;

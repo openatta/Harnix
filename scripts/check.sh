@@ -201,10 +201,10 @@ run_frontend() {
   [ -d node_modules ] || pnpm install --frozen-lockfile || return 1
   echo "── typecheck ──"; pnpm -r --if-present run typecheck || return 1
   echo "── unit ──";      pnpm -r --if-present run test || return 1
+  # The committed declarations against the Rust they are generated from: the test compares
+  # instead of writing, and names the files that differ.
   echo "── protocol types ──"
-  HARNIX_TS_OUT="$scratch/ts" cargo test -q -p harnix-contract --features ts --test ts_export || return 1
-  diff -u ui/packages/core/src/protocol/generated/contract.ts "$scratch/ts/contract.ts" || {
-    echo "generated protocol types are stale: cargo test -p harnix-contract --features ts"; return 1; }
+  HARNIX_TS_CHECK=1 cargo test -q -p harnix --features ts --test ts_export || return 1
   echo "── coverage table ──"; node tests/live/coverage.mjs --check || return 1
   echo "── app ui vendored ──"; node tests/app-ui-vendored.mjs || return 1
 }
