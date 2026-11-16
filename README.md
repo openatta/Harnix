@@ -112,13 +112,13 @@ crates/supervise       child processes: fork + exec, sandbox, reaping
 crates/ext/api         harnix-ext, the extension interface (S1)
 crates/host-api        the host-component interface (S3): carriers, spawning, adopting
 crates/ext/<id>        Harnix's own extensions: system, harnix-app, settings, plugins,
-                       observability, devices, flow (optional), packages
+                       observability, devices, flow and schedule (optional), packages
 crates/carrier/*       the two package carriers: wasm (mode 2), proc (mode 3), and what they share
 crates/package, wasm-port, wasm-host, wasm, proc
                        extension packages: manifest, signatures and store, the port, the host
                        core, wasmtime (the one place it is linked), the extension process
 crates/client          the light client an application's own tools link
-crates/cli             the `harnix` binary: every first-party extension, with the flow extension
+crates/cli             the `harnix` binary: every first-party extension, with flows and schedules
 crates/testapp         an application for the tests
 ui/packages/           @harnix/core (protocol, client, session state), @harnix/react (host API,
                        contribution registry, i18n, tokens), @harnix/shell (the shell core),
