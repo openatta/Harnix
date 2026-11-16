@@ -97,6 +97,9 @@ export interface Hello {
     providers?: EngineProviders | null;
     [key: string]: unknown;
   };
+  /** How long the engine waits for a person to answer a permission ask: the card counts down
+   *  from it (`permission_prompt_timeout_secs`, concept §21.2 of harnix-ext.md). */
+  permission_prompt_timeout_secs?: number;
   scenes: Scene[];
   commands: unknown[];
   /** What a client fills in when it names none. `space` is null until the product names one. */
@@ -125,7 +128,6 @@ export interface Hello {
     max_frame_bytes?: number;
     max_upload_bytes?: number;
     replay_max_frames?: number;
-    prompt_timeout_secs?: number;
     /** 单双向流上同时在途的请求上限；超额的回 `BUSY`（-31005）。客户端照它在本地排队。 */
     max_in_flight?: number;
   };
