@@ -121,6 +121,17 @@ struct FocusIn {
     session_id: String,
     #[serde(default)]
     flow: Option<String>,
+    /// The project the conversation works in from now on; `""` takes it out of one.
+    #[serde(default)]
+    project: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DefIn {
+    name: String,
+    /// Read as a task of this project would: the project's own over the rest.
+    #[serde(default)]
+    project: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -473,16 +484,29 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         sh,
         packs,
         "defs",
-        "the flows on offer, as the `defs` topic has them: [{name, title, description?, digest, origin, valid, inputs}]; inputs: a JSON Schema of what a run is started with",
-        |_, packs, _, _: Value| async move { to_value(publish::defs_list(packs.as_ref())) },
+        "the flows on offer, as the `defs` topic has them: [{name, title, description?, digest, origin, valid, reason?, inputs}]; inputs: a JSON Schema of what a run is started with. {project?}: the flows a task of that project may run, the project's own (origin project, <project>/.harnix/flows/) over the rest; while the project is not trusted its own are listed unread, valid false, reason untrusted",
+        |sh, packs, _, p: Value| async move {
+            let project = p.get("project").and_then(Value::as_str).filter(|r| !r.trim().is_empty());
+            match project {
+                Some(root) => to_value(publish::defs_list(super::projects::packs_in(&sh, Some(root)).await?.as_ref())),
+                None => to_value(publish::defs_list(packs.as_ref())),
+            }
+        },
     );
     method(
         m,
         sh,
         packs,
         "def",
-        "one flow: {def, yaml, digest, origin, valid, problems, writable, skills: {name: body}, protocol: {station: text}}",
-        |sh, packs, _, p: NameIn| async move { def_info(&*engine(&sh)?, packs.as_ref(), &p.name) },
+        "one flow: {name, project?} → {def, yaml, digest, origin, valid, problems, writable, skills: {name: body}, protocol: {station: text}}; project: as a task of that project reads it",
+        |sh, packs, _, p: DefIn| async move {
+            let packs = match p.project.as_deref() {
+                Some(root) if !root.trim().is_empty() => super::projects::packs_in(&sh, Some(root)).await?,
+                _ => packs,
+            };
+            super::projects::refuse_withheld(packs.as_ref(), &p.name)?;
+            def_info(&*engine(&sh)?, packs.as_ref(), &p.name)
+        },
     );
     method(
         m,
@@ -609,7 +633,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         sh,
         packs,
         "focus",
-        "the flow a conversation works on (the panel's selection): {instance, session_id, flow | null} → {flow}; the session must be a flow-author conversation",
+        "the flow a conversation works on (the panel's selection): {instance, session_id, flow | null, project?} → {flow, project}; the session must be a flow-author conversation; project: the project it works in from now on (its flows are read and saved in <project>/.harnix/flows/), \"\" for none",
         |sh, packs, cx, p: FocusIn| async move {
             // Only a conversation that can use it: an existing session in the flow-author scene.
             let session = cx
@@ -633,6 +657,19 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
                     super::AUTHOR_SCENE
                 )));
             }
+            match p.project.as_deref().map(str::trim) {
+                None => {}
+                Some("") => sh.set_conversation_project(&p.instance, &p.session_id, None),
+                Some(root) => {
+                    let root = super::projects::project_root(root).map_err(RpcError::invalid_params)?;
+                    sh.set_conversation_project(&p.instance, &p.session_id, Some(root));
+                }
+            }
+            let project = sh.conversation_project(&p.instance, &p.session_id);
+            let packs = match &project {
+                Some(root) => super::projects::packs_in(&sh, Some(root)).await?,
+                None => packs,
+            };
             let flow = p.flow.filter(|f| !f.is_empty());
             if let Some(f) = &flow {
                 if packs.flow(f).is_none() {
@@ -650,11 +687,11 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
                         own.map_or("the general conversation".to_string(), |f| format!("flow {f}'s conversation")),
                     )));
                 }
-                return Ok(json!({"flow": own}));
+                return Ok(json!({"flow": own, "project": project}));
             }
             sh.set_focus(&p.instance, &p.session_id, flow.clone());
             publish::publish_focus(&sh, &p.instance, &p.session_id).await;
-            Ok(json!({"flow": flow}))
+            Ok(json!({"flow": flow, "project": project}))
         },
     );
 
@@ -797,6 +834,12 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         |sh, _, cx, p: StartParams| async move {
             let by = caller(&cx);
             let trigger = start_trigger(cx.device().is_some(), p.trigger, &by)?;
+            let project_root = project_dir(p.project_root)?;
+            if let Some(root) = &project_root {
+                // In a project a name means the project's own flow: not run until it is trusted.
+                let packs = super::projects::packs_in(&sh, Some(root)).await?;
+                super::projects::refuse_withheld(packs.as_ref(), &p.flow)?;
+            }
             let r = engine(&sh)?
                 .create(
                     CreateIn {
@@ -805,7 +848,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
                         inputs: p.inputs,
                         title: p.title,
                         parent: None,
-                        project_root: project_dir(p.project_root)?,
+                        project_root,
                         workspace: p.workspace,
                         output_dir: p.output_dir,
                         trigger: Some(trigger),

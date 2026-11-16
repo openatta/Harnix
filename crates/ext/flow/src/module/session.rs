@@ -421,7 +421,10 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
     let turns = Turns {
         main: job.main,
         delivery: job.delivery,
-        message: (!resume).then(|| task_message_of(sh, job)),
+        message: match resume {
+            false => Some(task_message_of(sh, job).await),
+            true => None,
+        },
         resumed_running: resume && running,
     };
     let hub = HubSession {
@@ -523,12 +526,16 @@ async fn recorded_settings(sh: &Shared, s: &SessionRef) -> Option<Value> {
         .and_then(|e| e.get("payload").cloned())
 }
 
-/// The protocol layer, the rules, then the skill.
-fn task_message_of(sh: &Shared, job: &SessionJob) -> String {
+/// The protocol layer, the rules, then the skill — from the packs of the run's project.
+async fn task_message_of(sh: &Shared, job: &SessionJob) -> String {
+    let packs = match sh.engine() {
+        Ok(engine) => Some(engine.packs_for_run(&job.key.run).await),
+        Err(_) => None,
+    };
     let mut rules = vec![];
-    if let Ok(engine) = sh.engine() {
+    if let Some(packs) = &packs {
         for (name, pinned) in &job.rules {
-            match engine.packs().rule(name) {
+            match packs.rule(name) {
                 Some((text, digest)) => {
                     if pinned.as_ref().is_some_and(|d| *d != digest) {
                         tracing::warn!(rule = name, "the rule changed since the station was entered");
@@ -540,8 +547,8 @@ fn task_message_of(sh: &Shared, job: &SessionJob) -> String {
         }
     }
     let mut skill = None;
-    if let (Some(name), Ok(engine)) = (&job.skill, sh.engine()) {
-        match engine.packs().skill(name) {
+    if let (Some(name), Some(packs)) = (&job.skill, &packs) {
+        match packs.skill(name) {
             Some((body, digest)) => {
                 if job.skill_digest.as_ref().is_some_and(|d| *d != digest) {
                     tracing::warn!(

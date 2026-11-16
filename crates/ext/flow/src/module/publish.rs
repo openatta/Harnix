@@ -81,9 +81,10 @@ pub(crate) async fn publish_all(sh: &Arc<Shared>) {
     publish(sh, &listed).await;
 }
 
-/// The flows on offer, as `flow.defs` and the `defs` topic carry them.
+/// The flows on offer, as `flow.defs` and the `defs` topic carry them; and, for a project, the
+/// project's own that are withheld (not valid, with the reason), in name order with the rest.
 pub(crate) fn defs_list(packs: &dyn crate::kernel::host::Packs) -> Vec<DefRow> {
-    packs
+    let mut rows: Vec<DefRow> = packs
         .flows()
         .into_iter()
         .filter_map(|n| {
@@ -97,9 +98,26 @@ pub(crate) fn defs_list(packs: &dyn crate::kernel::host::Packs) -> Vec<DefRow> {
                 description: def.description,
                 digest,
                 valid,
+                reason: None,
             })
         })
-        .collect()
+        .collect();
+    let withheld = packs.withheld_flows();
+    if withheld.is_empty() {
+        return rows;
+    }
+    rows.extend(withheld.into_iter().map(|(name, why)| DefRow {
+        origin: packs.origin(&name),
+        title: String::new(),
+        description: String::new(),
+        digest: String::new(),
+        valid: false,
+        reason: Some(why),
+        inputs: json!({"type": "object"}),
+        name,
+    }));
+    rows.sort_by(|a, b| a.name.cmp(&b.name));
+    rows
 }
 
 /// The `defs` topic, after the packs changed.

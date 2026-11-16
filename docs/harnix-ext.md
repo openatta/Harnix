@@ -1705,7 +1705,7 @@ Harnix 自己的二进制注册了它（`crates/cli/src/main.rs`）。
 
 | 构建器 | 意思 |
 |---|---|
-| `.packs(impl Packs)` / `.packs_arc(Arc<dyn Packs>)` / `.packs_with(\|data_dir\| …)` | 流程包：`MemPacks`（代码里给）、`DirPacks`（目录分层，`with_builtin` + `with_writable`）；`packs_with` 在启动时从扩展的数据目录建 |
+| `.packs(impl Packs)` / `.packs_arc(Arc<dyn Packs>)` / `.packs_with(\|data_dir\| …)` | 流程包：`MemPacks`（代码里给）、`DirPacks`（目录分层，`with_builtin` + `with_writable`）；`packs_with` 在启动时从扩展的数据目录建。项目自带的流程包（`<项目>/.harnix/flows/`，`ProjectPacks`）由扩展自己叠在上面，只给这个项目的任务，项目受信才读，应用不用配 |
 | `.store(impl RunStore)` / `.store_with(…)` | 运行存在哪；缺省扩展数据目录下 `runs/` 的 `FileStore` |
 | `.scene(SceneBase)` | 给流程用的 scene 底，包装成 `flow-<id>`（带 `flow_submit`、`flow_state`、`flow_propose`）。一个都不给时用内置的 `harnix`、`code`、`mini`（`flow-harnix`、`flow-code`、`flow-mini`） |
 | `.author_scene(SceneBase)` | 流程的对话（`flow-author`）包装的 scene；缺省 `harnix` |

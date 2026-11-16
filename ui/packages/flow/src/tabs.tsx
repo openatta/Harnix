@@ -55,6 +55,8 @@ import {
   sessionOf,
   stationTitle,
   tokensOf,
+  defBlockedKey,
+  ORIGINS,
   type GuideBlock,
   type GuideGroup,
 } from "./model";
@@ -174,7 +176,7 @@ export function FlowsTab({ state, tabs, onPick }: ListProps) {
           <span className="hx-flow-grow" />
           <select aria-label={t("flowui.filter.origin")} data-testid="flow-filter-origin" value={origin} onChange={(e) => setOrigin(e.target.value)}>
             <option value="">{t("flowui.filter.allOrigins")}</option>
-            {(["builtin", "override", "user"] as const).map((o) => (
+            {ORIGINS.map((o) => (
               <option key={o} value={o}>
                 {t("flowui.origin." + o)}
               </option>
@@ -217,7 +219,11 @@ export function FlowsTab({ state, tabs, onPick }: ListProps) {
                 <span className="hx-flow-row-title">
                   {d.title || d.name}
                   {d.origin ? <span className="hx-flow-badge">{t("flowui.origin." + d.origin)}</span> : null}
-                  {d.valid === false ? <span className="hx-flow-badge hx-flow-tone-error">{t("flowui.def.invalid")}</span> : null}
+                  {defBlockedKey(d) ? (
+                    <span className="hx-flow-badge hx-flow-tone-error" data-testid={`flow-def-blocked-${d.name}`} data-reason={d.reason ?? undefined}>
+                      {t(defBlockedKey(d)!)}
+                    </span>
+                  ) : null}
                 </span>
                 <span className="hx-flow-faint">{d.name}</span>
               </button>

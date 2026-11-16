@@ -241,7 +241,7 @@ fn flow(cfg: &Config) -> Generated {
                 CheckRec, ConfirmRec, ForcedRec, StationRec, ParentRef, Workspace, Trigger, RunRecord, Phase,
                 History, RunSummary, RunQuery, RunView,
                 // The module's rows and params.
-                Origin, Delivery, Problem, DefRow, StartParams, StartTrigger, DryRunSummary, Stepped, Progress,
+                Origin, Withheld, Delivery, Problem, DefRow, StartParams, StartTrigger, DryRunSummary, Stepped, Progress,
             ],
         ),
     }

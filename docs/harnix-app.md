@@ -135,7 +135,7 @@ Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方�
 | `harnix-app.projects.trust` | `{project_root, trusted, instance?}` | 写完之后的状态，另带 `written_to` |
 | `harnix-app.sessions.projectStatus` | `{instance?, session_id, space?}`，按 `RowScope::Session` 判 | 会话所在项目的状态（按会话的场景判），另带 `session_id`；无项目会话是 `trust: "none"`、什么都不扣 |
 
-状态的形状，引擎原样的字段加上 `harnix-app` 算好的三项——项目 space、右栏的「上下文」页、项目自带的流程读的都是这一份：
+状态的形状，引擎原样的字段加上 `harnix-app` 算好的三项——项目 space、右栏的「上下文」页读的都是这一份：
 
 ```jsonc
 { "project_root": "/Users/x/repo",          // 解析之后的真实目录
@@ -158,6 +158,12 @@ agent 类型、skill、规则），没有时是 `null`。主题 `harnix-app.trus
 
 设置页的「项目层写了但不生效」照旧由 `settings.describe` 的 `withheld` 逐个字段说，和这里互不重复：那里说某个值没用上，这里说为什么、
 怎么放开。
+
+**项目自带的流程**也等信任：`<项目>/.harnix/flows/` 里的流程和件随仓库提交（[流程指南](../crates/ext/flow/docs/guide.zh-CN.md)
+「项目自带的流程」），只对这个项目的任务生效，同名时项目的优先。流程扩展自己持 `engine.control`，直接读引擎的
+`engine.project.status`，不经 `harnix-app`。没受信时 `flow.defs {project}` 照样列出它们，但不读内容：`origin: "project"`、
+`valid: false`、`reason: "untrusted"`，界面显示「信任项目后可用」；`flow.start {project_root}` 启动它答 `REFUSED`。
+`flow.defs {project}`、`flow.def {name, project}`、`flow.start` 每次都重读信任和文件，信任之后、文件改了之后不用重启。
 
 ## 4. 新建会话
 
