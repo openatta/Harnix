@@ -239,10 +239,11 @@ pub(crate) const FIELDS: &[Field] = &[
     // What the engine answers in; the shell's language choice writes it (`auto` gives it back).
     Field::new("language", Type::Text, "general").tiers(GLOBAL),
     // privacy & advanced
-    // Harnix's instances start with it off in the global tier (docs/harnix-app.md, settings); the
-    // engine's own default is on, so a cleared value reads as on until the next start.
+    // The engine's own default is on, and is what `main` runs with until the person says; the
+    // instances whose data Harnix keeps start with it off in their global tier (docs/harnix-app.md,
+    // settings).
     Field::new("telemetry_enabled", Type::Toggle, "privacy")
-        .default(Default::Bool(false))
+        .default(Default::Bool(true))
         .tiers(GLOBAL)
         .hint("settings.hint.telemetry_enabled"),
     Field::new("telemetry_url", Type::Text, "privacy").tiers(GLOBAL).hint("settings.hint.telemetry_url"),
@@ -717,7 +718,7 @@ mod tests {
         let language = find("language").unwrap();
         assert_eq!((language.section, language.tiers), ("general", GLOBAL));
         let telemetry = declaration(find("telemetry_enabled").unwrap());
-        assert_eq!((&telemetry["section"], &telemetry["default"]), (&json!("privacy"), &json!(false)));
+        assert_eq!((&telemetry["section"], &telemetry["default"]), (&json!("privacy"), &json!(true)));
         assert_eq!(telemetry["hint"], json!("settings.hint.telemetry_enabled"));
         assert!(check(find("telemetry_url").unwrap().ty, &json!("http://localhost:4318")).is_ok());
         for key in ["compaction", "execution", "hooks_config", "team", "checkpoints"] {

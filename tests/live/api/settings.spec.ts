@@ -123,22 +123,24 @@ defineSuite("settings", { feature: "settings" }, {
     },
 
     // privacy & advanced
-    "telemetry starts off in Harnix, is a global-tier switch, and has an endpoint beside it": async ({ client }) => {
+    "telemetry on main is the engine's own default until changed, a global-tier switch, with an endpoint beside it": async ({ client }) => {
       const described = await client.call("settings.describe", {});
       const flag = described.fields.find((f: { key: string }) => f.key === "telemetry_enabled");
-      assert(flag.type === "toggle" && flag.section === "privacy" && flag.default === false && JSON.stringify(flag.writable) === '["global"]', JSON.stringify(flag));
+      assert(flag.type === "toggle" && flag.section === "privacy" && flag.default === true && JSON.stringify(flag.writable) === '["global"]', JSON.stringify(flag));
       assert(flag.hint, "the switch says nothing of what it does");
-      // The instance was started with the default Harnix writes into its global tier.
-      assert(flag.effective === false, `telemetry reads ${JSON.stringify(flag.effective)} on a fresh instance`);
+      // `main`'s engine root is the person's own: Harnix writes no default into it, and the engine's stands.
+      assert(flag.tiers.global === null && !flag.source, `Harnix wrote into main's engine root: ${JSON.stringify(flag)}`);
+      assert(flag.effective === true, `telemetry reads ${JSON.stringify(flag.effective)} where the engine's default stands`);
       const url = described.fields.find((f: { key: string }) => f.key === "telemetry_url");
       assert(url.type === "text" && url.section === "privacy", JSON.stringify(url));
       const e = await client.refused("settings.write", { tier: "project", project_root: client.project, changes: { telemetry_enabled: true } });
       assert(e && e.code === INVALID_PARAMS, "a project switched telemetry");
-      await client.call("settings.write", { tier: "global", changes: { telemetry_enabled: true } });
+      await client.call("settings.write", { tier: "global", changes: { telemetry_enabled: false } });
       try {
-        assert((await client.call("settings.describe", {})).fields.find((f: { key: string }) => f.key === "telemetry_enabled").tiers.global === true, "not written");
+        const off = (await client.call("settings.describe", {})).fields.find((f: { key: string }) => f.key === "telemetry_enabled");
+        assert(off.tiers.global === false && off.effective === false, `not turned off: ${JSON.stringify(off)}`);
       } finally {
-        await client.call("settings.write", { tier: "global", changes: { telemetry_enabled: false } });
+        await client.call("settings.write", { tier: "global", changes: { telemetry_enabled: null } });
       }
     },
 

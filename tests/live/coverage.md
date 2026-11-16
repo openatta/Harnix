@@ -11,7 +11,7 @@
 | 授权与设备 | `authz` | 22 | 2 | — |
 | 会话与轮次 | `sessions` | 117 | 44 | — |
 | 无头会话 | `headless` | 4 | 1 | — |
-| 实例层 | `instances` | 29 | — 实例层没有自己的界面；界面上看实例是系统 space 的事（system） | — |
+| 实例层 | `instances` | 30 | — 实例层没有自己的界面；界面上看实例是系统 space 的事（system） | — |
 | 扩展契约 | `modules` | 20 | 1 | — |
 | space 与会话绑定 | `spaces` | 12 | 6 | — |
 | 会话 space | `session-space` | 26 | 32 | — |
@@ -32,7 +32,7 @@
 | 扩展包后端的闲置休眠（on-demand、冷启动、并发唤醒只起一个实例、订阅与定时器保持常驻、系统 space 的扩展包页签） | `packages-idle` | 6 | 1 | 7 |
 | 应用构建 | `build` | — 在脚本层检查（check-pins、check-lock、sync-app-deps），不经协议 | — 构建没有界面 | — |
 | 桌面壳 | `desktop` | — 桌面壳不加协议面：webview 加载的就是服务端的页面 | — 桌面壳是模板（templates/desktop）：它不调 IPC 由 check-no-ipc.mjs 在 offline 层查，本机模式由它的 --smoke 查 | — |
-| **合计** | | **492** | **272** | **101** |
+| **合计** | | **493** | **272** | **101** |
 
 ## 已知缺口（`@gap`）
 
