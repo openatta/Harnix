@@ -2349,6 +2349,19 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.write",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
         "scope": "session"
       },
       "kind": "method",

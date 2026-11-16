@@ -125,6 +125,7 @@
       "settings.describe",
       "settings.set",
       "settings.setProvider",
+      "settings.write",
       "system.clear",
       "system.compact",
       "system.context",
