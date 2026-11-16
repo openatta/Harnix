@@ -608,7 +608,7 @@ r.space(SpaceDecl::new("watchlist").instance("template:helm.research").scene("re
 
 构建：模板的 `scripts/build.sh` 把 `spaces/*/ui/src/index.tsx` 自动接进去；手工怎么构建、去重了哪些包见 §22.5。
 
-`space` 只是十一个内核贡献点之一：往工具行、对话流、右栏详情、右栏页签、左栏分组、命令菜单、设置、会话动作、快捷键里加东西的是另外十个，
+`space` 只是十二个内核贡献点之一：往工具行、对话流、右栏详情、右栏页签、左栏分组、命令菜单、设置、会话动作、快捷键、中区的视图里加东西的是另外十一个，
 你的扩展还能自己定义点（`<你的 id>.<名>`）。每个点的形状见 §22.3 与 [贡献点](contribution_points.md)。
 
 ### 8.3 `useHost()`
@@ -827,7 +827,7 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 |---|---|---|---|
 | Harnix 版本 | `0.4.4-2026111502` | 各 crate 的 `Cargo.toml`；`harnix::HARNIX_VERSION` | 每次发布（`scripts/set-version.sh` 连这一格一起改，`tests/crate-metadata.mjs` 查它和 crate 一致） |
 | 扩展 API | `1` | `harnix::ext::EXT_API_VERSION` | 写进文档、`--version` 打印的数，不做编译期检查：兼容靠 crate 的版本，从 0.4.4 起扩展接口只做加法（公开的结构与枚举都是 `non_exhaustive` 或只有私有字段，一个 feature 只加函数与模块）；破坏性的变化升它，也升 crate 的大版本。`harnix::ext::http::axum` 与 `harnix::axum`（feature `axum`）、`harnix::testing`（feature `testing`）不在承诺内 |
-| 贡献点 API | `4` | `harnix::CONTRIB_API_VERSION`；`harnix.hello` 里也有 | 贡献点的契约变了。2：运行期包的界面模块是预编译的 ES 模块，从页面的 import map 拿 React；**React 的大版本是它的一部分**。3：宿主 API `HostApi`/`useHost()`、第九个内核点 `session.action`、扩展自己定义的点（`definePoint`）、`space` 分组、按 `hello.extensions` 激活。4：第十个内核点 `sidebar.tab`（右栏的页签类型）、宿主 API `host.sidebar`（导航控制器）、页签域 `useTabInfo()`；第十一个内核点 `shortcut`（有快捷键的命令，§22.8）；只做加法，照 3 写的模块照常 |
+| 贡献点 API | `4` | `harnix::CONTRIB_API_VERSION`；`harnix.hello` 里也有 | 贡献点的契约变了。2：运行期包的界面模块是预编译的 ES 模块，从页面的 import map 拿 React；**React 的大版本是它的一部分**。3：宿主 API `HostApi`/`useHost()`、第九个内核点 `session.action`、扩展自己定义的点（`definePoint`）、`space` 分组、按 `hello.extensions` 激活。4：第十个内核点 `sidebar.tab`（右栏的页签类型）、宿主 API `host.sidebar`（导航控制器）、页签域 `useTabInfo()`；第十一个内核点 `shortcut`（有快捷键的命令，§22.8）；仍是 4、同一版里加的：第十二个内核点 `conversation.view`（中区里对话之外的视图，§22.10）、宿主 API `host.conversation`、`session.open(ref, { view })`；只做加法，照 3 写的模块照常 |
 | 协议 | `5` | `harnix_contract::PROTOCOL_VERSION` | 握手比对，不一致拒绝（`HANDSHAKE_REFUSED`）。5：名字规整（内核 `harnix.<区域>.<动词>`、引擎直通 `engine.*`、扩展在自己的 id 下），默认实例叫 `main`，新增错误码 `CANCELLED`、`DEADLINE_EXCEEDED`、`EXTENSION_UNAVAILABLE`。`harnix.event` 帧里的事件负载与 `engine.*` 的答是 Agix 的形状，不在加法承诺里，由 `hello.engine_protocol` 标明 |
 | 扩展包接口 | `2` | `harnix-ext.toml` 的 `[app] harnix_api`；`harnix_package::HARNIX_API` | 扩展包的契约（WIT world 与清单）有破坏性变化。见 [扩展包](harnix-ext-package.md) |
 | 扩展线 | `1` | `harnix_wasm_port::EXT_WIRE_VERSION` | 产品与它自己的扩展进程之间那条线（`harnix-ext-wire`）的帧或方法改了形状。两端是同一次构建，扩展进程的 `proc.hello` 报的数不等就被拒绝；应用不直接用它 |
@@ -1390,9 +1390,9 @@ export function register(r: Registry, host: HostApi): Dispose | void
   全部注册完还没人定义就丢掉并记进诊断。定义者用 `r.list(name)` / `useContributions(name)` 读；后端在 `UiDecl.points` 里声明同一个点，进生成的目录。
 - **接不上就自己来**：`r.register(point, c, owner, { orElse: () => … })`——点在全部注册结束时还没定义就调 `orElse`。
 
-### 22.3 十一个贡献点
+### 22.3 十二个贡献点
 
-内核贡献点 **11 个**，形状与每个点的字段见 [贡献点](contribution_points.md)（点的清单由代码生成）：
+内核贡献点 **12 个**，形状与每个点的字段见 [贡献点](contribution_points.md)（点的清单由代码生成）：
 
 | 点 | 什么 |
 |---|---|
@@ -1407,6 +1407,7 @@ export function register(r: Registry, host: HostApi): Dispose | void
 | `session.action` | 对一个会话、它里面一次工具调用、或人的一条话的动作：外壳在标题栏、会话菜单、工具行上问它；`at: ["arg"]` 的是工具行上的参数——第一个认领这次调用的把参数变成链接（文件工具的路径打开预览）。工具的 `target` 带调用的 `input`。`at: ["message"]` 的进人的一条话下面的消息菜单，`target` 是 `{kind: "message", session, space, turnId, text}`（外壳自己的「回到这里」在这里，[Harnix app](harnix-app.md) §5.1）。可选的 `disabled(target)` 答一句话时，这一项画成灰的、悬停说这句话 |
 | `sidebar.tab` | 右栏的一种页签类型：按 `patterns` 认领 `harnix-resource://` 地址，或按 `kind` 打开的页；§22.7 |
 | `shortcut` | 一条有快捷键的命令：按平台的缺省键、生效的地方、动作；设置的「快捷键」列出它、可改键；§22.8 |
+| `conversation.view` | 中区里对话之外的另一种视图（轨迹……）：有会话打开、有注册方时顶上出现「对话 \| …」的切换；§22.10 |
 
 `settings.section` 可以不给 `render`，只声明字段，外壳按声明画表单（类型对应控件、「恢复缺省」、有风险的值先确认、
 值在读取之后被别处改过时提示「保留我的修改并复核」）：
@@ -1433,7 +1434,7 @@ r.register("settings.section", {
 `settings.write {tier, changes, revision?}` 整份校验、按版本号拒绝过期的写入（`CONFLICT`），路由到没配置的 provider 也拒绝。
 provider 的 `api_key` 到界面只有 `***` 加末 4 位。
 
-扩展定义的点（0.4.4 的第一方）：`system.console.tab`、`system.inspector.tab`，不算进「11 个」。
+扩展定义的点（0.4.4 的第一方）：`system.console.tab`、`system.inspector.tab`，不算进「12 个」。
 `space` 的分组（0.4.2 的 25 个平铺成员按画在哪分四组）：
 
 ```ts
@@ -1463,6 +1464,8 @@ interface SpaceContribution {
 | `subscribe(topic, params \| undefined, fn)` | 返回取消函数。按 `(topic, 键排序后的 params)` 计数：同一页共用一份订阅，最后一个退订才发 `harnix.topics.unsubscribe`，后来者先拿到已有的值，重连后自动重订 |
 | `session.current() / context() / list() / open(ref) / create(spec?)` | 都是前台 space 的；`create` 自动绑定前台 space |
 | `session.open(ref, { switchSpace: true })` | 去会话所属的 space（按中枢账本）打开，先把它带到前台；返回的 promise 在打开后落定，没有这个会话就 reject |
+| `session.open(ref, { view })` | 打开时就用这个视图画它（`conversation.view` 的 id，或 `CONVERSATION_VIEW`）；可以和 `switchSpace`、`reveal` 一起给 |
+| `conversation.current() / show(view) / onChange(fn)` | 中区现在用哪个视图画打开的会话（§22.10）：`CONVERSATION_VIEW` 是对话；`show` 换视图并记在这个会话名下；没有注册的 id 退回对话 |
 | `session.open(ref, { switchSpace?, reveal: key })` / `session.reveal(key)` | 打开后等转录追上（有上限），在对话里找 `[data-reveal="<key>"]`，没有就找 id 是 `key` 的块，滚到中间、`data-revealed` 闪 2.4 秒；返回 `Promise<boolean>` |
 | `session.onChange(fn)` | 前台 space 的当前会话变了，同一个值不重复；`useCurrentSession()` 是它的 hook |
 | `session.isOpen(ref)` / `session.menu(ref, anchor)` | 这个页面有没有开着这个会话 / 外壳的会话菜单（自己的项加每个 `session.action` at `menu`） |
@@ -1693,6 +1696,36 @@ settings.mcp.context → {
 ```
 
 读自 `engine.session.inspectContext`（会话正在跑一轮时引擎答 `SESSION_BUSY`），先以设备的身份 `engine.session.get` 一次，看它能不能看这个会话。
+
+### 22.10 中区的视图：`conversation.view`
+
+中区把打开的会话画成对话；一个会话还可以有别的画法——**轨迹**（它记录下来的每一次模型调用，按轮列成一张表）就是一种。
+这样的画法是内核点 `conversation.view` 的一条注册：有会话打开、至少有一条适用的注册时，中区顶上出现「对话 | 轨迹 | …」的切换；
+对话是缺省；每个会话各记自己的选择（浏览器本地 `harnix.view`，会话删了就忘）。选了别的视图时对话仍在页上、只是不画：会话仍 attach 着，
+输入框仍绑着，流式照常跟。
+
+```ts
+r.register("conversation.view", {
+  id: "observability.trajectory",     // 全页唯一；也是 host.conversation.show() 和 session.open(ref, { view }) 用的名字
+  title: () => t("trajectory.title"), // 切换上的字，每次画时读
+  order: 10,                          // 在切换里的位置；缺省 100
+  match: (session) => true,           // 可选：适不适用于这个会话；抛错算不适用
+  render: (session) => <Trajectory session={session} />,   // 中区的正文；session 是 { instance, sessionId }
+}, owner);
+```
+
+宿主 API：`host.conversation.current()` 答现在的视图（`CONVERSATION_VIEW` 是对话），`show(id)` 换视图，`onChange(fn)` 在换了、或换了会话时告诉；
+`host.session.open(ref, { switchSpace: true, view })` 到会话所属的 space 打开它、直接用这个视图画。
+
+**轨迹**（`@harnix/observability`，`id: "observability.trajectory"`）：按轮分组的一张表——这一轮人说的话（`harnix.session.outline`）、
+每次模型调用（模型、进出 token、用时、首字、速度、停止原因、回答的开头）与它要的工具调用（名字、输入的开头、结果出没出错）、
+子 Agent 的调用、这一轮旁边的调用（压缩、记忆、标题）；轮、调用、子 Agent 都能折叠，搜索能找到折起来的；只看失败、只看工具、跳到失败处；
+上方一条时间概览（真实的开始时间与总时长，每条按首字分成等待与解码两段，一轮的调用之间是工具的时间，子 Agent 另一条道；拖选一段只列这段里活动的调用，
+滚轮缩放，「重置」）；选中一条在旁边开检查器（输入、输出、与上一次对比、复制 JSON、在对话里定位）；每一轮的行上有 `observability.turns` 的汇总
+（首字、模型与工具时间、进出、缓存命中、速度、上下文增量或累计）；长历史先列最近 50 轮，「更早的 N 轮」往前；只画看得见的行；
+流式时跟着末尾，往上滚了就不跟；任务的站的边界来自 outline 的 `marks`；对这一轮的反馈（§7.3）标在它最后一次调用上。
+读的都是设备自己够得着的方法：`observability.trace / trace.call / turns`（按会话判，声称前台 space）、`harnix.session.outline`、`engine.session.entries`。
+同一个组件也是系统 space 检查器的「轨迹」页签（[系统 space](system-space.md) §8.2），那里带「在会话里打开」。
 
 ---
 

@@ -999,7 +999,7 @@ IPDrun 已经有能对着 Harnix 协议跑的 React 对话组件，直接回流�
 | `@harnix/harnix-app` | React | 会话 space、项目 space、新会话与添加项目的对话框、`@` 文件候选、归档与导出 |
 | `@harnix/settings` · `@harnix/plugins` · `@harnix/devices` | React | 设置节：模型、场景、MCP · Agix 插件 · 设备 |
 | `@harnix/packages` | React | 设置节「扩展」（装、升、卸、同意、清数据）；系统 space 控制台的「扩展」页签 |
-| `@harnix/observability` | React | 系统 space 检查器的「调用」「每轮」 |
+| `@harnix/observability` | React | 对话区的「轨迹」视图（`conversation.view`）、右栏的「上下文」「用量」页签，以及系统 space 检查器的「轨迹」 |
 | `@harnix/flow` | React | 流程；注册进 `system.console.tab`，没人定义时注册自己的 space |
 | `@harnix/ext-sdk` · `@harnix/ext-kit` | 否 | 扩展包的页面在 iframe 里的一侧：桥的客户端与 mock 宿主 · 外壳的令牌与几样基础部件 |
 | `@harnix/testkit` | 否 | LIVE 测试的启动器、API 客户端、Playwright 夹具 |
@@ -1117,7 +1117,7 @@ space 自己的会话。这件事错一次就是把消息发进了别的产品�
 |---|---|
 | 左 | 实例列表 |
 | 中（控制台） | 指标条（版本、运行时长、内存、线程、连接、Agent、运行中的会话与任务、等人处理的）；页签：**活动**、**全部**（每行一个主 Agent，展开是子 Agent 与任务）、**诊断**，以及别的扩展经 `system.console.tab` 注册进来的（`flow` 的**流程**、`packages` 的**扩展**） |
-| 右（检查器） | 只出现适用于选中项的页签：实例的概况；会话的概况、上下文、任务、原始帧，以及经 `system.inspector.tab` 注册进来的（`observability` 的**调用**、**每轮**） |
+| 右（检查器） | 只出现适用于选中项的页签：实例的概况；会话的概况、上下文、任务、原始帧，以及经 `system.inspector.tab` 注册进来的（`observability` 的**轨迹**） |
 
 **它的权力就是四项能力。** `system` 被授予 `instances.admin`、`engine.inspect`、`engine.control`、`process.observe`，声明一个 `cross_space()` 的 space。
 设备够不着的引擎方法（上下文、任务的停止与发话、任务输出、去掉与改写消息、压缩、清空、换模型、改名、目标）由它包成 `system.*`：设备调它，它以自己的身份、

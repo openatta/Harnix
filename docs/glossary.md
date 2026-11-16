@@ -130,8 +130,8 @@
 | **space 的缺省实例** | `SpaceDecl::instance(..)` | space 里新建会话缺省落在哪台实例：`main`、一台固定实例、或 `template:<id>` |
 | **系统 space** | 扩展 `system`、`@harnix/system` | 第一方扩展：开发调测用的面，按实例 → 会话 → 任务看一切、能操作，可以观看与操作任何 space 的会话。见 [系统 space](system-space.md) |
 | **固定部分** | — | 外壳里不随 space 变的东西：顶部的标识、新建对话、搜索，底部的头像（设置入口，外圈表示连接）。其余都是 space 的 |
-| **贡献点** | contribution point | 前端的接缝。**内核点** 11 个：`space`、`home.card`、`tool.row`、`flow.block`、`details.panel`、`sidebar.group`、`command`、`settings.section`、`session.action`、`sidebar.tab`、`shortcut`。外加扩展定义的点 |
-| **扩展定义的贡献点** | `r.definePoint("<id>.<名>", ..)` | 一个原生扩展的界面定义、别的扩展往里注册的点，例如 `system.console.tab`。不算进 11 个 |
+| **贡献点** | contribution point | 前端的接缝。**内核点** 12 个：`space`、`home.card`、`tool.row`、`flow.block`、`details.panel`、`sidebar.group`、`command`、`settings.section`、`session.action`、`sidebar.tab`、`shortcut`、`conversation.view`。外加扩展定义的点 |
+| **扩展定义的贡献点** | `r.definePoint("<id>.<名>", ..)` | 一个原生扩展的界面定义、别的扩展往里注册的点，例如 `system.console.tab`。不算进 12 个 |
 | **宿主 API** | `HostApi`、`useHost()` | 前端代码拿到的全部能力。拿不到 Harnix 自己的连接 |
 | **停靠面** | `SurfaceState`，`harnix.sidebar.v1.<会话>` | 一个会话在右栏里的那一份：开着的页签、哪一页在前、布局树（本版一格）。存在浏览器本地，刷新后还在；会话之间互不影响 |
 | **页签类型** | 贡献点 `sidebar.tab` | 右栏能打开的一种页：资源类按 `patterns` 认领资源地址，页类按 `kind` 打开。一个 `kind` 至多一份 extension 加一份 builtin，extension 生效 |
@@ -139,6 +139,8 @@
 | **导航控制器** | `host.sidebar` | 进右栏的每条路：`openResource`、`openTab`、`close`、`active`、`isExpanded`、`toggleExpanded`。同一内容只开一份 |
 | **页签域** | `useTabInfo()` | 一个打开的页签的正文拿到的东西：它是哪一页、怎么被导航到的（`params`、`revision`）、`signal`、它能做的动作、关闭处理器 |
 | **引导页** | `kind: "guide"` | 停靠面的缺省页：列出各页签类型 `guide` 入口的卡片；恰好一个入口时直接开那一页。外壳的 builtin，扩展可以顶替 |
+| **中区的视图** | 贡献点 `conversation.view`，`host.conversation` | 中区画一个打开的会话的一种画法：对话是缺省，别的由注册方给；顶上「对话 \| …」切换，每个会话各记自己的选择 |
+| **轨迹** | trajectory，`@harnix/observability` | 一个会话记录下来的每一次模型调用，按轮列成一张表（人的话、调用与它的工具调用、子 Agent、旁边的调用），带时间概览和检查器。中区的一种视图；系统 space 的检查器里是同一个 |
 | **令牌覆盖** | `r.tokens` | 扩展改主题已有令牌的值；不能新增令牌名 |
 | **语言包** | `r.strings` | 扩展带的文案；key 以它的 owner 开头 |
 | **引擎贡献** | `EngineContribution`，`Registrar::engine()` / `engine_everywhere()` | 原生扩展交给进程内实例的东西：场景层、原生工具（`Tool`、`ToolProvider`）、`PromptGate`。扩展包没有 |
