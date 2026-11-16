@@ -29,9 +29,13 @@ use tokio::sync::{mpsc, watch};
 /// `extensions.manage`: `cx.service::<HostServices>()`.
 pub struct HostServices;
 
+impl HostServices {
+    /// What the host that provides it checks the asking extension for.
+    pub const CAPABILITY: Capability = caps::EXTENSIONS_MANAGE;
+}
+
 impl Service for HostServices {
     const NAME: &'static str = "harnix.host";
-    const CAPABILITY: Capability = caps::EXTENSIONS_MANAGE;
     type Handle = dyn HostApi;
 }
 

@@ -79,7 +79,6 @@ struct Absent;
 
 impl Service for Absent {
     const NAME: &'static str = "probe.absent";
-    const CAPABILITY: harnix_ext::Capability = caps::EXTENSIONS_MANAGE;
     type Handle = ();
 }
 

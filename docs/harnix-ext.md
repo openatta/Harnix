@@ -972,7 +972,7 @@ pub trait Extension: Send + Sync + 'static {
 | `bulk()` | 一次性上传凭据：`grant(max_bytes)`、`grant_named(name, max_bytes)`（文件名以清理过的 `name` 结尾，给按名字或后缀读它的，如 `plugins.upload`） |
 | `ui()` | `UiPublisher`：运行期发布的界面条目（`plugins` 发 Agix 包的 `[[ui]]`） |
 | `devices()` | `devices.manage`：`list`、`pair_begin`、`pair_complete`、`revoke` |
-| `service::<S>()` | 一个有名字的宿主服务；服务自己声明要什么能力。0.4.3 唯一的服务是 `harnix_host_api::HostServices`（`extensions.manage`），只有宿主组件用（§17.8） |
+| `service::<S>()` | 一个有名字的宿主服务；`S` 只给名字（`NAME`）和交出来的类型（`Handle`），要什么能力由提供它的宿主按名字定、按授予查——请求方自己写的类型说了不算。0.4.3 唯一的服务是 `harnix_host_api::HostServices`（`extensions.manage`），只有宿主组件用（§17.8） |
 | `listen()` / `listening().await` | 进程监听在哪：`Listen { addrs, url }`（`addrs` 是实际绑上的地址，`--port 0` 时是系统给的端口；`url` 是 `http(s)://<第一个地址>/`，不带令牌）。扩展的 `start` 在监听**之前**，所以 `start` 里 `listen()` 是 `None`；要写运行记录就 `tokio::spawn` 一个任务 `listening().await` |
 | `provide(v)` / `provide_arc(arc)` / `state::<T>()` | 扩展状态，handler 里用 `call.state::<T>()` 拿 |
 

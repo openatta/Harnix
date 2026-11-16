@@ -5,7 +5,8 @@
 //! The host fills a [`Seat`] with the kernel's services, each a trait here, and hands it to the
 //! extension's descriptor through [`Seated`]. Nothing here is the extension interface's own: an
 //! extension never sees a seat, only the context made from it, and capabilities are checked by
-//! that context against [`GrantBook`] before a service is reached.
+//! that context against [`GrantBook`] before a service is reached — a named service's by whoever
+//! provides it ([`ServiceRegistry`]).
 //!
 //! Values the kernel cannot name — the engine interface's readers, a host component's services —
 //! travel as `Arc<dyn Any + Send + Sync>`, each documented with what it holds; the extension
@@ -16,7 +17,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use harnix_contract::s1::{ExtId, InstanceTrust};
+use harnix_contract::s1::{Capability, ExtId, InstanceTrust};
 use serde_json::Value;
 use tokio::sync::watch;
 
@@ -93,8 +94,21 @@ pub trait CredentialLookup: Send + Sync {
 
 /// Named services beyond the kernel's own, by the extension asking: each an
 /// `Arc<Handle>` of the type the service is declared with, behind `Any`.
+///
+/// Who gets one is the provider's to decide: by the name asked for, it knows what capability that
+/// service takes and checks the asker's grants for it. Nothing the asker says — the type it asks
+/// through, a capability that type claims — goes into it.
 pub trait ServiceRegistry: Send + Sync {
-    fn service(&self, ext: &ExtId, name: &str) -> Option<Arc<dyn Any + Send + Sync>>;
+    fn service(&self, ext: &ExtId, name: &str) -> Result<Arc<dyn Any + Send + Sync>, Unserved>;
+}
+
+/// Why a named service was not handed out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Unserved {
+    /// This process provides none by that name.
+    Unknown,
+    /// It takes this capability, and the extension asking does not hold it.
+    Lacks(Capability),
 }
 
 /// Everything one extension's context reaches the process through.
