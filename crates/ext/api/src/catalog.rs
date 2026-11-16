@@ -212,6 +212,22 @@ pub const EXTENSION_POINTS: &[ExtensionPoint] = &[
         when: "右栏的选中项变化时",
         frequency: Frequency::PerInteraction,
     },
+    ExtensionPoint {
+        owner: "harnix-app",
+        id: "harnix-app.project.items",
+        kind: PointKind::Register,
+        what: "项目树里会话之外的一种条目（`{id, title(), rows(root), subscribe(fn), render(row), open(row), menu?(row), create?}`）：流程的任务",
+        when: "项目 space 的树画出时、条目的 `subscribe` 说变了时",
+        frequency: Frequency::PerInteraction,
+    },
+    ExtensionPoint {
+        owner: "harnix-app",
+        id: "harnix-app.project.panels",
+        kind: PointKind::Render,
+        what: "项目概况页的一个区块（`{id, title(), order?, render(context)}`）",
+        when: "项目的概况页画出时",
+        frequency: Frequency::PerInteraction,
+    },
 ];
 
 /// The points `owner` defines.
@@ -272,6 +288,7 @@ mod tests {
             assert!(point(p.id).is_none(), "{} is one of the shell's", p.id);
         }
         assert_eq!(points_of("system").count(), 2);
+        assert_eq!(points_of("harnix-app").count(), 2);
     }
 
     /// Eleven, and adding one is a decision (concept §5.6).

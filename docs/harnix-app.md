@@ -19,7 +19,7 @@
 |---|---|---|
 | id · 图标 · 次序 | `sessions` · `chat` · 10 | `projects` · `folder` · 20 |
 | 标题 | 会话（Sessions）：全部会话，按时间 | 项目（Projects）：按项目看会话 |
-| 左栏 | 搜索框 + 全部会话，按时间分组 | 一棵树：项目（工作区），一次只展开一个，它的会话挂在下面 |
+| 左栏 | 搜索框 + 全部会话，按时间分组 | 一棵树：项目（工作区），一次只展开一个，它的会话和别的包登记的条目（流程的任务，§3.2）挂在下面 |
 | 中区 | 对话（`center: "chat"`） | 对话；新建的会话跑在展开的项目里 |
 | 右栏 | 会话的停靠面：引导页，文件、预览、改动（§6），`@harnix/system` 的「输出」（Agent 后台 Shell 与监视器的只读输出流，一个任务一个页签，从对话里工具行的「查看输出」打开），别的包注册的页签，和 `reveal` 打开的详情 | 同左 |
 | 后端 space | `sessions` | **同一个** `sessions`（界面注册里 `sessions: "sessions"`） |
@@ -61,8 +61,10 @@ Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方�
 
 - 左栏顶上「项目」与「+」（添加项目）。先列 5 个，「更多（N）」。
 - **一次只展开一个**（记在页面的 `localStorage`，`harnix.project`）。点一个没展开的项目：展开它，并且停在新对话的空页上。
-- 展开的项目列它的会话（按最近活动，先列 8 个，「全部 N 个」）。
+- 展开的项目列它的会话，和别的包登记的条目（§3.2：`@harnix/flow` 的任务）混在一起按最近活动排，先列 8 行，「全部 N 个」。
+  项目行上的数字是两者之和；有在跑的会话或条目时，收起的项目行上有活动点。
 - **新会话跑在展开的项目里**：在项目 space 里新建会话时 `project_root` 是这个项目的目录，归属仍是 `sessions`。
+- 每个项目行旁边有「＋」：菜单里是「新会话」（§4 的对话框，停在这个项目上），再是各条目类型的新建项（「新任务」）。
 
 **添加项目**（对话框）：
 
@@ -72,7 +74,7 @@ Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方�
 | 选一个已有目录 | `harnix-app.workspaces.create {path}` | 目录要已经存在；同一个目录再加一次是幂等的 |
 | 浏览目录 | `harnix-app.listDirectory {path?}` | **选择器从 `projects_dir` 起**：不给 `path` 时打开它（还没有就建；建不了才退到 `$HOME`）；只在 `$HOME` 或项目根之内 |
 
-**项目菜单**：在这个项目里新建会话（打开新会话对话框，§4）、信任这个项目 / 不再信任这个项目（§3.1）、
+**项目菜单**：在这个项目里新建会话（打开新会话对话框，§4）、各条目类型的新建项（§3.2）、信任这个项目 / 不再信任这个项目（§3.1）、
 改名（`harnix-app.workspaces.update {id, title}`）、移除分组（`harnix-app.workspaces.remove`）。
 
 ### 3.1 项目信任
@@ -124,6 +126,44 @@ agent 类型、skill、规则），没有时是 `null`。主题 `harnix-app.trus
 
 设置页的「项目层写了但不生效」照旧由 `settings.describe` 的 `withheld` 逐个字段说，和这里互不重复：那里说某个值没用上，这里说为什么、
 怎么放开。
+
+### 3.2 项目里的条目与概况：`harnix-app.project.items`、`harnix-app.project.panels`
+
+项目 space 不认识流程，也不认识别的会放进项目的东西：它定义两个贡献点（`ui/packages/harnix-app/src/items.ts`，`definePoint`，
+做法同系统 space 的 `system.console.tab`），别的 UI 包往里注册；后端 `harnix-app` 在 `UiDecl` 里声明同样两个点，
+[贡献点](contribution_points.md)的第二张表由此生成。没有 `harnix-app` 的产品里这两个点没人定义，注册时给 `orElse` 的包（`@harnix/flow`）就什么都不注册。
+
+**`harnix-app.project.items`**（`register`）：项目树里会话之外的一种条目。
+
+```ts
+r.register("harnix-app.project.items", {
+  id: "flow.task",                                  // <owner>.<kind>
+  title: () => "任务",                              // 这种条目叫什么（复数）
+  rows: (root) => cache.rows(root),                 // 一个项目目录的行；每次画时读，所以从自己的缓存答
+  subscribe: (fn) => cache.subscribe(fn),           // 行变了就叫 fn；树只在项目展开时订阅
+  render: (row, context) => <TaskRow … />,          // 行的正文（树给按钮、位置和菜单键）
+  open: (row, context) => openTask(…),              // 点了行
+  menu: (row, context) => [{ id, label, run }],     // 可选：行的右键和「⋯」
+  create: { label: () => "新任务", icon: "fork", run: (context) => newTaskDialog(…) },   // 可选：项目「＋」菜单和项目菜单里的一项
+}, owner, { orElse: () => undefined });
+```
+
+一行是 `{ id, title, at?, running?, session?, data? }`：`at` 是最近活动（毫秒或 ISO 时间，树按它和会话的 `last_active` 一起排，没有的排最后）；
+`running` 为真时收起的项目行上有活动点；`session` 是它在中区打开的会话，那个会话是当前会话时行标成当前；`data` 随行带给 `render`、`open`、`menu`。
+`context` 是 `{ root, workspace }`。`rows`、`subscribe`、`render`、`open`、`menu` 抛错只丢这一种条目、记进诊断。
+行在树里是 `[data-testid="project-item"][data-kind="<id>"][data-item="<row.id>"]`，和会话行一样是 `.srow`、树的一项；它的「⋯」是 `project-item-more`，
+项目的「＋」是 `project-new`。
+
+**`harnix-app.project.panels`**（`render`）：项目概况页的一个区块，`{ id, title(), order?, render(context) }`，`context` 同上。本版只定义，概况页随后补。
+
+**任务**（`@harnix/flow`，`ui/packages/flow/src/task.tsx`）：`flow.runs` 主题里 `project_root` 是这个项目的运行（试运行不算），
+一行写标题（没有就是对象）、流程名、状态（运行中、等待及原因、已暂停、已完成、已取消）、「第 k/n 站」，由定时启动的带时钟。
+点了行：主会话归 `flow` 的后端 space，项目 space 声明的是 `sessions`，直接在这里打开会被 `SPACE_MISMATCH` 拒绝（[概念与架构](concept_and_architecture.md) §5.4），
+所以和系统控制台进一条运行一样——把流程的界面 space 带到前台、停在这条运行上，主会话在中区，左栏是流程的上下文，「返回」回到项目 space；
+会话旁边的详情面板不开，右栏开「流程」页签（`sidebar.tab` 的 `kind: "flow"`，`openTab("flow", { params: { run } })`，[系统 space](system-space.md) §5）。
+「新任务」对话框：流程（全部，标来源，不合法的不能选）、按 `inputs` 的 schema 生成的表单（字符串、数字、布尔、枚举、字符串数组，其余是 JSON 框）、
+对象（必填）、标题、输出目录（留空用缺省 `flows/<流程>-<YYYYMMDD><NN>`，对话框预估当天序号，由扩展最终定）、在 worktree 里跑（本版不可选）；
+项目里已有任务在跑时提示；流程不是 `guard: strict` 时写明「这个流程会直接修改项目文件」。确认即 `flow.start {flow, subject, inputs?, title?, project_root, output_dir?}`，然后打开这个任务。
 
 ## 4. 新建会话
 
@@ -347,6 +387,7 @@ Harnix app 是原生扩展最小的例子：一个后端扩展、一个界面包
 | 后端 space | `sessions`，`default_space()` | `register` 里的 `SpaceDecl` |
 | 界面 space | 两个 `space` 注册，owner 是扩展 id `harnix-app`；项目 space 写 `sessions: "sessions"` | `r.register('space', …)`（[Harnix 扩展](harnix-ext.md)的前端一节） |
 | 分组 | `sidebar.group` 的 `harnix-app.time` | 注册自己的 `sidebar.group` 换掉它 |
+| 自己定义的点 | `harnix-app.project.items`、`harnix-app.project.panels`（§3.2），`definePoint`；后端 `r.ui().point(…)` 声明 | 自己的 space 要让别的包往里放东西，就这样定义一个点 |
 | 右栏 | `sidebar.tab` 的 `files`、`preview`、`changes`，`flow.block` 的改动卡，`session.action` 的 `harnix-app.open-file`（`at: ["arg", "tool"]`） | 注册同一个 `kind` 的 extension 类型顶替，或更具体的 `patterns` |
 | 数据 | 方法 `harnix.sessions.list`，主题 `harnix.sessions.status` | `useHost()` 的 `call` 与 `subscribe` |
 

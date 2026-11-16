@@ -8,7 +8,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { errorText, type Scene } from "@harnix/core";
-import { DialogBody, DialogFoot, Glyph, t, useHello, useT, type HostApi } from "@harnix/react";
+import { DialogBody, DialogFoot, Glyph, t, useHello, useT, type HostApi, type MenuItem } from "@harnix/react";
 
 import { SESSIONS, type AppStore, type TrustItem, type TrustStatus, type Workspace } from "./store.ts";
 
@@ -511,8 +511,9 @@ async function untrust(host: HostApi, store: AppStore, root: string, name: strin
 
 /* ── a project's menu ─────────────────────────────────────────────────── */
 
-/** A project's menu, anchored where it was opened. */
-export function workspaceMenu(host: HostApi, store: AppStore, workspace: Workspace, anchor: Element | { x: number; y: number }): void {
+/** A project's menu, anchored where it was opened; `more` goes after "new session" (what the
+ *  registered item kinds make: a task). */
+export function workspaceMenu(host: HostApi, store: AppStore, workspace: Workspace, anchor: Element | { x: number; y: number }, more: MenuItem[] = []): void {
   const name = workspace.title ?? workspace.path;
   // Trust is offered for a project whose trust could be read, or is still being read: not for one
   // whose read failed (the backend was not granted it), nor a directory with no settings of its own.
@@ -525,6 +526,7 @@ export function workspaceMenu(host: HostApi, store: AppStore, workspace: Workspa
         : [{ id: "trust", icon: "shield", label: t("projects.trust.menu"), run: () => trustDialog(host, store, workspace.path, name) }];
   void host.dialogs.menu(anchor, [
     { id: "new", icon: "plus", label: t("dialog.newSessionHere"), run: () => newSessionDialog(host, store, workspace.path) },
+    ...more,
     ...trust,
     {
       id: "rename",

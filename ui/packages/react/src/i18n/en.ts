@@ -840,6 +840,8 @@ const en: Record<string, string> = {
   "projects.more": "More ({count})",
   "projects.noSessions": "No sessions in this project yet.",
   "projects.none": "No projects yet: + adds a directory.",
+  "projects.new": "New in this project…",
+  "projects.newSession": "New session",
   "projects.trust.menu": "Trust this project…",
   "projects.trust.revoke": "Stop trusting this project",
   "projects.trust.title": "Trust this project",

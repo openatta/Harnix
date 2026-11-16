@@ -1,7 +1,7 @@
 # 界面贡献点
 
 Harnix 的界面由十一个具名的贡献点拼起来（贡献点 v3 在 0.4.2 的八个之上加了 `session.action`，v4 加了 `sidebar.tab` 与 `shortcut`），外加第一方扩展自己定义、
-别的 UI 包往里注册的点（如 `system.console.tab`，见第二张表，不算进十一个）。
+别的 UI 包往里注册的点（如 `system.console.tab`、`harnix-app.project.items`，见第二张表，不算进十一个）。
 
 **这首先不是给第三方代码用的扩展面。** 扩展 agent 是 Agix 的事——脚本、manifest、能力门控、沙箱、披露，全在那边；
 Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发给浏览器，与页面同级（见[概念与架构](concept_and_architecture.md)，产品可以用
@@ -56,7 +56,8 @@ Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发
 <!-- END GENERATED TABLE -->
 
 第一方扩展定义的点：定义者的 UI 包 `definePoint`，后端在 `UiDecl` 里声明同一个点；别的包往里注册，没人定义时注册丢掉、
-进诊断，给了 `orElse` 的改调它（`@harnix/flow` 没有系统 space 时注册自己的 space）。
+进诊断，给了 `orElse` 的改调它（`@harnix/flow` 没有系统 space 时注册自己的 space；没有项目 space 时它的「任务」条目悄悄不注册）。
+`harnix-app` 的两个点的形状见 [Harnix app](harnix-app.md) §3.2。
 
 <!-- BEGIN GENERATED EXTENSION TABLE — see harnix_ext::catalog::render_extension_markdown -->
 
@@ -64,6 +65,8 @@ Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发
 |---|---|---|---|---|---|
 | `system.console.tab` | `system` | 注册 | 系统 space 控制台的一个页签（`{id, title(), render(), order?, about?()}`） | 系统 space 的控制台画出时 | 每次交互(10⁰–10¹ 量级) |
 | `system.inspector.tab` | `system` | 呈现 | 系统 space 右栏里选中会话的一页（`{id, title(target), match(target), render(target), tools?}`） | 右栏的选中项变化时 | 每次交互(10⁰–10¹ 量级) |
+| `harnix-app.project.items` | `harnix-app` | 注册 | 项目树里会话之外的一种条目（`{id, title(), rows(root), subscribe(fn), render(row), open(row), menu?(row), create?}`）：流程的任务 | 项目 space 的树画出时、条目的 `subscribe` 说变了时 | 每次交互(10⁰–10¹ 量级) |
+| `harnix-app.project.panels` | `harnix-app` | 呈现 | 项目概况页的一个区块（`{id, title(), order?, render(context)}`） | 项目的概况页画出时 | 每次交互(10⁰–10¹ 量级) |
 <!-- END GENERATED EXTENSION TABLE -->
 
 上面两张表由 `harnix_ext::catalog` 生成，这份文件一旦和它对不上，
