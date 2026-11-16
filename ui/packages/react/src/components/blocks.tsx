@@ -14,6 +14,7 @@ import { useStrings } from "../context";
 import { TOOL_NAMES, duration, toolArgs, toolDisplayName } from "../chat/format";
 import { useChat } from "../chat/types";
 import type { AskAnswer, Block, BlockOf } from "@harnix/core/state";
+import { ElicitationAsk, PlanAsk, QuestionAsk } from "./asks";
 import type { SessionController } from "@harnix/core/state";
 
 /** 截断，并说明截掉了多少。 */
@@ -294,14 +295,30 @@ function Labelled({ label, testId, children }: { label: string; testId: string; 
 
 /* ── 权限卡 ───────────────────────────────────────────────────────────── */
 
+/**
+ * 一个提问的卡：按 core 读出的 `form` 分权限、模型的提问、计划审阅、MCP server 的询问（后三种在 `asks.tsx`）。
+ * 倒计时归这里：哪一种都是到零按超时收起。
+ */
 export const AskCard = memo(function AskCard({ block, controller }: { block: BlockOf<"ask">; controller: SessionController }) {
-  const strings = useStrings();
-  const { asks, toolNames } = useChat();
   const left = useCountdown(block.deadline, !block.answered);
   useEffect(() => {
     if (!block.answered && left <= 0) controller.expire(block.key);
   }, [block.answered, block.key, controller, left]);
+  switch (block.form.type) {
+    case "question":
+      return <QuestionAsk block={block} controller={controller} left={left} />;
+    case "plan":
+      return <PlanAsk block={block} controller={controller} left={left} />;
+    case "elicitation":
+      return <ElicitationAsk block={block} controller={controller} left={left} />;
+    default:
+      return <PermissionAsk block={block} controller={controller} left={left} />;
+  }
+});
 
+function PermissionAsk({ block, controller, left }: { block: BlockOf<"ask">; controller: SessionController; left: number }) {
+  const strings = useStrings();
+  const { asks, toolNames } = useChat();
   const prompt = block.prompt;
   // The call it asks about: named as its row names it, with its arguments in one line.
   const call = asks?.tool(prompt.tool_use_id);
@@ -312,7 +329,7 @@ export const AskCard = memo(function AskCard({ block, controller }: { block: Blo
   const said = prompt.tool_question || prompt.message;
   const message = !prompt.tool_question && said && prompt.tool_name && tool ? said.split(prompt.tool_name).join(tool) : said;
   const give = (decision: Decision) => void controller.answer(block.key, decision);
-  const answered: Record<AskAnswer, string> = {
+  const answered: Partial<Record<AskAnswer, string>> = {
     allow: strings.permDecisionAllow,
     deny: strings.permDecisionDeny,
     timeout: strings.permDecisionTimeout,
@@ -320,12 +337,14 @@ export const AskCard = memo(function AskCard({ block, controller }: { block: Blo
     answered: strings.permDecisionElsewhere,
   };
   const state = block.answered ? (block.answered === "timeout" ? "expired" : "answered") : "pending";
+  const heard = block.elsewhere && (block.answered === "allow" || block.answered === "deny");
 
   // 任一观看者都能答、先答者生效、第二个回答静默成功：所以按钮在每个打开的页面上都可用。
   return (
     <div
       className={`hx-blk hx-ask${block.answered ? " hx-ask-done" : ""}`}
       data-testid="conv-ask"
+      data-kind="permission"
       data-id={prompt.prompt_id}
       data-state={state}
       data-answer={block.answered}
@@ -333,7 +352,8 @@ export const AskCard = memo(function AskCard({ block, controller }: { block: Blo
       aria-label={strings.permRequest(tool)}
     >
       <div className="hx-ask-head">
-        {block.answered ? strings.permAnswered(answered[block.answered], tool) : strings.permRequest(tool)}
+        {block.answered ? strings.permAnswered(answered[block.answered] ?? strings.permDecisionElsewhere, tool) : strings.permRequest(tool)}
+        {heard ? ` ${strings.askElsewhere}` : null}
       </div>
       {args ? (
         <div className="hx-ask-args hx-truncate" data-testid="conv-ask-args" title={prompt.tool_name}>
@@ -380,7 +400,7 @@ export const AskCard = memo(function AskCard({ block, controller }: { block: Blo
       )}
     </div>
   );
-});
+}
 
 function useCountdown(deadline: number, running: boolean): number {
   const compute = () => Math.ceil((deadline - Date.now()) / 1000);

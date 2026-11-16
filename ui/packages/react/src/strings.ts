@@ -77,6 +77,45 @@ export interface HarnixUiStrings {
   permDecisionWithdrawn: string;
   permDecisionElsewhere: string;
   permCountdown: (seconds: number) => string;
+  /* The other asks: a model's question, a plan's review, an MCP server's form or page. */
+  askQuestion: string;
+  askOther: string;
+  askOtherPlaceholder: string;
+  askSubmit: string;
+  askDecline: string;
+  askReplied: (text: string) => string;
+  askDeclined: string;
+  askTimeout: string;
+  askElsewhere: string;
+  planHead: string;
+  planEmpty: string;
+  planAllowed: string;
+  planApprove: string;
+  planRequestChanges: string;
+  planFeedbackPlaceholder: string;
+  planSendFeedback: string;
+  planApproved: string;
+  planChangesRequested: (text: string) => string;
+  planChangesRequestedBare: string;
+  elicitHead: (server: string) => string;
+  elicitFrom: (server: string) => string;
+  elicitLimited: string;
+  elicitAccept: string;
+  elicitOpenUrl: string;
+  elicitUrlHost: (host: string) => string;
+  elicitUrlDone: string;
+  elicitDecline: string;
+  elicitCancel: string;
+  elicitChoose: string;
+  elicitAccepted: string;
+  elicitDeclined: string;
+  elicitCancelled: string;
+  elicitRequired: string;
+  elicitNumber: string;
+  elicitInteger: string;
+  elicitRange: string;
+  elicitLength: string;
+  elicitUnsupported: string;
   answerFailed: (error: string) => string;
   sessions: string;
   newSession: string;
@@ -295,6 +334,44 @@ export function uiStrings(locale: Locale): HarnixUiStrings {
               ? s("permAnsweredElsewhere", { tool })
               : s("permAnsweredTimeout", { tool }),
     permCountdown: (seconds) => s("permCountdown", { seconds }),
+    askQuestion: s("askQuestion"),
+    askOther: s("askOther"),
+    askOtherPlaceholder: s("askOtherPlaceholder"),
+    askSubmit: s("askSubmit"),
+    askDecline: s("askDecline"),
+    askReplied: (text) => s("askReplied", { text }),
+    askDeclined: s("askDeclined"),
+    askTimeout: s("askTimeout"),
+    askElsewhere: s("askElsewhere"),
+    planHead: s("planHead"),
+    planEmpty: s("planEmpty"),
+    planAllowed: s("planAllowed"),
+    planApprove: s("planApprove"),
+    planRequestChanges: s("planRequestChanges"),
+    planFeedbackPlaceholder: s("planFeedbackPlaceholder"),
+    planSendFeedback: s("planSendFeedback"),
+    planApproved: s("planApproved"),
+    planChangesRequested: (text) => s("planChangesRequested", { text }),
+    planChangesRequestedBare: s("planChangesRequestedBare"),
+    elicitHead: (server) => s("elicitHead", { server }),
+    elicitFrom: (server) => s("elicitFrom", { server }),
+    elicitLimited: s("elicitLimited"),
+    elicitAccept: s("elicitAccept"),
+    elicitOpenUrl: s("elicitOpenUrl"),
+    elicitUrlHost: (host) => s("elicitUrlHost", { host }),
+    elicitUrlDone: s("elicitUrlDone"),
+    elicitDecline: s("elicitDecline"),
+    elicitCancel: s("elicitCancel"),
+    elicitChoose: s("elicitChoose"),
+    elicitAccepted: s("elicitAccepted"),
+    elicitDeclined: s("elicitDeclined"),
+    elicitCancelled: s("elicitCancelled"),
+    elicitRequired: s("elicitRequired"),
+    elicitNumber: s("elicitNumber"),
+    elicitInteger: s("elicitInteger"),
+    elicitRange: s("elicitRange"),
+    elicitLength: s("elicitLength"),
+    elicitUnsupported: s("elicitUnsupported"),
     answerFailed: (error) => s("answerFailed", { error }),
     thoughtFor: (seconds) => s("thoughtFor", { seconds }),
     readLines: (n) => s("readLines", { n }),

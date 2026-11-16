@@ -274,6 +274,20 @@
 .hx-ask-msg { color: var(--hx-fg-soft); }
 .hx-ask-args { font: 12.5px/1.5 var(--hx-mono); color: var(--hx-fg-soft); }
 .hx-ask-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* The other asks: a question's options, a plan to read, an MCP server's form. */
+.hx-ask-question { white-space: pre-wrap; color: var(--hx-fg); }
+.hx-ask-form { display: flex; flex-direction: column; gap: 6px; }
+.hx-ask-options { display: flex; flex-direction: column; gap: 4px; }
+.hx-ask-option { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.hx-ask-input { font: inherit; padding: 5px 8px; border: 1px solid var(--hx-line); border-radius: 6px; background: var(--hx-bg); color: var(--hx-fg); }
+.hx-ask-input[aria-invalid="true"] { border-color: var(--hx-danger); }
+.hx-ask-plan { max-height: 360px; overflow: auto; padding: 8px 10px; border: 1px solid var(--hx-line); border-radius: 8px; background: var(--hx-bg); }
+.hx-ask-list { margin: 2px 0 0; padding-left: 18px; }
+.hx-ask-faint { color: var(--hx-fg-faint); font-size: 12px; }
+.hx-ask-problem { color: var(--hx-danger); }
+.hx-ask-url { font: 12.5px/1.5 var(--hx-mono); word-break: break-all; }
+.hx-ask-fields { gap: 10px; }
+.hx-ask-field { display: flex; flex-direction: column; gap: 3px; }
 .hx-countdown { font-size: 12px; color: var(--hx-fg-faint); margin-left: auto; }
 .hx-agent { border-left: 2px solid var(--hx-line); padding-left: 10px; }
 .hx-agent-head { display: flex; align-items: center; gap: 8px; }

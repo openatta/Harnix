@@ -919,19 +919,29 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
 function AskAnnouncer({ state, toolRows }: { state: SessionState | null; toolRows: readonly ToolRowContribution[] }) {
   const t = useT();
   const heard = useRef(new Set<string>());
-  const [said, setSaid] = useState<BlockOf<"ask">["prompt"] | null>(null);
+  const [said, setSaid] = useState<BlockOf<"ask"> | null>(null);
   const blocks = state?.blocks ?? [];
   const asks = blocks.filter((b) => b.kind === "ask" && !b.answered);
   const fresh = asks.find((b) => b.kind === "ask" && !heard.current.has(b.prompt.prompt_id));
   useEffect(() => {
     if (!fresh || fresh.kind !== "ask") return;
     heard.current.add(fresh.prompt.prompt_id);
-    setSaid(fresh.prompt);
+    setSaid(fresh);
   }, [fresh]);
-  const tool = said && asks.length ? askedTool(said, toolAsks(blocks, (block) => rowTitle(block, toolRows))) : "";
+  let text = "";
+  if (said && asks.length) {
+    const form = said.form;
+    if (form.type === "question") text = t("layers.askAnnounceQuestion", { question: form.question });
+    else if (form.type === "plan") text = t("layers.askAnnouncePlan");
+    else if (form.type === "elicitation") text = t("layers.askAnnounceForm", { server: form.server });
+    else {
+      const tool = askedTool(said.prompt, toolAsks(blocks, (block) => rowTitle(block, toolRows)));
+      text = t("layers.askAnnounce", { tool: tool || t("layers.askAnnounceTool") });
+    }
+  }
   return (
     <div className="sr-only" role="alert" data-testid="ask-announce">
-      {said && asks.length ? t("layers.askAnnounce", { tool: tool || t("layers.askAnnounceTool") }) : ""}
+      {text}
     </div>
   );
 }

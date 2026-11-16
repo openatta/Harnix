@@ -55,6 +55,27 @@ Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方�
 **数据**：`harnix.sessions.list {space: "sessions"}` 列会话，`harnix-app.workspaces.list` 列项目，外壳把两者按 `project_root` 拼起来
 （标题、归档、属于哪个项目）；谁在跑来自主题 `harnix.sessions.status`。
 
+### 2.1 对话里要人答的
+
+会话停下来等人时，对话里出一张卡（`@harnix/react` 的 `AskCard`），左栏那一行与系统 space 说它在等什么（`waiting`：
+`approval` 待批准、`plan` 待审阅、`answer` 等回答）。卡分四种，`@harnix/core` 从引擎的 `prompt` 帧读出是哪一种（`AskForm`），
+界面只画它：
+
+| 卡 | 什么时候 | 怎么答（`harnix.session.respond`） |
+|---|---|---|
+| 权限 | 工具调用要批准 | `decision`：允许一次、本会话内允许、总是允许、拒绝 |
+| 计划审阅 | 计划模式里模型调 `ExitPlanMode` | 计划是那次调用之前的回复，按 Markdown 画，连同它说执行时要放行的几类动作。「批准，开始执行」是 `decision: permit`（离开计划模式，回到进入前的模式；引擎没有别的模式可选）；「要求修改」写下意见，是 `decision: deny` 带意见作理由，模型留在计划模式、照意见改 |
+| 模型的提问 | 模型调 `AskUserQuestion` | 选一个选项，或用自己的话答（`answer: {type: "answer", text}`，`text` 是选项的 `key` 或原话）；「不回答」是 `{type: "decline"}`。引擎一次问一个问题、只能选一项 |
+| MCP server 的询问 | MCP server 在工具调用里要人填表或去一个页面 | 卡上标明是哪个 server 写的。表单按它的 `requested_schema` 画原始类型的字段（文字、数、整数、是否、选一个），先在本地查必填、数的范围与长度；交上去 server 还不收的，卡片回到没答、横幅说为什么，改了再交。页面的只显示完整网址与主机，不自动打开，人自己点开，回来按「已完成」。`answer` 是 `accept`（表单带 `content`）、`decline` 或 `cancel` |
+
+提问与询问只给人开的会话：设备建的会话才向引擎说它能答这两种（扩展建的，如流程，只答权限），所以 `AskUserQuestion` 只在这样的
+会话里、且场景允许时才有（`code` 有，`harnix` 没有）。
+
+每张卡都有倒计时（`hello.permission_prompt_timeout_secs`），到零按超时收起：权限按拒绝，提问按「没回答」交还模型，询问回 server
+`cancel`。任一设备都能答，先答者生效，后来的回答静默成功；中枢把第一个回答写进会话的流（`ask_answered`），别的设备的卡据此画出答了
+什么并注明「在别处回答」。表单里填的内容只交给 server，不广播。卡片全靠原生控件，键盘能走完：Tab 换项，方向键换选项，文字框里回车提交，
+修改意见里 ⌘/Ctrl+回车 发回。
+
 ## 3. 项目 space
 
 **项目就是工作区**：一个目录，加一个名字。它只是分组：去掉一个项目只是忘了这个分组，会话与历史都还在。
