@@ -59,11 +59,12 @@ test("a project opened with nothing open shows its overview; a conversation open
 
   await expect(overview(page)).toBeVisible();
   await expect(page.locator('#details [role="tab"][data-tab="harnix-app.overview"]')).toHaveAttribute("aria-selected", "true");
-  // The blocks by order: the flows' tasks between the conversations and the recent changes.
+  // The blocks by order: the flows' tasks and the schedules between the conversations and the recent changes.
   await expect.poll(async () => blocks(page).evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.block))).toEqual([
     "harnix-app.inbox",
     "harnix-app.sessions",
     "flow.tasks",
+    "schedule.project",
     "harnix-app.changes",
     "harnix-app.settings",
     "harnix-app.trust",

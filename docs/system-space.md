@@ -6,7 +6,7 @@
 > 为什么是这个形状见 [概念与架构](concept_and_architecture.md) §5.5。用词照 [术语](glossary.md)。
 >
 > 本文照代码写：后端在 `crates/ext/system/`，界面在 `ui/packages/system/`；控制台里别的扩展注册进来的页签在它们自己的包里——流程在 `ui/packages/flow/`，
-> 扩展在 `ui/packages/packages/`，检查器的轨迹在 `ui/packages/observability/`。对不上时以代码为准。
+> 定时在 `ui/packages/schedule/`，扩展在 `ui/packages/packages/`，检查器的轨迹在 `ui/packages/observability/`。对不上时以代码为准。
 
 ---
 
@@ -18,7 +18,7 @@
 | 栏 | 是什么 |
 |---|---|
 | 左 | 实例列表（§3） |
-| 中 | 控制台（`center: "hidden"`）：上面一条指标条（§2），下面一排页签：系统 space 自己的（活动、全部、诊断、扩展日志）与别的扩展经 `system.console.tab` 注册进来的（流程、扩展、用量） |
+| 中 | 控制台（`center: "hidden"`）：上面一条指标条（§2），下面一排页签：系统 space 自己的（活动、全部、诊断、扩展日志）与别的扩展经 `system.console.tab` 注册进来的（流程、定时、扩展、用量） |
 | 右 | 选中项的检查器：只出现适用于它的页签（§8），其中一部分由别的扩展经 `system.inspector.tab` 注册；什么都没选时是「说明」页签，说控制台当前页签是什么 |
 
 外壳里它不和别的 space 排在一起：它声明 `place: "bottom"`，入口在左栏底部，角标是正在跑的会话数。还有两条路进来，都是它注册的 `session.action`：
@@ -232,6 +232,19 @@ kv 加 `/data`）；模式 3 另有扩展进程 stderr 的最后几行（至多 
 轮数、四项 token 与合计（运行记录里各站的轮次报上来的，含重试）、运行时长（结束了的运行从开始到结束，含等人的时间）。这一份来自流程自己的
 运行记录，和上面的录像是两本账：流程的会话也在上面的表里。
 
+### 6.3 定时
+
+`@harnix/schedule` 注册进 `system.console.tab` 的页签（`schedule`，`order: 25`，在流程和扩展之间）：产品链了 `schedule` 才有。不带 `space` 调，所以是这个进程里**全部**的定时，
+不论属于哪个 space（[Harnix app](harnix-app.md) §9）。数据是主题 `schedule.list`，变了就推，不用刷新。
+
+- 上方：「新建定时」（目标可选新会话或任务，项目在编辑器里填）、按状态过滤（全部、开着、已暂停、已结束）、按标题和提示词搜索。
+- 每条定时一行（`schedule-row`）：标题、状态、来源（「人建的」，悬停是建它的设备或扩展）、时间的说法、做什么、下一次（本机时间加相对时间）、上一次投递；
+  立即执行、暂停 / 恢复、编辑、投递记录（展开在行下，每条可打开它去的会话或任务）、删除。行的样子与操作同 [Harnix app](harnix-app.md) §9.1。
+- 「模型建的」一节：模型用引擎的 `CronCreate` 在会话里建的（`schedule-model-row`），五段 cron（UTC）、提示词、在哪个会话（可打开）、下一次；**只能删**。
+- 读不到定时的实例（`unreachable`）在下面写出来；最下面一行写明 Harnix 没在跑时不投递。
+
+这一页没有能在右栏看的行：切过来时右栏是这一页的说明。
+
 ## 7. 诊断
 
 和设置 → 诊断是同一个面板（外壳核心的）：
@@ -249,7 +262,7 @@ kv 加 `/data`）；模式 3 另有扩展进程 stderr 的最后几行（至多 
 
 ## 8. 右栏：检查器
 
-**什么都没选时**右栏是一个「说明」页签，说控制台当前的页签是什么、在那里能做什么。流程、扩展、诊断三个页签没有可以在右栏
+**什么都没选时**右栏是一个「说明」页签，说控制台当前的页签是什么、在那里能做什么。流程、定时、扩展、诊断四个页签没有可以在右栏
 看的行：切过去就放掉原来选中的东西，右栏换成这个页签的说明，而不是留着上一个会话的概况。
 
 检查器的页签有两种来路：系统 space 自己的（概况、上下文、任务、原始帧），以及别的扩展经 `system.inspector.tab` 注册的（`@harnix/observability` 的轨迹）。
@@ -304,6 +317,7 @@ kv 加 `/data`）；模式 3 另有扩展进程 stderr 的最后几行（至多 
 | `harnix.session.tasks` | `instance`、`session_id` | 中枢 | 展开的行、任务页签、子 Agent |
 | `harnix.sessions.status` | — | 中枢 | 运行中会话、左栏角标 |
 | `packages.list` | — | `packages` | 扩展页签 |
+| `schedule.list` | — | `schedule` | 定时页签 |
 | `flow.defs`、`flow.runs`、`flow.run {run}`、`flow.dry_runs`、`flow.focus {instance, session_id}` | | `flow` | 流程 |
 
 | 方法 | 所有者 | 用在 |
@@ -322,6 +336,7 @@ kv 加 `/data`）；模式 3 另有扩展进程 stderr 的最后几行（至多 
 | `harnix-app.sessions.export` | `harnix-app` | 导出（链了 `harnix-app` 才有） |
 | `engine.daemon.status`、`engine.daemon.doctor`、`plugins.list` | 引擎直通、`plugins` | 诊断 |
 | `flow.*` | `flow` | 流程 |
+| `schedule.runNow`、`schedule.enable`、`schedule.disable`、`schedule.delete`、`schedule.history`、`schedule.get`、`schedule.create`、`schedule.update`、`schedule.model.delete`；`flow.defs`、`flow.get`、`harnix-app.workspaces.list` | `schedule`、`flow`、`harnix-app` | 定时页签（不带 `space`）与它的编辑器 |
 
 监听的通知：`harnix.turn_settled`（一轮结束后重读）、`harnix.event`（任务输出、原始帧）。
 
@@ -367,5 +382,5 @@ space `system`（界面一侧 `@harnix/system` 把它画成 `center: "hidden"`�
 - **界面**：往系统 space 定义的三个点里注册——控制台的页签进 `system.console.tab`（`{id, title(), render(), order?}`），检查器的页签进 `system.inspector.tab`
   （`{id, title(target), match(target), render(target)}`），指标条上一格数字去哪进 `system.metrics.link`（§2）。要在没有系统 space 的产品里也有个去处，注册时给 `orElse`。
   用量页签里的一个区块进 `observability.usage.section`（§6.2），那个点是 `@harnix/observability` 定义的。
-- 流程、扩展、轨迹、用量这几个页签就是例子：它们分别是 `flow`、`packages`、`observability` 的 UI 包注册进来的，系统 space 自己不认识它们。
+- 流程、定时、扩展、轨迹、用量这几个页签就是例子：它们分别是 `flow`、`schedule`、`packages`、`observability` 的 UI 包注册进来的，系统 space 自己不认识它们。
 - 应用自己的、和系统 space 无关的调试面，做成自己的 space，或者一个扩展包的 space。

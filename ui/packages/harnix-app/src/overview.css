@@ -215,3 +215,13 @@
 .hx-inbox-entry .c {
   font-weight: 600;
 }
+
+/* A session row's badges from other packages (`harnix-app.session.badge`), between its name and its
+ * time; they stay while the time gives way to the row's menu. */
+#side .srow .badges {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  color: var(--label-tertiary);
+}

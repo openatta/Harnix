@@ -139,20 +139,30 @@ Confirm, and the task starts at once. The dialog says plainly that the flow chan
 ## 6. Schedules
 
 <!-- T-SC2 -->
-A schedule starts work at a time you choose. Harnix itself keeps time, so schedules only run while Harnix is running. If Harnix was off at the time, it makes up the most recent missed run when it starts (you can change this to "skip").
+A schedule starts work at a time you choose. Harnix itself keeps time, so schedules only run while Harnix is running. If Harnix was off at the time, it makes up the most recent missed time once when it starts; set "When it was missed" to "Skip it" to make up nothing.
 
 **What a schedule can do.**
-- Send a message to a session that already exists. If the session is busy, the message waits in its queue.
-- Start a new session in a project: either a new one each time, or a new one the first time and the same one afterwards (the default). The title is the schedule's title and the time.
-- Start a task of a flow in a project, with its inputs, subject and output directory template.
+- Send a turn to a session that already exists. If the session is busy, the message waits in its queue.
+- Start a new session, in a project or not: "New the first time, then the same one" (the default) or "A new one each time". You can pick its scene and model. A new session is named after the schedule, with the time.
+- Start a task of a flow in a project, with its inputs, subject, task title, output directory and "Run in a worktree".
 
-**When.** One time (at a moment, or after a while); every N minutes or hours (at least one minute); every day; every week on days you pick; weekdays; every month; or a cron line of five fields. Pick a time zone from a searchable list; the default is your computer's.
+**When.** Pick one: "Once" (a date and time), "After…" (minutes, hours or days), "Every N" (minutes or hours), "Daily", "Weekly" (click the days), "Workdays", "Monthly" (a day of the month; months without that day are skipped) or "Custom" (a cron line of five fields: minute hour day month weekday). A line under it says the choice in words, such as "Workdays at 09:00". Pick the time zone from a list you can search by name, city or offset (`+8`); the default is your computer's, and zones you used lately come first. Next times are always shown in your own zone.
 
-**Where to set one up.** The session menu "Schedule…", the new-task dialog and the flow details ("scheduled run"), the project overview's schedule block, and the "Schedules" tab of the system space. Rows with a clock mark are scheduled.
+**Where to set one up.**
+- A session's menu, **Schedule…**: that session's schedules, and **New schedule**, which sends it a turn.
+- The new-task dialog and a flow's details in the system space, **Schedule this flow…**: what you filled in is carried over.
+- A project's overview, the **Schedules** block: the project's schedules, and **New schedule** for a new session or a task in the project.
+- The system space, the **Schedules** tab (below).
 
-**The "Schedules" tab.** Lists every schedule: where it came from, its state and next time. You can run one now, pause and resume it, delete it and read its delivery history (planned time, delivered time, target and result: delivered, skipped, or failed with the reason). A failed delivery is not retried. History keeps 200 entries or 30 days. Schedules the model made itself are listed read-only, marked "made by the model", and may be deleted.
+A session's row shows a clock while a schedule that is on sends to it. A task's row shows "next …" while the schedule that started it is on.
 
-**If a task is still running** when the next time comes, a task schedule skips that time and notes it. It can be set to run in parallel instead; use a worktree if you do. Two deliveries of one schedule are at least 60 seconds apart.
+**Each schedule** shows its state ("On", "Paused", "Ended"), who made it, when it is next due (with "in 13 h"), and how the last delivery went. Its buttons: **Run now** (the result shows in a banner), **Pause** / **Resume**, **Edit**, **History** and **Delete** (after you confirm; the sessions and tasks it started stay). **History** lists the deliveries, newest first: the planned time, and delivered, skipped (with why) or failed (with the error). Each has a button that opens the session or task it went to. A failed delivery is not retried. History keeps the latest 200 of the last 30 days.
+
+**The "Schedules" tab** lists every schedule. You can filter it by state and search titles and prompts. Schedules the model made itself are listed under "Made by models", with their cron line in UTC. You can only delete them here.
+
+**If a task is still running** when the next time comes, a task schedule skips that time by default ("Skip this time"). Choose "Start another" to run in parallel; a worktree is better then. Two deliveries of one schedule are at least a minute apart, "Run now" too.
+
+**If someone else changed it** while you were editing, saving says so. **Keep my changes and review** keeps what you changed, takes their version of the rest and names what they changed; check it and save again. **Take theirs** drops your changes.
 
 ---
 

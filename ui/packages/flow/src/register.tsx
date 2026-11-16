@@ -15,10 +15,14 @@
  * 流程 tab of a task's main session (`TaskTab.tsx`), a `sidebar.tab` of kind `flow`. And
  * `/flow` in a conversation, with the card it leaves there, and "为这个项目建流程" in a project's
  * menu (`slash.tsx`).
+ *
+ * It defines two points of its own (`points.tsx`): a badge on a task's row, and another way to start
+ * a flow than now — what a schedule's interface fills.
  */
 
 import { t, type HostApi, type Registry } from "@harnix/react";
 
+import { START_ACTION, TASK_BADGE } from "./points";
 import { registerFlowSpace, registerSystemFlows, type FlowSpace } from "./space";
 import { registerSlashFlow, registerTaskCard } from "./slash";
 import { openTask, registerTaskItems, TASK_TAB_KIND } from "./task";
@@ -37,6 +41,9 @@ const SPACE = "flow";
 const MODULE = "flow";
 
 export function register(r: Registry, host: HostApi): void {
+  // A task row's badges and a flow's other ways to start, for other packages to fill (`points.tsx`).
+  r.definePoint(TASK_BADGE, { kind: "render" });
+  r.definePoint(START_ACTION, { kind: "register" });
   const tab = { id: "flow.flows", order: 20, title: () => t("flowui.tab.flows"), about: () => t("flowui.about.flows") };
   // The flow space, once registered: inside the console now, or of its own once every package has registered.
   let space: FlowSpace | null = null;

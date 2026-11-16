@@ -129,3 +129,4 @@ export { collectInputs, defOptions, defaultOutputDir, fieldsOf, initialText, new
 export { TaskTab, runOf } from "./TaskTab";
 export { SLASH_FLOW, TASK_STARTED, TaskLinkCard, asksForInput, authorForProject, authorMenuItem, conversationOf, flowArgs, registerSlashFlow, registerTaskCard, slashCandidates, taskCardOf, trustedForAuthoring, type Conversation, type ProjectMenuContext, type TaskCard } from "./slash";
 export { STRINGS, STRINGS_OWNER, registerFlowStrings } from "./strings";
+export { START_ACTION, StartActions, TASK_BADGE, TaskBadges, type StartAction, type StartDraft, type TaskBadge } from "./points";

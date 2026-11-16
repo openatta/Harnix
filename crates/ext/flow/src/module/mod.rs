@@ -58,7 +58,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use harnix_ext::engine::{InstanceTemplate, SceneBase, SceneLayer};
-use harnix_ext::{caps, Extension, ExtensionContext, Manifest, Registrar, SpaceDecl};
+use harnix_ext::{caps, catalog, Extension, ExtensionContext, Manifest, Registrar, SpaceDecl};
 use serde_json::json;
 use tokio::sync::broadcast;
 
@@ -655,6 +655,10 @@ impl Extension for Flow {
         r.topic("defs");
         r.topic("focus").param("instance").param("session_id");
         r.topic("dry_runs");
+        // Its UI package defines a task row's badges and the other ways to start a flow, for others to fill.
+        for point in catalog::points_of(MODULE_ID) {
+            r.ui().point(point.decl());
+        }
     }
 
     async fn start(&self, cx: ExtensionContext) -> anyhow::Result<()> {

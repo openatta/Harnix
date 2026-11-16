@@ -165,7 +165,7 @@ export function registerSlashFlow(r: Registry, host: HostApi, module: string, ru
     // The conversation gets the card; one whose space is not known gets none.
     const from: StartedFrom | undefined = conv.space ? { instance: conv.session.instance, session_id: conv.session.sessionId, space: conv.space } : undefined;
     const dialog = (picked?: string) => {
-      void newTaskDialog(host, module, { root, space: conv.space ?? undefined, runs, flow: picked, subject, from }, () => undefined);
+      void newTaskDialog(host, module, { root, space: conv.space ?? undefined, runs, flow: picked, subject, from, registry: r }, () => undefined);
       return true;
     };
     if (!flow) return dialog();

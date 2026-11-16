@@ -6,9 +6,10 @@
  * the banner over a conversation in a project that is not trusted); and the right column's files,
  * preview and changes tabs, with the changes card a turn that wrote files leaves in the conversation;
  * and two first-run steps on the empty page (`home.card`): a project, and the scene and permission
- * mode a conversation starts with. It defines three points of its own — the kinds of item a project
+ * mode a conversation starts with. It defines four points of its own — the kinds of item a project
  * tree lists besides its conversations, and the blocks of a project's overview (`items.ts`,
- * `overview.tsx`); and the sources of what waits on a person, put together as one list (`inbox.tsx`).
+ * `overview.tsx`); the sources of what waits on a person, put together as one list (`inbox.tsx`);
+ * and a badge on a session's row (`items.ts`).
  *
  * Only the host API: the sessions come from the hub (`harnix.sessions.list`, kept current by the
  * instance's pushed session list) and what this product notes about them from its own methods
@@ -20,7 +21,7 @@ import { t, type ActionTarget, type CommandCandidate, type Dispose, type HostApi
 
 import { exportDialog } from "./dialogs.tsx";
 import { INBOX, Inbox, InboxEntryButton, hubAsks, inboxDialog } from "./inbox.tsx";
-import { PROJECT_ITEMS, PROJECT_PANELS } from "./items.ts";
+import { PROJECT_ITEMS, PROJECT_PANELS, SESSION_BADGE } from "./items.ts";
 import { OVERVIEW, OverviewTab, registerOverview } from "./overview.tsx";
 import { ProjectsSidebar, TrustBanner } from "./projects.tsx";
 import { SessionsSidebar, byTime } from "./sessions.tsx";
@@ -38,6 +39,7 @@ export { OVERVIEW, orderedPanels, projectSessions, recentChanges, rulesByTier, s
 export {
   PROJECT_ITEMS,
   PROJECT_PANELS,
+  SESSION_BADGE,
   activityOf,
   createEntries,
   useProjectItems,
@@ -46,6 +48,7 @@ export {
   type ProjectItemKind,
   type ProjectItemRow,
   type ProjectPanel,
+  type SessionBadge,
 } from "./items.ts";
 
 /** The backend extension this is the interface of. */
@@ -58,6 +61,8 @@ export function register(r: Registry, host: HostApi): Dispose {
   // What else a project holds, and what its overview shows: other packages fill these (`items.ts`).
   r.definePoint(PROJECT_ITEMS, { kind: "register" });
   r.definePoint(PROJECT_PANELS, { kind: "render" });
+  // A badge on a session's row, from whoever has something to say about the session.
+  r.definePoint(SESSION_BADGE, { kind: "render" });
   // What waits on a person, from whoever says so: the hub's asks are this package's own source.
   r.definePoint(INBOX, { kind: "register" });
   const store = new AppStore(host);

@@ -208,6 +208,10 @@ r.register("harnix-app.project.items", {
 
 **`harnix-app.project.panels`**（`render`）：项目概况页的一个区块，`{ id, title(), order?, render(context) }`，`context` 同上。
 
+**`harnix-app.session.badge`**（`render`）：左栏会话行上的一个标记，`{ id, render(session) }`，`session` 是 `{ instance, sessionId }`；两个 space 的会话行都画，
+在名字和时间之间（`[data-testid="session-badges"]`），没话说时 `render` 答 `null`。每次画行都问，所以从自己的缓存答。抛错只丢这一个标记、记进诊断。
+`@harnix/schedule` 在这里画定时的时钟（§9.1）。
+
 **项目概况**（`ui/packages/harnix-app/src/overview.tsx`）：项目 space 里展开了一个项目、又没有打开会话（新对话的空页）时，右栏是它的「概况」。
 它是项目 space 自己的页签（`details.tabs`，`id` 是 `harnix-app.overview`），只在这时出现：一打开会话，右栏就是那个会话的停靠面，和别处一样。
 展开一个项目时如果没有打开的会话，右栏打开并停在概况上。页面是 `harnix-app.project.panels` 的全部区块，按 `order` 从小到大（没写算 100）；
@@ -218,13 +222,14 @@ r.register("harnix-app.project.items", {
 | 10 | 待我处理 | `harnix-app.inbox` | 这个项目里等人处理的（§3.3），至多 6 行 |
 | 20 | 会话 | `harnix-app.sessions` | 项目最近的 5 个会话（按最近活动，在跑的带点），点了打开；更多时写「全部 N 个」 |
 | 30 | 任务 | `flow.tasks`（`@harnix/flow`） | 运行中、等待、已结束各几个；最近的 5 个任务，点了照 §3.2 打开；「新任务」 |
-| 40 | 定时 | 留给定时的界面 | |
+| 40 | 定时 | `schedule.project`（`@harnix/schedule`） | 目标在这个项目里的定时（新会话、任务），每条带状态、下一次时间与操作；「新建定时」（§9.1） |
 | 50 | 最近改动 | `harnix-app.changes` | 项目最近 5 个会话的 `harnix.changes` 条目里改过的文件，每个文件只列最近一次，至多 8 个，相对项目根；点了打开那个会话、右栏的「改动」停在那一轮。项目里的会话一轮结束时重读 |
 | 60 | 生效的设置 | `harnix-app.settings` | 权限模式（生效的值与写它的层，`settings.describe {project_root}`）、权限规则（各层几条）、MCP 服务器（生效的那些与它们的层，`settings.mcp.list {project_root}`）、Skill（项目最近一个会话看得到的，按来源层计数，`harnix.session.skills`；没有会话时说「项目里有会话后列出」）；项目层有被扣下的值时标「部分被扣下」；每行「去设置」打开对应的一节。产品没有 `settings` 扩展时，读不到的行不画 |
 | 70 | 信任 | `harnix-app.trust` | 已信任、未信任（连同扣下了哪几类）或无需信任（§3.1）；「信任…」或「不再信任这个项目」 |
 
 **任务**（`@harnix/flow`，`ui/packages/flow/src/task.tsx`）：`flow.runs` 主题里 `project_root` 是这个项目的运行（试运行不算），
-一行写标题（没有就是对象）、流程名、状态（运行中、等待及原因、已暂停、已完成、已取消）、「第 k/n 站」、在 worktree 里跑的写分支名（合回或丢弃后划掉），由定时启动的带时钟。
+一行写标题（没有就是对象）、流程名、状态（运行中、等待及原因、已暂停、已完成、已取消）、「第 k/n 站」、在 worktree 里跑的写分支名（合回或丢弃后划掉），由定时启动的带时钟；
+时钟后面是别的包经 `flow.task.badge` 放的标记（定时还开着时，`@harnix/schedule` 写它的下一次时间，§9.1）。
 点了行：主会话归 `flow` 的后端 space，项目 space 声明的是 `sessions`，直接在这里打开本会被 `SPACE_MISMATCH` 拒绝（[概念与架构](concept_and_architecture.md) §5.4），
 所以从项目 space 建的任务，`flow.start` 带上 `show_in_space: context.space`，流程扩展把主会话**展示**到 `sessions`（`harnix.session.expose`，可对话；
 运行记录与 `flow.runs` 的行带 `show_in_space`）：任务就像项目里别的会话一样在项目 space 的中区打开、能插话，会话列表不把它当普通会话列（行带 `exposed_from`，
@@ -236,6 +241,8 @@ r.register("harnix-app.project.items", {
 对象（必填）、标题、输出目录（留空用缺省 `flows/<流程>-<YYYYMMDD><NN>`，对话框预估当天序号，由扩展最终定）、在 worktree 里跑（见下）；
 项目里已有任务在跑时提示；流程不是 `guard: strict` 时写明「这个流程会直接修改项目文件」（在 worktree 里跑时改说「合回之后项目才会变」）。
 确认即 `flow.start {flow, subject, inputs?, title?, project_root, output_dir?, workspace?, show_in_space}`，然后打开这个任务。
+对话框底部「开始」旁边是别的包经 `flow.start.action` 登记的另一种起法（「定时运行这个流程…」，§9.1）：拿到的是已经填的这些（`draft`，对象可以还空着），对话框先关上；
+流程详情（系统控制台的流程页）的标题行上也有同一批按钮，只带流程名。
 
 **对话里的 `/flow <流程> [主题]`**（`@harnix/flow` 的 `ui/packages/flow/src/slash.tsx`，一条 `command`，外壳不认识它）：在项目里的对话中，
 「/」菜单列出 `/flow` 和这个项目能启动的每个流程 `/flow <名>`（`flow.defs {project}`，对话的项目取会话列表那一行的 `project_root`）。
@@ -378,6 +385,7 @@ r.register("harnix-app.project.items", {
 | 归档 / 取消归档 | `harnix-app.sessions.archive` | 只影响左栏列不列它 |
 | 从这里分叉 | `harnix.session.fork` | |
 | 导出 | `harnix-app.sessions.export` | Markdown，或引擎打的数据包（zip，可带录像）；都带上对回答的反馈（§2） |
+| 定时… | `schedule.*`（`@harnix/schedule`） | 这个会话的定时（发给它的、复用它的新会话目标、模型在它里面建的），每条可立即执行、暂停、编辑、删除、看投递记录；「新建定时」是往它发一轮（§9.1）。别的扩展建、只是展示到这里的会话（任务的主会话）不出这一项 |
 | 导入… | `harnix-app.sessions.importUpload` → 上传 → `harnix-app.sessions.import` | 选一个导出的数据包（`.zip`），经大负载旁路上传，装成当前空间里的新会话（连同它的子代理会话）；不是选中某个会话的操作，在会话列表的「+」菜单里。包里的项目在这台机器上不存在时，装成无项目会话并提示 |
 | 关闭 | `harnix.session.close` | 放掉运行时，历史留着，还能重开 |
 | 删除 | `harnix.session.delete` | 先试删一次看连带几条侧链会话，确认后删；连同录像 |
@@ -598,7 +606,7 @@ Harnix app 是原生扩展最小的例子：一个后端扩展、一个界面包
 | 后端 space | `sessions`，`default_space()` | `register` 里的 `SpaceDecl` |
 | 界面 space | 两个 `space` 注册，owner 是扩展 id `harnix-app`；项目 space 写 `sessions: "sessions"` | `r.register('space', …)`（[Harnix 扩展](harnix-ext.md)的前端一节） |
 | 分组 | `sidebar.group` 的 `harnix-app.time` | 注册自己的 `sidebar.group` 换掉它 |
-| 自己定义的点 | `harnix-app.project.items`、`harnix-app.project.panels`（§3.2），`definePoint`；后端 `r.ui().point(…)` 声明 | 自己的 space 要让别的包往里放东西，就这样定义一个点 |
+| 自己定义的点 | `harnix-app.project.items`、`harnix-app.project.panels`、`harnix-app.session.badge`（§3.2），`harnix-app.inbox`（§3.3），`definePoint`；后端 `r.ui().point(…)` 声明 | 自己的 space 要让别的包往里放东西，就这样定义一个点 |
 | 右栏 | `sidebar.tab` 的 `files`、`preview`、`changes`，`flow.block` 的改动卡，`session.action` 的 `harnix-app.open-file`（`at: ["arg", "tool"]`） | 注册同一个 `kind` 的 extension 类型顶替，或更具体的 `patterns` |
 | 数据 | 方法 `harnix.sessions.list`，主题 `harnix.sessions.status` | `useHost()` 的 `call` 与 `subscribe` |
 
@@ -646,3 +654,37 @@ Harnix app 是原生扩展最小的例子：一个后端扩展、一个界面包
 | `schedule.model.delete` | `{instance, id, space?}` → `{deleted}` |
 
 主题 `schedule.list`：全部定时，和上次读到的模型建的，每次变了推整值。
+
+### 9.1 界面：`@harnix/schedule`
+
+第一方 UI 包 `@harnix/schedule`（`ui/packages/schedule/`），`schedule` 扩展启用时激活。它不 import 别的第一方包，只往别人定义的点里注册；点没人定义（产品没有项目 space、
+没有系统 space、没有流程）时那一处悄悄不出现。数据是主题 `schedule.list`（有东西在画时才订阅）和上面的方法。
+
+| 在哪 | 贡献点 | 是什么 |
+|---|---|---|
+| 会话菜单「定时…」 | `session.action`（`schedule.session`，`at: ["menu"]`） | 对话框（`schedule-session`）：这个会话的定时和模型在它里面建的；「新建定时」的目标是往它发一轮，定时属于会话所在的 space。别的扩展展示过来的会话（`exposed_from`）不出这一项 |
+| 新任务对话框、流程详情「定时运行这个流程…」 | `flow.start.action`（`@harnix/flow` 定义，[Harnix 扩展](harnix-ext.md) 的扩展定义的点） | 编辑器，目标是任务，对话框里已填的流程、inputs、对象、标题、输出目录、worktree 带过来；从项目来的项目固定，`show_in_space` 与定时的 space 是项目 space 列会话的那个；流程详情没有项目，编辑器里问 |
+| 项目概况第 40 块「定时」 | `harnix-app.project.panels`（`schedule.project`） | 目标在这个项目里的定时（`overview-schedules`）；「新建定时」可选新会话或任务，项目固定，`show_in_space` 同上 |
+| 系统控制台「定时」页签 | `system.console.tab`（`schedule`，`order: 25`） | 全部定时与模型建的，见 [系统 space](system-space.md) §6.3 |
+| 会话行的时钟 | `harnix-app.session.badge`（`schedule.clock`） | 有开着的定时发给它（或复用它），或模型在它里面建了定时：一个时钟（`session-schedule-badge`，`data-count`），悬停列出前两条和下一次时间 |
+| 任务行的下一次时间 | `flow.task.badge`（`schedule.next`） | 起它的那条定时还开着时，「下一次 13 小时后」（`task-schedule-next`）；流程自己的时钟在它前面 |
+
+**一行定时**（`schedule-row`，`data-state` 是 `on` · `paused` · `ended`，`data-source="user"`，`data-kind` 是目标）：标题、状态、来源；时间的说法（规则时区不是本机的时写出来）；
+做什么；下一次（本机时间，加「13 小时后」；`data-next`）；上一次投递的结果。操作：**立即执行**（`schedule.runNow`，结果——已投递、跳过及理由、失败——进横幅）、
+**暂停 / 恢复**（`disable` / `enable`）、**编辑**、**投递记录**（在行下展开 `schedule.history`，新的在前、一次 20 条、「再读一些」；时间按规则时区；每条可以打开它去的会话，
+或它起的任务的主会话——任务展示到前台 space 列的那个 space 时就在前台打开，否则到它所属的 space）、**删除**（先确认，连同记录，不删会话和任务）。
+模型建的一行（`schedule-model-row`，`data-source="model"`）：五段 cron（UTC）、提示词、在哪个会话（可打开）、下一次；只能删（`schedule.model.delete`，先确认）。
+
+**编辑器**（`schedule-editor`）：
+
+- **标题**（必填，至多 120 字）；**做什么**：往会话发一轮（提示词）· 新会话（项目，可空；「第一次新建，之后复用」或「每次新建」；场景、模型；提示词）·
+  任务（项目；流程，`flow.defs {project}` 列出、不能启动的不能选；按 `inputs` 的 schema 画的表单——文字、数字、是否、选项，其余是 JSON；对象（必填）、任务标题、输出目录、
+  在 worktree 里跑（不动它就照流程的）；上一次的运行还没结束时「这次跳过」或「再起一个」）。新建时可选哪几种看从哪打开的；编辑时目标的种类不变。
+- **什么时候**是引导式的：仅一次（日期与时间）· 多久以后（分钟、小时、天）· 每 N（分钟、小时）· 每天 · 每周（星期几的圆片，至少一个）· 工作日 · 每月（几号，29–31 提示没有这天的月份跳过）·
+  自定义（五段 cron）。下面一行把它说成话（「工作日 09:00」）。送出去的形状：工作日是 `weekly {weekdays: [1,2,3,4,5]}`，每月是 `cron "M H D * *"`；读回来时反过来认。
+- **时区**：搜索框（时区名、城市、偏移如 `+8`）加列表，最近用过的（这个页面的 `localStorage`，`harnix.schedule.zones`，保存时记下）和本机的在最上面；缺省是本机的。
+- **错过了怎么办**：只补最近一次（缺省）或跳过；写明 Harnix 没在跑时不投递。
+- 有问题的项点「创建 / 保存」后在各自下面说；页面这一侧查得出的（标题、时间格式、一次性的时间已经过了、星期没选、cron 的形状、绝对目录、必填）不送出去，
+  调度器才知道的（cron 永远不到期、时区不认得、项目目录不在）照它的原话写在底部。
+- **改**只送改了的字段，带读到的 `revision`；`every`、`after` 没动就不送，不会从现在重新起算。别人改过了（`CONFLICT`）时底部是一条提示：
+  **保留我的修改并复核**——重读这一条（`schedule.get`），写出别人改了哪几项，自己改过的字段留着、没动过的换成新的，再保存就是在新版本上改；或**用他们的**，丢掉自己的修改。

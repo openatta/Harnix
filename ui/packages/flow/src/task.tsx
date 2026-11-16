@@ -28,6 +28,7 @@ import { t, useT, type HostApi, type HostSessionRef as SessionRef, type MenuItem
 import { useDefs, useRunView } from "./hooks";
 import { isDryRun, mainSessionOf, methodName, phaseOf, runLive, runsOf, runsTopic, sameRoot } from "./model";
 import { newTaskDialog } from "./NewTask";
+import { TaskBadges } from "./points";
 import { PhaseBadge, taskStep } from "./RunPanel";
 import { authorMenuItem } from "./slash";
 import type { FlowSpace } from "./space";
@@ -136,9 +137,13 @@ export class ProjectTasks {
   private readonly listeners = new Set<() => void>();
   private off: (() => void) | null = null;
 
+  /**
+   * @param registry where the rows' badges from other packages are (`flow.task.badge`); none, none drawn.
+   */
   constructor(
     private readonly host: HostApi,
     readonly module: string,
+    readonly registry: Registry | null = null,
   ) {}
 
   readonly subscribe = (fn: () => void): (() => void) => {
@@ -209,7 +214,7 @@ export function TaskRow({ run, module, tasks }: { run: RunSummary; module: strin
             {branch}
           </span>
         ) : null}
-        {/* Badges about time: the clock of one a schedule started; a schedule's next firing goes here too. */}
+        {/* Badges about time: the clock of one a schedule started; the other packages' (`flow.task.badge`) after it. */}
         <span className="hx-flow-task-badges" data-testid="task-badges">
           {scheduled ? (
             <svg className="glyph hx-flow-task-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-label={t("flowui.task.scheduled")} role="img">
@@ -217,6 +222,7 @@ export function TaskRow({ run, module, tasks }: { run: RunSummary; module: strin
               <path d="M12 7.5V12l3 2" />
             </svg>
           ) : null}
+          {tasks.registry ? <TaskBadges registry={tasks.registry} run={run} /> : null}
         </span>
       </span>
     </>
@@ -306,7 +312,7 @@ async function openMain(host: HostApi, main: SessionRef, run: string): Promise<v
  * the flow space once it is registered — after this, when the flows are a space of their own.
  */
 export function registerTaskItems(r: Registry, host: HostApi, module: string, space: () => FlowSpace | null, owner: string): ProjectTasks {
-  const tasks = new ProjectTasks(host, module);
+  const tasks = new ProjectTasks(host, module, r);
   const flowOf = (row: ItemRow) => (row.data as RunSummary | undefined)?.flow ?? "";
   r.register(
     PROJECT_ITEMS,
@@ -338,7 +344,7 @@ export function registerTaskItems(r: Registry, host: HostApi, module: string, sp
         label: () => t("flowui.task.new"),
         icon: "fork",
         run: (context: ItemContext) =>
-          newTaskDialog(host, module, { root: context.root, space: context.space, runs: () => tasks.all() }, async (run, flow) => {
+          newTaskDialog(host, module, { root: context.root, space: context.space, runs: () => tasks.all(), registry: r }, async (run, flow) => {
             const view = space();
             if (view) await openTask(host, r, view, run, flow);
           }),
@@ -379,7 +385,7 @@ export function registerTaskItems(r: Registry, host: HostApi, module: string, sp
             if (view) await openTask(host, r, view, run.id, run.flow);
           }}
           create={() =>
-            newTaskDialog(host, module, { root: context.root, space: context.space, runs: () => tasks.all() }, async (run, flow) => {
+            newTaskDialog(host, module, { root: context.root, space: context.space, runs: () => tasks.all(), registry: r }, async (run, flow) => {
               const view = space();
               if (view) await openTask(host, r, view, run, flow);
             })

@@ -1,6 +1,6 @@
 /**
- * The two points the projects space defines (`harnix-app.project.items`, `harnix-app.project.panels`),
- * and the tree against a kind another package registers: its rows under the open project between
+ * The points the projects space defines (`harnix-app.project.items`, `harnix-app.project.panels`,
+ * `harnix-app.session.badge`), and the tree against a kind another package registers: its rows under the open project between
  * the conversations by activity, marked current when their session is open; a row clicked opened
  * by its kind; its menu; and the project's "+" offering a conversation and what the kind makes.
  */
@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { HostProvider, Registry, type HostApi, type MenuItem } from "@harnix/react";
 
-import { INBOX, PROJECT_ITEMS, PROJECT_PANELS, extension, interleave, register, type ProjectItemKind, type ProjectItemRow } from "../src/index.tsx";
+import { INBOX, PROJECT_ITEMS, PROJECT_PANELS, SESSION_BADGE, extension, interleave, register, type ProjectItemKind, type ProjectItemRow, type SessionBadge } from "../src/index.tsx";
 
 afterEach(() => {
   cleanup();
@@ -87,13 +87,14 @@ async function drawn(host: HostApi, kind?: ProjectItemKind) {
 }
 
 describe("the projects space's points", () => {
-  it("defines the item kinds, the overview panels and the inbox's sources for others to fill", () => {
+  it("defines the item kinds, the overview panels, the session rows' badges and the inbox's sources for others to fill", () => {
     const r = new Registry();
     const host = fakeHost();
     r.activate(extension, () => register(r, host));
     expect(r.definitions().map((d) => [d.name, d.owner, d.kind])).toEqual([
       [PROJECT_ITEMS, "harnix-app", "register"],
       [PROJECT_PANELS, "harnix-app", "render"],
+      [SESSION_BADGE, "harnix-app", "render"],
       [INBOX, "harnix-app", "register"],
     ]);
     expect(r.refusals()).toEqual([]);
@@ -197,5 +198,36 @@ describe("the projects space's points", () => {
     await settle();
     expect(page.getAllByTestId("session-row")).toHaveLength(2);
     expect(fail).toHaveBeenCalledWith(PROJECT_ITEMS, expect.objectContaining({ id: "test.broken" }), expect.any(Error));
+  });
+
+  it("a session's row draws the badges registered for it, between its name and its time; one that throws loses only itself", async () => {
+    const host = fakeHost();
+    localStorage.setItem("harnix.project", JSON.stringify("w1"));
+    const r = new Registry();
+    r.activate(extension, () => register(r, host));
+    const asked: string[] = [];
+    const clock: SessionBadge = {
+      id: "test.clock",
+      render: (session) => {
+        asked.push(`${session.instance}/${session.sessionId}`);
+        return session.sessionId === "s-new" ? <span data-testid="test-clock" /> : null;
+      },
+    };
+    const broken: SessionBadge = { id: "test.broken", render: () => { throw new Error("no"); } };
+    r.activate("test", () => {
+      r.register(SESSION_BADGE, clock, "test");
+      r.register(SESSION_BADGE, broken, "test");
+    });
+    r.settle();
+    const fail = vi.spyOn(r, "fail");
+    const space = r.at("space").find((s) => s.id === "projects")!;
+    const page = render(<HostProvider host={host}>{space.sidebar!.render!()}</HostProvider>);
+    await settle();
+    expect(asked).toEqual(expect.arrayContaining(["main/s-old", "main/s-new"]));
+    const row = page.getAllByTestId("session-row").find((el) => el.getAttribute("data-sid") === "s-new")!;
+    const badges = row.querySelector('[data-testid="session-badges"]')!;
+    expect(badges.querySelector('[data-testid="test-clock"]')).not.toBeNull();
+    expect(badges.nextElementSibling?.classList.contains("time")).toBe(true);
+    expect(fail).toHaveBeenCalledWith(SESSION_BADGE, expect.objectContaining({ id: "test.broken" }), expect.any(Error));
   });
 });

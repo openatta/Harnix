@@ -37,7 +37,7 @@ export const FEATURES = [
   { id: "entries", name: "扩展条目" },
   { id: "brand", name: "品牌与主题" },
   { id: "flow", name: "流程（harnix-ext-flow，xops-01、xops-02）" },
-  { id: "schedule", name: "定时（harnix-ext-schedule：时间与时区、三种目标、错过与并发、回执、模型建的定时）", ui: { pending: "定时界面（0.4.5）" } },
+  { id: "schedule", name: "定时（harnix-ext-schedule：时间与时区、三种目标、错过与并发、回执、模型建的定时）" },
   { id: "packages", carrier: true, name: "扩展包（登记与撤下、安装与卸载、启停、工具、agent 包、界面模块、隔离 iframe 里的界面与外壳的桥、MCP 端点、WASM 后端、扩展进程、系统 space 的扩展包页签、会话看得到的 skill 与 hook、扩展日志）" },
   { id: "packages-store", carrier: true, name: "扩展包商店（签名与副署、目录、按名字安装与升级、披露与同意、设置 · 扩展包）" },
   { id: "packages-inline", carrier: true, name: "扩展包的声明式行内点与管理界面（工具行模板、流块卡片、命令候选、侧栏分组、披露弹窗、清空数据、左栏标记）" },
