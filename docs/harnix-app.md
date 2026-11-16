@@ -55,6 +55,19 @@ Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方�
 **数据**：`harnix.sessions.list {space: "sessions"}` 列会话，`harnix-app.workspaces.list` 列项目，外壳把两者按 `project_root` 拼起来
 （标题、归档、属于哪个项目）；谁在跑来自主题 `harnix.sessions.status`。
 
+**对回答的反馈**（中区的对话，`@harnix/react` 的 `ChatPanel`，`features.feedback` 缺省开）：
+
+- 一轮结束后，它的回答下面的动作行里有赞和踩（复制与「重新生成」之间）。还在跑的那一轮没有。给过反馈的那一行一直显示，按下的那个是实心的。
+- 点赞或踩都先开一个小对话框（不是模态的，Esc、点外面就关）：踩的时候问哪里不好——不准确、没帮上忙、不安全、太慢、其他，可以不选；
+  两种都可以补一句备注。已经给过的，对话框里带着它，可以改、可以撤回。
+- 提交走 `harnix.session.feedback`（[Harnix 扩展](harnix-ext.md) §7.3），中枢记成会话日志里的条目 `harnix.feedback` / `rating`；
+  改、撤都是再记一条，同一轮最后一条为准。按钮的状态从日志里的这些条目读，所以刷新、重开、分叉之后还在；
+  别的设备开着同一个会话，经条目的推送马上看到变化。条目本身不画在对话流里。
+- **只记在本机这个会话的日志里，模型看不到，Harnix 不往任何地方送。** 对话框里有一行小字说这件事。应用要收集反馈，
+  自己写一个持 `feedback.read` 的扩展（[Harnix 扩展](harnix-ext.md) §7.3）；标准装配里没有。
+- **导出带上**：Markdown 在每一轮最后一条消息下面写现在的反馈（`> **Feedback**: down (inaccurate) — 备注`；那一轮已不在转录里的放在末尾）；
+  bundle 的 `entries` 和引擎打的 archive（`sessions/<id>/entries.json`）原样带着每一条，包括改过、撤回的历史。
+
 ## 3. 项目 space
 
 **项目就是工作区**：一个目录，加一个名字。它只是分组：去掉一个项目只是忘了这个分组，会话与历史都还在。
@@ -186,7 +199,7 @@ agent 类型、skill、规则），没有时是 `null`。主题 `harnix-app.trus
 | 重命名 | `harnix.session.rename` | Harnix 账本里的标题，盖在引擎给的名字上 |
 | 归档 / 取消归档 | `harnix-app.sessions.archive` | 只影响左栏列不列它 |
 | 从这里分叉 | `harnix.session.fork` | |
-| 导出 | `harnix-app.sessions.export` | Markdown，或引擎打的数据包（zip，可带录像） |
+| 导出 | `harnix-app.sessions.export` | Markdown，或引擎打的数据包（zip，可带录像）；都带上对回答的反馈（§2） |
 | 导入… | `harnix-app.sessions.importUpload` → 上传 → `harnix-app.sessions.import` | 选一个导出的数据包（`.zip`），经大负载旁路上传，装成当前空间里的新会话（连同它的子代理会话）；不是选中某个会话的操作，在会话列表的「+」菜单里。包里的项目在这台机器上不存在时，装成无项目会话并提示 |
 | 关闭 | `harnix.session.close` | 放掉运行时，历史留着，还能重开 |
 | 删除 | `harnix.session.delete` | 先试删一次看连带几条侧链会话，确认后删；连同录像 |
