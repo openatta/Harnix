@@ -161,7 +161,7 @@ impl App {
     }
 
     /// Refuse a project the device cannot see: neither added here nor where a listed session runs.
-    async fn must_see(&self, call: &Call, root: &str) -> Result<(), RpcError> {
+    pub(crate) async fn must_see(&self, call: &Call, root: &str) -> Result<(), RpcError> {
         let added: Vec<String> = {
             let store = self.store.lock().await;
             store.state().workspaces.iter().filter_map(|w| w.path.clone()).collect()

@@ -17,7 +17,7 @@ import { t, type ActionTarget, type CommandCandidate, type Dispose, type HostApi
 import { exportDialog } from "./dialogs.tsx";
 import { ProjectsSidebar, TrustBanner } from "./projects.tsx";
 import { SessionsSidebar, byTime } from "./sessions.tsx";
-import { registerSidebar } from "./sidebar.tsx";
+import { claimFor, registerSidebar } from "./sidebar.tsx";
 import { AppStore, SESSIONS } from "./store.ts";
 
 export { AppStore, SESSIONS, type AppSession, type AppState, type TrustItem, type TrustStatus, type Workspace } from "./store.ts";
@@ -111,7 +111,8 @@ export function register(r: Registry, host: HostApi): Dispose {
     extension,
   );
 
-  // `@` offers the open session's project files.
+  // `@` offers the open session's project files: the backend walks the session's project, as it
+  // has it, not a directory this page names.
   r.register(
     "command",
     {
@@ -123,9 +124,14 @@ export function register(r: Registry, host: HostApi): Dispose {
         if (!session) return [];
         const listed = store.row(session.instance, session.sessionId)?.project_root;
         const context = host.session.context()?.session?.project_root;
-        const root = listed ?? (typeof context === "string" ? context : null);
-        if (!root) return [];
-        const { files } = await host.call<{ files: { path: string; size?: number }[] }>("harnix-app.files", { project_root: root, query });
+        // Known to have no project: nothing to ask for.
+        if (!(listed ?? (typeof context === "string" ? context : null))) return [];
+        const { files } = await host.call<{ files: { path: string; size?: number }[] }>("harnix-app.files", {
+          instance: session.instance,
+          session_id: session.sessionId,
+          space: claimFor(r, host),
+          query,
+        });
         // As the menu draws a candidate: the path, its size beside it, `@path ` inserted.
         return files.map((f) => ({ label: f.path, description: f.size != null ? `${(f.size / 1024).toFixed(1)} KB` : undefined, replacement: `@${f.path} ` }));
       },
