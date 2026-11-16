@@ -559,6 +559,36 @@ export function addUsage(...us: (Usage | null | undefined)[]): Usage {
   return out;
 }
 
+/** One flow's runs, summed: what the 用量 tab's section lists a row of. */
+export interface FlowUsageRow {
+  flow: string;
+  runs: number;
+  finished: number;
+  usage: Usage;
+  /** From start to finish, over the runs that finished: waiting on people included. */
+  elapsedMs: number;
+}
+
+/**
+ * The runs started at or after `since` (ms), dry runs aside, summed per flow, the most tokens first.
+ * What each run spent is what its stations' turns reported (`RunSummary.usage`), kept with the run.
+ */
+export function usageByFlow(runs: readonly RunSummary[], since: number): FlowUsageRow[] {
+  const by = new Map<string, FlowUsageRow>();
+  for (const run of runs) {
+    if (run.dry || isDryRun(run.id) || Number(run.created_at ?? 0) < since) continue;
+    let row = by.get(run.flow);
+    if (!row) by.set(run.flow, (row = { flow: run.flow, runs: 0, finished: 0, usage: addUsage(), elapsedMs: 0 }));
+    row.runs += 1;
+    row.usage = addUsage(row.usage, run.usage);
+    if (run.finished_at != null) {
+      row.finished += 1;
+      row.elapsedMs += Math.max(0, Number(run.finished_at) - Number(run.created_at ?? 0));
+    }
+  }
+  return [...by.values()].sort((a, b) => tokensOf(b.usage) - tokensOf(a.usage) || a.flow.localeCompare(b.flow));
+}
+
 /** A station's tokens: its tasks', summed. */
 export function stationUsage(rec: StationRec | undefined): Usage {
   return addUsage(...(rec?.tasks ?? []).map((t) => t.usage));

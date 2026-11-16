@@ -2568,6 +2568,19 @@
         "scope": "open"
       },
       "kind": "method",
+      "name": "observability.usage.daily",
+      "owner": "ext:observability"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
       "name": "packages.catalog",
       "owner": "ext:packages"
     },

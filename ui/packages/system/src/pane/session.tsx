@@ -1,39 +1,31 @@
 /** The right column for a main Agent's session: its facts, goal, context, figures and operations. */
 
 import { useMemo, useState } from "react";
+import { agentTokens, summarizeUsage } from "@harnix/core";
 import { useRegistry, useT, Glyph, compact, millis, type ActionTarget, type HostSessionRef as SessionKey, type SessionAction } from "@harnix/react";
 
 import { SYSTEM } from "../constants.ts";
 import { stateOf, stateSignature, useAgentFacts } from "../data.ts";
-import { totalTokens } from "../format.ts";
 import { openWhereItBelongs } from "../navigate.ts";
 import type { AgentRow, AgentUsage, Context, SessionRowView, TurnRow } from "../types.ts";
 import { act, useRunning, useTopic, type View } from "../view.ts";
 import { Facts } from "./facts.tsx";
 import { GoalBlock } from "./goal.tsx";
 
-/** The figures DSH puts by the composer, for one Agent: its turns and calls, its tokens, how fast. */
+/** The figures DSH puts by the composer, for one Agent: its turns and calls, its tokens, how fast (`@harnix/core`'s `summarizeUsage`). */
 export function Stats({ own, turns }: { own: AgentUsage | undefined; turns: TurnRow[] }) {
   const tr = useT();
   if (!own && !turns.length) return <div className="note" data-testid="agent-stats-none">{tr("system.stat.noRecording")}</div>;
-  const sum = (f: (t: TurnRow) => number) => turns.reduce((n, t) => n + f(t), 0);
-  const ttfts = turns.map((t) => t.ttft_ms).filter((v): v is number => typeof v === "number");
-  const output = own?.output_tokens ?? sum((t) => t.output_tokens);
-  // Tokens a second, weighted by what each turn wrote.
-  const rated = turns.filter((t) => t.tokens_per_s && t.output_tokens);
-  const writing = rated.reduce((n, t) => n + t.output_tokens / t.tokens_per_s!, 0);
-  const rate = writing > 0 ? rated.reduce((n, t) => n + t.output_tokens, 0) / writing : null;
-  const input = own ? own.input_tokens + own.cache_read_tokens + own.cache_write_tokens : sum((t) => t.input_tokens);
-  const hit = own && input > 0 ? own.cache_read_tokens / input : null;
+  const s = summarizeUsage(own, [], turns);
   const cells: [string, string, string][] = [
-    ["turns", tr("system.stat.turns"), String(own?.turns ?? turns.length)],
-    ["calls", tr("system.stat.calls"), String(own?.calls ?? sum((t) => t.calls.length))],
-    ["total", tr("system.stat.total"), compact(input + output)],
-    ["hit", tr("system.stat.cacheHit"), hit === null ? "—" : `${Math.round(hit * 100)}%`],
-    ["rate", tr("system.stat.rate"), rate === null ? "—" : `${rate.toFixed(1)}/s`],
-    ["ttft", tr("system.stat.ttft"), ttfts.length ? millis(Math.round(ttfts.reduce((a, b) => a + b, 0) / ttfts.length)) : "—"],
-    ["model", tr("system.stat.time"), millis(own?.model_ms ?? sum((t) => t.model_ms))],
-    ["tool", tr("system.stat.toolTime"), turns.length ? millis(sum((t) => t.tool_ms)) : "—"],
+    ["turns", tr("system.stat.turns"), String(s.turns)],
+    ["calls", tr("system.stat.calls"), String(s.calls)],
+    ["total", tr("system.stat.total"), compact(s.total)],
+    ["hit", tr("system.stat.cacheHit"), s.cacheHit === null ? "—" : `${Math.round(s.cacheHit * 100)}%`],
+    ["rate", tr("system.stat.rate"), s.rate === null ? "—" : `${s.rate.toFixed(1)}/s`],
+    ["ttft", tr("system.stat.ttft"), s.ttftMs === null ? "—" : millis(s.ttftMs)],
+    ["model", tr("system.stat.time"), millis(s.modelMs)],
+    ["tool", tr("system.stat.toolTime"), s.toolMs === null ? "—" : millis(s.toolMs)],
   ];
   return (
     <>
@@ -118,7 +110,7 @@ export function SessionOverview({ view, session }: { view: View; session: Sessio
       <Stats own={own} turns={facts.turns} />
       {subs.length ? (
         <div className="note" data-testid="agent-subs">
-          {tr("system.subTotals", { count: subs.length, tokens: compact(subs.reduce((n, u) => n + totalTokens(u), 0)), time: millis(subs.reduce((n, u) => n + u.model_ms, 0)) })}
+          {tr("system.subTotals", { count: subs.length, tokens: compact(subs.reduce((n, u) => n + agentTokens(u), 0)), time: millis(subs.reduce((n, u) => n + u.model_ms, 0)) })}
         </div>
       ) : null}
       {space && space !== SYSTEM ? (

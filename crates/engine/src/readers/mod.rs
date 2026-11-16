@@ -8,6 +8,7 @@
 //! in it. Every answer says which run it covers ([`harnix_engine_api::readers::RecordingRun`]).
 
 mod calls;
+mod days;
 mod envelopes;
 mod search;
 mod time;
@@ -22,7 +23,8 @@ use std::sync::Arc;
 
 use harnix_contract::RpcError;
 use harnix_engine_api::readers::{
-    CallDetail, Envelopes, ReadError, Recordings, SearchLimits, SearchResult, SessionUsage, Trace, Transcripts, Turns,
+    CallDetail, DayWindow, Envelopes, ReadError, Recordings, SearchLimits, SearchResult, SessionDays, SessionUsage, Trace, Transcripts,
+    Turns,
 };
 use harnix_engine_link::Readers;
 use serde_json::Value;
@@ -38,6 +40,7 @@ pub(crate) struct ProtocolReader {
     activity: Arc<Activity>,
     calls: calls::Calls,
     envelopes: envelopes::Kept,
+    days: days::Days,
 }
 
 impl DaemonLink {
@@ -51,7 +54,7 @@ impl DaemonLink {
 
 impl ProtocolReader {
     pub(crate) fn new(rpc: Arc<dyn Rpc>, gate: Option<Arc<dyn WakeGate>>, activity: Arc<Activity>) -> Self {
-        Self { rpc, gate, activity, calls: calls::Calls::new(calls::FRESH), envelopes: envelopes::Kept::default() }
+        Self { rpc, gate, activity, calls: calls::Calls::new(calls::FRESH), envelopes: envelopes::Kept::default(), days: days::Days::default() }
     }
 
     /// Up for a call: a sleeping instance woken first (what the person opened is worth a start).
@@ -98,6 +101,10 @@ impl Recordings for ProtocolReader {
 
     async fn usage(&self, sessions: &[String]) -> Result<BTreeMap<String, SessionUsage>, ReadError> {
         self.usage_of(sessions).await
+    }
+
+    async fn usage_by_day(&self, sessions: &[String], window: &DayWindow) -> Result<BTreeMap<String, SessionDays>, ReadError> {
+        self.usage_days_of(sessions, window).await
     }
 }
 

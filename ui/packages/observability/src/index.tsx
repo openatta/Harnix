@@ -9,6 +9,9 @@
  *   run's figures, with the way into the trajectory).
  * - The same trajectory as a page of the system space's inspector (`system.inspector.tab`), where
  *   the product has that space, with a way into the session.
+ * - The system space's 用量 tab (`system.console.tab`): every session's figures over the last 30
+ *   days by project, day and model (`observability.usage.daily`), with the sections other packages
+ *   add to `observability.usage.section`.
  *
  * Read through the host API alone: `observability.*` (the recording), `harnix.session.outline`,
  * `.skills`, `.hooks`, `engine.session.entries` (the feedback), `settings.mcp.context`,
@@ -21,16 +24,19 @@ import { ContextTab } from "./context.tsx";
 import { TRAJECTORY_VIEW, type Observed } from "./shared.tsx";
 import { Trajectory } from "./trajectory/Trajectory.tsx";
 import { UsageTab } from "./usage.tsx";
+import { USAGE_SECTION, UsageSummaryTab } from "./summary.tsx";
 import "./observability.css";
 
-export { summarizeUsage, type UsageSummary } from "./usage.tsx";
+export { summarizeUsage, type UsageSummary } from "@harnix/core";
+export { USAGE_SECTION, type UsageSection, type UsageSectionContext } from "./summary.tsx";
 export { TRAJECTORY_VIEW };
 
 /** The backend extension this package is the interface of. */
 export const extension = "observability";
 
-/** The point the system space defines for pages about a picked session. */
+/** The points the system space defines for pages about a picked session and for its console's tabs. */
 const INSPECTOR_TAB = "system.inspector.tab";
+const CONSOLE_TAB = "system.console.tab";
 
 export const CONTEXT_KIND = "context";
 export const USAGE_KIND = "usage";
@@ -45,6 +51,8 @@ interface Target {
 
 export function register(r: Registry, host: HostApi): void {
   const observed: Observed = { host, registry: r };
+  // The 用量 tab's sections, for other packages to add theirs (the flows, by flow).
+  r.definePoint(USAGE_SECTION, { kind: "render" });
   const sessionOf = (target: Target): SessionKey => ({ instance: target.instance, sessionId: target.sessionId });
   r.register(
     "conversation.view",
@@ -94,5 +102,19 @@ export function register(r: Registry, host: HostApi): void {
       ),
     },
     extension,
+  );
+  // The system space's console: what every session has used over the last days. Where there is no
+  // system space there is no console, and no tab.
+  r.register(
+    CONSOLE_TAB,
+    {
+      id: "observability.summary",
+      order: 40,
+      title: () => t("usageAll.title"),
+      about: () => t("usageAll.about"),
+      render: () => <UsageSummaryTab observed={observed} />,
+    },
+    extension,
+    { orElse: () => undefined },
   );
 }

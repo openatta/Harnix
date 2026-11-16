@@ -460,6 +460,15 @@ const en: Record<string, string> = {
   "flowui.waiting.external": "Waiting to be claimed",
   "flowui.waiting.children": "Waiting on child runs",
   "flowui.waiting.work": "Waiting on work",
+  "flowui.usage.title": "By flow",
+  "flowui.usage.flow": "Flow",
+  "flowui.usage.runs": "Runs",
+  "flowui.usage.runsTip": "Runs started in these days (finished ones in brackets, when not all are)",
+  "flowui.usage.turns": "Turns",
+  "flowui.usage.elapsed": "Run time",
+  "flowui.usage.none": "No runs started in these days.",
+  "flowui.usage.note": "From the run records: the tokens each station's turns reported, over every attempt; run time is from start to finish of the finished runs, waiting on people included.",
+  "flowui.usage.cut": "Only the newest {count} runs are counted.",
 };
 
 const zhCN: Record<string, string> = {
@@ -909,6 +918,15 @@ const zhCN: Record<string, string> = {
   "flowui.waiting.external": "等外部认领",
   "flowui.waiting.children": "等子运行结束",
   "flowui.waiting.work": "等工作完成",
+  "flowui.usage.title": "按流程",
+  "flowui.usage.flow": "流程",
+  "flowui.usage.runs": "运行",
+  "flowui.usage.runsTip": "这些天里开始的运行（没有全部结束时，括号里是结束了的）",
+  "flowui.usage.turns": "轮数",
+  "flowui.usage.elapsed": "运行时长",
+  "flowui.usage.none": "这些天里没有开始过运行。",
+  "flowui.usage.note": "来自运行记录：每站的轮次报上来的 token，含每次重试；运行时长是结束了的运行从开始到结束，含等人的时间。",
+  "flowui.usage.cut": "只算了最新的 {count} 次运行。",
 };
 
 export const STRINGS = { en, "zh-CN": zhCN } as const;

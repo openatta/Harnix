@@ -9,17 +9,21 @@
 //! A session's rows are a device's for the sessions of the space it claims (`RowScope::Session`):
 //! before a recording is read, the session is asked of the engine as the caller, and the hub judges
 //! the claim as it does for every read of a session (system-space.md §10). `usage` names many
-//! sessions at once and stays an open row, as the system space's console reads it.
+//! sessions at once and stays an open row, as the system space's console reads it; so does
+//! `usage.daily`, the same figures per day and model for the console's usage summary.
 
 use std::sync::Arc;
 
-use harnix_ext::engine::readers::{ReadError, Recordings};
-use harnix_ext::{caps, codes, Access, Call, Extension, Manifest, Registrar, Rpc, RpcError, RowScope, MAIN_INSTANCE};
+use harnix_ext::engine::readers::{DayWindow, ReadError, Recordings};
+use harnix_ext::{catalog, caps, codes, Access, Call, Extension, Manifest, Registrar, Rpc, RpcError, RowScope, MAIN_INSTANCE};
 use serde::Serialize;
 use serde_json::{json, Value};
 
-/// How many sessions one `usage` call may ask about.
+/// How many sessions one `usage` or `usage.daily` call may ask about.
 const MAX_SESSIONS: usize = 200;
+/// The days `usage.daily` sums when not told, and the most it sums.
+const DEFAULT_DAYS: u64 = 30;
+const MAX_DAYS: u64 = 366;
 
 #[derive(Default)]
 pub struct Observability;
@@ -67,6 +71,10 @@ impl Extension for Observability {
             .access(Access::device())
             .describe("what each Agent of each session has used this run (the latest, not a total); a sleeping instance is not woken, and what it read before is marked stale")
             .raw(|call, params| async move { usage(&call, &params).await });
+        r.method("usage.daily")
+            .access(Access::device())
+            .describe("what the tree of Agents under each session used this run, per day and model, over the last `days` days (30; at most 366) at `tz_offset_min` east of UTC; wakes nothing, as usage")
+            .raw(|call, params| async move { usage_daily(&call, &params).await });
         r.method("calls")
             .access(session())
             .describe("the request envelope's timeline of a session's current run, one entry per change")
@@ -74,6 +82,10 @@ impl Extension for Observability {
                 let (reader, session) = recording_of(&call, &params).await?;
                 answer(reader.envelopes(&session).await)
             });
+        // Its UI package defines the usage summary's sections, for others to add theirs.
+        for point in catalog::points_of("observability") {
+            r.ui().point(point.decl());
+        }
     }
 }
 
@@ -81,6 +93,66 @@ impl Extension for Observability {
 /// `agents` is the session's own figures first, then each sub-agent's with its parent.
 async fn usage(call: &Call, params: &Value) -> Rpc<Value> {
     let instance = instance_of(params);
+    let ids = session_ids(params)?;
+    // An empty list asks nothing of the instance, whichever it names.
+    let out = if ids.is_empty() {
+        serde_json::Map::new()
+    } else {
+        let read = recordings(call, instance)?.usage(&ids).await.map_err(read_error)?;
+        read.into_iter()
+            .map(|(id, usage)| (id, serde_json::to_value(usage).unwrap_or(Value::Null)))
+            .collect()
+    };
+    Ok(json!({"instance": instance, "sessions": out}))
+}
+
+/// `{instance?, session_ids, days?, tz_offset_min?}` → `{instance, days, since, sessions: {<id>:
+/// {recording, days: [{day, model, …}], run, stale?}}}`: `since` is the first day counted.
+async fn usage_daily(call: &Call, params: &Value) -> Rpc<Value> {
+    let instance = instance_of(params);
+    let ids = session_ids(params)?;
+    let days = match params.get("days") {
+        None | Some(Value::Null) => DEFAULT_DAYS,
+        Some(v) => v
+            .as_u64()
+            .filter(|n| (1..=MAX_DAYS).contains(n))
+            .ok_or_else(|| RpcError::invalid_params(format!("`days` is from 1 to {MAX_DAYS}")))?,
+    };
+    let offset = match params.get("tz_offset_min") {
+        None | Some(Value::Null) => 0,
+        Some(v) => v
+            .as_i64()
+            .filter(|n| n.abs() <= 14 * 60)
+            .ok_or_else(|| RpcError::invalid_params("`tz_offset_min` is minutes east of UTC, at most 14 hours either way"))? as i32,
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let since = window_start(now, days, offset);
+    let out = if ids.is_empty() {
+        serde_json::Map::new()
+    } else {
+        let window = DayWindow::new(since, offset);
+        let read = recordings(call, instance)?.usage_by_day(&ids, &window).await.map_err(read_error)?;
+        read.into_iter()
+            .map(|(id, days)| (id, serde_json::to_value(days).unwrap_or(Value::Null)))
+            .collect()
+    };
+    Ok(json!({"instance": instance, "days": days, "since_ms": since, "sessions": out}))
+}
+
+/// The start of the first of the last `days` days at `offset` minutes east of UTC, `now` the last.
+fn window_start(now: u64, days: u64, offset: i32) -> u64 {
+    const DAY: i64 = 86_400_000;
+    let shift = i64::from(offset) * 60_000;
+    let today = (now as i64 + shift).div_euclid(DAY);
+    let first = today - (days as i64 - 1);
+    (first * DAY - shift).max(0) as u64
+}
+
+/// `session_ids`, at most [`MAX_SESSIONS`] of them.
+fn session_ids(params: &Value) -> Rpc<Vec<String>> {
     let ids: Vec<String> = params
         .get("session_ids")
         .and_then(Value::as_array)
@@ -95,16 +167,7 @@ async fn usage(call: &Call, params: &Value) -> Rpc<Value> {
             ids.len()
         )));
     }
-    // An empty list asks nothing of the instance, whichever it names.
-    let out = if ids.is_empty() {
-        serde_json::Map::new()
-    } else {
-        let read = recordings(call, instance)?.usage(&ids).await.map_err(read_error)?;
-        read.into_iter()
-            .map(|(id, usage)| (id, serde_json::to_value(usage).unwrap_or(Value::Null)))
-            .collect()
-    };
-    Ok(json!({"instance": instance, "sessions": out}))
+    Ok(ids)
 }
 
 fn instance_of(params: &Value) -> &str {
@@ -187,8 +250,31 @@ mod tests {
             assert!(!row.opens_every_extension(), "{name} is not an extension's");
             assert_eq!(row.scope(), RowScope::Session, "{name} is about one session");
         }
-        assert!(access("observability.usage").opens_devices());
-        assert_eq!(access("observability.usage").scope(), RowScope::Open);
+        for name in ["observability.usage", "observability.usage.daily"] {
+            assert!(access(name).opens_devices(), "{name} is a device's");
+            assert_eq!(access(name).scope(), RowScope::Open, "{name} names many sessions");
+        }
+    }
+
+    /// The window starts at midnight where the caller is, `days - 1` days before today there.
+    #[test]
+    fn the_window_starts_at_the_callers_midnight() {
+        let day = 86_400_000;
+        // 2025-11-15T23:30Z: an hour east it is already the 16th.
+        let now = 20_407 * day + 23 * 3_600_000 + 30 * 60_000;
+        assert_eq!(window_start(now, 1, 0), 20_407 * day);
+        assert_eq!(window_start(now, 30, 0), (20_407 - 29) * day);
+        assert_eq!(window_start(now, 1, 60), 20_408 * day - 3_600_000);
+        assert_eq!(window_start(now, 1, -300), 20_407 * day + 5 * 3_600_000);
+        assert_eq!(window_start(0, 30, 0), 0, "never before the epoch");
+    }
+
+    #[test]
+    fn at_most_two_hundred_sessions_are_asked_at_once() {
+        let many: Vec<String> = (0..201).map(|i| format!("s{i}")).collect();
+        assert!(session_ids(&json!({"session_ids": many})).is_err());
+        assert_eq!(session_ids(&json!({"session_ids": ["a", 3, "b"]})).unwrap(), ["a", "b"]);
+        assert!(session_ids(&json!({})).is_err());
     }
 
     /// What the engine is asked about the session: the session, the instance and the space the

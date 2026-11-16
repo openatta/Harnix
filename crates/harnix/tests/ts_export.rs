@@ -194,7 +194,7 @@ fn readers(cfg: &Config) -> Generated {
             declarations![cfg;
                 RecordingRun, Trace, CallSummary, CallInput, BlockSize, CallOutput, ToolUseSummary, Timing,
                 CallDetail, CallDetailInput, CallDetailOutput, ToolResultView, SystemBlock,
-                Turns, TurnSummary, Envelopes, Envelope, SessionUsage, AgentUsage, SearchHit, SearchResult,
+                Turns, TurnSummary, Envelopes, Envelope, SessionUsage, AgentUsage, SessionDays, DayUsage, SearchHit, SearchResult,
             ],
         ),
     }

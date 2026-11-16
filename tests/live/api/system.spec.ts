@@ -26,6 +26,7 @@ const SYSTEM_METHODS = [
   "observability.calls",
   "observability.turns",
   "observability.usage",
+  "observability.usage.daily",
   "system.goal",
   "system.goal.set",
   "system.goal.update",
@@ -207,6 +208,54 @@ test.describe("on", () => {
     expect((await api.refused("observability.usage", { instance: s.instance }))?.code).toBe(INVALID_PARAMS);
     const many = Array.from({ length: 201 }, (_, i) => `s${i}`);
     expect((await api.refused("observability.usage", { instance: s.instance, session_ids: many }))?.code).toBe(INVALID_PARAMS);
+  });
+
+  test("observability.usage.daily: a session's tree per day and model, the days of the window only, at the caller's offset", TAGS, async () => {
+    const daily = async (client: TestClient, s: { instance: string; session_id: string }, extra: object = {}) =>
+      await client.call("observability.usage.daily", { instance: s.instance, session_ids: [s.session_id], ...extra });
+    // A replayed session records nothing: no days, and no error.
+    const s = await oneTurn(api, "fleet");
+    expect((await daily(api, s)).sessions[s.session_id]).toMatchObject({ recording: false, days: [] });
+
+    await onRecorder(async (rec) => {
+      const DAY = 86_400_000;
+      const at = Date.now();
+      const dayOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+      const p = await planted(rec, recorder, (id) => [
+        { type: "recording", version: 1, name: id, session_id: id, created_at: at - 40 * DAY, engine_version: "test" },
+        modelCall(1, at - 40 * DAY, id, "big"),
+        { type: "end", seq: 2, ts: at - 40 * DAY + 900, call: 1, outcome: { status: "ok" }, usage: { input_tokens: 9999, output_tokens: 1 }, duration_ms: 900 },
+        modelCall(3, at - 2 * DAY, id, "big"),
+        { type: "end", seq: 4, ts: at - 2 * DAY + 900, call: 3, outcome: { status: "ok" }, usage: { input_tokens: 600, cache_read_input_tokens: 400, output_tokens: 34 }, duration_ms: 900 },
+        modelCall(5, at - 2 * DAY + 1000, "SUB-1", "small", id),
+        { type: "end", seq: 6, ts: at - 2 * DAY + 1600, call: 5, outcome: { status: "ok" }, usage: { input_tokens: 150, output_tokens: 50 }, duration_ms: 600 },
+      ]);
+      const read = await daily(rec, p, { days: 30, tz_offset_min: 0 });
+      expect(read).toMatchObject({ instance: "main", days: 30 });
+      expect(dayOf(read.since_ms)).toBe(dayOf(at - 29 * DAY));
+      const mine = read.sessions[p.session_id];
+      expect(mine.recording).toBe(true);
+      expect(mine.run.created_at).toBeTruthy();
+      // Forty days ago is outside the window; the sub-agent's call is under the session.
+      expect(mine.days.map((d: any) => [d.day, d.model, d.calls])).toEqual([
+        [dayOf(at - 2 * DAY), "big", 1],
+        [dayOf(at - 2 * DAY), "small", 1],
+      ]);
+      expect(mine.days[0]).toMatchObject({ input_tokens: 600, cache_read_tokens: 400, output_tokens: 34, model_ms: 900 });
+      // One day, today: the recording has nothing in it.
+      expect((await daily(rec, p, { days: 1 })).sessions[p.session_id].days).toEqual([]);
+      if (!live) return;
+
+      // One the engine recorded as the model answered: today.
+      const r = await oneTurn(rec, "sessions");
+      const real = (await daily(rec, r, { tz_offset_min: 0 })).sessions[r.session_id];
+      expect(real.recording).toBe(true);
+      expect(real.days.map((d: any) => d.day)).toContain(dayOf(Date.now()));
+    });
+
+    for (const bad of [{}, { session_ids: Array.from({ length: 201 }, (_, i) => `s${i}`) }, { session_ids: [], days: 0 }, { session_ids: [], days: 400 }, { session_ids: [], tz_offset_min: 2000 }]) {
+      expect((await api.refused("observability.usage.daily", { instance: s.instance, ...bad }))?.code, JSON.stringify(bad)).toBe(INVALID_PARAMS);
+    }
   });
 
   test("a session's row says who started it — a person, or Harnix itself — and what it waits on a person for", TAGS, async () => {
