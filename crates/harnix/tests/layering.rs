@@ -1144,7 +1144,11 @@ mod rules {
         let members = first_party_members();
         assert!(!members.is_empty(), "there is no first-party extension crate (`harnix-ext-<id>`) yet");
         for name in members {
-            depends(&name, &[EXT], &agix_and(&[]), &["axum"]);
+            // The settings extension writes the engine's settings tiers, whose place the host says
+            // through a transitional service of the host API (docs/harnix-ext.md §17.8); every other
+            // first-party extension is written against the extension interface alone.
+            let allowed: &[&str] = if name == "harnix-ext-settings" { &[EXT, HOST_API] } else { &[EXT] };
+            depends(&name, allowed, &agix_and(&[]), &["axum"]);
         }
     }
 
@@ -1307,8 +1311,10 @@ mod rules {
 
     #[test]
     fn l25_the_host_api_is_the_assemblys_and_the_host_components() {
-        // And the test application's, whose fake host registers a package as `packages` does.
-        only_used_by(HOST_API, &[ASSEMBLY, PACKAGES, CARRIER_WASM, CARRIER_PROC, TESTAPP], &[]);
+        // And the test application's, whose fake host registers a package as `packages` does; and
+        // the settings extension's, for the transitional service that says where the engine's
+        // settings tiers are (l14).
+        only_used_by(HOST_API, &[ASSEMBLY, PACKAGES, CARRIER_WASM, CARRIER_PROC, TESTAPP, "harnix-ext-settings"], &[]);
         assert!(member_names().iter().any(|n| n == HOST_API), "`{HOST_API}` does not exist (yet)");
     }
 

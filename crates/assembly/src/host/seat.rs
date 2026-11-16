@@ -10,7 +10,7 @@ use harnix_contract::s1::ExtId;
 use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
 use harnix_ext::Service;
-use harnix_host_api::{HostApi, HostServices};
+use harnix_host_api::{HostApi, HostServices, SettingsFiles, SettingsTiers};
 use harnix_hub::Hub;
 use harnix_instance::InstanceRegistry;
 use harnix_kernel::seat::{
@@ -103,7 +103,6 @@ impl InstanceService for InstanceViews {
             active_scenes: facts.active_scenes.clone(),
             model: facts.model.clone().unwrap_or_default(),
             trust,
-            settings_root: facts.data_root.clone(),
             recordings,
             transcripts,
         })
@@ -194,13 +193,18 @@ impl CredentialLookup for Secrets {
     }
 }
 
-/// The host's named services: one, the host components' pipes, made for whoever asks.
-#[derive(Default)]
+/// The host's named services, made for whoever asks: the host components' pipes, and where an
+/// instance's engine reads its settings tiers.
 pub(crate) struct HostServicesRegistry {
     host: OnceLock<Weak<super::dynamic::DynamicHost>>,
+    instances: Arc<InstanceRegistry>,
 }
 
 impl HostServicesRegistry {
+    pub fn new(instances: Arc<InstanceRegistry>) -> Self {
+        Self { host: OnceLock::new(), instances }
+    }
+
     pub fn set(&self, host: &Arc<super::dynamic::DynamicHost>) {
         let _ = self.host.set(Arc::downgrade(host));
     }
@@ -208,11 +212,30 @@ impl HostServicesRegistry {
 
 impl ServiceRegistry for HostServicesRegistry {
     fn service(&self, ext: &ExtId, name: &str) -> Option<Arc<dyn Any + Send + Sync>> {
-        if name != HostServices::NAME {
-            return None;
+        match name {
+            HostServices::NAME => {
+                let host = self.host.get()?.upgrade()?;
+                let api: Arc<dyn HostApi> = Arc::new(super::dynamic::HostFor::new(host, ext.clone()));
+                Some(Arc::new(api))
+            }
+            SettingsTiers::NAME => {
+                let files: Arc<dyn SettingsFiles> = Arc::new(TiersOf(self.instances.clone()));
+                Some(Arc::new(files))
+            }
+            _ => None,
         }
-        let host = self.host.get()?.upgrade()?;
-        let api: Arc<dyn HostApi> = Arc::new(super::dynamic::HostFor::new(host, ext.clone()));
-        Some(Arc::new(api))
+    }
+}
+
+/// The settings tiers of each instance's engine, under its data root: the engine's own layout.
+struct TiersOf(Arc<InstanceRegistry>);
+
+impl SettingsFiles for TiersOf {
+    fn global(&self, instance: &str) -> Option<PathBuf> {
+        Some(self.0.facts(instance)?.engine.data_root.join("settings.json"))
+    }
+
+    fn scene(&self, instance: &str, scene: &str) -> Option<PathBuf> {
+        Some(self.0.facts(instance)?.engine.data_root.join("scenes").join(scene).join("settings.json"))
     }
 }

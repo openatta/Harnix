@@ -35,6 +35,30 @@ impl Service for HostServices {
     type Handle = dyn HostApi;
 }
 
+/// Where an instance's engine reads its settings tiers from, as the service a context hands out
+/// to an extension granted `engine.config.write`: `cx.service::<SettingsTiers>()`.
+///
+/// **Transitional.** The layout is the engine's (`<data root>/settings.json`, and
+/// `scenes/<scene>/settings.json` for a scene's tier), and the one extension that writes those
+/// files is Harnix's own `settings`, because the engine takes no write to its global tier over its
+/// protocol yet. Once it does, this service goes with it; which is why it is here (S3) and not in
+/// the extension interface.
+pub struct SettingsTiers;
+
+impl Service for SettingsTiers {
+    const NAME: &'static str = "harnix.settings-tiers";
+    const CAPABILITY: Capability = caps::ENGINE_CONFIG_WRITE;
+    type Handle = dyn SettingsFiles;
+}
+
+/// The settings files of one instance's engine. `None`: no such instance here.
+pub trait SettingsFiles: Send + Sync {
+    /// The global tier's `settings.json`.
+    fn global(&self, instance: &str) -> Option<PathBuf>;
+    /// One scene's tier's `settings.json`.
+    fn scene(&self, instance: &str, scene: &str) -> Option<PathBuf>;
+}
+
 /// What the host does for one host component. Every registration and every process it starts
 /// through this is on the record as that component's.
 #[async_trait::async_trait]
