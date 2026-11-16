@@ -40,6 +40,8 @@ project to work in, and what a conversation starts with: the `harnix` scene and 
 permission mode, with `code` (a coding agent in a project) offered beside it. Each goes once it is
 done or closed.
 
+Using the `harnix` program rather than building on it: the [user guide](user-guide/README.md) (also in [简体中文](user-guide/README.zh-CN.md)).
+
 To look around with data in it: `scripts/harnix-demo.sh start` (also `stop`, `restart`, `status`)
 runs the Harnix app in a directory of its own (`~/harnix-demo`) with demo flows, runs and
 conversations; delete the directory to start over.
