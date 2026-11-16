@@ -250,7 +250,7 @@ pub const EXTENSION_POINTS: &[ExtensionPoint] = &[
         owner: "harnix-app",
         id: "harnix-app.inbox",
         kind: PointKind::Register,
-        what: "待我处理的一个来源（`{id, items(), subscribe(fn), open(item)}`）：中枢的提问、流程的确认、hold、外部任务",
+        what: "待我处理的一个来源（`{id, items(), subscribe(fn), open(item)}`）：中枢的提问、流程的确认、hold、外部工作项",
         when: "来源的 `subscribe` 说变了时、点一项时",
         frequency: Frequency::PerInteraction,
     },

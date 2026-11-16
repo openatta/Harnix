@@ -4,7 +4,7 @@ English | [简体中文](README.zh-CN.md)
 
 This guide is for a person who uses the `harnix` program. You do not need to write code. If you build your own application on Harnix, read [docs/](../docs/app-development.md) instead.
 
-Names in "quotes" are the words on the screen. The screen has three parts: the **left column** (sessions and projects), the **centre** (the conversation) and the **right column** (tabs: Guide, Context, Usage, Files, Preview, Changes, Flow, Output).
+Names in "quotes" are the words on the screen. The screen has three parts: the **left column** (sessions and projects, with your avatar at the bottom), the **centre** (the conversation) and the **right column** (tabs: Guide, Context, Usage, Files, Preview, Changes, Flow, Output).
 
 Contents: 1 Install and first run · 2 Models and credentials · 3 Projects and trust · 4 Conversations · 5 Tasks · 6 Schedules · 7 Settings · 8 The system space · 9 Extension packages · 10 When something goes wrong
 
@@ -21,23 +21,23 @@ Contents: 1 Install and first run · 2 Models and credentials · 3 Projects and 
 | Linux, x86-64 | `x86_64-unknown-linux-gnu.tar.gz` |
 | Linux, ARM | `aarch64-unknown-linux-gnu.tar.gz` |
 
-The file is named `harnix-<version>-<target>.tar.gz`. A `.sha256` file sits beside it: compare it with the checksum of what you downloaded. Unpack it. Inside is one program, `harnix`. There is no Windows build and no desktop installer in this version.
+The file is named `harnix-<release>-<target>.tar.gz`, where `<release>` is the release's tag (`Harnix-v<x.y.z>-<YYYYMMDD><NN>`). Beside it is the same name with `.sha256` added: compare it with the checksum of what you downloaded (`shasum -a 256 <file>` on a Mac, `sha256sum <file>` on Linux). Unpack it. The folder inside holds the program `harnix`, with `LICENSE` and `README.md`; the interface is built into the program. There is no Windows build and no desktop installer in this version.
 
-**Start.** Run `harnix` in a terminal. Open <http://127.0.0.1:4080/> in your browser. That is all: no environment variable is needed. With no model set up, Harnix still starts and tells you so.
+**Start.** Run `harnix` in a terminal. Open <http://127.0.0.1:4080/> in your browser. That is all: no environment variable is needed. To use another port, start it with `harnix --port <port>`. With no model set up, Harnix still starts and tells you so.
 
-**The empty page and its three cards.** A new conversation shows a greeting, the input box, and three cards under it. Each card goes away when its step is done, or when you press "Don't show again" (cards: "不再显示" in Chinese).
+**The empty page and its three cards.** A new conversation shows a greeting, the input box, and three cards under it. A card whose step is already done is not shown; one you finish while the page is open turns into a tick. Close a card with its "Don't show again" button.
 
-1. **Model.** "Open model settings" takes you to Settings, "Models & credentials" (section 2). The card turns into a tick when a model is ready, and says which one new sessions use.
-2. **Project.** A project is a folder the agent reads and writes in. "Create or choose a project…" opens the "Add project" dialog: type a name to make a new folder, or pick an existing one.
+1. **Model.** "Open model settings" takes you to Settings, "Models & credentials" (section 2). Once a model is ready the card says which one new sessions use.
+2. **Project.** A project is a folder the agent reads and writes in. "Create or choose a project…" opens the "Add project" dialog: type a name to make a new folder under the projects directory (`~/Documents` unless Harnix was started with another), or pick an existing one.
 3. **Scene and permissions.** Says which scene a new conversation starts in and what the default permission mode means. If the `code` scene is offered (a coding agent that works in a project), the card has "New session in code…". "Choose scene and mode…" opens the new-session dialog. "Change the defaults…" opens Settings, "Permissions". Press "Got it" when you have read it.
 
-The default scene is `harnix`. The `code` and `mini` scenes can be chosen in the "New session" dialog under "Scene".
+The default scene is `harnix`, and `code` is offered beside it. The "New session" dialog lists the scenes under "Scene"; a scene that is not active yet says "(inactive)" (activate it in Settings, "Scenes").
 
 ---
 
 ## 2. Models and credentials
 
-Open the avatar menu, then **Settings**, then **Models & credentials**.
+Click your avatar at the bottom of the left column, then **Settings**, then **Models & credentials**.
 
 - **Add a provider.** Press "Add a provider". Give it a name (for example `anthropic` or `deepseek`), choose the "API mode" ("Anthropic", "OpenAI-compatible" or "OpenAI Responses"), fill "Base URL", "API key" and "Default model". "Other models" lists more models, separated by commas; they appear in the model menu of the input box.
 - **Default provider.** One provider is the default. Use "Make default" to change it. New sessions use it.
@@ -51,23 +51,25 @@ Open the avatar menu, then **Settings**, then **Models & credentials**.
 
 ## 3. Projects and trust
 
-A project is a folder. Conversations in it can read and write its files. Add one from the "+" next to "Projects" in the left column, or from the first-run card.
+A project is a folder. Conversations in it can read and write its files. Add one with the "+" beside "Projects" in the left column ("Add project"), or from the first-run card.
+
+Each project row has two buttons. The "+" ("New in this project…") offers "New session" and "New task" (section 5). The "⋯" ("Project actions", also a right click on the project) has "New session in this project", "New task", "Create a flow for this project" (section 5), the trust items below, "Rename" and "Remove group" (forgets the grouping only; the sessions stay).
 
 **Trust.** A new project is not trusted. An untrusted project can only make things stricter: its own hooks, scripts, MCP servers, looser permissions, models, plugins and skills that run commands are held back and do nothing. Trust it only when you know where the folder came from, because those things run commands on your computer.
 
 - **The banner.** When you open a conversation in an untrusted project that has such settings, a banner above the conversation says "This project is not trusted: its … are not in force." Press "Trust…" to read what would be switched on and confirm. "Don't show again" hides the banner.
-- **From the project menu.** "Trust this project…" and later "Stop trusting this project". A trusted project shows "Trusted project". If your global settings trust it, you must change that there.
+- **From the project menu.** "Trust this project…" and later "Stop trusting this project". A trusted project shows a shield ("Trusted project"). If your global settings trust it, you must change that there.
 - **What was held back.** The right column tab "Context" lists the items trust is holding back ("Held back by trust").
 
-**Project overview.** Select a project in the left column and the right column shows "Overview": its sessions, "Recent changes", the "Settings in force" (each marked global, scene or project) and its "Trust" state.
+**Project overview.** Open a project in the left column while no conversation is open, and the right column shows "Overview": "Waiting for you", its "Sessions", its "Tasks", its "Schedules", "Recent changes", the "Settings in force" (each marked global, scene or project) and its "Trust" state.
 
-**待我处理 ("Waiting for you").** The overview has one list of everything waiting for you in the project: permission approvals ("Approval"), "Plan review", questions ("Question"), forms ("Form") and, in tasks, confirmations and holds. Press an item to go straight to it. When the list is empty it says "Nothing is waiting for you."
+**"Waiting for you".** The overview has one list of everything waiting for you in the project: permission approvals ("Approval"), "Plan review", questions ("Question"), forms ("Form") and, in tasks, stations "To confirm", "Held" ones and an "External work item" to hand in. Press an item to go straight to it. When the list is empty it says "Nothing is waiting for you."
 
 ---
 
 ## 4. Conversations
 
-**Start one.** "New session" (⌘K; Ctrl+K elsewhere) opens an empty page. The session is created when you send the first message. In a project, the "New in this project…" menu item starts one there.
+**Start one.** "New session" (⌘K on a Mac, Ctrl+K elsewhere) opens an empty page. The session is created when you send the first message. In a project, the project's "+", then "New session", starts one there.
 
 **Send.** Type in the input box. `/` lists commands, `@` refers to a file. Enter sends; Shift+Enter makes a new line.
 
@@ -91,13 +93,15 @@ A project is a folder. Conversations in it can read and write its files. Add one
 - "Changes": which files each turn changed, with each file's diff. The card "Files changed: N" in the conversation opens it.
 - "Context": what the next model call carries (system blocks, skills, hooks, MCP servers and their tools), and what trust holds back.
 - "Usage": tokens, calls, cache hits and time of this session, with "Open the trajectory".
-- "Output": the live output of a background shell or monitor the agent started, read-only, one tab for each.
-- "Guide": lists the pages the column can open.
-Open or close the column with the arrow at the corner of the conversation header, or with "Open or close the right column" (no key by default; you can give it one in "Keyboard shortcuts").
+- "Output": the live output of a background shell command or monitor the agent started, read-only, one tab for each. Open it with "View output" on that tool call. The engine keeps only the last twenty finished ones.
+- "Flow": in a task's conversation, the task (section 5).
+- "Guide": lists the pages the column can open; the "+" ("Open a page…") at the top of the column opens it.
 
-**Rewind ("Rewind to here").** On a message, choose "Rewind to here" (Chinese: "回到这里"). Harnix first shows what would change: the turns taken out, the files restored, and files changed outside the session since. Optionally tick "Fork first" to keep the removed turns in a fork. Then "Rewind". The prompt you took back is put into the input box. Only what the file tools wrote is put back; what shell commands did (git, installs) is not. You cannot rewind while a turn is running.
+The button at the right end of the header above the conversation opens and closes the column ("Expand the right column" / "Collapse the right column"). At the top of the column, "Maximize" widens it and the × closes it. The command "Open or close the right column" has no key by default; you can give it one in "Keyboard shortcuts".
 
-**Fork, archive, export, import.** The session menu ("Session actions" next to a session) has "Fork from here", "Archive", "Close" (frees the runtime, keeps the history), "Delete" and "Export". Export gives Markdown (to read) or a zip archive (the session, its sub-agents' sessions, images and entries). "Include the recorded model calls" adds the full prompts; use it only to investigate. To bring a session back, use "Import…" in the left column and choose a `.zip`. It becomes a new session; if its project is not on this machine, it has no project.
+**Rewind ("Rewind to here").** On a message, choose "Rewind to here". Harnix first shows what would change: the turns taken out, the files restored, and files changed outside the session since. Optionally tick "Fork first" to keep the removed turns in a fork. Then "Rewind". The prompt you took back is put into the input box. Only what the file tools wrote is put back; what shell commands did (git, installs) is not. You cannot rewind while a turn is running.
+
+**Fork, archive, export, import.** The session menu ("Session actions": the "⋯" beside a session, or the session's title above the conversation) has "Open", "Rename", "Fork from here", "Close" (frees the runtime, keeps the history), "Archive", "Export", "Schedule…" (section 6) and "Delete". Export gives Markdown (to read) or a zip archive (the session, its sub-agents' sessions, images and entries). "Include the recorded model calls" adds the full prompts; use it only to investigate. To bring a session back, use "Import…" in the left column and choose a `.zip`. It becomes a new session; if its project is not on this machine, it has no project.
 
 **The trajectory.** Above the conversation, the "View" switch has "Conversation" and "Trajectory". The trajectory is a table of every turn and every model call, with sub-agents and tool calls, and a timeline above it. You can fold turns, calls and sub-agents, drag across the timeline to zoom, search, and open one call to see its input, output and what changed from the last call. Feedback appears on the call it belongs to. "Open in the session" goes back to the conversation.
 
@@ -105,60 +109,64 @@ Open or close the column with the arrow at the corner of the conversation header
 
 ## 5. Tasks
 
-A **task** is a conversation in a project that follows a **flow**: a plan made of stations. The agent moves your subject from the first station to the last. Flows come in four kinds: built in, your own ("自建" / "User"), changed copies, and ones that live in a project ("项目自带" / "Project").
+A **task** is a run of a **flow** in a project: a plan made of stations. The agent moves your subject from the first station to the last; the pieces of work a station hands out are its **work items**. Each flow shows where it comes from: "built in", "written here" (one you made), "changed" (a changed copy of a built-in one) or "this project's" (it lives in the project).
 
-**New task.** In the left column, open the "+" menu of the project and choose "New task". The dialog asks, in order:
+**New task.** In the left column, press the project's "+" and choose "New task" (it is also in the project's "⋯" menu and in the "Tasks" block of the overview). The dialog asks, in order:
 
-1. The flow (its source is shown).
+1. "Flow": pick one (its source is shown; one that does not validate cannot be picked).
 2. The inputs that flow wants (a form).
-3. The subject: what the task is about.
-4. A title (optional).
-5. "Output directory". It shows the real path. Empty means `flows/<flow>-<YYYYMMDD><NN>/` in the project: the date, then the number of today's run, starting at `01`. You can type another path, but it must be inside the project. If the folder already has files, you get a warning and may go on.
+3. "Subject" (required): what the task is about.
+4. "Title (optional)".
+5. "Output directory", relative to the project. Empty means the flow's own directory if it names one, otherwise `flows/<flow>-<YYYYMMDD><NN>/`: the date, then the next free number of the day, starting at `01`. The field shows what empty gives. A path you type must stay inside the project.
 6. "Run in a worktree" (optional): see below.
 
-Confirm, and the task starts at once. The dialog says plainly that the flow changes project files directly.
+If another task is already running in the project, the dialog says so. Press "Start", and the task starts at once. Unless the flow is strict, the dialog says plainly that the flow changes project files directly. "Schedule this flow…" in the same dialog makes a schedule of it instead (section 6).
 
-**No approvals by default.** A flow has a setting `guard`. The default is `auto`: inside the project, the agent's tools run without asking. A path outside the project (or the worktree) is refused, and the agent sees why. The flow's author may still write steps that wait for you (a confirmation, or a hold). `strict` makes the flow ask for more.
+**No approvals by default.** A flow has a setting `guard`. The default is `auto`: inside the project, the agent's tools run without asking. A path outside the project (or the worktree) is refused, and the agent sees why. A task asks you no questions; the flow's author may still write stations that wait for you (a confirmation, or a hold). `strict` refuses what nothing allows and asks you about a path outside.
 
-**The task in the project tree.** Tasks are listed under the project beside the sessions. A row shows the flow name, its state and its progress ("station 2/5"). A task started by a schedule is marked.
+**The task in the project tree.** Tasks are listed under the project beside the sessions. A row shows the task's title, the flow, its state and its progress ("station 2/5"); a worktree task also shows its branch. A task started by a schedule has a clock.
 
-**Open a task.** The centre is the task's main conversation: you may speak into it, and you may switch the "View" to "Trajectory" (the turn rail marks where each station starts). The right column has the "Flow" tab: the flow graph (the current station highlighted), each station's state, time, tokens, output and gate results, and a link to the output directory ("Copy path", "Open the files tab"). Actions: "Pause", "Resume", "Cancel run", rework ("Rework to…"), and, where the flow asks for it, "Confirm", "Reject" and "Release". A station whose gate failed shows each reason; send the work back, or release it with a written reason. A command gate's full output is in the process directory.
+**Open a task.** The centre is the task's main conversation: you may speak into it, and you may switch the "View" to "Trajectory" (the turn rail marks where each station starts). The right column opens on the "Flow" tab: the flow graph, a table of the stations ("Station", "State", "Time", "Tokens", "Output and gates"), and the output directory ("Copy path", "Open the files tab"). "Pause", "Resume" and "Cancel run" act on the whole task. Click a station, in the graph or the table, for its details and its actions: where the flow asks for them "Confirm" and "Reject", "Release" for a hold, "Rework to…" (send work back, optionally only some work items), "Force" (let it through by hand with a reason) and "Retry" for a failed work item. A station whose gate failed says "Still unmet" with each reason: send the work back, or force it through with a written reason. A command gate's full output is in the process directory.
 
 **Two folders.** The **output directory** is for you: the deliverables. Harnix never ignores it, so commit what you want to keep. The **process directory** is `.harnix/runs/<run>/` in the project: the software's own notes (a task snapshot, the pinned flow, each station's output, gate logs). The first task writes `.harnix/.gitignore` so `runs/` and `worktrees/` stay out of git.
 
-**Worktree tasks.** With "Run in a worktree" the task works on its own branch `harnix/<run>` in `.harnix/worktrees/<run>`, and your project is not touched until you say so. It needs a git repository with at least one commit. If another task is running in the project, the dialog says so. When the task ends the right column asks: "Merge" (into the project's current branch; what was left uncommitted is committed on the branch first, and on a conflict nothing in the project changes), "Keep the branch" (the default), or "Discard" (removes the worktree and the branch; this cannot be undone).
+**Worktree tasks.** With "Run in a worktree" the task works on its own branch `harnix/<run>` in `.harnix/worktrees/<run>`, and your project is not touched until you say so. It needs a git repository with at least one commit. When the task is over, the "Flow" tab asks "The task is over: what becomes of its branch?": "Merge" (into the project's current branch; what was left uncommitted is committed on the branch first, and on a conflict nothing in the project changes), "Keep the branch", or "Discard" (removes the worktree and the branch; this cannot be undone). Until you choose, the branch stays.
 
-**Flows that live in a project.** Put a flow in `.harnix/flows/<name>.yaml` (its skills, rules, policies, gates and hooks go in folders beside it) and commit it with the project. It is only read when the project is trusted; before that the list says "trust the project first" ("信任项目后可用"). If a name exists twice, the project's flow wins and the list shows the source.
+**Flows that live in a project.** Put a flow in `.harnix/flows/<name>.yaml` (its skills, rules, policies, gates and hooks go in folders beside it) and commit it with the project. It is only read when the project is trusted; before that the list says "trust the project first". If a name exists twice, the project's flow wins and the list shows the source.
 
-**Write a flow in conversation.** Open the system space, the "Flows" tab, and talk to the agent in the flow conversation: ask it to write, change, try or start a flow. It does this directly, with no approvals. A flow that does not validate cannot be saved. Select a flow to get a conversation of its own.
+**Write a flow in conversation.** Flows are written by talking to the agent. There are two ways in:
 
-**`/flow`.** <!-- T-F --> In an ordinary conversation, type `/flow <name> [subject]`. A new task starts, and the conversation keeps a link card to it.
+- **For a project:** the project's "⋯" menu, "Create a flow for this project". If the project is not trusted, Harnix first offers to trust it, because a project's own flows are read only once it is trusted. Then the flows' general conversation opens, working in that project (what it saves goes to the project's `.harnix/flows/`), with a first line about the project in the input box.
+- **In the system space:** the "Flows" tab lists the flows and their runs. "Add" opens the general conversation with "Create a new flow: " in the input box. Click a flow to work on it: the left column becomes that flow's (its own conversation and its runs, and the way back), and its details open beside the conversation with "Dry run", "Start run" and "Schedule this flow…".
+
+Ask the agent to write, change, try or start a flow. It does this directly, with no approvals. A flow that does not validate cannot be saved.
+
+**`/flow`.** In a conversation of a project, type `/flow <flow> [subject]`; the `/` menu lists the flows the project can start. With a subject, and nothing the flow must still ask for, the task starts at once; otherwise the "New task" dialog opens on that flow with the subject filled in. `/flow` alone opens the dialog. The conversation stays as it was and keeps a card, "Task started with <flow>", showing the task's state and station, with "Open the task". In a conversation with no project, `/flow` says that a task belongs to a project and starts nothing.
 
 ---
 
 ## 6. Schedules
 
-<!-- T-SC2 -->
 A schedule starts work at a time you choose. Harnix itself keeps time, so schedules only run while Harnix is running. If Harnix was off at the time, it makes up the most recent missed time once when it starts; set "When it was missed" to "Skip it" to make up nothing.
 
-**What a schedule can do.**
-- Send a turn to a session that already exists. If the session is busy, the message waits in its queue.
-- Start a new session, in a project or not: "New the first time, then the same one" (the default) or "A new one each time". You can pick its scene and model. A new session is named after the schedule, with the time.
-- Start a task of a flow in a project, with its inputs, subject, task title, output directory and "Run in a worktree".
+**What a schedule can do ("What it does").**
+- "A turn in this session": send a turn to a session that already exists. If the session is busy, the message waits in its queue.
+- "A new session", in a project or not: "New the first time, then the same one" (the default) or "A new one each time". You can pick its scene and model. A new session is named after the schedule, with the time.
+- "A task": a task of a flow in a project, with its inputs, subject, task title, output directory and "Run in a worktree".
 
 **When.** Pick one: "Once" (a date and time), "After…" (minutes, hours or days), "Every N" (minutes or hours), "Daily", "Weekly" (click the days), "Workdays", "Monthly" (a day of the month; months without that day are skipped) or "Custom" (a cron line of five fields: minute hour day month weekday). A line under it says the choice in words, such as "Workdays at 09:00". Pick the time zone from a list you can search by name, city or offset (`+8`); the default is your computer's, and zones you used lately come first. Next times are always shown in your own zone.
 
 **Where to set one up.**
 - A session's menu, **Schedule…**: that session's schedules, and **New schedule**, which sends it a turn.
-- The new-task dialog and a flow's details in the system space, **Schedule this flow…**: what you filled in is carried over.
+- The new-task dialog, and a flow's details in the system space, **Schedule this flow…**: what you filled in is carried over.
 - A project's overview, the **Schedules** block: the project's schedules, and **New schedule** for a new session or a task in the project.
 - The system space, the **Schedules** tab (below).
 
 A session's row shows a clock while a schedule that is on sends to it. A task's row shows "next …" while the schedule that started it is on.
 
-**Each schedule** shows its state ("On", "Paused", "Ended"), who made it, when it is next due (with "in 13 h"), and how the last delivery went. Its buttons: **Run now** (the result shows in a banner), **Pause** / **Resume**, **Edit**, **History** and **Delete** (after you confirm; the sessions and tasks it started stay). **History** lists the deliveries, newest first: the planned time, and delivered, skipped (with why) or failed (with the error). Each has a button that opens the session or task it went to. A failed delivery is not retried. History keeps the latest 200 of the last 30 days.
+**Each schedule** shows its state ("On", "Paused", "Ended"), who made it ("Made by a person"), when and what it does, when it is next due (with "in 13 h") and how the last delivery went. Its buttons: **Run now** (the result shows in a banner), **Pause** / **Resume**, **Edit**, **History** and **Delete** (after you confirm; the sessions and tasks it started stay). **History** lists the deliveries, newest first: the planned time, and delivered, skipped (with why) or failed (with the error). Each has a button that opens the session or task it went to. A delivery says the work was handed over, not how it went. A failed delivery is not retried. History keeps the latest 200 of the last 30 days.
 
-**The "Schedules" tab** lists every schedule. You can filter it by state and search titles and prompts. Schedules the model made itself are listed under "Made by models", with their cron line in UTC. You can only delete them here.
+**The "Schedules" tab** lists every schedule, with **New schedule**. You can filter it by state and search titles and prompts. Schedules the model made itself are listed under "Made by models", with their cron line in UTC. You can only delete them here.
 
 **If a task is still running** when the next time comes, a task schedule skips that time by default ("Skip this time"). Choose "Start another" to run in parallel; a worktree is better then. Two deliveries of one schedule are at least a minute apart, "Run now" too.
 
@@ -168,7 +176,7 @@ A session's row shows a clock while a schedule that is on sends to it. A task's 
 
 ## 7. Settings
 
-Open the avatar menu and choose **Settings**. The left list has these sections.
+Click your avatar at the bottom of the left column and choose **Settings**. The same menu has "Switch theme", "Language", "About" and "Connection". The command "Open the settings" has no key by default; you can give it one in "Keyboard shortcuts". The left list of Settings has these sections.
 
 - **General.** Theme (follow system, light, dark), language (also sets the language the model answers in), and "Display": font size, text font, code font, "Expand tool details", "Collapse thinking", "Token usage" (hidden, total only, total and cached), "Open links" (this tab, new tab, ask) and "Enter while a turn runs".
 - **Keyboard shortcuts.** Every command with its key. Click a key, press the new combination (Esc gives up). A key needs Ctrl, ⌘ or ⌥, except function keys. If another command has it, you are told and nothing changes. "Restore default" and "Restore all defaults" are there. Changed keys are kept in this browser only.
@@ -178,7 +186,7 @@ Open the avatar menu and choose **Settings**. The left list has these sections.
 - **MCP.** MCP servers are tools run on this machine, or services; add only what you trust. "Add a server": a name, "Transport" (a command with arguments, or a URL), "Environment" and "Headers". Values are saved in a local file with restricted access and later shown only as their last four characters. A server shows its state (connected, needs sign-in, failed, project not trusted…). For one that "needs sign-in", press "Sign in" and finish in the window that opens (allow pop-ups). Then "Sign out", "Reconnect" and "Switch off" are available.
 - **Privacy.** "Record telemetry" is off by default in Harnix. Telemetry is the engine's own record of what it did: tokens and times, tool names, permission decisions. It holds no prompts or message text, and stays on your machine unless you give an export endpoint.
 - **Advanced.** Read-only: what the engine runs with (compaction, execution, hooks, teams, checkpoints) and where each value comes from. To change one, edit the settings file; the engine reads it again.
-- **Plugins**, **Extension packages** (section 9), **Devices**, **Diagnostics**, **About.**
+- **Plugins**, **Extension packages** (section 9), **Devices**, **Diagnostics** (which extension failed to start and why, and "Run doctor" for a self-check), **About.**
 
 **Where a setting is written.** Most fields have "Write to": "Global", the scene, or "This project". A value that is inherited says so. "Restore default" removes the value of that tier. If a project is not trusted, a value set there may be "set in this project but not in force". If the settings changed somewhere else while you edited, Harnix says so: "Keep my changes and review" shows your edits over the new values; then "Save my changes".
 
@@ -188,17 +196,16 @@ Open the avatar menu and choose **Settings**. The left list has these sections.
 
 ## 8. The system space
 
-The entry is at the bottom of the left column ("System"). It is for looking at what Harnix is doing. The left column lists the engine **instances** with a state dot. The centre has a strip of figures (versions, uptime, memory, connected users, sessions running, how many wait for you) and tabs:
+The entry is at the bottom of the left column, above your avatar ("System"). It is for looking at what Harnix is doing. The left column lists the engine **instances** with a state dot. The centre has a strip of figures (the Harnix and Agix versions, uptime, peak memory, threads, connected users, instances, agents active of all, sessions running, background tasks running, how many wait for you) and tabs:
 
-- **Active** and **All**: every main agent. Open a row for its sub-agents and background tasks; click it for details on the right. You can stop, interrupt, compact, fork, rename or delete from there, and send the agent a message.
+- **Active** and **All**: every main agent. Open a row for its sub-agents and background tasks; click it for details on the right. From there you can "Compact", "Clear", "Fork", change the "Model", "Interrupt", "Rename", "Close" or "Delete" it.
 - **Flows**: the flows and all their runs, including runs not in a project; where you also write flows in conversation (section 5).
-- **Extensions**: the extensions and extension packages.
+- **Schedules**: section 6.
+- **Packages**: the extension packages this process hosts and how each one runs: its state, how often it was recycled or rebuilt, its faults, memory and storage, and the calls it was refused.
+- **Usage**: what every session used in the last 30 days, by project, by day and by model, and the flows by flow. A recording covers only a session's latest run.
 - **Extension log**: a short log of what extensions wrote; filter it by extension.
-- **Usage**: what every session used in the last 30 days, by project, by model and by day, and by flow. A recording covers only a session's latest run.
-- **Diagnostics**: also in Settings, "Diagnostics": which extension failed to start and why, and "Run doctor" for a self-check.
-- **Schedules**: section 6. <!-- T-SC2 -->
 
-The right column shows the picked item: its calls, turns (the tokens and time of each turn), context and background-task output. A session also has "Inspect in the system space" in its header to jump here. Raw frames are for developers.
+The right column shows the picked item. For an agent its tabs are "Overview", "Trajectory", "Context", "Background tasks" and "Frames". "Background tasks" lists its sub-agents, teammates, shell commands and monitors with their output; you can "Stop" one, and tell a running sub-agent something ("Tell it something"). Raw frames are for developers. A session also has "Inspect in the system space" in its header to jump here. Which extension failed to start, and the self-check, are in Settings, "Diagnostics".
 
 ---
 
@@ -226,7 +233,7 @@ Harnix says what happened and what to do. The engine's own words and the error c
 | The conversation is too long for the model | Compact the conversation, or start a new session. |
 | The connection to the engine dropped, or an instance is unreachable | Wait and send again. If it does not come back, open Settings, "Diagnostics". |
 | An extension package failed or did not start | Open Settings, "Extension packages": the package row gives the reason. Read the system space's "Extension log". Fix it, then disable and enable the package. A page of a package has "Reload" and "Try again". |
-| A flow station's gate is not met | The station shows "unmet" with each reason. Send the work back, or release it with a written reason. A command gate's full output is in `.harnix/runs/<run>/stations/<station>/gate-*.log`. |
+| A flow station's gate is not met | The station shows "Still unmet" with each reason. Send the work back ("Rework to…"), or "Force" it through with a written reason. A command gate's full output is in `.harnix/runs/<run>/stations/<station>/gate-*.log`. |
 | A task path is outside the project | The step is refused and the agent is told. The flow's author can allow the path in the flow's permissions. |
 | Settings changed somewhere else while you edited | "Keep my changes and review", then "Save my changes". |
 

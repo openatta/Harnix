@@ -21,7 +21,7 @@
 | 标题 | 会话（Sessions）：全部会话，按时间 | 项目（Projects）：按项目看会话 |
 | 左栏 | 搜索框 + 全部会话，按时间分组 | 一棵树：项目（工作区），一次只展开一个，它的会话和别的包登记的条目（流程的任务，§3.2）挂在下面 |
 | 中区 | 对话（`center: "chat"`） | 对话；新建的会话跑在展开的项目里 |
-| 右栏 | 会话的停靠面：引导页，文件、预览、改动（§6），`@harnix/system` 的「输出」（Agent 后台 Shell 与监视器的只读输出流，一个任务一个页签，从对话里工具行的「查看输出」打开），别的包注册的页签，和 `reveal` 打开的详情 | 同左；展开了项目、没有打开会话时是项目的「概况」（§3.2） |
+| 右栏 | 会话的停靠面：引导页，文件、预览、改动（§6），`@harnix/system` 的「输出」（Agent 后台 Shell 与监视器的只读输出流，一个后台任务一个页签，从对话里工具行的「查看输出」打开），别的包注册的页签，和 `reveal` 打开的详情 | 同左；展开了项目、没有打开会话时是项目的「概况」（§3.2） |
 | 后端 space | `sessions` | **同一个** `sessions`（界面注册里 `sessions: "sessions"`） |
 
 **项目 space 是界面上的一个视图，不是第二个会话集合。** 「按时间看」和「按项目看」是同一批会话的两种排法；会话按 space 绑定是
@@ -34,7 +34,7 @@
 `sidebar.group` 的 `harnix-app.time`、会话菜单的归档与导出两个 `session.action`、`@` 的文件补全，以及右栏的文件、预览、改动三种页签、
 对话里的改动卡和工具行上「在预览中打开」的 `session.action`（§6）。
 
-Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方扩展（`harnix::first_party::standard()`，含 `harnix-app`）、`packages` 与流程扩展。
+Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方扩展（`harnix::first_party::standard()`，含 `harnix-app`）、`packages`、流程扩展与定时扩展（`schedule`，§9）。
 它的缺省是原生扩展加模式 2（见 [应用开发](app-development.md)）。
 
 **关掉它**：profile 的 `[extensions] off = ["harnix-app"]`。关掉的扩展照样登记（别人占不了它的名字），但不安装、不迁移、不启动；
@@ -271,7 +271,7 @@ r.register("harnix-app.project.items", {
 ### 3.3 待我处理：`harnix-app.inbox`
 
 一张列表，列出这台设备看得到的、在等人的事：会话里的权限询问、计划审阅、模型的提问、MCP server 的询问（§2.1），流程里等确认、
-等放行（hold）、等外部任务领取的任务。点一行直达能答它的地方。
+等放行（hold）、等外部工作项被认领的任务。点一行直达能答它的地方。
 
 **来源**是贡献点 `harnix-app.inbox`（`register`，`ui/packages/harnix-app/src/inbox.tsx`）：`{ id, items(), subscribe(fn), open(item) }`。
 一项是 `{ id, kind, label, title, detail?, project_root?, data? }`：`kind` 是等什么（`approval`、`plan`、`answer`、`elicitation`；
