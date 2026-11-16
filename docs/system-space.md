@@ -18,7 +18,7 @@
 | 栏 | 是什么 |
 |---|---|
 | 左 | 实例列表（§3） |
-| 中 | 控制台（`center: "hidden"`）：上面一条指标条（§2），下面一排页签：系统 space 自己的（活动、全部、诊断、扩展日志）与别的扩展经 `system.console.tab` 注册进来的（流程、定时、扩展） |
+| 中 | 控制台（`center: "hidden"`）：上面一条指标条（§2），下面一排页签：系统 space 自己的（活动、全部、诊断、扩展日志）与别的扩展经 `system.console.tab` 注册进来的（流程、定时、扩展、用量） |
 | 右 | 选中项的检查器：只出现适用于它的页签（§8），其中一部分由别的扩展经 `system.inspector.tab` 注册；什么都没选时是「说明」页签，说控制台当前页签是什么 |
 
 外壳里它不和别的 space 排在一起：它声明 `place: "bottom"`，入口在左栏底部，角标是正在跑的会话数。还有两条路进来，都是它注册的 `session.action`：
@@ -201,7 +201,38 @@ kv 加 `/data`）；模式 3 另有扩展进程 stderr 的最后几行（至多 
 每行：时间、级别（错误、警告着色）、扩展 id、来源（调用中 / 扩展包 / stderr / 宿主，悬停是 tracing 的 target）、消息（之后跟着事件的其余字段 `name=value`）。
 页面至多留 1000 行。
 
-### 6.2 定时
+### 6.2 用量
+
+`@harnix/observability` 往 `system.console.tab` 注册的页签（`observability.summary`，排在「扩展」之后、「扩展日志」之前）：
+**最近 30 天里每个会话用了多少**，从录像里读。产品没链 `observability` 就没有这个页签。
+
+**读谁**：每台实例（主题 `harnix.instances`）列出的主 Agent（`harnix.instances.sessions {instance}`）里，`last_active` 落在这 30 天里的
+（没写 `last_active` 的也问）。按实例、一次至多 200 个调 `observability.usage.daily {instance, session_ids, days: 30, tz_offset_min}`，
+`tz_offset_min` 是这台设备此刻在 UTC 以东多少分钟：一次调用算在它发出的那天，日界按这台设备的时区。每个会话的数含它下面的子 Agent，
+一个会话只属于它所在的项目（会话行的 `project_root`）。打开页签读一次，「重新读」再读；页签不跟着轮次自己刷新。
+
+**页面**，从上到下：
+
+| 部分 | 是什么 |
+|---|---|
+| 合计 | 会话（有调用落在这些天里的）、调用（轮次的调用，`+N` 是轮次之外的：压缩、记忆、标题）、token 合计、输入、输出、缓存读、缓存写、模型用时 |
+| 每天的 token | 30 根竖条，一天一根，高度按最多的那天折算，没调用的那天只留底线；悬停是那天的 token 与调用数 |
+| 按项目、按模型、按天 | 三张表，列是名字、会话、调用、输入、输出、缓存读、缓存写、合计、模型用时；点表头按那一列排，再点反过来（数字列先从大到小）。没有项目的会话归在「（无项目）」，录像没写模型的归在「（未写明）」；按天只列有调用的那几天 |
+| 别的包加的区块 | 贡献点 `observability.usage.section`（见下），按 `order` |
+
+读不到的实例（连不上、重启中）在合计下面点名，其余照常；休眠的模式 3 进程不为这个叫醒，给的是之前读过的数，页面说有几个会话是这样。
+
+**数的口径**：录像只覆盖会话最近一次运行（§4），更早的运行用掉的不在里面，所以这不是「这 30 天一共用了多少」，而是「这些会话现在的录像里、
+落在这 30 天的那部分」。读者为这个页签另记每个会话按天按模型的合计（每个时区偏移各一份，至多 1024 份，只在内存里）：链路没见到这个会话
+再有动静，就不再读它的录像。
+
+**区块**：`@harnix/observability` 定义贡献点 `observability.usage.section`（呈现，`{id, title(), order?, render(context)}`，
+`context` 是 `{since, days}`：`since` 是第一天零点的毫秒数），别的包往里加自己那一份，页签不认识它们。`@harnix/flow` 加「按流程」：
+`flow.list {limit: 2000}` 读最新的运行，`created_at` 不早于 `since` 的、不是试运行的，按流程加起来——运行数（没全结束时括号里是结束了的）、
+轮数、四项 token 与合计（运行记录里各站的轮次报上来的，含重试）、运行时长（结束了的运行从开始到结束，含等人的时间）。这一份来自流程自己的
+运行记录，和上面的录像是两本账：流程的会话也在上面的表里。
+
+### 6.3 定时
 
 `@harnix/schedule` 注册进 `system.console.tab` 的页签（`schedule`，`order: 25`，在流程和扩展之间）：产品链了 `schedule` 才有。不带 `space` 调，所以是这个进程里**全部**的定时，
 不论属于哪个 space（[Harnix app](harnix-app.md) §9）。数据是主题 `schedule.list`，变了就推，不用刷新。
@@ -297,6 +328,8 @@ kv 加 `/data`）；模式 3 另有扩展进程 stderr 的最后几行（至多 
 | `system.instances.templates`、`system.instances.create`、`system.instances.restart`、`system.instances.stop` | `system` | 实例 |
 | `system.extensions.log` | `system` | 扩展日志 |
 | `observability.usage`、`observability.turns`、`observability.trace`、`observability.trace.call` | `observability` | Agent 页签的用量、概况、轨迹（按会话判的三个声称 `space: "system"`） |
+| `observability.usage.daily` | `observability` | 用量页签 |
+| `flow.list`、`flow.defs` | `flow` | 用量页签的「按流程」 |
 | `harnix.session.outline`、`engine.session.entries {namespaces: ["harnix.feedback"]}` | 中枢、引擎直通 | 轨迹的轮次与反馈 |
 | `harnix.sessions.list`、`harnix.session.fork`、`harnix.session.interrupt`、`harnix.session.close`、`harnix.session.delete`、`harnix.session.attach`、`harnix.session.detach` | 中枢 | 会话，都带 `space: "system"` |
 | `engine.session.history` | 引擎直通 | 上下文、子 Agent 的消息 |
@@ -348,5 +381,6 @@ space `system`（界面一侧 `@harnix/system` 把它画成 `center: "hidden"`�
   不要包一层 `system.*`。
 - **界面**：往系统 space 定义的三个点里注册——控制台的页签进 `system.console.tab`（`{id, title(), render(), order?}`），检查器的页签进 `system.inspector.tab`
   （`{id, title(target), match(target), render(target)}`），指标条上一格数字去哪进 `system.metrics.link`（§2）。要在没有系统 space 的产品里也有个去处，注册时给 `orElse`。
-- 流程、定时、扩展、轨迹这几个页签就是例子：它们分别是 `flow`、`schedule`、`packages`、`observability` 的 UI 包注册进来的，系统 space 自己不认识它们。
+  用量页签里的一个区块进 `observability.usage.section`（§6.2），那个点是 `@harnix/observability` 定义的。
+- 流程、定时、扩展、轨迹、用量这几个页签就是例子：它们分别是 `flow`、`schedule`、`packages`、`observability` 的 UI 包注册进来的，系统 space 自己不认识它们。
 - 应用自己的、和系统 space 无关的调试面，做成自己的 space，或者一个扩展包的 space。

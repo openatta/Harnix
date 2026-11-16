@@ -68,6 +68,7 @@ export type {
   DefRow,
   StartParams,
   StartTrigger,
+  StartedFrom,
   DryRunSummary,
   DryStep,
   DryProgress,

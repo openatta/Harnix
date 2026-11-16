@@ -15,6 +15,7 @@ import { FlowFramework, type FrameworkPick } from "../src/FlowFramework";
 import { ProposalCard } from "../src/ProposalCard";
 import { registerFlowSpace } from "../src/space";
 import { StationPanel } from "../src/StationPanel";
+import { USAGE_RUNS, UsageByFlow } from "../src/UsageByFlow";
 import { STRINGS, registerFlowStrings } from "../src/strings";
 import type { FlowDef, RunView, StationRec } from "../src/types";
 
@@ -374,5 +375,37 @@ describe("strings in use", () => {
       for (const [, key] of readFileSync(join(dir, f), "utf8").matchAll(/"(flowui\.[A-Za-z0-9_.]*[A-Za-z0-9_])"/g)) used.add(key!);
     }
     expect([...used].filter((k) => !(k in STRINGS.en))).toEqual([]);
+  });
+});
+
+describe("UsageByFlow", () => {
+  it("reads the newest runs and lists the window's by flow, under the flow's title", async () => {
+    const run = (id: string, flow: string, created: number, input: number) => ({ id, flow, subject: "", status: "finished", rev: 1, created_at: created, finished_at: created + 61_000, usage: { input_tokens: input, output_tokens: 1, turns: 1 } });
+    const { host, calls } = fakeHost({
+      "flow.list": [run("demo-review-1", "demo-review", 2000, 5000), run("other-1", "other", 3000, 10), run("demo-review-0", "demo-review", 10, 1)],
+      "flow.defs": [{ name: "demo-review", title: "Demo review" }],
+    });
+    render(
+      <HostProvider host={host}>
+        <UsageByFlow module="flow" since={1000} />
+      </HostProvider>,
+    );
+    await act(async () => undefined);
+    expect(calls.find(([m]) => m === "flow.list")?.[1]).toEqual({ limit: USAGE_RUNS });
+    const rows = [...screen.getByTestId("usage-by-flow").querySelectorAll("tbody tr")];
+    expect(rows.map((r) => r.getAttribute("data-key"))).toEqual(["demo-review", "other"]);
+    expect(rows[0]!.querySelector('[data-column="flow"]')?.textContent).toBe("Demo review");
+    expect(rows[0]!.querySelector('[data-column="elapsed"]')?.textContent).toBe("1m 01s");
+  });
+
+  it("no runs in the window: says so", async () => {
+    const { host } = fakeHost({ "flow.list": [] });
+    render(
+      <HostProvider host={host}>
+        <UsageByFlow module="flow" since={1000} />
+      </HostProvider>,
+    );
+    await act(async () => undefined);
+    expect(screen.getByTestId("usage-by-flow-none")).toBeTruthy();
   });
 });

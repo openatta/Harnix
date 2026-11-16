@@ -96,6 +96,11 @@ export interface CommandCandidate {
   /** Given: choosing it runs this instead — nothing is inserted or sent, and the `/xxx` typed so
    *  far is cleared. A failure is shown as the shell's error. */
   run?(ctx: CommandContext): void | Promise<void>;
+  /** Given: the command takes what follows it. `/<name> <args>` sent from the composer comes here
+   *  instead of being sent (`args` trimmed, possibly empty), the longest name that matches taking
+   *  it; the composer keeps the text when this answers `false`, and is cleared otherwise. Choosing
+   *  the candidate in the menu still inserts it. A failure is shown as the shell's error. */
+  submit?(args: string, ctx: CommandContext): void | boolean | Promise<void | boolean>;
 }
 
 /** Where a command or mention is being asked for: the front space and its open session. */

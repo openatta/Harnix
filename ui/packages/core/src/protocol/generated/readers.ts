@@ -213,6 +213,45 @@ stale?: boolean, };
 
 export type AgentUsage = { session_id: string, parent_session_id: string | null, calls: number, auxiliary: number, turns: number, models: Array<string>, input_tokens: number, cache_read_tokens: number, cache_write_tokens: number, output_tokens: number, model_ms: number, errors: number, first_at: number | null, last_at: number | null, };
 
+/**
+ * What the tree of Agents under one session used this run, per day and model.
+ */
+export type SessionDays = { recording: boolean, 
+/**
+ * Oldest day first; within a day, by model.
+ */
+days: Array<DayUsage>, 
+/**
+ * The run these figures cover: only the latest, not a total over runs.
+ */
+run: RecordingRun | null, 
+/**
+ * The instance sleeps: these are the figures read before, not read now.
+ */
+stale?: boolean, };
+
+/**
+ * One day's calls to one model, by every Agent of a session's tree: a call counts on the day it
+ * was sent.
+ */
+export type DayUsage = { 
+/**
+ * `YYYY-MM-DD`.
+ */
+day: string, 
+/**
+ * As the recording names it; empty when it names none.
+ */
+model: string, 
+/**
+ * The turns' calls.
+ */
+calls: number, 
+/**
+ * The calls beside the turns: compaction, memory, a title.
+ */
+auxiliary: number, input_tokens: number, cache_read_tokens: number, cache_write_tokens: number, output_tokens: number, model_ms: number, errors: number, };
+
 export type SearchHit = { session_id: string, role: string, snippet: string, 
 /**
  * RFC 3339.

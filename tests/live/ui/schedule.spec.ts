@@ -1,5 +1,5 @@
 /**
- * Schedules in a real browser against a real backend (harnix-app.md §9, system-space.md §6.2): a
+ * Schedules in a real browser against a real backend (harnix-app.md §9, system-space.md §6.3): a
  * daily schedule made for a session from its menu, its clock on the session's row; «run now» sends
  * the turn, and the delivery is in its history; a task schedule made from a project's overview starts
  * a task that is a row of the project, opening in the projects space; the system console's tab lists

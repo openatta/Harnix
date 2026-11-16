@@ -4,8 +4,8 @@
  * package registers the kind `flow.task` there: the project's runs from the `runs` topic as rows
  * (flow, state, "station k of n", the branch of one run in a worktree, a clock for one a schedule
  * started), "新任务" in the project's
- * "+" menu (`NewTask.tsx`), and a row opened as its main session in the middle with the 流程 tab
- * (`TaskTab.tsx`) in the right column.
+ * "+" menu (`NewTask.tsx`), "为这个项目建流程" in the project's own menu (`slash.tsx`), and a row
+ * opened as its main session in the middle with the 流程 tab (`TaskTab.tsx`) in the right column.
  *
  * The project's waiting tasks are also a source of the Harnix app's 待我处理 (`harnix-app.inbox`):
  * a run waiting on a confirm, a hold or an external task, opened as a task is; and the project's
@@ -30,6 +30,7 @@ import { isDryRun, mainSessionOf, methodName, phaseOf, runLive, runsOf, runsTopi
 import { newTaskDialog } from "./NewTask";
 import { TaskBadges } from "./points";
 import { PhaseBadge, taskStep } from "./RunPanel";
+import { authorMenuItem } from "./slash";
 import type { FlowSpace } from "./space";
 import type { RunSummary, RunView } from "./types";
 
@@ -62,6 +63,8 @@ export interface ItemContext {
   /** The backend space the projects space lists sessions of: where a task's main session is shown
    *  so that it opens there. Absent in a product whose projects space does not say. */
   space?: string;
+  /** The project's trust, as the projects space reads and asks for it; absent where it cannot. */
+  trust?: { status(): Promise<string | null>; ask(): Promise<boolean> };
 }
 
 /** A run's last activity, for ordering: when it finished, else when it started. */
@@ -335,6 +338,8 @@ export function registerTaskItems(r: Registry, host: HostApi, module: string, sp
           },
         },
       ],
+      // The flows' conversation, working in the project: what it creates is saved there.
+      projectMenu: (context: ItemContext): MenuItem[] => [authorMenuItem(host, r, space, context)],
       create: {
         label: () => t("flowui.task.new"),
         icon: "fork",

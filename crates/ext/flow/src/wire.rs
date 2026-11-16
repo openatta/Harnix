@@ -40,6 +40,25 @@ pub struct StartParams {
     /// to there (`harnix.session.expose`). Absent: shown nowhere else.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub show_in_space: Option<String>,
+    /// The conversation it was started from (`/flow` in a conversation): a card linking to the
+    /// run is written there (an entry `task_started`), and the conversation stays what it was.
+    /// Absent: written nowhere.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_session: Option<StartedFrom>,
+}
+
+/// A conversation a start came from (`StartParams::from_session`), by its full name and the
+/// space it belongs to: the card is written claiming that space, so it goes only into a
+/// conversation of it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields))]
+pub struct StartedFrom {
+    /// Absent: the main instance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance: Option<String>,
+    pub session_id: String,
+    pub space: String,
 }
 
 /// How a start says it came about. Who started it by hand is the caller, never what it claims.

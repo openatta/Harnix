@@ -32,7 +32,10 @@ use crate::kernel::host::Outcome;
 use crate::kernel::run::Actor;
 use crate::kernel::FlowError;
 
+use harnix_ext::{Entry, SessionRef};
+
 use super::shared::Shared;
+use crate::wire::StartedFrom;
 
 /// The lines `<project>/.harnix/.gitignore` holds: what the module writes there is not the project's.
 const IGNORED: &[&str] = &["runs/", "worktrees/"];
@@ -104,6 +107,47 @@ pub(crate) async fn start(sh: &Shared, engine: &Engine, mut input: CreateIn, by:
         }
     }
     r
+}
+
+/// The entry a conversation a task was started from gets (`flow.start`'s `from_session`): the
+/// card linking to the task, drawn by the interface; the conversation does not become the task.
+pub(crate) const TASK_STARTED: &str = "task_started";
+
+/// What that card says: the run, its flow (and the flow's title), the run's title and subject,
+/// and its project.
+pub(crate) fn task_card(rec: &RunRecord) -> Value {
+    json!({
+        "run": rec.id,
+        "flow": rec.flow,
+        "flow_title": rec.def.title,
+        "title": rec.title,
+        "subject": rec.subject,
+        "project_root": rec.project_root,
+    })
+}
+
+/// Write the card into the conversation `run` was started from, claiming the space it belongs
+/// to: the hub refuses a conversation of another space. The run is started either way; a card
+/// that cannot be written is logged.
+pub(crate) async fn link_from(sh: &Shared, engine: &Engine, from: &StartedFrom, run: &str) {
+    let Some(cx) = sh.cx.get() else { return };
+    let rec = match engine.record(run).await {
+        Ok(rec) => rec,
+        Err(e) => {
+            tracing::warn!(run, error = %e, "no card for a run whose record cannot be read");
+            return;
+        }
+    };
+    let instance = from.instance.as_deref().unwrap_or(harnix_ext::MAIN_INSTANCE);
+    let session = SessionRef::new(instance, from.session_id.as_str());
+    let written = cx
+        .sessions()
+        .in_space(&from.space)
+        .append_entry(&session, Entry::new(TASK_STARTED, task_card(&rec)))
+        .await;
+    if let Err(e) = written {
+        tracing::warn!(run, session = %from.session_id, space = %from.space, error = %e.message, "the conversation a task was started from has no card");
+    }
 }
 
 /// A start's project, as the run will hold it: trimmed, without trailing `/`s; none for none.
@@ -529,6 +573,10 @@ mod tests {
         assert_eq!(rec.output_dir.as_deref(), Some(out.to_str().unwrap()));
         assert!(out.is_dir());
         assert_eq!(std::fs::read_to_string(project.path().join(".harnix/.gitignore")).unwrap(), "runs/\nworktrees/\n");
+        // The card of the conversation it might have been started from names the task.
+        let card = task_card(&rec);
+        assert_eq!((card["run"].as_str(), card["flow"].as_str(), card["subject"].as_str()), (Some(run.as_str()), Some("two"), Some("s")));
+        assert_eq!(card["project_root"].as_str(), Some(root.as_str()));
         // The next task of the flow that day takes the next number; one of its own template, its own.
         let second = start(&Shared::for_tests(), &engine, started(None), by.clone()).await.unwrap().value["run"].as_str().unwrap().to_string();
         assert!(engine.record(&second).await.unwrap().output_dir.unwrap().ends_with(&format!("two-{date}02")));

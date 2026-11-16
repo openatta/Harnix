@@ -4,8 +4,10 @@
  * its flow, state and station; the project's "+" offers a new task, whose dialog needs a subject
  * and starts the run shown in the projects space (`show_in_space`); a task opened is its main
  * session in the middle of the projects space with the 流程 tab in the right column; the row's
- * menu enters the flow's space instead, with the way back; and the system console's flows page is
- * as it was. No turn is run to a model: the run's main session is replayed from nothing and its
+ * menu enters the flow's space instead, with the way back; `/flow` in a conversation of the
+ * project starts a task beside it and leaves a card that opens it, and says a conversation of no
+ * project has no task to start; the project's menu opens the flows' conversation working in the
+ * project, once it is trusted; and the system console's flows page is as it was. No turn is run to a model: the run's main session is replayed from nothing and its
  * station is forced through by hand where it matters.
  */
 
@@ -176,6 +178,101 @@ test("the row's menu opens a task in the flows: the flow's space in front on the
   await expect(page.locator("#main")).toHaveAttribute("data-space", "flow", { timeout: 15_000 });
   await expect(page.getByTestId("flow-task-tab")).toHaveAttribute("data-run", elsewhere, { timeout: 15_000 });
   await expect(page.getByTestId("flow-back")).toHaveAttribute("data-to", "projects");
+  expect(errors).toEqual([]);
+});
+
+test("/flow in a conversation of the project: the project's flows offered; with a subject a task starts beside it, and its card opens the task in the projects space", TAGS, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, backend.url);
+  const { path, row } = await project(page, "tasks-slash");
+  // An ordinary conversation of the project, open in the projects space.
+  const conversation = await page.evaluate(async (root) => (await (window as any).harnix.app.create({ project_root: root })).sessionId as string, path);
+  await expect.poll(() => current(page)).toBe(conversation);
+  const input = page.getByTestId("conv-input");
+  await expect(input).toBeVisible({ timeout: 15_000 });
+
+  // After `/flow ` the menu goes on: the flows this project may start.
+  await input.fill("/flow ");
+  await expect(page.locator('[data-testid="conv-menu"] [data-testid="conv-menu-item"][data-id="flow example-review"]')).toBeVisible();
+  await input.fill("/flow example-review the login code");
+  await input.press("Enter");
+
+  // Not sent to the conversation: a card there links to the task, and the conversation stays in front.
+  const card = page.locator("#main").getByTestId("flow-task-card");
+  await expect(card).toHaveAttribute("data-flow", "example-review", { timeout: 15_000 });
+  await expect(card).toContainText("the login code");
+  await expect(input).toHaveValue("");
+  expect(await current(page)).toBe(conversation);
+  const run = (await card.getAttribute("data-run"))!;
+  const record = await page.evaluate(async (r) => (await (window as any).harnix.app.call("flow.get", { run: r })).record, run);
+  expect(record.project_root).toBe(path);
+  expect(record.subject).toBe("the login code");
+  expect(record.show_in_space).toBe("sessions");
+  // No turn in the conversation: the words went to the task.
+  const said = await page.evaluate(async (sid) => (await (window as any).harnix.app.call("engine.session.history", { instance: "main", session_id: sid, space: "sessions" })).messages?.length ?? 0, conversation);
+  expect(said).toBe(0);
+  // The task is a row of the project too.
+  await expect(row.locator(`[data-testid="project-item"][data-item="${run}"]`)).toBeVisible();
+
+  // The card opens the task where the conversation was: its main session, the 流程 tab on it.
+  await card.getByTestId("flow-task-card-open").click();
+  await expect(page.getByTestId("flow-task-tab")).toHaveAttribute("data-run", run, { timeout: 15_000 });
+  await expect.poll(() => current(page), { timeout: 15_000 }).toBe(await mainOf(page, run));
+  await expect(page.locator("#main")).toHaveAttribute("data-space", "projects");
+  // The card is still in the conversation after a reload: it is an entry of its log.
+  await page.evaluate((sid) => (window as any).harnix.app.open({ instance: "main", sessionId: sid }, "projects"), conversation);
+  await page.reload();
+  await expect(page.locator("#main").getByTestId("flow-task-card")).toHaveAttribute("data-run", run, { timeout: 15_000 });
+  expect(errors).toEqual([]);
+});
+
+test("/flow in a conversation of no project says a task needs one, and starts nothing", TAGS, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, backend.url);
+  await spaceEntry(page, "sessions").click();
+  await page.evaluate(async () => (await (window as any).harnix.app.create({})).sessionId as string);
+  const input = page.getByTestId("conv-input");
+  await expect(input).toBeVisible({ timeout: 15_000 });
+  // Offered all the same, with no flows under it: there is no project to start one in.
+  await input.fill("/fl");
+  await expect(page.locator('[data-testid="conv-menu"] [data-testid="conv-menu-item"][data-id="flow"]')).toBeVisible();
+  await expect(page.locator('[data-testid="conv-menu"] [data-testid="conv-menu-item"][data-id^="flow "]')).toHaveCount(0);
+  const before = await page.evaluate(async () => ((await (window as any).harnix.app.call("flow.list", {})) as unknown[]).length);
+  await input.fill("/flow example-review x");
+  await input.press("Enter");
+  await expect(page.locator("#banner .text")).toContainText(/belongs to a project|任务属于项目/);
+  await expect(input).toHaveValue("/flow example-review x");
+  await expect(page.locator("#main").getByTestId("flow-task-card")).toHaveCount(0);
+  const after = await page.evaluate(async () => ((await (window as any).harnix.app.call("flow.list", {})) as unknown[]).length);
+  expect(after).toBe(before);
+  expect(errors).toEqual([]);
+});
+
+test("为这个项目建流程: trust first, then the flows' general conversation working in the project, its first words naming it", TAGS, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, backend.url);
+  const { path, row } = await project(page, "tasks-author");
+  const trust = () => page.evaluate(async (root) => (await (window as any).harnix.app.call("harnix-app.projects.status", { project_root: root })).trust, path);
+  expect(await trust()).not.toBe("trusted");
+  await row.getByRole("treeitem", { level: 1 }).click({ button: "right" });
+  await page.locator('[data-testid="host-menu"] [data-item="flow.author-for-project"]').click();
+  // Asked to trust it first: the project's flows are read only then.
+  await expect(page.locator("#modal")).toContainText(`${path}/.harnix/flows/`);
+  await page.getByTestId("confirm").click();
+  await page.getByTestId("trust-confirm").click();
+  await expect.poll(trust, { timeout: 15_000 }).toBe("trusted");
+
+  // The flows in front on their general conversation, the way back to the projects space.
+  await expect(page.locator("#main")).toHaveAttribute("data-space", "flow", { timeout: 15_000 });
+  const general = await page.evaluate(async () => (await (window as any).harnix.app.call("flow.session", {})).session_id as string);
+  await expect.poll(() => current(page), { timeout: 15_000 }).toBe(general);
+  await expect(page.getByTestId("conv-input")).toHaveValue(new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  await expect(page.getByTestId("flow-back")).toHaveAttribute("data-to", "projects");
+  // It works in the project from now on: asked again, the module says so.
+  const focus = await page.evaluate(async (sid) => await (window as any).harnix.app.call("flow.focus", { instance: "main", session_id: sid, flow: null }), general);
+  expect(focus.project).toBe(path);
+  // Leaving it for no project again, so the general conversation is as other tests expect it.
+  await page.evaluate(async (sid) => await (window as any).harnix.app.call("flow.focus", { instance: "main", session_id: sid, flow: null, project: "" }), general);
   expect(errors).toEqual([]);
 });
 

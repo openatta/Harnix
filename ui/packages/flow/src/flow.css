@@ -934,3 +934,39 @@
   align-self: flex-start;
   margin-top: 4px;
 }
+
+/* ── the card a conversation keeps of a task started from it (`/flow`) ── */
+
+.hx-flow-task-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-l1);
+  border-radius: var(--radius-card);
+}
+
+.hx-flow-task-card-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.hx-flow-task-card-head {
+  color: var(--label-secondary);
+}
+
+.hx-flow-task-card-subject {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hx-flow-task-card .meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

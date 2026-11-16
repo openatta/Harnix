@@ -150,6 +150,31 @@ describe("the projects space's points", () => {
     expect(host.menus.at(-1)!.map((m) => m.id).slice(0, 2)).toEqual(["new", "item:test.task"]);
   });
 
+  it("the project's menu has what a kind adds to it after what it makes, with the project's trust in the context", async () => {
+    const host = fakeHost();
+    const kind = taskKind();
+    const given: { root: string; space: string; trust?: unknown }[] = [];
+    kind.projectMenu = (ctx) => {
+      given.push(ctx);
+      return [{ id: "test.author", label: "Author here", run: () => undefined }];
+    };
+    const { page } = await drawn(host, kind);
+    fireEvent.click(page.getByTestId("project-more"));
+    await settle();
+    expect(host.menus.at(-1)!.map((m) => m.id).slice(0, 3)).toEqual(["new", "item:test.task", "test.author"]);
+    expect(given.at(-1)).toMatchObject({ root: "/work/alpha", space: "sessions" });
+    // The trust it is handed reads the project's: none to read here.
+    const trust = given.at(-1)!.trust as { status(): Promise<string | null> };
+    expect(await trust.status()).toBeNull();
+    // A kind whose entries throw loses only them.
+    kind.projectMenu = () => {
+      throw new Error("no");
+    };
+    fireEvent.click(page.getByTestId("project-more"));
+    await settle();
+    expect(host.menus.at(-1)!.map((m) => m.id).slice(0, 2)).toEqual(["new", "item:test.task"]);
+  });
+
   it("with nothing registered: the conversations alone, and + offers only a conversation", async () => {
     const host = fakeHost();
     const { page } = await drawn(host);

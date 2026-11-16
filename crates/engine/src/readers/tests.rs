@@ -8,7 +8,7 @@ use std::time::Duration;
 use harnix_contract::sync::lock;
 use harnix_contract::{codes, RpcError};
 use harnix_engine_link::ops::SessionInfo;
-use harnix_engine_api::readers::{ReadError, Recordings, SearchLimits, Transcripts};
+use harnix_engine_api::readers::{DayUsage, DayWindow, ReadError, Recordings, SearchLimits, Transcripts};
 use serde_json::{json, Value};
 
 use super::calls::Calls;
@@ -589,4 +589,104 @@ async fn a_search_is_clamped_asked_and_read() {
     let none = reader.search(&sessions, "   ", &limits).await.unwrap();
     assert!(none.hits.is_empty());
     assert_eq!(engine.asked("session.search").len(), 1, "an empty query is not sent");
+}
+
+/// A row sent at `at` to `model`, with these tokens in and out.
+fn sent(index: usize, session: &str, parent: Option<&str>, at: &str, model: &str, input: u64, output: u64) -> Value {
+    let mut r = row(index, session, parent, index as u32, None);
+    r["timing"]["sent_at"] = json!(at);
+    r["model"] = json!(model);
+    r["usage"] = json!({"input_tokens": input, "output_tokens": output, "cache_read_input_tokens": 1, "cache_creation_input_tokens": 2});
+    r
+}
+
+/// The tree's rows summed per day and model: a sub-agent's under its root, the days in the asked
+/// offset, nothing before the window's start, auxiliary calls and errors apart.
+#[tokio::test]
+async fn usage_by_day_is_summed_per_day_and_model_over_the_tree() {
+    let engine = Engine::new(&["S"]);
+    *lock(&engine.parents) = vec![("A".into(), "S".into())];
+    let mut title = sent(3, "S", None, "2025-11-15T10:00:00Z", "m-small", 4, 1);
+    title["purpose"] = json!("title");
+    title["status"] = json!("error");
+    *lock(&engine.rows) = vec![
+        sent(0, "S", None, "2025-11-13T10:00:00Z", "m-big", 100, 10),
+        sent(1, "S", None, "2025-11-14T23:30:00Z", "m-big", 10, 1),
+        sent(2, "A", Some("S"), "2025-11-15T09:00:00Z", "m-small", 5, 5),
+        title,
+    ];
+    let (reader, _) = reader(&engine);
+    let since = super::time::ms("2025-11-14T00:00:00Z").unwrap();
+    let utc = reader.usage_by_day(&["S".into(), "A".into()], &DayWindow::new(since, 0)).await.unwrap();
+    let s = &utc["S"];
+    assert!(s.recording && !s.stale);
+    fn line(d: &DayUsage) -> (&str, &str, u64, u64, u64, u64, u64) {
+        (d.day.as_str(), d.model.as_str(), d.calls, d.auxiliary, d.input_tokens, d.output_tokens, d.errors)
+    }
+    assert_eq!(
+        s.days.iter().map(line).collect::<Vec<_>>(),
+        [("2025-11-14", "m-big", 1, 0, 10, 1, 0), ("2025-11-15", "m-small", 1, 1, 9, 6, 1)],
+        "the 13th is before the window; the sub-agent and the title share the 15th"
+    );
+    assert_eq!((s.days[1].cache_read_tokens, s.days[1].cache_write_tokens, s.days[1].model_ms), (2, 4, 8400));
+    assert_eq!(utc["A"].days.iter().map(|d| d.calls).sum::<u64>(), 1, "a sub-agent alone");
+    // An hour east, the 14th's late call is on the 15th.
+    let east = reader.usage_by_day(&["S".into()], &DayWindow::new(since, 60)).await.unwrap();
+    assert_eq!(east["S"].days.iter().map(|d| (d.day.as_str(), d.model.as_str())).collect::<Vec<_>>(), [("2025-11-15", "m-big"), ("2025-11-15", "m-small")]);
+}
+
+/// What was summed answers again without the recording read — even once the calls kept forgot
+/// it — until the link sees the session move; a session that never called the model is no error.
+#[tokio::test]
+async fn usage_by_day_reads_a_recording_again_only_when_it_moved() {
+    let engine = Engine::new(&["S"]);
+    *lock(&engine.rows) = vec![sent(0, "S", None, "2025-11-15T10:00:00Z", "m", 10, 1)];
+    let (reader, activity) = reader(&engine);
+    let window = DayWindow::new(0, 0);
+    reader.usage_by_day(&["S".into()], &window).await.unwrap();
+    let reads = engine.asked("session.calls").len();
+    reader.calls.forget("S");
+    let again = reader.usage_by_day(&["S".into()], &window).await.unwrap();
+    assert_eq!(engine.asked("session.calls").len(), reads, "answered from what was summed");
+    assert_eq!(again["S"].days[0].calls, 1);
+
+    lock(&engine.rows).push(sent(1, "S", None, "2025-11-15T11:00:00Z", "m", 10, 1));
+    activity.saw("S", Stir::TurnEnded);
+    let moved = reader.usage_by_day(&["S".into()], &window).await.unwrap();
+    assert!(engine.asked("session.calls").len() > reads);
+    assert_eq!(moved["S"].days[0].calls, 2);
+
+    let none = reader.usage_by_day(&["N".into()], &window).await.unwrap();
+    assert!(!none["N"].recording && none["N"].days.is_empty());
+}
+
+/// However many calls a session made, its answer is a line per day and model, and what is kept of
+/// it as much.
+#[tokio::test]
+async fn a_huge_session_sums_to_a_line_per_day_and_model() {
+    let engine = Engine::new(&["S"]);
+    *lock(&engine.rows) = (0..3000)
+        .map(|i| sent(i, "S", None, if i % 2 == 0 { "2025-11-14T10:00:00Z" } else { "2025-11-15T10:00:00Z" }, "m", 1, 1))
+        .collect();
+    let (reader, _) = reader(&engine);
+    let days = reader.usage_by_day(&["S".into()], &DayWindow::new(0, 0)).await.unwrap();
+    assert_eq!(days["S"].days.len(), 2);
+    assert_eq!(days["S"].days.iter().map(|d| d.calls).sum::<u64>(), 3000);
+    assert_eq!(reader.days.len(), 1);
+}
+
+/// A sleeping instance is not woken: what was summed before, marked stale.
+#[tokio::test]
+async fn usage_by_day_wakes_nothing() {
+    let engine = Engine::new(&["S"]);
+    *lock(&engine.rows) = vec![sent(0, "S", None, "2025-11-15T10:00:00Z", "m", 10, 1)];
+    let gate = Arc::new(Gate { asleep: Mutex::new(false), woken: Mutex::new(0) });
+    let mut reader = ProtocolReader::new(engine.clone(), Some(gate.clone()), Arc::new(Activity::default()));
+    reader.calls = Calls::new(Duration::ZERO);
+    let window = DayWindow::new(0, 0);
+    reader.usage_by_day(&["S".into()], &window).await.unwrap();
+    *lock(&gate.asleep) = true;
+    let asleep = reader.usage_by_day(&["S".into()], &window).await.unwrap();
+    assert!(asleep["S"].stale && asleep["S"].days.len() == 1);
+    assert_eq!(*lock(&gate.woken), 0);
 }
