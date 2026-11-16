@@ -146,10 +146,6 @@ pub struct TaskContext<'a> {
     pub executor: Option<&'a Executor>,
 }
 
-/// The agent type a sub-agent task asks for when its station names none: the module provides
-/// it where the main session works.
-pub const DEFAULT_AGENT_TYPE: &str = "flow-agent";
-
 /// What a sub-agent task's sub-agent is named by (the `Agent` tool's `description`), so the
 /// module can tell it apart among the main session's tasks.
 pub fn agent_tag(run: &str, station: &str, task: &str) -> String {
@@ -189,18 +185,21 @@ pub fn render(t: &TaskContext) -> String {
             "`description: \"{}\"`",
             agent_tag(t.run, &st.id, t.task)
         )];
-        how.push(format!(
-            "`subagent_type: \"{}\"`",
-            agent_type.as_deref().unwrap_or(DEFAULT_AGENT_TYPE)
-        ));
+        match agent_type {
+            Some(ty) => how.push(format!("`subagent_type: \"{ty}\"`")),
+            // The engine's plain sub-agent: it runs on the main session's scene with its tools,
+            // and no definition of it is written anywhere — the run may work in a person's project.
+            None => how.push("no `subagent_type`".into()),
+        }
         if let Some(m) = model {
             how.push(format!("`model: \"{m}\"`"));
         }
         s.push_str(&format!(
             "- **This task is a sub-agent's.** Do not do it yourself: call the `Agent` tool once, \
              with {} and a prompt that gives the sub-agent the task — the item, the contract, \
-             the rules and the skill below. When it answers, check its result against the contract and hand it \
-             in with `flow_submit`; if it falls short, call it again with what is missing.\n",
+             the rules and the skill below — and tells it to reply with the result only. When it \
+             answers, check its result against the contract and hand it in with `flow_submit`; if \
+             it falls short, call it again with what is missing.\n",
             how.join(", ")
         ));
     }
@@ -382,6 +381,20 @@ mod tests {
         assert!(t.contains("`StructuredOutput`"), "{t}");
         assert!(!t.contains("flow_submit") && !t.contains("flow_propose"), "{t}");
         assert!(t.contains("No tool is refused"), "{t}");
+    }
+
+    #[test]
+    fn a_sub_agent_without_a_type_is_the_engines_plain_one() {
+        let def = FlowDef::parse(
+            "name: d\nstations: [{id: a, executor: {kind: agent}, skill: s, output: {type: object}, exit: [{kind: output}]}]",
+        )
+        .unwrap();
+        let gates = BTreeMap::new();
+        let mut c = ctx(&def, &[], &gates, &[], Delivery::FlowSubmit);
+        c.executor = def.stations[0].executor.as_ref();
+        let t = render(&c);
+        assert!(t.contains("no `subagent_type`") && !t.contains("subagent_type: "), "{t}");
+        assert!(t.contains("reply with the result only"), "{t}");
     }
 
     #[test]
