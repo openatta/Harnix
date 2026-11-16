@@ -30,7 +30,7 @@ describe("the system space's points", () => {
     const { r } = registered();
     expect(r.isDefined("system.console.tab")).toBe(true);
     expect(r.isDefined("system.inspector.tab")).toBe(true);
-    expect(r.at("session.action").map((a) => a.id)).toEqual(["system.open", "system.tool"]);
+    expect(r.at("session.action").map((a) => a.id)).toEqual(["system.open", "system.output", "system.tool"]);
   });
 
   it("draws another package's console tab among the Agents tabs, by its order", async () => {

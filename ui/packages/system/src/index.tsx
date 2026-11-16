@@ -26,6 +26,7 @@ import { InstanceOverview } from "./pane/instance.tsx";
 import { SessionOverview } from "./pane/session.tsx";
 import { SpaceSessions } from "./pane/space.tsx";
 import { SubAgentOverview } from "./pane/subagent.tsx";
+import { OUTPUT_KIND, OutputTab, outputTitle, openToolOutput } from "./pane/output.tsx";
 import { TasksTab } from "./pane/tasks.tsx";
 import type { InspectorTab, InspectorTarget } from "./types.ts";
 import { View, type Selection } from "./view.ts";
@@ -34,6 +35,9 @@ import "./system.css";
 export type { ConsoleTab, InspectorTab, InspectorTarget } from "./types.ts";
 export type { Selection } from "./view.ts";
 export { SYSTEM, CONSOLE_TAB, INSPECTOR_TAB };
+
+/** The tools that start a task whose output can be followed. */
+const OUTPUT_TOOLS = new Set(["Bash", "Monitor"]);
 
 /** The backend extension this package is the interface of. */
 export const extension = "system";
@@ -90,6 +94,34 @@ export function register(r: Registry, host: HostApi): void {
       label: () => t("head.inSystem"),
       match: (target: ActionTarget) => target.space !== SYSTEM,
       run: (target: ActionTarget) => openInSystem(view, { session: target.session, space: target.space }),
+    },
+    SYSTEM,
+  );
+  // The output of a background command or a monitor, in the open session's right column: one tab a task.
+  r.register(
+    "sidebar.tab",
+    {
+      id: "system.output",
+      kind: OUTPUT_KIND,
+      multiple: true,
+      keepMounted: true,
+      title: (address?: string) => outputTitle(address, t("system.output.title")),
+      render: () => <OutputTab view={view} />,
+    },
+    SYSTEM,
+  );
+  r.register(
+    "session.action",
+    {
+      id: "system.output",
+      at: ["tool"],
+      icon: "terminal",
+      label: () => t("system.output.view"),
+      match: (target: ActionTarget) => target.kind === "tool" && OUTPUT_TOOLS.has(target.tool),
+      run: async (target: ActionTarget) => {
+        if (target.kind !== "tool") return;
+        if (!(await openToolOutput(host, target.session, target.toolUseId))) host.shell.notice(t("system.output.noTask"));
+      },
     },
     SYSTEM,
   );

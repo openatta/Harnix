@@ -176,3 +176,42 @@ test("system-tasks: a running sub-agent is told something from its own detail, a
   await expect(pane.getByTestId("task-message-said")).toHaveText(/Delivered|已送达/);
   await expect(pane.getByTestId("task-message-text")).toHaveValue("");
 });
+
+test("output-tab: a Monitor's tool row opens its output in the right column, followed read-only, one tab a task", TAGS, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, backend.url);
+  await page.evaluate(() =>
+    (window as any).harnix.app.create({ scene: "code", options: { recorder: { name: "streams-output" }, permission_mode: "default" } }),
+  );
+  await expect(page.getByTestId("conv-input")).toBeEnabled();
+  await say(page, "Start watching the counter");
+  const ask = page.getByTestId("conv-ask");
+  await expect(ask).toBeVisible({ timeout: 30_000 });
+  await ask.getByTestId("conv-ask-allow").click();
+  await expect(page.getByTestId("conv-send")).toBeVisible({ timeout: 30_000 });
+
+  // The task is listed after the command has run a second; its row's action finds it by the call's id.
+  const row = page.locator('[data-testid="conv-tool"]').first();
+  await row.getByTestId("conv-tool-toggle").click();
+  const view = row.getByTestId("action-system.output");
+  await expect(view).toBeVisible();
+  await expect.poll(async () => { await view.click(); return page.locator('#details [data-testid="sidebar-tab"][data-kind="output"]').count(); }, { timeout: 15_000 }).toBeGreaterThan(0);
+
+  const tab = page.locator('#details [data-testid="sidebar-tab"][data-kind="output"]').first();
+  await expect(tab).toHaveAttribute("data-state", "current");
+  const text = page.locator('#details [data-testid="output-tab"] [data-testid="task-output-text"]');
+  await expect(text).toContainText("line-1", { timeout: 15_000 });
+  await expect(page.locator('#details [data-testid="output-status"]')).toContainText(/Running|运行中/);
+  // Read-only: there is no input, and what was printed stays in the box as more arrives.
+  await expect(page.locator('#details [data-testid="output-tab"] textarea, #details [data-testid="output-tab"] input[type="text"]')).toHaveCount(0);
+  const lines = async () => ((await text.textContent()) ?? "").split("\n").filter((l) => l.startsWith("line-")).length;
+  const first = await lines();
+  await expect.poll(lines, { timeout: 30_000 }).toBeGreaterThan(first);
+  // Following: the end is in view; reading back stops it, and the end again resumes it.
+  await expect.poll(() => text.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop), { timeout: 5_000 }).toBeLessThanOrEqual(8);
+  await text.evaluate((el) => { el.scrollTop = 0; });
+  await expect(page.getByTestId("task-follow")).not.toBeChecked();
+  await text.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await expect(page.getByTestId("task-follow")).toBeChecked();
+  expect(errors).toEqual([]);
+});

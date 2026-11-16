@@ -224,7 +224,7 @@ kv 加 `/data`）；模式 3 另有扩展进程 stderr 的最后几行（至多 
 
 - **任务**：同一组页签，「任务」排第一，展开的就是它：种类、状态、做什么、agent 类型、开始与结束、用时、token、在等什么；
   引擎给的原样 `detail`；**输出**（`system.tasks.output {task_id, from_byte?}`，跟着 `task_progress` 推，至多留 256 KiB，可以不跟）。
-  定时任务没有输出。
+  定时任务没有输出。同一份输出也进当前会话的右栏：Shell、监视器的工具行有「查看输出」，开一个 `output` 页签（只读，自动跟到末尾，往回翻就停；`system.tasks.output` 是设备的方法，不限系统 space，任何设备都能读自己会话的任务）。
 - **子 Agent**：只有概况：会话、父会话、agent 类型、做什么、模型、用时；它在父会话录像里那份用量；它的消息（`engine.session.history`，
   一次 30 条，往前翻）；「回到它的主 Agent」。
 - **给它发话**：在跑的子 Agent 与团队成员下面有一个输入框，回车经 `system.tasks.message {task_id, message}` 送进去，它在下一个
