@@ -16,6 +16,7 @@ import { sidebarTypes, t, tabsOf, type ComposerApi, type DetailItem, type Regist
 
 import { SurfaceStore, type SidebarTab } from "./sidebar/surface.ts";
 import { topicsOf } from "./topics.ts";
+import { Shortcuts } from "./shortcuts.tsx";
 
 export interface SessionKey {
   instance: string;
@@ -287,12 +288,15 @@ export class App {
   private interfaces: ((app: App, view: UiView) => Promise<void>) | null = null;
   /** Each session's docking surface in the right column (`sidebar/surface.ts`). */
   readonly sidebar: SurfaceStore;
+  /** The `shortcut` commands and the keys they have now (`shortcuts.tsx`). */
+  readonly shortcuts: Shortcuts;
 
   constructor(client: HarnixClient, registry: Registry) {
     this.conn = client;
     this.registry = registry;
     this.sidebar = new SurfaceStore(storage());
     this.sidebar.failed = (tabId, e) => registry.fail("sidebar.tab", { id: tabId, owner: "page" }, e);
+    this.shortcuts = new Shortcuts(registry, { storage: storage() });
     // Until hello says which space this product starts in, the one left in front last time.
     const space = stored<string>(SPACE_KEY, "");
     const currentBySpace = stored<Record<string, SessionKey | null>>(CURRENT_KEY, {});

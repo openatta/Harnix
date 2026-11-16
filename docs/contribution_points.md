@@ -1,7 +1,7 @@
 # 界面贡献点
 
-Harnix 的界面由十个具名的贡献点拼起来（贡献点 v3 在 0.4.2 的八个之上加了 `session.action`，v4 加了 `sidebar.tab`），外加第一方扩展自己定义、
-别的 UI 包往里注册的点（如 `system.console.tab`，见第二张表，不算进十个）。
+Harnix 的界面由十一个具名的贡献点拼起来（贡献点 v3 在 0.4.2 的八个之上加了 `session.action`，v4 加了 `sidebar.tab` 与 `shortcut`），外加第一方扩展自己定义、
+别的 UI 包往里注册的点（如 `system.console.tab`，见第二张表，不算进十一个）。
 
 **这首先不是给第三方代码用的扩展面。** 扩展 agent 是 Agix 的事——脚本、manifest、能力门控、沙箱、披露，全在那边；
 Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发给浏览器，与页面同级（见[概念与架构](concept_and_architecture.md)，产品可以用
@@ -16,15 +16,17 @@ Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发
 什么都养不起。所以这里没有一个点跟着流式增量走——一轮十几次谁都养得起，一轮几千次谁都
 养不起。
 
-**十个，再加一个是一个需要论证的决定。** 一个没人用的点不是接缝，只是这张表里的一行，所以每个点
+**十一个，再加一个是一个需要论证的决定。** 一个没人用的点不是接缝，只是这张表里的一行，所以每个点
 都要有人在用：第一方 UI 包（`@harnix/harnix-app`、`@harnix/system`、`@harnix/settings` 等）注册 `space`（会话、项目、系统）、`sidebar.group`、`command`、`settings.section`、`session.action`、`sidebar.tab`，
 以及 `home.card` 的首次运行三步（`@harnix/settings` 的模型，`@harnix/harnix-app` 的项目、场景与权限；见 [Harnix app](harnix-app.md) §4.1），
-外壳自己注册 `tool.row`、`flow.block`、`details.panel`，以及 `sidebar.tab` 的引导页。`home.card` 由外壳在新对话的输入框下读，`examples/hello-app` 也注册了一张；
+外壳自己注册 `tool.row`、`flow.block`、`details.panel`，`sidebar.tab` 的引导页，以及 `shortcut` 里外壳自己的命令（新会话、收起左栏、聚焦输入框……）。`home.card` 由外壳在新对话的输入框下读，`examples/hello-app` 也注册了一张；
 没有 `title`、`render()` 什么都没画的卡不占位（做完的一步就是这样收起的）。
 第九个 `session.action` 的理由：0.4.2 的外壳里写死了三样只属于某个扩展的东西——标题栏的「在系统里打开」、工具行的「在系统里看」、
 会话菜单里的归档与导出——它们是同一种东西，没有现成的点能承载。
 第十个 `sidebar.tab` 的理由：右栏是每个会话一个停靠面，在里面打开的页（文件预览、用量、流程进度、输出流）是同一种东西——认领一个地址、或按名字打开的页签类型；
 `details.tabs` 是 space 的、不是会话的，承载不了它。`details.*` 全部保留，适配成同一条页签栏里 space 那一侧（[Harnix 扩展](harnix-ext.md) §22.7）。
+第十一个 `shortcut` 的理由：外壳的三个键是一个监听器里写死的三个分支，别的包要加键只能再挂一个监听器，设置里也列不出谁占了哪个键；
+一条带按平台缺省键、生效地方和动作的命令是同一种东西。`command` 是输入框里 `/`、`@` 的补全候选，按的是文字不是键，承载不了它（[Harnix 扩展](harnix-ext.md) §22.8）。
 
 **谁注册、什么时候撤。** 第一方 UI 包是编进外壳的，外壳按 `harnix.hello` 里启用的扩展激活它们：一个包只在它对应的扩展启用时才调自己的
 `register`，扩展被 `[extensions] off` 关掉，或被停用，它名下注册的点一起撤掉。点的注册带 owner（扩展 id），诊断按 owner 列。
@@ -50,6 +52,7 @@ Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发
 | `settings.section` | 呈现 | 设置面板里的一节 | 设置页打开时 | 每次交互(10⁰–10¹ 量级) |
 | `session.action` | 注册 | 对一个会话或它里面一次工具调用的动作（`at`：标题栏、会话菜单、工具行、工具行的参数） | 标题栏、会话菜单、工具行画出时 | 每次交互(10⁰–10¹ 量级) |
 | `sidebar.tab` | 注册 | 右栏的一种页签类型：按 `patterns` 认领 `harnix-resource://` 地址，或按 `kind` 打开的页；`guide` 进引导页 | 右栏打开一个地址或一种页时 | 每次交互(10⁰–10¹ 量级) |
+| `shortcut` | 注册 | 一条有快捷键的命令：按平台的缺省键、生效的地方（全局、输入框、右栏）、要跑的动作；设置的「快捷键」列出它、可改键 | 按下一个键时；设置的「快捷键」打开时 | 每次交互(10⁰–10¹ 量级) |
 <!-- END GENERATED TABLE -->
 
 第一方扩展定义的点：定义者的 UI 包 `definePoint`，后端在 `UiDecl` 里声明同一个点；别的包往里注册，没人定义时注册丢掉、
@@ -97,7 +100,7 @@ Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发
 
 ## 扩展包落在哪些点上
 
-扩展包（[扩展包](harnix-ext-package.md)）不加新的贡献点：外壳照它的清单，替它往这十个点上注册，注册的 owner 是扩展的 id。两种载体（同进程、独立进程）
+扩展包（[扩展包](harnix-ext-package.md)）不加新的贡献点：外壳照它的清单，替它往这些点上注册，注册的 owner 是扩展的 id。两种载体（同进程、独立进程）
 的包落在同一批点上，界面一侧没有区别。
 
 **面**（`[[surface]] point`，画在隔离的 iframe 里；iframe 的沙箱、CSP 与面的生命周期见 [扩展包](harnix-ext-package.md)）：

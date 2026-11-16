@@ -16,6 +16,7 @@ import { startInline } from "./inline/index.tsx";
 import { ActionArg, ActionButtons } from "./actions.tsx";
 import { GUIDE_KIND } from "./sidebar/controller.ts";
 import { GuideTab } from "./sidebar/Guide.tsx";
+import { registerShellShortcuts } from "./shortcuts.tsx";
 
 const OWNER = "builtin";
 
@@ -28,6 +29,7 @@ const OWNER = "builtin";
 export function registerBuiltins(app: App): void {
   const r = app.registry;
   r.register("tool.row", { id: "builtin.tool", match: () => true, render: (block) => <ToolRow app={app} block={block} /> }, OWNER);
+  registerShellShortcuts(app);
 
   r.register(
     "flow.block",

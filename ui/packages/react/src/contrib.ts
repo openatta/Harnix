@@ -1,7 +1,7 @@
 /**
  * 贡献点注册表（概念 §5.6）：界面上哪些地方可以由内建、UI 包或运行期包填，以及怎么填。
  *
- * v4 的十个内核点，都注册 React 组件：
+ * v4 的十一个内核点：
  *
  * | 点 | 形状 | 怎么用 |
  * |---|---|---|
@@ -15,6 +15,7 @@
  * | `settings.section` | `id`、`label()`、`render()`，可选的 `covers`；或不给 `render`，给 `fields`（字段声明，见 `fields.tsx`）与可选的 `store` | 全部，按注册顺序；外壳要人去配模型时打开 `covers` 里有 `"models"` 的那一节；只给 `fields` 的按声明画表单，值缺省存在这个浏览器里 |
  * | `session.action` | `id`、`at`、`label(target)`、`match(target)`、`run(target)` | 标题栏、会话菜单、工具行（按钮与参数）各问 `at` 里有它的，按注册顺序 |
  * | `sidebar.tab` | `id`、`kind`、`title(address?)`、`render()`，可选的 `patterns`、`priority`、`canOpen`、`guide`、`multiple`、`keepMounted`、`scope` | 右栏的页签类型（`sidebar.ts`）：资源地址按优先级档、模式长度、注册顺序认领；一个 `kind` 至多一份 extension 加一份 builtin，extension 生效 |
+ * | `shortcut` | `id`、`title()`、`run(ctx)`，可选的 `keys`、`scope`、`enabled()` | 一条有快捷键的命令（`shortcuts.ts`）：设置里列出、可改键；一个键按下时焦点所在处的先于全局的，再按注册顺序；`id` 在全页唯一 |
  *
  * 扩展还可以定义自己的点（`definePoint("<扩展 id>.<名>")`），别的包往里注册；注册进还没定义的点先挂着，全部注册完
  * （`settle`）还没人定义就丢掉并记进诊断，给了 `orElse` 的调它。一个扩展激活时注册的（`activate`）记在它名下，
@@ -34,6 +35,7 @@ import type { SessionRef } from "./host";
 import { addStrings, type Locale } from "./i18n/index";
 import { FieldsSection, type FieldStore, type LocalField } from "./fields";
 import { SIDEBAR_PRIORITIES, SIDEBAR_SCOPES, sameTier, type SidebarTabType } from "./sidebar";
+import { SHORTCUT_SCOPES, parseKeys, type ShortcutCommand } from "./shortcuts";
 
 export const POINTS = [
   "space",
@@ -46,6 +48,7 @@ export const POINTS = [
   "settings.section",
   "session.action",
   "sidebar.tab",
+  "shortcut",
 ] as const;
 export type Point = (typeof POINTS)[number];
 
@@ -272,6 +275,7 @@ export interface Contributions {
   };
   "session.action": SessionAction;
   "sidebar.tab": SidebarTabType;
+  shortcut: ShortcutCommand;
 }
 
 /** What a registration may give: a settings section may declare its fields in place of drawing itself. */
@@ -309,6 +313,7 @@ const SHAPE: { [P in Point]: string[] } = {
   "settings.section": ["label", "render"],
   "session.action": ["label", "match", "run"],
   "sidebar.tab": ["title", "render"],
+  shortcut: ["title", "run"],
 };
 
 const ACTION_PLACES: readonly string[] = ["header", "menu", "tool", "arg"];
@@ -342,6 +347,16 @@ function shapeError(point: Point, c: Record<string, unknown>): string | null {
     }
     if (c.guide !== undefined && (!Array.isArray(c.guide) || c.guide.some((g) => !g || typeof g !== "object" || typeof (g as { id?: unknown }).id !== "string" || typeof (g as { title?: unknown }).title !== "function"))) {
       return "a tab type's `guide` entries are `{ id, title() }`";
+    }
+  }
+  if (point === "shortcut") {
+    if (c.scope !== undefined && !(SHORTCUT_SCOPES as readonly unknown[]).includes(c.scope)) {
+      return `a shortcut's scope is ${SHORTCUT_SCOPES.join(", ")}, not ${JSON.stringify(c.scope)}`;
+    }
+    const keys = c.keys;
+    const written = typeof keys === "string" ? [keys] : keys && typeof keys === "object" ? Object.values(keys as Record<string, unknown>) : [];
+    if ((keys !== undefined && keys !== null && typeof keys !== "string" && typeof keys !== "object") || written.some((k) => k !== null && k !== undefined && (typeof k !== "string" || !parseKeys(k, "mac")))) {
+      return `a shortcut's keys are written like "Mod+K", not ${JSON.stringify(keys)}`;
     }
   }
   if (point === "command" && c.trigger !== undefined && c.trigger !== "/" && c.trigger !== "@") {
@@ -386,7 +401,7 @@ interface Defined {
 }
 
 export class Registry {
-  /** Every registration, by point name: the kernel's ten, and whatever else was named — a point an
+  /** Every registration, by point name: the kernel's eleven, and whatever else was named — a point an
    *  extension defines, or one nobody has defined yet. */
   private readonly entries = new Map<string, Entry<Point>[]>(POINTS.map((p) => [p, []]));
   private readonly meta = new WeakMap<object, Meta>();
@@ -436,6 +451,11 @@ export class Registry {
         const type = c as unknown as SidebarTabType;
         const clash = this.at("sidebar.tab").find((held) => held.kind === type.kind && sameTier(held, type));
         if (clash) return this.refuse({ point, owner, id: c.id, reason: `\`${type.kind}\` already has a ${clash.priority ?? "extension"} type (${clash.id}, ${clash.owner})` });
+      }
+      // A command's id is what the person's own key for it is kept under: one command per id.
+      if (point === "shortcut") {
+        const held = this.at("shortcut").find((s) => s.id === c.id);
+        if (held) return this.refuse({ point, owner, id: c.id, reason: `\`${c.id}\` is already a command (${held.owner})` });
       }
     }
     const entry = { ...(c as object), owner } as Entry<Point>;
