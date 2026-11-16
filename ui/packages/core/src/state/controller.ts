@@ -15,6 +15,7 @@
 import { errorText, type HarnixClient } from "../client/index.ts";
 import type { AskReply, Decision, FeedbackCategory, Notifications, Rating } from "../protocol/index.ts";
 import { answerOf } from "./asks.ts";
+import type { FailureClass, FailureFacts } from "./failure.ts";
 import {
   addCustom,
   addEntry,
@@ -26,6 +27,7 @@ import {
   applySettled,
   blockByKey,
   emptySession,
+  failureNote,
   note,
   reopenAsk,
   type SessionEntry,
@@ -48,6 +50,8 @@ export interface SessionStrings {
   turnUnrecorded?: string;
   interrupted: string;
   turnFailed(reason: string): string;
+  /** 认得的失败（没有模型、密钥被拒、限流、实例不可达……）说成一句话；缺省照原话。 */
+  explainFailure?(cls: FailureClass, facts: FailureFacts): string | undefined;
   sendFailed(reason: string): string;
   interruptFailed(reason: string): string;
   answerFailed(reason: string): string;
@@ -371,6 +375,7 @@ export class SessionController {
           {
             interrupted: this.strings.interrupted,
             failed: this.strings.turnFailed,
+            explain: this.strings.explainFailure?.bind(this.strings),
           },
           this.now(),
         ),
@@ -416,7 +421,7 @@ export class SessionController {
         this.set({ ...this.state, turn: { turnId: result.turn_id } });
       }
     } catch (e) {
-      this.set(note(this.state, this.strings.sendFailed(errorText(e)), "error"));
+      this.set(failureNote(this.state, e, this.strings.sendFailed, this.strings.explainFailure?.bind(this.strings)));
     }
   }
 

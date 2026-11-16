@@ -16,8 +16,8 @@
  */
 
 import { useState } from "react";
-import { errorText, type CapabilityLine, type Inline, type PackageRow, type PackagesList } from "@harnix/core";
-import { DialogBody, DialogFoot, SettingsRow, SettingsSection, SettingsValue, fileSize, t, useSettingsReload, useT, type HostApi } from "@harnix/react";
+import { type CapabilityLine, type Inline, type PackageRow, type PackagesList } from "@harnix/core";
+import { DialogBody, DialogFoot, SettingsRow, SettingsSection, SettingsValue, fileSize, t, useSettingsReload, useT, type HostApi, explainError } from "@harnix/react";
 
 import { SandboxAlert } from "./sandbox.tsx";
 
@@ -143,7 +143,7 @@ export function PackagesSettings({ host }: { host: HostApi }) {
   const [busy, setBusy] = useState(false);
   const [latest, setLatest] = useState<Record<string, string>>({});
 
-  const fail = (e: unknown) => host.shell.notice(errorText(e), "error");
+  const fail = (e: unknown) => host.shell.notice(explainError(e), "error");
   /** Ask; a disclosure waits for the person, anything else is done. */
   const ask = async (method: Pending["method"], id: string, version?: string, downgrade?: boolean) => {
     setBusy(true);
@@ -354,7 +354,7 @@ function Disclosure({ host, first, close }: { host: HostApi; first: Pending; clo
       if (done.consent === "required") setPending({ ...pending, asked: done });
       else close(true);
     } catch (e) {
-      host.shell.notice(errorText(e), "error");
+      host.shell.notice(explainError(e), "error");
       close(null);
     } finally {
       setBusy(false);

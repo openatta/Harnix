@@ -10,8 +10,26 @@
  * in the dictionaries, never pieces put together here.
  */
 
+import { failureClass, failureFacts, type FailureClass, type FailureFacts } from "@harnix/core/state";
+import { errorText } from "@harnix/core";
 import { FEEDBACK_CATEGORIES, type FeedbackCategory } from "@harnix/core/protocol";
-import { translate, type Locale } from "./i18n/index";
+import { t, translate, type Locale } from "./i18n/index";
+
+const FAIL_KEYS: Record<FailureClass, string> = {
+  no_model: "noModel",
+  auth: "auth",
+  billing: "billing",
+  model_rejected: "modelRejected",
+  rate_limited: "rateLimited",
+  overloaded: "overloaded",
+  model_unavailable: "modelUnavailable",
+  context_too_long: "contextTooLong",
+  egress_denied: "egressDenied",
+  engine_down: "engineDown",
+  instance_unavailable: "instanceUnavailable",
+  extension_unavailable: "extensionUnavailable",
+  deadline: "deadline",
+};
 
 export interface HarnixUiStrings {
   untitled: string;
@@ -41,6 +59,9 @@ export interface HarnixUiStrings {
   uploading: string;
   interrupted: string;
   turnFailed: (error: string) => string;
+  /** A failure the interface has words for (what happened, what to do next); none for one it does not know. */
+  explainFailure: (cls: FailureClass, facts: FailureFacts) => string | undefined;
+  openModels: string;
   stopReason: (reason: string) => string;
   /** 人的话被拒收（ipdrun-13）：`reason` 是理由；`text` 是被拒的那句，只在它不在流里时给（steer）。 */
   messageRefused?: (reason: string, text?: string) => string;
@@ -343,6 +364,13 @@ export function uiStrings(locale: Locale): HarnixUiStrings {
     sendFailed: (error) => s("sendFailed", { error }),
     queued: (index) => s("queued", { index }),
     turnFailed: (error) => s("turnFailed", { error }),
+    explainFailure: (cls, facts) =>
+      cls === "rate_limited" && facts.retryAfterMs
+        ? s("fail.rateLimitedWait", { seconds: Math.ceil(facts.retryAfterMs / 1000) })
+        : FAIL_KEYS[cls]
+          ? s(`fail.${FAIL_KEYS[cls]}`)
+          : undefined,
+    openModels: s("openModels"),
     stopReason: (reason) => s("stopReason", { reason }),
     messageRefused: (reason, text) =>
       text ? (reason ? s("refusedTextBecause", { text, reason }) : s("refusedText", { text })) : reason ? s("refusedBecause", { reason }) : s("refused"),
@@ -417,3 +445,23 @@ export function uiStrings(locale: Locale): HarnixUiStrings {
 
 export const zhCN: HarnixUiStrings = uiStrings("zh-CN");
 export const en: HarnixUiStrings = uiStrings("en");
+
+/** The words for a failure class, in the interface's language (the rate limit's wait, when it said how long). */
+export function failureWords(cls: FailureClass, facts: FailureFacts): string {
+  return cls === "rate_limited" && facts.retryAfterMs
+    ? t("chat.fail.rateLimitedWait", { seconds: Math.ceil(facts.retryAfterMs / 1000) })
+    : t(`chat.fail.${FAIL_KEYS[cls]}`);
+}
+
+/**
+ * A rejected call for a notice or banner: what happened and what to do next when the error is one
+ * the interface knows (the code stays, in parentheses, for whoever supports it); the backend's own
+ * words when it is not.
+ */
+export function explainError(e: unknown): string {
+  const facts = failureFacts(e);
+  const cls = failureClass(facts);
+  if (!cls) return errorText(e);
+  const tag = [facts.code !== undefined ? String(facts.code) : "", facts.kind ?? ""].filter(Boolean).join(" ");
+  return tag ? `${failureWords(cls, facts)} (${tag})` : failureWords(cls, facts);
+}
