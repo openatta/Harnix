@@ -168,6 +168,24 @@ describe("spaces", () => {
     expect(app.snapshot.currentBySpace.sessions ?? null).toEqual(before);
     await expect(host.session.open({ instance: "main", sessionId: "gone" }, { switchSpace: true })).rejects.toThrow(/gone/);
   });
+
+  it("session.open keeps the front space for a session exposed to it, and takes one exposed elsewhere to a space listing it", async () => {
+    client.answer = (method) =>
+      method === "harnix.sessions.list"
+        ? { sessions: [{ session_id: "lent", space: "b", exposed_to: [{ space: "sessions", interact: true }] }, { session_id: "far", space: "nowhere", exposed_to: [{ space: "b", interact: false }] }] }
+        : {};
+    const host = hostFor(app);
+    await drawn(app, host.spaces.switch("sessions"));
+    // Shown here: opened here, b's current session untouched.
+    await drawn(app, host.session.open({ instance: "main", sessionId: "lent" }, { switchSpace: true }) as Promise<void>);
+    expect(app.snapshot.space).toBe("sessions");
+    expect(app.snapshot.current).toEqual({ instance: "main", sessionId: "lent" });
+    expect(app.snapshot.currentBySpace.b ?? null).toBeNull();
+    // Its own space has no interface here; the one it is shown in does.
+    await drawn(app, host.session.open({ instance: "main", sessionId: "far" }, { switchSpace: true }) as Promise<void>);
+    expect(app.snapshot.space).toBe("b");
+    expect(app.snapshot.current).toEqual({ instance: "main", sessionId: "far" });
+  });
 });
 
 describe("instances", () => {

@@ -184,7 +184,8 @@ r.register("harnix-app.project.items", {
 
 一行是 `{ id, title, at?, running?, session?, data? }`：`at` 是最近活动（毫秒或 ISO 时间，树按它和会话的 `last_active` 一起排，没有的排最后）；
 `running` 为真时收起的项目行上有活动点；`session` 是它在中区打开的会话，那个会话是当前会话时行标成当前；`data` 随行带给 `render`、`open`、`menu`。
-`context` 是 `{ root, workspace }`。`rows`、`subscribe`、`render`、`open`、`menu` 抛错只丢这一种条目、记进诊断。
+`context` 是 `{ root, workspace, space }`，`space` 是项目 space 列会话的后端 space（`sessions`）：一种条目要让自己拥有的会话在这里打开，就把会话展示到它
+（`harnix.session.expose`，[概念与架构](concept_and_architecture.md) §5.4 第 6 条）。`rows`、`subscribe`、`render`、`open`、`menu` 抛错只丢这一种条目、记进诊断。
 行在树里是 `[data-testid="project-item"][data-kind="<id>"][data-item="<row.id>"]`，和会话行一样是 `.srow`、树的一项；它的「⋯」是 `project-item-more`，
 项目的「＋」是 `project-new`。
 
@@ -192,12 +193,16 @@ r.register("harnix-app.project.items", {
 
 **任务**（`@harnix/flow`，`ui/packages/flow/src/task.tsx`）：`flow.runs` 主题里 `project_root` 是这个项目的运行（试运行不算），
 一行写标题（没有就是对象）、流程名、状态（运行中、等待及原因、已暂停、已完成、已取消）、「第 k/n 站」，由定时启动的带时钟。
-点了行：主会话归 `flow` 的后端 space，项目 space 声明的是 `sessions`，直接在这里打开会被 `SPACE_MISMATCH` 拒绝（[概念与架构](concept_and_architecture.md) §5.4），
-所以和系统控制台进一条运行一样——把流程的界面 space 带到前台、停在这条运行上，主会话在中区，左栏是流程的上下文，「返回」回到项目 space；
-会话旁边的详情面板不开，右栏开「流程」页签（`sidebar.tab` 的 `kind: "flow"`，`openTab("flow", { params: { run } })`，[系统 space](system-space.md) §5）。
+点了行：主会话归 `flow` 的后端 space，项目 space 声明的是 `sessions`，直接在这里打开本会被 `SPACE_MISMATCH` 拒绝（[概念与架构](concept_and_architecture.md) §5.4），
+所以从项目 space 建的任务，`flow.start` 带上 `show_in_space: context.space`，流程扩展把主会话**展示**到 `sessions`（`harnix.session.expose`，可对话；
+运行记录与 `flow.runs` 的行带 `show_in_space`）：任务就像项目里别的会话一样在项目 space 的中区打开、能插话，会话列表不把它当普通会话列（行带 `exposed_from`，
+由任务行来画），右栏开「流程」页签（`sidebar.tab` 的 `kind: "flow"`，`openTab("flow", { params: { run } })`，[系统 space](system-space.md) §5），
+页签靠 `flow.runOf {instance, session_id}` 找到自己的运行。关闭、删除、改名这些仍是流程的事，从项目 space 调答 `SPACE_MISMATCH`。
+没有展示到这里的运行（从系统控制台或定时启动的）点了行则和系统控制台进一条运行一样——把流程的界面 space 带到前台、停在这条运行上，「返回」回到项目 space；
+任务行的「⋯」菜单里「在流程里打开」对任何任务都这样进。
 「新任务」对话框：流程（全部，标来源，不合法的不能选）、按 `inputs` 的 schema 生成的表单（字符串、数字、布尔、枚举、字符串数组，其余是 JSON 框）、
 对象（必填）、标题、输出目录（留空用缺省 `flows/<流程>-<YYYYMMDD><NN>`，对话框预估当天序号，由扩展最终定）、在 worktree 里跑（本版不可选）；
-项目里已有任务在跑时提示；流程不是 `guard: strict` 时写明「这个流程会直接修改项目文件」。确认即 `flow.start {flow, subject, inputs?, title?, project_root, output_dir?}`，然后打开这个任务。
+项目里已有任务在跑时提示；流程不是 `guard: strict` 时写明「这个流程会直接修改项目文件」。确认即 `flow.start {flow, subject, inputs?, title?, project_root, output_dir?, show_in_space}`，然后打开这个任务。
 
 ## 4. 新建会话
 

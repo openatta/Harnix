@@ -257,8 +257,10 @@ export class AppStore {
       const notes = spaces.sessions ?? {};
       const workspaces = spaces.workspaces ?? [];
       // Which workspace a session belongs to is its project root matched against a workspace's
-      // path: the backend knows the paths, the hub the roots, and the join is made here.
-      const sessions: AppSession[] = (listed.sessions ?? []).map((row) => {
+      // path: the backend knows the paths, the hub the roots, and the join is made here. A
+      // session another extension exposed to this space (`exposed_from`: a task's main session)
+      // is not one of this product's conversations: the item kind that owns it lists it.
+      const sessions: AppSession[] = (listed.sessions ?? []).filter((row) => !row.exposed_from).map((row) => {
         const workspace = workspaces.find((w) => row.project_root && w.path === row.project_root);
         return {
           ...row,

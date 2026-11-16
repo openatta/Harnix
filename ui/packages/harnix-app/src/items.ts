@@ -43,6 +43,9 @@ export interface ProjectItemContext {
   /** The project's directory. */
   root: string;
   workspace: Workspace;
+  /** The backend space the projects space lists sessions of: where a kind shows a session it
+   *  owns so that it opens here (`harnix.session.expose`). */
+  space: string;
 }
 
 /** A kind of item in the project tree (`harnix-app.project.items`, a `register` point). */

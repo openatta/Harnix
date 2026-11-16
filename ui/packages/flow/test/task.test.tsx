@@ -2,7 +2,8 @@
  * A task in a project: the rows the projects tree gets (the project's runs, dry runs left out,
  * by activity), the kind registered where the projects space defines its point and the 流程 tab
  * type, the new-task dialog's form from an `inputs` schema and what it sends to `start`, a task
- * opened (the flow space entered on it, the main session, the tab), and the tab drawing the run.
+ * opened (its main session in the space in front where the module shows it there, else the flow
+ * space entered on it; the tab), and the tab drawing the run.
  */
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -14,7 +15,7 @@ import { register } from "../src/register";
 import { currentStation, taskStep } from "../src/RunPanel";
 import { registerSystemFlows } from "../src/space";
 import { registerFlowStrings } from "../src/strings";
-import { PROJECT_ITEMS, ProjectTasks, TASK_KIND, TASK_TAB_KIND, TaskRow, openTask, taskRows } from "../src/task";
+import { PROJECT_ITEMS, ProjectTasks, TASK_KIND, TASK_TAB_KIND, TaskRow, enterTask, openTask, taskRows } from "../src/task";
 import { TaskTab } from "../src/TaskTab";
 import type { DefSummary, FlowDef, RunSummary, RunView } from "../src/types";
 
@@ -257,7 +258,20 @@ describe("the registration", () => {
 });
 
 describe("opening a task", () => {
-  it("enters the flow space on the run from the projects space, opens its main session, closes the panel beside and opens the tab", async () => {
+  it("opens the main session where it is shown (show_in_space), in the space in front, and opens the tab; the flow space is left alone", async () => {
+    const fake = fakeHost({ "flow.get": view({ show_in_space: "sessions" }) });
+    const r = new Registry();
+    r.register("space", { id: "projects", icon: "folder", title: () => "Projects" }, "harnix-app");
+    const flows = registerSystemFlows(r, { host: fake.host });
+    await openTask(fake.host, r, flows, "example-review-1", "example-review");
+    expect(fake.host.spaces.switch).not.toHaveBeenCalled();
+    expect(fake.opened.at(-1)).toEqual({ instance: "main", sessionId: "main-1" });
+    expect(flows.state.get()).toMatchObject({ flow: null, run: null });
+    expect(flows.state.from()).toBeNull();
+    expect(fake.tabs).toEqual([[TASK_TAB_KIND, { params: { run: "example-review-1" } }]]);
+  });
+
+  it("enters the flow space on the run from the projects space when the session is shown nowhere else, opens its main session, closes the panel beside and opens the tab", async () => {
     const fake = fakeHost({ "flow.get": view(), "flow.session": { instance: "main", session_id: "general" } });
     const r = new Registry();
     r.register("space", { id: "projects", icon: "folder", title: () => "Projects" }, "harnix-app");
@@ -274,12 +288,43 @@ describe("opening a task", () => {
     expect(fake.host.spaces.switch).toHaveBeenLastCalledWith("projects");
     expect(flows.state.from()).toBeNull();
   });
+
+  it("the row's menu enters the flow space for any task, and the dialog starts a task shown in the space the projects space names", async () => {
+    const fake = fakeHost({ "flow.get": view({ show_in_space: "sessions" }), "flow.defs": DEFS, "flow.def": { def: DEF, yaml: "", digest: "a" }, "flow.start": { run: "example-review-2" } });
+    const r = new Registry();
+    r.activate("harnix-app", () => {
+      r.definePoint(PROJECT_ITEMS, { kind: "register" });
+      r.register("space", { id: "projects", icon: "folder", title: () => "Projects" }, "harnix-app");
+    });
+    r.activate("flow", () => register(r, fake.host));
+    r.settle();
+    const kind = r.list<{ menu(row: unknown, context: unknown): { id: string; run(): Promise<void> }[]; create: { run(context: unknown): Promise<void> } }>(PROJECT_ITEMS)[0]!;
+    const [enter] = kind.menu({ id: "example-review-1", title: "t", data: summary({}) }, { root: ROOT, space: "sessions" });
+    expect(enter!.id).toBe("flow.task.enter");
+    await enter!.run();
+    expect(fake.host.spaces.switch).toHaveBeenCalledWith("flow");
+    expect(fake.tabs.at(-1)).toEqual([TASK_TAB_KIND, { params: { run: "example-review-1" } }]);
+    // The same the plain way, as `enterTask`.
+    const flows = registerSystemFlows(new Registry(), { host: fake.host });
+    await enterTask(fake.host, r, flows, "example-review-1", "example-review");
+    expect(flows.state.get()).toMatchObject({ run: "example-review-1" });
+
+    void kind.create.run({ root: ROOT, space: "sessions" });
+    await settle();
+    const page = render(<HostProvider host={fake.host}>{fake.dialogs[0]!(() => undefined) as never}</HostProvider>);
+    await settle();
+    fireEvent.change(page.getByTestId("task-subject"), { target: { value: "the repo" } });
+    fireEvent.change(page.getByTestId("task-input-target").querySelector("input")!, { target: { value: "src/" } });
+    fireEvent.click(page.getByTestId("task-start"));
+    await settle();
+    expect(fake.calls.find(([m]) => m === "flow.start")?.[1]).toMatchObject({ project_root: ROOT, show_in_space: "sessions" });
+  });
 });
 
 describe("the 流程 tab", () => {
-  it("draws the run the opener named, remembered for the session; a run without params is found among the runs", async () => {
+  it("draws the run the opener named; a run without params is the module's answer for the session", async () => {
     const get = (p: unknown) => ((p as { run: string }).run === "example-review-1" ? view() : view({ id: "other", session_keys: { "@main": "main/main-9" } }));
-    const fake = fakeHost({ "flow.get": get, "flow.list": { runs: [summary({ id: "other" }), summary({})] }, "flow.sessions": { main: { instance: "main", session_id: "main-1" } } });
+    const fake = fakeHost({ "flow.get": get, "flow.runOf": (p: unknown) => ({ run: (p as { session_id: string }).session_id === "main-1" ? "example-review-1" : null }), "flow.sessions": { main: { instance: "main", session_id: "main-1" } } });
     const session = { instance: "main", sessionId: "main-1" };
     const page = render(
       <HostProvider host={fake.host}>
@@ -297,10 +342,9 @@ describe("the 流程 tab", () => {
     expect(page.getByTestId("flow-output-dir").dataset.path).toBe("flows/example-review-2026030201");
     expect(page.getByTestId("flow-station-panel").dataset.station).toBe("approve");
     expect(page.getByTestId("flow-confirm")).toBeDefined();
-    expect(localStorage.getItem("harnix.flow.task.main/main-1")).toBe("example-review-1");
+    expect(fake.calls.some(([m]) => m === "flow.runOf")).toBe(false);
     page.unmount();
 
-    localStorage.clear();
     const found = render(
       <HostProvider host={fake.host}>
         <TabInfoProvider value={tabInfo(session)}>
@@ -311,11 +355,12 @@ describe("the 流程 tab", () => {
     await settle();
     await settle();
     expect(found.getByTestId("flow-task-tab").dataset.run).toBe("example-review-1");
-    expect(fake.calls.some(([m, p]) => m === "flow.list" && (p as { limit: number }).limit === 20)).toBe(true);
+    expect(fake.calls.find(([m]) => m === "flow.runOf")?.[1]).toEqual({ instance: "main", session_id: "main-1" });
+    expect(fake.calls.some(([m]) => m === "flow.list")).toBe(false);
   });
 
   it("says so for a session that is no task's", async () => {
-    const fake = fakeHost({ "flow.list": { runs: [] } });
+    const fake = fakeHost({ "flow.runOf": { run: null } });
     const page = render(
       <HostProvider host={fake.host}>
         <TabInfoProvider value={tabInfo({ instance: "main", sessionId: "s-plain" })}>
@@ -377,7 +422,7 @@ describe("the new-task dialog", () => {
     const fake = fakeHost({ "flow.defs": DEFS, "flow.def": { def: DEF, yaml: "", digest: "a" }, "flow.start": { run: "example-review-2" } });
     const started: [string, string][] = [];
     const running = summary({ title: "nightly review" });
-    await newTaskDialog(fake.host, "flow", { root: ROOT, runs: () => [running] }, (run, flow) => void started.push([run, flow]));
+    await newTaskDialog(fake.host, "flow", { root: ROOT, space: "sessions", runs: () => [running] }, (run, flow) => void started.push([run, flow]));
     const close = vi.fn();
     const page = render(<HostProvider host={fake.host}>{fake.dialogs[0]!(close) as never}</HostProvider>);
     await settle();
@@ -400,7 +445,7 @@ describe("the new-task dialog", () => {
     expect(start.disabled).toBe(false);
     fireEvent.click(start);
     await settle();
-    expect(fake.calls.find(([m]) => m === "flow.start")?.[1]).toEqual({ flow: "example-review", subject: "the repo", project_root: ROOT, inputs: { depth: 2, target: "src/" }, title: "Review src" });
+    expect(fake.calls.find(([m]) => m === "flow.start")?.[1]).toEqual({ flow: "example-review", subject: "the repo", project_root: ROOT, inputs: { depth: 2, target: "src/" }, title: "Review src", show_in_space: "sessions" });
     expect(close).toHaveBeenCalledWith(true);
     expect(started).toEqual([["example-review-2", "example-review"]]);
   });

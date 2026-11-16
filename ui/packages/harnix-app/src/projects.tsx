@@ -21,7 +21,7 @@ import { Contributed, Glyph, t, useCurrentSession, useRoving, useT, type HostApi
 import { addWorkspaceDialog, newSessionDialog, trustCategories, trustDialog, workspaceMenu } from "./dialogs.tsx";
 import { PROJECT_ITEMS, activityOf, createEntries, useProjectItems, type ProjectItem, type ProjectItemContext } from "./items.ts";
 import { SessionRow, useApp } from "./sessions.tsx";
-import { keyOf, type AppSession, type AppState, type AppStore, type Workspace } from "./store.ts";
+import { SESSIONS as SESSION_SPACE, keyOf, type AppSession, type AppState, type AppStore, type Workspace } from "./store.ts";
 
 const PROJECTS = 5;
 const SESSIONS = 8;
@@ -38,7 +38,7 @@ const anchorOf = (event: MouseEvent<HTMLElement>): Element | { x: number; y: num
 function newInProject(host: HostApi, r: Registry, store: AppStore, workspace: Workspace, anchor: Element | { x: number; y: number }): void {
   void host.dialogs.menu(anchor, [
     { id: "session", icon: "chat", label: t("projects.newSession"), run: () => newSessionDialog(host, store, workspace.path) },
-    ...createEntries(r, { root: workspace.path, workspace }),
+    ...createEntries(r, { root: workspace.path, workspace, space: SESSION_SPACE }),
   ]);
 }
 
@@ -104,7 +104,7 @@ function Project({ host, r, store, s, workspace }: { host: HostApi; r: Registry;
   const rows = all ? entries : entries.slice(0, SESSIONS);
   const running = sessions.some((row) => s.running[keyOf(row.instance, row.session_id)]) || items.some((item) => item.row.running);
   const trusted = s.trust[workspace.path]?.trust === "trusted";
-  const context: ProjectItemContext = { root: workspace.path, workspace };
+  const context: ProjectItemContext = { root: workspace.path, workspace, space: SESSION_SPACE };
   const more = (anchor: Element | { x: number; y: number }) => workspaceMenu(host, store, workspace, anchor, createEntries(r, context));
   return (
     <div className="project" role="none" data-project={workspace.id} data-open={open}>

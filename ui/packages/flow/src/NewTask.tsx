@@ -152,6 +152,9 @@ export function defOptions(info: DefInfo | undefined): { guard: string | null; o
 export interface NewTaskOptions {
   /** The project's directory. */
   root: string;
+  /** The backend space the task's main session is shown in besides the flow's (`show_in_space`):
+   *  the one the projects space lists, so the task opens there. Absent: shown nowhere else. */
+  space?: string;
   /** The runs as last known: the warning about one still going, and the output directory's number. */
   runs(): RunSummary[];
   /** The flow to start on, when there is one. */
@@ -208,6 +211,7 @@ function NewTaskForm({ host, module, options, onStarted, close }: { host: HostAp
         output_dir: outputDir.trim() || undefined,
         // Sent only when a worktree was asked for and can be had; the module's default otherwise.
         workspace: WORKTREE_READY && worktree ? "worktree" : undefined,
+        show_in_space: options.space || undefined,
       };
       const run = runIdOf(await nest.call(methodName(module, "start"), params));
       if (!run) throw new Error(t("flowui.task.noRun"));

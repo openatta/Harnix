@@ -198,17 +198,23 @@ export function hostFor(app: App, owner = "page"): HostApi {
 
 /**
  * The interface space a session opens in: the front one if it lists the backend space the hub has
- * the session in, else the first that does. The shell's own list cannot say — it lists the session
- * space alone — so the hub is asked.
+ * the session in — or one the session is exposed to (`exposed_to`: shown there by its owner) —
+ * else the first that lists its own space, else the first listing one it is exposed to. The
+ * shell's own list cannot say — it lists the session space alone — so the hub is asked.
  */
 async function spaceOfSession(app: App, ref: { instance: string; sessionId: string }): Promise<string> {
-  const { sessions } = await app.call<{ sessions: { session_id: string; space?: string }[] }>("harnix.sessions.list", { instance: ref.instance });
+  const { sessions } = await app.call<{ sessions: { session_id: string; space?: string; exposed_to?: { space: string }[] }[] }>("harnix.sessions.list", {
+    instance: ref.instance,
+  });
   const row = sessions.find((r) => r.session_id === ref.sessionId);
   if (!row) throw new Error(t("host.noSession", { session: `${ref.instance}/${ref.sessionId}` }));
   const backend = row.space ?? app.snapshot.hello?.defaults?.space ?? app.claim();
-  if (app.claim() === backend) return app.snapshot.space;
+  const shown = (row.exposed_to ?? []).map((e) => e.space);
+  const lists = (claim: string) => claim === backend || shown.includes(claim);
+  if (lists(app.claim())) return app.snapshot.space;
   const spaces = [...app.registry.at("space")].sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
-  const space = spaces.find((c) => c.id === backend) ?? spaces.find((c) => app.claim(c.id) === backend);
+  const space =
+    spaces.find((c) => c.id === backend) ?? spaces.find((c) => app.claim(c.id) === backend) ?? spaces.find((c) => shown.includes(app.claim(c.id)));
   if (!space) throw new Error(t("host.noSpace", { space: backend }));
   return space.id;
 }

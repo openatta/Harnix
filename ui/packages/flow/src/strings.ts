@@ -26,6 +26,7 @@ const en: Record<string, string> = {
   // A task: a run in a project (the projects space's tree, its "+" menu, the right column's tab).
   "flowui.task.kind": "Tasks",
   "flowui.task.new": "New task",
+  "flowui.task.openInFlow": "Open in the flows",
   "flowui.task.tab": "Flow",
   "flowui.task.step": "station {k}/{n}",
   "flowui.task.scheduled": "started by a schedule",
@@ -445,6 +446,7 @@ const zhCN: Record<string, string> = {
   // 任务：项目里的一次运行（项目树、项目的「＋」菜单、右栏的页签）。
   "flowui.task.kind": "任务",
   "flowui.task.new": "新任务",
+  "flowui.task.openInFlow": "在流程里打开",
   "flowui.task.tab": "流程",
   "flowui.task.step": "第 {k}/{n} 站",
   "flowui.task.scheduled": "由定时启动",
