@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"text","text":"Use the Write tool once, with file_path set to exactly the relative path notes.txt (just notes.txt, not an absolute path: it is resolved against the working directory) and content of exactly the line harnix-changes-fixture followed by a newline character. Then reply with exactly: written"}]}

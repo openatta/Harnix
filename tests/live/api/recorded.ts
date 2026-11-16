@@ -78,7 +78,8 @@ export const RECORDED: Recorded[] = [
   },
   {
     name: "writes-a-file",
-    message: "Use the Write tool to create notes.txt in the working directory with exactly one line: harnix-changes-fixture. Then reply: written",
+    message:
+      "Use the Write tool once, with file_path set to exactly the relative path notes.txt (just notes.txt, not an absolute path: it is resolved against the working directory) and content of exactly the line harnix-changes-fixture followed by a newline character. Then reply with exactly: written",
   },
   {
     name: "leaves-a-process",

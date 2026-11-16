@@ -152,6 +152,21 @@ defineSuite("settings-mcp", { feature: "settings" }, {
       const text = await page.text();
       assert(page.status === 400 && text.includes('data-harnix-mcp-auth="failed"') && /no sign-in is waiting/.test(text), `${page.status}: ${text}`);
       assert(page.headers.get("cache-control") === "no-store", "the callback page may be cached");
+      // Giving up a sign-in nobody started, and signing out of a server with no token: each names
+      // what it needs, and neither is refused outright.
+      const missing = await client.refused("settings.mcp.authCancel", {});
+      assert(missing && missing.code === INVALID_PARAMS && /flow_id/.test(missing.message), `answered ${JSON.stringify(missing)}`);
+      const stray = await client.refused("settings.mcp.authCancel", { flow_id: "nobody-started-this" });
+      assert(!stray || stray.code !== REFUSED, `answered ${JSON.stringify(stray)}`);
+      const unnamed = await client.refused("settings.mcp.logout", { tier: "global" });
+      assert(unnamed && unnamed.code === INVALID_PARAMS && /name/.test(unnamed.message), `answered ${JSON.stringify(unnamed)}`);
+      await client.call("settings.mcp.add", { tier: "global", name, config: { transport: "stdio", command: COMMAND } });
+      try {
+        const out = await client.refused("settings.mcp.logout", { tier: "global", name });
+        assert(!out || out.code !== REFUSED, `answered ${JSON.stringify(out)}`);
+      } finally {
+        await giveBack(client, name);
+      }
     },
 
     "a session's MCP servers come with their tools and instructions, as the model sees them": async ({ client }) => {
