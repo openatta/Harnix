@@ -118,6 +118,7 @@ pub struct Catalog {
 
 /// Where the flow a pack offers under a name comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum Origin {
     /// Shipped with the application; read-only.
@@ -600,6 +601,7 @@ pub fn default_instance(run: &str, template: &str) -> String {
 
 /// How a session task hands in its output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum Delivery {
     /// The session's `output_schema` is the station's contract; the model calls

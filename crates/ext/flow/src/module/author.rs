@@ -624,7 +624,11 @@ impl Tool for AuthorTool {
         let target = || target_flow(&input, focus.as_deref());
         match self.spec.does {
             Does::List => text(json!({
-                "flows": publish::defs_list(packs.as_ref()),
+                // What the conversation needs of each: its inputs are in the definition `flow_show` gives.
+                "flows": publish::defs_list(packs.as_ref()).into_iter().map(|d| json!({
+                    "name": d.name, "title": d.title, "digest": d.digest,
+                    "origin": d.origin, "valid": d.valid,
+                })).collect::<Vec<_>>(),
                 "current": focus,
                 "writable": packs.writable(),
             })),
@@ -885,6 +889,7 @@ impl Tool for AuthorTool {
                             inputs: input.get("inputs").cloned().unwrap_or(Value::Null),
                             title: str_of(&input, "title").map(String::from),
                             parent: None,
+                            ..Default::default()
                         },
                         by,
                     )

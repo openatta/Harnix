@@ -23,6 +23,7 @@ pub const MAX_REWORK_LIMIT: u32 = 20;
 
 /// A flow: a directed acyclic graph of stations.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct FlowDef {
     /// `[a-z][a-z0-9-]*`; run ids are `<name>-<n>`.
@@ -56,6 +57,7 @@ pub struct FlowDef {
 /// The run's main session: what session tasks bound to `main` and sub-agent tasks work in.
 /// The fields are a session station's placement (xops-02 §1).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct MainSession {
     /// A wrapped `flow-*` scene (its tasks hand in with `flow_submit`); the module's main
@@ -78,12 +80,15 @@ pub struct MainSession {
 
 /// A run parameter.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct InputDef {
     /// A JSON Schema the value must satisfy.
     #[serde(default = "empty_object")]
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub schema: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
     pub default: Option<Value>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub description: String,
@@ -95,6 +100,7 @@ fn empty_object() -> Value {
 
 /// A station: the unit of judgement.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct Station {
     pub id: String,
@@ -129,6 +135,7 @@ pub struct Station {
     pub retry: Option<Retry>,
     /// JSON Schema every task's output must satisfy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub output: Option<Value>,
     /// All must hold for the station to pass.
     #[serde(default)]
@@ -155,6 +162,7 @@ pub struct Station {
 
 /// One task of a static `tasks` list.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct TaskSpec {
     pub id: String,
@@ -174,6 +182,7 @@ impl TaskSpec {
 
 /// Who does a task.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Executor {
     /// A session task, fed the protocol layer and the skill. Without a `scene` (and `session`
@@ -232,6 +241,7 @@ pub enum Executor {
     Subflow {
         flow: String,
         #[serde(default, skip_serializing_if = "Value::is_null")]
+        #[cfg_attr(feature = "ts", ts(type = "unknown"))]
         inputs: Value,
     },
 }
@@ -282,6 +292,7 @@ impl Executor {
 
 /// Which session a session task runs in.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum SessionBinding {
     /// The run's main session (xops-03 §1).
@@ -310,6 +321,7 @@ pub const MAIN_SESSION_KEY: &str = "@main";
 
 /// Retry policy of a task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct Retry {
     pub max: u32,
@@ -317,6 +329,7 @@ pub struct Retry {
 
 /// Automatic rework when a station's exit conditions fail.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct OnUnmet {
     pub rework_to: String,
@@ -325,6 +338,7 @@ pub struct OnUnmet {
 
 /// A condition for leaving a station.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ExitCond {
     /// Every task has submitted an output satisfying the station's `output` contract.
@@ -385,12 +399,15 @@ impl ExitCond {
 /// A path that selects nothing reads as `null`. `eq: null` cannot be written — use
 /// `exists: false`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct Assert {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
     pub eq: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
     pub ne: Option<Value>,
     /// Element count (array, object; a non-empty string or scalar counts 1, null 0).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -496,6 +513,36 @@ impl FlowDef {
     /// Parse a definition from YAML (shape only; see [`crate::validate`] for the rest).
     pub fn parse(yaml: &str) -> Result<Self, String> {
         serde_yaml::from_str(yaml).map_err(|e| e.to_string())
+    }
+
+    /// What a run is started with, as one JSON Schema of the `inputs` object, for a form: each
+    /// input a property — its schema, with its `description` and `default` — and those without a
+    /// default required. Nothing else may be given.
+    pub fn inputs_schema(&self) -> Value {
+        let mut properties = serde_json::Map::new();
+        let mut required = vec![];
+        for (k, d) in &self.inputs {
+            let mut p = match &d.schema {
+                Value::Object(o) => o.clone(),
+                _ => serde_json::Map::new(),
+            };
+            if !d.description.is_empty() {
+                p.insert("description".into(), Value::String(d.description.clone()));
+            }
+            match &d.default {
+                Some(v) => {
+                    p.insert("default".into(), v.clone());
+                }
+                None => required.push(Value::String(k.clone())),
+            }
+            properties.insert(k.clone(), Value::Object(p));
+        }
+        serde_json::json!({
+            "type": "object",
+            "properties": properties,
+            "required": required,
+            "additionalProperties": false,
+        })
     }
 
     pub fn rework_limit(&self) -> u32 {

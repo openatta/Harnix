@@ -4,11 +4,12 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use serde_json::{json, Value};
+use serde_json::json;
 
 use super::shared::{Binding, Shared};
 use crate::kernel::engine::view;
 use crate::kernel::run::{RunQuery, RunRecord, StationStatus, TaskStatus};
+use crate::wire::DefRow;
 
 /// How many runs the `runs` topic carries, newest first.
 pub const RUNS_LISTED: usize = 200;
@@ -80,18 +81,23 @@ pub(crate) async fn publish_all(sh: &Arc<Shared>) {
     publish(sh, &listed).await;
 }
 
-/// The flows on offer, as the `defs` topic carries them: `[{name, title, digest, origin, valid}]`.
-pub(crate) fn defs_list(packs: &dyn crate::kernel::host::Packs) -> Vec<Value> {
+/// The flows on offer, as `flow.defs` and the `defs` topic carry them.
+pub(crate) fn defs_list(packs: &dyn crate::kernel::host::Packs) -> Vec<DefRow> {
     packs
         .flows()
         .into_iter()
         .filter_map(|n| {
             let (def, digest) = packs.flow(&n)?;
             let valid = crate::kernel::validate::validate(&def, packs).is_empty();
-            Some(json!({
-                "name": n, "title": def.title, "digest": digest,
-                "origin": packs.origin(&n), "valid": valid,
-            }))
+            Some(DefRow {
+                origin: packs.origin(&n),
+                inputs: def.inputs_schema(),
+                name: n,
+                title: def.title,
+                description: def.description,
+                digest,
+                valid,
+            })
         })
         .collect()
 }

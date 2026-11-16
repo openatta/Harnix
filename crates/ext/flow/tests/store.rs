@@ -29,6 +29,10 @@ fn record(id: &str, flow: &str, subject: &str, rev: u64, at: u64) -> RunRecord {
         session_keys: Default::default(),
         paused: None,
         usage_other: Default::default(),
+        project_root: None,
+        workspace: Workspace::Scratch,
+        output_dir: None,
+        trigger: Trigger::manual(Actor::new("user", "u")),
         def,
     }
 }

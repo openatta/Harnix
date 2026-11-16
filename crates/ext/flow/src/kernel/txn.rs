@@ -19,7 +19,7 @@ use super::parts::{GateKind, Pinned};
 use super::refs::{asserts_fail, context_in, resolve, resolve_str, station_output};
 use super::run::{
     Actor, CheckRec, CheckStatus, History, Lease, ParentRef, RunRecord, RunStatus, StationRec,
-    StationStatus, TaskRec, TaskStatus,
+    StationStatus, TaskRec, TaskStatus, Trigger, Workspace,
 };
 use super::validate::validate;
 use super::work::task_work;
@@ -241,7 +241,7 @@ impl<'e> Txn<'e> {
                             let id = self.eng.store.alloc_id(&flow).await?;
                             let title = format!("{} / {}", parent.run, parent.task);
                             let parts = super::parts::pin(&def, self.eng.packs.as_ref());
-                            Ok(new_record(
+                            let mut child = new_record(
                                 id,
                                 def,
                                 parts,
@@ -252,7 +252,12 @@ impl<'e> Txn<'e> {
                                 Actor::flow("dispatch"),
                                 self.fx.now,
                                 Some(parent.clone()),
-                            ))
+                            );
+                            // A child run works where its parent does.
+                            let up = self.get(&parent.run);
+                            child.project_root = up.project_root.clone();
+                            child.workspace = up.workspace;
+                            Ok(child)
                         }
                     }
                 }
@@ -335,6 +340,7 @@ pub(crate) fn new_record(
         rev: 0,
         seq: 0,
         created_at: now,
+        trigger: Trigger::manual(by.clone()),
         created_by: by,
         finished_at: None,
         parent,
@@ -346,6 +352,9 @@ pub(crate) fn new_record(
         session_keys: BTreeMap::new(),
         paused: None,
         usage_other: Default::default(),
+        project_root: None,
+        workspace: Workspace::Scratch,
+        output_dir: None,
         def,
     }
 }
