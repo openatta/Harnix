@@ -10,9 +10,9 @@
  */
 
 import type { ReactNode } from "react";
-import { TOKEN_STALE, errorText, modelConfigured, type ConnectionStatus, type ExtensionEntry, type HarnixClient, type Hello, type SessionRow, type UiView } from "@harnix/core";
+import { TOKEN_STALE, modelConfigured, type ConnectionStatus, type ExtensionEntry, type HarnixClient, type Hello, type SessionRow, type UiView } from "@harnix/core";
 import { MAIN_INSTANCE, type SessionController } from "@harnix/core/state";
-import { sidebarTypes, t, tabsOf, type ComposerApi, type DetailItem, type Registry, type ShellContext, type SidebarTabType, type SpaceContribution, type SpaceTab } from "@harnix/react";
+import { sidebarTypes, t, tabsOf, type ComposerApi, type DetailItem, type Registry, type ShellContext, type SidebarTabType, type SpaceContribution, type SpaceTab, explainError } from "@harnix/react";
 
 import { SurfaceStore, type SidebarTab } from "./sidebar/surface.ts";
 import { topicsOf } from "./topics.ts";
@@ -513,7 +513,7 @@ export class App {
         // Before the stored front space is looked for: the spaces are the UI packages'. Bounded
         // (`within`): an extension's start that awaits the backend and never hears back does not
         // stop the shell's.
-        const registering = Promise.resolve(this.builtins?.(this)).catch((e: unknown) => this.notice(errorText(e), "error"));
+        const registering = Promise.resolve(this.builtins?.(this)).catch((e: unknown) => this.notice(explainError(e), "error"));
         await within(registering, BOOT_WAIT_MS);
         // Every registration of the start is in: what went into a point nobody defined goes now.
         this.registry.settle();
@@ -522,7 +522,7 @@ export class App {
       }
       await this.refreshSessions();
     } catch (e) {
-      this.notice(errorText(e), "error");
+      this.notice(explainError(e), "error");
     }
   }
 
@@ -538,7 +538,7 @@ export class App {
       if (JSON.stringify(before) !== JSON.stringify(view.extensions)) for (const fn of [...this.extensionListeners]) fn();
       this.uiChain = this.uiChain
         .then(() => this.interfaces?.(this, view))
-        .catch((e: unknown) => this.notice(errorText(e), "error"));
+        .catch((e: unknown) => this.notice(explainError(e), "error"));
     });
   }
 
@@ -670,7 +670,7 @@ export class App {
       if (mine !== this.refreshes || space !== this.state.space) return;
       this.set({ sessions });
     } catch (e) {
-      if (mine === this.refreshes) this.notice(errorText(e), "error");
+      if (mine === this.refreshes) this.notice(explainError(e), "error");
     }
   }
 

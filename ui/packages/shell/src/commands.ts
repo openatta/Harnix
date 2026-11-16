@@ -4,8 +4,7 @@
  */
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { errorText } from "@harnix/core";
-import { useRegistry, type ChatCommand, type CommandContext, type MentionItem } from "@harnix/react";
+import { useRegistry, type ChatCommand, type CommandContext, type MentionItem, explainError } from "@harnix/react";
 
 import type { App } from "./app.ts";
 import { spacesOf } from "./Sidebar.tsx";
@@ -96,7 +95,7 @@ export function useCommands(app: App): ChatCommand[] {
                   run: () =>
                     Promise.resolve()
                       .then(() => run.call(candidate, ctx))
-                      .catch((e: unknown) => app.notice(errorText(e), "error")),
+                      .catch((e: unknown) => app.notice(explainError(e), "error")),
                 }
               : {}),
           });

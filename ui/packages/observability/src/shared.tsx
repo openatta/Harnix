@@ -4,7 +4,7 @@
  */
 
 import { errorText, type CallSummary, type RecordingRun, type TurnSummary } from "@harnix/core";
-import { compact, t, useT, type HostApi, type HostSessionRef as SessionKey, type Registry } from "@harnix/react";
+import { compact, t, useT, type HostApi, type HostSessionRef as SessionKey, type Registry, explainError } from "@harnix/react";
 
 /** The tab's host and the page's registry: what a tab reaches out with. */
 export interface Observed {
@@ -100,7 +100,7 @@ export async function locateInConversation({ host, registry }: Observed, session
   try {
     await host.navigate.open({ space, session });
   } catch (e) {
-    host.shell.notice(errorText(e), "error");
+    host.shell.notice(explainError(e), "error");
     return;
   }
   if (!tool) return;

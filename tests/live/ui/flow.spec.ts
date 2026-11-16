@@ -309,6 +309,10 @@ test("a run started on the flow: its main session in the middle, its state, paus
   await review.click();
   const panel = stationPanel(page);
   await expect(panel.getByTestId("flow-station-spent")).toBeVisible();
+  // Unmet, the panel says what it means and what to do; the reasons are listed under it.
+  if ((await review.getAttribute("data-status")) === "unmet") {
+    await expect(panel.getByTestId("flow-unmet-hint")).toBeVisible();
+  }
   await panel.getByTestId("flow-force").click();
   await panel.getByTestId("flow-reason").fill("reviewed by hand");
   await panel.getByTestId("flow-action-submit").click();

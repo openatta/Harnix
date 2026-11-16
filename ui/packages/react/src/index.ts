@@ -50,7 +50,7 @@ export { ConnectionBadge } from "./components/ConnectionBadge";
 export { BuiltinToolRow, Disclosure, STATUS_GLYPH, ToolDetails, argumentSummary, askedTool, clip, rowTitle, toolAsks, useToolState, type ToolAsks, type ToolRowContribution, type UserRowContribution } from "./components/blocks";
 export { lineDiff, hunks, type DiffLine } from "./diff";
 export { markdown, escapeHtml, type MarkdownOptions } from "./markdown";
-export { zhCN, en, uiStrings, type HarnixUiStrings } from "./strings";
+export { zhCN, en, uiStrings, explainError, type HarnixUiStrings } from "./strings";
 export { Icon } from "./chat/icons";
 export { DISPLAY_DEFAULTS, FONT_SIZE_RANGE, accepts as displayAccepts, applyTypography, display, setDisplay, subscribeDisplay, useDisplay, type BusyEnter, type Display, type LinkOpening, type UsageDetail } from "./display";
 export { GLYPHS, Glyph, glyphHtml, iconsFrom, toolGlyph } from "./glyph";

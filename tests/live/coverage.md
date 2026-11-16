@@ -9,12 +9,12 @@
 |---|---|---|---|---|
 | 握手与连接 | `connection` | 39 | 3 | — |
 | 授权与设备 | `authz` | 22 | 2 | — |
-| 会话与轮次 | `sessions` | 108 | 44 | — |
+| 会话与轮次 | `sessions` | 115 | 44 | — |
 | 无头会话 | `headless` | 4 | 1 | — |
-| 实例层 | `instances` | 28 | — 实例层没有自己的界面；界面上看实例是系统 space 的事（system） | — |
+| 实例层 | `instances` | 29 | — 实例层没有自己的界面；界面上看实例是系统 space 的事（system） | — |
 | 扩展契约 | `modules` | 20 | 1 | — |
 | space 与会话绑定 | `spaces` | 10 | 6 | — |
-| 会话 space | `session-space` | 26 | 24 | — |
+| 会话 space | `session-space` | 26 | 29 | — |
 | 项目 space（项目树、项目菜单、项目信任、项目里的任务） | `projects` | 3 | 11 | — |
 | 外壳框架（固定部分、可去掉的内建 space、拖宽、头像） | `shell` | 2 | 44 | — |
 | 系统 space | `system` | 16 | 29 | — |
@@ -31,7 +31,7 @@
 | 扩展包后端的闲置休眠（on-demand、冷启动、并发唤醒只起一个实例、订阅与定时器保持常驻、系统 space 的扩展包页签） | `packages-idle` | 6 | 1 | 7 |
 | 应用构建 | `build` | — 在脚本层检查（check-pins、check-lock、sync-app-deps），不经协议 | — 构建没有界面 | — |
 | 桌面壳 | `desktop` | — 桌面壳不加协议面：webview 加载的就是服务端的页面 | — 桌面壳是模板（templates/desktop）：它不调 IPC 由 check-no-ipc.mjs 在 offline 层查，本机模式由它的 --smoke 查 | — |
-| **合计** | | **469** | **254** | **101** |
+| **合计** | | **477** | **259** | **101** |
 
 ## 已知缺口（`@gap`）
 
