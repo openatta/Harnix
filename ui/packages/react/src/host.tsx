@@ -244,6 +244,11 @@ export function useHost(): HostApi {
   return host;
 }
 
+/** The host, or null where there is none (the conversation drawn on its own, outside the shell). */
+export function useOptionalHost(): HostApi | null {
+  return useContext(HostContext);
+}
+
 /** The front space's current session, kept up to date: `session.current()` and `session.onChange`. */
 export function useCurrentSession(): SessionRef | null {
   const host = useHost();

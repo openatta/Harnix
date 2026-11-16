@@ -25,6 +25,7 @@ import {
   scopesOverlap,
   shortcutConflicts,
   shortcutPlatform,
+  explainError,
   t,
   useRegistry,
   useT,
@@ -284,9 +285,9 @@ export function listenForShortcuts(app: App): () => void {
     const current = app.snapshot.current;
     const ctx = { space: app.snapshot.space, session: current ? { instance: current.instance, sessionId: current.sessionId } : null, scope: command.scope ?? "global" };
     try {
-      void Promise.resolve(command.run(ctx)).catch((e: unknown) => app.notice(errorText(e), "error"));
+      void Promise.resolve(command.run(ctx)).catch((e: unknown) => app.notice(explainError(e), "error"));
     } catch (e) {
-      app.notice(errorText(e), "error");
+      app.notice(explainError(e), "error");
     }
   };
   window.addEventListener("keydown", onKey);

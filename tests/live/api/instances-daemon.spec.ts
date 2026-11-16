@@ -16,6 +16,8 @@ import { join } from "node:path";
 
 import { type Backend, type TestClient, alive, connect, expect, gone, sleep, test } from "@harnix/testkit";
 
+import { failureClass, failureFacts } from "@harnix/core/state";
+
 import { runOn, until } from "./instances";
 import { startTestApp } from "./testapp";
 
@@ -136,6 +138,26 @@ test("a killed daemon degrades its instance, comes back, and its sessions resync
     { timeout: 60_000, describe: "a turn after the restart to settle" },
   );
   expect(settled.params.error, "the resumed session replayed rather than called a model").toBeUndefined();
+});
+
+test("a message sent while its daemon is down is told as the instance or the engine being away, then goes through once it is back", TAGS, async () => {
+  const before = await until(api, "ci", "ready");
+  const sessionId = await runOn(api, "ci");
+  process.kill(before.pid, "SIGKILL");
+  await api.waitFor(
+    (f) => f.method === "harnix.topic" && f.params.topic === "harnix.instances"
+      && f.params.value.instances.some((i: any) => i.id === "ci" && i.status.state === "degraded"),
+    { timeout: 20_000, describe: "ci to be shown degraded" },
+  ).catch(() => undefined);
+  // What the person is told is read from the error's code or kind (`failureClass`): either the
+  // send is refused outright (the instance is out of reach) or the turn ends on the engine's link
+  // dropping. A daemon already restarted by now lets the send through, which is not a failure.
+  const sent = await api.call("harnix.session.send", { instance: "ci", session_id: sessionId, message: "Say exactly: fixture ready" })
+    .catch((e: unknown) => ({ refused: e }));
+  if ("refused" in sent) {
+    expect(["instance_unavailable", "engine_down"], JSON.stringify(sent.refused)).toContain(failureClass(failureFacts(sent.refused)));
+  }
+  await until(api, "ci", "ready");
 });
 
 /**

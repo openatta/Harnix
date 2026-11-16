@@ -19,6 +19,7 @@ import { memo, useRef, useState, type CSSProperties, type KeyboardEvent, type Re
 import type { Rating } from "@harnix/core/protocol";
 import { useStrings } from "../context";
 import { useDisplay } from "../display";
+import { useOptionalHost } from "../host";
 import { markdown } from "../markdown";
 import type { BlockOf, ToolStatus } from "@harnix/core/state";
 import { ToolDetails, toolDuration, useToolState } from "../components/blocks";
@@ -287,14 +288,22 @@ export const ThinkRow = memo(function ThinkRow({ block }: { block: BlockOf<"thin
 /* ── 系统事件 ─────────────────────────────────────────────────────── */
 
 export const SystemLine = memo(function SystemLine({ block, transcript }: { block: BlockOf<"note">; transcript?: boolean }) {
+  const strings = useStrings();
+  const host = useOptionalHost();
   return (
     <div
       className={`hx-blk ${transcript ? "hx-cc-sys" : "hx-cv-sys"} hx-tone-${block.tone}`}
       data-testid="conv-note"
       data-state={block.tone}
       role={block.tone === "error" ? "alert" : undefined}
+      title={block.detail}
     >
       <span>{block.text}</span>
+      {block.action === "settings.models" && host ? (
+        <button type="button" className="btn sm" data-testid="conv-note-action" data-action={block.action} onClick={() => host.settings.open("models")}>
+          {strings.openModels}
+        </button>
+      ) : null}
     </div>
   );
 });

@@ -26,7 +26,7 @@ import {
 } from "react";
 import { errorText } from "@harnix/core";
 import type { BlockOf, SessionController, SessionState } from "@harnix/core/state";
-import { CONVERSATION_VIEW, ChatComposer, ChatPanel, ContextRing, Contributed, listenForLayers, modalUp, ringValue, t, useLayer, useRegistry, useT, ComposerNote, askedTool, rowTitle, toolAsks, type Attached, type ChatIds, type ComposerApi, type MentionItem, type ModelOption, type SpaceContribution, type SpaceSecondary, type ToolRowContribution, Glyph, useDisplay } from "@harnix/react";
+import { CONVERSATION_VIEW, ChatComposer, ChatPanel, ContextRing, Contributed, listenForLayers, modalUp, ringValue, t, useLayer, useRegistry, useT, ComposerNote, askedTool, rowTitle, toolAsks, type Attached, type ChatIds, type ComposerApi, type MentionItem, type ModelOption, type SpaceContribution, type SpaceSecondary, type ToolRowContribution, Glyph, useDisplay, explainError } from "@harnix/react";
 
 import { ask, detailsWidthOf, keyOf, later, secondaryWidthOf, type App, type OpenModal, type ShellState, type Widths } from "./app.ts";
 import { useBrand } from "./brand.ts";
@@ -455,7 +455,7 @@ function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app:
       onSent?.();
       return true;
     } catch (e) {
-      app.notice(errorText(e), "error");
+      app.notice(explainError(e), "error");
       return false;
     }
   };
@@ -638,7 +638,7 @@ function Hero({ app }: { app: App }) {
                   await app.sessionCall("harnix.session.send", { instance: key.instance, session_id: key.sessionId }, { message: text });
                   setSeed((n) => n + 1);
                 } catch (e) {
-                  app.notice(errorText(e), "error");
+                  app.notice(explainError(e), "error");
                 }
               }}
             >
@@ -829,7 +829,7 @@ function Conversation({ app, s, onController, hidden = false }: { app: App; s: S
         chosenModels.set(sessionKey, option.id);
         setChosen(option.id);
       } catch (e) {
-        app.notice(errorText(e), "error");
+        app.notice(explainError(e), "error");
         throw e;
       }
     },

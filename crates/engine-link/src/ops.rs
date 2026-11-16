@@ -12,6 +12,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use harnix_contract::wire::{RewindParams, RewindResult};
+use harnix_contract::wire::{SessionHooks, SessionSkills};
 use harnix_contract::RpcError;
 use serde_json::{json, Value};
 
@@ -118,6 +119,24 @@ pub trait EngineOps: Send + Sync {
 
     /// Any other engine method, under the name the hub's row gives it; the answer as it is.
     async fn passthrough(&self, method: &str, params: Value) -> Answer<Value>;
+
+    /// The skills a session sees, as the engine says them: each with its tier, its directory and
+    /// its plugin package, the host directories the session lists, and its project's trust. Which
+    /// package a directory is, is the hub's to say; `instance` and `session_id` are left empty.
+    /// An engine that cannot say answers so.
+    async fn session_skills(&self, session: &str) -> Answer<SessionSkills> {
+        let _ = session;
+        Err(RpcError::not_found("this engine does not say which skills a session sees"))
+    }
+
+    /// The hooks the engine's settings tiers configure for a session's turns, each said by its
+    /// kind and matcher only, which are in force, and the tiers it could not read. What this
+    /// process registers on its connection is the link's to say ([`crate::EngineControl::host_hooks`]);
+    /// `instance` and `session_id` are left empty.
+    async fn settings_hooks(&self, session: &str) -> Answer<SessionHooks> {
+        let _ = session;
+        Err(RpcError::not_found("this engine does not say which hooks a session runs"))
+    }
 
     /// Put the session's files, its conversation or both back to an earlier point between turns
     /// — or, with `dry_run`, say what that would do. `ask.to` is never a `before_turn`: the hub

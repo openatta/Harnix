@@ -5,7 +5,7 @@
  */
 
 import { errorText, type CallSummary, type RecordingRun, type TurnSummary } from "@harnix/core";
-import { CONVERSATION_VIEW, compact, t, useT, type HostApi, type HostSessionRef as SessionKey, type Registry } from "@harnix/react";
+import { CONVERSATION_VIEW, compact, t, useT, type HostApi, type HostSessionRef as SessionKey, type Registry, explainError } from "@harnix/react";
 
 /** The view this package registers for the centre: the session's trajectory. */
 export const TRAJECTORY_VIEW = "observability.trajectory";
@@ -114,7 +114,7 @@ export async function locateInConversation(host: HostApi, session: SessionKey, t
     if (tool) await host.session.open(session, { switchSpace: true, view: CONVERSATION_VIEW, reveal: tool });
     else await host.session.open(session, { switchSpace: true, view: CONVERSATION_VIEW });
   } catch (e) {
-    host.shell.notice(errorText(e), "error");
+    host.shell.notice(explainError(e), "error");
   }
 }
 
@@ -123,6 +123,6 @@ export async function openTrajectory(host: HostApi, session: SessionKey): Promis
   try {
     await host.session.open(session, { switchSpace: true, view: TRAJECTORY_VIEW });
   } catch (e) {
-    host.shell.notice(errorText(e), "error");
+    host.shell.notice(explainError(e), "error");
   }
 }

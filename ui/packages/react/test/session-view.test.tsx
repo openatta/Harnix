@@ -5,7 +5,7 @@
 
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { HarnixUiProvider, SessionView } from "../src";
+import { HarnixUiProvider, HostProvider, SessionView, explainError, type HostApi } from "../src";
 import { FakeClient, attached, flush } from "./fake-client";
 
 let server: FakeClient;
@@ -437,6 +437,50 @@ describe("一轮", () => {
     const notes = screen.getAllByTestId("conv-note");
     expect(notes.map((n) => n.dataset.state)).toEqual(["interrupted"]);
     expect(conv().dataset.state).toBe("idle");
+  });
+
+  it("认得的失败说成人话：做什么、下一步，原话与码在悬停里；模型的问题带一个去设置的入口", async () => {
+    server.handlers["harnix.session.attach"] = () => attached("S1", { running_turn: "t1" });
+    const open: string[] = [];
+    const host = { settings: { open: (section?: string) => open.push(section ?? "") } } as unknown as HostApi;
+    render(
+      <HarnixUiProvider client={server.asClient()}>
+        <HostProvider host={host}>
+          <SessionView sessionId="S1" />
+        </HostProvider>
+      </HarnixUiProvider>,
+    );
+    await settle();
+    act(() =>
+      server.push("harnix.turn_settled", {
+        session_id: "S1",
+        turn_id: "t1",
+        error: { code: -32002, message: "401 invalid x-api-key", data: { kind: "auth", retryable: false } },
+      }),
+    );
+    const note = screen.getByTestId("conv-note");
+    expect(note.textContent).toMatch(/模型与凭据|Models & credentials/);
+    expect(note.textContent).not.toContain("401 invalid x-api-key");
+    expect(note.getAttribute("title")).toBe("401 invalid x-api-key (-32002 auth)");
+    fireEvent.click(within(note).getByTestId("conv-note-action"));
+    expect(open).toEqual(["models"]);
+  });
+
+  it("没有宿主的会话视图不画入口；不认得的失败照原话", async () => {
+    server.handlers["harnix.session.attach"] = () => attached("S1", { running_turn: "t1" });
+    mount();
+    await settle();
+    act(() =>
+      server.push("harnix.turn_settled", { session_id: "S1", turn_id: "t1", error: { code: -32002, message: "missing api_key", data: { kind: "model_error" } } }),
+    );
+    expect(screen.getByTestId("conv-note").textContent).toMatch(/模型与凭据|Models & credentials/);
+    expect(screen.queryByTestId("conv-note-action")).toBeNull();
+  });
+
+  it("explainError：认得的带码，不认得的是原话", () => {
+    expect(explainError({ code: -31004, message: "instance down" })).toMatch(/\(-31004\)$/);
+    expect(explainError({ code: -32002, message: "x", data: { kind: "rate_limited", retry_after_ms: 2500 } })).toMatch(/3/);
+    expect(explainError(new Error("socket closed"))).toBe("socket closed");
   });
 
   it("没要求中断的失败照常报错", async () => {
