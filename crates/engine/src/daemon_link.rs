@@ -12,9 +12,9 @@
 //! meanwhile (Agix §5.6).
 //!
 //! What the link offers the daemon — its tools, hooks and gates ([`HostSide`]) — is registered on
-//! each connection it takes before it says it is ready, so the hub hears of a reconnection only
-//! once they are back; the daemon's calls of them are answered by the link, never handed to the
-//! hub.
+//! each connection it takes before it says it is ready, and the hub hears of a reconnection only
+//! once the link is ready: they are back, and its calls are taken. The daemon's calls of them are
+//! answered by the link, never handed to the hub.
 //!
 //! The daemon trusts an authenticated connection completely and has no per-method authorization
 //! (Agix §5.1), so a daemon serves one Harnix: whoever hands this link a stream has made sure
@@ -268,10 +268,12 @@ impl DaemonLink {
         }
         self.wire.activity.connected();
         self.wire.recorder_root.forget();
+        // Ready before the hub hears: what it does on hearing — asking after every session it
+        // had — is calls, which a link that is not ready refuses.
+        self.wire.status.send_replace(LinkStatus::Ready);
         if self.wire.connected_before.swap(true, Ordering::Relaxed) {
             let _ = self.wire.events_tx.send(EngineEvent::Reconnected).await;
         }
-        self.wire.status.send_replace(LinkStatus::Ready);
         tracing::info!(daemon = %self.wire.label, "daemon link ready");
         tokio::spawn(self.wire.clone().announce_mcp_failures());
         Ok(taken)

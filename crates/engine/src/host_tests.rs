@@ -104,6 +104,7 @@ impl Tool for Echo {
         match input["perm"].as_str() {
             Some("deny") => Permission::Deny("not that".into()),
             Some("ask") => Permission::Ask("Really run it?".into()),
+            Some("panic") => panic!("a permission check that breaks"),
             _ => Permission::Allow,
         }
     }
@@ -113,6 +114,9 @@ impl Tool for Echo {
         }
         if input["missing"].as_bool() == Some(true) {
             return Err(ToolError::NotFound("nothing there".into()));
+        }
+        if input["panic"].as_bool() == Some(true) {
+            panic!("a tool that breaks");
         }
         if input["wait"].as_bool() == Some(true) {
             cx.cancel().cancelled().await;
@@ -142,6 +146,15 @@ impl ToolHook for Note {
     }
 }
 
+struct Panics;
+
+#[async_trait::async_trait]
+impl ToolHook for Panics {
+    async fn before(&self, _: &ToolCallFacts) -> HookDecision {
+        panic!("a hook that breaks")
+    }
+}
+
 struct Provider {
     tools: StdMutex<Vec<Arc<dyn Tool>>>,
     hooks: Vec<Arc<dyn ToolHook>>,
@@ -168,6 +181,9 @@ struct Words;
 #[async_trait::async_trait]
 impl PromptGate for Words {
     async fn inspect(&self, message: &PromptFacts) -> PromptDecision {
+        if message.content().contains("panic-word") {
+            panic!("a gate that breaks");
+        }
         if message.content().contains("blocked-word") {
             PromptDecision::Block("not that word".into())
         } else {
@@ -301,11 +317,36 @@ async fn a_tool_that_fails_or_is_missing_answers_as_the_engine_reads_it() {
     assert_eq!(missing["error"], json!({"message": "nothing there"}));
     assert!(missing.get("result").is_none());
 
-    let mut other = tool_call("c3", json!({}));
-    other["name"] = json!("not_ours");
-    fake.push("s1", other).await;
+    // One that panics fails its call, rather than leave the turn waiting for it.
+    fake.push("s1", tool_call("c4", json!({"panic": true}))).await;
+    let (_, panicked) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
+    assert_eq!(panicked["result"], json!({"content": "the tool `echo` failed; the host's log says where", "is_error": true}));
+
+    // One the session was made with that is offered no more is answered as not there, not left
+    // to time out; the hub does not see it.
+    let mut gone = tool_call("c3", json!({}));
+    gone["name"] = json!("not_ours");
+    fake.push("s1", gone).await;
+    fake.push("s1", json!({"kind": "text_delta", "text": "after"})).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
+    assert_eq!((&answer["call_id"], &answer["error"]["message"]), (&json!("c3"), &json!("this host offers no tool `not_ours`")));
+    assert!(answer.get("result").is_none());
+    assert!(fragment(&first_event(&mut events).await).is_some(), "the hub saw the call");
+}
+
+/// A link that offers nothing only looks on: a tool's call it does not know is another host's,
+/// and goes to the hub unanswered.
+#[tokio::test]
+async fn a_link_that_offers_nothing_leaves_a_call_to_its_host() {
+    let link = DaemonLink::new(InstanceCarrier::Adopted, "test");
+    let mut events = link.take_events().unwrap();
+    let (connection, mut fake) = pair();
+    let taken = taking(&link, connection);
+    fake.greet(crate::REQUIRED_CAPABILITIES).await;
+    let _taken = taken.await.unwrap().map_err(|r| format!("{r:?}")).unwrap();
+    fake.push("s1", tool_call("c1", json!({}))).await;
     match first_event(&mut events).await {
-        EngineEvent::Session { kind: SessionEventKind::Other, event, .. } => assert_eq!(event["call_id"], "c3"),
+        EngineEvent::Session { kind: SessionEventKind::Other, event, .. } => assert_eq!(event["call_id"], "c1"),
         other => panic!("{other:?}"),
     }
 }
@@ -403,6 +444,55 @@ async fn a_reconnection_registers_again_before_the_hub_hears_of_it() {
     assert!(matches!(first_event(&mut events).await, EngineEvent::Reconnected));
 }
 
+/// The hub hears of a reconnection once the link takes calls again: what it does on hearing it
+/// (asking the engine of each session it had) is not refused as the instance being unavailable.
+/// The hub reads its events on a thread of its own, and checks the moment it hears.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_hub_hears_of_a_reconnection_once_the_link_takes_calls() {
+    const ROUNDS: usize = 300;
+    let link = DaemonLink::new(InstanceCarrier::InProcess, "test");
+    let mut events = link.take_events().unwrap();
+    let (connection, mut fake) = pair();
+    let taking_first = taking(&link, connection);
+    fake.greet(crate::REQUIRED_CAPABILITIES).await;
+    let mut taken = taking_first.await.unwrap().map_err(|r| format!("{r:?}")).unwrap();
+    // Whether the link took calls when the hub heard, once for each reconnection.
+    let (said, mut heard) = tokio::sync::mpsc::unbounded_channel();
+    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let hub = {
+        let (link, done) = (link.clone(), done.clone());
+        std::thread::spawn(move || {
+            while !done.load(std::sync::atomic::Ordering::Relaxed) {
+                match events.try_recv() {
+                    Ok(EngineEvent::Reconnected) => {
+                        let _ = said.send(link.status().borrow().is_ready());
+                    }
+                    Ok(_) => {}
+                    Err(_) => std::hint::spin_loop(),
+                }
+            }
+        })
+    };
+    let mut refused = 0;
+    for _ in 0..ROUNDS {
+        drop(fake);
+        taken.lost().await;
+        link.disconnect().await;
+        link.degrade("the connection closed".into());
+        let (connection, next) = pair();
+        fake = next;
+        let again = taking(&link, connection);
+        fake.greet(crate::REQUIRED_CAPABILITIES).await;
+        taken = again.await.unwrap().map_err(|r| format!("{r:?}")).unwrap();
+        // Heard before the next round loses the connection again.
+        let ready = tokio::time::timeout(WAIT, heard.recv()).await.expect("heard in time").unwrap();
+        refused += usize::from(!ready);
+    }
+    done.store(true, std::sync::atomic::Ordering::Relaxed);
+    hub.join().unwrap();
+    assert_eq!(refused, 0, "of {ROUNDS} reconnections, the hub heard of {refused} before the link took calls");
+}
+
 #[tokio::test]
 async fn a_change_declares_the_tools_again() {
     let provider = provider(vec![]);
@@ -431,6 +521,37 @@ async fn a_session_made_just_after_a_change_has_the_tools_as_they_are_now() {
     fake.answer(id, json!({"hooks": [], "refused": []})).await;
     let (id, _) = fake.expect(translate::SESSION_CREATE).await;
     fake.answer(id, json!({"session_id": "s1"})).await;
+    create.await.unwrap().unwrap();
+}
+
+/// A change the engine did not take is not taken as heard: it is declared again before the next
+/// session is made.
+#[tokio::test]
+async fn a_change_the_engine_did_not_take_is_declared_again_before_a_session() {
+    let provider = provider(vec![]);
+    let (link, mut fake, _taken, _events) = ready(&provider).await;
+    lock(&provider.tools).push(echo("second"));
+    provider.changed.notify();
+    let (id, _) = fake.expect(translate::DAEMON_SET_HOST_TOOLS).await;
+    fake.fail(id, -32603, "not now").await;
+    let (id, _) = fake.expect(translate::DAEMON_SET_HOOKS).await;
+    fake.answer(id, json!({"hooks": [], "refused": []})).await;
+    let rpc = link.rpc();
+    let create = tokio::spawn(async move { rpc.call(translate::SESSION_CREATE, json!({})).await });
+    let (id, tools) = fake.expect(translate::DAEMON_SET_HOST_TOOLS).await;
+    assert_eq!(tools["host_tools"].as_array().unwrap().len(), 2);
+    fake.answer(id, json!({"host_tools": ["echo", "second"], "refused": []})).await;
+    let (id, _) = fake.expect(translate::DAEMON_SET_HOOKS).await;
+    fake.answer(id, json!({"hooks": [], "refused": []})).await;
+    let (id, _) = fake.expect(translate::SESSION_CREATE).await;
+    fake.answer(id, json!({"session_id": "s1"})).await;
+    create.await.unwrap().unwrap();
+
+    // Taken this time: the next session is made without declaring again.
+    let rpc = link.rpc();
+    let create = tokio::spawn(async move { rpc.call(translate::SESSION_CREATE, json!({})).await });
+    let (id, _) = fake.expect(translate::SESSION_CREATE).await;
+    fake.answer(id, json!({"session_id": "s2"})).await;
     create.await.unwrap().unwrap();
 }
 
@@ -519,6 +640,78 @@ async fn a_host_tools_ask_is_answered_by_the_tool() {
     fake.push("s1", permission_ask("p2", "u2")).await;
     let (_, answer) = fake.expect(translate::SESSION_RESPOND).await;
     assert_eq!(answer["decision"], json!({"type": "deny", "reason": "not that"}));
+}
+
+/// An ask whose answer the engine does not take goes to the person, and its resolution to the
+/// hub; one resolved before the answer was turned away is over, and goes nowhere.
+#[tokio::test]
+async fn an_ask_whose_answer_does_not_go_is_handed_to_the_person() {
+    let (_link, mut fake, _taken, mut events) = ready(&provider(vec![])).await;
+    fake.push("s1", tool_use("u1", json!({}))).await;
+    fake.push("s1", permission_ask("p1", "u1")).await;
+    // The first try and every one after it, turned away for too many in flight.
+    for _ in 0..4 {
+        let (id, _) = fake.expect(translate::SESSION_RESPOND).await;
+        fake.fail(id, crate::embed::TOO_MANY_IN_FLIGHT, "too many requests in flight").await;
+    }
+    match next_but_calls(&mut events).await {
+        EngineEvent::Session { kind: SessionEventKind::Asked(prompt), .. } => assert_eq!(prompt.prompt_id.as_deref(), Some("p1")),
+        other => panic!("{other:?}"),
+    }
+    fake.push("s1", json!({"kind": "prompt_resolved", "prompt_id": "p1", "resolution": "withdrawn", "reason": "timed_out"})).await;
+    match next_but_calls(&mut events).await {
+        EngineEvent::Session { event, .. } => assert_eq!((&event["kind"], &event["prompt_id"]), (&json!("prompt_resolved"), &json!("p1"))),
+        other => panic!("{other:?}"),
+    }
+
+    fake.push("s1", tool_use("u2", json!({}))).await;
+    fake.push("s1", permission_ask("p2", "u2")).await;
+    let (id, _) = fake.expect(translate::SESSION_RESPOND).await;
+    fake.push("s1", json!({"kind": "prompt_resolved", "prompt_id": "p2", "resolution": "withdrawn", "reason": "timed_out"})).await;
+    fake.fail(id, -32602, "no prompt p2 is waiting").await;
+    fake.push("s1", json!({"kind": "text_delta", "text": "after"})).await;
+    assert_eq!(fragment(&next_but_calls(&mut events).await).as_deref(), Some("after"), "the hub saw p2");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(events.try_recv().is_err(), "the hub saw p2");
+}
+
+/// A permission check, a tool hook or a gate that panics is taken as failed — the call refused, the
+/// hook's call let through, the message blocked — and the link goes on reading.
+#[tokio::test]
+async fn a_check_that_panics_is_taken_as_failed_and_the_link_reads_on() {
+    let provider = Arc::new(Provider {
+        tools: StdMutex::new(vec![echo("echo")]),
+        hooks: vec![Arc::new(Panics), Arc::new(Note(HookDecision::AddContext("still asked".into())))],
+        changed: ToolsChanged::new(),
+    });
+    let (_link, mut fake, _taken, mut events) = ready(&provider).await;
+
+    // On the reader: the ask is refused for the tool.
+    fake.push("s1", tool_use("u1", json!({"perm": "panic"}))).await;
+    fake.push("s1", permission_ask("p1", "u1")).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND).await;
+    assert_eq!(answer["decision"], json!({"type": "deny", "reason": "its permission check failed; the host's log says where"}));
+    fake.push("s1", json!({"kind": "text_delta", "text": "after"})).await;
+    assert_eq!(fragment(&next_but_calls(&mut events).await).as_deref(), Some("after"), "the link stopped reading");
+
+    // At the call: refused, not run.
+    fake.push("s1", tool_call("c1", json!({"perm": "panic"}))).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
+    assert_eq!(answer["result"]["content"], "refused: its permission check failed; the host's log says where");
+
+    // The hook that panics lets the call through; the one after it is still asked.
+    fake.push("s1", hook_call("h1", "PreToolUse", bash())).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_HOOK).await;
+    assert_eq!((&answer["decision"], &answer["additional_context"]), (&json!("proceed"), &json!("still asked")));
+
+    // The gate that panics blocks the message.
+    let said = json!({"hook_event_name": "UserPromptSubmit", "session_id": "s1", "user_prompt": "a panic-word here", "delivery": "turn"});
+    fake.push("s1", hook_call("h2", "UserPromptSubmit", said)).await;
+    let (_, answer) = fake.expect(translate::SESSION_RESPOND_HOOK).await;
+    assert_eq!((&answer["decision"], &answer["message"]), (&json!("block"), &json!("a check on messages failed; the host's log says where")));
+
+    fake.push("s1", json!({"kind": "text_delta", "text": "still"})).await;
+    assert_eq!(fragment(&next_but_calls(&mut events).await).as_deref(), Some("still"));
 }
 
 /// A tool that asks has its ask handed to the person, with its own question beside the engine's.

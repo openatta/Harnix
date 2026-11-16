@@ -138,6 +138,36 @@ pub(super) struct SearchAnswer {
     pub truncated: bool,
 }
 
+/// Where `session.get` puts a session in its tree, as far as the readers use it.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub(super) struct Lineage {
+    pub session_kind: Option<String>,
+    pub parent_session_id: Option<String>,
+}
+
+/// Whose recording a session's calls are in, as its [`Lineage`] says.
+#[derive(Debug, PartialEq)]
+pub(super) enum Place {
+    /// A primary session: its own. A fork is one too, recorded under its own id though it names
+    /// its source as its parent.
+    Root,
+    /// A sub-agent's (`sidechain`): its parent's tree's.
+    Under(String),
+    /// The answer does not say.
+    Unsaid,
+}
+
+impl Lineage {
+    pub(super) fn place(self) -> Place {
+        match (self.session_kind.as_deref(), self.parent_session_id) {
+            (Some("primary"), _) => Place::Root,
+            (Some("sidechain"), Some(parent)) => Place::Under(parent),
+            _ => Place::Unsaid,
+        }
+    }
+}
+
 #[derive(Deserialize, Default)]
 #[serde(default)]
 pub(super) struct HitRow {

@@ -7,9 +7,9 @@ use std::time::{Duration, Instant};
 
 use harnix_contract::sync::lock;
 use harnix_engine_api::readers::ReadError;
-use serde_json::{json, Value};
+use serde_json::json;
 
-use super::wire::{self, CallList, Row, RunInfo};
+use super::wire::{self, CallList, Lineage, Place, Row, RunInfo};
 use super::ProtocolReader;
 use crate::translate::{SESSION_CALLS, SESSION_GET};
 
@@ -21,6 +21,8 @@ const PAGE: usize = 500;
 pub(super) const FRESH: Duration = Duration::from_millis(1000);
 /// How far up from a sub-agent's session its root is looked for.
 const DEPTH: usize = 8;
+/// At most this many sessions' roots kept.
+const KEPT_PLACES: usize = 4096;
 
 /// The calls of one root session's recording, as far as they were read.
 #[derive(Clone, Default)]
@@ -45,6 +47,7 @@ impl Kept {
 
 pub(super) struct Calls {
     by_root: Mutex<HashMap<String, Kept>>,
+    /// Each session's root, as [`Calls::root_of`] found it.
     roots: Mutex<HashMap<String, String>>,
     clock: AtomicU64,
     /// However often asked, the engine is asked again about one root at most this often.
@@ -144,35 +147,45 @@ impl Calls {
         lock(&self.by_root).remove(root);
     }
 
-    /// The session whose recording holds `session`'s calls: itself when it has one (a fork has its
-    /// own), else the nearest ancestor that does, else itself (nothing recorded yet).
+    /// The session whose recording holds `session`'s calls: the primary session its sub-agents
+    /// hang from. A primary session records under its own id whether or not it has called the
+    /// model yet — a fork too, though it names its source as its parent — and a sub-agent's calls
+    /// are in its root's. Remembered once the engine said: where a session is in its tree never
+    /// changes.
     pub(super) async fn root_of(&self, r: &ProtocolReader, session: &str, wake: bool) -> Result<String, ReadError> {
         let mut at = session.to_string();
-        let mut sure = true;
-        let root = 'up: {
-            for _ in 0..=DEPTH {
-                if let Some(known) = lock(&self.roots).get(&at).cloned() {
-                    break 'up known;
-                }
-                if !wake && r.asleep() {
-                    // Not asked while it sleeps: taken for its own root, and not remembered.
-                    sure = false;
-                    break 'up at;
-                }
-                if self.read(r, &at, wake).await?.run.is_some() {
-                    break 'up at;
-                }
-                let info = r.send(SESSION_GET, json!({"session_id": at})).await.map_err(wire::read_error)?;
-                match info.get("parent_session_id").and_then(Value::as_str) {
-                    Some(parent) => at = parent.to_string(),
-                    None => break 'up at,
+        for _ in 0..=DEPTH {
+            let known = lock(&self.roots).get(&at).cloned();
+            if let Some(known) = known {
+                return Ok(self.remember(session, known));
+            }
+            if !wake && r.asleep() {
+                // Not asked while it sleeps: taken for its own root, and not remembered.
+                return Ok(at);
+            }
+            let lineage: Lineage = r.ask(SESSION_GET, json!({"session_id": at})).await?;
+            match lineage.place() {
+                Place::Root => return Ok(self.remember(session, at)),
+                Place::Under(parent) => at = parent,
+                Place::Unsaid => {
+                    tracing::warn!(session = %at, "the engine did not say where the session is in its tree; read as a root");
+                    return Ok(at);
                 }
             }
-            at
-        };
-        if sure {
-            lock(&self.roots).insert(session.to_string(), root.clone());
         }
-        Ok(root)
+        tracing::warn!(session, "no primary session within {DEPTH} parents; read from the last one");
+        Ok(at)
+    }
+
+    fn remember(&self, session: &str, root: String) -> String {
+        let mut roots = lock(&self.roots);
+        if roots.len() >= KEPT_PLACES && !roots.contains_key(session) {
+            // Any one: it is asked of the engine again when it is next read.
+            if let Some(any) = roots.keys().next().cloned() {
+                roots.remove(&any);
+            }
+        }
+        roots.insert(session.to_string(), root.clone());
+        root
     }
 }

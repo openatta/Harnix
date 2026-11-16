@@ -23,10 +23,14 @@ struct Engine {
     /// The rows of the recording of root `S`.
     rows: Mutex<Vec<Value>>,
     generation: Mutex<u64>,
-    /// Each session's `parent_session_id`, for `session.get`.
+    /// Each sub-agent's parent, for `session.get`.
     parents: Mutex<Vec<(String, String)>>,
-    /// Which sessions have a recording: the roots.
+    /// Each fork's source: a primary session that names a parent.
+    forks: Mutex<Vec<(String, String)>>,
+    /// Which sessions have a recording: the roots, whose rows are `rows`.
     roots: Vec<String>,
+    /// Roots with a recording of their own, by id: their rows.
+    own: Mutex<Vec<(String, Vec<Value>)>>,
     asked: Mutex<Vec<(String, Value)>>,
     /// Detail of a call, by index: the request's messages and the response's tool uses.
     details: Mutex<Vec<(usize, Value)>>,
@@ -41,7 +45,9 @@ impl Engine {
             rows: Mutex::new(Vec::new()),
             generation: Mutex::new(1),
             parents: Mutex::new(Vec::new()),
+            forks: Mutex::new(Vec::new()),
             roots: roots.iter().map(|s| s.to_string()).collect(),
+            own: Mutex::new(Vec::new()),
             asked: Mutex::new(Vec::new()),
             details: Mutex::new(Vec::new()),
             blobs: Mutex::new(Vec::new()),
@@ -68,7 +74,8 @@ impl Rpc for Engine {
         let session = params["session_id"].as_str().unwrap_or_default().to_string();
         match method {
             "session.calls" => {
-                if !self.roots.contains(&session) {
+                let own = lock(&self.own).iter().find(|(r, _)| *r == session).map(|(_, rows)| rows.clone());
+                if own.is_none() && !self.roots.contains(&session) {
                     return Ok(json!({"session_id": session, "recording": null, "calls": [], "next": 0, "total": 0, "damaged": 0}));
                 }
                 let generation = *lock(&self.generation);
@@ -77,7 +84,7 @@ impl Rpc for Engine {
                         return Err(RpcError { code: codes::INVALID_PARAMS, message: "the recording was rewritten".into(), data: Some(json!({"generation": generation})) });
                     }
                 }
-                let rows = lock(&self.rows).clone();
+                let rows = own.unwrap_or_else(|| lock(&self.rows).clone());
                 let from = params["from"].as_u64().unwrap_or(0) as usize;
                 let limit = (params["limit"].as_u64().unwrap_or(200) as usize).min(500);
                 let page: Vec<Value> = rows.iter().skip(from).take(limit).cloned().collect();
@@ -89,8 +96,12 @@ impl Rpc for Engine {
                 }))
             }
             "session.get" => {
-                let parent = lock(&self.parents).iter().find(|(c, _)| *c == session).map(|(_, p)| p.clone());
-                let mut info = json!({"session_id": session});
+                let of = |pairs: &Mutex<Vec<(String, String)>>| lock(pairs).iter().find(|(c, _)| *c == session).map(|(_, p)| p.clone());
+                let (kind, parent) = match (of(&self.parents), of(&self.forks)) {
+                    (Some(parent), _) => ("sidechain", Some(parent)),
+                    (None, source) => ("primary", source),
+                };
+                let mut info = json!({"session_id": session, "session_kind": kind});
                 if let Some(parent) = parent {
                     info["parent_session_id"] = json!(parent);
                 }
@@ -229,8 +240,7 @@ async fn a_call_still_streaming_is_read_again_and_does_not_end_the_loop() {
     let second = reader.calls("S").await.unwrap();
     assert_eq!((second.calls.len(), second.calls[1].status.as_str()), (2, "ok"), "overwritten by index");
     let froms: Vec<u64> = engine.asked("session.calls").iter().map(|p| p["from"].as_u64().unwrap()).collect();
-    // (The first ask reads twice: once to find the root, with nothing held back by the clock here.)
-    assert_eq!(froms, [0, 1, 1, 1], "the open call is read again from where it began");
+    assert_eq!(froms, [0, 1, 1], "the open call is read again from where it began");
 }
 
 /// The recording rewritten under the reader: what it held is dropped, it reads from the start,
@@ -302,6 +312,29 @@ async fn a_sub_agent_is_read_from_its_roots_recording() {
 
 /// The turn summing of the calls, from rows: a turn with two calls and a tool between them, and
 /// an auxiliary call beside it.
+/// A fork names its source as its parent but records under its own id: before its first call it
+/// has no recording — not its source's — and once it has one, it and its sub-agents are read from
+/// it.
+#[tokio::test]
+async fn a_fork_is_read_from_its_own_recording_once_it_has_one() {
+    let engine = Engine::new(&["S"]);
+    *lock(&engine.forks) = vec![("F".into(), "S".into())];
+    *lock(&engine.parents) = vec![("A".into(), "F".into())];
+    *lock(&engine.rows) = vec![row(0, "S", None, 0, None)];
+    let (reader, activity) = reader(&engine);
+    let before = reader.calls("F").await.unwrap();
+    assert!(!before.recording && before.calls.is_empty(), "read from its source's recording");
+
+    lock(&engine.own).push(("F".into(), vec![row(0, "F", None, 0, None), row(1, "A", Some("F"), 0, None), row(2, "F", None, 1, None)]));
+    activity.saw("F", Stir::TurnEnded);
+    let after = reader.calls("F").await.unwrap();
+    assert!(after.recording);
+    assert_eq!(after.calls.iter().map(|c| c.index).collect::<Vec<_>>(), [0, 2]);
+    let sub = reader.calls("A").await.unwrap();
+    assert_eq!(sub.calls.iter().map(|c| c.index).collect::<Vec<_>>(), [1]);
+    assert!(engine.asked("session.calls").iter().all(|p| p["session_id"] != "S"), "its source's recording was read");
+}
+
 #[test]
 fn rows_are_summed_per_turn_and_timed() {
     let at = |s: u64| format!("2025-11-15T09:46:{:02}Z", 40 + s);

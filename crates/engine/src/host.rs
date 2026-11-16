@@ -15,12 +15,13 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, Weak};
 use std::time::Duration;
 
 use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
-use harnix_engine_api::{Cancel, ChainSource, EngineContribution, NoChains, PromptGate, SceneLayers, Tool, ToolProvider, ToolsWatch};
+use harnix_engine_api::{Cancel, ChainSource, EngineContribution, NoChains, PromptGate, SceneLayers, Tool, ToolError, ToolProvider, ToolsWatch};
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio::task::AbortHandle;
@@ -66,6 +67,11 @@ pub(crate) trait Wired: Send + Sync + 'static {
 /// What one link offers its daemon, and its calls in flight.
 pub struct HostSide {
     instance: Arc<str>,
+    /// Whether the link is the host of its daemon's sessions: a call of a tool it does not have
+    /// is answered as not there. One that offers nothing ([`HostSide::none`]: an attached daemon,
+    /// an adopted instance) only looks on, and such a call is another host's to answer (Agix
+    /// §7.4: only a host that implements a tool runs it).
+    hosts: bool,
     chains: Arc<dyn ChainSource>,
     providers: Vec<Arc<dyn ToolProvider>>,
     gates: Vec<Arc<dyn PromptGate>>,
@@ -87,6 +93,9 @@ pub struct HostSide {
     /// Every provider's changes as of the last registration: one pending is a set of tools the
     /// daemon has not been told yet (`catch_up`).
     unheard: StdMutex<Vec<ToolsWatch>>,
+    /// The last registration failed in part: what was heard for it is not what the daemon has
+    /// (`catch_up`).
+    behind: AtomicBool,
     tasks: StdMutex<Vec<AbortHandle>>,
 }
 
@@ -99,6 +108,16 @@ impl HostSide {
     /// What `contrib`'s providers, gates and scene layers offer the sessions of `instance`, whose
     /// turns' chains `chains` says; refused when its scene layers do not expand.
     pub fn new(instance: &str, chains: Chains, contrib: &EngineContribution) -> Result<Arc<Self>, String> {
+        Self::build(instance, chains, contrib, true)
+    }
+
+    /// Nothing offered: a link that registers nothing, and only looks on at the calls of the
+    /// tools on its daemon.
+    pub fn none() -> Arc<Self> {
+        Self::build("", Chains::default(), &EngineContribution::new(), false).expect("no scene layers expand")
+    }
+
+    fn build(instance: &str, chains: Chains, contrib: &EngineContribution, hosts: bool) -> Result<Arc<Self>, String> {
         let layers = SceneLayers::new(contrib.scenes())?;
         let unattended = layers
             .ids()
@@ -108,6 +127,7 @@ impl HostSide {
             .collect();
         Ok(Arc::new(Self {
             instance: instance.into(),
+            hosts,
             chains: chains.0,
             providers: contrib.providers().to_vec(),
             gates: contrib.prompt_gates().to_vec(),
@@ -120,13 +140,9 @@ impl HostSide {
             projects: StdMutex::default(),
             registering: tokio::sync::Mutex::new(()),
             unheard: StdMutex::new(contrib.providers().iter().flat_map(|p| p.changes()).map(|c| c.watch()).collect()),
+            behind: AtomicBool::new(false),
             tasks: StdMutex::default(),
         }))
-    }
-
-    /// Nothing offered: a link that registers nothing.
-    pub fn none() -> Arc<Self> {
-        Self::new("", Chains::default(), &EngineContribution::new()).expect("no scene layers expand")
     }
 
     /// The scene layers its sessions may be created in.
@@ -171,20 +187,15 @@ impl HostSide {
 
     /// Declare the tools and register the hooks on `wire`. Taking a connection (`connecting`), a
     /// registration that fails refuses it: a gate left off would let through what it is there to
-    /// stop. After a change, a failure is logged and the last registration stands.
+    /// stop. After a change, a failure is logged, and the registration made again before the next
+    /// session is.
     pub(crate) async fn register(&self, wire: &dyn Wired, connecting: bool) -> Result<(), Refusal> {
         let _one = self.registering.lock().await;
+        // Heard before the tools are read: a change after this is pending for the next one.
         for watch in lock(&self.unheard).iter_mut() {
             watch.hear();
         }
-        let failed = |what: String| -> Result<(), Refusal> {
-            if connecting {
-                Err(Refusal::Retry(what))
-            } else {
-                tracing::error!(instance = %self.instance, "{what}");
-                Ok(())
-            }
-        };
+        let mut whole = true;
 
         let tools = self.tools();
         let had = !lock(&self.declared).is_empty();
@@ -199,7 +210,10 @@ impl HostSide {
                     let declared = tools.into_iter().filter(|t| adopted.contains(t.spec().name())).map(|t| (t.spec().name().to_string(), t));
                     *lock(&self.declared) = Arc::new(declared.collect());
                 }
-                Err(e) => failed(format!("the tools were not declared: {}", e.message))?,
+                Err(e) => {
+                    whole = false;
+                    self.fell_short(connecting, format!("the tools were not declared: {}", e.message))?;
+                }
             }
         }
 
@@ -215,14 +229,38 @@ impl HostSide {
                     if refused.is_empty() {
                         *lock(&self.hooks_on) = want;
                     } else if want.1 {
-                        failed("the prompt gates' hook was not registered".into())?;
+                        whole = false;
+                        self.fell_short(connecting, "the prompt gates' hook was not registered".into())?;
                     }
                 }
-                Err(e) if want.1 => failed(format!("the prompt gates' hook was not registered: {}", e.message))?,
-                Err(e) => tracing::error!(instance = %self.instance, error = %e.message, "the tool hooks were not registered"),
+                Err(e) if want.1 => {
+                    whole = false;
+                    self.fell_short(connecting, format!("the prompt gates' hook was not registered: {}", e.message))?;
+                }
+                Err(e) => {
+                    // Not a reason to refuse a connection: a tool hook fails open anyway.
+                    whole = false;
+                    self.behind.store(true, Ordering::Release);
+                    tracing::error!(instance = %self.instance, error = %e.message, "the tool hooks were not registered");
+                }
             }
         }
+        if whole {
+            self.behind.store(false, Ordering::Release);
+        }
         Ok(())
+    }
+
+    /// A registration that fell short: taking a connection, it refuses it; after a change, it is
+    /// logged, and made again before the next session is (`catch_up`).
+    fn fell_short(&self, connecting: bool, what: String) -> Result<(), Refusal> {
+        self.behind.store(true, Ordering::Release);
+        if connecting {
+            Err(Refusal::Retry(what))
+        } else {
+            tracing::error!(instance = %self.instance, "{what}");
+            Ok(())
+        }
     }
 
     /// Every provider's tools now: the first by a name is kept, a name the engine would refuse is
@@ -251,12 +289,19 @@ impl HostSide {
     }
 
     /// Take `frame` when it is this link's: a call of a tool it declared or a hook it
-    /// registered, or one of those taken back. Never waits: the call is answered on a task of its
-    /// own. `false` hands the frame on to the hub.
+    /// registered, or one of those taken back, and on a link that hosts its daemon's sessions,
+    /// any tool's call. Never waits: the call is answered on a task of its own. `false` hands the
+    /// frame on to the hub.
     pub(crate) fn offer(self: &Arc<Self>, frame: HostFrame, wire: &Arc<dyn Wired>) -> bool {
         match frame {
             HostFrame::ToolCall(call) => {
-                let Some(tool) = self.tool(&call.name) else { return false };
+                let Some(tool) = self.tool(&call.name) else {
+                    if !self.hosts {
+                        return false;
+                    }
+                    self.not_here(call, wire);
+                    return true;
+                };
                 let cancel = self.begin(&call.call_id);
                 let call_id = call.call_id.clone();
                 let task = tokio::spawn(crate::host_tools::run(self.clone(), wire.clone(), tool, call, cancel));
@@ -284,6 +329,21 @@ impl HostSide {
                 true
             }
         }
+    }
+
+    /// A call of a tool the link does not have, answered on the spot: one a session was created
+    /// with that this build no longer offers (its scene layer renamed or gone, its extension
+    /// stopped). Left to the engine, the turn would wait for it until it times out.
+    fn not_here(self: &Arc<Self>, call: translate::HostToolCall, wire: &Arc<dyn Wired>) {
+        tracing::warn!(instance = %self.instance, tool = %call.name, session = %call.session, "a call of a tool this host does not offer");
+        let missing = Err(ToolError::NotFound(format!("this host offers no tool `{}`", call.name)));
+        let answer = translate::tool_answer(&call.session, &call.call_id, missing);
+        let (host, wire) = (self.clone(), wire.clone());
+        // One that does not go is the engine's to end, as it would have been.
+        let task = tokio::spawn(async move {
+            let _ = host.answer(&*wire, translate::SESSION_RESPOND_TOOL_CALL, answer).await;
+        });
+        self.keep(task.abort_handle());
     }
 
     fn begin(&self, call_id: &str) -> Cancel {
@@ -319,32 +379,35 @@ impl HostSide {
     }
 
     /// Send an answer, again when the connection had too many requests in flight to take it.
-    /// One that still does not go is left to the engine, which ends the call when it times out.
-    pub(crate) async fn answer(&self, wire: &dyn Wired, method: &str, params: Value) {
+    /// One that still does not go is logged, and what it failed with said: left alone, the
+    /// engine ends the call when it times out.
+    pub(crate) async fn answer(&self, wire: &dyn Wired, method: &str, params: Value) -> Result<(), RpcError> {
         let mut retries = RETRIES.iter();
         loop {
             match wire.send(method, params.clone()).await {
                 Err(e) if e.code == crate::embed::TOO_MANY_IN_FLIGHT => match retries.next() {
                     Some(wait) => tokio::time::sleep(*wait).await,
                     None => {
-                        tracing::error!(instance = %self.instance, method, "an answer the engine had no room for; it ends the call when it times out");
-                        return;
+                        tracing::error!(instance = %self.instance, method, "an answer the engine had no room for");
+                        return Err(e);
                     }
                 },
                 Err(e) => {
                     tracing::warn!(instance = %self.instance, method, error = %e.message, "an answer the engine did not take");
-                    return;
+                    return Err(e);
                 }
-                Ok(_) => return,
+                Ok(_) => return Ok(()),
             }
         }
     }
 
-    /// Declare again now if a provider changed since the last registration, rather than after the
-    /// change settles: a session made just after a package started has its tools
-    /// (harnix-ext-package.md §5).
+    /// Declare again now if a provider changed since the last registration, or that one fell
+    /// short, rather than after the change settles: a session made just after a package started
+    /// has its tools (harnix-ext-package.md §5). A registration in flight is waited for: what it
+    /// declares is what the session gets.
     pub(crate) async fn catch_up(&self, wire: &dyn Wired) {
-        if lock(&self.unheard).iter().any(ToolsWatch::pending) {
+        drop(self.registering.lock().await);
+        if self.behind.load(Ordering::Acquire) || lock(&self.unheard).iter().any(ToolsWatch::pending) {
             let _ = self.register(wire, false).await;
         }
     }
