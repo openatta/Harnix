@@ -336,7 +336,10 @@ call of a task is judged against them, deny over ask over allow; `ask` waits for
 none speaks, the flow's `guard` decides: `auto` (the default) lets a task work freely inside its \
 project and refuses any path outside it (an `allow` whose `paths` name the place lets it through); \
 `strict` refuses a guarded tool nothing allows and asks a person about a path outside. A task asks \
-no questions: where a person must look, write a `confirm` station.\n\n\
+no questions: where a person must look, write a `confirm` station. A run's deliverables go to its \
+`output_dir` (a template relative to the project — `${flow}`, `${date}`, `${seq}`, `${title}`, \
+`${inputs.<k>}`; default `flows/${flow}-${date}${seq}`), made when it starts; skills, permissions \
+and gates name it `${output_dir}`.\n\n\
 How to work:\n\
 - Read `flow_schema` before writing: the fields, the parts' shapes, and the names this application \
   offers (scenes, program steps, checks, tools, templates, and the parts on offer). Use only those.\n\
@@ -884,19 +887,15 @@ impl Tool for AuthorTool {
                 let Some(subject) = str_of(&input, "subject") else {
                     return error("give the run's `subject`");
                 };
-                let r = engine
-                    .create(
-                        CreateIn {
-                            flow: name,
-                            subject: subject.to_string(),
-                            inputs: input.get("inputs").cloned().unwrap_or(Value::Null),
-                            title: str_of(&input, "title").map(String::from),
-                            parent: None,
-                            ..Default::default()
-                        },
-                        by,
-                    )
-                    .await;
+                let start = CreateIn {
+                    flow: name,
+                    subject: subject.to_string(),
+                    inputs: input.get("inputs").cloned().unwrap_or(Value::Null),
+                    title: str_of(&input, "title").map(String::from),
+                    parent: None,
+                    ..Default::default()
+                };
+                let r = super::project::start(&engine, start, by).await;
                 match r {
                     Ok(o) => {
                         let value = o.value.clone();

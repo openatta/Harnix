@@ -16,7 +16,7 @@
 
 | 对象 | 含义 |
 |---|---|
-| **流程**（flow） | 一份定义：`name`、`title`、`inputs`（启动参数）、`main`（主会话放哪）、`rules` / `policies` / `permissions`（每一站都受的）、`guard`（执行语义，见第三节）、`stations`。改了定义不影响已经在跑的运行——运行启动时把定义连同它用到的策略、门禁一起钉住了。 |
+| **流程**（flow） | 一份定义：`name`、`title`、`inputs`（启动参数）、`main`（主会话放哪）、`rules` / `policies` / `permissions`（每一站都受的）、`guard`（执行语义，见第三节）、`output_dir`（交付物放哪，见第二节）、`stations`。改了定义不影响已经在跑的运行——运行启动时把定义连同它用到的策略、门禁一起钉住了。 |
 | **站**（station） | 判断的单位。`needs` 排先后（不写 = 列表里的上一站，`[]` = 没有前置）；`when` 不成立就跳过；`hold: true` 进站后等人放行。 |
 | **工作** | 站要做的事，四选一：`executor`（一个任务）、`tasks`（几个各有 id 的任务）、`foreach` + `executor`（列表里每项一个任务，`max_parallel` 限并发）、都不写（纯检查点，进站就判）。 |
 | **任务**（task） | 一件具体的活。会话、子 Agent、程序任务由流程派发；外部任务等别人认领；子流程任务开一个子运行。 |
@@ -30,7 +30,9 @@
 | 对象 | 含义 |
 |---|---|
 | **运行**（run） | 一个流程在一个主题上的一次执行。状态见下文。 |
-| **项目任务** | 在一个项目里跑的运行：启动时带上 `project_root`（已存在的绝对目录）。还可以带 `workspace`（在哪干活：`project` 项目本身，有项目时缺省；`worktree` 项目的一个 worktree；`scratch` 运行自己的目录，没有项目时缺省）、`output_dir`（交付物放哪），运行都记下来，连同它是怎么起的（`trigger`：手动，或定时）。`flow.list {project}` 列出一个项目的任务。 |
+| **项目任务** | 在一个项目里跑的运行：启动时带上 `project_root`（已存在的绝对目录）。还可以带 `workspace`（在哪干活：`project` 项目本身，有项目时缺省；`worktree` 项目的一个 worktree；`scratch` 运行自己的目录，没有项目时缺省）、`output_dir`（这一次的输出目录，压过流程写的），运行都记下来，连同它是怎么起的（`trigger`：手动，或定时）。`flow.list {project}` 列出一个项目的任务。任务的主会话、独立会话、门禁都在项目里干活；Harnix 往项目里写的只有输出目录和 `.harnix/`，其余都是 Agent 做的。 |
+| **输出目录**（`output_dir`） | 交付物放的地方，属于用户、不加 ignore。流程定义里写一个相对项目的路径模板，可以用 `${flow}`、`${date}`（启动那天的本地日期 `YYYYMMDD`）、`${seq}`（两位序号：同一项目、同一流程、同一天已有目录的最大号加 1）、`${title}`、`${inputs.<k>}`；缺省 `flows/${flow}-${date}${seq}`。优先级：这次启动给的 > 流程写的 > 缺省。启动时解析、建好，必须落在项目里（`..`、绝对路径、指到外面的链接都不行，否则启动被拒）；变量的值里的 `/` 等换成 `-`，不会多出一层或爬出去。运行记下解析后的绝对路径，站消息里告诉 Agent 产出写到这里；skill、权限、门禁里用 `${output_dir}` 引用它。没有项目的运行放在它自己的工作目录下，布局一样。 |
+| **过程目录** | `<项目>/.harnix/runs/<运行>/`，软件用的中间过程与状态：`task.json`（流程、inputs、主题、触发方式、状态、各站概要、输出目录，每次变化后重写）、`flow.yaml`（启动时钉住的定义和件）、`stations/<站>/`（一个任务的 `output.json`，几个任务时每个 `<任务>.json`；命令门禁的 `context.json`、`gate-<门禁>.log`）。第一次在项目里建任务时写 `<项目>/.harnix/.gitignore`（`runs/`、`worktrees/`；已有的文件只补缺的行）。这是投影：权威的账本在应用的数据目录里，过程目录写坏了不影响运行。 |
 | **执行者**（executor） | 谁来做：`session`（会话，照 skill 做）、`agent`（主 Agent 交给的子 Agent）、`program`（应用自己的代码）、`external`（人或外部 Agent 认领）、`subflow`（另一个流程）。 |
 | **主会话 / 主 Agent** | 每个运行都有一个主会话，就是这个流程的主 Agent。没写 `scene` 的会话站、所有子 Agent 站，都在主会话里一轮一轮地做。在流程 space 的运行页选中运行，中间就是它；可以在里面插话。 |
 | **子 Agent**（`kind: agent`） | 主会话下的子 Agent：主 Agent 用 `Agent` 工具把任务交给它（可指定 `agent_type`、`model`），拿到结果后交给流程。 |
@@ -56,10 +58,10 @@ skill 讲"这一站怎么做"，规则讲"整个流程里不能违背什么"，�
 |---|---|
 | **规则**（rule） | `rules/<名>.md`，第一个 `# ` 标题是它的标题。流程级和站级的 `rules` 引用它；一站受的规则 = 流程级 ∪ 站级，放进会话任务的消息里（在 skill 之前），进站时固定版本。从不拦。 |
 | **策略**（policy） | `policies/<名>.yaml`：有名字的一组权限，流程级和站级的 `policies` 引用它。 |
-| **权限**（permission） | 一条 `effect`（`allow` / `ask` / `deny`）+ `tools`（工具名或 `ns__*` 一组），可选 `paths`（路径参数按 glob；相对的从运行工作目录算）、`commands`（命令按 glob）、`args`（输入的字段 → glob 列表）、`message`。模式里可以有引用：`${run}`、`${inputs.k}`、`${item…}`、`${workspace}`。 |
+| **权限**（permission） | 一条 `effect`（`allow` / `ask` / `deny`）+ `tools`（工具名或 `ns__*` 一组），可选 `paths`（路径参数按 glob；相对的从运行工作目录算）、`commands`（命令按 glob）、`args`（输入的字段 → glob 列表）、`message`。模式里可以有引用：`${run}`、`${inputs.k}`、`${item…}`、`${workspace}`（任务是项目，没有项目时是运行自己的目录）、`${output_dir}`。 |
 | **判定** | 一个任务的权限 = 流程级策略 → 流程级权限 → 站级策略 → 站级权限，派工时解析引用、定下来。每次工具调用：命中的里 `deny` 大于 `ask` 大于 `allow`；一条都没命中时怎么办、碰到项目之外的路径怎么办，由流程的 `guard` 定（见下一行）。路径先规范化（`..` 等折叠），带路径的 `deny` 任一路径命中即拒；命令按 `;` `&&` `|` 拆开比，`allow` 不放行带命令替换、重定向的整行。`ask` 留给人在会话里批，运行显示"等待：审批"；没人在实例的批准时限（缺省 300 秒）内答，引擎当作拒绝。主会话、独立会话都由流程这一处答。 |
 | **执行语义**（`guard`） | 流程顶层的 `auto`（缺省）或 `strict`。`auto`：不审批——没有权限命中的受限工具（Bash、Write、Edit……）在项目（或 worktree）里直接放行；碰到项目之外的路径一律拒绝，理由 Agent 看得到，不卡住运行；要放开某个外面的地方，写一条 `paths` 指到那里的 `allow`。`strict`：没有命中的受限工具拒绝，碰到项目之外的路径转给人。两种下作者写的 `ask`、`confirm`、`hold` 都照样等人；引擎自己要问的（项目外写入、`.git`、`.agix` 等），`auto` 下也由流程按同样的规则代答，`strict` 下照旧交给人。没有项目的运行，"项目"就是它自己的工作目录。 |
-| **门禁**（gate） | `gates/<名>.yaml`，出口条件 `{kind: gate, gate: <名>}` 引用它。三种：`tool`（调应用的只读工具，对结果断言，判站时当场判）、`command`（在运行工作目录跑一条命令，退出码 0 为过；应用打开了才能用；环境变量只留基础几个，运行的上下文从 `FLOW_RUN`、`FLOW_STATION`、`FLOW_WORKSPACE`、`FLOW_CONTEXT_FILE`（小的还有 `FLOW_CONTEXT`）读，不拼进命令行；超时整组杀掉）、`host`（应用自己的检查，按名字）。 |
+| **门禁**（gate） | `gates/<名>.yaml`，出口条件 `{kind: gate, gate: <名>}` 引用它。三种：`tool`（调应用的只读工具，对结果断言，判站时当场判）、`command`（在运行工作目录跑一条命令，退出码 0 为过；应用打开了才能用；环境变量只留基础几个，运行的上下文从 `FLOW_RUN`、`FLOW_STATION`、`FLOW_WORKSPACE`（项目或 worktree）、`FLOW_CONTEXT_FILE`（过程目录里这一站的 `context.json`；小的还有 `FLOW_CONTEXT`）读，不拼进命令行；输出另存为这一站的 `gate-<门禁>.log`；超时整组杀掉）、`host`（应用自己的检查，按名字）。 |
 | **人的确认** | 出口条件 `confirm`（`who` 交给应用的授权方解释）；权限 `ask` 等人批；`hold: true` 进站后等人放行；人还可以强制放行一站（带理由、留痕）或退回返工。谁能做这些由应用决定，流程只把 `who` 交给它。任务里的会话没有提问工具，模型不会停下来问人：需要人看一眼、拍板的地方，作者写一个 `confirm` 站。 |
 
 ## 四、对外接口
@@ -125,6 +127,23 @@ stations:
     title: 确认
     exit: [{kind: confirm}]
     rework_to: [draft]
+```
+
+### 在项目里：改代码、出报告，不审批
+
+```yaml
+name: fix-and-report
+title: 修复并出报告
+# guard 不写就是 auto：项目里放手干，项目外一律拒绝
+output_dir: "reports/${flow}-${date}${seq}"   # 不写就是 flows/${flow}-${date}${seq}
+stations:
+  - id: fix
+    executor: {kind: session}
+    skill: fix                     # skill 里可以写 "报告写到 ${output_dir}/report.md"
+    output: {type: object, required: [changed], properties: {changed: {type: array}}}
+    exit: [{kind: output}, {kind: gate, gate: ci}]
+  - id: review
+    exit: [{kind: confirm}]        # 要人看的地方写 confirm 站：任务里模型不会停下来提问
 ```
 
 ### 并行再汇合

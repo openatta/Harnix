@@ -103,6 +103,15 @@ pub fn skill_body(text: &str) -> String {
     body.trim().to_string()
 }
 
+/// A skill's text with `${output_dir}` put in: the one reference a skill may say, so it can name
+/// where the run's deliverables go. Without an output directory it is left as written.
+pub fn skill_with_output_dir(text: &str, output_dir: Option<&str>) -> String {
+    match output_dir {
+        Some(dir) => text.replace("${output_dir}", dir),
+        None => text.to_string(),
+    }
+}
+
 /// The whole first message a session task's session is sent: the protocol layer, the rules it
 /// works under (`rules`: name and text), then the skill's body under its name (`skill`: name and
 /// SKILL.md text).
@@ -484,6 +493,12 @@ stations:
         c.guard = Guard::Strict;
         let t = render(&c);
         assert!(t.contains("Refused unless a permission allows them: Bash") && !t.contains("work freely"), "{t}");
+    }
+
+    #[test]
+    fn a_skill_may_name_the_output_directory() {
+        assert_eq!(skill_with_output_dir("Write ${output_dir}/report.md.", Some("/p/flows/x-01")), "Write /p/flows/x-01/report.md.");
+        assert_eq!(skill_with_output_dir("Write ${output_dir}/r.md, not ${run}.", None), "Write ${output_dir}/r.md, not ${run}.");
     }
 
     #[test]

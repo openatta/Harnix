@@ -24,7 +24,7 @@ use super::shared::{session_name, session_ref, Binding, Shared, TaskKey};
 use super::turns::{carry, wait_turn, Frame, TaskSession, Turns, Waited};
 use crate::kernel::host::{Delivery, Placement};
 use crate::kernel::parts::asked_tools;
-use crate::kernel::protocol::{ask_rules, task_message};
+use crate::kernel::protocol::{ask_rules, skill_with_output_dir, task_message};
 use crate::kernel::run::{RunRecord, StationStatus, TaskStatus};
 
 /// The permission mode a task's session asks for: the most permissive one that still goes
@@ -421,7 +421,7 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
     let turns = Turns {
         main: job.main,
         delivery: job.delivery,
-        message: (!resume).then(|| task_message_of(sh, job)),
+        message: (!resume).then(|| task_message_of(sh, job, rec.output_dir.as_deref())),
         resumed_running: resume && running,
     };
     let hub = HubSession {
@@ -523,8 +523,8 @@ async fn recorded_settings(sh: &Shared, s: &SessionRef) -> Option<Value> {
         .and_then(|e| e.get("payload").cloned())
 }
 
-/// The protocol layer, the rules, then the skill.
-fn task_message_of(sh: &Shared, job: &SessionJob) -> String {
+/// The protocol layer, the rules, then the skill (`${output_dir}` in it put in).
+fn task_message_of(sh: &Shared, job: &SessionJob, output_dir: Option<&str>) -> String {
     let mut rules = vec![];
     if let Ok(engine) = sh.engine() {
         for (name, pinned) in &job.rules {
@@ -549,7 +549,7 @@ fn task_message_of(sh: &Shared, job: &SessionJob) -> String {
                         "the skill changed since the station was entered"
                     );
                 }
-                skill = Some((name.clone(), body));
+                skill = Some((name.clone(), skill_with_output_dir(&body, output_dir)));
             }
             None => tracing::warn!(skill = name, "skill not found"),
         }

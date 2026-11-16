@@ -536,7 +536,8 @@ project_root?: string | null,
  */
 workspace: Workspace, 
 /**
- * Where its deliverables go, as the run holds it.
+ * Where its deliverables go: a directory in the project (a run of no project: in its own
+ * directory), resolved from its template when the run was started; `${output_dir}`.
  */
 output_dir?: string | null, 
 /**
@@ -665,7 +666,9 @@ project_root?: string,
  */
 workspace?: Workspace, 
 /**
- * Where its deliverables go: a path or a template, recorded as given.
+ * Where its deliverables go: a template relative to the project (`${flow}`, `${date}`,
+ * `${seq}`, `${title}`, `${inputs.<k>}`), or an absolute path inside it; absent: the flow's,
+ * else `flows/${flow}-${date}${seq}`. Made at start; the run holds it resolved.
  */
 output_dir?: string, 
 /**

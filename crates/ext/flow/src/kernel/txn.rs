@@ -253,10 +253,11 @@ impl<'e> Txn<'e> {
                                 self.fx.now,
                                 Some(parent.clone()),
                             );
-                            // A child run works where its parent does.
+                            // A child run works where its parent does, and delivers there.
                             let up = self.get(&parent.run);
                             child.project_root = up.project_root.clone();
                             child.workspace = up.workspace;
+                            child.output_dir = up.output_dir.clone();
                             Ok(child)
                         }
                     }

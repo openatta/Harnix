@@ -8,7 +8,7 @@
  * a restart — never the model.
  */
 
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -385,7 +385,10 @@ test("a task: a run in a project carries its root, workspace, output directory a
     // The root as given, but for its trailing `/`; the project is where it works.
     expect(rec.project_root).toBe(project);
     expect(rec.workspace).toBe("project");
-    expect(rec.output_dir).toBeTruthy();
+    // The template resolved and made at start, inside the project: the first of the day is `01`.
+    expect(rec.output_dir).toMatch(new RegExp(`^${project}/flows/demo-review-\\d{8}01$`));
+    expect(existsSync(rec.output_dir)).toBe(true);
+    expect(readFileSync(join(project, ".harnix", ".gitignore"), "utf8")).toBe("runs/\nworktrees/\n");
     expect(rec.trigger).toMatchObject({ kind: "manual", by: { kind: "device" } });
     const other = (await api.call("flow.get", { run: plain })).record;
     expect(other.project_root).toBeUndefined();

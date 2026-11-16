@@ -15,6 +15,7 @@
 //! kernel/def.rs       the definition (YAML) and its JSON Schema
 //! kernel/validate.rs  structural validation: every problem at once
 //! kernel/refs.rs      ${...} references and assertions
+//! kernel/output.rs    the output directory's template
 //! kernel/run.rs       the run record (snapshot + history) and its JSON Schema
 //! kernel/host.rs      what the host implements; events, work items, outcomes
 //! kernel/engine.rs    every operation: load → compute → commit against revs
