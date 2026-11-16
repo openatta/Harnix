@@ -192,13 +192,16 @@ impl Handler for Read {
 
 /* ── capture ────────────────────────────────────────────────────────────── */
 
+/// What [`wanted`] is, as the filter holds it.
+type Wanted = fn(&Metadata<'_>) -> bool;
+
 /// The layer that fills the ring, with its own filter: the extension spans, and the events at
 /// `info` and above — and any that names an extension, whatever its level.
-pub(crate) fn layer<S>(log: Arc<ExtLog>) -> Filtered<Capture, FilterFn<fn(&Metadata<'_>) -> bool>, S>
+pub(crate) fn layer<S>(log: Arc<ExtLog>) -> Filtered<Capture, FilterFn<Wanted>, S>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
-    Capture { log }.with_filter(FilterFn::new(wanted as fn(&Metadata<'_>) -> bool))
+    Capture { log }.with_filter(FilterFn::new(wanted as Wanted))
 }
 
 fn wanted(meta: &Metadata<'_>) -> bool {
