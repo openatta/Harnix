@@ -24,14 +24,14 @@
 | 扩展的 HTTP 路由 | `routes` | 5 | 1 | — |
 | 扩展条目 | `entries` | 5 | 3 | — |
 | 品牌与主题 | `brand` | 2 | 1 | — |
-| 流程（harnix-ext-flow，xops-01、xops-02） | `flow` | 36 | 28 | — |
+| 流程（harnix-ext-flow，xops-01、xops-02） | `flow` | 38 | 28 | — |
 | 扩展包（登记与撤下、安装与卸载、启停、工具、agent 包、界面模块、隔离 iframe 里的界面与外壳的桥、MCP 端点、WASM 后端、扩展进程、系统 space 的扩展包页签、会话看得到的 skill 与 hook、扩展日志） | `packages` | 68 | 19 | 68 |
 | 扩展包商店（签名与副署、目录、按名字安装与升级、披露与同意、设置 · 扩展包） | `packages-store` | 11 | 5 | 16 |
 | 扩展包的声明式行内点与管理界面（工具行模板、流块卡片、命令候选、侧栏分组、披露弹窗、清空数据、左栏标记） | `packages-inline` | 4 | 6 | 10 |
 | 扩展包后端的闲置休眠（on-demand、冷启动、并发唤醒只起一个实例、订阅与定时器保持常驻、系统 space 的扩展包页签） | `packages-idle` | 6 | 1 | 7 |
 | 应用构建 | `build` | — 在脚本层检查（check-pins、check-lock、sync-app-deps），不经协议 | — 构建没有界面 | — |
 | 桌面壳 | `desktop` | — 桌面壳不加协议面：webview 加载的就是服务端的页面 | — 桌面壳是模板（templates/desktop）：它不调 IPC 由 check-no-ipc.mjs 在 offline 层查，本机模式由它的 --smoke 查 | — |
-| **合计** | | **467** | **254** | **101** |
+| **合计** | | **469** | **254** | **101** |
 
 ## 已知缺口（`@gap`）
 

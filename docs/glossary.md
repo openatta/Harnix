@@ -236,7 +236,8 @@
 | **落点** | placement，`Placement` | 站的会话建在哪：space、实例或模板实例（`instance` / `template` + `params`），用哪个模型（`model` / `provider`）（xops-02） |
 | **交付方式** | `Delivery` | 会话怎么交输出：结构化输出（`structured_output`，缺省：契约作为会话的 `output_schema`，模型调 `StructuredOutput`）或 `flow_submit`（`flow-*` 包装 scene） |
 | **受限工具** | `guarded_tools` | 没有权限放行就拒绝的工具（缺省引擎的 shell、文件编辑、notebook、解释器）；流程会话对它们都 `ask`，由 `flow` 扩展判 |
-| **来源** | `Origin` | 流程包里一条流程从哪来：`builtin`（随应用）· `override`（可写层里覆盖内置的那份）· `user`（只在可写层） |
+| **来源** | `Origin` | 流程包里一条流程从哪来：`builtin`（随应用）· `override`（可写层里覆盖内置的那份）· `user`（只在可写层）· `project`（项目自带，`<项目>/.harnix/flows/`，只对这个项目的任务生效，项目受信才读） |
+| **项目自带的流程** | `ProjectPacks`，`Origin::Project`，`flow.defs {project}` | 随项目仓库提交的流程包，放在 `<项目>/.harnix/flows/`：在这个项目里是最上面一层，同名的流程和件以它为准；项目没受信时只按文件名列出（`reason: "untrusted"`，「信任项目后可用」），不读、不跑 |
 | **当前流程** | focus | 一个 `flow-author` 对话操作的那条流程：流程会话的就是它自己那条；别的对话是 `flow.focus` 设的，或 `flow_create` 刚建的 |
 | **试运行** | dry run，`dry-` 运行 | 在沙箱里真跑流程的内核、外部全部模拟：不建会话、不调应用代码、不花模型费用；`mocks` 给站的输出、命令 / 宿主门禁、工具门禁的工具结果 |
 
@@ -246,7 +247,7 @@
   流程扩展的界面文案用 owner `flowui`。
 - 「运行」不是「实例」，也不是「会话」：一条运行有一个主会话，还可能有独立会话与子 Agent 的侧链会话。
 - 流程的「子 Agent」就是 Agix 的子 Agent（父会话的一件**任务**、一条侧链会话）；流程的「任务」（`TaskRec`）是另一回事。
-- 流程的「来源」（`Origin`：`builtin`、`override`、`user`）和扩展的「信任」（`Trust::Origin`）是两回事。
+- 流程的「来源」（`Origin`：`builtin`、`override`、`user`、`project`）和扩展的「信任」（`Trust::Origin`）是两回事；项目自带的流程等的「信任」是项目信任（引擎的 `project.status`），也不是扩展的信任。
 - 「试运行」是一条真的运行，只是活在沙箱里：运行号以 `dry-` 开头，不进 `runs`，最多留最近 20 条；不叫「模拟运行」。
   这个沙箱是流程自己的模拟环境，和扩展进程的操作系统沙箱无关。
 - 界面上，人还没答的权限询问（`ask`，运行的 `waiting: approval`）说「待批准」；站的 `hold`（进站后等人放行）说「等人放行」

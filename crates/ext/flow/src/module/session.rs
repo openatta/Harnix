@@ -455,7 +455,11 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
     let turns = Turns {
         main: job.main,
         delivery: job.delivery,
-        message: (!resume).then(|| task_message_of(sh, job, rec.output_dir.as_deref())),
+        // The run's project's rules and skill: its own packs over the application's.
+        message: (!resume).then(|| {
+            let packs = engine.packs_for(rec.project_root.as_deref());
+            task_message_of(job, packs.as_ref(), rec.output_dir.as_deref())
+        }),
         resumed_running: resume && running,
     };
     let hub = HubSession {
@@ -557,25 +561,24 @@ async fn recorded_settings(sh: &Shared, s: &SessionRef) -> Option<Value> {
         .and_then(|e| e.get("payload").cloned())
 }
 
-/// The protocol layer, the rules, then the skill (`${output_dir}` in it put in).
-fn task_message_of(sh: &Shared, job: &SessionJob, output_dir: Option<&str>) -> String {
+/// The protocol layer, the rules, then the skill (`${output_dir}` in it put in), from the packs
+/// of the run's project.
+fn task_message_of(job: &SessionJob, packs: &dyn crate::kernel::host::Packs, output_dir: Option<&str>) -> String {
     let mut rules = vec![];
-    if let Ok(engine) = sh.engine() {
-        for (name, pinned) in &job.rules {
-            match engine.packs().rule(name) {
-                Some((text, digest)) => {
-                    if pinned.as_ref().is_some_and(|d| *d != digest) {
-                        tracing::warn!(rule = name, "the rule changed since the station was entered");
-                    }
-                    rules.push((name.clone(), text));
+    for (name, pinned) in &job.rules {
+        match packs.rule(name) {
+            Some((text, digest)) => {
+                if pinned.as_ref().is_some_and(|d| *d != digest) {
+                    tracing::warn!(rule = name, "the rule changed since the station was entered");
                 }
-                None => tracing::warn!(rule = name, "rule not found"),
+                rules.push((name.clone(), text));
             }
+            None => tracing::warn!(rule = name, "rule not found"),
         }
     }
     let mut skill = None;
-    if let (Some(name), Ok(engine)) = (&job.skill, sh.engine()) {
-        match engine.packs().skill(name) {
+    if let Some(name) = &job.skill {
+        match packs.skill(name) {
             Some((body, digest)) => {
                 if job.skill_digest.as_ref().is_some_and(|d| *d != digest) {
                     tracing::warn!(

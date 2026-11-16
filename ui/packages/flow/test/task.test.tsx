@@ -403,5 +403,25 @@ describe("the new-task dialog", () => {
     expect(fake.calls.find(([m]) => m === "flow.start")?.[1]).toEqual({ flow: "example-review", subject: "the repo", project_root: ROOT, inputs: { depth: 2, target: "src/" }, title: "Review src" });
     expect(close).toHaveBeenCalledWith(true);
     expect(started).toEqual([["example-review-2", "example-review"]]);
+    // The flows a task of this project may run, the project's own among them.
+    expect(fake.calls.find(([m]) => m === "flow.defs")?.[1]).toEqual({ project: ROOT });
+  });
+
+  it("offers the project's own flows with their origin, and an untrusted project's as waiting on trust", async () => {
+    const defs = [
+      ...DEFS,
+      { name: "house", title: "House review", digest: "h", origin: "project", valid: true, inputs: { type: "object" } },
+      { name: "pending", title: "", digest: "", origin: "project", valid: false, reason: "untrusted", inputs: { type: "object" } },
+    ];
+    const fake = fakeHost({ "flow.defs": defs, "flow.def": { def: DEF, yaml: "", digest: "a" } });
+    await newTaskDialog(fake.host, "flow", { root: ROOT, runs: () => [] }, () => undefined);
+    const page = render(<HostProvider host={fake.host}>{fake.dialogs[0]!(vi.fn()) as never}</HostProvider>);
+    await settle();
+    expect(page.getByTestId("task-flow-house").dataset.origin).toBe("project");
+    expect(page.getByTestId("task-flow-house").textContent).toContain("this project's");
+    const pending = page.getByTestId("task-flow-pending") as HTMLButtonElement;
+    expect(pending.disabled).toBe(true);
+    expect(pending.dataset.reason).toBe("untrusted");
+    expect(pending.textContent).toContain("trust the project first");
   });
 });

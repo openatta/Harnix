@@ -29,6 +29,8 @@ use crate::kernel::host::Outcome;
 use crate::kernel::run::Actor;
 use crate::kernel::FlowError;
 
+use super::shared::Shared;
+
 /// The lines `<project>/.harnix/.gitignore` holds: what the module writes there is not the project's.
 const IGNORED: &[&str] = &["runs/", "worktrees/"];
 
@@ -50,10 +52,17 @@ pub(crate) fn local_date(epoch_ms: u64) -> String {
     crate::kernel::output::date_utc(epoch_ms)
 }
 
-/// Start a run as the module does: its output directory resolved and made first (taken back if
-/// the run is not made), then the run, then what a new run needs on disk ([`made`]).
-pub(crate) async fn start(engine: &Engine, mut input: CreateIn, by: Actor) -> crate::Result<Outcome> {
+/// Start a run as the module does: who may, then — for a task — the project's trust heard (its
+/// own flows are the project's packs, read only while it is trusted), then its output directory
+/// resolved and made (taken back if the run is not made), then the run, then what a new run needs
+/// on disk ([`made`]).
+pub(crate) async fn start(sh: &Shared, engine: &Engine, mut input: CreateIn, by: Actor) -> crate::Result<Outcome> {
     engine.may_create(&input, &by)?;
+    if let Some(root) = input.project_root.as_deref().map(str::trim).filter(|r| !r.is_empty()) {
+        super::project_packs::hear(sh, root).await;
+        // In a project a name means the project's own flow: not run until it is trusted.
+        super::project_packs::withheld(engine.packs_for(Some(root)).as_ref(), &input.flow)?;
+    }
     let claimed = prepare(engine, &mut input)?;
     let r = engine.create(input, by).await;
     match &r {
@@ -79,7 +88,7 @@ pub(crate) async fn start(engine: &Engine, mut input: CreateIn, by: Actor) -> cr
 ///
 /// A flow the packs do not have is the kernel's to refuse.
 pub(crate) fn prepare(engine: &Engine, input: &mut CreateIn) -> crate::Result<Option<PathBuf>> {
-    let Some((def, _)) = engine.packs().flow(&input.flow) else {
+    let Some((def, _)) = engine.packs_for(input.project_root.as_deref()).flow(&input.flow) else {
         return Ok(None);
     };
     let template = input
@@ -475,7 +484,7 @@ mod tests {
             output_dir: output_dir.map(String::from),
             ..Default::default()
         };
-        let run = start(&engine, started(None), by.clone()).await.unwrap().value["run"].as_str().unwrap().to_string();
+        let run = start(&Shared::for_tests(), &engine, started(None), by.clone()).await.unwrap().value["run"].as_str().unwrap().to_string();
         let rec = engine.record(&run).await.unwrap();
         let date = local_date(1_794_787_200_000);
         let out = project.path().join(format!("flows/two-{date}01"));
@@ -483,20 +492,20 @@ mod tests {
         assert!(out.is_dir());
         assert_eq!(std::fs::read_to_string(project.path().join(".harnix/.gitignore")).unwrap(), "runs/\nworktrees/\n");
         // The next task of the flow that day takes the next number; one of its own template, its own.
-        let second = start(&engine, started(None), by.clone()).await.unwrap().value["run"].as_str().unwrap().to_string();
+        let second = start(&Shared::for_tests(), &engine, started(None), by.clone()).await.unwrap().value["run"].as_str().unwrap().to_string();
         assert!(engine.record(&second).await.unwrap().output_dir.unwrap().ends_with(&format!("two-{date}02")));
-        let own = start(&engine, started(Some("out/${inputs.area}")), by.clone()).await.unwrap().value["run"].as_str().unwrap().to_string();
+        let own = start(&Shared::for_tests(), &engine, started(Some("out/${inputs.area}")), by.clone()).await.unwrap().value["run"].as_str().unwrap().to_string();
         assert_eq!(engine.record(&own).await.unwrap().output_dir, Some(format!("{root}/out/core")));
         // Outside the project: refused, nothing started, nothing made.
         for bad in ["../elsewhere", "/tmp/elsewhere"] {
-            let e = start(&engine, started(Some(bad)), by.clone()).await.unwrap_err();
+            let e = start(&Shared::for_tests(), &engine, started(Some(bad)), by.clone()).await.unwrap_err();
             assert_eq!(e.code(), "invalid", "{bad}: {e}");
         }
         assert_eq!(engine.list(Default::default()).await.unwrap().len(), 3);
         // A flow that cannot start takes back the directory it was given.
         let mut refused = started(None);
         refused.inputs = json!({"area": 1});
-        assert!(start(&engine, refused, by.clone()).await.is_err());
+        assert!(start(&Shared::for_tests(), &engine, refused, by.clone()).await.is_err());
         assert!(!project.path().join(format!("flows/two-{date}03")).exists());
         assert_eq!(std::fs::read_dir(project.path().join("flows")).unwrap().count(), 2);
 
@@ -539,7 +548,7 @@ mod tests {
             .with_clock(std::sync::Arc::new(ManualClock::new(1_794_787_200_000)))
             .with_workspaces(data.path().join("workspaces"));
         let input = CreateIn { flow: "solo".into(), subject: "s".into(), ..Default::default() };
-        let run = start(&engine, input, Actor::device("d")).await.unwrap().value["run"].as_str().unwrap().to_string();
+        let run = start(&Shared::for_tests(), &engine, input, Actor::device("d")).await.unwrap().value["run"].as_str().unwrap().to_string();
         let rec = engine.record(&run).await.unwrap();
         let own = engine.workspace(&run).unwrap();
         let out = own.join(format!("flows/solo-{}01", local_date(1_794_787_200_000)));
@@ -548,7 +557,7 @@ mod tests {
         project_run(&engine, &rec);
         assert!(own.join(".harnix/runs").join(&run).join("task.json").is_file());
         let absolute = CreateIn { flow: "solo".into(), subject: "s".into(), output_dir: Some("/tmp/x".into()), ..Default::default() };
-        assert_eq!(start(&engine, absolute, Actor::device("d")).await.unwrap_err().code(), "invalid");
+        assert_eq!(start(&Shared::for_tests(), &engine, absolute, Actor::device("d")).await.unwrap_err().code(), "invalid");
     }
 
     #[test]

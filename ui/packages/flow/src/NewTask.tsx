@@ -14,7 +14,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DialogBody, DialogFoot, Glyph, t, useHost, useT, type HostApi } from "@harnix/react";
 
 import { errorText, useDefs, useMethod } from "./hooks";
-import { methodName, runIdOf, runningIn, sameRoot } from "./model";
+import { defBlockedKey, methodName, runIdOf, runningIn, sameRoot } from "./model";
 import type { DefInfo, DefSummary, RunSummary } from "./types";
 
 /** Whether a task may be run in a worktree from here: not until the module makes them. */
@@ -166,11 +166,11 @@ export async function newTaskDialog(host: HostApi, module: string, options: NewT
 function NewTaskForm({ host, module, options, onStarted, close }: { host: HostApi; module: string; options: NewTaskOptions; onStarted: (run: string, flow: string) => void | Promise<void>; close: (result: true | null) => void }) {
   const t = useT();
   const nest = useHost();
-  const defs = useDefs(module);
+  const defs = useDefs(module, options.root);
   const [picked, setPicked] = useState<string | null>(options.flow ?? null);
   const flow = picked ?? defs.list.find((d) => d.valid !== false)?.name ?? null;
   const def = defs.list.find((d) => d.name === flow);
-  const info = useMethod<DefInfo>(module, "def", flow ? { name: flow } : null, def?.digest);
+  const info = useMethod<DefInfo>(module, "def", flow && def?.valid !== false ? { name: flow, project: options.root } : null, def?.digest);
   const { guard, outputDir: definedDir } = defOptions(info.value);
   // By the schema's text, not its object: the list pushed again with the same schema keeps what was typed.
   const schema = JSON.stringify(def?.inputs ?? null);
@@ -302,12 +302,14 @@ function NewTaskForm({ host, module, options, onStarted, close }: { host: HostAp
 function FlowChoice({ def, on, pick }: { def: DefSummary; on: boolean; pick(): void }) {
   const t = useT();
   const invalid = def.valid === false;
+  // Why it cannot be started: an untrusted project's own flow waits on trust ("trust the project first").
+  const why = def.reason ? t(defBlockedKey(def)!) : t("flowui.task.invalid");
   return (
-    <button type="button" className={on ? "on" : ""} data-testid={`task-flow-${def.name}`} data-origin={def.origin} data-valid={invalid ? "false" : "true"} aria-pressed={on} disabled={invalid} title={invalid ? t("flowui.task.invalid") : def.name} onClick={pick}>
+    <button type="button" className={on ? "on" : ""} data-testid={`task-flow-${def.name}`} data-origin={def.origin} data-valid={invalid ? "false" : "true"} aria-pressed={on} disabled={invalid} data-reason={def.reason ?? undefined} title={invalid ? why : def.name} onClick={pick}>
       <Glyph name="fork" className="glyph" />
       <span className="truncate">{def.title || def.name}</span>
       <span className="hx-flow-badge">{t("flowui.origin." + (def.origin ?? "builtin"))}</span>
-      {invalid ? <span className="sub">{t("flowui.task.invalid")}</span> : <span className="sub">{def.name}</span>}
+      {invalid ? <span className="sub">{why}</span> : <span className="sub">{def.name}</span>}
     </button>
   );
 }

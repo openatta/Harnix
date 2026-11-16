@@ -49,7 +49,7 @@ pub use kernel::engine::{
 pub use kernel::host::{
     digest, AllowAll, Authorizer, Catalog, ChangeSet, Clock, Delivery, Event, FixedClock,
     GateResult, Gates, ManualClock, NoTools, Op, Origin, Outcome, Packs, Placement,
-    Programs, RunStore, StoreError, SystemClock, Tools, WorkItem, EVENT_KINDS,
+    Programs, RunStore, StoreError, SystemClock, Tools, Withheld, WorkItem, EVENT_KINDS,
 };
 pub use kernel::parts::{
     glob, judge, judge_under, part_schema, permissions_of, rules_of, Call, Effect, GateDef, GateKind, Granted,
@@ -66,5 +66,5 @@ pub use kernel::validate::{part_problems, validate, validate_yaml, Problem};
 pub use kernel::{FlowError, Result};
 #[cfg(feature = "extension")]
 pub use module::{builtin_scenes, Flow, FlowBuilder, FlowHandle};
-pub use packs::{DirPacks, MemPacks};
+pub use packs::{project_pack_dir, DirPacks, MemPacks, ProjectPacks, ProjectTrust};
 pub use store::{FileStore, Hooked, MemStore};

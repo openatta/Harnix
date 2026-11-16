@@ -6,6 +6,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  defBlockedKey,
+  ORIGINS,
   guideGroupOf,
   guideSections,
   guideTermOf,
@@ -138,6 +140,20 @@ describe("actions per status", () => {
       expect(stationActions(run, review, rec("working"))).toEqual({ confirm: false, force: false, rework: [], release: false, retry: [] });
     }
     expect(stationActions("active", review, undefined).force).toBe(false);
+  });
+});
+
+describe("flows on offer", () => {
+  it("says why one cannot be started: the project's own wait on trust, a broken file, any other invalid one", () => {
+    expect(defBlockedKey({ valid: true })).toBeNull();
+    expect(defBlockedKey({ valid: false })).toBe("flowui.def.invalid");
+    expect(defBlockedKey({ valid: false, reason: "untrusted" })).toBe("flowui.def.untrusted");
+    expect(defBlockedKey({ valid: false, reason: "unreadable" })).toBe("flowui.def.unreadable");
+    // Every key it gives, and every origin's badge, is a string of the package's.
+    for (const key of ["flowui.def.invalid", "flowui.def.untrusted", "flowui.def.unreadable", ...ORIGINS.map((o) => `flowui.origin.${o}`)]) {
+      expect(STRINGS.en[key], key).toBeTruthy();
+    }
+    expect(STRINGS["zh-CN"]["flowui.def.untrusted"]).toBe("信任项目后可用");
   });
 });
 
