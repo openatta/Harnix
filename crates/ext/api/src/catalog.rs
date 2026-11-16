@@ -71,7 +71,7 @@ pub struct Point {
     pub frequency: Frequency,
 }
 
-/// The ten points the interface is built out of.
+/// The eleven points the interface is built out of.
 ///
 /// The number is part of the design (concept §5.6): one more is an argument to
 /// be made, not a commit to be pushed. The ninth, `session.action`, was argued:
@@ -80,7 +80,11 @@ pub struct Point {
 /// `sidebar.tab`, was argued too: the right column is a docking surface per session, and the
 /// pages opened in it (a file preview, the usage, a flow's progress, an output stream) are one
 /// kind of thing — a tab type that claims an address or is opened by name — which a space's
-/// `details.tabs` could not be, being a space's and not a session's. Every one of them is drawn by a built-in
+/// `details.tabs` could not be, being a space's and not a session's. The eleventh, `shortcut`, was
+/// argued as well: the shell's keys were three branches of one listener, any package's key would
+/// have been another, and the settings could list none of them — a command with a key per platform,
+/// where it is in force and what it runs is one kind of thing, and `command` (completions for what is
+/// typed) is not it. Every one of them is drawn by a built-in
 /// registration **and asked for by the shell**, which is what makes the count
 /// honest — a seam nothing uses is not a seam, it is a line in this list.
 /// It has happened: five of the seven points there were once went unasked.
@@ -155,13 +159,20 @@ pub const POINTS: &[Point] = &[
         when: "右栏打开一个地址或一种页时",
         frequency: Frequency::PerInteraction,
     },
+    Point {
+        id: "shortcut",
+        kind: PointKind::Register,
+        what: "一条有快捷键的命令：按平台的缺省键、生效的地方（全局、输入框、右栏）、要跑的动作；设置的「快捷键」列出它、可改键",
+        when: "按下一个键时；设置的「快捷键」打开时",
+        frequency: Frequency::PerInteraction,
+    },
 ];
 
 pub fn point(id: &str) -> Option<&'static Point> {
     POINTS.iter().find(|p| p.id == id)
 }
 
-/// A point a first-party extension defines for the others to fill, beside the shell's ten and not
+/// A point a first-party extension defines for the others to fill, beside the shell's eleven and not
 /// counted among them: the extension declares it (`UiDecl::point`) and its UI package defines it.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy)]
@@ -263,10 +274,10 @@ mod tests {
         assert_eq!(points_of("system").count(), 2);
     }
 
-    /// Ten, and adding one is a decision (concept §5.6).
+    /// Eleven, and adding one is a decision (concept §5.6).
     #[test]
-    fn the_interface_has_ten_points() {
-        assert_eq!(POINTS.len(), 10);
+    fn the_interface_has_eleven_points() {
+        assert_eq!(POINTS.len(), 11);
     }
 
     /// Nothing here may fire per streaming delta — the whole reason frequency

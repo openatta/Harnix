@@ -10,6 +10,7 @@ import type { HarnixClient } from "@harnix/core";
 import { HarnixUiProvider } from "@harnix/react";
 
 import { Shell } from "../src/Shell";
+import { registerShellShortcuts } from "../src/shortcuts";
 import { hostFor } from "../src/host";
 import { closeMenu, openMenu, openedMenu } from "../src/Menu";
 import { scriptedApp } from "./scripted";
@@ -28,6 +29,7 @@ function key(target: EventTarget, k: string, extra: KeyboardEventInit = {}) {
 
 function mount() {
   const { app } = scriptedApp();
+  registerShellShortcuts(app);
   render(
     <HarnixUiProvider client={app.conn as HarnixClient}>
       <Shell app={app} />
@@ -175,10 +177,10 @@ describe("modal", () => {
     const app = mount();
     const before = app.snapshot.sidebar;
     act(() => app.openModal({ title: "m", content: null }));
-    key(window, "\\", { metaKey: true });
+    key(window, "\\", { ctrlKey: true });
     expect(app.snapshot.sidebar).toBe(before);
     act(() => app.closeModal());
-    key(window, "\\", { metaKey: true });
+    key(window, "\\", { ctrlKey: true });
     expect(app.snapshot.sidebar).not.toBe(before);
   });
 

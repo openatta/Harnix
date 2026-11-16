@@ -582,7 +582,7 @@ r.space(SpaceDecl::new("watchlist").instance("template:helm.research").scene("re
 
 构建：模板的 `scripts/build.sh` 把 `spaces/*/ui/src/index.tsx` 自动接进去；手工怎么构建、去重了哪些包见 §22.5。
 
-`space` 只是十个内核贡献点之一：往工具行、对话流、右栏详情、右栏页签、左栏分组、命令菜单、设置、会话动作里加东西的是另外九个，
+`space` 只是十一个内核贡献点之一：往工具行、对话流、右栏详情、右栏页签、左栏分组、命令菜单、设置、会话动作、快捷键里加东西的是另外十个，
 你的扩展还能自己定义点（`<你的 id>.<名>`）。每个点的形状见 §22.3 与 [贡献点](contribution_points.md)。
 
 ### 8.3 `useHost()`
@@ -801,7 +801,7 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 |---|---|---|---|
 | Harnix 版本 | `0.4.4-2026111502` | 各 crate 的 `Cargo.toml`；`harnix::HARNIX_VERSION` | 每次发布（`scripts/set-version.sh` 连这一格一起改，`tests/crate-metadata.mjs` 查它和 crate 一致） |
 | 扩展 API | `1` | `harnix::ext::EXT_API_VERSION` | 写进文档、`--version` 打印的数，不做编译期检查：兼容靠 crate 的版本，从 0.4.4 起扩展接口只做加法（公开的结构与枚举都是 `non_exhaustive` 或只有私有字段，一个 feature 只加函数与模块）；破坏性的变化升它，也升 crate 的大版本。`harnix::ext::http::axum` 与 `harnix::axum`（feature `axum`）、`harnix::testing`（feature `testing`）不在承诺内 |
-| 贡献点 API | `4` | `harnix::CONTRIB_API_VERSION`；`harnix.hello` 里也有 | 贡献点的契约变了。2：运行期包的界面模块是预编译的 ES 模块，从页面的 import map 拿 React；**React 的大版本是它的一部分**。3：宿主 API `HostApi`/`useHost()`、第九个内核点 `session.action`、扩展自己定义的点（`definePoint`）、`space` 分组、按 `hello.extensions` 激活。4：第十个内核点 `sidebar.tab`（右栏的页签类型）、宿主 API `host.sidebar`（导航控制器）、页签域 `useTabInfo()`；只做加法，照 3 写的模块照常 |
+| 贡献点 API | `4` | `harnix::CONTRIB_API_VERSION`；`harnix.hello` 里也有 | 贡献点的契约变了。2：运行期包的界面模块是预编译的 ES 模块，从页面的 import map 拿 React；**React 的大版本是它的一部分**。3：宿主 API `HostApi`/`useHost()`、第九个内核点 `session.action`、扩展自己定义的点（`definePoint`）、`space` 分组、按 `hello.extensions` 激活。4：第十个内核点 `sidebar.tab`（右栏的页签类型）、宿主 API `host.sidebar`（导航控制器）、页签域 `useTabInfo()`；第十一个内核点 `shortcut`（有快捷键的命令，§22.8）；只做加法，照 3 写的模块照常 |
 | 协议 | `5` | `harnix_contract::PROTOCOL_VERSION` | 握手比对，不一致拒绝（`HANDSHAKE_REFUSED`）。5：名字规整（内核 `harnix.<区域>.<动词>`、引擎直通 `engine.*`、扩展在自己的 id 下），默认实例叫 `main`，新增错误码 `CANCELLED`、`DEADLINE_EXCEEDED`、`EXTENSION_UNAVAILABLE`。`harnix.event` 帧里的事件负载与 `engine.*` 的答是 Agix 的形状，不在加法承诺里，由 `hello.engine_protocol` 标明 |
 | 扩展包接口 | `2` | `harnix-ext.toml` 的 `[app] harnix_api`；`harnix_package::HARNIX_API` | 扩展包的契约（WIT world 与清单）有破坏性变化。见 [扩展包](harnix-ext-package.md) |
 | 扩展线 | `1` | `harnix_wasm_port::EXT_WIRE_VERSION` | 产品与它自己的扩展进程之间那条线（`harnix-ext-wire`）的帧或方法改了形状。两端是同一次构建，扩展进程的 `proc.hello` 报的数不等就被拒绝；应用不直接用它 |
@@ -1318,9 +1318,9 @@ export function register(r: Registry, host: HostApi): Dispose | void
   全部注册完还没人定义就丢掉并记进诊断。定义者用 `r.list(name)` / `useContributions(name)` 读；后端在 `UiDecl.points` 里声明同一个点，进生成的目录。
 - **接不上就自己来**：`r.register(point, c, owner, { orElse: () => … })`——点在全部注册结束时还没定义就调 `orElse`。
 
-### 22.3 十个贡献点
+### 22.3 十一个贡献点
 
-内核贡献点 **10 个**，形状与每个点的字段见 [贡献点](contribution_points.md)（点的清单由代码生成）：
+内核贡献点 **11 个**，形状与每个点的字段见 [贡献点](contribution_points.md)（点的清单由代码生成）：
 
 | 点 | 什么 |
 |---|---|
@@ -1334,6 +1334,7 @@ export function register(r: Registry, host: HostApi): Dispose | void
 | `settings.section` | 设置里的一节；`covers: ["models"]`：外壳要人去配模型时打开它 |
 | `session.action` | 对一个会话、或它里面一次工具调用的动作：外壳在标题栏、会话菜单、工具行上问它 |
 | `sidebar.tab` | 右栏的一种页签类型：按 `patterns` 认领 `harnix-resource://` 地址，或按 `kind` 打开的页；§22.7 |
+| `shortcut` | 一条有快捷键的命令：按平台的缺省键、生效的地方、动作；设置的「快捷键」列出它、可改键；§22.8 |
 
 `settings.section` 可以不给 `render`，只声明字段，外壳按声明画表单（类型对应控件、「恢复缺省」、有风险的值先确认、
 值在读取之后被别处改过时提示「保留我的修改并复核」）：
@@ -1353,7 +1354,7 @@ r.register("settings.section", {
 `risk: {values?, message}` 让这些值先确认。引擎设置的字段由后端 `settings` 扩展的字段表声明，`settings.describe` 发给界面，
 `settings.write {tier, changes, revision?}` 整份校验、按版本号拒绝过期的写入（`CONFLICT`）。
 
-扩展定义的点（0.4.4 的第一方）：`system.console.tab`、`system.inspector.tab`，不算进「10 个」。
+扩展定义的点（0.4.4 的第一方）：`system.console.tab`、`system.inspector.tab`，不算进「11 个」。
 `space` 的分组（0.4.2 的 25 个平铺成员按画在哪分四组）：
 
 ```ts
@@ -1522,6 +1523,40 @@ r.register("sidebar.tab", {
 
 本版的页签由各自的 UI 包注册：`@harnix/observability` 的上下文、用量，`@harnix/harnix-app` 的文件、预览、改动，`@harnix/flow` 的流程，`@harnix/system` 的输出（`kind: "output"`，`multiple` 且 `keepMounted`，地址 `harnix-resource://output/<实例>/<会话>/<任务>`，由 Bash、Monitor 工具行的 `session.action`「查看输出」打开）。
 外壳只有引导页。
+
+### 22.8 快捷键：`shortcut`
+
+一个键是一条**命令**的：内核点 `shortcut` 的一条注册。外壳一个监听器按键找命令、跑它；设置的「快捷键」一节列出全部命令，人可以改键
+（存在这个浏览器里，`harnix.shortcuts.<命令 id>`）。不要自己往 `window` 上挂 `keydown` 做快捷键：那样设置里列不出、改不了，也查不到冲突。
+
+```ts
+r.register("shortcut", {
+  id: "observability.usage.open",       // 命令名，全页唯一：<owner>.<做什么>；人改的键记在它名下
+  title: () => host.t("observability.openUsage"),   // 设置里列出的名字，每次画时读
+  keys: "Mod+Shift+U",                  // 缺省键；或 { mac: "Ctrl+Alt+U", other: "Alt+U" }，某个平台写 null 就是那里没有；不写就是没有键，等人去设
+  scope: "global",                      // 缺省；"composer"：焦点在输入框里才生效；"sidebar"：焦点在右栏里才生效
+  enabled: () => true,                  // 此刻 false：这个键留给页面，像没有这条命令（抛错算 false）
+  run: (ctx) => host.sidebar.openTab("usage"),     // ctx：{ space, session, scope }；抛错或 reject 进外壳的横幅
+}, owner);
+```
+
+**键的写法**：修饰键加一个键，用 `+` 连：`Mod`（Mac 上是 ⌘，别处是 Ctrl）、`Ctrl`、`Alt`（⌥）、`Shift`、`Meta`（⌘）；键是字母、数字、
+`/ \ , . ; ' [ ] - =`、反引号、`Enter`、`Space`、`Tab`、`Backspace`、`Delete`、`ArrowUp`…（`Up` 也行）、`Home`、`End`、`PageUp`、`PageDown`、`F1`–`F24`，
+也可以直接写 `KeyboardEvent.code`（`KeyK`、`Slash`）。按物理键比对（`code`），所以 ⌥K 在 Mac 上也是 K。写错的整条被拒、记进诊断；`id` 重复的后来者被拒。
+
+**哪条命令跑**：一个键按下时，焦点所在处（输入框、右栏）的命令先于全局的，同一处的按注册顺序取第一条；`enabled()` 为 false 的不算。
+对话框开着时都不跑；焦点在文字框里时，不带 Ctrl、⌘、⌥ 的键（功能键除外）是打字，不跑。Esc 归层（对话框、菜单、抽屉），不能做命令的键。
+
+**冲突**：两条命令同键、又在同一处生效（全局的处处生效；输入框与右栏互不相交）就是冲突：设置里两行都标出来，按注册顺序跑第一条。
+人录键时撞上别的命令，提示「已被『…』占用」、不改。人录的键还要带 Ctrl、⌘ 或 ⌥（功能键除外），复制、粘贴、剪切、全选、撤销、重做与
+浏览器自己的窗口、标签键（`Mod+W`、`Mod+T`、`Mod+N`…）不收。
+
+**工具函数**（`@harnix/react`）：`parseKeys(text, platform)`、`writeKeys(chord)`、`keyLabel(chord, platform)`（`⌘K` / `Ctrl+K`，提示里显示键用它）、
+`chordOf(event)`、`shortcutPlatform()`、`shortcutConflicts(bindings)`、`pickShortcut(bindings, chord, scopes)`。
+
+外壳自己的命令：`shell.session.new`（`Mod+K`）、`shell.sidebar.toggle`（`Mod+\`）、`shell.composer.focus`（`Mod+/`）、
+`shell.details.toggle`、`shell.settings.open`（后两个缺省没有键）。扩展包的页面（iframe）里按下的全局键交给外壳：外壳在环境的 `keys` 里说它们现在是哪些
+（[扩展包](harnix-ext-package.md)）。
 
 ---
 

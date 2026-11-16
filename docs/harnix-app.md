@@ -127,7 +127,14 @@ agent 类型、skill、规则），没有时是 `null`。主题 `harnix-app.trus
 ## 4. 新建会话
 
 - **左栏顶上的「新会话」**（⌘K）：不建会话，只打开新对话的空页。前台是系统 space、`center: "hidden"` 的 space 或嵌在别的
-  space 里的 space 时，先换到第一个能对话的 space。⌘\ 收起左栏，⌘/ 聚焦输入框。对话框开着时这三个键都不生效。
+  space 里的 space 时，先换到第一个能对话的 space。⌘\ 收起左栏，⌘/ 聚焦输入框。
+- **快捷键**：上面三个是外壳自己的命令（`shell.session.new`、`shell.sidebar.toggle`、`shell.composer.focus`），缺省键在 Mac 上是
+  ⌘K、⌘\、⌘/，别的平台是 Ctrl+K、Ctrl+\、Ctrl+/；「打开或关闭右栏」（`shell.details.toggle`）与「打开设置」（`shell.settings.open`）
+  缺省没有键。UI 包可以加自己的命令（贡献点 `shortcut`，[Harnix 扩展](harnix-ext.md) §22.8）。设置的「快捷键」一节列出全部命令（名字、谁的、
+  现在的键）：点键位、按下新组合就录下（Esc 放弃）；要带 Ctrl、⌘ 或 ⌥（功能键除外），复制、粘贴、撤销与浏览器自己的窗口、标签键不收；
+  和别的命令同键时提示「已被『…』占用」、不改；可以逐条或全部恢复缺省。改过的键只存在这个浏览器里（`localStorage` 的
+  `harnix.shortcuts.<命令>`），别的标签页跟着变。一个键按下时，焦点在输入框或右栏里的命令先于全局的；对话框开着时都不生效；
+  焦点在文字框里时，不带 Ctrl、⌘、⌥ 的键是打字。扩展包的页面（iframe）里按下的全局键也交给外壳。
 - **窄窗口**（≤ 960 宽）：左栏是 56px 的轨，轨上的「会话」入口、收起键或 ⌘\ 把它作为抽屉盖在页面上打开；在抽屉里选了会话或 space、
   按 Esc、点幕布就收回。打开的右栏是从右边盖住中区的抽屉（`narrow_details = "beside"` 时 720–960 宽仍三栏并排），里面是同一条页签栏、同一个会话的停靠面（[Harnix 扩展](harnix-ext.md) §22.7）；
   会话头角落的按钮在右栏收起时把它展开。宽窗口里人自己
@@ -140,7 +147,7 @@ agent 类型、skill、规则），没有时是 `null`。主题 `harnix-app.trus
 - **换模型**：会话的模型菜单在有 `harnix.session.setModel`（`[shell] model_switch = true`）时用它，否则用系统 space 的
   `system.model`。
 
-**`[shell] new_session = false`**：整个外壳不画「新会话」、⌘K 不归外壳（会话由应用自己建）。**只是界面**：空页上的输入框只看 space
+**`[shell] new_session = false`**：整个外壳不画「新会话」、「新会话」的键不归外壳（会话由应用自己建）。**只是界面**：空页上的输入框只看 space
 自己的 `newSession`，所以空的 space 仍然给一个输入框；要一个 space 没有它，在那个 space 上写 `newSession: false`（这时画
 `placeholder()`）。服务端照旧收 `harnix.session.create`。
 

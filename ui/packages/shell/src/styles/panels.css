@@ -519,6 +519,42 @@
   color: var(--state-error);
 }
 
+/* The keys section: a count and "restore all" over the commands, each key a button that records. */
+.shortcuts-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shortcuts-bar .hint {
+  flex: 1 1 auto;
+}
+
+.shortcut-keys {
+  min-width: 64px;
+  padding: 2px 10px;
+  font: 12px/1.6 var(--font-code);
+  border: 1px solid var(--border-l2);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: var(--bg-base);
+  color: var(--label-primary);
+  cursor: pointer;
+}
+
+.shortcut-keys[data-state="none"] {
+  color: var(--label-caption);
+}
+
+.shortcut-keys[data-state="recording"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.shortcut-row[data-state="conflict"] .shortcut-keys {
+  border-color: var(--state-warn);
+}
+
 /* The pairing code, on the one screen it is ever shown.
  *
  * It is read off this screen and typed into another machine, so it is large

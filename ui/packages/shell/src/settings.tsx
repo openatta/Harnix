@@ -1,7 +1,7 @@
 /**
  * The settings panel: a section list on the left, the chosen section on the right.
  *
- * The frame is the shell's, and so are four sections every product has: the appearance first;
+ * The frame is the shell's, and so are five sections every product has: the appearance and the keys first;
  * this page's diagnostics and what the product is last. Between them, whatever is registered at
  * `settings.section`, in order — the engine's settings, the plugins, the devices are UI packages'
  * like any application's. A section that throws loses its page, not the panel: the nav stays usable.
@@ -16,6 +16,7 @@ import { APPS_LIST } from "./constants.ts";
 import { Body, CloseFoot } from "./dialogs.tsx";
 import { packagesOf } from "./inline/index.tsx";
 import { PageFrames } from "./surfaces/status.tsx";
+import { ShortcutsSection } from "./shortcuts.tsx";
 
 let active = "general";
 
@@ -35,7 +36,7 @@ export function openSettingsFor(app: App, need: SettingsNeed): void {
 function ownSections(app: App) {
   const section = (id: string, label: string, render: () => ReactNode) => ({ id, label: () => t(label), render, owner: "shell" });
   return {
-    first: [section("general", "settings.nav.general", () => <General app={app} />)],
+    first: [section("general", "settings.nav.general", () => <General app={app} />), section("shortcuts", "settings.nav.shortcuts", () => <ShortcutsSection app={app} />)],
     last: [section("diagnostics", "settings.nav.diagnostics", () => <Diagnostics app={app} />), section("about", "settings.nav.about", () => <About app={app} />)],
   };
 }
