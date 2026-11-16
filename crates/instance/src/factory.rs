@@ -155,6 +155,9 @@ impl Factory {
         data_root: PathBuf,
         contrib: EngineContribution,
     ) -> anyhow::Result<Built> {
+        // `main` is built here and not through `build_with`: Harnix's defaults are written for it too.
+        std::fs::create_dir_all(&data_root)?;
+        harnix_defaults(id, &data_root);
         let host = HostSide::new(id, self.chains(), &contrib).map_err(anyhow::Error::msg)?;
         let profile = engine_scenes(id, profile, host.layers())?;
         let engine = Engine::start(EngineConfig::from_profile(&profile, &data_root)).await?;
@@ -195,10 +198,11 @@ impl Factory {
         std::fs::create_dir_all(&data_root)?;
         if !matches!(carrier, TemplateCarrier::Attach(_)) {
             harnix_engine::strip_package_skills(&data_root);
-            // Not for an engine somebody else runs: its settings are theirs.
-            if let Err(e) = crate::defaults::telemetry_off(&data_root) {
-                tracing::warn!(instance = id, error = %e, "the telemetry default was not written");
-            }
+        }
+        // Not for an engine somebody else runs: its settings are theirs. One built in this process
+        // has them written by `in_process`.
+        if matches!(carrier, TemplateCarrier::Spawn { .. }) {
+            harnix_defaults(id, &data_root);
         }
         if template.is_some_and(|t| t.inherit_providers) {
             if let Err(e) = self.inherit(&data_root) {
@@ -381,6 +385,14 @@ fn daemon_args(engine: &EngineProfile, data_root: &Path, socket: &Path) -> Vec<S
         argv.push(scenes.join(","));
     }
     argv
+}
+
+/// What an instance of Harnix's own starts with where the engine's default is not Harnix's
+/// (`defaults`). Not written is not fatal: the engine's own default stands.
+fn harnix_defaults(id: &str, data_root: &Path) {
+    if let Err(e) = crate::defaults::telemetry_off(data_root) {
+        tracing::warn!(instance = id, error = %e, "the telemetry default was not written");
+    }
 }
 
 /// Instance ids can be 64 characters; socket names should not be.

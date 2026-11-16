@@ -11,7 +11,7 @@
 import type { Page } from "@playwright/test";
 import { type Backend, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-import { open, recorded, watchConsole } from "./page";
+import { open, recorded, spaceEntry, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:system", "@layer:ui"] };
 const MODEL = "claude-sonnet-4-6";
@@ -19,7 +19,8 @@ const MODEL = "claude-sonnet-4-6";
 let backend: Backend;
 test.describe.configure({ mode: "serial" });
 test.beforeAll(async () => {
-  backend = await startHarnix(launchFor("replay"));
+  // A backend whose sessions record: a replayed session's recording is not read (see `recorded`).
+  backend = await startHarnix(launchFor("none"));
 });
 test.afterAll(async () => {
   await backend?.dispose();
@@ -38,7 +39,7 @@ function now(lines: string[]): string[] {
 
 async function toUsage(page: Page): Promise<void> {
   await open(page, backend.url);
-  await page.locator('#side [data-space="system"]').click();
+  await spaceEntry(page, "system").click();
   await expect(page.getByTestId("system-console")).toBeVisible();
   await page.locator('[data-testid="system-console"] [role="tab"][data-tab="observability.summary"]').click();
   await expect(page.getByTestId("usage-summary")).toBeVisible();
@@ -60,8 +61,10 @@ test("usage-summary: the recordings of the window summed by project, model and d
   await expect(page.getByTestId("usage-summary-bars").locator('.col:not([data-value="0"])')).toHaveCount(1);
   const models = page.getByTestId("usage-by-model");
   await expect(models.locator(`tbody tr[data-key="${MODEL}"]`)).toHaveCount(1);
-  // A session of no project is listed as such.
-  await expect(page.getByTestId("usage-by-project").locator('tbody tr[data-key=""]')).toHaveCount(1);
+  // The session runs in the backend's project, named by its last part.
+  const projects = page.getByTestId("usage-by-project").locator("tbody tr");
+  await expect(projects).toHaveCount(1);
+  await expect(projects.first()).toHaveAttribute("data-key", /\/project$/);
   await expect(page.getByTestId("usage-by-day").locator("tbody tr")).toHaveCount(1);
 
   // A second session: not there until it is read again.
@@ -69,7 +72,8 @@ test("usage-summary: the recordings of the window summed by project, model and d
   await toUsage(page);
   await expect(totals.locator('[data-cell="sessions"] .v')).toHaveText("2", { timeout: 20_000 });
   await expect(totals.locator('[data-cell="calls"] .v')).toHaveText(/^3/);
-  await expect(page.getByTestId("usage-by-project").locator('tbody tr[data-key=""] td[data-column="sessions"]')).toHaveText("2");
+  await expect(projects).toHaveCount(1);
+  await expect(projects.first().locator('td[data-column="sessions"]')).toHaveText("2");
 
   // A header sorts by its column, and again turns it.
   const header = models.locator('th[data-column="calls"]');

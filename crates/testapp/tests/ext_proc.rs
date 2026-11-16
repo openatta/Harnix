@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use harnix_supervise::{ChildEvent, ChildSpec, RestartPolicy, Supervisor};
+use harnix_supervise::{ChildEvent, ChildSpec, RestartPolicy, Supervisor, Tail};
 use harnix_wasm_port::rpc::ControlClient;
 use harnix_wasm_port::socket::{
     Answer, CallMeta, CancellationToken, Inbound, KernelAnswer, Options as WireOptions, SocketWire,
@@ -335,7 +335,16 @@ async fn the_showcase_runs_in_an_extension_process_of_this_binary() {
     let pkg = app_dir.join(&version);
     let (ends, mut product_ends) = mpsc::unbounded_channel();
     let (spawn_pkg, spawn_run) = (pkg.clone(), run.clone());
-    let mut supervisor = Supervisor::start(move || spec(&spawn_pkg, &spawn_run, &ends), RestartPolicy::extension());
+    // Its stderr read as a product reads it, under a `RUST_LOG` that would keep `info` out.
+    let stderr = Tail::extension(ID);
+    let spawn_stderr = stderr.clone();
+    let mut supervisor = Supervisor::start(
+        move || {
+            let spec = spec(&spawn_pkg, &spawn_run, &ends)?;
+            Ok(spec.envs([("RUST_LOG".to_string(), "warn".to_string())]).stderr_to(spawn_stderr.clone()))
+        },
+        RestartPolicy::extension(),
+    );
     let pid = next_start(&mut supervisor).await;
     let (stream, spawned) = product_ends.recv().await.unwrap();
     let process = Connection::new(stream, spawned);
@@ -359,6 +368,11 @@ async fn the_showcase_runs_in_an_extension_process_of_this_binary() {
     assert_eq!(registration.topics, ["notes", "heartbeat", "fetched"]);
     assert_eq!(registration.spaces[0].id, ID);
     assert_eq!(process.product.said("subscribe"), ["subscribe harnix.sessions.status"]);
+    // The package's own log reaches its stderr whatever `RUST_LOG` says: it is the extension's.
+    eventually("its backend's log on stderr", async || {
+        stderr.lines().iter().any(|l| l.contains("INFO") && l.contains("the showcase's backend started"))
+    })
+    .await;
     tokio::time::sleep(Duration::from_secs(1)).await;
     let idle_started = rss_kib(pid);
 

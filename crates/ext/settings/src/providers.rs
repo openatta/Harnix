@@ -98,6 +98,29 @@ pub(crate) fn redacted(mut answer: Value) -> Value {
     answer
 }
 
+/// The provider keys `engine.config.getProvider` does not answer, and none of them a secret.
+const UNANSWERED_KEYS: &[&str] = &["api_key_env", "thinking_toggle", "reasoning_passback"];
+
+/// `engine.config.getProvider`'s answer with each provider's [`UNANSWERED_KEYS`] taken from the
+/// engine's effective settings (`engine.config.get`, the same merge), so the page reads back what
+/// it wrote. A key the effective settings do not give is left out.
+pub(crate) fn with_unanswered(mut answer: Value, effective: Option<&Value>) -> Value {
+    let Some(configured) = effective.and_then(|settings| settings.get("providers")).and_then(Value::as_object) else {
+        return answer;
+    };
+    if let Some(providers) = answer.get_mut("providers").and_then(Value::as_object_mut) {
+        for (id, provider) in providers.iter_mut() {
+            let (Some(view), Some(config)) = (provider.as_object_mut(), configured.get(id)) else { continue };
+            for key in UNANSWERED_KEYS {
+                if let Some(value) = config.get(*key).filter(|v| !v.is_null()) {
+                    view.entry(*key).or_insert_with(|| value.clone());
+                }
+            }
+        }
+    }
+    answer
+}
+
 /// The `default_provider` to send with this change, if any: the one asked for, which must be
 /// configured once the change is made; else, when the current default is not (deleted, or never
 /// set), the first provider left. `None` when the current one stands, or none is left.
@@ -341,6 +364,23 @@ mod tests {
         assert_eq!(providers["env"]["api_key_env"], json!("OPENAI_API_KEY"));
         assert_eq!(answer["default_provider"], json!("whole"));
         assert!(!answer.to_string().contains("0123456789"));
+    }
+
+    #[test]
+    fn what_the_engine_s_provider_view_leaves_out_is_read_from_its_effective_settings() {
+        let answer = json!({"providers": {"a": {"api_key": "***wxyz", "default_model": "m"}, "b": {"api_key": null}}});
+        let effective = json!({"providers": {
+            "a": {"api_key": "***wxyz", "api_key_env": "A_KEY", "thinking_toggle": "deepseek", "reasoning_passback": true},
+            "b": {"api_key_env": null, "thinking_toggle": null, "reasoning_passback": false},
+        }});
+        let answer = with_unanswered(answer, Some(&effective));
+        let a = &answer["providers"]["a"];
+        assert_eq!((&a["api_key_env"], &a["thinking_toggle"], &a["reasoning_passback"]), (&json!("A_KEY"), &json!("deepseek"), &json!(true)));
+        assert_eq!(a["api_key"], json!("***wxyz"));
+        assert_eq!(answer["providers"]["b"], json!({"api_key": null, "reasoning_passback": false}));
+        // The effective settings could not be read: the answer is as the engine gave it.
+        let alone = with_unanswered(json!({"providers": {"a": {}}}), None);
+        assert_eq!(alone, json!({"providers": {"a": {}}}));
     }
 
     #[test]

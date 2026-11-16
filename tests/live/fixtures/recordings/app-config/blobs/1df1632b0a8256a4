@@ -1,1 +1,0 @@
-{"role":"assistant","content":[{"type":"thinking","text":"The user wants me to call the tool ext__example_showcase__config with no arguments.","signature":"5ac1e324-7b55-400e-a83d-d845df47d95e"},{"type":"tool_use","id":"call_00_RkT7Dcoj6S4IdgpRGmn26682","name":"ext__example_showcase__config","input":{}}]}

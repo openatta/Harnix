@@ -10,7 +10,7 @@
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "@harnix/testkit";
 
-import { newSession, open, openSettings, settingsSection } from "./page";
+import { modKey, newSession, open, openSettings, settingsSection } from "./page";
 
 const SETTINGS = { tag: ["@feature:settings", "@layer:ui"] };
 const SHELL = { tag: ["@feature:shell", "@layer:ui"] };
@@ -70,7 +70,7 @@ test("the new-session key, recorded anew: the new key starts a conversation, ⌘
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("settings-nav")).toHaveCount(0);
   await expect(page.locator("#new kbd")).toHaveText(mac ? "⌥⇧J" : "Alt+Shift+J");
-  await page.keyboard.press("ControlOrMeta+k");
+  await page.keyboard.press(`${await modKey(page)}+k`);
   expect(await current(page)).toBe(id);
   await page.keyboard.press("Alt+Shift+j");
   await expect.poll(() => current(page)).toBeNull();
@@ -83,11 +83,12 @@ test("a key another command has is refused with a warning, and the old key stays
   const before = await new_.getByTestId("shortcut-keys").textContent();
 
   // ⌘/ is the composer's.
-  await record(page, "shell.session.new", "ControlOrMeta+/");
+  const m = await modKey(page);
+  await record(page, "shell.session.new", `${m}+/`);
   await expect(new_.getByTestId("shortcut-warning")).toContainText(/聚焦输入框|Focus the composer/);
   await expect(new_.getByTestId("shortcut-keys")).toHaveText(before!);
   // ⌘C is copying text: never a command's.
-  await record(page, "shell.session.new", "ControlOrMeta+c");
+  await record(page, "shell.session.new", `${m}+c`);
   await expect(new_.getByTestId("shortcut-warning")).toBeVisible();
   // A bare letter would be taken from whoever is typing.
   await record(page, "shell.session.new", "j");

@@ -97,12 +97,14 @@ test("system-tree: every instance, its sessions of every space, and their tasks;
   for (const id of ["main", "side", "ci"]) await expect(tree.locator(`[data-testid="system-tree-instance"][data-instance="${id}"]`)).toBeVisible();
   await expect(tree.locator('[data-testid="system-tree-instance"][data-instance="side"]')).toHaveAttribute("data-state", "ready");
   await expect(tree.locator('[data-testid="system-tree-instance"][data-instance="ci"]')).toHaveAttribute("data-state", "ready", { timeout: 30_000 });
-  // Both turns have settled; both Agents are loaded, so active, and idle.
+  // Both turns have settled; both Agents are loaded, so active, and idle — or `done` (unseen): the
+  // page holds main's list, whose push after the settle comes a beat later, so this space can be
+  // handed it still running first.
   const agents = page.getByTestId("system-agents");
   await expect(agents).toHaveAttribute("data-scope", "active");
-  await expect(agents.locator(`[data-testid="system-agent-group"][data-instance="side"][data-sid="${onSide}"]`)).toHaveAttribute("data-state", "idle", { timeout: 10_000 });
+  await expect(agents.locator(`[data-testid="system-agent-group"][data-instance="side"][data-sid="${onSide}"]`)).toHaveAttribute("data-state", /^(idle|done)$/, { timeout: 10_000 });
   const parent = agents.locator(`[data-testid="system-agent-group"][data-instance="main"][data-sid="${withAgent}"]`);
-  await expect(parent).toHaveAttribute("data-state", "idle");
+  await expect(parent).toHaveAttribute("data-state", /^(idle|done)$/);
   // Its sub-agent is counted on the row, and under it once the row is open.
   await expect(parent.locator('[data-stat="subagents"]')).toHaveText("1", { timeout: 10_000 });
   await parent.getByTestId("system-agent-toggle").click();
@@ -170,14 +172,14 @@ test("system-agents: the active tab lists the loaded Agents, the all tab every o
   await expect(pane.getByTestId("agent-subs")).toContainText("1");
   await expect(pane.getByTestId("agent-goal")).toHaveCount(0);
   // The model the next call goes to, and how full that call's context is.
-  await expect(pane.locator(".facts")).toContainText(/claude-|big/);
+  await expect(pane.locator(".hx-facts")).toContainText(/claude-|big/);
   await expect(pane.getByTestId("agent-context")).toBeVisible();
   // The sub-agent, picked: its own figures out of the parent's recording, and the way back.
   await sub.click();
   const subPane = page.getByTestId("system-subagent-pane");
   await expect(subPane.getByTestId("agent-stats").locator('[data-cell="total"] .v')).toHaveText("200");
   await expect(subPane.getByTestId("agent-stats").locator('[data-cell="model"] .v')).toHaveText("600ms");
-  await expect(subPane.locator(".facts")).toContainText("small");
+  await expect(subPane.locator(".hx-facts")).toContainText("small");
   await subPane.getByTestId("agent-open-parent").click();
   await expect(page.getByTestId("system-session")).toContainText(id);
 
@@ -347,9 +349,13 @@ test("system-trajectory: every model call by turn with what went in and what cam
   await page.locator('#details [data-filter="all"]').click();
 
   // In the narrow column the inspector takes the list's place.
-  await calls.nth(1).click();
+  // The parent's second call: its index is its place among every call in the recording, the
+  // sub-agent's included, so it is read off the row rather than counted.
+  const second = calls.nth(1);
+  const index = (await second.getAttribute("data-call"))!;
+  await second.click();
   const detail = page.getByTestId("call-detail");
-  await expect(detail).toHaveAttribute("data-call", "1");
+  await expect(detail).toHaveAttribute("data-call", index);
   await expect(detail.getByTestId("call-input")).toContainText(/scene\./);
   await detail.locator('[data-side="output"]').click();
   await expect(detail.getByTestId("call-output")).toContainText(/tool_result|sub-agent/);
@@ -539,16 +545,17 @@ test("system-jump: the header's button opens the space's sessions in the system 
 });
 
 test("system-jump: a tool row opens its session's trajectory in the system space", TREE, async ({ page }) => {
-  // Replayed, the conversation has no recording, so there is no call to find: the calls are said to
-  // be none. The trajectory finding the call that asked for a tool is its unit test
-  // (ui/packages/observability/test/register.test.tsx).
+  // Replayed, the conversation has no recording, so there is no call to find: its turn is drawn from
+  // the session's own turns, with no calls. The trajectory finding the call that asked for a tool is
+  // its unit test (ui/packages/observability/test/register.test.tsx).
   const errors = watchConsole(page);
   await conversationWithTool(page);
   const row = page.locator('[data-testid="conv-tool"]').first();
   await row.getByTestId("conv-tool-toggle").click();
   await row.getByTestId("action-system.tool").click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", "system");
-  await expect(page.locator("#details")).toContainText("No calls recorded for this session");
+  await expect(page.locator('#details [data-testid="traj-count"]')).toHaveText(/^1 (turns|轮) · 0 (calls|次调用)$/);
+  await expect(page.locator('#details [data-testid="traj-user"]')).toContainText("echo harnix-fixture");
   await expect(page.locator('#details [data-testid="system-call"]')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
@@ -594,10 +601,11 @@ test("system-timeline: calls on a time line, searched and narrowed by a stretch 
   await expect(page.getByTestId("traj-start")).not.toBeEmpty();
   await expect(calls.first().getByTestId("call-ttft")).toBeVisible();
 
-  // Search: only the calls that say or call the Agent tool, fewer than all of them — found though the turns are folded.
+  // Search: only the call whose Agent call says "list files", fewer than all of them — found though
+  // the turns are folded. ("agent" alone is said by the last call too: "sub-agent found: …".)
   await page.getByTestId("traj-fold-turns").click();
   await expect(calls).toHaveCount(0);
-  await page.getByTestId("calls-search").fill("agent");
+  await page.getByTestId("calls-search").fill("list files");
   await expect.poll(() => calls.count()).toBeLessThan(all);
   expect(await calls.count()).toBeGreaterThan(0);
   await page.getByTestId("calls-search").fill("no call says this");

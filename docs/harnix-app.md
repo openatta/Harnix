@@ -568,7 +568,7 @@ Harnix app 的项目在项目根 `projects_dir`（`--data-dir`，缺省 `$HARNIX
 
 **隐私**：遥测是引擎对自己做了什么的记录，每个会话一个 JSONL，写在引擎数据目录的 `telemetry/` 下，不含提示词、消息文本和工具的输入输出
 （`agix/docs/telemetry.md`）。字段 `telemetry_enabled` 与 `telemetry_url`（OTLP 端点，只有带导出支持的引擎才用）只写全局层，项目没有发言权。
-引擎自己的缺省是开；**Harnix 的缺省是关**：实例建起来（非 attach 的承载方式）时，`harnix-instance` 在该实例全局层的 `settings.json`
+引擎自己的缺省是开；**Harnix 的缺省是关**：实例建起来（非 attach 的承载方式，主实例 `main` 也在内）时，`harnix-instance` 在该实例全局层的 `settings.json`
 里缺 `telemetry_enabled` 就写 `false`（`crates/instance/src/defaults.rs`），已有值（开或关）不动，其余内容不动。
 人在设置页里「清除」这一项后，下次启动会再写一次 `false`。
 

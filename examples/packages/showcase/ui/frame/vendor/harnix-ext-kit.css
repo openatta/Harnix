@@ -89,6 +89,8 @@
     "Microsoft YaHei", sans-serif;
   --font-serif: var(--font-sans);
   --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* The type scale's base: the display preferences set it on the document. */
+  --font-size-base: 14px;
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
   --dur-fast: 0.1s;
   --dur: 0.2s;

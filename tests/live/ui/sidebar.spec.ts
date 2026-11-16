@@ -61,6 +61,8 @@ async function registerTypes(page: Page): Promise<void> {
         id: "test.usage",
         kind: "usage",
         priority: "extension",
+        // `title` is required of every type: without it the registration is refused.
+        title: () => "Usage",
         guide: [{ id: "usage", title: () => "Usage", description: () => "What this session spent" }],
         render: () => body("test-usage"),
       },

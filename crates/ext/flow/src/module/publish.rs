@@ -140,10 +140,12 @@ pub(crate) async fn publish_defs(sh: &Arc<Shared>) {
 pub(crate) async fn publish_focus(sh: &Arc<Shared>, instance: &str, session_id: &str) {
     let Some(cx) = sh.cx.get() else { return };
     let flow = sh.focus(instance, session_id);
+    // The same answer `flow.focus` gives: the flow, and the project the conversation works in.
+    let project = sh.conversation_project(instance, session_id);
     let params = json!({"instance": instance, "session_id": session_id});
     if let Err(e) = cx
         .topics()
-        .publish("focus", params, json!({"flow": flow}))
+        .publish("focus", params, json!({"flow": flow, "project": project}))
         .await
     {
         tracing::warn!(error = %e, "focus not published");

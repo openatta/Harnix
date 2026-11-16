@@ -154,7 +154,8 @@ test("the sandbox's and the network's fields are drawn from their declarations a
   await expect(page.getByTestId("settings-sandbox.read_directories")).toBeVisible();
   await expect(page.getByTestId("settings-sandbox.require_enforcement")).toBeVisible();
 
-  await section(page, "network");
+  // Settings is still open (a dialog over the page): the next section from its own list.
+  await settingsSection(page, "network").click();
   await expect(page.getByTestId("settings-network.use_system_proxy")).toBeVisible();
   const domains = page.getByTestId("settings-sandbox.allowed_domains");
   try {

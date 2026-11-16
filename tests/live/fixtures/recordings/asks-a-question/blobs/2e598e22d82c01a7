@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"tool_use","id":"call_00_ET_b5IrGDppBIFEnm5Db8Yv9323","name":"AskUserQuestion","input":{"header":"Color","options":[{"key":"r","label":"red"},{"key":"b","label":"blue"}],"question":"Which color should I use?"}}]}

@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"thinking","text":"Now call it a second time.","signature":"2a11217b-482c-4bf8-9d2c-80f5cc35978e"},{"type":"tool_use","id":"call_00_GUOQ3iMCCT74bjgsp9Wi1233","name":"ext__example_showcase__crash","input":{}}]}

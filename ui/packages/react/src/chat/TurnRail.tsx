@@ -53,6 +53,8 @@ export function TurnRail({ controller, state, scroller, pinned }: TurnRailProps)
   const outline = useTurnOutline(controller);
   const turns = useMemo(() => mergeTurns(outline.turns, state.blocks), [outline.turns, state.blocks]);
   const [active, setActive] = useState(-1);
+  const shownActive = useRef(active);
+  shownActive.current = active;
   const [focus, setFocus] = useState<number | null>(null);
   const [preview, setPreview] = useState<number | null>(null);
   const [view, setView] = useState({ top: 0, height: UNMEASURED });
@@ -147,7 +149,8 @@ export function TurnRail({ controller, state, scroller, pinned }: TurnRailProps)
     const update = () => {
       frame = 0;
       const { index } = current();
-      if (index >= 0) setActive(index);
+      // Only a change is set: this runs after every streamed delta, and an update each time is a render loop.
+      if (index >= 0 && index !== shownActive.current) setActive(index);
     };
     const onScroll = () => {
       if (!frame) frame = requestAnimationFrame(update);

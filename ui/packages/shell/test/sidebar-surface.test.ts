@@ -108,7 +108,7 @@ describe("the store", () => {
     expect(none.tabs(s1)).toHaveLength(1);
   });
 
-  it("focuses the same content rather than opening it twice, unless told to or the type is multiple", () => {
+  it("focuses the same content rather than opening it twice, unless told to or a multiple type opens by kind", () => {
     const store = new SurfaceStore(localStorage);
     const a = store.open(s1, { kind: "preview", address: "harnix-resource://file/a.md", title: "a", params: { line: 1 } });
     const guide = store.open(s1, { kind: "guide", address: null, title: "Guide" });
@@ -129,6 +129,10 @@ describe("the store", () => {
     expect(o1).not.toBe(o2);
     expect(store.tab(s1, o1)?.address).toMatch(/^harnix-tab:\/\/output\//);
     expect(store.tab(s1, o1)?.address).not.toBe(store.tab(s1, o2)?.address);
+    // A multiple type opened at an address: that address's one tab, focused again.
+    const t1 = store.open(s1, { kind: "output", address: "harnix-resource://output/main/s/t1", title: "t1", multiple: true });
+    expect(store.open(s1, { kind: "output", address: "harnix-resource://output/main/s/t1", title: "t1", multiple: true })).toBe(t1);
+    expect(store.open(s1, { kind: "output", address: "harnix-resource://output/main/s/t2", title: "t2", multiple: true })).not.toBe(t1);
   });
 
   it("puts a replacing tab where the replaced one was, and closes that one", () => {

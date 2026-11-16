@@ -50,7 +50,15 @@ impl Hub {
         }
         let outcome = async {
             if let RewindTo::BeforeTurn(turn) = &ask.to {
-                ask.to = before(&linked.ops().live_turns(&key.1).await?, turn)?;
+                let mut live = linked.ops().live_turns(&key.1).await?;
+                // The engine still lists a turn a rewind took out when it wrote files: its file
+                // records outlive its conversation. The marks filed here say it is gone.
+                let marks = json!({"session_id": key.1, "namespaces": [crate::changes::NS]});
+                if let Ok(filed) = linked.ops().passthrough("engine.session.entries", marks).await {
+                    let gone = crate::changes::rewound_turns(&filed);
+                    live.retain(|t| !gone.contains(t));
+                }
+                ask.to = before(&live, turn)?;
             }
             let done = linked.ops().rewind(&key.1, &ask).await?;
             // The engine's frame for it is routed before the hub says it is over, so the frame is

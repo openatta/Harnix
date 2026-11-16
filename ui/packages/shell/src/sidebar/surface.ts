@@ -105,7 +105,7 @@ export interface OpenSpec {
   address: string | null;
   title: string;
   params?: Record<string, unknown>;
-  /** A page of a `multiple` type: never deduplicated. */
+  /** A page of a `multiple` type: opened by kind, never deduplicated; at an address, one tab an address. */
   multiple?: boolean;
   /** False: the same content already open is not focused; a tab of its own opens. */
   revealIfOpened?: boolean;
@@ -204,12 +204,13 @@ export class SurfaceStore {
   /**
    * Open content in a session's surface and bring it to the front; answers the tab's id. The same
    * content already open (same kind and address) is focused instead, unless `revealIfOpened` is
-   * false or the type is `multiple`. Either way the tab's navigation moves on: the params given,
-   * the revision up by one.
+   * false or a `multiple` type is opened by kind (no address). Either way the tab's navigation
+   * moves on: the params given, the revision up by one.
    */
   open(session: SessionKey, spec: OpenSpec): string {
     const s = this.surface(session);
-    const found = spec.multiple ? undefined : s.tabs.find((t) => t.kind === spec.kind && t.address === spec.address);
+    // A `multiple` type's resource is still one tab an address: an output tab names its task.
+    const found = spec.multiple && spec.address === null ? undefined : s.tabs.find((t) => t.kind === spec.kind && t.address === spec.address);
     if (found && spec.revealIfOpened !== false) {
       this.navigate(session, found.id, spec.params);
       if (s.layout.active !== found.id) this.commit(session, { ...s, layout: { ...s.layout, active: found.id } });

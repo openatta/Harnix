@@ -50,7 +50,8 @@ test.beforeEach(async () => {
 });
 test.afterEach(() => {
   api?.close();
-  rmSync(project, { recursive: true, force: true });
+  // Retried: the engine may still be writing under the project (its `.agix/`) as it goes.
+  rmSync(project, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 async function start(flow: string, extra: Record<string, unknown> = {}): Promise<string> {

@@ -4,6 +4,8 @@
 // write; `source` is the highest tier whose file wrote it, and `withheld` says the project tier
 // wrote a value the engine does not use (an untrusted project can only tighten).
 
+import { isDeepStrictEqual } from "node:util";
+
 import { CONFLICT, INVALID_PARAMS, METHOD_NOT_FOUND, REFUSED } from "@harnix/core/protocol";
 import { assert, defineSuite } from "@harnix/testkit";
 
@@ -192,7 +194,8 @@ defineSuite("settings", { feature: "settings" }, {
       const written = await client.call("settings.write", { tier: "global", changes: { permission_rules: rules } });
       try {
         const field = written.fields.find((f: { key: string }) => f.key === "permission_rules");
-        assert(JSON.stringify(field.tiers.global) === JSON.stringify(rules), JSON.stringify(field));
+        // Compared as values: the engine's file comes back with its keys in its own order.
+        assert(isDeepStrictEqual(field.tiers.global, rules), JSON.stringify(field));
         // The engine took them: they are among the rules it runs with.
         assert(Array.isArray(field.effective) && field.effective.some((r: { tool: string }) => r.tool === "Bash(git push:*)"), JSON.stringify(field.effective));
         const e = await client.refused("settings.write", { tier: "global", changes: { permission_rules: [{ tool: "mcp__github__*", action: "deny" }] } });
@@ -234,7 +237,7 @@ defineSuite("settings", { feature: "settings" }, {
       try {
         for (const [key, value] of Object.entries(changes)) {
           const field = written.fields.find((f: { key: string }) => f.key === key);
-          assert(JSON.stringify(field.tiers.global) === JSON.stringify(value), `${key}: ${JSON.stringify(field)}`);
+          assert(isDeepStrictEqual(field.tiers.global, value), `${key}: ${JSON.stringify(field)}`);
         }
         const e = await client.refused("settings.write", { tier: "scene", changes: { "network.use_system_proxy": false } });
         assert(e && e.code === INVALID_PARAMS && /global|tier/.test(e.message), `answered ${JSON.stringify(e)}`);

@@ -37,6 +37,10 @@ async function project(page: Page, name: string) {
   await spaceEntry(page, "projects").click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", "projects");
   const row = page.getByTestId("projects").locator("[data-project]", { hasText: name });
+  // The tests share a backend: past five projects the rest are under "More (N)".
+  const more = page.getByTestId("projects").locator(":scope > .more-rows");
+  await expect(row.or(more).first()).toBeVisible();
+  if (!(await row.count())) await more.click();
   if ((await row.getAttribute("data-open")) !== "true") await row.getByRole("treeitem", { level: 1 }).click();
   await expect(row).toHaveAttribute("data-open", "true");
   return { path, row };
@@ -63,7 +67,7 @@ test("a run started in a project is a task row of the project, with its flow, st
   await expect(item).toContainText("Example: review and approve");
   const meta = item.getByTestId("task-meta");
   await expect(meta).toHaveAttribute("data-phase", /^(running|waiting)$/, { timeout: 30_000 });
-  await expect(meta).toHaveAttribute("data-step", /^\d\/3$/);
+  await expect(meta).toHaveAttribute("data-step", /^\d\/2$/);
   // The row is counted on the project, and the task is not in the session space's list.
   await expect(row.locator(".prj .c")).toHaveText("1");
   await spaceEntry(page, "sessions").click();
@@ -106,7 +110,7 @@ test("the project's + offers a new task: the dialog needs a subject, says the pr
   await expect(page.getByTestId("flow-back")).toHaveCount(0);
   await expect(page.getByTestId("flow-run-panel")).toHaveAttribute("data-run", run);
   await expect(page.getByTestId("flow-run-phase")).toHaveAttribute("data-phase", /^(running|waiting)$/);
-  await expect(page.getByTestId("flow-run-stations").locator("tr[data-testid^=flow-run-station-]")).toHaveCount(3);
+  await expect(page.getByTestId("flow-run-stations").locator("tr[data-testid^=flow-run-station-]")).toHaveCount(2);
   await expect(page.getByTestId("flow-output-dir")).toHaveAttribute("data-path", /example-review-\d{10}/);
   // The run's record says the project, the title and where the session is shown; the row is current.
   const record = await page.evaluate(async (r) => (await (window as any).harnix.app.call("flow.get", { run: r })).record, run);
@@ -166,17 +170,19 @@ test("the row's menu opens a task in the flows: the flow's space in front on the
   await expect(page.getByTestId("flow-task-tab")).toHaveAttribute("data-run", run, { timeout: 15_000 });
   await expect.poll(() => current(page), { timeout: 15_000 }).toBe(await mainOf(page, run));
   await expect(page.locator("#secondary")).toHaveCount(0);
-  // Back goes to the projects space, where the task is current.
+  // Back goes to the projects space (harnix-app.md §3.2), on what it had open: the task's row is there.
   await expect(page.getByTestId("flow-back")).toHaveAttribute("data-to", "projects");
   await page.getByTestId("flow-back").click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", "projects");
-  await expect(item).toHaveAttribute("data-state", "current");
+  await expect(page.getByTestId("flow-back")).toHaveCount(0);
+  await expect(item).toBeVisible();
 
   // A run started without a space to show in (the console's way, a schedule's): its row enters the flows too.
   const elsewhere = await page.evaluate(async (root) => (await (window as any).harnix.app.call("flow.start", { flow: "example-review", subject: "unshown", project_root: root })).run as string, path);
   await row.locator(`[data-testid="project-item"][data-item="${elsewhere}"]`).click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", "flow", { timeout: 15_000 });
-  await expect(page.getByTestId("flow-task-tab")).toHaveAttribute("data-run", elsewhere, { timeout: 15_000 });
+  // The first task's tab stays mounted, hidden, with its session (`keepMounted`): the one in front is this run's.
+  await expect(page.locator('[data-testid="flow-task-tab"]:visible')).toHaveAttribute("data-run", elsewhere, { timeout: 15_000 });
   await expect(page.getByTestId("flow-back")).toHaveAttribute("data-to", "projects");
   expect(errors).toEqual([]);
 });
@@ -230,7 +236,8 @@ test("/flow in a conversation of no project says a task needs one, and starts no
   const errors = watchConsole(page);
   await open(page, backend.url);
   await spaceEntry(page, "sessions").click();
-  await page.evaluate(async () => (await (window as any).harnix.app.create({})).sessionId as string);
+  // Said outright: a session made with no root works in the backend's own project directory.
+  await page.evaluate(async () => (await (window as any).harnix.app.create({ project_root: null })).sessionId as string);
   const input = page.getByTestId("conv-input");
   await expect(input).toBeVisible({ timeout: 15_000 });
   // Offered all the same, with no flows under it: there is no project to start one in.

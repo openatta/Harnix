@@ -486,10 +486,11 @@ fn hooks_of(tiers: &[(HookSource, Option<Value>)], trust: Option<&str>) -> (Vec<
             };
             for entry in entries {
                 // The types the engine runs; any other is `other`.
-                let kind = match entry.get("type").and_then(Value::as_str) {
-                    Some(t @ ("command" | "prompt" | "http" | "agent")) => t,
-                    _ => "other",
-                };
+                let kind = entry
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .filter(|t| matches!(*t, "command" | "prompt" | "http" | "agent"))
+                    .unwrap_or("other");
                 let on_error = entry.get("on_error").and_then(Value::as_str).filter(|e| matches!(*e, "allow" | "block")).map(str::to_string);
                 let mut row = HookRow::new(event.as_str(), *source, kind, entry.get("if").and_then(Value::as_str), on_error);
                 row.withheld = withheld;

@@ -75,7 +75,13 @@ export const RECORDED: Recorded[] = [
     name: "spawns-agent",
     message:
       "Use the Agent tool exactly once to launch a general-purpose sub-agent with the description 'list files' and the prompt 'Run ls in the current directory and reply with the file names only.' When it returns, reply with one line: 'sub-agent found:' followed by the names.",
-  },  {
+  },
+  {
+    name: "writes-a-file",
+    message:
+      "Use the Write tool once, with file_path set to exactly the relative path notes.txt (just notes.txt, not an absolute path: it is resolved against the working directory) and content of exactly the line harnix-changes-fixture followed by a newline character. Then reply with exactly: written",
+  },
+  {
     name: "leaves-a-process",
     varies: "the Bash call prints the pid of the process it left",
     message: callThen('Use the Bash tool to run exactly: tail -f /dev/null >/dev/null 2>&1 & echo "PID=$!"', "started"),
@@ -112,7 +118,7 @@ export const RECORDED: Recorded[] = [
     profile: CODE,
     options: { permission_mode: "plan" },
     message:
-      "Plan, and do not implement yet: a file plan-fixture.txt in the project containing the one line harnix-plan. Present the plan in your reply as a short markdown list under the heading Plan, then call ExitPlanMode. If I ask for changes, present the revised plan the same way and call ExitPlanMode again. Once I approve, reply with exactly: plan approved — and write nothing.",
+      "Plan, and do not implement yet: a file plan-fixture.txt in the project containing the one line harnix-plan. Use no tool but ExitPlanMode — do not look at the file system first. Present the plan in your reply as a short markdown list under the heading Plan, then call ExitPlanMode. If I ask for changes, present the revised plan the same way and call ExitPlanMode again. Once I approve, reply with exactly the two words: plan approved — nothing else, and write no file.",
     answers: () => {
       let reviewed = 0;
       return (event) => {

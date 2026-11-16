@@ -124,6 +124,14 @@ pub(crate) fn voided(rewind_id: &str, turns: &[String]) -> Value {
     json!({"rewind_id": rewind_id, "turn_ids": turns})
 }
 
+/// The turns the rewinds marked in `answer` (`engine.session.entries`) took out.
+pub(crate) fn rewound_turns(answer: &Value) -> std::collections::HashSet<String> {
+    let entries = answer.get("entries").and_then(Value::as_array).into_iter().flatten();
+    let marks = entries.filter(|e| e.get("ns").and_then(Value::as_str) == Some(NS) && e.get("event").and_then(Value::as_str) == Some(REWIND));
+    let turns = marks.flat_map(|e| e.pointer("/payload/turn_ids").and_then(Value::as_array).into_iter().flatten());
+    turns.filter_map(Value::as_str).map(str::to_string).collect()
+}
+
 /// `engine.session.entries`' answer without the changes of turns a rewind took out: a `turn`
 /// entry goes when a `rewind` entry after it names its turn. The marks stay, and so does a turn
 /// of the same id filed after one (a turn id is not counted on to be new).

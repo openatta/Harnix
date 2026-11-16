@@ -75,8 +75,8 @@ test("system-tasks: a running task's output grows in the tasks tab and, followed
     .toBeGreaterThan(0.8);
   // The task's own detail: what it is, how it stands.
   const detail = page.getByTestId("system-task");
-  await expect(detail.locator(".facts")).toContainText(/Monitor|监视器/);
-  await expect(detail.locator(".facts")).toContainText(/Running|运行中/);
+  await expect(detail.locator(".hx-facts")).toContainText(/Monitor|监视器/);
+  await expect(detail.locator(".hx-facts")).toContainText(/Running|运行中/);
   const lines = async () => ((await text.textContent()) ?? "").split("\n").filter((l) => l.startsWith("line-")).length;
   const first = await lines();
   // Long enough to overflow the box (it holds about seventeen lines), so following has to scroll. The
@@ -179,6 +179,8 @@ test("system-tasks: a running sub-agent is told something from its own detail, a
 
 test("output-tab: a Monitor's tool row opens its output in the right column, followed read-only, one tab a task", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
+  // The tab's box is as tall as the window allows: a short window, so the counter's lines overflow it.
+  await page.setViewportSize({ width: 1280, height: 560 });
   await open(page, backend.url);
   await page.evaluate(() =>
     (window as any).harnix.app.create({ scene: "code", options: { recorder: { name: "streams-output" }, permission_mode: "default" } }),
@@ -207,6 +209,8 @@ test("output-tab: a Monitor's tool row opens its output in the right column, fol
   const lines = async () => ((await text.textContent()) ?? "").split("\n").filter((l) => l.startsWith("line-")).length;
   const first = await lines();
   await expect.poll(lines, { timeout: 30_000 }).toBeGreaterThan(first);
+  // Only a box that overflows can be read back in.
+  await expect.poll(() => text.evaluate((el) => el.scrollHeight - el.clientHeight), { timeout: 30_000 }).toBeGreaterThan(40);
   // Following: the end is in view; reading back stops it, and the end again resumes it.
   await expect.poll(() => text.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop), { timeout: 5_000 }).toBeLessThanOrEqual(8);
   await text.evaluate((el) => { el.scrollTop = 0; });

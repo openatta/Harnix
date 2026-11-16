@@ -97,8 +97,8 @@ test("a plan is read as markdown, sent back with changes, and the next one appro
   await say(page, "Plan a file.");
   const first = page.locator('[data-testid="conv-ask"][data-kind="plan"]').first();
   await expect(first).toBeVisible({ timeout: 30_000 });
-  // The plan is the reply before the call, drawn as markdown: its heading is a heading.
-  await expect(first.getByTestId("conv-ask-plan").locator("h1, h2, h3").first()).toContainText(/plan/i);
+  // The plan is the reply before the call, drawn as markdown: the recorded one is a line and a list under it.
+  await expect(first.getByTestId("conv-ask-plan").locator("li").first()).toContainText("plan-fixture.txt");
   await first.getByTestId("conv-ask-plan-changes").click();
   await expect(first.getByTestId("conv-ask-plan-send")).toBeDisabled();
   await first.getByTestId("conv-ask-plan-feedback").fill(PLAN_FEEDBACK);

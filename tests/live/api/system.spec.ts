@@ -546,7 +546,7 @@ test.describe("off", () => {
   test("the methods leave the authorization table, and the space cannot be claimed", TAGS, async () => {
     const { methods } = await api.call("harnix.reachable");
     // The inspector's tabs are what the recordings show, which outlive the system space.
-    const inspector = ["observability.calls", "observability.trace", "observability.trace.call", "observability.turns", "observability.usage"];
+    const inspector = ["observability.calls", "observability.trace", "observability.trace.call", "observability.turns", "observability.usage", "observability.usage.daily"];
     for (const method of SYSTEM_METHODS.filter((m) => !inspector.includes(m))) expect(methods, method).not.toContain(method);
     const created = await api.call("harnix.session.create", { space: "sessions" });
     const s = { instance: created.instance, session_id: created.session_id };

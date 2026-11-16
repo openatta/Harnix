@@ -62,8 +62,12 @@ const KINDS: Record<string, FailureClass> = {
 /** 没有配模型服务或密钥时引擎的原话（`missing api_key`），归 `no_model`，不论它标的是哪一种。 */
 const NO_MODEL = /missing api_key|no api[ _-]?key|no provider|no model|not configured/i;
 
+/** 账户没钱时服务的原话（Anthropic 答 400 `credit balance is too low`，引擎归成 `model_rejected`）：归 `billing`。 */
+const BILLING = /credit balance|billing/i;
+
 export function failureClass(f: FailureFacts): FailureClass | undefined {
   if (NO_MODEL.test(f.raw)) return "no_model";
+  if (BILLING.test(f.raw)) return "billing";
   if (f.kind && KINDS[f.kind]) return KINDS[f.kind];
   if (f.code === INSTANCE_UNAVAILABLE) return "instance_unavailable";
   if (f.code === EXTENSION_UNAVAILABLE) return "extension_unavailable";
