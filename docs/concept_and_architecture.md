@@ -724,12 +724,12 @@ fn main() -> anyhow::Result<()> {
 | 内核能力 | 意思 | 原生 | 扩展包 | Harnix 里谁有 |
 |---|---|---|---|---|
 | `instances.admin` | 停、重启任何不属于内核的实例；按任何模板建实例、列出全部模板 | ✔ | | system |
-| `engine.inspect` | 读**任何**会话的内部：上下文、任务、任务输出、目标、历史 | ✔ | | system、flow |
+| `engine.inspect` | 读**任何**会话的内部：上下文、任务、任务输出、目标、历史 | ✔ | | system、flow、settings（会话的 MCP 上下文，可选） |
 | `engine.control` | 改任何会话的内部：任务、消息、压缩、清空、模型、名字、目标；读、改项目的信任 | ✔ | | system、flow（给它开的会话改名）、harnix-app（项目信任，可选） |
 | `engine.config.read` / `engine.config.write` | 读 / 写引擎设置与 provider；后者含重读设置、交给继承 provider 的实例 | ✔ | | settings · settings |
 | `engine.plugins` | Agix 插件的装、卸、启停、重读 | ✔ | | plugins、packages |
 | `engine.export` | 导出、导入会话 | ✔ | | harnix-app |
-| `engine.mcp` | 给引擎加 MCP 服务器 | ✔ | | — |
+| `engine.mcp` | 给引擎加、改 MCP 服务器，登录远端的 | ✔ | | settings（可选） |
 | `recordings.read` · `transcripts.read` | 录像与用量的读者 · 转录的读者；都经引擎的协议读（`session.calls`、`call`、`callBlob`、`search`），每台实例各有一套，实例连不上读者返回 `Unavailable` | ✔ | | observability · harnix-app |
 | `process.observe` | 版本、运行时长、内存、线程、已连接的客户端 | ✔ | | system |
 | `devices.manage` | 配对码、列设备、撤销设备 | ✔ | | devices |
@@ -897,8 +897,9 @@ Harnix 不定义它的包格式、不校验、不解包、不判定能力。第�
 清单是 Harnix 的，披露在装之前，人同意了才装，§4.5。）
 
 **装 Agix 插件是这个人自己的决定。** `plugins.*` 对设备开放：一个进程服务一个用户，设备就是这个人本人。真正的强制边界在引擎：能力门控、
-沙箱、它自己回的那份披露。`engine.mcp.addServer` 要 `engine.mcp`，Harnix 自己谁也不给：它配出来的是一个能起子进程的工具，没有 manifest、
-没有能力声明、没有任何披露。
+沙箱、它自己回的那份披露。`engine.mcp.addServer` 要 `engine.mcp`，设备直接调永远被拒：它配出来的是一个能起子进程的工具，没有 manifest、
+没有能力声明、没有任何披露。设备经设置页的 `settings` 扩展加、改：那里持这项能力，披露写明它替设备做这件事，一次一个服务器、
+一层一层地写，值不回显（[Harnix 扩展](harnix-ext.md) §22.9）。
 
 **包方案不跟着载体走。** 引擎的载体今天是 QuickJS 脚本与编译进宿主的 Rust 插件，带 `[[wasm]]` 段的包拒装（WASM 在 Harnix，§2.2.2）。
 读 manifest、校验、解包、披露、启停不需要任何运行时。一个不带包方案的构建仍然合法，所以 `PLUGINS_DISABLED` **如实透传，不包装成

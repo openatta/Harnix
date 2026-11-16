@@ -943,12 +943,12 @@ pub trait Extension: Send + Sync + 'static {
 | 内核能力 | 意思 | 原生 | 扩展包 | 谁用 |
 |---|---|---|---|---|
 | `instances.admin` | 停、重启任何非内核拥有的实例；按任何模板建实例、列出全部模板 | ✔ | | system |
-| `engine.inspect` | 读**任何**会话的内部：`inspectContext`、`tasks`、`taskOutput`、`goal`、`history` | ✔ | | system、flow |
+| `engine.inspect` | 读**任何**会话的内部：`inspectContext`、`tasks`、`taskOutput`、`goal`、`history` | ✔ | | system、flow、settings（会话的 MCP 上下文，可选） |
 | `engine.control` | 改任何会话的内部：`stopTask`、`messageTask`、`dropMessages`、`editMessage`、`compact`、`clear`、`setModel`、`rename`、`setGoal`、`updateGoal`；读、改项目的信任：`engine.project.status`、`engine.project.trust` | ✔ | | system、flow、harnix-app（项目信任，可选） |
 | `engine.config.read` / `engine.config.write` | 读 / 写引擎设置与 provider；后者含 `engine.config.reload`、`harnix.instances.inheritProviders`、宿主服务 `SettingsTiers`（§17.8） | ✔ | | settings、packages（写，可选） |
 | `engine.plugins` | Agix 插件的装、卸、启停、重读；往实例里放 skill | ✔ | | plugins、packages |
 | `engine.export` | `engine.session.export`、`harnix.session.import` | ✔ | | harnix-app |
-| `engine.mcp` | `engine.mcp.addServer` | ✔ | | — |
+| `engine.mcp` | 引擎的 MCP 服务器与登录：`engine.mcp.addServer`、`updateServer`（只写项目层）、`auth.start / complete / cancel / logout` | ✔ | | settings（可选） |
 | `recordings.read` · `transcripts.read` | 录像与用量的读者 · 转录的读者；都经引擎的协议读（`session.calls`、`call`、`callBlob`、`search`），每台实例各有一套，实例连不上读者返回 `Unavailable` | ✔ | | observability · harnix-app |
 | `process.observe` | 版本、运行时长、内存、线程、已连接的客户端 | ✔ | | system |
 | `devices.manage` | 配对码、列设备、撤销设备 | ✔ | | devices |
@@ -1201,6 +1201,7 @@ quote_api_key = { credential = "helm/quote-api" }
 | `/ext/<包 id>/ui/…` | 扩展包的界面文件（公开：iframe 不带凭据） |
 | `/brand/icon.svg` | `[brand] icon` |
 | `/ext/<扩展 id>/…` | 扩展的自有路由与静态文件，同一个扩展的路由共用一种 `Access` |
+| `/ext/settings/mcp/callback` | MCP 服务器 OAuth 登录的回跳（§22.9）：交给引擎完成登录，留下一页说明结果；不带凭据的答 401，由打开它的页面接手 |
 
 握手拿到的 `credential`：`Authorization: Bearer …` 或 `?credential=`；回环上也认进程令牌和启动链接的
 cookie。一帧最大 16 MiB（`MAX_FRAME_BYTES`），一次上传最大 32 MiB。
@@ -1229,19 +1230,19 @@ cookie。一帧最大 16 MiB（`MAX_FRAME_BYTES`），一次上传最大 32 MiB�
 | 　 | `engine.session.tasks / taskOutput / inspectContext / goal` | `engine.inspect` |
 | 　 | `engine.session.stopTask / messageTask / dropMessages / editMessage / compact / clear / setModel / rename / setGoal / updateGoal` | `engine.control` |
 | 　 | `engine.project.status / trust`（项目信任；信任记在引擎的全局设置里，所以扩展的引擎上同它的设置一样拒绝） | `engine.control` |
-| 　 | `engine.session.export` · `engine.config.get / getProvider` · `engine.config.set / setProvider / update / reload` · `engine.plugin.install / uninstall / enable / disable / reload` · `engine.mcp.addServer` | `engine.export` · `engine.config.read` · `engine.config.write`（设备永远不能） · `engine.plugins` · `engine.mcp` |
+| 　 | `engine.session.export` · `engine.config.get / getProvider` · `engine.config.set / setProvider / update / reload` · `engine.plugin.install / uninstall / enable / disable / reload` · `engine.mcp.addServer / updateServer / auth.start / auth.complete / auth.cancel / auth.logout` | `engine.export` · `engine.config.read` · `engine.config.write`（设备永远不能） · `engine.plugins` · `engine.mcp`（设备永远不能；扩展的引擎上同它的设置一样拒绝） |
 | 　 | `engine.import.*` | 只有内核 |
 | 　 | `engine.session.run_turn / subscribe / unsubscribe`、`engine.daemon.subscribeEvents / shutdown` | **中枢独占**：谁都不能、不能授予 |
 | `harnix-app` | `harnix-app.workspaces.*`、`.prefs.set`、`.projects.create`、`.recentProjects`、`.listDirectory`、`.files {session_id | project_root, query?, limit?}`（只走会话的项目或这里的项目，见 [Harnix app](harnix-app.md) §6）、`.search`、`.sessions.archive`、`.sessions.importUpload {name}`（一次性上传凭据，答 `{token, url, max_bytes}`；页面把 zip 送到 `url`，走大负载旁路）、`.sessions.import {token, space?, project_root?}`（把上传的数据包装成新会话，答引擎的 `{root_session_id, id_map, sessions, warnings}` 加 `instance`、`space`；包里的项目这台机器上没有就装成无项目会话并在 `warnings` 里说）、`.sessions.export {instance?, session_id, space?, format: markdown \| archive \| bundle, recording?}`（答 `{format, file, content}`：markdown 是可读的对话；archive 是引擎打的 zip（`encoding: "base64"`，另带 `bytes`、`sessions`、`attachments`、`recording`、`warnings`）；bundle 是 Harnix 拼的 JSON；超过一帧时拒绝）、`harnix-app.describe`（项目目录等）、`.projects.status {project_root, instance?, scene?}`、`.projects.trust {project_root, trusted, instance?}`、`.sessions.projectStatus {instance?, session_id, space?}`（项目信任，答的形状见 [Harnix app](harnix-app.md) §3）；主题 `harnix-app.trust` | 设备 |
 | `system` | `system.context / messages.drop / messages.edit / tasks.stop / tasks.message / tasks.output / compact / clear / rename / model / goal / goal.set / goal.update`、`system.instances.stop / restart / create / templates`（面板列全部模板）、`system.process`（版本、运行时长、峰值内存、`threads`、已连接用户） | 设备 |
 | `observability` | `observability.trace`、`.trace.call {index}`、`.turns`、`.usage {instance?, session_ids}`（一次至多 200 个会话）、`.calls {instance?, session_id}` | 设备 |
-| `settings`、`plugins`、`devices` | `settings.*`（`setProvider` 的返回多一个 `reloaded_instances`）、`plugins.*`、`devices.*` | 设备 |
+| `settings`、`plugins`、`devices` | `settings.*`（`setProvider` 的返回多一个 `reloaded_instances`；MCP 服务器的 `settings.mcp.*` 见 §22.9）、`plugins.*`、`devices.*` | 设备（`settings.mcp.context` 按会话） |
 | `packages` | `packages.*`：列、启停、装、升、卸、清数据、同意、商店。参数与答见 [扩展包](harnix-ext-package.md) | 设备 |
 | `flow` | `flow.*`（§23） | 设备 |
 | 你的扩展 | `<id>.*` | 你声明的 |
 | 扩展包 | `<扩展包 id>.*` | 清单 `[[method]]` 的 `subject` |
 
-明确拒绝并说明原因的（不是「没有这个方法」）：引擎里交凭据、开端点的方法；中枢独占的方法；`engine.mcp.addServer` 等没授予的能力行。
+明确拒绝并说明原因的（不是「没有这个方法」）：引擎里交凭据、开端点的方法；中枢独占的方法；`engine.mcp.addServer`、`engine.mcp.auth.*` 等没授予的能力行。
 
 **`harnix.hello`**（装配的行）：
 
@@ -1566,6 +1567,59 @@ r.register("shortcut", {
 外壳自己的命令：`shell.session.new`（`Mod+K`）、`shell.sidebar.toggle`（`Mod+\`）、`shell.composer.focus`（`Mod+/`）、
 `shell.details.toggle`、`shell.settings.open`（后两个缺省没有键）。扩展包的页面（iframe）里按下的全局键交给外壳：外壳在环境的 `keys` 里说它们现在是哪些
 （[扩展包](harnix-ext-package.md)）。
+
+### 22.9 MCP 服务器：`settings.mcp.*`
+
+后端 `settings` 扩展替设备管引擎的 MCP 服务器。设备自己没有能力；扩展持 `engine.mcp`（可选，标准装配授予），
+直接调 `engine.mcp.addServer / updateServer / auth.*` 的设备照旧被拒。答的形状由 `harnix_ext_settings::wire` 生成，
+在 `@harnix/core` 里（`McpList`、`McpServer`、`McpAuthStarted`、`McpAuthDone`、`McpContext`……）。
+
+| 方法 | 参数 | 做什么 |
+|---|---|---|
+| `settings.mcp.list` | `{scene?, project_root?}` | 这一对 (项目, 场景) 有的每一层（全局、场景、项目）的服务器，连停用的；带引擎说的状态（`engine.mcp.status`，只报引擎自己那一对的） |
+| `settings.mcp.add` / `.update` | `{tier, name, config, scene?, project_root?}` | 加一个 / 改一个已有的。`config`：`{transport: stdio \| http \| sse, command?, args?, env?, url?, headers?}`；`env`、`headers` 的每个值是 `{var}`（引擎的环境变量）、`{secret}`（新给的值）或 `{keep: true}`（保留已写的）之一 |
+| `settings.mcp.remove` | `{tier, name, …}` | 从这一层删掉，连同它的值 |
+| `settings.mcp.enable` | `{tier, name, enabled, …}` | 停用：两半都挪出这一层的文件，存进扩展自己的数据（`mcp-aside.json`，0600），引擎不再读到；启用：原样放回 |
+| `settings.mcp.reconnect` | `{tier, name, …}` | 让引擎重读这一对的设置，它的服务器都重连 |
+| `settings.mcp.authorize` | `{name, origin?, scopes?, …}` | 发起 OAuth 登录（`engine.mcp.auth.start`），答 `{flow_id, authorize_url, redirect, callback?, expires_in}` |
+| `settings.mcp.authComplete` | `{callback_url}` | 把浏览器回到的地址交给引擎（`engine.mcp.auth.complete`）；同一次登录第二次交，答第一次的结果 |
+| `settings.mcp.authCancel` / `.logout` | `{flow_id}` / `{name, …}` | 放弃一次登录 / 退出登录（引擎能吊销就吊销令牌） |
+| `settings.mcp.context` | `{instance?, session_id, space?}`，按会话判 | 会话下一次调模型时带的 MCP 部分，见下；要 `engine.inspect`（可选，标准装配授予） |
+
+**写在哪一层**：项目层经引擎写（`engine.mcp.addServer / updateServer`）：引擎拒绝没受信的项目（`-32022`）、按它的 MCP 策略拒绝
+（`-32020`），写了就连。全局层与场景层引擎没有写的方法，由扩展照引擎的写法写文件：`env`、`headers` 进那一层的 `settings.local.json`
+（0600，不提交），其余进 `settings.json`，都在那一层目录的锁下读改写，写完让引擎 `engine.config.reload`。删、停用、启用引擎都没有方法，同样写文件。
+
+**校验**：名字是字母、数字、`-`、`_`，字母或数字开头，至多 64 个字符，不含 `__`（工具名是 `mcp__<名字>__<工具>`）；stdio 要命令，
+http、sse 要 `http(s)` 的 URL，两边的键不混用；环境变量名是 `[A-Za-z_][A-Za-z0-9_]*`，请求头名是 token、值里不能有换行。
+`{var: NAME}` 写成 `${NAME}`；`{secret}` 里的 `$` 写成 `$$`，引擎不展开它。项目层的服务器读不到引擎的环境，所以那里 `{var}` 被拒。
+加一个已有的名字、改一个没有的、改一个停用着的，都拒绝（`INVALID_PARAMS`，写明哪一项）。
+
+**读回来**：值只到 `{kind: "env", var}` 或 `{kind: "secret", masked}`（`***` 加末 4 位，短于 12 个字符的只有 `***`）；`oauth` 块只有
+`grant`、`client_id`、`issuer`、`scopes`。两层有同名的，低的那条带 `overridden_by`，状态只给引擎在用的那条。要 `private_key_jwt` 的带
+`unsupported: ["private_key_jwt"]`：Harnix 的引擎不编 `mcp-oauth-jwt`。
+
+**登录**：页面先开一个窗口（浏览器只在点击里让开），调 `authorize` 时带上自己的 `location.origin`。这个源是 `https`、或回环地址上的
+`http` 时，引擎以 `external` 发起，回跳到扩展的路由 `/ext/settings/mcp/callback`；路由按回调的 `state` 找到这次登录、交给引擎，
+留下一页（`data-harnix-mcp-auth="done" | "failed"`，不跑脚本，`Cache-Control: no-store`）。窗口能被准入（启动链接的 cookie）时路由就完成了；
+带设备凭据的页面准入不了这个窗口（答 401），页面读到窗口回到了本源，把地址交给 `authComplete`。两条路谁先到谁交，后到的拿到同一个结果。
+别的源（局域网上的明文 `http`）引擎不接受，退到引擎自己在 `127.0.0.1` 上的回环端口：只有引擎那台机器上的浏览器回得去。
+
+**会话的 MCP 上下文**（右栏「上下文」页签用）：
+
+```text
+settings.mcp.context → {
+  servers: [{
+    name,                                   // 服务器
+    tools: [{name, tokens, schema_bytes}],  // 这一次请求里模型看得到的工具（mcp__<服务器>__<工具>）；等 ToolSearch 加载的延迟工具不在内
+    instructions?,                          // 服务器自己给的指令，就是模型在它的 `## <服务器>` 标题下读到的那段
+    status?: McpStatus,                     // 引擎说的状态（同 settings.mcp.list）
+  }],                                       // 按名字排；请求里有工具或指令的，和引擎列出的，都在
+  instructions_tokens?,                     // 指令块（mcp.instructions）的估算
+}
+```
+
+读自 `engine.session.inspectContext`（会话正在跑一轮时引擎答 `SESSION_BUSY`），先以设备的身份 `engine.session.get` 一次，看它能不能看这个会话。
 
 ---
 

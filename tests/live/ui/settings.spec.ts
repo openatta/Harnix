@@ -3,8 +3,9 @@
  * its declaration draws (Settings · Engine); a risky value confirmed first, a write over settings
  * changed elsewhere kept and reviewed, a permission rule added from its editor (Settings ·
  * Permissions); the sandbox's and the network's fields (Settings · Sandbox, Network and web); a
- * model provider added, edited, made the default and deleted (Settings · Models), and a paired
- * device revoked (Settings · Devices).
+ * model provider added, edited, made the default and deleted (Settings · Models), an MCP server
+ * added, edited with its secret kept, switched off and on and removed (Settings · MCP), and a
+ * paired device revoked (Settings · Devices).
  *
  * On a backend of its own: the providers are the instance's settings, and another suite's sessions
  * should not route through one this suite made up.
@@ -219,6 +220,60 @@ test("a provider is added, edited, made the default and deleted from Settings ·
   await first.getByTestId("provider-delete").click();
   await expect(first).toHaveCount(0);
   expect(Object.keys((await providers(page)).providers)).toEqual(["second"]);
+});
+
+/** The MCP servers as `settings.mcp.list` says them, read the way the page reads them. */
+const mcpServers = (page: Page) =>
+  page.evaluate(async () => (await (window as any).harnix.app.call("settings.mcp.list", {})).servers as any[]);
+
+test("an MCP server is added, edited with its secret kept, switched off and on, and removed after asking", TAGS, async ({ page }) => {
+  await open(page, backend.url);
+  await section(page, "mcp");
+  const list = page.getByTestId("mcp-servers");
+  await list.getByTestId("mcp-add").click();
+  const form = page.getByTestId("mcp-form");
+  await form.getByTestId("mcp-tier").selectOption("global");
+  await form.getByTestId("mcp-name").fill("live-ui");
+  await form.getByTestId("mcp-transport-stdio").click();
+  // A command that is not there: the engine tries it and says it failed, with why.
+  await form.getByTestId("mcp-command").fill("/nonexistent/harnix-live-mcp-server");
+  await form.getByTestId("mcp-args").fill("--first");
+  await form.getByTestId("mcp-env-add").click();
+  await form.getByTestId("mcp-env-name").fill("TOKEN");
+  await form.getByTestId("mcp-env-value").fill("sk-live-ui-secret-0123456789");
+  await form.getByTestId("mcp-save").click();
+  const card = list.locator('[data-mcp="live-ui"][data-tier="global"]');
+  await expect(card).toBeVisible();
+  await expect(card).toHaveAttribute("data-state", "failed", { timeout: 20_000 });
+  await expect(card.getByTestId("mcp-error")).not.toBeEmpty();
+  await expect(page.getByTestId("settings-page")).not.toContainText("sk-live-ui-secret");
+
+  // Edited: the value it was given is kept without the page ever having it.
+  await card.getByTestId("mcp-edit").click();
+  const edit = page.getByTestId("mcp-form");
+  await expect(edit.getByTestId("mcp-env-mode")).toHaveValue("keep");
+  await edit.getByTestId("mcp-args").fill("--second");
+  await edit.getByTestId("mcp-save").click();
+  await expect(card).toContainText("--second");
+  const edited = (await mcpServers(page)).find((s) => s.name === "live-ui");
+  expect(edited.args).toEqual(["--second"]);
+  expect(edited.env.TOKEN.masked).toBe("***6789");
+
+  // Off, then on again.
+  await card.getByTestId("mcp-toggle").click();
+  await expect(card).toHaveAttribute("data-state", "off");
+  expect((await mcpServers(page)).find((s) => s.name === "live-ui").enabled).toBe(false);
+  await card.getByTestId("mcp-toggle").click();
+  await expect(card).not.toHaveAttribute("data-state", "off");
+
+  // Removed only once it is confirmed.
+  await card.getByTestId("mcp-remove").click();
+  await page.getByTestId("confirm-cancel").click();
+  await expect(card).toBeVisible();
+  await card.getByTestId("mcp-remove").click();
+  await page.getByTestId("confirm").click();
+  await expect(card).toHaveCount(0);
+  expect((await mcpServers(page)).some((s) => s.name === "live-ui")).toBe(false);
 });
 
 test("a paired device is listed in Settings · Devices and revoked from there", AUTHZ, async ({ page }) => {
