@@ -95,6 +95,7 @@
       "harnix.session.create",
       "harnix.session.delete",
       "harnix.session.detach",
+      "harnix.session.feedback",
       "harnix.session.fork",
       "harnix.session.interrupt",
       "harnix.session.queue.edit",

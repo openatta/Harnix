@@ -38,6 +38,7 @@
 mod changes;
 mod clients;
 mod engine_rows;
+mod feedback;
 mod lifecycle;
 mod links;
 mod prompt;
@@ -198,6 +199,8 @@ impl Hub {
                     .declare(name, params.iter().map(|p| p.to_string()).collect());
                 sources.insert(name.to_string(), views::own(this, name));
             }
+            // Published, not computed: its value is the last piece of feedback given.
+            inner.topics.declare(harnix_contract::wire::FEEDBACK_TOPIC, Vec::new());
             Self {
                 this: this.clone(),
                 instances: config.instances.clone(),

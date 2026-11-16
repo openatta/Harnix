@@ -64,6 +64,15 @@ export const DEADLINE_EXCEEDED = -31009;
 /** Harnix: the extension is there and cannot answer now; `data.failure` is `starting`, `stopped`, `faulted` or `reentrant`. An instance out of reach is `INSTANCE_UNAVAILABLE`. */
 export const EXTENSION_UNAVAILABLE = -31010;
 
+/** Feedback on an answer: the namespace of its entries in the session's log. */
+export const FEEDBACK_NS = "harnix.feedback";
+
+/** Feedback on an answer: the event of its entries. */
+export const FEEDBACK_EVENT = "rating";
+
+/** Feedback on an answer: the longest note, in characters. */
+export const FEEDBACK_NOTE_MAX_CHARS = 4000;
+
 
 /**
  * How the five channel semantics are carried.
@@ -502,3 +511,63 @@ export type TopicFrame = { topic: string, params: Record<string, unknown>, value
  * `harnix.topic_ended`: the topic is gone (its extension withdrew it); nothing more is pushed.
  */
 export type TopicEnded = { topic: string, params: Record<string, unknown>, reason: string, };
+
+/**
+ * Thumbs up or down.
+ */
+export type Rating = "up" | "down";
+
+/**
+ * What was wrong with (or about) an answer, when a person says.
+ */
+export type FeedbackCategory = "inaccurate" | "unhelpful" | "unsafe" | "slow" | "other";
+
+/**
+ * One piece of feedback on a turn's answer: the payload of a `harnix.feedback` / `rating` entry.
+ *
+ * Every change is a new entry; the last one for a turn (and call) is what stands, and the ones
+ * before it stay in the log. `rating: null` takes the feedback back.
+ */
+export type Feedback = { 
+/**
+ * The turn whose answer it is about: the `turn_id` of its frames, its transcript messages and
+ * its recorded calls.
+ */
+turn_id: string, 
+/**
+ * One call in the turn, when the caller rated that rather than the turn's answer; opaque to
+ * the hub. The conversation's thumbs leave it out.
+ */
+call_id?: string, 
+/**
+ * `null`: taken back.
+ */
+rating: Rating | null, category?: FeedbackCategory, note?: string, 
+/**
+ * When, in ms since the epoch.
+ */
+at: number, 
+/**
+ * Who: the subject's label (`device:<id>`).
+ */
+by: string, };
+
+/**
+ * `harnix.session.feedback`'s answer: what was filed, and the entry it was filed as (the
+ * engine's shape).
+ */
+export type FeedbackFiled = { feedback: Feedback, entry: { id: string; ts?: string; ns: string; event: string; payload: Feedback; at: number }, };
+
+/**
+ * The topic `harnix.feedback`'s value: the last piece of feedback given, on which session. Pushed
+ * once per piece; the session's log is the record.
+ */
+export type FeedbackNotice = { instance: string, session_id: string, 
+/**
+ * The space the session belongs to.
+ */
+space: string, 
+/**
+ * The entry's id in the session's log.
+ */
+entry_id: string, feedback: Feedback, };

@@ -146,6 +146,9 @@ fn contract(cfg: &Config) -> Generated {
     ] {
         parts.push(constant(docs, name, value));
     }
+    parts.push(constant("Feedback on an answer: the namespace of its entries in the session's log.", "FEEDBACK_NS", format!("{FEEDBACK_NS:?}")));
+    parts.push(constant("Feedback on an answer: the event of its entries.", "FEEDBACK_EVENT", format!("{FEEDBACK_EVENT:?}")));
+    parts.push(constant("Feedback on an answer: the longest note, in characters.", "FEEDBACK_NOTE_MAX_CHARS", FEEDBACK_NOTE_MAX_CHARS));
     parts.push(String::new());
     parts.extend(declarations![cfg;
         // The handshake.
@@ -160,6 +163,8 @@ fn contract(cfg: &Config) -> Generated {
         SpacesList, QueueItem, ReplayFrame, AttachResult,
         // The hub's frames.
         EventFrame, ToolCallOutcome, TurnOutcome, TurnSettled, QueueFrame, SessionResync, TopicFrame, TopicEnded,
+        // Feedback on an answer.
+        Rating, FeedbackCategory, Feedback, FeedbackFiled, FeedbackNotice,
     ]);
     Generated {
         path: "core/src/protocol/generated/contract.ts",
