@@ -294,7 +294,7 @@ describe("what waits on a person, and the overview's block", () => {
     expect(waitingItems(runs).map((i) => [i.id, i.kind, i.label, i.title, i.detail, i.project_root])).toEqual([
       ["r-confirm", "confirm", "To confirm", "Ship it", "example-review · approve", ROOT],
       ["r-held", "held", "Held", "repo", "example-review · a, b", "/work/beta"],
-      ["r-external", "external", "External task", "repo", "example-review", ROOT],
+      ["r-external", "external", "External work item", "repo", "example-review", ROOT],
     ]);
   });
 
