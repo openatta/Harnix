@@ -20,6 +20,7 @@ import type {
   QueueItem,
   Rating,
   SessionOutline,
+  Inbox,
   RewindParams,
   RewindResult,
   SessionHooks,
@@ -159,6 +160,8 @@ export interface Methods {
   };
   /** 会话的各轮：每轮从历史的哪里开始（`seq`），问了什么、最后答了什么（都截短）。见 `SessionOutline`。 */
   "harnix.session.outline": { params: SessionKey; result: SessionOutline };
+  /** 等人处理的：各会话正在等的权限、计划审阅、提问与询问，带会话所属的 space、名字和项目；声称一个 space 时只答它的。同名主题推同样的值。 */
+  "harnix.inbox": { params: { space?: string }; result: Inbox };
   "harnix.session.interrupt": { params: SessionKey; result: unknown };
   /** 回答一个提问：权限给 `decision`，模型的提问和 MCP server 的询问给 `answer`；先答者生效。 */
   "harnix.session.respond": {

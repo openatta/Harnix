@@ -1,0 +1,217 @@
+/* A project's overview, and the list of what waits on a person: its block there, its dialog, and
+ * the entry at the top of the left column. Colours only from tokens. */
+
+.hx-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  font-size: 13px;
+}
+
+.hx-overview.empty,
+.hx-overview .empty,
+.hx-inbox.empty {
+  color: var(--label-caption);
+  font-size: 12px;
+}
+
+.hx-overview .empty.bad {
+  color: var(--state-error);
+}
+
+.hx-overview-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hx-overview-head .name {
+  font-weight: 600;
+  color: var(--label-primary);
+}
+
+.hx-overview-head .path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--label-caption);
+  font-family: var(--font-code);
+  font-size: 11px;
+}
+
+.hx-overview-block h3 {
+  margin: 0 0 6px;
+  color: var(--label-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hx-overview-rows,
+.hx-inbox {
+  display: flex;
+  flex-direction: column;
+}
+
+.hx-overview-row,
+.hx-inbox-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--label-primary);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.hx-overview-row:hover,
+.hx-inbox-row:hover {
+  background: var(--interactive-hover);
+}
+
+.hx-overview-row .name,
+.hx-inbox-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hx-overview-row .name.mono {
+  font-family: var(--font-code);
+  font-size: 12px;
+}
+
+.hx-overview-row .meta,
+.hx-inbox-project {
+  flex: none;
+  color: var(--label-caption);
+  font-size: 11px;
+}
+
+.hx-overview-row .live {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.hx-overview-note,
+.hx-inbox-more {
+  padding: 2px 6px;
+  color: var(--label-caption);
+  font-size: 12px;
+}
+
+.hx-overview-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hx-overview-setting {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.hx-overview-setting .label {
+  flex: none;
+  width: 96px;
+  color: var(--label-secondary);
+}
+
+.hx-overview-setting .value {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.hx-overview-setting .hx-tag {
+  margin-inline-start: 6px;
+}
+
+.hx-tag.warn {
+  color: var(--state-warn-label);
+  background: var(--state-warn-soft);
+}
+
+.hx-overview-trust {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.hx-overview-trust .state {
+  font-weight: 600;
+}
+
+.hx-overview-trust[data-trust="untrusted"] .state {
+  color: var(--state-warn-label);
+}
+
+.hx-inbox-kind {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--state-warn-soft);
+  color: var(--state-warn-label);
+  font-size: 11px;
+}
+
+.hx-inbox-text {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.hx-inbox-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--label-caption);
+  font-size: 12px;
+}
+
+.hx-inbox-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: calc(100% - 12px);
+  margin: 2px 6px 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-l1);
+  border-radius: var(--radius-sm);
+  background: var(--state-warn-soft);
+  color: var(--state-warn-label);
+  font: inherit;
+  font-size: 13px;
+  text-align: start;
+  cursor: pointer;
+}
+
+.hx-inbox-entry:hover {
+  border-color: var(--border-l2);
+}
+
+.hx-inbox-entry .glyph {
+  width: 14px;
+  height: 14px;
+}
+
+.hx-inbox-entry .lbl {
+  flex: 1;
+}
+
+.hx-inbox-entry .c {
+  font-weight: 600;
+}

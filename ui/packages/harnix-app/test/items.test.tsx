@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { HostProvider, Registry, type HostApi, type MenuItem } from "@harnix/react";
 
-import { PROJECT_ITEMS, PROJECT_PANELS, extension, interleave, register, type ProjectItemKind, type ProjectItemRow } from "../src/index.tsx";
+import { INBOX, PROJECT_ITEMS, PROJECT_PANELS, extension, interleave, register, type ProjectItemKind, type ProjectItemRow } from "../src/index.tsx";
 
 afterEach(() => {
   cleanup();
@@ -87,13 +87,14 @@ async function drawn(host: HostApi, kind?: ProjectItemKind) {
 }
 
 describe("the projects space's points", () => {
-  it("defines the item kinds and the overview panels for others to fill", () => {
+  it("defines the item kinds, the overview panels and the inbox's sources for others to fill", () => {
     const r = new Registry();
     const host = fakeHost();
     r.activate(extension, () => register(r, host));
     expect(r.definitions().map((d) => [d.name, d.owner, d.kind])).toEqual([
       [PROJECT_ITEMS, "harnix-app", "register"],
       [PROJECT_PANELS, "harnix-app", "render"],
+      [INBOX, "harnix-app", "register"],
     ]);
     expect(r.refusals()).toEqual([]);
   });

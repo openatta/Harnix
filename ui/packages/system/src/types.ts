@@ -139,3 +139,13 @@ export interface Team {
   members: string[];
   failed: string[];
 }
+
+/** A `system.metrics.link` registration: where the cell `metric` of the metrics bar leads. */
+export interface MetricsLink {
+  id: string;
+  /** The cell's id (`data-kpi`): `waiting` is "等你处理". */
+  metric: string;
+  /** What it opens, for the cell's tooltip. */
+  title(): string;
+  open(): void | Promise<void>;
+}
