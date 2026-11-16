@@ -9,6 +9,7 @@
 use std::sync::Arc;
 
 use harnix_contract::sync::lock;
+use harnix_contract::wire::{self, AskAnswered, RespondParams};
 use harnix_contract::{codes, RpcError, Subject};
 use harnix_engine_link::ops::SessionInfo;
 use harnix_contract::s1::{caps, Capability, RowScope};
@@ -405,28 +406,40 @@ impl Hub {
         Ok(value)
     }
 
-    /// `harnix.session.respond`: the engine does not take who answered, so the hub keeps it for
-    /// the tool's audit (`harnix.session.answerer`), and tells the session's watchers the ask is
-    /// answered.
+    /// `harnix.session.respond`: the answer is checked against the kind of ask it is for. The
+    /// engine does not take who answered, so the hub keeps it for the tool's audit
+    /// (`harnix.session.answerer`), tells the session's watchers the ask is answered, and — for the
+    /// first answer — what the answer was.
     async fn respond(self: &Arc<Self>, subject: &Subject, mut params: Value) -> Result<Value, RpcError> {
+        let given: RespondParams =
+            serde_json::from_value(params.clone()).map_err(|e| RpcError::invalid_params(format!("harnix.session.respond: {e}")))?;
+        let kind = given.check()?;
         let tool_use = params.as_object_mut().and_then(|o| o.remove("tool_use_id"));
-        if let (Subject::Device { id }, Some(Value::String(tool_use)), Some(session)) =
-            (subject, tool_use, params.get("session_id").and_then(Value::as_str))
-        {
+        if let (Subject::Device { id }, Some(Value::String(tool_use))) = (subject, tool_use) {
             let mut kept = lock(&self.answerers);
             if kept.len() == ANSWERERS_KEPT {
                 kept.pop_front();
             }
-            kept.push_back(((session.to_string(), tool_use), format!("device:{id}")));
+            kept.push_back(((given.session_id.clone(), tool_use), format!("device:{id}")));
         }
         let instance = self.instance_of(&params)?;
-        let field = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_string);
-        let prompt = field("session_id").zip(field("prompt_id"));
-        let answer = self.engine(&instance)?.ops().respond(without_instance(params)).await?;
-        if let Some((session, prompt_id)) = prompt {
-            self.answered(&(instance.clone(), session), |p| p.prompt_id.as_deref() == Some(prompt_id.as_str()))
-                .await;
+        let engine = self.engine(&instance)?;
+        let key = (instance.clone(), given.session_id.clone());
+        let first = crate::session::claim_ask(&self.inner, &key, &given.prompt_id).await;
+        let answer = engine.ops().respond(without_instance(params)).await;
+        if first {
+            crate::session::release_ask(&self.inner, &key, &given.prompt_id).await;
         }
+        let answer = answer?;
+        if first {
+            let by = match subject {
+                Subject::Extension { id } => Some(id.to_string()),
+                _ => None,
+            };
+            let told = wire::params(&AskAnswered::new(&given, kind, by));
+            crate::session::tell_answered(&self.inner, &key, told, self.is_extension(&instance)).await;
+        }
+        self.answered(&key, |p| p.prompt_id.as_deref() == Some(given.prompt_id.as_str())).await;
         Ok(answer)
     }
 }

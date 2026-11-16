@@ -101,7 +101,9 @@ pub trait EngineOps: Send + Sync {
     /// An entry in the session's log, for people and never for the model.
     async fn append_entry(&self, session: &str, entry: Entry) -> Answer<Value>;
 
-    /// Answer a question the session asked. `params` are the engine's own.
+    /// Answer a question the session asked. `params` are `harnix.session.respond`'s
+    /// (`harnix_contract::wire::RespondParams`, checked, without `instance` and `tool_use_id`); the
+    /// link puts them in its engine's terms.
     async fn respond(&self, params: Value) -> Answer<Value>;
 
     /// Any other engine method, under the name the hub's row gives it; the answer as it is.
@@ -116,6 +118,9 @@ pub struct SessionSetup {
     pub scene: Option<ExpandedScene>,
     /// The skill directories it sees.
     pub skill_dirs: Vec<PathBuf>,
+    /// A person started it, and answers more than permissions: the model's questions and an MCP
+    /// server's asks reach the host, as they cannot for an extension that answers by policy.
+    pub person: bool,
 }
 
 impl SessionSetup {
@@ -130,6 +135,11 @@ impl SessionSetup {
 
     pub fn skill_dirs(mut self, dirs: Vec<PathBuf>) -> Self {
         self.skill_dirs = dirs;
+        self
+    }
+
+    pub fn person(mut self, person: bool) -> Self {
+        self.person = person;
         self
     }
 }
