@@ -8,7 +8,7 @@ use std::future::Future;
 use std::sync::{Arc, OnceLock};
 
 use harnix_contract::s1::{caps, RowScope};
-use harnix_contract::wire::FEEDBACK_TOPIC;
+use harnix_contract::wire::{FEEDBACK_TOPIC, INBOX};
 use harnix_contract::{codes, RpcError};
 use harnix_kernel::{Access, CallContext, Handler, KernelPart, Owner, Rpc};
 use serde_json::Value;
@@ -140,6 +140,7 @@ pub const HUB_TOPICS: &[(&str, &[&str])] = &[
     ("harnix.instances.sessions", &["instance"]),
     ("harnix.session.tasks", &["instance", "session_id"]),
     ("harnix.sessions.status", &[]),
+    (INBOX, &[]),
 ];
 
 /// How far each of the hub's topics is narrowed for a package, or a page in a frame: one
@@ -222,6 +223,11 @@ impl Hub {
             },
             own_ext(hub, "harnix.session.answerer", RowScope::Open, false, |h, _, p| async move { h.answerer(&p) }),
             own(hub, "harnix.spaces.list", |h, _, _| async move { Ok(h.spaces_view()) }),
+            // What waits on a person across the sessions, within the space a call claims.
+            own_space(hub, INBOX, |h, _, p| async move {
+                let claimed = p.get("space").and_then(Value::as_str);
+                Ok(h.inbox_view(claimed).await)
+            }),
             // A person's judgment of an answer, as setting a model is: a device's alone, about a
             // session it can see.
             HubRow::Method {

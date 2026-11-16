@@ -332,6 +332,8 @@ impl Hub {
         // the hub already held.
         state.pending_prompts = subscribed.pending;
         drop(guard);
+        // What it waits on, heard afresh.
+        self.arc().refresh(wire::INBOX, json!({}));
         self.reconcile_skill_dirs(key, info).await;
         Ok(subscribed.last_seq)
     }

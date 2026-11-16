@@ -1797,6 +1797,21 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "harnix.inbox",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
         "scope": "open"
       },
       "kind": "method",
@@ -3191,6 +3206,21 @@
       },
       "kind": "topic",
       "name": "harnix.feedback",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "space"
+      },
+      "kind": "topic",
+      "name": "harnix.inbox",
       "owner": "kernel:hub"
     },
     {

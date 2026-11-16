@@ -402,6 +402,42 @@ pub struct SessionsStatus {
     pub sessions: Vec<SessionStatusRow>,
 }
 
+/// The method and the topic that list what waits on a person across sessions.
+pub const INBOX: &str = "harnix.inbox";
+
+/// One ask a session is waiting on a person for, in `harnix.inbox`: a permission, a plan's review,
+/// a question or an MCP server's form. A session waiting on two has two.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct InboxRow {
+    pub instance: String,
+    pub session_id: String,
+    /// The space the session belongs to.
+    pub space: String,
+    pub waiting: Waiting,
+    /// The ask as the engine put it: what `harnix.session.attach` hands a client as one of its
+    /// `pending_prompts`, answered with `harnix.session.respond`.
+    #[cfg_attr(feature = "ts", ts(type = "PromptEvent"))]
+    pub prompt: Value,
+    /// The session's name, when it has one.
+    pub name: Option<String>,
+    /// The project it works in, when it has one.
+    pub project_root: Option<String>,
+    pub started_by: StartedBy,
+    /// An engine in an extension's process: rendered as untrusted content.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub trust: Option<EngineTrust>,
+}
+
+/// `harnix.inbox`'s answer and the topic's value: every ask waiting on a person, in the spaces the
+/// caller sees, by instance and session.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct Inbox {
+    pub items: Vec<InboxRow>,
+}
+
 /// A space, as `harnix.spaces.list` and the topic `harnix.spaces` list it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
