@@ -35,6 +35,7 @@
 //! speaks to `dyn FrameSink`, which is "a downstream that can take frames",
 //! and that is all it ever learns about the other side.
 
+mod changes;
 mod clients;
 mod engine_rows;
 mod lifecycle;
