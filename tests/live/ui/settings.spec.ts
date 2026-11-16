@@ -1,6 +1,8 @@
 /**
- * Settings that change something, driven from the page: a model provider added, edited, made the
- * default and deleted (Settings · Models), and a paired device revoked (Settings · Devices).
+ * Settings that change something, driven from the page: an engine setting written from the form
+ * its declaration draws, a risky value confirmed first, a write over settings changed elsewhere kept
+ * and reviewed (Settings · Engine); a model provider added, edited, made the default and deleted
+ * (Settings · Models), and a paired device revoked (Settings · Devices).
  *
  * On a backend of its own: the providers are the instance's settings, and another suite's sessions
  * should not route through one this suite made up.
@@ -35,6 +37,80 @@ const providers = (page: Page) =>
     const described = await app.call("settings.describe", {});
     return described.providers ?? {};
   });
+
+/** A field as `settings.describe` says it, read the way the page reads it. */
+const field = (page: Page, key: string) =>
+  page.evaluate(async (key) => {
+    const { app } = (window as any).harnix;
+    const described = await app.call("settings.describe", {});
+    return described.fields.find((f: { key: string }) => f.key === key);
+  }, key);
+
+/** Written behind the page's back, as another tab or a hand edit would. */
+const writeElsewhere = (page: Page, changes: Record<string, unknown>) =>
+  page.evaluate(async (changes) => {
+    await (window as any).harnix.app.call("settings.write", { tier: "global", changes });
+  }, changes);
+
+test("an engine setting is written from its form into the tier chosen, then cleared", TAGS, async ({ page }) => {
+  await open(page, backend.url);
+  await section(page, "engine");
+  const memory = page.getByTestId("settings-memory_enabled");
+  await expect(memory).toBeVisible();
+  const was = await memory.isChecked();
+  await memory.click();
+  await expect.poll(async () => (await field(page, "memory_enabled")).tiers.global).toBe(!was);
+  // Set in this tier now: the row says so, and can give it back.
+  await expect(page.locator('[data-setting="memory_enabled"]')).toContainText(/Set in this tier|在这一层设置了/);
+  await page.getByTestId("settings-memory_enabled-clear").click();
+  await expect.poll(async () => (await field(page, "memory_enabled")).tiers.global).toBeNull();
+});
+
+test("full access is confirmed before it is written", TAGS, async ({ page }) => {
+  await open(page, backend.url);
+  await section(page, "engine");
+  const mode = page.getByTestId("settings-permission_mode");
+  await mode.selectOption("bypassPermissions");
+  const risk = page.getByTestId("settings-risk");
+  await expect(risk).toBeVisible();
+  // Called off: nothing is written.
+  await risk.getByTestId("settings-risk-cancel").click();
+  await expect(risk).toHaveCount(0);
+  expect((await field(page, "permission_mode")).tiers.global).toBeNull();
+  // Confirmed, once the risk is acknowledged.
+  await mode.selectOption("bypassPermissions");
+  await expect(page.getByTestId("settings-risk-confirm")).toBeDisabled();
+  await page.getByTestId("settings-risk-ack").check();
+  await page.getByTestId("settings-risk-confirm").click();
+  await expect.poll(async () => (await field(page, "permission_mode")).tiers.global).toBe("bypassPermissions");
+  await page.getByTestId("settings-permission_mode-clear").click();
+  await expect.poll(async () => (await field(page, "permission_mode")).tiers.global).toBeNull();
+});
+
+test("a change made over settings changed elsewhere is kept, reviewed and then written", TAGS, async ({ page }) => {
+  await open(page, backend.url);
+  await section(page, "engine");
+  const memory = page.getByTestId("settings-memory_enabled");
+  await expect(memory).toBeVisible();
+  const was = await memory.isChecked();
+  // The page read the settings; then they change behind it.
+  await writeElsewhere(page, { allow_client_permission_override: true });
+  try {
+    await memory.click();
+    await expect(page.getByTestId("settings-conflict")).toBeVisible();
+    expect((await field(page, "memory_enabled")).tiers.global, "written over settings it did not read").toBeNull();
+    await page.getByTestId("settings-conflict-keep").click();
+    await expect(page.getByTestId("settings-review")).toBeVisible();
+    // Mine over theirs: the kept change is shown as a draft, and the one made elsewhere is there.
+    await expect(page.locator('[data-setting="memory_enabled"]')).toHaveAttribute("data-state", "draft");
+    await expect(page.getByTestId("settings-allow_client_permission_override")).toBeChecked();
+    await page.getByTestId("settings-review-save").click();
+    await expect.poll(async () => (await field(page, "memory_enabled")).tiers.global).toBe(!was);
+    expect((await field(page, "allow_client_permission_override")).tiers.global).toBe(true);
+  } finally {
+    await writeElsewhere(page, { allow_client_permission_override: null, memory_enabled: null });
+  }
+});
 
 test("a provider is added, edited, made the default and deleted from Settings · Models", TAGS, async ({ page }) => {
   await open(page, backend.url);

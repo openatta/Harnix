@@ -4,7 +4,7 @@
 // write; `source` is the highest tier whose file wrote it, and `withheld` says the project tier
 // wrote a value the engine does not use (an untrusted project can only tighten).
 
-import { METHOD_NOT_FOUND, REFUSED } from "@harnix/core/protocol";
+import { CONFLICT, INVALID_PARAMS, METHOD_NOT_FOUND, REFUSED } from "@harnix/core/protocol";
 import { assert, defineSuite } from "@harnix/testkit";
 
 defineSuite("settings", { feature: "settings" }, {
@@ -47,6 +47,60 @@ defineSuite("settings", { feature: "settings" }, {
       const e = await client.refused("settings.set",
         { tier: "global", key: "model.max_tokens", value: "not a number" });
       assert(e, "a count accepted a string");
+    },
+
+    "every field comes with its declaration, and the tiers with a revision": async ({ client }) => {
+      // The page draws its forms from these: a field added to the table needs nothing on the page.
+      const described = await client.call("settings.describe", {});
+      assert(typeof described.revision === "string" && described.revision, "no revision");
+      const keys = described.fields.map((f: { key: string }) => f.key);
+      for (const key of ["permission_mode", "memory_enabled", "allow_client_permission_override", "model.model_name", "model.max_tokens"]) {
+        assert(keys.includes(key), `${key} is not described`);
+      }
+      for (const field of described.fields) {
+        assert(field.type && field.section && field.label && Array.isArray(field.writable), `${field.key}: ${JSON.stringify(field)}`);
+      }
+      const mode = described.fields.find((f: { key: string }) => f.key === "permission_mode");
+      assert(mode.type === "select" && mode.kind === "choice" && mode.default === "default", JSON.stringify(mode));
+      assert(mode.risk?.values?.includes("bypassPermissions"), "full access is not a value to confirm");
+      const tokens = described.fields.find((f: { key: string }) => f.key === "model.max_tokens");
+      assert(tokens.type === "number" && tokens.min === 1 && tokens.max === 1_000_000, JSON.stringify(tokens));
+    },
+
+    "several fields are written as one, against the revision they were read at": async ({ client }) => {
+      const read = await client.call("settings.describe", {});
+      const written = await client.call("settings.write", {
+        tier: "global",
+        changes: { "model.max_tokens": 4321, memory_enabled: false },
+        revision: read.revision,
+      });
+      try {
+        const field = (key: string) => written.fields.find((f: { key: string }) => f.key === key);
+        assert(field("model.max_tokens").tiers.global === 4321 && field("memory_enabled").tiers.global === false, JSON.stringify(written.fields));
+        assert(written.revision !== read.revision, "a write left the revision as it was");
+        // The revision read before that write is behind now: a write naming it is refused, and
+        // says the one to read again at.
+        const stale = await client.refused("settings.write", { tier: "global", changes: { "model.max_tokens": 1234 }, revision: read.revision });
+        assert(stale && stale.code === CONFLICT, `answered ${JSON.stringify(stale)}`);
+        assert(stale.data?.revision === written.revision, `says ${JSON.stringify(stale.data)}`);
+        const after = await client.call("settings.describe", {});
+        assert(after.fields.find((f: { key: string }) => f.key === "model.max_tokens").tiers.global === 4321, "written over a revision that moved on");
+      } finally {
+        await client.call("settings.write", { tier: "global", changes: { "model.max_tokens": null, memory_enabled: null } });
+      }
+    },
+
+    "a change with values the fields do not accept is refused whole, each one named": async ({ client }) => {
+      const before = await client.call("settings.describe", {});
+      const e = await client.refused("settings.write", {
+        tier: "global",
+        changes: { memory_enabled: "yes", "model.max_tokens": 0, "make.believe": 1, permission_mode: "plan" },
+      });
+      assert(e && e.code === INVALID_PARAMS, `answered ${JSON.stringify(e)}`);
+      const named = (e.data?.errors ?? []).map((x: { key: string }) => x.key).sort();
+      assert(JSON.stringify(named) === JSON.stringify(["make.believe", "memory_enabled", "model.max_tokens"]), `named ${JSON.stringify(named)}`);
+      const after = await client.call("settings.describe", {});
+      assert(after.revision === before.revision, "part of a refused change was written");
     },
 
     "providers can be read back": async ({ client }) => {
