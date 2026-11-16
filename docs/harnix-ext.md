@@ -1003,8 +1003,8 @@ pub trait Extension: Send + Sync + 'static {
 | `call(method, params)` | 以 `ext:<id>` 的身份调任何方法（根调用），和设备走同一个准入点、同样审计 |
 | `sessions()` | `Sessions`，见 §17.6 |
 | `instances()` | `Instances`：`create(template, name, params)`、`ensure(template, name, params)`（幂等，并发调同名也只建一台，`start` 里用）、`ensure_ready(template, name, params, timeout)`（同上，等到 `ready` 再返回；`down` 或超时报 `INSTANCE_UNAVAILABLE`）、`wait_ready(instance, timeout)`、`stop(instance)`（数据根留着） |
-| `engine(instance)` | `Option<EngineView>`，一台实例的只读视图：`instance()`、`active_scenes()`、`model()`、`trust()`；要能力的：`recordings()`（`recordings.read`；`calls`、`call`、`turns`、`envelopes`、`usage`）、`transcripts()`（`transcripts.read`；`search`，返回 `Result`，实例连不上是 `ReadError::Unavailable`）。每台实例都有读者：`main`、进程内的模板实例、spawn、attach 的实例与 `proc.<id>`。
-录像按根会话存：整棵会话树（侧链、子 Agent）的调用在根会话的一份录像里，`calls` 的 `index` 是它在这份录像里的位置，行上有 `session_id` 与 `parent_session_id`。录像只覆盖最近一次运行（daemon 重启后第一次调用会把它重写），`calls`、`turns`、`envelopes`、`usage` 的结果带 `run`，读者见过上一次运行消失时标 `earlier_run`，用量不是跨运行的合计。`calls` 的列表只有每次调用的概况与工具调用的名字、字数，工具的输入与结果在 `call` 的详情里。`usage` 不叫醒休眠的模式 3 进程，给读过的旧数并标 `stale`，其余读者的调用会叫醒它 |
+| `engine(instance)` | `Option<EngineView>`，一台实例的只读视图：`instance()`、`active_scenes()`、`model()`、`trust()`；要能力的：`recordings()`（`recordings.read`；`calls`、`call`、`turns`、`envelopes`、`usage`、`usage_by_day`）、`transcripts()`（`transcripts.read`；`search`，返回 `Result`，实例连不上是 `ReadError::Unavailable`）。每台实例都有读者：`main`、进程内的模板实例、spawn、attach 的实例与 `proc.<id>`。
+录像按根会话存：整棵会话树（侧链、子 Agent）的调用在根会话的一份录像里，`calls` 的 `index` 是它在这份录像里的位置，行上有 `session_id` 与 `parent_session_id`。录像只覆盖最近一次运行（daemon 重启后第一次调用会把它重写），`calls`、`turns`、`envelopes`、`usage` 的结果带 `run`，读者见过上一次运行消失时标 `earlier_run`，用量不是跨运行的合计。`calls` 的列表只有每次调用的概况与工具调用的名字、字数，工具的输入与结果在 `call` 的详情里。`usage` 不叫醒休眠的模式 3 进程，给读过的旧数并标 `stale`，其余读者的调用会叫醒它。`usage_by_day(sessions, &DayWindow::new(since_ms, offset_minutes))` 把每个会话整棵树的调用按发出的那天（日界在东 `offset_minutes` 分钟）和模型加起来，`since_ms` 那天之前的不给，同样不叫醒；读者另记每个会话的这份合计，会话没再动就不重读录像。`Recordings` 的实现方不写它时，缺省答 `Unreadable` |
 | `process()` | `process.observe`：版本、运行时长、内存、线程、已连接的客户端 |
 | `bulk()` | 一次性上传凭据：`grant(max_bytes)`、`grant_named(name, max_bytes)`（文件名以清理过的 `name` 结尾，给按名字或后缀读它的，如 `plugins.upload`） |
 | `ui()` | `UiPublisher`：运行期发布的界面条目（`plugins` 发 Agix 包的 `[[ui]]`） |
@@ -1289,7 +1289,7 @@ cookie。一帧最大 16 MiB（`MAX_FRAME_BYTES`），一次上传最大 32 MiB�
 | 　 | `engine.session.run_turn / subscribe / unsubscribe`、`engine.daemon.subscribeEvents / shutdown` | **中枢独占**：谁都不能、不能授予 |
 | `harnix-app` | `harnix-app.workspaces.*`、`.prefs.set`、`.projects.create`、`.recentProjects`、`.listDirectory`、`.files {session_id | project_root, query?, limit?}`（只走会话的项目或这里的项目，见 [Harnix app](harnix-app.md) §6）、`.search`、`.sessions.archive`、`.sessions.importUpload {name}`（一次性上传凭据，答 `{token, url, max_bytes}`；页面把 zip 送到 `url`，走大负载旁路）、`.sessions.import {token, space?, project_root?}`（把上传的数据包装成新会话，答引擎的 `{root_session_id, id_map, sessions, warnings}` 加 `instance`、`space`；包里的项目这台机器上没有就装成无项目会话并在 `warnings` 里说）、`.sessions.export {instance?, session_id, space?, format: markdown \| archive \| bundle, recording?}`（答 `{format, file, content}`：markdown 是可读的对话；archive 是引擎打的 zip（`encoding: "base64"`，另带 `bytes`、`sessions`、`attachments`、`recording`、`warnings`）；bundle 是 Harnix 拼的 JSON；超过一帧时拒绝）、`harnix-app.describe`（项目目录等）、`.projects.status {project_root, instance?, scene?}`、`.projects.trust {project_root, trusted, instance?}`、`.sessions.projectStatus {instance?, session_id, space?}`（项目信任，答的形状见 [Harnix app](harnix-app.md) §3）；主题 `harnix-app.trust` | 设备 |
 | `system` | `system.context / messages.drop / messages.edit / tasks.stop / tasks.message / tasks.output / compact / clear / rename / model / goal / goal.set / goal.update`、`system.instances.stop / restart / create / templates`（面板列全部模板）、`system.process`（版本、运行时长、峰值内存、`threads`、已连接用户）、`system.extensions.log`（同 `harnix.extensions.log`，§17.9） | 设备 |
-| `observability` | `observability.trace`、`.trace.call {index}`、`.turns`、`.usage {instance?, session_ids}`（一次至多 200 个会话）、`.calls {instance?, session_id}` | 设备 |
+| `observability` | `observability.trace`、`.trace.call {index}`、`.turns`、`.usage {instance?, session_ids}`（一次至多 200 个会话）、`.usage.daily {instance?, session_ids, days?, tz_offset_min?}`（同上，按天按模型，缺省 30 天、至多 366 天，答 `{instance, days, since_ms, sessions: {<id>: {recording, days: [{day, model, calls, auxiliary, input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, model_ms, errors}], run, stale?}}}`）、`.calls {instance?, session_id}` | 设备 |
 | `settings`、`plugins`、`devices` | `settings.*`（`setProvider` 的返回多一个 `reloaded_instances`；MCP 服务器的 `settings.mcp.*` 见 §22.9）、`plugins.*`、`devices.*` | 设备（`settings.mcp.context` 按会话） |
 | `packages` | `packages.*`：列、启停、装、升、卸、清数据、同意、商店。参数与答见 [扩展包](harnix-ext-package.md) | 设备 |
 | `flow` | `flow.*`（§23）；`flow.start`、`flow.get` 另对扩展 `schedule` 开（定时起任务、看上一次的运行还在不在） | 设备 |
@@ -1441,7 +1441,7 @@ r.register("settings.section", {
 provider 的 `api_key` 到界面只有 `***` 加末 4 位。
 
 扩展定义的点（第一方）：`system.console.tab`、`system.inspector.tab`、`system.metrics.link`（[系统 space](system-space.md) §2、§11），`harnix-app.project.items`、`harnix-app.project.panels`
-（[Harnix app](harnix-app.md) §3.2）、`harnix-app.inbox`（同上 §3.3），不算进「12 个」。
+（[Harnix app](harnix-app.md) §3.2）、`harnix-app.inbox`（同上 §3.3），`observability.usage.section`（[系统 space](system-space.md) §6.2），不算进「12 个」。
 `space` 的分组（0.4.2 的 25 个平铺成员按画在哪分四组）：
 
 ```ts
