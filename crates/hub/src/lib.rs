@@ -431,11 +431,8 @@ impl Hub {
     /// `harnix.session.answerer {session_id, tool_use_id}`: the device that answered that tool's
     /// permission prompt, once (it is forgotten on reading); `null` when no device answered it
     /// (the session's permission mode let it run) or the answer was pushed out. For the
-    /// application's audit; a device cannot ask (helm-01).
-    pub(crate) fn answerer(&self, subject: &Subject, params: &Value) -> Result<Value, RpcError> {
-        if matches!(subject, Subject::Device { .. }) {
-            return Err(RpcError::new(codes::REFUSED, "answerers are for the application's audit"));
-        }
+    /// application's audit; its row is not a device's to ask.
+    pub(crate) fn answerer(&self, params: &Value) -> Result<Value, RpcError> {
         let field = |k: &str| {
             params
                 .get(k)
@@ -466,12 +463,9 @@ impl Hub {
                 .and_then(Value::as_str)
                 .map(str::to_string)
                 .ok_or_else(|| RpcError::invalid_params("the kernel names an entry's ns"))?,
-            _ => {
-                return Err(RpcError::new(
-                    codes::REFUSED,
-                    "entries are an extension's; a device speaks through harnix.session.send",
-                ))
-            }
+            // The row is closed to every other subject; a person's words are
+            // `harnix.session.send`.
+            _ => return Err(RpcError::new(codes::REFUSED, "entries are an extension's")),
         };
         let event = params
             .get("event")

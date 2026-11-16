@@ -104,6 +104,21 @@ where
     }
 }
 
+/// [`own`], for extensions and the kernel alone: a device is refused by the row, so
+/// `harnix.reachable` does not list it.
+fn own_ext<F, Fut>(hub: &HubCell, name: &'static str, scope: RowScope, checked: bool, f: F) -> HubRow
+where
+    F: Fn(Arc<Hub>, CallContext, Value) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Rpc<Value>> + Send + 'static,
+{
+    HubRow::Method {
+        name,
+        owner: Owner::Kernel(KernelPart::Hub),
+        access: Access::extensions().scoped(scope),
+        handler: Some(answer(hub, name, checked, f)),
+    }
+}
+
 /// [`own`], about one space.
 fn own_space<F, Fut>(hub: &HubCell, name: &'static str, f: F) -> HubRow
 where
@@ -174,18 +189,20 @@ impl Hub {
                 h.tasks_view(&key).await
             }),
             own_session(hub, "harnix.session.rename", |h, _, p| async move { h.rename(p).await }),
-            own_session(hub, "harnix.session.entries.append", |h, cx, p| async move { h.append_entry(&cx.subject, p).await }),
+            own_ext(hub, "harnix.session.entries.append", RowScope::Session, true, |h, cx, p| async move {
+                h.append_entry(&cx.subject, p).await
+            }),
             // About one session; its `space` is where it goes, not a claim, so it is not checked
             // as one.
             HubRow::Method {
                 name: "harnix.session.move",
                 owner: Owner::Kernel(KernelPart::Hub),
-                access: Access::device().with_extensions().scoped(RowScope::Session),
+                access: Access::extensions().scoped(RowScope::Session),
                 handler: Some(answer(hub, "harnix.session.move", false, |h, cx, p| async move {
                     h.move_session(&cx, p).await
                 })),
             },
-            own(hub, "harnix.session.answerer", |h, cx, p| async move { h.answerer(&cx.subject, &p) }),
+            own_ext(hub, "harnix.session.answerer", RowScope::Open, false, |h, _, p| async move { h.answerer(&p) }),
             own(hub, "harnix.spaces.list", |h, _, _| async move { Ok(h.spaces_view()) }),
             // Intercepted engine methods, the hub's semantics: still the device's to ask for.
             own_session(hub, "harnix.session.interrupt", |h, _, p| async move { h.interrupt(p).await }),

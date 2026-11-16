@@ -536,12 +536,6 @@ impl Hub {
     /// must be a space the session's instance may serve (as for a new session there); one reaching
     /// across spaces is nobody's home.
     pub(crate) async fn move_session(self: &std::sync::Arc<Self>, cx: &CallContext, params: Value) -> Result<Value, RpcError> {
-        if matches!(cx.subject, Subject::Device { .. }) {
-            return Err(RpcError::new(
-                codes::REFUSED,
-                "which space a session belongs to is the application's to change, not a device's",
-            ));
-        }
         let key = self.key_of(&params)?;
         let space = params
             .get("space")

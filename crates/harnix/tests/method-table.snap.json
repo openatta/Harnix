@@ -1700,7 +1700,7 @@
     },
     {
       "access": {
-        "device": true,
+        "device": false,
         "extensions": [
           "*"
         ],
@@ -1790,7 +1790,7 @@
     },
     {
       "access": {
-        "device": true,
+        "device": false,
         "extensions": [
           "*"
         ],
@@ -1835,7 +1835,7 @@
     },
     {
       "access": {
-        "device": true,
+        "device": false,
         "extensions": [
           "*"
         ],
