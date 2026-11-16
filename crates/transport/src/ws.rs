@@ -408,11 +408,9 @@ fn close_frame(why: Ended) -> CloseFrame {
 
 /// The answer to one request over the in-flight cap.
 fn busy() -> RpcError {
-    RpcError {
-        code: codes::BUSY,
-        message: format!(
-            "{MAX_IN_FLIGHT} requests in flight on this connection; retry when one answers"
-        ),
-        data: Some(json!({"max_in_flight": MAX_IN_FLIGHT})),
-    }
+    RpcError::with_data(
+        codes::BUSY,
+        format!("{MAX_IN_FLIGHT} requests in flight on this connection; retry when one answers"),
+        json!({"max_in_flight": MAX_IN_FLIGHT}),
+    )
 }

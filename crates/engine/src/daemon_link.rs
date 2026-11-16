@@ -523,11 +523,12 @@ impl Wired for Wire {
 
 fn reply(frame: Value) -> Result<Value, RpcError> {
     if let Some(error) = frame.get("error") {
-        return Err(RpcError {
-            code: error.get("code").and_then(Value::as_i64).unwrap_or(-32603) as i32,
-            message: error.get("message").and_then(Value::as_str).unwrap_or("").to_string(),
-            data: error.get("data").cloned(),
-        });
+        let mut e = RpcError::new(
+            error.get("code").and_then(Value::as_i64).unwrap_or(-32603) as i32,
+            error.get("message").and_then(Value::as_str).unwrap_or(""),
+        );
+        e.data = error.get("data").cloned();
+        return Err(e);
     }
     Ok(frame.get("result").cloned().unwrap_or(Value::Null))
 }

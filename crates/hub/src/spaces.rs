@@ -461,14 +461,11 @@ impl Hub {
             return Ok(());
         }
         if bound != claimed {
-            return Err(RpcError {
-                code: codes::SPACE_MISMATCH,
-                message: format!(
-                    "session `{}` on instance `{}` belongs to the space `{bound}`, not `{claimed}`",
-                    key.1, key.0
-                ),
-                data: Some(json!({"space": bound, "instance": key.0, "session_id": key.1})),
-            });
+            return Err(RpcError::with_data(
+                codes::SPACE_MISMATCH,
+                format!("session `{}` on instance `{}` belongs to the space `{bound}`, not `{claimed}`", key.1, key.0),
+                json!({"space": bound, "instance": key.0, "session_id": key.1}),
+            ));
         }
         Ok(())
     }
@@ -524,6 +521,7 @@ impl Hub {
                     name
                 }
             },
+            other => return Err(RpcError::new(codes::INTERNAL_ERROR, format!("the space `{space}` lands on `{other}`, which this hub cannot build"))),
         };
         if let Some(obj) = params.as_object_mut() {
             obj.insert("instance".into(), json!(instance));
@@ -676,10 +674,7 @@ impl Hub {
             .map(|d| {
                 json!({
                     "id": d.id,
-                    "instance": match &d.instance {
-                        DefaultInstance::Fixed(id) => id.clone(),
-                        DefaultInstance::Template(t) => format!("template:{t}"),
-                    },
+                    "instance": d.instance.to_string(),
                     "built": spaces.ledger.instances.get(&d.id),
                     "scene": d.scene,
                     "cross_space": d.cross_space,

@@ -980,10 +980,7 @@ enum Accept {
 
 /// The record of a proposal's acceptance, if there is one.
 async fn handled(cx: &Call, p: &ProposalRef) -> Result<Option<Value>, RpcError> {
-    let session = harnix_ext::SessionRef {
-        instance: p.instance.clone(),
-        session_id: p.session_id.clone(),
-    };
+    let session = harnix_ext::SessionRef::new(p.instance.clone(), p.session_id.clone());
     let entries = cx.ext().sessions().entries(&session).await?;
     Ok(entries.into_iter().find_map(|e| {
         (e.get("event").and_then(Value::as_str) == Some(PROPOSAL_HANDLED)
@@ -1012,10 +1009,7 @@ async fn accepted(cx: &Call, a: Accept, action: &str) {
     let Accept::First(p, by, _guard) = a else {
         return;
     };
-    let session = harnix_ext::SessionRef {
-        instance: p.instance.clone(),
-        session_id: p.session_id.clone(),
-    };
+    let session = harnix_ext::SessionRef::new(p.instance.clone(), p.session_id.clone());
     let entry = harnix_ext::Entry::new(
         PROPOSAL_HANDLED,
         json!({"entry": p.entry, "action": action, "by": by}),

@@ -151,11 +151,7 @@ impl EngineOps for FakeLink {
     }
     async fn set_prompt(&self, session: &str, append: Option<Option<String>>, override_text: Option<Option<String>>) -> Answer<Value> {
         if *self.busy.lock().unwrap() {
-            return Err(RpcError {
-                code: codes::SESSION_BUSY,
-                message: "a turn is running".into(),
-                data: Some(json!({"reason": "turn_running"})),
-            });
+            return Err(RpcError::with_data(codes::SESSION_BUSY, "a turn is running", json!({"reason": "turn_running"})));
         }
         self.prompted.lock().unwrap().push((append.clone(), override_text));
         Ok(json!({"session_id": session, "append": append.flatten(), "applies": "next_turn"}))

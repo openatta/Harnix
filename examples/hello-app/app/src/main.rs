@@ -109,7 +109,7 @@ impl Extension for Greeter {
                     ext.topics().publish("job", key.clone(), state(0)).await?;
                     let states: Vec<_> = (1..=p.to).map(state).collect();
                     let card = match (p.instance, p.session_id) {
-                        (Some(instance), Some(session_id)) => Some(SessionRef { instance, session_id }),
+                        (Some(instance), Some(session_id)) => Some(SessionRef::new(instance, session_id)),
                         _ => None,
                     };
                     let done = json!({"job_id": job_id, "total": p.to});
@@ -239,10 +239,7 @@ struct Ticket {
 
 impl Ticket {
     fn session(&self) -> SessionRef {
-        SessionRef {
-            instance: self.instance.clone(),
-            session_id: self.session_id.clone(),
-        }
+        SessionRef::new(self.instance.clone(), self.session_id.clone())
     }
 }
 

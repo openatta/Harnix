@@ -828,14 +828,11 @@ impl InstanceRegistry {
                 e.data = Some(json!({"instance": instance, "status": slot.status()}));
                 Err(e)
             }
-            Err(_) => Err(RpcError {
-                code: codes::INSTANCE_UNAVAILABLE,
-                message: format!(
-                    "the instance `{instance}` was not ready within {} ms",
-                    timeout.as_millis()
-                ),
-                data: Some(json!({"instance": instance, "status": slot.status()})),
-            }),
+            Err(_) => Err(RpcError::with_data(
+                codes::INSTANCE_UNAVAILABLE,
+                format!("the instance `{instance}` was not ready within {} ms", timeout.as_millis()),
+                json!({"instance": instance, "status": slot.status()}),
+            )),
         }
     }
 

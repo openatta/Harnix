@@ -169,10 +169,10 @@ impl Extension for Probe {
             .access(device())
             .describe("writes an entry into a session's log, and lists this extension's")
             .raw(|call, p| async move {
-                let session = SessionRef {
-                    instance: p["instance"].as_str().unwrap_or(harnix::MAIN_INSTANCE).to_string(),
-                    session_id: p["session_id"].as_str().unwrap_or_default().to_string(),
-                };
+                let session = SessionRef::new(
+                    p["instance"].as_str().unwrap_or(harnix::MAIN_INSTANCE),
+                    p["session_id"].as_str().unwrap_or_default(),
+                );
                 let sessions = call.ext().sessions();
                 let written = sessions
                     .append_entry(&session, Entry::new(p["event"].as_str().unwrap_or("note"), p["payload"].clone()))
@@ -510,7 +510,7 @@ impl Extension for Fleet {
         r.method("tap").access(device()).describe("opens a tap on a session and does not read it").handler(
             |call: Call, p: TapParams| async move {
                 let state = call.state::<FleetState>()?;
-                let session = SessionRef { instance: p.instance, session_id: p.session_id };
+                let session = SessionRef::new(p.instance, p.session_id);
                 let tap = call.ext().sessions().tap_with_capacity(&session, p.capacity).await?;
                 *state.tap.lock().await = Some(tap);
                 Ok(json!({"open": true}))

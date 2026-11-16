@@ -491,11 +491,11 @@ impl Method {
         };
         match vm.handle_as(Some(serving), &self.name, &params, &caller_json(caller)).await {
             Ok(Ok(value)) => Ok(value),
-            Ok(Err(e)) => Err(RpcError {
-                code: e.code,
-                message: e.message,
-                data: e.data,
-            }),
+            Ok(Err(e)) => {
+                let mut error = RpcError::new(e.code, e.message);
+                error.data = e.data;
+                Err(error)
+            }
             Err(failure) => Err(no_answer(&self.app, &self.full(), &failure, vm)),
         }
     }

@@ -1,15 +1,16 @@
-//! A space, as the backend knows it (concept §5.4): an id, the instance its new sessions land on, and
-//! the scene they start in. What a space looks like is the interface's; which sessions belong to it
-//! is the hub's ledger. The kernel knows no space by name: every one is an extension's.
+//! A space, as an extension declares it (concept §5.4): an id, the instance its new sessions land
+//! on, and the scene they start in. What a space looks like is the interface's; which sessions
+//! belong to it is the hub's ledger. The kernel knows no space by name: every one is an extension's.
 
 use serde::{Deserialize, Serialize};
 
 /// Where a space's new sessions land when the caller names no instance.
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case", tag = "kind", content = "id")]
 pub enum DefaultInstance {
-    /// A fixed instance, `system` unless said otherwise.
+    /// A fixed instance, `main` unless said otherwise.
     Fixed(String),
     /// Built from this template the first time the space needs it, then reused; the instance
     /// belongs to the space.
@@ -23,7 +24,7 @@ impl Default for DefaultInstance {
 }
 
 impl DefaultInstance {
-    /// `system`, `ci`, `template:research`.
+    /// `main`, `ci`, `template:research`.
     pub fn parse(text: &str) -> Self {
         match text.strip_prefix("template:") {
             Some(id) => DefaultInstance::Template(id.to_string()),
@@ -32,6 +33,19 @@ impl DefaultInstance {
     }
 }
 
+/// The text [`DefaultInstance::parse`] reads: `main`, `template:research`.
+impl std::fmt::Display for DefaultInstance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DefaultInstance::Fixed(id) => f.write_str(id),
+            DefaultInstance::Template(template) => write!(f, "template:{template}"),
+        }
+    }
+}
+
+/// A space an extension declares: built with [`SpaceDecl::new`] and its builders; the fields are
+/// read by the hub.
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SpaceDecl {
@@ -87,20 +101,14 @@ impl SpaceDecl {
     }
 }
 
-/// One package's skills directory, and the spaces it declared: what the hub lists to a session
-/// as its host skill directories. No space declared: every space's.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct SkillSource {
-    /// The package.
-    pub ext: String,
-    /// `<state>/ext/<id>/skills`: always this path, whether or not it exists yet.
-    pub dir: std::path::PathBuf,
-    pub spaces: Vec<String>,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-impl SkillSource {
-    pub fn new(ext: impl Into<String>, dir: impl Into<std::path::PathBuf>, spaces: Vec<String>) -> Self {
-        Self { ext: ext.into(), dir: dir.into(), spaces }
+    #[test]
+    fn a_default_instance_prints_as_it_is_parsed() {
+        for text in ["main", "ci", "template:research"] {
+            assert_eq!(DefaultInstance::parse(text).to_string(), text);
+        }
     }
 }

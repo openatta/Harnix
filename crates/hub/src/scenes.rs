@@ -24,11 +24,11 @@ pub(crate) fn layer_for(layers: &SceneLayers, params: &Value) -> Result<Option<E
     // An omitted project is the engine's default project; only one given as none has none.
     let none = params.get("project_root").is_some_and(Value::is_null);
     if layer.requires_project == Some(true) && none {
-        return Err(RpcError {
-            code: codes::PROJECT_REQUIRED,
-            message: format!("the scene `{}` needs a project: give `project_root`", layer.id),
-            data: Some(json!({"scene": layer.id})),
-        });
+        return Err(RpcError::with_data(
+            codes::PROJECT_REQUIRED,
+            format!("the scene `{}` needs a project: give `project_root`", layer.id),
+            json!({"scene": layer.id}),
+        ));
     }
     Ok(Some(layer.clone()))
 }

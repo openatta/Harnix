@@ -726,10 +726,7 @@ mod tests {
     /// A tap of capacity 1 that is never read while three turns go by: the second and third
     /// settle in the gap; the hub's buffer holds only the third turn's events.
     async fn behind() -> Tap {
-        let session = SessionRef {
-            instance: "main".into(),
-            session_id: "s".into(),
-        };
+        let session = SessionRef::new("main", "s");
         let (sink, parts) = Tap::channel(session, 1);
         let attached = json!({"replay": [event(5, "t3"), event(6, "t3")]});
         let reattach: Reattach = Arc::new(move || {

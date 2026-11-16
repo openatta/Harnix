@@ -426,11 +426,11 @@ impl Hub {
             ));
         }
         if bound != claimed {
-            return Err(RpcError {
-                code: harnix_contract::codes::SPACE_MISMATCH,
-                message: format!("session `{}` on instance `{}` belongs to the space `{bound}`, not `{claimed}`", key.1, key.0),
-                data: Some(json!({"space": bound, "instance": key.0, "session_id": key.1})),
-            });
+            return Err(RpcError::with_data(
+                harnix_contract::codes::SPACE_MISMATCH,
+                format!("session `{}` on instance `{}` belongs to the space `{bound}`, not `{claimed}`", key.1, key.0),
+                json!({"space": bound, "instance": key.0, "session_id": key.1}),
+            ));
         }
         self.engine(&key.0)?.ops().set_model(&key.1, &model, provider.as_deref()).await
     }
