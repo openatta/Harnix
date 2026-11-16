@@ -7,7 +7,7 @@
  * shows is the engine's own for the open (project, scene), and it says when the project tier wrote
  * one the engine does not use (an untrusted project can only tighten). A field's `section` is
  * which of the sections below draws it. Providers go through `settings.setProvider`, the only path
- * credentials take from the interface.
+ * credentials take from the interface; a stored key is only ever shown as its last four characters.
  */
 
 import { useState, type ReactNode } from "react";
@@ -25,6 +25,7 @@ export function register(r: Registry, host: HostApi): void {
   section("scenes", "settings.nav.scenes", () => <Scenes host={host} />);
   // Where the shell sends a reader when a turn has no model to go to.
   section("models", "settings.nav.models", () => <Models host={host} />, ["models"]);
+  section("task-models", "settings.nav.taskModels", () => <EngineSettings host={host} section="task-models" title="settings.taskModels" />);
   section("mcp", "settings.nav.mcp", () => <Mcp host={host} />);
 }
 
@@ -45,7 +46,19 @@ function Select({ options, value, onChange, testId }: { options: [string, string
 interface Described extends FieldDoc {
   paths?: Record<string, string>;
   providers?: {
-    providers?: Record<string, { api_type?: string | null; base_url?: string | null; api_key?: unknown; default_model?: string | null; models?: string[] }>;
+    providers?: Record<
+      string,
+      {
+        api_type?: string | null;
+        base_url?: string | null;
+        api_key?: unknown;
+        api_key_env?: string | null;
+        default_model?: string | null;
+        models?: string[];
+        thinking_toggle?: string | null;
+        reasoning_passback?: boolean;
+      }
+    >;
     default_provider?: string | null;
   };
 }
@@ -70,7 +83,7 @@ export function engineStore(host: HostApi, request: { scene?: string; project_ro
 }
 
 /** The engine's fields of one section, with the tier they are written to. */
-function EngineSettings({ host, section }: { host: HostApi; section: string }) {
+function EngineSettings({ host, section, title = "settings.engineDefaults" }: { host: HostApi; section: string; title?: string }) {
   const t = useT();
   const reload = useSettingsReload();
   const hello = useHello();
@@ -79,7 +92,7 @@ function EngineSettings({ host, section }: { host: HostApi; section: string }) {
   const name = (id: string) => t(`settings.tier.${id}`, { scene: request.scene });
   return (
     <FieldForm<Described>
-      title={t("settings.engineDefaults")}
+      title={t(title)}
       store={engineStore(host, request, selected)}
       section={section}
       tier={selected}
@@ -192,7 +205,7 @@ function Models({ host }: { host: HostApi }) {
               {!names.length ? (
                 <div className={`callout${hello?.engine?.has_credentials === true ? "" : " warn"}`} data-testid="providers-none">
                   <Glyph name="key" className="glyph" />
-                  <span>{t("settings.providersNone")}</span>
+                  <span>{hello?.engine?.has_credentials === true ? t("settings.providersEnv") : t("settings.providersNone")}</span>
                 </div>
               ) : null}
               {names.map((id) =>
@@ -215,12 +228,27 @@ function Models({ host }: { host: HostApi }) {
           );
         }}
       </SettingsSection>
-      <EngineSettings host={host} section="models" />
+      <EngineSettings host={host} section="models" title="settings.modelDefaults" />
     </>
   );
 }
 
 type ProviderEntry = NonNullable<NonNullable<Described["providers"]>["providers"]>[string];
+
+/**
+ * A stored key as the page shows it: `***` and its last four characters at most. The engine and the
+ * `settings` extension both redact it before it gets here; this holds even if neither did. Null when
+ * no key is stored.
+ */
+export function maskedKey(key: unknown): string | null {
+  if (key === null || key === undefined || key === "") return null;
+  const text = String(key);
+  if (/^\*{3}[^*]{0,4}$/.test(text)) return text;
+  return text.length >= 12 ? `***${text.slice(-4)}` : "***";
+}
+
+/** The fields an OpenAI-compatible endpoint switches thinking by (Agix's `thinking_toggle`). */
+const THINKING_TOGGLES = ["deepseek", "enable_thinking", "chat_template_kwargs"];
 
 const API_TYPES = [
   { id: "anthropic", label: "settings.apiTypeAnthropic", url: "https://api.anthropic.com", model: "claude-sonnet-4-6" },
@@ -279,7 +307,7 @@ function ProviderCard({
         <span className="pill">{typeLabel(t, apiTypeOf(provider))}</span>
         {isDefault ? <span className="pill acc">{t("settings.providerDefault")}</span> : null}
         <span className="sp" />
-        <SettingsValue tone={provider.api_key ? "ok" : "err"}>{provider.api_key ? t("settings.keySet") : t("settings.keyMissing")}</SettingsValue>
+        <ProviderKey provider={provider} />
       </div>
       <div className="pc-meta">
         <span className="mono truncate">{provider.base_url || apiTypeOf(provider).url}</span>
@@ -309,6 +337,32 @@ function ProviderCard({
   );
 }
 
+/** Where a provider's key comes from: the one stored, as its last four; else the environment
+ *  variable it names (whether the engine's environment has it, the engine does not say). */
+function ProviderKey({ provider }: { provider: ProviderEntry }) {
+  const t = useT();
+  const stored = maskedKey(provider.api_key);
+  if (stored) {
+    return (
+      <span data-testid="provider-key" data-state="stored">
+        <SettingsValue tone="ok">{t("settings.keyMasked", { value: stored })}</SettingsValue>
+      </span>
+    );
+  }
+  if (provider.api_key_env) {
+    return (
+      <span data-testid="provider-key" data-state="env" title={t("settings.keyFromEnvHint", { name: provider.api_key_env })}>
+        <SettingsValue tone="ok">{t("settings.keyFromEnv", { name: provider.api_key_env })}</SettingsValue>
+      </span>
+    );
+  }
+  return (
+    <span data-testid="provider-key" data-state="missing">
+      <SettingsValue tone="err">{t("settings.keyMissing")}</SettingsValue>
+    </span>
+  );
+}
+
 /** Add (no id yet) or edit one provider — the only path credentials take from the interface. */
 function ProviderForm({
   host,
@@ -333,8 +387,11 @@ function ProviderForm({
     api_type: apiTypeOf(provider).id,
     base_url: provider.base_url ?? "",
     api_key: "",
+    api_key_env: provider.api_key_env ?? "",
     default_model: provider.default_model ?? "",
     models: (provider.models ?? []).join(", "),
+    thinking_toggle: provider.thinking_toggle ?? "",
+    reasoning_passback: provider.reasoning_passback === true,
     make_default: isDefault,
   });
   const [saving, setSaving] = useState(false);
@@ -342,7 +399,7 @@ function ProviderForm({
   // A type the table lacks stays selectable as it is, so the other fields can be saved without turning it into another.
   const types = API_TYPES.some((x) => x.id === fields.api_type) ? API_TYPES : [...API_TYPES, type];
   const set = (key: keyof typeof fields, value: string | boolean) => setFields({ ...fields, [key]: value });
-  const text = (key: "provider_id" | "base_url" | "api_key" | "default_model" | "models", label: string, placeholder?: string, hint?: string) => (
+  const text = (key: "provider_id" | "base_url" | "api_key" | "api_key_env" | "default_model" | "models", label: string, placeholder?: string, hint?: string) => (
     <div className="field" key={key}>
       <label>{label}</label>
       <input
@@ -369,8 +426,14 @@ function ProviderForm({
       base_url: fields.base_url.trim(),
       default_model: fields.default_model.trim(),
       models: models.length ? models : null,
+      api_key_env: fields.api_key_env.trim(),
     };
     if (fields.api_key) config.api_key = fields.api_key;
+    // Only an OpenAI-compatible endpoint reads them; another type keeps what it has.
+    if (fields.api_type === "openai_compatible") {
+      config.thinking_toggle = fields.thinking_toggle || null;
+      config.reasoning_passback = fields.reasoning_passback;
+    }
     setSaving(true);
     try {
       await host.call("settings.setProvider", {
@@ -414,9 +477,33 @@ function ProviderForm({
         </div>
       </div>
       {text("base_url", t("settings.baseUrl"), type.url)}
-      {text("api_key", t("settings.apiKey"), id && provider.api_key ? t("settings.apiKeyKeep") : "sk-…", t("settings.apiKeyHint", { path: path ?? "~/.agix/settings.json" }))}
+      {text(
+        "api_key",
+        t("settings.apiKey"),
+        id && provider.api_key ? `${maskedKey(provider.api_key)} · ${t("settings.apiKeyKeep")}` : "sk-…",
+        t("settings.apiKeyHint", { path: path ?? "~/.agix/settings.json" }),
+      )}
+      {text("api_key_env", t("settings.apiKeyEnv"), "OPENAI_API_KEY", t("settings.apiKeyEnvHint"))}
       {text("default_model", t("settings.defaultModel"), type.model)}
       {text("models", t("settings.models"), undefined, t("settings.modelsHint"))}
+      {fields.api_type === "openai_compatible" ? (
+        <>
+          <div className="field">
+            <label>{t("settings.thinkingToggle")}</label>
+            <Select
+              testId="provider-thinking_toggle"
+              options={[["", t("settings.thinkingToggleNone")], ...THINKING_TOGGLES.map((x) => [x, x] as [string, string])]}
+              value={fields.thinking_toggle}
+              onChange={(value) => set("thinking_toggle", value)}
+            />
+            <div className="hint">{t("settings.thinkingToggleHint")}</div>
+          </div>
+          <label className="check">
+            <input type="checkbox" data-testid="provider-reasoning_passback" checked={fields.reasoning_passback} onChange={(e) => set("reasoning_passback", e.target.checked)} />
+            {t("settings.reasoningPassback")}
+          </label>
+        </>
+      ) : null}
       <label className="check">
         <input type="checkbox" data-testid="provider-make-default" checked={fields.make_default} onChange={(e) => set("make_default", e.target.checked)} />
         {t("settings.providerAsDefault")}
