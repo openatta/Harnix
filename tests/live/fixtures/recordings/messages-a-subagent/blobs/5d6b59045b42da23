@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"tool_use","id":"call_00_ET_WT8eam1nyvEjNb24cJ3V5604","name":"Bash","input":{"command":"perl -e \"select(undef, undef, undef, 10)\"; echo waited","description":"Sleep 10 seconds and print waited"}}]}

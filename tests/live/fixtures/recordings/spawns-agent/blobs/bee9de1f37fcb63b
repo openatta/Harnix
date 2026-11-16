@@ -1,1 +1,0 @@
-{"role":"assistant","content":[{"type":"tool_use","id":"call_00_ET_wtId3tqMbk5LYcAwmuAn4976","name":"Bash","input":{"command":"ls","description":"List files in current directory"}}]}

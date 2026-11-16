@@ -8,11 +8,11 @@
  * the engine's, set as a person does: the project added in the projects space, then trusted there.
  */
 
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { type Backend, type TestClient, connect, expect, test } from "@harnix/testkit";
+import { type Backend, type TestClient, connect, expect, runTurn, test } from "@harnix/testkit";
 
 import { startTestApp } from "./testapp";
 
@@ -52,7 +52,8 @@ async function cleanUp(root: string, id: string, runs: string[]) {
   for (const run of runs) await api.call("flow.cancel", { run, reason: "test over" }).catch(() => undefined);
   await api.call("harnix-app.projects.trust", { project_root: root, trusted: false }).catch(() => undefined);
   await api.call("harnix-app.workspaces.remove", { id }).catch(() => undefined);
-  rmSync(root, { recursive: true, force: true });
+  // Retried: the engine may still be writing under the project (its `.agix/`) as it goes.
+  rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }
 
 const row = (defs: any[], name: string) => defs.find((d) => d.name === name);
@@ -127,5 +128,59 @@ test("a trusted project's own flow is offered to its tasks and starts one; the s
     expect(row(await api.call("flow.defs", { project: root }), "proj-check")).toMatchObject({ valid: false, reason: "untrusted" });
   } finally {
     await cleanUp(root, id, runs);
+  }
+});
+
+/**
+ * Where `flow-author-project` saves: the recording names this directory in its `flow_create`, so the
+ * test makes the project there (a recording answers the message it was made with, paths included).
+ */
+const AUTHORED_IN = "/tmp/harnix-fixture-project-flows";
+
+/** A flow-author conversation of the flow space replaying `flow-author-project`; its `flow_create` result after one turn. */
+async function authorInProject(): Promise<{ session_id: string; create: any }> {
+  const created = await api.call("harnix.session.create", { space: "flow", options: { recorder: { name: "flow-author-project" } } });
+  await api.call("harnix.session.attach", { session_id: created.session_id });
+  const { settled, asks } = await runTurn(api, { session_id: created.session_id }, "Write a flow for this project: one check a person confirms. Save it in the project.", { timeout: 60_000 });
+  expect(settled.params.error, JSON.stringify(settled.params.error)).toBeUndefined();
+  // Authoring asks no one, in a project as anywhere (decision: no approval for authoring).
+  expect(asks.filter((a) => String(a.event.tool_name ?? "").startsWith("flow_"))).toEqual([]);
+  const { messages } = await api.call("engine.session.history", { session_id: created.session_id });
+  const blocks = messages.flatMap((m: any) => (Array.isArray(m.content) ? m.content : []));
+  const call = blocks.find((b: any) => b.type === "tool_use" && b.name === "flow_create");
+  expect(call?.input?.project_root).toBe(AUTHORED_IN);
+  const create = blocks.find((b: any) => b.type === "tool_result" && b.tool_use_id === call.id);
+  return { session_id: created.session_id, create };
+}
+
+test("in conversation, a flow is written into a project: refused while the project is untrusted, saved in .harnix/flows once trusted, and offered to its tasks", TAGS, async () => {
+  rmSync(AUTHORED_IN, { recursive: true, force: true });
+  mkdirSync(AUTHORED_IN, { recursive: true });
+  const made = await api.call("harnix-app.workspaces.create", { path: AUTHORED_IN, title: "authored flows" });
+  const runs: string[] = [];
+  try {
+    // Untrusted: the tool refuses, says why, and writes nothing.
+    const refused = await authorInProject();
+    expect(refused.create.is_error).toBe(true);
+    expect(JSON.stringify(refused.create.content)).toContain("not trusted");
+    expect(existsSync(join(AUTHORED_IN, ".harnix"))).toBe(false);
+    expect(row(await api.call("flow.defs", { project: AUTHORED_IN }), "proj-authored")).toBeUndefined();
+
+    await api.call("harnix-app.projects.trust", { project_root: AUTHORED_IN, trusted: true });
+    const saved = await authorInProject();
+    expect(saved.create.is_error ?? false, JSON.stringify(saved.create.content)).toBe(false);
+    expect(readFileSync(join(AUTHORED_IN, ".harnix", "flows", "proj-authored.yaml"), "utf8")).toContain("name: proj-authored");
+    // Offered to the project's tasks, as the project's; nowhere else.
+    expect(row(await api.call("flow.defs", { project: AUTHORED_IN }), "proj-authored")).toMatchObject({
+      origin: "project",
+      valid: true,
+      title: "The project's own, written in conversation",
+    });
+    expect(row(await api.call("flow.defs"), "proj-authored")).toBeUndefined();
+    const { run } = await api.call("flow.start", { flow: "proj-authored", subject: "repo", project_root: AUTHORED_IN });
+    runs.push(run);
+    expect((await api.call("flow.get", { run })).record).toMatchObject({ project_root: AUTHORED_IN, def: { name: "proj-authored" } });
+  } finally {
+    await cleanUp(AUTHORED_IN, made.workspace.id, runs);
   }
 });

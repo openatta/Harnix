@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"thinking","text":"The user asks to call the tool with path README.md. Do it now.","signature":"a82218e1-f58c-4d3f-bee6-2080115a7bf9"},{"type":"tool_use","id":"call_00_gU0noNHvi8nTYEJMqweS6486","name":"ext__example_showcase__read_project","input":{"path":"README.md"}}]}

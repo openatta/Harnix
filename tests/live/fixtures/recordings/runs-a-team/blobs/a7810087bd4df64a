@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"text","text":"I'll create the team as specified."},{"type":"tool_use","id":"call_00_ET_5t5EMqO1ijPfRX1HASrP8639","name":"TeamCreate","input":{}}]}

@@ -1,0 +1,1 @@
+{"role":"user","content":[{"type":"text","text":"Use the AskUserQuestion tool now to ask me which color to use, with the header Color and exactly two options: key r with the label red, and key b with the label blue. Do not answer in prose first. When I have answered, reply with exactly the label of the color I picked, and nothing else."}]}
