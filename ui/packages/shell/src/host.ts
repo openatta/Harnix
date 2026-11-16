@@ -17,6 +17,7 @@ import { hostDialogs } from "./host-dialogs.tsx";
 import { menuBelow } from "./Menu.tsx";
 import { revealEntry } from "./reveal.ts";
 import { openSettings, settingsSections } from "./settings.tsx";
+import { activeTab, closeTab, openResource, openTab } from "./sidebar/controller.ts";
 import { topicsOf } from "./topics.ts";
 
 export function hostFor(app: App, owner = "page"): HostApi {
@@ -117,6 +118,14 @@ export function hostFor(app: App, owner = "page"): HostApi {
       isOpen: () => app.detailsOpen(),
       tab: () => app.shownTab(),
       onTab: (fn) => app.onTab(fn),
+    },
+    sidebar: {
+      openResource: (address, options) => openResource(app, address, options),
+      openTab: (kind, options) => openTab(app, kind, options),
+      close: (tabId) => void closeTab(app, tabId),
+      active: () => activeTab(app),
+      isExpanded: () => app.detailsOpen(),
+      toggleExpanded: (open) => app.toggleDetails(open),
     },
     settings: {
       open(section) {

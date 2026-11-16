@@ -3,7 +3,8 @@
  * its own left column, a centre that is the conversation unless it says otherwise, and its right
  * tabs — inside the chrome that stays: the brand and the avatar. Beside the centre a space may open
  * a second side panel (`secondary`, xops-04 §7): the details of what is selected on the right. Every
- * side column is dragged wider or narrower, and remembers it.
+ * side column is dragged wider or narrower, and remembers it. The right column itself is
+ * `sidebar/Details.tsx`: the space's tabs and the open session's docking surface in one strip.
  *
  * What is inside the conversation column is `ChatPanel`, the conversation trunk shared with
  * IPDrun.
@@ -25,9 +26,9 @@ import {
 } from "react";
 import { errorText } from "@harnix/core";
 import type { BlockOf, SessionController, SessionState } from "@harnix/core/state";
-import { ChatComposer, ChatPanel, Contributed, listenForLayers, modalUp, t, useLayer, useRegistry, useT, ComposerNote, askedTool, rowTitle, toolAsks, type Attached, type ChatIds, type ComposerApi, type MentionItem, type ModelOption, type SpaceContribution, type SpaceSecondary, type ToolRowContribution, Glyph, useRoving } from "@harnix/react";
+import { ChatComposer, ChatPanel, Contributed, listenForLayers, modalUp, t, useLayer, useRegistry, useT, ComposerNote, askedTool, rowTitle, toolAsks, type Attached, type ChatIds, type ComposerApi, type MentionItem, type ModelOption, type SpaceContribution, type SpaceSecondary, type ToolRowContribution, Glyph } from "@harnix/react";
 
-import { ask, detailsWidthOf, keyOf, later, orderTabs, safeTabs, secondaryWidthOf, type App, type OpenModal, type ShellState, type Widths } from "./app.ts";
+import { ask, detailsWidthOf, keyOf, later, secondaryWidthOf, type App, type OpenModal, type ShellState, type Widths } from "./app.ts";
 import { useBrand } from "./brand.ts";
 import { referencesIn, sessionMentions, useCommands, withContributed } from "./commands.ts";
 import { followEnvelopes } from "./envelope.tsx";
@@ -36,6 +37,7 @@ import { MenuHost, menuBelow } from "./Menu.tsx";
 import { openSettingsFor } from "./settings.tsx";
 import { Sidebar, spacesOf } from "./Sidebar.tsx";
 import { ActionButtons } from "./actions.tsx";
+import { Details } from "./sidebar/Details.tsx";
 
 export function Shell({ app }: { app: App }) {
   const s = useSyncExternalStore(app.subscribe, app.getSnapshot);
@@ -78,7 +80,7 @@ export function Shell({ app }: { app: App }) {
           <Main app={app} s={s} />
           {secondary && space ? <Secondary app={app} space={space} panel={secondary} max={app.secondaryMax(s)} /> : null}
         </div>
-        {space || s.detail ? <Details app={app} s={s} /> : <aside id="details" aria-hidden inert />}
+        {space || s.detail ? <Details app={app} s={s} resizer={<Resizer app={app} column="details" />} /> : <aside id="details" aria-hidden inert />}
         {narrow.veil ? <div className="drawer-veil" data-testid="drawer-veil" aria-hidden="true" onClick={narrow.closeTop} /> : null}
       </div>
       <ModalHost app={app} s={s} />
@@ -734,7 +736,17 @@ function Header({
       <button type="button" className="ib" data-testid="theme-toggle" title={t("app.theme")} onClick={() => app.setTheme(isDark() ? "light" : "dark")}>
         <Glyph name={isDark() ? "sun" : "moon"} className="glyph" />
       </button>
-      <button type="button" className="ib" data-testid="details-toggle" title={t("app.details")} onClick={() => app.toggleDetails()}>
+      {/* The way back into a collapsed right column, at the corner of the session's header; open, it collapses it. */}
+      <button
+        type="button"
+        className="ib"
+        data-testid="details-toggle"
+        data-state={app.detailsOpen(s) ? "expanded" : "collapsed"}
+        aria-expanded={app.detailsOpen(s)}
+        aria-controls="details"
+        title={app.detailsOpen(s) ? t("app.detailsCollapse") : t("app.detailsExpand")}
+        onClick={() => app.toggleDetails()}
+      >
         <Glyph name="details" className="glyph" />
       </button>
     </header>
@@ -1013,87 +1025,6 @@ function Secondary({ app, space, panel, max }: { app: App; space: SpaceContribut
         <Contributed registry={registry} point="space" contribution={space}>
           {ask(registry, space, () => panel.render(), null)}
         </Contributed>
-      </div>
-    </aside>
-  );
-}
-
-/* ── details ──────────────────────────────────────────────────────────── */
-
-function Details({ app, s }: { app: App; s: ShellState }) {
-  const t = useT();
-  const registry = useRegistry(app.registry);
-  const space = spacesOf(app).find((c) => c.id === s.space);
-  const tabs = orderTabs(safeTabs(registry, space));
-  const firstEnd = tabs.find((x) => x.align === "end")?.id;
-  const setTab = (id: string) => app.selectTab(id);
-  const item = s.detail;
-  const panel = item ? registry.claim("details.panel", item) : null;
-  // The selected tab is the app's, per space (the host API can choose it). A space's tabs can change
-  // with what is selected: a tab that went falls back to the first.
-  const current = app.shownTab(s);
-  const shown = tabs.find((x) => x.id === current);
-  // One Tab stop for the strip; the arrows go along it.
-  const strip = useRef<HTMLDivElement>(null);
-  const roving = useRoving(strip, { items: '[role="tab"]', orientation: "horizontal", activate: true });
-  return (
-    // Closed it is zero wide, not gone: inert, or Tab would still walk through what is in it.
-    <aside id="details" aria-hidden={!app.detailsOpen(s)} inert={!app.detailsOpen(s)}>
-      <Resizer app={app} column="details" />
-      <div className="strip" data-tauri-drag-region="deep">
-        <div className="tabs" role="tablist" ref={strip} onKeyDown={roving.onKeyDown} onFocus={roving.onFocus}>
-          {tabs.map((x) => (
-            <button
-              type="button"
-              role="tab"
-              key={x.id}
-              id={`details-tab-${x.id}`}
-              aria-controls="details-panel"
-              data-tab={x.id}
-              data-align={x.id === firstEnd ? "end" : undefined}
-              aria-selected={current === x.id}
-              className={current === x.id ? "on" : ""}
-              onClick={() => setTab(x.id)}
-            >
-              {x.title()}
-            </button>
-          ))}
-          {item || !tabs.length ? (
-            <button type="button" role="tab" id="details-tab-details" aria-controls="details-panel" data-tab="details" aria-selected={current === "details"} className={current === "details" ? "on" : ""} onClick={() => setTab("details")}>
-              {item && !tabs.length ? (panel?.title?.(item) ?? item.name ?? t("details.title")) : t("details.title")}
-            </button>
-          ) : null}
-        </div>
-        <div className="win">
-          <button
-            type="button"
-            className="icon-btn"
-            data-testid="details-max"
-            title={s.detailsMax ? t("details.restore") : t("details.maximize")}
-            aria-pressed={s.detailsMax}
-            onClick={() => app.toggleDetailsMax()}
-          >
-            <Glyph name={s.detailsMax ? "restore" : "maximize"} className="glyph" />
-          </button>
-          <button type="button" className="icon-btn close" data-testid="details-close" title={t("common.close")} onClick={() => app.toggleDetails(false)}>
-            <Glyph name="close" className="glyph" />
-          </button>
-        </div>
-      </div>
-      <div className="body" role="tabpanel" id="details-panel" aria-labelledby={`details-tab-${shown ? shown.id : "details"}`}>
-        {shown && space ? (
-          <Contributed registry={registry} point="space" contribution={space}>
-            {shown.render()}
-          </Contributed>
-        ) : !item ? (
-          <div className="empty">{t("details.empty")}</div>
-        ) : panel ? (
-          <Contributed registry={registry} point="details.panel" contribution={panel}>
-            {panel.render(item)}
-          </Contributed>
-        ) : (
-          <div className="empty">{t("details.noPanel")}</div>
-        )}
       </div>
     </aside>
   );

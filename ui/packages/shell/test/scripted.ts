@@ -13,7 +13,7 @@ type Listener = (method: string, params: Record<string, unknown>) => void;
 export class ScriptedClient {
   status: "open" | "closed" | "connecting" = "open";
   calls: { method: string; params: Record<string, unknown> }[] = [];
-  private notify = new Set<Listener>();
+  private notified = new Set<Listener>();
   private statusListeners = new Set<(s: string) => void>();
   answer: (method: string, params: Record<string, unknown>) => unknown = () => ({});
 
@@ -25,16 +25,18 @@ export class ScriptedClient {
       return Promise.reject(e);
     }
   }
+  /** A notification the page sends (a session controller attaching): nothing hears it. */
+  notify(): void {}
   onNotification(fn: Listener): () => void {
-    this.notify.add(fn);
-    return () => this.notify.delete(fn);
+    this.notified.add(fn);
+    return () => this.notified.delete(fn);
   }
   onStatus(fn: (s: string) => void): () => void {
     this.statusListeners.add(fn);
     return () => this.statusListeners.delete(fn);
   }
   push(method: string, params: Record<string, unknown>): void {
-    for (const fn of [...this.notify]) fn(method, params);
+    for (const fn of [...this.notified]) fn(method, params);
   }
 }
 

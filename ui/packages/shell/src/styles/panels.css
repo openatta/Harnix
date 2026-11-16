@@ -754,3 +754,98 @@
 #main .empty-conversation:empty {
   display: none;
 }
+
+/* ── the session's tabs in the strip ─────────────────────────────────── */
+/* A session tab is a chip: the tab itself, and a close control that shows on hover and while it is
+   in front. The space's tabs beside it are plain buttons, as they were. */
+#details .tabs .chip {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  flex: none;
+}
+
+#details .tabs .chip .tab-close {
+  display: flex;
+  align-items: center;
+  align-self: center;
+  padding: 2px;
+  margin-left: -8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--label-tertiary);
+  cursor: pointer;
+  opacity: 0;
+}
+
+#details .tabs .chip:hover .tab-close,
+#details .tabs .chip.on .tab-close,
+#details .tabs .chip .tab-close:focus-visible {
+  opacity: 1;
+}
+
+#details .tabs .chip .tab-close:hover {
+  color: var(--label-primary);
+  background: var(--interactive-hover);
+}
+
+#details .tabs .chip .tab-close .glyph {
+  width: 12px;
+  height: 12px;
+}
+
+#details .tab-body[hidden] {
+  display: none;
+}
+
+/* ── the guide ───────────────────────────────────────────────────────── */
+#details .guide-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+#details .guide-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-l1);
+  border-radius: var(--radius-card);
+  background: var(--bg-base);
+  color: var(--label-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+#details .guide-card:hover {
+  background: var(--interactive-hover);
+}
+
+#details .guide-card .glyph {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  color: var(--label-secondary);
+}
+
+#details .guide-card .text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+#details .guide-card .title {
+  font-size: 13px;
+  font-weight: 550;
+}
+
+#details .guide-card .desc {
+  color: var(--label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}

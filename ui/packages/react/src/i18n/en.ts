@@ -83,6 +83,17 @@ const en: Record<string, string> = {
   "secondary.restore": "Restore the details beside the conversation",
   "details.empty": "Open a tool call to see its full input and output",
   "details.callId": "Call id",
+  "app.detailsExpand": "Expand the right column",
+  "app.detailsCollapse": "Collapse the right column",
+  "sidebar.guide": "Guide",
+  "sidebar.guideHint": "Pages this column can open",
+  "sidebar.guideEmpty": "Nothing to open here yet: the pages an extension registers for this column are listed here.",
+  "sidebar.addTab": "Open a page…",
+  "sidebar.closeTab": "Close {title}",
+  "sidebar.noType": "Nothing draws a {kind} tab now: its extension is off",
+  "sidebar.noSession": "No session is open to show it in",
+  "sidebar.unclaimed": "No tab type claims {address}",
+  "sidebar.noKind": "No tab type has the kind {kind}",
 
   // ── request envelope ──────────────────────────────────────────────────
   "request.title": "Request envelope",
