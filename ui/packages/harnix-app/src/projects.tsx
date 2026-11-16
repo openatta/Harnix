@@ -20,6 +20,7 @@ import { Contributed, Glyph, t, useCurrentSession, useRoving, useT, type HostApi
 
 import { addWorkspaceDialog, newSessionDialog, trustCategories, trustDialog, workspaceMenu } from "./dialogs.tsx";
 import { PROJECT_ITEMS, activityOf, createEntries, useProjectItems, type ProjectItem, type ProjectItemContext } from "./items.ts";
+import { OVERVIEW } from "./overview.tsx";
 import { SessionRow, useApp } from "./sessions.tsx";
 import { keyOf, type AppSession, type AppState, type AppStore, type Workspace } from "./store.ts";
 
@@ -117,7 +118,11 @@ function Project({ host, r, store, s, workspace }: { host: HostApi; r: Registry;
           aria-selected={open}
           title={workspace.path}
           aria-expanded={open}
-          onClick={() => store.openProject(open ? null : workspace.id)}
+          onClick={() => {
+            store.openProject(open ? null : workspace.id);
+            // Opened with no conversation open: its overview in the right column.
+            if (!open && !host.session.current()) host.details.open(OVERVIEW);
+          }}
           onContextMenu={(e) => {
             e.preventDefault();
             more(anchorOf(e));

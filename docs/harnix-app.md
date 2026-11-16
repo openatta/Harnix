@@ -7,7 +7,7 @@
 > `@harnix/harnix-app`（`ui/packages/harnix-app`）。用词照 [术语](glossary.md)；扩展接口见 [Harnix 扩展](harnix-ext.md)。
 >
 > 本文照代码写：后端在 `crates/ext/harnix-app/src/`（`lib.rs`、`workspaces.rs`、`files.rs`、`project.rs`、`export.rs`、`store.rs`），界面在
-> `ui/packages/harnix-app/src/`（`index.tsx`、`sessions.tsx`、`projects.tsx`、`sidebar.tsx`、`dialogs.tsx`、`store.ts`），一轮的改动由中枢记（`crates/hub/src/changes.rs`），外壳的菜单、层与新对话页在
+> `ui/packages/harnix-app/src/`（`index.tsx`、`sessions.tsx`、`projects.tsx`、`items.ts`、`overview.tsx`、`inbox.tsx`、`sidebar.tsx`、`dialogs.tsx`、`store.ts`），一轮的改动由中枢记（`crates/hub/src/changes.rs`），外壳的菜单、层与新对话页在
 > `ui/packages/shell/src/`（`Menu.tsx`、`Shell.tsx`、`dialogs.tsx`；层与菜单的底子在 `ui/packages/react/src/layers.ts`），profile 在
 > `crates/assembly/src/profile.rs`。对不上时以代码为准。
 
@@ -21,7 +21,7 @@
 | 标题 | 会话（Sessions）：全部会话，按时间 | 项目（Projects）：按项目看会话 |
 | 左栏 | 搜索框 + 全部会话，按时间分组 | 一棵树：项目（工作区），一次只展开一个，它的会话和别的包登记的条目（流程的任务，§3.2）挂在下面 |
 | 中区 | 对话（`center: "chat"`） | 对话；新建的会话跑在展开的项目里 |
-| 右栏 | 会话的停靠面：引导页，文件、预览、改动（§6），`@harnix/system` 的「输出」（Agent 后台 Shell 与监视器的只读输出流，一个任务一个页签，从对话里工具行的「查看输出」打开），别的包注册的页签，和 `reveal` 打开的详情 | 同左 |
+| 右栏 | 会话的停靠面：引导页，文件、预览、改动（§6），`@harnix/system` 的「输出」（Agent 后台 Shell 与监视器的只读输出流，一个任务一个页签，从对话里工具行的「查看输出」打开），别的包注册的页签，和 `reveal` 打开的详情 | 同左；展开了项目、没有打开会话时是项目的「概况」（§3.2） |
 | 后端 space | `sessions` | **同一个** `sessions`（界面注册里 `sessions: "sessions"`） |
 
 **项目 space 是界面上的一个视图，不是第二个会话集合。** 「按时间看」和「按项目看」是同一批会话的两种排法；会话按 space 绑定是
@@ -45,6 +45,7 @@ Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方�
 
 **左栏**：
 
+- **待我处理**：有等人处理的事时，最上面一行「待我处理 N」，点了打开整张列表（§3.3）。
 - **搜索**：打字按名字筛；回车经 `harnix-app.search {query}` 搜对话内容（只搜最近的会话时会说），Esc 清掉。
 - **分组**：问 `sidebar.group` 的注册，最后注册的那个生效。`@harnix/harnix-app` 注册的是 `harnix-app.time`（「按时间」）：今天、近 7 天、更早，按最近活动排，
   空的组不画。应用注册自己的 `sidebar.group` 就换掉它。
@@ -93,7 +94,7 @@ Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方�
 
 **项目就是工作区**：一个目录，加一个名字。它只是分组：去掉一个项目只是忘了这个分组，会话与历史都还在。
 
-- 左栏顶上「项目」与「+」（添加项目）。先列 5 个，「更多（N）」。
+- 左栏顶上「项目」与「+」（添加项目）。先列 5 个，「更多（N）」。有等人处理的事时，最上面是「待我处理 N」（§3.3）。
 - **一次只展开一个**（记在页面的 `localStorage`，`harnix.project`）。点一个没展开的项目：展开它，并且停在新对话的空页上。
 - 展开的项目列它的会话，和别的包登记的条目（§3.2：`@harnix/flow` 的任务）混在一起按最近活动排，先列 8 行，「全部 N 个」。
   项目行上的数字是两者之和；有在跑的会话或条目时，收起的项目行上有活动点。
@@ -188,7 +189,22 @@ r.register("harnix-app.project.items", {
 行在树里是 `[data-testid="project-item"][data-kind="<id>"][data-item="<row.id>"]`，和会话行一样是 `.srow`、树的一项；它的「⋯」是 `project-item-more`，
 项目的「＋」是 `project-new`。
 
-**`harnix-app.project.panels`**（`render`）：项目概况页的一个区块，`{ id, title(), order?, render(context) }`，`context` 同上。本版只定义，概况页随后补。
+**`harnix-app.project.panels`**（`render`）：项目概况页的一个区块，`{ id, title(), order?, render(context) }`，`context` 同上。
+
+**项目概况**（`ui/packages/harnix-app/src/overview.tsx`）：项目 space 里展开了一个项目、又没有打开会话（新对话的空页）时，右栏是它的「概况」。
+它是项目 space 自己的页签（`details.tabs`，`id` 是 `harnix-app.overview`），只在这时出现：一打开会话，右栏就是那个会话的停靠面，和别处一样。
+展开一个项目时如果没有打开的会话，右栏打开并停在概况上。页面是 `harnix-app.project.panels` 的全部区块，按 `order` 从小到大（没写算 100）；
+`@harnix/harnix-app` 自己的几块也是这样注册的，别的包的插在中间。每块抛错只丢那一块。都是只读的，要改的地方给链接。
+
+| `order` | 区块 | 谁 | 内容 |
+|---|---|---|---|
+| 10 | 待我处理 | `harnix-app.inbox` | 这个项目里等人处理的（§3.3），至多 6 行 |
+| 20 | 会话 | `harnix-app.sessions` | 项目最近的 5 个会话（按最近活动，在跑的带点），点了打开；更多时写「全部 N 个」 |
+| 30 | 任务 | `flow.tasks`（`@harnix/flow`） | 运行中、等待、已结束各几个；最近的 5 个任务，点了照 §3.2 打开；「新任务」 |
+| 40 | 定时 | 留给定时的界面 | |
+| 50 | 最近改动 | `harnix-app.changes` | 项目最近 5 个会话的 `harnix.changes` 条目里改过的文件，每个文件只列最近一次，至多 8 个，相对项目根；点了打开那个会话、右栏的「改动」停在那一轮。项目里的会话一轮结束时重读 |
+| 60 | 生效的设置 | `harnix-app.settings` | 权限模式（生效的值与写它的层，`settings.describe {project_root}`）、权限规则（各层几条）、MCP 服务器（生效的那些与它们的层，`settings.mcp.list {project_root}`）、Skill（项目最近一个会话看得到的，按来源层计数，`harnix.session.skills`；没有会话时说「项目里有会话后列出」）；项目层有被扣下的值时标「部分被扣下」；每行「去设置」打开对应的一节。产品没有 `settings` 扩展时，读不到的行不画 |
+| 70 | 信任 | `harnix-app.trust` | 已信任、未信任（连同扣下了哪几类）或无需信任（§3.1）；「信任…」或「不再信任这个项目」 |
 
 **任务**（`@harnix/flow`，`ui/packages/flow/src/task.tsx`）：`flow.runs` 主题里 `project_root` 是这个项目的运行（试运行不算），
 一行写标题（没有就是对象）、流程名、状态（运行中、等待及原因、已暂停、已完成、已取消）、「第 k/n 站」，由定时启动的带时钟。
@@ -198,6 +214,27 @@ r.register("harnix-app.project.items", {
 「新任务」对话框：流程（全部，标来源，不合法的不能选）、按 `inputs` 的 schema 生成的表单（字符串、数字、布尔、枚举、字符串数组，其余是 JSON 框）、
 对象（必填）、标题、输出目录（留空用缺省 `flows/<流程>-<YYYYMMDD><NN>`，对话框预估当天序号，由扩展最终定）、在 worktree 里跑（本版不可选）；
 项目里已有任务在跑时提示；流程不是 `guard: strict` 时写明「这个流程会直接修改项目文件」。确认即 `flow.start {flow, subject, inputs?, title?, project_root, output_dir?}`，然后打开这个任务。
+
+### 3.3 待我处理：`harnix-app.inbox`
+
+一张列表，列出这台设备看得到的、在等人的事：会话里的权限询问、计划审阅、模型的提问、MCP server 的询问（§2.1），流程里等确认、
+等放行（hold）、等外部任务领取的任务。点一行直达能答它的地方。
+
+**来源**是贡献点 `harnix-app.inbox`（`register`，`ui/packages/harnix-app/src/inbox.tsx`）：`{ id, items(), subscribe(fn), open(item) }`。
+一项是 `{ id, kind, label, title, detail?, project_root?, data? }`：`kind` 是等什么（`approval`、`plan`、`answer`、`elicitation`；
+`confirm`、`held`、`external`），`label` 是它的说法，`title` 是在等的会话或任务，`detail` 多一行（工具、问句、server、站），
+`project_root` 让概况只列自己项目的。列表不认识任何一种来源；`items` 抛错只丢那个来源、记进诊断。
+
+| 来源 | 数据 | 点了 |
+|---|---|---|
+| `harnix-app.asks`（本包） | 中枢的主题 `harnix.inbox`（[Harnix 扩展](harnix-ext.md) §21.3）：每个会话正在等的每一个提问，带会话的 space、名字、项目和引擎原样的 `prompt` | `host.session.open(会话, {switchSpace: true})`：到会话所属的 space 打开它，卡片就在对话里，照 §2.1 作答；答了这一行就消失 |
+| `flow.waiting`（`@harnix/flow`） | 流程自己的 `flow.runs` 主题里阶段是 `waiting`、原因是 `confirm`、`held` 或 `external` 的运行（试运行不算） | 照 §3.2 打开这个任务，右栏「流程」页签上确认、放行 |
+
+中枢不认识流程：它只给会话的提问，流程的部分由流程的界面包从它自己的主题来，页面把两者合在一起。
+
+**在哪里**：项目概况的第一块（只列这个项目的）；会话 space 与项目 space 左栏最上面，有等人的事时出「待我处理 N」（`inbox-open`），
+点了在对话框里打开整张列表（`inbox-list`，每行 `inbox-item`，`data-kind`、`data-source`）；系统 space 指标条的「等你处理」那一格
+（`system.metrics.link`，[系统 space](system-space.md) §2）也打开它。
 
 ## 4. 新建会话
 

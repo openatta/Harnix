@@ -48,6 +48,11 @@
 | 运行中任务 | 状态是 running / waiting / pending 的任务 | `harnix.session.tasks {instance, session_id}` |
 | 等你处理 | `waiting` 不为空的行 | `harnix.instances.sessions` |
 
+**指标去哪**：一格数字可以链到它数的那张列表。系统 space 定义贡献点 `system.metrics.link`（`register`，`{id, metric, title(), open()}`，`metric`
+是那一格的 id，即 `data-kpi`）；有人登记了某一格，那一格就画成按钮，悬停是 `title()`，点了调 `open()`。系统 space 不认识谁登记：
+`@harnix/harnix-app` 给「等你处理」（`waiting`）登记，点了打开「待我处理」的整张列表（[Harnix app](harnix-app.md) §3.3）。那张列表
+除了这里数的会话提问，还有流程等人的任务，所以两边的数可以不一样。没有 `harnix-app` 的产品里这一格照旧只是数字。
+
 `system.process` 是 `system` 的主题（也是同名的方法），有人订阅时每 5 秒重算一次推出；数据是 `system` 凭 `process.observe` 从宿主拿的进程信息。
 值里还有产品名与版本（`app`）、`started_ms`。
 
@@ -324,7 +329,7 @@ space `system`（界面一侧 `@harnix/system` 把它画成 `center: "hidden"`�
 
 - **后端**：你自己扩展的方法与主题（[原生扩展](harnix-ext.md)）。要读写任何会话的内部，在 `manifest` 里要 `engine.inspect` / `engine.control`，产品在装配时授予；
   不要包一层 `system.*`。
-- **界面**：往系统 space 定义的两个点里注册——控制台的页签进 `system.console.tab`（`{id, title(), render(), order?}`），检查器的页签进 `system.inspector.tab`
-  （`{id, title(target), match(target), render(target)}`）。要在没有系统 space 的产品里也有个去处，注册时给 `orElse`。
+- **界面**：往系统 space 定义的三个点里注册——控制台的页签进 `system.console.tab`（`{id, title(), render(), order?}`），检查器的页签进 `system.inspector.tab`
+  （`{id, title(target), match(target), render(target)}`），指标条上一格数字去哪进 `system.metrics.link`（§2）。要在没有系统 space 的产品里也有个去处，注册时给 `orElse`。
 - 流程、扩展、调用与每轮这几个页签就是例子：它们分别是 `flow`、`packages`、`observability` 的 UI 包注册进来的，系统 space 自己不认识它们。
 - 应用自己的、和系统 space 无关的调试面，做成自己的 space，或者一个扩展包的 space。

@@ -26,6 +26,11 @@ const en: Record<string, string> = {
   // A task: a run in a project (the projects space's tree, its "+" menu, the right column's tab).
   "flowui.task.kind": "Tasks",
   "flowui.task.new": "New task",
+  "flowui.inbox.confirm": "To confirm",
+  "flowui.inbox.held": "Held",
+  "flowui.inbox.external": "External task",
+  "flowui.panel.counts": "{running} running · {waiting} waiting · {finished} finished",
+  "flowui.panel.none": "No tasks in this project yet.",
   "flowui.task.tab": "Flow",
   "flowui.task.step": "station {k}/{n}",
   "flowui.task.scheduled": "started by a schedule",
@@ -445,6 +450,11 @@ const zhCN: Record<string, string> = {
   // 任务：项目里的一次运行（项目树、项目的「＋」菜单、右栏的页签）。
   "flowui.task.kind": "任务",
   "flowui.task.new": "新任务",
+  "flowui.inbox.confirm": "待确认",
+  "flowui.inbox.held": "待放行",
+  "flowui.inbox.external": "外部任务",
+  "flowui.panel.counts": "运行中 {running} · 等待 {waiting} · 已结束 {finished}",
+  "flowui.panel.none": "这个项目还没有任务。",
   "flowui.task.tab": "流程",
   "flowui.task.step": "第 {k}/{n} 站",
   "flowui.task.scheduled": "由定时启动",

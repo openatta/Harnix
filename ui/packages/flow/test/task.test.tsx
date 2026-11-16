@@ -14,7 +14,7 @@ import { register } from "../src/register";
 import { currentStation, taskStep } from "../src/RunPanel";
 import { registerSystemFlows } from "../src/space";
 import { registerFlowStrings } from "../src/strings";
-import { PROJECT_ITEMS, ProjectTasks, TASK_KIND, TASK_TAB_KIND, TaskRow, openTask, taskRows } from "../src/task";
+import { INBOX, PROJECT_ITEMS, PROJECT_PANELS, ProjectTasks, TASK_KIND, TASK_TAB_KIND, TaskRow, TasksPanel, openTask, taskCounts, taskRows, waitingItems } from "../src/task";
 import { TaskTab } from "../src/TaskTab";
 import type { DefSummary, FlowDef, RunSummary, RunView } from "../src/types";
 
@@ -253,6 +253,82 @@ describe("the registration", () => {
     expect(r.list(PROJECT_ITEMS)).toEqual([]);
     expect(r.at("sidebar.tab").some((x) => x.kind === TASK_TAB_KIND)).toBe(true);
     expect(r.refusals()).toEqual([]);
+  });
+});
+
+describe("what waits on a person, and the overview's block", () => {
+  it("a run waiting on a confirm, a hold or an external task is an item; one waiting on its own work, a dry run or a running one is not", () => {
+    const runs = [
+      summary({ id: "r-confirm", title: "Ship it", phase: { state: "waiting", reason: "confirm", stations: ["approve"] } }),
+      summary({ id: "r-held", phase: { state: "waiting", reason: "held", stations: ["a", "b"] }, project_root: "/work/beta" }),
+      summary({ id: "r-external", phase: { state: "waiting", reason: "external" } }),
+      summary({ id: "r-work", phase: { state: "waiting", reason: "work" } }),
+      summary({ id: "r-running", phase: { state: "running" } }),
+      summary({ id: "dry-r-1", dry: true, phase: { state: "waiting", reason: "confirm" } }),
+    ];
+    expect(waitingItems(runs).map((i) => [i.id, i.kind, i.label, i.title, i.detail, i.project_root])).toEqual([
+      ["r-confirm", "confirm", "To confirm", "Ship it", "example-review · approve", ROOT],
+      ["r-held", "held", "Held", "repo", "example-review · a, b", "/work/beta"],
+      ["r-external", "external", "External task", "repo", "example-review", ROOT],
+    ]);
+  });
+
+  it("counts a project's tasks running, waiting and over", () => {
+    const runs = [
+      summary({ id: "a", phase: { state: "running" } }),
+      summary({ id: "b", phase: { state: "waiting", reason: "confirm" } }),
+      summary({ id: "c", status: "finished", phase: { state: "finished" } }),
+      summary({ id: "d", status: "cancelled", phase: { state: "cancelled" } }),
+      summary({ id: "e", phase: { state: "running" }, project_root: "/work/beta" }),
+    ];
+    expect(taskCounts(runs, ROOT)).toEqual({ running: 1, waiting: 1, finished: 2 });
+  });
+
+  it("registers its source and its block where the Harnix app defines them; the source opens the task", async () => {
+    const fake = fakeHost({ "flow.get": view(), "flow.session": { instance: "main", session_id: "general" } });
+    const r = new Registry();
+    r.activate("system", () => r.definePoint("system.console.tab", { kind: "register" }));
+    r.activate("harnix-app", () => {
+      r.definePoint(PROJECT_ITEMS, { kind: "register" });
+      r.definePoint(PROJECT_PANELS, { kind: "render" });
+      r.definePoint(INBOX, { kind: "register" });
+      r.register("space", { id: "projects", icon: "folder", title: () => "Projects" }, "harnix-app");
+    });
+    r.activate("flow", () => register(r, fake.host));
+    r.settle();
+    const source = r.list<{ id: string; items(): { id: string }[]; subscribe(fn: () => void): () => void; open(item: unknown): Promise<void> }>(INBOX)[0]!;
+    expect([source.id, source.owner]).toEqual(["flow.waiting", "flow"]);
+    source.subscribe(() => undefined);
+    fake.push("flow.runs", {}, { runs: [summary({ phase: { state: "waiting", reason: "confirm" } })] });
+    const items = source.items();
+    expect(items.map((i) => i.id)).toEqual(["example-review-1"]);
+    await source.open(items[0]);
+    expect(fake.opened.at(-1)).toEqual({ instance: "main", sessionId: "main-1" });
+    expect(fake.tabs.at(-1)).toEqual([TASK_TAB_KIND, { params: { run: "example-review-1" } }]);
+    const panel = r.list<{ id: string; order: number; title(): string }>(PROJECT_PANELS)[0]!;
+    expect([panel.id, panel.order, panel.title()]).toEqual(["flow.tasks", 30, "Tasks"]);
+    expect(r.refusals()).toEqual([]);
+  });
+
+  it("the block: the counts, the latest tasks each opening, and 新任务", async () => {
+    const fake = fakeHost({ "flow.defs": DEFS });
+    const tasks = new ProjectTasks(fake.host, "flow");
+    const opened: string[] = [];
+    const created = vi.fn();
+    const page = render(
+      <HostProvider host={fake.host}>
+        <TasksPanel tasks={tasks} module="flow" root={ROOT} open={(run) => void opened.push(run.id)} create={created} />
+      </HostProvider>,
+    );
+    expect(page.queryAllByTestId("overview-task")).toEqual([]);
+    act(() => fake.push("flow.runs", {}, { runs: [summary({ phase: { state: "waiting", reason: "confirm" } }), summary({ id: "other", project_root: "/work/beta" })] }));
+    await settle();
+    expect(page.getAllByTestId("overview-task").map((el) => el.dataset.run)).toEqual(["example-review-1"]);
+    expect(page.getByTestId("overview-tasks-counts").dataset.waiting).toBe("1");
+    fireEvent.click(page.getByTestId("overview-task"));
+    expect(opened).toEqual(["example-review-1"]);
+    fireEvent.click(page.getByTestId("overview-task-new"));
+    expect(created).toHaveBeenCalled();
   });
 });
 
