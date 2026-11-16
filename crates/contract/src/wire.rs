@@ -365,6 +365,46 @@ pub struct HubSessionRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub trust: Option<EngineTrust>,
+    /// The other spaces it is shown in (`harnix.session.expose`), each with whether a call
+    /// claiming that space may also talk to it. Its own space is `space`, unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub exposed_to: Option<Vec<ExposureRow>>,
+    /// In a space's list (`harnix.sessions.list {space}`): set on a row that is there because
+    /// the session is exposed to that space, naming the space it belongs to (`space`, again), so a
+    /// list can tell a lent session from its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub exposed_from: Option<String>,
+}
+
+/// One space a session is exposed to (`HubSessionRow::exposed_to`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct ExposureRow {
+    pub space: String,
+    /// A call claiming the space may talk to the session too (send, respond, queue, interrupt,
+    /// rewind, feedback), not only look at it.
+    pub interact: bool,
+}
+
+/// `harnix.session.expose` and `.unexpose`'s answer: the session, its own space, the space the
+/// call was about, and what it is now.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct SessionExposed {
+    pub instance: String,
+    pub session_id: String,
+    /// The space it belongs to.
+    pub space: String,
+    /// The space the call exposed it to, or took it from.
+    pub to: String,
+    /// Whether it is exposed to `to` now.
+    pub exposed: bool,
+    /// With `exposed`: whether a call claiming `to` may talk to it.
+    pub interact: bool,
+    /// The call changed something: `false` when it was already so.
+    pub changed: bool,
 }
 
 /// `harnix.sessions.list`'s answer: one instance's (`instance`) or one space's (`space`) sessions.

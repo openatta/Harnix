@@ -125,6 +125,7 @@
 | **后端 space** | `SpaceDecl`、清单的 `[[space]]`、`harnix.spaces.list`、`SPACE_MISMATCH` | 会话的归属：在它里面建的会话落在哪台实例、用哪个场景，会话永远属于建它的 space。由扩展声明，内核不认识任何 space id |
 | **缺省 space** | `SpaceDecl::default_space()` | 不声称 space 的设备调用按它检查的 space；一个进程至多一个（Harnix app 的 `sessions`） |
 | **跨 space 的 space** | `SpaceDecl::cross_space()` | 声称它的设备调用可以观看、操作任何 space 的会话。**防误的标志，不是能力**；只有原生扩展能声明（系统 space） |
+| **展示**（会话的） | `harnix.session.expose`、`cx.sessions().expose`、行的 `exposed_to` / `exposed_from` | 建会话的扩展让它在另一个 space 里也能打开：只看（`view`）或还能说（`interact`）。归属、实例不变，关闭、删除等仍只能从它自己的 space 做。项目里的任务就是这样进项目 space 的 |
 | **部分** | — | 一个 space 的三个组成：**前端部分**（UI 包，或扩展包的面）、**后端部分**（一个扩展）、**Agent 部分**（引擎贡献或 Agix 插件）。任意组合 |
 | **条目** | entry | space 左栏里用户新建的东西，例如项目 space 的项目（工作区）、Helm 的关注组。存在拥有它的扩展的数据里 |
 | **前台 space** | — | 当前显示的 space。中区、输入框、右栏只操作它自己的会话 |

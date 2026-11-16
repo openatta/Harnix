@@ -358,7 +358,54 @@ prompt_append?: string,
 /**
  * An engine in an extension's process: rendered as untrusted content.
  */
-trust?: EngineTrust, };
+trust?: EngineTrust, 
+/**
+ * The other spaces it is shown in (`harnix.session.expose`), each with whether a call
+ * claiming that space may also talk to it. Its own space is `space`, unchanged.
+ */
+exposed_to?: Array<ExposureRow>, 
+/**
+ * In a space's list (`harnix.sessions.list {space}`): set on a row that is there because
+ * the session is exposed to that space, naming the space it belongs to (`space`, again), so a
+ * list can tell a lent session from its own.
+ */
+exposed_from?: string, };
+
+/**
+ * One space a session is exposed to (`HubSessionRow::exposed_to`).
+ */
+export type ExposureRow = { space: string, 
+/**
+ * A call claiming the space may talk to the session too (send, respond, queue, interrupt,
+ * rewind, feedback), not only look at it.
+ */
+interact: boolean, };
+
+/**
+ * `harnix.session.expose` and `.unexpose`'s answer: the session, its own space, the space the
+ * call was about, and what it is now.
+ */
+export type SessionExposed = { instance: string, session_id: string, 
+/**
+ * The space it belongs to.
+ */
+space: string, 
+/**
+ * The space the call exposed it to, or took it from.
+ */
+to: string, 
+/**
+ * Whether it is exposed to `to` now.
+ */
+exposed: boolean, 
+/**
+ * With `exposed`: whether a call claiming `to` may talk to it.
+ */
+interact: boolean, 
+/**
+ * The call changed something: `false` when it was already so.
+ */
+changed: boolean, };
 
 /**
  * `harnix.sessions.list`'s answer: one instance's (`instance`) or one space's (`space`) sessions.

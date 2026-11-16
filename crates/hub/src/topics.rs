@@ -259,23 +259,37 @@ impl crate::Hub {
         (!lock(&self.spaces).crosses(space)).then(|| space.to_string())
     }
 
-    /// `value` of `topic` as a subscriber held to `space` is told it: the sessions of that space.
-    /// Only the topics that list sessions say which are whose; the others are told as they are.
+    /// `value` of `topic` as a subscriber held to `space` is told it: the sessions of that space,
+    /// and those exposed to it (a row of `harnix.instances.sessions` then says `exposed_from`, as
+    /// in the space's list). Only the topics that list sessions say which are whose; the others
+    /// are told as they are.
     pub(crate) fn within(&self, topic: &str, value: &Value, space: &str) -> Value {
         let mut value = value.clone();
-        let in_space = |row: &Value| match topic {
-            "harnix.instances.sessions" => row.get("space").and_then(Value::as_str) == Some(space),
-            _ => {
-                let field = |k: &str| row.get(k).and_then(Value::as_str).map(str::to_string);
-                field("instance")
-                    .zip(field("session_id"))
-                    .is_some_and(|key| self.space_known(&key) == space)
+        match topic {
+            "harnix.instances.sessions" => {
+                if let Some(Value::Array(rows)) = value.get_mut("sessions") {
+                    rows.retain_mut(|row| {
+                        if row.get("space").and_then(Value::as_str) == Some(space) {
+                            return true;
+                        }
+                        let Some(from) = crate::spaces::lent_from(row, space) else { return false };
+                        if let Some(obj) = row.as_object_mut() {
+                            obj.insert("exposed_from".into(), json!(from));
+                        }
+                        true
+                    });
+                }
             }
-        };
-        if matches!(topic, "harnix.instances.sessions" | "harnix.sessions.status") {
-            if let Some(Value::Array(rows)) = value.get_mut("sessions") {
-                rows.retain(|row| in_space(row));
+            "harnix.sessions.status" => {
+                if let Some(Value::Array(rows)) = value.get_mut("sessions") {
+                    let spaces = lock(&self.spaces);
+                    rows.retain(|row| {
+                        let field = |k: &str| row.get(k).and_then(Value::as_str).map(str::to_string);
+                        field("instance").zip(field("session_id")).is_some_and(|key| spaces.visible_in(&key, space))
+                    });
+                }
             }
+            _ => {}
         }
         // Each ask says its session's space.
         if topic == wire::INBOX {

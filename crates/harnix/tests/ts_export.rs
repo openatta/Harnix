@@ -159,7 +159,7 @@ fn contract(cfg: &Config) -> Generated {
         // Instances.
         InstanceCarrier, LinkStatus, InstanceRow, InstancesList,
         // Sessions: the hub's lists, topics and answers.
-        Waiting, StartedBy, SessionActivity, HubSessionRow, SessionsList, SessionStatusRow, SessionsStatus, InboxRow, Inbox, SpaceRow,
+        Waiting, StartedBy, SessionActivity, HubSessionRow, ExposureRow, SessionExposed, SessionsList, SessionStatusRow, SessionsStatus, InboxRow, Inbox, SpaceRow,
         SpacesList, QueueItem, ReplayFrame, AttachResult, SessionOutline, OutlineTurn, OutlineMark,
         // `harnix.session.rewind`.
         RewindTo, RewindScope, RewindParams, RemovedTurn, RewoundConversation, RestoredFile, RewindIssue, RewoundFiles,

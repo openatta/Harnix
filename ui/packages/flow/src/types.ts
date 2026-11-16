@@ -308,6 +308,7 @@ export type FlowMethod =
   | "get"
   | "history"
   | "start"
+  | "runOf"
   | "defs"
   | "def"
   | "schema"

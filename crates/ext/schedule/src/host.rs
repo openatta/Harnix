@@ -106,7 +106,7 @@ impl Host for Hub {
         if !t.inputs.is_null() {
             params["inputs"] = t.inputs.clone();
         }
-        for (k, v) in [("title", &t.title), ("output_dir", &t.output_dir), ("workspace", &t.workspace)] {
+        for (k, v) in [("title", &t.title), ("output_dir", &t.output_dir), ("workspace", &t.workspace), ("show_in_space", &t.show_in_space)] {
             if let Some(v) = v {
                 params[k] = json!(v);
             }

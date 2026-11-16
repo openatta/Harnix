@@ -7,6 +7,7 @@
  * `harnix.spaces.list` has the flow space with `flow-author` as its scene.
  */
 
+import { INVALID_PARAMS, SPACE_MISMATCH } from "@harnix/core/protocol";
 import { type Backend, type TestClient, connect, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
 const TAGS = { tag: ["@feature:flow", "@layer:api"] };
@@ -66,4 +67,37 @@ test("its example dry-runs to the approval and finishes once approved; a saved c
   expect(saved).toMatchObject({ name: "example-review", origin: "override" });
   expect((await api.call("flow.defs"))[0]).toMatchObject({ title: "Mine now", origin: "override" });
   expect(await api.call("flow.delete", { name: "example-review" })).toMatchObject({ origin: "builtin" });
+});
+
+test("a task started with show_in_space has its main session shown in that space, to be talked to, and flow.runOf finds the run from the session", TAGS, async () => {
+  const { path } = await api.call("harnix-app.projects.create", { name: `shown-${Date.now()}` });
+  const { run } = await api.call("flow.start", { flow: "example-review", subject: "the repo", project_root: path, show_in_space: "sessions" });
+  expect((await api.call("flow.get", { run })).record.show_in_space).toBe("sessions");
+  expect((await api.call("flow.list", { project: path })).find((s: any) => s.id === run)).toMatchObject({ show_in_space: "sessions" });
+  // The main session is opened a moment after the start.
+  let main: string | undefined;
+  for (let i = 0; i < 60 && !main; i++) {
+    main = (await api.call("flow.get", { run })).record.session_keys?.["@main"];
+    if (!main) await new Promise((r) => setTimeout(r, 500));
+  }
+  expect(main, "the main session is opened").toBeTruthy();
+  const [instance, session_id] = main!.split("/");
+  const mine = { instance, session_id };
+  // Listed in the session space as lent from the flow's, and reached from there, to talk to.
+  const row = (await api.call("harnix.sessions.list", { space: "sessions" })).sessions.find((r: any) => r.session_id === session_id);
+  expect(row).toMatchObject({ space: "flow", exposed_from: "flow", exposed_to: [{ space: "sessions", interact: true }] });
+  await api.call("engine.session.get", { ...mine, space: "sessions" });
+  await api.call("harnix.session.attach", { ...mine, space: "sessions" });
+  // Its life stays the flow's.
+  const refused = await api.refused("harnix.session.close", { ...mine, space: "sessions" });
+  expect(refused?.code).toBe(SPACE_MISMATCH);
+  // The run from its session, and nothing for a session that is no run's.
+  expect(await api.call("flow.runOf", mine)).toEqual({ run });
+  expect(await api.call("flow.runOf", { instance, session_id: "no-such-session" })).toEqual({ run: null });
+  // A start that names no space shows the session nowhere else.
+  const { run: plain } = await api.call("flow.start", { flow: "example-review", subject: "again", project_root: path });
+  expect((await api.call("flow.get", { run: plain })).record.show_in_space).toBeUndefined();
+  expect((await api.refused("flow.start", { flow: "example-review", subject: "x", project_root: path, show_in_space: "not a space!" }))?.code).toBe(INVALID_PARAMS);
+  await api.call("flow.cancel", { run, reason: "done" }).catch(() => undefined);
+  await api.call("flow.cancel", { run: plain, reason: "done" }).catch(() => undefined);
 });

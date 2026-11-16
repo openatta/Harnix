@@ -98,7 +98,13 @@ output_dir?: string,
 /**
  * `project` or `worktree`; absent: as the flow says.
  */
-workspace?: string, };
+workspace?: string, 
+/**
+ * A space the run's main session is also shown in (`flow.start`'s `show_in_space`): the
+ * one the interface that made the schedule lists the project's sessions in, so the task
+ * opens there. Absent: shown nowhere else.
+ */
+show_in_space?: string, };
 
 /**
  * What happens to times that fell due while Harnix was not running (or were otherwise more

@@ -169,6 +169,12 @@ pub struct TaskTarget {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub workspace: Option<String>,
+    /// A space the run's main session is also shown in (`flow.start`'s `show_in_space`): the
+    /// one the interface that made the schedule lists the project's sessions in, so the task
+    /// opens there. Absent: shown nowhere else.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub show_in_space: Option<String>,
 }
 
 /// What happens to times that fell due while Harnix was not running (or were otherwise more

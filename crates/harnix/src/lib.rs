@@ -160,7 +160,7 @@ impl App {
 pub use harnix_assembly::{AppBuilder, ExtensionSlot, ExtensionStatus, HARNIX_VERSION, SHUTDOWN_GRACE};
 pub use harnix_ext::{
     caps, codes, Access, Attachment, Call, Capability, CapabilitySpec, CredentialRef, Credentials, Entry,
-    EnvCredentials, ExtId, Extension, ExtensionContext, ExtensionSet, Manifest, MigrateContext, MigrationReport,
+    EnvCredentials, Exposure, ExtId, Extension, ExtensionContext, ExtensionSet, Manifest, MigrateContext, MigrationReport,
     OnBusy, Registrar, RowScope, RpcError, Secret, SendOptions, SessionRef, SessionSpec, SpaceDecl, Subject, Tap,
     TapEvent, CONTRIB_API_VERSION, EXT_API_VERSION, MAIN_INSTANCE, SETTLED_HELD, TAP_CAPACITY,
 };

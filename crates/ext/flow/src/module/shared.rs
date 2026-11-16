@@ -491,6 +491,11 @@ impl Shared {
         lock(&self.watched).remove(session_id);
     }
 
+    /// The run whose main session is being watched, when it is.
+    pub fn watched_run(&self, session_id: &str) -> Option<String> {
+        lock(&self.watched).get(session_id).cloned()
+    }
+
     pub fn end(&self, key: &TaskKey, token: &str) {
         let mut g = lock(&self.active);
         if g.get(key).is_some_and(|t| t == token) {

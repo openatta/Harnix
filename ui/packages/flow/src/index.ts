@@ -124,7 +124,7 @@ export { FlowSpaceState, type FlowDetailOf, type FlowSelection, type StateTabs }
 export { revealInGuide } from "./tabs";
 export { DryControls, EmptyConversation, FlowDetail, FlowSecondary, FlowsTab, FocusNotice, GuideView, PhaseBadge, ReferenceTab, RunDetail, RunsTab, useSelection, type FlowTabs } from "./tabs";
 export { OutputDirLine, RunHead, RunPanel, RunSessionsList, RunStations, WorktreeLine, currentStation, outputDirOf, taskStep, worktreeOf, worktreeOpen, type RunPanelProps } from "./RunPanel";
-export { PROJECT_ITEMS, ProjectTasks, TASK_KIND, TASK_TAB_KIND, TaskRow, activityOf as taskActivityOf, awaitMain, openTask, registerTaskItems, taskRows, type ItemContext, type ItemRow } from "./task";
+export { PROJECT_ITEMS, ProjectTasks, TASK_KIND, TASK_TAB_KIND, TaskRow, activityOf as taskActivityOf, awaitMain, enterTask, openTask, registerTaskItems, taskRows, type ItemContext, type ItemRow } from "./task";
 export { collectInputs, defOptions, defaultOutputDir, fieldsOf, initialText, newTaskDialog, noWorktreeText, workspaceParam, type FieldKind, type NewTaskOptions, type SchemaField } from "./NewTask";
-export { TaskTab, findRunOf, rememberRun, rememberedRun } from "./TaskTab";
+export { TaskTab, runOf } from "./TaskTab";
 export { STRINGS, STRINGS_OWNER, registerFlowStrings } from "./strings";

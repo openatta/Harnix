@@ -488,6 +488,11 @@ while let Some(item) = tap.next().await {
 - 实例重连期间的发送进队列，实例回来、会话 resync 之后照常跑。会话的全名是 `(instance, session)`，任何地方都带着实例。
 - **space 的声称**：`cx.sessions().in_space(space)` 返回的句柄，经它的每个调用都声称那个 space；用归 space 的实例时必须这样（§6.2）。
   一个会话在哪个 space 里建，就永远属于它。
+- **展示到别的 space**：你建的会话可以让另一个 space 的界面打开——`cx.sessions().expose(&s, "sessions", Exposure::interactive()).await?`
+  （`harnix.session.expose`；`Exposure::view()` 只给看）。声称那个 space 的调用就能 attach、读历史，`interactive` 时还能发话、答问、中断、回退、评价；
+  关闭、删除、分叉、改名、改模型与提示词仍只能从它自己的 space 做。归属、实例、启动者都不变，列表里的行带 `exposed_to`，在那个 space 的列表里带 `exposed_from`；
+  重启不丢，`unexpose` 收回，会话删了就没了。只有建它的扩展能展示，设备不能；目标不能是它自己的、关掉的或 `cross_space()` 的 space
+  （[概念与架构](concept_and_architecture.md) §5.4 第 6 条）。流程扩展就这样把任务的主会话展示到项目 space 列的 space（`flow.start` 的 `show_in_space`，§23）。
 
 每个方法、`OnBusy` 的各值、附件、容量与结算帧的细节见 §17.6。
 
@@ -605,7 +610,7 @@ r.space(SpaceDecl::new("watchlist").instance("template:helm.research").scene("re
 会话在哪个 space 里建，就永远属于它（账本 `kernel/spaces.json`，中枢读写）。两个界面 space 可以列同一个后端 space 的
 会话：项目 space 就是写了 `sessions: 'sessions'` 的会话 space 的另一种列法。外壳每个会话调用都带上前台 space，
 中枢核对，不符就 `SPACE_MISMATCH`。要用别的 space 的会话，在输入框里 `@session:` 选它：发出去的是
-它说过的话的一份副本。内核不认识任何 space id：`sessions`、`projects`、`system`、`flow` 都是各自的扩展声明的。
+它说过的话的一份副本；要让别的 space 直接打开你的会话，由你的扩展把它展示过去（§7.1、§17.6）。内核不认识任何 space id：`sessions`、`projects`、`system`、`flow` 都是各自的扩展声明的。
 
 构建：模板的 `scripts/build.sh` 把 `spaces/*/ui/src/index.tsx` 自动接进去；手工怎么构建、去重了哪些包见 §22.5。
 
@@ -989,6 +994,7 @@ pub trait Extension: Send + Sync + 'static {
 
 **跨 space 不是一项能力**：同页的代码能声称任何 space，所以「在一个 space 里看别的 space 的会话」只防误。它是 space 声明上的标志 `cross_space()`，只有原生扩展能声明；
 真正的跨 space 读写权力在 `engine.inspect`、`engine.control`、`instances.admin`，它们才是安全边界。
+把一个会话给另一个 space 看或用，是它拥有者的事，不是声称的事：`cx.sessions().expose`（§17.6），同样只防误。
 
 ### 17.5 运行期：`ExtensionContext`、`Call`
 
@@ -1031,6 +1037,7 @@ pub trait Extension: Send + Sync + 'static {
 | `send_with(&s, text, SendOptions)` | `SendOptions::new().on_busy(..).attachment(..).reference(SessionRef)`；`Attachment::{file(path), text(path, content), image(media_type, base64)}`；`reference` 同输入框的 `@session`（那个会话的转录作为文本附件）；带附件的不 steer |
 | `interrupt(&s)` / `close(&s)` | — |
 | `move_to(&s, space)` | 把会话连同转录改归另一个 space（`harnix.session.move`）：给把一类会话从一个 space 挪到另一个的应用。已经在那里就不变；答 `{space, from, moved}`。设备调不了（会话归哪个 space 是应用定的）；没有那个 space、或那是系统 space、或实例归别的 space，答 `SPACE_MISMATCH` |
+| `expose(&s, space, Exposure)` / `unexpose(&s, space)` | 把会话展示到另一个 space（`harnix.session.expose {instance, session_id, to, interact?}` / `.unexpose {…, to}`），归属、实例、启动者不变：声称 `space` 的调用能**看**它（`harnix.session.attach / detach / tasks / outline / skills / hooks`、`harnix.topics.subscribe`、`engine.session.get / history / entries / resume`）；`Exposure::interactive()` 还能**说**（`harnix.session.send / respond / queue.remove / queue.edit / interrupt / rewind / feedback / entries.append`）；`Exposure::view()` 只看。`close / delete / fork / rename / setModel / setPrompt / move` 与没登记的新方法无论怎样展示都只能从它自己的 space 调（`SPACE_MISMATCH`，消息说明是展示的）。答 `{instance, session_id, space, to, exposed, interact, changed}`；再 `expose` 一次是改 `interact`。只有**建它的扩展**（create / fork / import 的主体）能调，别的扩展与设备答 `REFUSED`；`to` 要是这个应用有的 space（只有界面的也算），不能是它自己的、关掉的、`cross_space()` 的（`SPACE_MISMATCH`）。记在中枢账本，重启不丢，随会话删除；不写跨 space 审计。行里 `exposed_to: [{space, interact}]`；`harnix.sessions.list {space}` 与按 space 裁的 `harnix.instances.sessions` 里，展示来的行另带 `exposed_from` |
 | `append_entry(&s, Entry::new(event, payload))` | 扩展条目：命名空间由中枢定为你的扩展 id；只给人看 |
 | `entries(&s) -> Vec<Value>` | 本扩展写过的条目，最早的在前 |
 | `tap(&s)` / `tap_with_capacity(&s, n)` | 帧流，默认容量 `TAP_CAPACITY = 512`。`tap.next()` → `TapEvent::Frame(json)` 或 `TapEvent::Lagged { last_seq }`；落后了 `tap.catch_up()`；`tap.last_seq()` 是读到的最后一帧的 `seq`。`tap.next_settled() -> Option<Value>`：跳过别的帧，只等下一个 `harnix.turn_settled` 的 params；满了时结算帧另存（最多 `SETTLED_HELD = 64`），落后也不丢。`tap.catch_up_settled()`：同 `catch_up`，另存的结算帧按位置放回 `next()` 读的队列。`outcome` 有 `stop_reason`、`usage`、`text`（回答文本，最多 64 KiB，超了 `text_truncated`）、`tool_calls`（`[{id, name, is_error?}]`），有才有的 `structured_output`、`message` |
@@ -1273,6 +1280,7 @@ cookie。一帧最大 16 MiB（`MAX_FRAME_BYTES`），一次上传最大 32 MiB�
 | 组 | 方法 | 谁能调 |
 |---|---|---|
 | 握手与自述（装配） | `harnix.hello`（见下）、`harnix.reachable`、`harnix.diagnostics`、`harnix.audit`、`harnix.extensions`（每个扩展：id、信任、载体、版本、启用、授予、行数、停用理由）、`harnix.ui`（方法与主题同值：每个扩展的界面条目、Agix 包的界面模块、扩展包的面）、`harnix.bulk.upload` | 设备、扩展（`bulk.upload` 只设备） |
+| 展示（中枢） | `harnix.session.expose {instance?, session_id, to, interact?}`、`.unexpose {instance?, session_id, to}`：把会话展示到另一个 space、收回（§17.6）；`harnix.sessions.list {space}` 把展示来的会话也列出，带 `exposed_from` | 扩展（只有建它的那个） |
 | 会话驱动（中枢） | `harnix.sessions.list {space? \| instance?}`、`harnix.session.attach`、`.detach`、`.send`、`.queue.remove`、`.queue.edit {session_id, item_id, message}`（改排队中一条的话，位置与附件不变；已开始或已撤回的答 REFUSED）、`.create`、`.interrupt`、`.close`、`.delete`、`.fork`、`.respond {instance?, session_id, prompt_id, prompt_type?, decision? | answer?, tool_use_id?}`（回答一个提问，先答者生效、后来的静默成功；权限与计划审阅（`prompt_type` 缺省或 `permission`）给 `decision`，模型的提问（`question`）给 `answer: {type: answer, text} | {type: decline, reason?}`，MCP server 的询问（`mcp_elicitation`）给 `answer: {type: accept, content?} | {type: decline} | {type: cancel}`，形状不合答 -32602；第一个被收下的回答由中枢写进会话的流（事件 `ask_answered {prompt_id, prompt_type, decision? | answer?, extension?}`，表单的 `content` 不带），类型 `RespondParams`、`AskReply`、`AskAnswered` 在 `harnix_contract::wire`；提问与询问只推给设备建的会话；flow 按策略作答）、`.tasks`、`.rename`（引擎的标题，标题只在引擎）、`.move {instance?, session_id, space}`、`.entries.append`、`.feedback {instance?, session_id, space?, turn_id, call_id?, rating, category?, note?}`（对一轮回答的反馈，只设备调，§7.3）、`.answerer {session_id, tool_use_id}`（回答该工具权限卡的设备 `device:<id>`，没有设备回答时是 `null`；读一次即忘，最多留最近 1024 条）、`.outline {instance?, session_id, space?}`（会话的各轮，见下）、`harnix.inbox {space?}`（等人处理的提问，同名主题的值，§21.3）、`harnix.topics.subscribe`、`.unsubscribe`、`harnix.spaces.list` | 设备、扩展（再按 `topic:<名>` 与范围判） |
 | 回退（中枢） | `harnix.session.rewind {instance?, session_id, space?, to: "start" \| {turn} \| {before_turn} \| {tool_use}, scope?, dry_run?, fork_first?, force?, allow_partial?}`：文件、对话或两者回到之前一点，先 `dry_run` 看计划（[Harnix app](harnix-app.md) §5.1）；答 `RewindResult`。设备只对它声称的 space 的会话，不跨 space（同 `setModel`）；做完向每个观看者推 `harnix.session_resync` | 设备、`engine.control` |
 | 会话看得到的（中枢） | `harnix.session.skills {instance?, session_id, space?}`：会话看得到的 skill（`engine.commands.list` 里展开成提示词的那些），每个带来源层 `tier`（`space`：Harnix 按 space 给会话列的扩展包目录，带 `package`；`project`：项目的 `.agents/skills`；`plugin`：Agix 插件包，带 `plugin`；`user`：引擎的全局层或场景层，引擎不分；`builtin`）、`dir`、`withheld`（项目未受信时被扣下一部分：内联命令不跑、`allowed-tools` 不给）；另有 `dirs`（Harnix 列的目录、状态、被遮住的同名 skill）、`listed`（会话不在引擎内存里时为 `false`、`skills` 为空）、`trust`。`harnix.session.hooks {instance?, session_id, space?}`：会话的轮次跑的 hook，`source` 是 `global` / `scene` / `project`（设置三层的 `hooks_config`）或 `host`（本进程在连接上登记的，带 `providers`），每条只有 `event`、`kind`（`command` / `prompt` / `http` / `agent` / `host` / `other`）、`matcher`（`if` 或工具模式，至多 80 字）、`label`、`on_error`、`in_force`、`withheld`（项目未受信）、`replaced_by`（同一事件被高层的列表整个替换）——**不带命令、地址、请求头、提示词**；`unread` 列出读不到的层。类型在 `harnix_contract::wire`（`SessionSkills`、`SessionHooks`） | 设备 |
@@ -1762,11 +1770,12 @@ Harnix 自己的二进制注册了它（`crates/cli/src/main.rs`）。
 | `.recording(…)` / `.main_recording(…)` / `.conversation_recording(…)` | 回放时任务会话、主会话、流程会话用哪份录像（只在 `--replay-dir` 下有意义） |
 
 主会话的 scene 需要项目时，扩展给每个运行建工作目录（扩展数据目录下 `workspaces/<run>`，也是引用 `${workspace}`），
-不往里写任何东西。没写 `agent_type` 的子 Agent 站用引擎不带类型的子 Agent：跑在主会话的 scene 上、用它的工具。钩子是流程包里的文件（`hooks/`），扩展自己投递，没有 `Hooks` trait。
+不往里写任何东西。`start` 的 `show_in_space` 让扩展把主会话展示到那个 space（`cx.sessions().expose`，可对话，§17.6）：项目 space 的「新任务」传它列会话的 space，
+任务就在项目 space 里打开；扩展不认识任何 space 的名字，展示失败只记日志，运行照跑。记录与 `flow.runs` 的行带 `show_in_space`。没写 `agent_type` 的子 Agent 站用引擎不带类型的子 Agent：跑在主会话的 scene 上、用它的工具。钩子是流程包里的文件（`hooks/`），扩展自己投递，没有 `Hooks` trait。
 
 方法 `flow.*`（设备调用）：读——`defs`、`def`、`list`、`get`、`history`、`catalog`、`schema`、`validate`、
 `parts {kind}`、`part`、`hooks`、`guide`、`sessions {run}`；写流程与件——`save`、`delete`、`part.save`、`part.delete`；
-运行——`start`、`cancel`、`pause`、`resume`、`confirm`、`force`、`rework`、`retry`、`release`、`proposal`；外部任务——`claim`、
+运行——`start`、`cancel`、`pause`、`resume`、`confirm`、`force`、`rework`、`retry`、`release`、`proposal`、`runOf {instance?, session_id}`（哪个运行的主会话，答 `{run}`，不是就 `null`）；外部任务——`claim`、
 `heartbeat`、`submit`、`fail`；对话——`session {flow?}`、`focus`；试运行——`dry_run.start` / `step` / `run` / `list`。
 错误码按类：没有这个运行、站、任务或流程答 `NOT_FOUND`；不合运行的状态或契约答 `INVALID_PARAMS`；租约不是你的、
 版本已经往前走答 `CONFLICT`；`data.flow` 是内核自己的类别。`heartbeat` 只续租约：不进运行的历史，也不重发 `flow.runs`。

@@ -57,7 +57,7 @@ pub use instances::Instances;
 pub use manifest::Manifest;
 pub use registrar::Registrar;
 pub use sessions::{
-    Attachment, Entry, OnBusy, SendOptions, SessionSpec, Sessions, Tap, TapEvent, SETTLED_HELD, TAP_CAPACITY,
+    Attachment, Entry, Exposure, OnBusy, SendOptions, SessionSpec, Sessions, Tap, TapEvent, SETTLED_HELD, TAP_CAPACITY,
 };
 pub use topics::{TopicStream, TopicValue, Topics};
 

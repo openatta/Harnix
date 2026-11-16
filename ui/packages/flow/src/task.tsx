@@ -13,13 +13,17 @@
  * the latest, and "新任务".
  *
  * Where the main session opens: it belongs to the flow's backend space, and a call claiming the
- * projects space's would be refused (concept §5.4, `SPACE_MISMATCH`), so the task is entered the
- * way the system console enters a run — the flow's interface space brought to the front on it
- * (`FlowSpaceState.enter`), remembering where it came from for the way back.
+ * projects space's would be refused (concept §5.4, `SPACE_MISMATCH`) — so a task started from the
+ * projects space asks the module to show the session in the space the projects space lists
+ * (`flow.start`'s `show_in_space`, the context's `space`; the module exposes it, harnix-ext.md
+ * §7.1), and the row opens it in the middle here, like any session of the project. A run that is
+ * shown nowhere else (started from the console, or by a schedule) is entered the way the console
+ * enters a run — the flow's interface space brought to the front on it (`FlowSpaceState.enter`),
+ * remembering where it came from for the way back; the row's menu offers that for any task.
  */
 
 import { useEffect, useSyncExternalStore } from "react";
-import { t, useT, type HostApi, type HostSessionRef as SessionRef, type Registry } from "@harnix/react";
+import { t, useT, type HostApi, type HostSessionRef as SessionRef, type MenuItem, type Registry } from "@harnix/react";
 
 import { useDefs, useRunView } from "./hooks";
 import { isDryRun, mainSessionOf, methodName, phaseOf, runLive, runsOf, runsTopic, sameRoot } from "./model";
@@ -54,6 +58,9 @@ export interface ItemRow {
 /** What the projects space hands a kind about the project. */
 export interface ItemContext {
   root: string;
+  /** The backend space the projects space lists sessions of: where a task's main session is shown
+   *  so that it opens there. Absent in a product whose projects space does not say. */
+  space?: string;
 }
 
 /** A run's last activity, for ordering: when it finished, else when it started. */
@@ -230,11 +237,12 @@ export async function awaitMain(host: HostApi, module: string, run: string, trie
 }
 
 /**
- * Open a task: the flow's interface space brought to the front with the run's main session in the
- * middle, the panel beside the conversation closed (the right column's 流程 tab shows the run),
- * and that tab opened on it. A run just started has its main session a moment later: waited for.
+ * Enter a task from the flow's side: the flow's interface space brought to the front with the
+ * run's main session in the middle, the panel beside the conversation closed (the right column's
+ * 流程 tab shows the run), and that tab opened on it. A run just started has its main session a
+ * moment later: waited for.
  */
-export async function openTask(host: HostApi, r: Registry, space: FlowSpace, run: string, flow: string): Promise<void> {
+export async function enterTask(host: HostApi, r: Registry, space: FlowSpace, run: string, flow: string): Promise<void> {
   const here = host.spaces.current();
   const from = r.at("space").find((c) => c.id === here);
   let title = here;
@@ -247,6 +255,31 @@ export async function openTask(host: HostApi, r: Registry, space: FlowSpace, run
   space.state.closeDetail();
   const main = await awaitMain(host, space.module, run);
   if (!main) return;
+  await openMain(host, main, run);
+}
+
+/**
+ * Open a task where it is: a run whose main session is shown in a space (`show_in_space`, the
+ * module exposed it there) opens that session in the middle of the space in front — the projects
+ * space, like any session of the project — with the 流程 tab in the right column; the shell takes
+ * the session to a space that lists it when the front one does not. One shown nowhere else is
+ * entered from the flow's side (`enterTask`).
+ */
+export async function openTask(host: HostApi, r: Registry, space: FlowSpace, run: string, flow: string): Promise<void> {
+  let shown: string | null = null;
+  try {
+    shown = (await host.call<RunView>(methodName(space.module, "get"), { run }))?.record?.show_in_space ?? null;
+  } catch {
+    shown = null;
+  }
+  if (!shown) return enterTask(host, r, space, run, flow);
+  const main = await awaitMain(host, space.module, run);
+  if (!main) return;
+  await openMain(host, main, run);
+}
+
+/** The main session in the middle, unless it is already, and the 流程 tab on the run. */
+async function openMain(host: HostApi, main: SessionRef, run: string): Promise<void> {
   const open = host.session.current();
   if (!open || open.sessionId !== main.sessionId || open.instance !== main.instance) {
     try {
@@ -284,11 +317,23 @@ export function registerTaskItems(r: Registry, host: HostApi, module: string, sp
         const view = space();
         if (view) await openTask(host, r, view, row.id, flowOf(row));
       },
+      // The task from the flow's side: its space on the run, the flow's context in the left column.
+      menu: (row: ItemRow): MenuItem[] => [
+        {
+          id: "flow.task.enter",
+          icon: "fork",
+          label: t("flowui.task.openInFlow"),
+          run: async () => {
+            const view = space();
+            if (view) await enterTask(host, r, view, row.id, flowOf(row));
+          },
+        },
+      ],
       create: {
         label: () => t("flowui.task.new"),
         icon: "fork",
         run: (context: ItemContext) =>
-          newTaskDialog(host, module, { root: context.root, runs: () => tasks.all() }, async (run, flow) => {
+          newTaskDialog(host, module, { root: context.root, space: context.space, runs: () => tasks.all() }, async (run, flow) => {
             const view = space();
             if (view) await openTask(host, r, view, run, flow);
           }),
@@ -329,7 +374,7 @@ export function registerTaskItems(r: Registry, host: HostApi, module: string, sp
             if (view) await openTask(host, r, view, run.id, run.flow);
           }}
           create={() =>
-            newTaskDialog(host, module, { root: context.root, runs: () => tasks.all() }, async (run, flow) => {
+            newTaskDialog(host, module, { root: context.root, space: context.space, runs: () => tasks.all() }, async (run, flow) => {
               const view = space();
               if (view) await openTask(host, r, view, run, flow);
             })

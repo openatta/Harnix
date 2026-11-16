@@ -198,7 +198,8 @@ r.register("harnix-app.project.items", {
 
 一行是 `{ id, title, at?, running?, session?, data? }`：`at` 是最近活动（毫秒或 ISO 时间，树按它和会话的 `last_active` 一起排，没有的排最后）；
 `running` 为真时收起的项目行上有活动点；`session` 是它在中区打开的会话，那个会话是当前会话时行标成当前；`data` 随行带给 `render`、`open`、`menu`。
-`context` 是 `{ root, workspace }`。`rows`、`subscribe`、`render`、`open`、`menu` 抛错只丢这一种条目、记进诊断。
+`context` 是 `{ root, workspace, space }`，`space` 是项目 space 列会话的后端 space（`sessions`）：一种条目要让自己拥有的会话在这里打开，就把会话展示到它
+（`harnix.session.expose`，[概念与架构](concept_and_architecture.md) §5.4 第 6 条）。`rows`、`subscribe`、`render`、`open`、`menu` 抛错只丢这一种条目、记进诊断。
 行在树里是 `[data-testid="project-item"][data-kind="<id>"][data-item="<row.id>"]`，和会话行一样是 `.srow`、树的一项；它的「⋯」是 `project-item-more`，
 项目的「＋」是 `project-new`。
 
@@ -221,13 +222,17 @@ r.register("harnix-app.project.items", {
 
 **任务**（`@harnix/flow`，`ui/packages/flow/src/task.tsx`）：`flow.runs` 主题里 `project_root` 是这个项目的运行（试运行不算），
 一行写标题（没有就是对象）、流程名、状态（运行中、等待及原因、已暂停、已完成、已取消）、「第 k/n 站」、在 worktree 里跑的写分支名（合回或丢弃后划掉），由定时启动的带时钟。
-点了行：主会话归 `flow` 的后端 space，项目 space 声明的是 `sessions`，直接在这里打开会被 `SPACE_MISMATCH` 拒绝（[概念与架构](concept_and_architecture.md) §5.4），
-所以和系统控制台进一条运行一样——把流程的界面 space 带到前台、停在这条运行上，主会话在中区，左栏是流程的上下文，「返回」回到项目 space；
-会话旁边的详情面板不开，右栏开「流程」页签（`sidebar.tab` 的 `kind: "flow"`，`openTab("flow", { params: { run } })`，[系统 space](system-space.md) §5）。
+点了行：主会话归 `flow` 的后端 space，项目 space 声明的是 `sessions`，直接在这里打开本会被 `SPACE_MISMATCH` 拒绝（[概念与架构](concept_and_architecture.md) §5.4），
+所以从项目 space 建的任务，`flow.start` 带上 `show_in_space: context.space`，流程扩展把主会话**展示**到 `sessions`（`harnix.session.expose`，可对话；
+运行记录与 `flow.runs` 的行带 `show_in_space`）：任务就像项目里别的会话一样在项目 space 的中区打开、能插话，会话列表不把它当普通会话列（行带 `exposed_from`，
+由任务行来画），右栏开「流程」页签（`sidebar.tab` 的 `kind: "flow"`，`openTab("flow", { params: { run } })`，[系统 space](system-space.md) §5），
+页签靠 `flow.runOf {instance, session_id}` 找到自己的运行。关闭、删除、改名这些仍是流程的事，从项目 space 调答 `SPACE_MISMATCH`。
+没有展示到这里的运行（从系统控制台或定时启动的）点了行则和系统控制台进一条运行一样——把流程的界面 space 带到前台、停在这条运行上，「返回」回到项目 space；
+任务行的「⋯」菜单里「在流程里打开」对任何任务都这样进。
 「新任务」对话框：流程（全部，标来源，不合法的不能选）、按 `inputs` 的 schema 生成的表单（字符串、数字、布尔、枚举、字符串数组，其余是 JSON 框）、
 对象（必填）、标题、输出目录（留空用缺省 `flows/<流程>-<YYYYMMDD><NN>`，对话框预估当天序号，由扩展最终定）、在 worktree 里跑（见下）；
 项目里已有任务在跑时提示；流程不是 `guard: strict` 时写明「这个流程会直接修改项目文件」（在 worktree 里跑时改说「合回之后项目才会变」）。
-确认即 `flow.start {flow, subject, inputs?, title?, project_root, output_dir?, workspace?}`，然后打开这个任务。
+确认即 `flow.start {flow, subject, inputs?, title?, project_root, output_dir?, workspace?, show_in_space}`，然后打开这个任务。
 
 **在 worktree 里跑**：对话框先问 `flow.workspace_info {project_root}`：答 `{git: true, branch, prefix}` 时开关可用，起始状态照流程的 `workspace`；
 答 `{git: false, reason, detail}`（`reason` 是 `not_a_repository`、`bare`、`no_commit`、`no_git`）时开关不可用，下面写原因；流程本身要求 worktree 的，
@@ -597,7 +602,7 @@ Harnix app 是原生扩展最小的例子：一个后端扩展、一个界面包
 |---|---|
 | 时间（`timing.kind`） | `once {at}`（RFC 3339 带偏移，或时区里的墙钟 `YYYY-MM-DDTHH:MM[:SS]`）· `after {seconds}`（建好之后多久，一次）· `every {minutes}`（每 N 分钟，≥ 1，按经过的时间算）· `daily {time: "HH:MM"}` · `weekly {weekdays: [1..7], time}`（周一 1 … 周日 7）· `cron {expr}`（5 段，照 Vixie：`*`、数字、范围、列表、步长；不认名字和宏；日、周两段都写了时任一满足即可）。每月、工作日由界面拼成 `cron`、`weekly` |
 | 时区 | `time_zone` 是 IANA 名字，缺省是本机的；墙钟时间都按它算。夏令时跳过的那段钟点当天不到期，重复的那段只算第一次；`once` 落在跳过的那段里，顺延到跳过之后 |
-| 目标（`target.kind`） | `session {instance, session_id, prompt}`：已有会话发一轮，会话忙就排队（`OnBusy::Queue`）；上一次投的还在队列里时这一次并进去（回执 `skipped`、`merged`）。`new_session {mode, project_root?, scene?, instance?, provider?, model?, prompt}`：新会话，`new_once_then_reuse`（缺省，第一次新建、之后都发给它）或 `new_each`（每次新建），标题是「定时标题 · 计划时间」（时区里的 `YYYY-MM-DD HH:MM`）。`task {flow, subject, inputs?, project_root, title?, output_dir?, workspace?}`：每次 `flow.start` 一个运行，`trigger` 是 `{kind: schedule, schedule, fire_at}` |
+| 目标（`target.kind`） | `session {instance, session_id, prompt}`：已有会话发一轮，会话忙就排队（`OnBusy::Queue`）；上一次投的还在队列里时这一次并进去（回执 `skipped`、`merged`）。`new_session {mode, project_root?, scene?, instance?, provider?, model?, prompt}`：新会话，`new_once_then_reuse`（缺省，第一次新建、之后都发给它）或 `new_each`（每次新建），标题是「定时标题 · 计划时间」（时区里的 `YYYY-MM-DD HH:MM`）。`task {flow, subject, inputs?, project_root, title?, output_dir?, workspace?, show_in_space?}`：每次 `flow.start` 一个运行，`trigger` 是 `{kind: schedule, schedule, fire_at}`；`show_in_space` 原样交给 `flow.start`（建定时的界面传它列项目会话的 space，任务就在项目 space 里打开） |
 | 错过（`missed`） | 晚了一分钟以上的算错过（Harnix 没在跑、机器睡着）：`catch_up_latest`（缺省）只补最近一次，`skip` 一次也不补、记一条 `skipped`、`missed` |
 | 并发（`concurrency`） | 只对任务：上一次的运行还在跑时 `skip`（缺省，记 `previous_run`）或 `parallel`（再起一个，配合 `workspace: worktree`）。会话目标按会话排队 |
 | 最小间隔 | 同一条定时两次投递至少隔 60 秒，「立即执行」也算；不到就记 `skipped`、`min_interval` |

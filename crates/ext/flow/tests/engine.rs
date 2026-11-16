@@ -1218,6 +1218,24 @@ async fn a_task_works_in_its_project_and_its_summary_says_so() {
     assert_eq!(h.eng.record(&worktree).await.unwrap().workspace, Workspace::Worktree);
 }
 
+/// Where the main session is shown besides the flow's space is the start's to say: recorded as
+/// given (trimmed), in the summary too, and absent when the start says nothing or an empty word.
+#[tokio::test]
+async fn a_task_records_the_space_its_main_session_is_shown_in() {
+    let h = h();
+    let shown = start_in(&h, CreateIn { show_in_space: Some(" sessions ".into()), ..seq_in(Some("/work/app")) }).await.unwrap();
+    let rec = h.eng.record(&shown).await.unwrap();
+    assert_eq!(rec.show_in_space.as_deref(), Some("sessions"));
+    assert_eq!(rec.summary().show_in_space.as_deref(), Some("sessions"));
+    assert_eq!(serde_json::to_value(rec.summary()).unwrap()["show_in_space"], json!("sessions"));
+    let plain = start_in(&h, seq_in(Some("/work/app"))).await.unwrap();
+    assert_eq!(h.eng.record(&plain).await.unwrap().show_in_space, None);
+    let blank = start_in(&h, CreateIn { show_in_space: Some("  ".into()), ..seq_in(None) }).await.unwrap();
+    let rec = h.eng.record(&blank).await.unwrap();
+    assert_eq!(rec.show_in_space, None);
+    assert!(serde_json::to_value(rec.summary()).unwrap().get("show_in_space").is_none());
+}
+
 #[tokio::test]
 async fn a_project_root_must_be_absolute_and_a_project_workspace_needs_one() {
     let h = h();

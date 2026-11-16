@@ -12,11 +12,12 @@ import { extension, register } from "../src/index.tsx";
 afterEach(cleanup);
 
 describe("the session space's column", () => {
-  it("lists the sessions, hides the archived ones until asked, and opens the shell's menu", async () => {
+  it("lists the sessions, hides the archived ones until asked, leaves out one another extension shows here, and opens the shell's menu", async () => {
     const menus: unknown[] = [];
     const host = {
       call: async (method: string) => {
-        if (method === "harnix.sessions.list") return { sessions: [{ session_id: "s1", name: "one" }, { session_id: "s2", name: "two" }] };
+        // `lent` is a task's main session the flows exposed to this space: the task row lists it.
+        if (method === "harnix.sessions.list") return { sessions: [{ session_id: "s1", name: "one" }, { session_id: "s2", name: "two" }, { session_id: "lent", name: "task", space: "flow", exposed_from: "flow" }] };
         if (method === "harnix-app.workspaces.list") return { workspaces: [], prefs: {}, sessions: { s2: { archived: true } } };
         return {};
       },

@@ -50,7 +50,7 @@ export function OverviewTab({ r, store }: { r: Registry; store: AppStore }) {
   const panels = orderedPanels(useContributions<ProjectPanel>(PROJECT_PANELS, r));
   const workspace = s.workspaces.find((w) => w.id === s.project);
   if (!workspace) return <div className="hx-overview empty">{tt("overview.none")}</div>;
-  const context: ProjectItemContext = { root: workspace.path, workspace };
+  const context: ProjectItemContext = { root: workspace.path, workspace, space: SESSIONS };
   return (
     <div className="hx-overview" data-testid="project-overview" data-project={workspace.id}>
       <div className="hx-overview-head">

@@ -35,6 +35,11 @@ pub struct StartParams {
     /// may say a schedule did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger: Option<StartTrigger>,
+    /// A space the run's main session is shown in besides the flow's own — the one the
+    /// interface that starts a task lists the project's sessions in — to be looked at and talked
+    /// to there (`harnix.session.expose`). Absent: shown nowhere else.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show_in_space: Option<String>,
 }
 
 /// How a start says it came about. Who started it by hand is the caller, never what it claims.

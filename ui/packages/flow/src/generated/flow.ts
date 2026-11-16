@@ -601,6 +601,11 @@ output_dir?: string | null,
  */
 trigger: Trigger, 
 /**
+ * A space the main session is shown in besides the flow's own (the start's
+ * `show_in_space`): where the interface opens the task.
+ */
+show_in_space?: string | null, 
+/**
  * Its worktree of the project, for a run that works in one (`workspace: worktree`): made at
  * start, and what became of it once the run was over. A child run holds its parent's.
  */
@@ -651,6 +656,10 @@ dry?: boolean,
  * The project it works in (`RunRecord::project_root`).
  */
 project_root?: string | null, workspace: Workspace, output_dir?: string | null, trigger: Trigger, 
+/**
+ * Where its main session is shown besides the flow's space (`RunRecord::show_in_space`).
+ */
+show_in_space?: string | null, 
 /**
  * Its worktree, branch and what became of them (`RunRecord::worktree`).
  */
@@ -752,7 +761,13 @@ output_dir?: string,
  * How it came to be started; absent: by the caller's hand. Only the kernel and extensions
  * may say a schedule did.
  */
-trigger?: StartTrigger, };
+trigger?: StartTrigger, 
+/**
+ * A space the run's main session is shown in besides the flow's own — the one the
+ * interface that starts a task lists the project's sessions in — to be looked at and talked
+ * to there (`harnix.session.expose`). Absent: shown nowhere else.
+ */
+show_in_space?: string, };
 
 /**
  * How a start says it came about. Who started it by hand is the caller, never what it claims.

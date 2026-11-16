@@ -1380,6 +1380,19 @@
         "scope": "open"
       },
       "kind": "method",
+      "name": "flow.runOf",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
       "name": "flow.save",
       "owner": "ext:flow"
     },
@@ -2137,6 +2150,21 @@
     },
     {
       "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix.session.expose",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
         "device": true,
         "extensions": [],
         "hub_owned": false,
@@ -2373,6 +2401,21 @@
       },
       "kind": "method",
       "name": "harnix.session.tasks",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix.session.unexpose",
       "owner": "kernel:hub"
     },
     {

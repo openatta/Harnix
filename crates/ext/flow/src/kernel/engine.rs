@@ -64,6 +64,10 @@ pub struct CreateIn {
     /// How it came to be started; absent: by hand, by whoever starts it.
     #[serde(default)]
     pub trigger: Option<Trigger>,
+    /// A space the main session is shown in besides the flow's own; recorded, the host exposes
+    /// the session once it is opened.
+    #[serde(default)]
+    pub show_in_space: Option<String>,
 }
 
 /// What the host made ready for a run before starting it ([`Engine::create_prepared`]): the id it
@@ -81,6 +85,7 @@ struct Place {
     workspace: Workspace,
     output_dir: Option<String>,
     trigger: Trigger,
+    show_in_space: Option<String>,
     worktree: Option<WorktreeRec>,
 }
 
@@ -90,6 +95,7 @@ impl Place {
         rec.workspace = self.workspace;
         rec.output_dir = self.output_dir.clone();
         rec.trigger = self.trigger.clone();
+        rec.show_in_space = self.show_in_space.clone();
         rec.worktree = self.worktree.clone();
     }
 }
@@ -108,6 +114,7 @@ fn placement(input: &CreateIn, by: &Actor, def: &FlowDef, worktree: Option<Workt
         workspace,
         output_dir: input.output_dir.clone().filter(|d| !d.trim().is_empty()),
         trigger: input.trigger.clone().unwrap_or_else(|| Trigger::manual(by.clone())),
+        show_in_space: input.show_in_space.clone().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
         worktree: worktree.filter(|_| workspace == Workspace::Worktree),
     })
 }

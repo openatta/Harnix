@@ -239,7 +239,7 @@ Harnix 进程
   唯一共享的是 OTel 导出器）。
 - **任务是 Agix 的东西，Harnix 只看、只转发停止。** 子 Agent 的侧链在 Agix 里也是一个会话，在 Harnix
   里它是父会话的任务，不出现在会话列表的顶层，不进中枢的键，不进账本。
-- **会话不跨实例，也不跨 space。** 要跨就用 `@session` 引用或分叉（§5.4）。
+- **会话不跨实例，也不跨 space。** 要跨就用 `@session` 引用或分叉（§5.4）；拥有它的扩展可以把它**展示**到另一个 space（§5.4），归属不变。
 - **轮不一定由 Harnix 发起。** 定时任务会让一个会话自己开始一轮。实例在 `daemon.event` 上报每一轮的
   开始与结束（带 `initiator`），中枢据此知道，不假定「我没发起的轮就不存在」。
 
@@ -596,7 +596,7 @@ Harnix 的传输层发出，与界面**同源**，准入走同一套：传输层
 
 | 调用方 | `Open` 行 | `Space` 行 | `Session` 行 |
 |---|---|---|---|
-| 设备（不经 iframe） | 照访问 | 不声称 space 时按缺省 space 检查（防误） | 会话不属于声称的 space → `SPACE_MISMATCH`（防误）；声称一个 `cross_space()` 的 space 可以跨（防误，写审计） |
+| 设备（不经 iframe） | 照访问 | 不声称 space 时按缺省 space 检查（防误） | 会话不属于声称的 space → `SPACE_MISMATCH`（防误）；声称一个 `cross_space()` 的 space 可以跨（防误，写审计）；会话被它的扩展展示到声称的 space 时，能看、`interact` 时还能说（§5.4 第 6 条） |
 | 原生扩展（`Origin`） | 照访问 | 声称了才检查（出身即信任，防误） | 同左；要读写**任何** space 的会话内部，用要 `engine.inspect` / `engine.control` 的行 |
 | 扩展包（`Consent`） | 访问 ∩ 同意的 `calls` | **只限它自己的 space**（`<id>` 或 `<id>.<名>`）；调用不声称 space 就拒；订阅主题不声称 space 当作声称了 `<id>`，值裁到那个 space（全局的会话主题照订，只投它 space 的会话）；声称了却没有定义的 space，订阅与会话列表都看不到任何会话 | **只限绑在它自己 space 上的会话**；它的引擎自己建的会话（子 Agent 的）随父会话的 space；`engine.inspect` / `engine.control` 不对扩展包开放 |
 | 扩展包的 iframe（设备，代那个扩展） | 设备的权力 ∩ 那个扩展清单的 `[interface] calls` ∩ 对扩展包开放的行；别的扩展包的名字一律拒 | 同上，再收窄到那个扩展的 space | 同上，再收窄到它 space 的会话 |
@@ -1085,7 +1085,7 @@ IPDrun 已经有能对着 Harnix 协议跑的 React 对话组件，直接回流�
 
 | 规则 | 内容 |
 |---|---|
-| 绑定 | 一个会话在创建时绑定一个 space 和一台实例，**设备不能挪**（应用重整自己的 space 时，扩展可以经 `harnix.session.move` 把会话连同转录绑到另一个 space，目标要是这台实例能服务的、不跨 space 的 space）；要跨 space 延续，用 `@session` 引用（被引用会话说过的话作为附件交给这一轮——复制的是话，不是会话）或分叉。引擎自己建的会话（子 Agent 的）没有经过中枢的创建：引擎报了父会话就随父会话的 space，否则是它所在实例的 space（实例归 space 时），再否则是缺省 space；不放宽 |
+| 绑定 | 一个会话在创建时绑定一个 space 和一台实例，**设备不能挪**（应用重整自己的 space 时，扩展可以经 `harnix.session.move` 把会话连同转录绑到另一个 space，目标要是这台实例能服务的、不跨 space 的 space）；建它的扩展可以把它**展示**到别的 space（`harnix.session.expose`，下面第 6 条），归属不变；要跨 space 延续，用 `@session` 引用（被引用会话说过的话作为附件交给这一轮——复制的是话，不是会话）或分叉。引擎自己建的会话（子 Agent 的）没有经过中枢的创建：引擎报了父会话就随父会话的 space，否则是它所在实例的 space（实例归 space 时），再否则是缺省 space；不放宽 |
 | 多会话 | 一个 space 可以有多个会话，可以分布在它能用的几台实例上 |
 | 缺省实例 | space 声明 `main`（默认）、一台固定实例，或 `template:<id>`（第一次在这个 space 里建会话时按模板建一台，之后复用，归这个 space）。这就是「一个 space 要一台自己的、隔离的 Agent」的写法；模式 3 的扩展包的 space 落在它自己的引擎 `proc.<id>` 上 |
 | 缺省 space | 不声称 space 的设备调用按它检查；一个进程至多一个，由声明它的扩展说（Harnix app 的 `sessions`）。`hello.defaults` 告诉界面它是哪个，外壳与扩展都不写死 |
@@ -1104,6 +1104,15 @@ space 自己的会话。这件事错一次就是把消息发进了别的产品�
    的会话，每一次跨 space 的操作都写审计。
 4. **新建会话的去向只看前台 space。** 不存在「先建再挪」。
 5. **在系统 space 里看别的 space 的会话是「观看」**，不改变归属，也不改写那个 space 记住的当前会话。
+6. **展示（exposure）是第 3 条的另一个例外，由拥有者开**：建了会话的扩展可以把它展示到另一个 space（`harnix.session.expose {to, interact?}`，
+   `cx.sessions().expose(&s, space, Exposure)`），声称那个 space 的调用就能够到它——`interact: false` 只能**看**（attach、history、entries、outline、tasks、
+   skills、hooks、会话主题、`engine.session.get / resume`），`interact: true` 还能**说**（send、respond、队列、interrupt、rewind、feedback、扩展条目）；
+   会话的**生命与身份**（close、delete、fork、rename、setModel、setPrompt、move）无论怎样展示都只能从它自己的 space 做，新加的方法没登记前也算这一类。
+   归属、实例、谁启动的、审计都不变（展示不是跨 space，不写跨 space 审计：是拥有者开的门）；`harnix.sessions.list {space}` 和按 space 裁的会话主题里，
+   被展示来的行带 `exposed_from: <它的 space>`，每一行都带 `exposed_to: [{space, interact}]`。展示记在账本里，随会话一起删，重启不丢；`unexpose` 收回。
+   设备不能展示（会话在哪里出现是应用定的，同归属）；不是建它的扩展也不能；目标要是这个应用有的 space（只有界面的也算），不能是它自己的、
+   关掉的或 `cross_space()` 的。用处：项目里的任务——主会话归 `flow`，展示到项目 space 列的 `sessions`，就能在项目 space 的中区打开、对话，
+   项目 space 仍然不认识流程。
 
 第 3 条是**防误，不是安全边界**：space 是调用方自己声称的，同页的任何代码都能声称任何 space，包括 `system`（§6.2）。真正的跨 space 权力是能力（§4.3）。
 
@@ -1376,7 +1385,7 @@ Documents 是用户的，不该藏着程序的东西；项目里只有一个属�
 | Agix 插件的模型可见文本 | **披露** | 人不知道包往模型面前放了什么 | 文本本身的内容 |
 | 界面模块占了哪些贡献点 | **披露** | 人不知道包改了界面哪里 | 模块在页面里做什么（§5.8） |
 | 原生扩展拿不到中枢、引擎链接、路由表与授予表 | **结构约束**（可见性与层次规则） | 扩展不小心绕过中枢与判定 | 原生扩展是内核级源码，真要绕可以；这一条防的是误用 |
-| `SPACE_MISMATCH`：会话与声称的 space、实例对不上就拒绝；`cross_space()` | **防误** | 界面或扩展的 bug 把消息发进别的 space、别的实例 | 同页的代码：space 是调用方自己声称的，任何设备代码都能声称任何 space，包括 `system`。真正的跨 space 权力是能力 |
+| `SPACE_MISMATCH`：会话与声称的 space、实例对不上就拒绝；`cross_space()`；展示（`harnix.session.expose`，只有建它的扩展能开） | **防误** | 界面或扩展的 bug 把消息发进别的 space、别的实例 | 同页的代码：space 是调用方自己声称的，任何设备代码都能声称任何 space，包括 `system`。真正的跨 space 权力是能力 |
 
 把这些讲清楚比藏起来有用。
 

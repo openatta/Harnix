@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use harnix_ext::{Entry, SessionRef, SessionSpec, TapEvent};
+use harnix_ext::{Entry, Exposure, SessionRef, SessionSpec, TapEvent};
 use serde_json::{json, Value};
 
 use super::dispatch::settle_quiet;
@@ -92,6 +92,14 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
         .create(spec)
         .await
         .map_err(|e| format!("no main session: {}", e.message))?;
+    // A task started from where a project's sessions are listed is shown there too, to be talked
+    // to: the session stays the flow's, in the flow's space. A space the application does not
+    // have is the hub's to refuse; the run goes on, and the task opens from the flow's side.
+    if let Some(shown) = rec.show_in_space.as_deref().filter(|shown| *shown != space) {
+        if let Err(e) = cx.sessions().expose(&s, shown, Exposure::interactive()).await {
+            tracing::warn!(run, space = shown, error = %e.message, "the main session is not shown in the space the start named");
+        }
+    }
     let _ = cx
         .sessions()
         .append_entry(&s, Entry::new(SESSION_SETTINGS, wanted))
@@ -106,6 +114,24 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
     let attached = engine.attach_main(run, &session_name(&s)).await;
     settle_quiet(sh, run, attached).await;
     Ok(s)
+}
+
+/// The run whose main session this is (`flow.runOf`): the one watching it while it runs, else
+/// the newest run whose record names it; `None` for a session that is no run's main.
+pub(crate) async fn run_of_main(sh: &Arc<Shared>, instance: &str, session_id: &str) -> Option<String> {
+    let name = session_name(&SessionRef::new(instance, session_id));
+    if let Some(run) = sh.watched_run(session_id) {
+        return Some(run);
+    }
+    let engine = sh.engine().ok()?;
+    for summary in engine.list(crate::kernel::run::RunQuery::default()).await.ok()? {
+        if let Ok(rec) = engine.record(&summary.id).await {
+            if rec.main_session() == Some(name.as_str()) {
+                return Some(rec.id);
+            }
+        }
+    }
+    None
 }
 
 /// The main session's name in the session list: the run's title, else its flow's and its id.

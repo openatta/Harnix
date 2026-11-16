@@ -203,9 +203,9 @@ impl Hub {
                 let queued = state.map(|s| s.queue.len()).unwrap_or(0);
                 // Under the spaces lock only for these two: `space_known` and `starter_of` take it
                 // themselves.
-                let (scene_layer, prompt_append) = {
+                let (scene_layer, prompt_append, exposed_to) = {
                     let spaces = lock(&self.spaces);
-                    (spaces.layer_of(&key).map(str::to_string), spaces.prompt_of(&key).map(str::to_string))
+                    (spaces.layer_of(&key).map(str::to_string), spaces.prompt_of(&key).map(str::to_string), spaces.exposures_of(&key))
                 };
                 let hub_row = HubSessionRow {
                     instance: instance.to_string(),
@@ -226,6 +226,8 @@ impl Hub {
                     scene_layer,
                     prompt_append,
                     trust: extension.then_some(wire::EngineTrust::Extension),
+                    exposed_to: Some(exposed_to).filter(|shown| !shown.is_empty()),
+                    exposed_from: None,
                 };
                 // Folded into the engine's row: the hub's fields beside the engine's.
                 if let (Some(obj), Value::Object(added)) = (row.as_object_mut(), wire::params(&hub_row)) {
