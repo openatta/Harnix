@@ -184,3 +184,66 @@ test("a paired device is listed in Settings · Devices and revoked from there", 
   const listed = await page.evaluate(async () => (await (window as any).harnix.app.call("devices.list", {})).devices);
   expect(listed.some((d: any) => d.id === device)).toBe(false);
 });
+
+// general & display
+test("the display preferences apply at once, survive a reload, and go back to their defaults", TAGS, async ({ page }) => {
+  await open(page, backend.url);
+  await section(page, "general");
+  const size = () => page.evaluate(() => getComputedStyle(document.body).fontSize);
+  expect(await size()).toBe("14px");
+  const input = page.getByTestId("settings-fontSize");
+  await input.fill("17");
+  await input.blur();
+  await expect.poll(size).toBe("17px");
+  await page.getByTestId("settings-fontBody").fill("Georgia, serif");
+  await page.getByTestId("settings-fontBody").blur();
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain("Georgia");
+  await page.reload();
+  await expect.poll(size).toBe("17px");
+  await section(page, "general");
+  await page.getByTestId("settings-fontSize-default").click();
+  await page.getByTestId("settings-fontBody-default").click();
+  await expect.poll(size).toBe("14px");
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).fontFamily)).not.toContain("Georgia");
+});
+
+test("the settings file of each tier is named, with a way to copy its path", TAGS, async ({ page }) => {
+  await open(page, backend.url);
+  await section(page, "engine");
+  await expect(page.getByTestId("settings-file-global")).toContainText("settings.json");
+  await expect(page.getByTestId("settings-file-copy-global")).toBeVisible();
+});
+
+test("the language chosen is the engine's too, and given back with the choice of the system's", TAGS, async ({ page }) => {
+  await open(page, backend.url);
+  await section(page, "general");
+  await page.getByTestId("settings-language").selectOption("zh-CN");
+  await expect.poll(async () => (await field(page, "language")).tiers.global).toBe("zh-CN");
+  await page.getByTestId("settings-language").selectOption("auto");
+  await expect.poll(async () => (await field(page, "language")).tiers.global).toBeNull();
+});
+
+// privacy & advanced
+test("telemetry is explained and off, and its switch writes the global tier", TAGS, async ({ page }) => {
+  await open(page, backend.url);
+  await section(page, "privacy");
+  await expect(page.getByTestId("privacy-explain")).toBeVisible();
+  const flag = page.getByTestId("settings-telemetry_enabled");
+  await expect(flag).not.toBeChecked();
+  await flag.click();
+  await expect.poll(async () => (await field(page, "telemetry_enabled")).tiers.global).toBe(true);
+  await flag.click();
+  await expect.poll(async () => (await field(page, "telemetry_enabled")).tiers.global).toBe(false);
+});
+
+test("the advanced section shows what the engine runs with, its source and the file to edit, and nothing to change", TAGS, async ({ page }) => {
+  await open(page, backend.url);
+  await section(page, "advanced");
+  const shown = page.getByTestId("advanced");
+  await expect(shown).toBeVisible();
+  for (const key of ["compaction", "execution", "hooks_config", "team", "checkpoints"]) {
+    await expect(page.getByTestId(`settings-${key}`)).toBeVisible();
+  }
+  await expect(shown.locator("input, select")).toHaveCount(0);
+  await expect(page.getByTestId("settings-file-global")).toContainText("settings.json");
+});

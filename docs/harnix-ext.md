@@ -1351,7 +1351,7 @@ r.register("settings.section", {
 
 `type` 是 `toggle`、`select`（`options`）、`number`（`min`、`max`）、`text`（`suggestions`：可选的候选，不在其中的也收）、
 `secret`（只写不读）、`list`、`rules`（`columns`）、`route`（`routes: [{provider, default_model, models}]`：值是一个 provider 的 id，
-或 `{provider, model}`，引擎 `task_models` 条目的两种写法）；
+或 `{provider, model}`，引擎 `task_models` 条目的两种写法）、`json`（只显示，不写；`writable` 为空）；
 `risk: {values?, message}` 让这些值先确认。引擎设置的字段由后端 `settings` 扩展的字段表声明，`settings.describe` 发给界面
 （模型名的 `suggestions`、路由的 `routes` 按这一对 (项目, 场景) 已配置的 provider 填），
 `settings.write {tier, changes, revision?}` 整份校验、按版本号拒绝过期的写入（`CONFLICT`），路由到没配置的 provider 也拒绝。

@@ -103,6 +103,58 @@ defineSuite("settings", { feature: "settings" }, {
       assert(after.revision === before.revision, "part of a refused change was written");
     },
 
+    // general & display
+    "the engine's language is a global-tier field, written and given back": async ({ client }) => {
+      const language = async () => (await client.call("settings.describe", {})).fields.find((f: { key: string }) => f.key === "language");
+      const declared = await language();
+      assert(declared.type === "text" && declared.section === "general" && JSON.stringify(declared.writable) === '["global"]', JSON.stringify(declared));
+      await client.call("settings.write", { tier: "global", changes: { language: "zh-CN" } });
+      try {
+        assert((await language()).tiers.global === "zh-CN", "the language was not written");
+        // A project has no say in what the engine answers in.
+        const e = await client.refused("settings.write", { tier: "project", project_root: client.project, changes: { language: "en" } });
+        assert(e && e.code === INVALID_PARAMS, `answered ${JSON.stringify(e)}`);
+      } finally {
+        await client.call("settings.write", { tier: "global", changes: { language: null } });
+      }
+      assert((await language()).tiers.global === null, "the language was not given back");
+    },
+
+    // privacy & advanced
+    "telemetry starts off in Harnix, is a global-tier switch, and has an endpoint beside it": async ({ client }) => {
+      const described = await client.call("settings.describe", {});
+      const flag = described.fields.find((f: { key: string }) => f.key === "telemetry_enabled");
+      assert(flag.type === "toggle" && flag.section === "privacy" && flag.default === false && JSON.stringify(flag.writable) === '["global"]', JSON.stringify(flag));
+      assert(flag.hint, "the switch says nothing of what it does");
+      // The instance was started with the default Harnix writes into its global tier.
+      assert(flag.effective === false, `telemetry reads ${JSON.stringify(flag.effective)} on a fresh instance`);
+      const url = described.fields.find((f: { key: string }) => f.key === "telemetry_url");
+      assert(url.type === "text" && url.section === "privacy", JSON.stringify(url));
+      const e = await client.refused("settings.write", { tier: "project", project_root: client.project, changes: { telemetry_enabled: true } });
+      assert(e && e.code === INVALID_PARAMS, "a project switched telemetry");
+      await client.call("settings.write", { tier: "global", changes: { telemetry_enabled: true } });
+      try {
+        assert((await client.call("settings.describe", {})).fields.find((f: { key: string }) => f.key === "telemetry_enabled").tiers.global === true, "not written");
+      } finally {
+        await client.call("settings.write", { tier: "global", changes: { telemetry_enabled: false } });
+      }
+    },
+
+    "the advanced values are shown with their source and refused as writes in every tier": async ({ client }) => {
+      const described = await client.call("settings.describe", {});
+      for (const key of ["compaction", "execution", "hooks_config", "team", "checkpoints"]) {
+        const field = described.fields.find((f: { key: string }) => f.key === key);
+        assert(field && field.type === "json" && field.section === "advanced" && field.writable.length === 0, `${key}: ${JSON.stringify(field)}`);
+        assert("effective" in field && "source" in field, `${key} says nothing of where it stands`);
+        for (const tier of ["global", "project"]) {
+          const e = await client.refused("settings.write", { tier, project_root: client.project, changes: { [key]: {} } });
+          assert(e && e.code === INVALID_PARAMS, `${key} was accepted in ${tier}`);
+        }
+      }
+      // The settings files are named, for editing by hand.
+      assert(/settings\.json$/.test(described.paths.global ?? ""), JSON.stringify(described.paths));
+    },
+
     "providers can be read back": async ({ client }) => {
       const described = await client.call("settings.describe", { section: "providers" })
         .catch(() => null);

@@ -84,7 +84,23 @@ export function localeChoice(): LocaleChoice {
   return stored() ?? "auto";
 }
 
+const choices = new Set<(choice: LocaleChoice) => void>();
+
+/** Told each time the language is chosen, whether or not it changes what is drawn: what keeps
+ *  something else in step with the choice (the engine's language). */
+export function onLocaleChoice(fn: (choice: LocaleChoice) => void): () => void {
+  choices.add(fn);
+  return () => void choices.delete(fn);
+}
+
 export function setLocale(choice: LocaleChoice): void {
+  for (const fn of [...choices]) {
+    try {
+      fn(choice);
+    } catch {
+      /* a listener's failure is not the choice's */
+    }
+  }
   try {
     if (choice === "auto") localStorage.removeItem(KEY);
     else localStorage.setItem(KEY, choice);

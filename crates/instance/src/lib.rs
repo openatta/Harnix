@@ -32,6 +32,7 @@ compile_error!("harnix-instance builds on unix only (Linux and macOS are the one
 
 pub mod data_lock;
 mod daemon;
+mod defaults;
 mod factory;
 mod inherit;
 pub mod link;

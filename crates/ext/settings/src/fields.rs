@@ -23,9 +23,10 @@ pub(crate) enum Type {
     /// Text that is not blank.
     Text,
     /// Text that is not blank and is never read back: `describe` says only whether it is set.
+    #[allow(dead_code)] // as `List`
     Secret,
     /// Strings, each not blank.
-    #[allow(dead_code)] // no field of the five is one; the page draws it all the same
+    #[allow(dead_code)] // no field is one; the page draws it all the same
     List,
     /// Rows of the columns; a column marked required must be in every row, no other key may be.
     #[allow(dead_code)] // as `List`
@@ -33,6 +34,12 @@ pub(crate) enum Type {
     /// Where a task's model calls go: a provider's id (its default model), or
     /// `{"provider": id, "model": name}` — the two forms a `task_models` entry takes.
     Route,
+    /// Any JSON, shown and never written: the page says where a value stands and where its file
+    /// is. A field of it is declared with no writable tier.
+    Json,
+    /// As `Json`, with an object of lists (hooks by event) shown as how many entries each has:
+    /// what a hook runs may carry a credential, and the page has no business showing it.
+    Counts,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -99,7 +106,6 @@ impl Field {
     pub(crate) const fn default(self, default: Default) -> Self {
         Field { default, ..self }
     }
-    #[allow(dead_code)]
     pub(crate) const fn tiers(self, tiers: &'static [&'static str]) -> Self {
         Field { tiers, ..self }
     }
@@ -113,6 +119,12 @@ impl Field {
         Field { offer, ..self }
     }
 }
+
+/// The tiers a field is written in when only the global one may: what the engine reads from there
+/// alone, or what a project has no say in.
+const GLOBAL: &[&str] = &["global"];
+/// No tier: a field the page shows and the engine's file is edited for.
+const READ_ONLY: &[&str] = &[];
 
 /// The settings a person changes from the page. Every entry is a promise that writing it does
 /// something predictable; the order is the order a section draws them in.
@@ -143,6 +155,22 @@ pub(crate) const FIELDS: &[Field] = &[
     Field::new("task_models.title", Type::Route, "task-models").hint("settings.hint.task_models"),
     Field::new("task_models.web_search", Type::Route, "task-models").hint("settings.hint.task_models"),
     Field::new("task_models.web_fetch", Type::Route, "task-models").hint("settings.hint.task_models.web_fetch"),
+    // general & display
+    // What the engine answers in; the shell's language choice writes it (`auto` gives it back).
+    Field::new("language", Type::Text, "general").tiers(GLOBAL),
+    // privacy & advanced
+    // Harnix's instances start with it off in the global tier (docs/harnix-app.md, settings); the
+    // engine's own default is on, so a cleared value reads as on until the next start.
+    Field::new("telemetry_enabled", Type::Toggle, "privacy")
+        .default(Default::Bool(false))
+        .tiers(GLOBAL)
+        .hint("settings.hint.telemetry_enabled"),
+    Field::new("telemetry_url", Type::Text, "privacy").tiers(GLOBAL).hint("settings.hint.telemetry_url"),
+    Field::new("compaction", Type::Json, "advanced").tiers(READ_ONLY),
+    Field::new("execution", Type::Json, "advanced").tiers(READ_ONLY),
+    Field::new("hooks_config", Type::Counts, "advanced").tiers(READ_ONLY),
+    Field::new("team", Type::Json, "advanced").tiers(READ_ONLY),
+    Field::new("checkpoints", Type::Json, "advanced").tiers(READ_ONLY),
 ];
 
 pub(crate) fn find(key: &str) -> Option<&'static Field> {
@@ -166,6 +194,7 @@ pub(crate) fn check(ty: Type, value: &Value) -> Result<(), String> {
             Some(items) if items.iter().all(not_blank) => Ok(()),
             _ => Err("a list of text, none of it blank".into()),
         },
+        Type::Json | Type::Counts => Err("not written from here: edit the settings file".into()),
         Type::Rules(columns) => {
             let Some(rows) = value.as_array() else { return Err("a list of rows".into()) };
             for (i, row) in rows.iter().enumerate() {
@@ -266,6 +295,24 @@ fn type_name(ty: Type) -> &'static str {
         Type::List => "list",
         Type::Rules(_) => "rules",
         Type::Route => "route",
+        Type::Json | Type::Counts => "json",
+    }
+}
+
+/// A value as the page may see it: a secret redacted, hooks counted, anything else as it is.
+pub(crate) fn shown(ty: Type, value: &Value) -> Value {
+    match ty {
+        Type::Secret => redact(value),
+        Type::Counts => match value {
+            Value::Object(events) => Value::Object(
+                events
+                    .iter()
+                    .map(|(event, hooks)| (event.clone(), json!(hooks.as_array().map_or(1, Vec::len))))
+                    .collect(),
+            ),
+            other => other.clone(),
+        },
+        _ => value.clone(),
     }
 }
 
@@ -461,6 +508,33 @@ mod tests {
         assert!(offers(find("memory_enabled").unwrap(), &providers).is_empty());
         let route = declaration(find("task_models.web_fetch").unwrap());
         assert_eq!((&route["type"], &route["hint"]), (&json!("route"), &json!("settings.hint.task_models.web_fetch")));
+    }
+
+    #[test]
+    fn general_and_privacy_fields_are_global_and_advanced_ones_are_read_only() {
+        let language = find("language").unwrap();
+        assert_eq!((language.section, language.tiers), ("general", GLOBAL));
+        let telemetry = declaration(find("telemetry_enabled").unwrap());
+        assert_eq!((&telemetry["section"], &telemetry["default"]), (&json!("privacy"), &json!(false)));
+        assert_eq!(telemetry["hint"], json!("settings.hint.telemetry_enabled"));
+        assert!(check(find("telemetry_url").unwrap().ty, &json!("http://localhost:4318")).is_ok());
+        for key in ["compaction", "execution", "hooks_config", "team", "checkpoints"] {
+            let field = find(key).unwrap();
+            assert_eq!((field.section, field.tiers), ("advanced", READ_ONLY), "{key}");
+            let declared = declaration(field);
+            assert_eq!((&declared["type"], &declared["writable"]), (&json!("json"), &json!([])), "{key}");
+            assert!(check(field.ty, &json!({})).is_err(), "{key} is not written from the page");
+        }
+    }
+
+    #[test]
+    fn hooks_are_shown_as_counts_and_never_as_what_they_run() {
+        let hooks = json!({"PreToolUse": [{"type": "http", "url": "https://h", "headers": {"Authorization": "Bearer abc"}}, {"type": "command", "command": "x"}], "SessionStart": []});
+        let shown = shown(Type::Counts, &hooks);
+        assert_eq!(shown, json!({"PreToolUse": 2, "SessionStart": 0}));
+        assert!(!shown.to_string().contains("abc"));
+        let execution = json!({"max_agent_depth": 3});
+        assert_eq!(super::shown(Type::Json, &execution), execution);
     }
 
     #[test]

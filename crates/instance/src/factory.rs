@@ -195,6 +195,10 @@ impl Factory {
         std::fs::create_dir_all(&data_root)?;
         if !matches!(carrier, TemplateCarrier::Attach(_)) {
             harnix_engine::strip_package_skills(&data_root);
+            // Not for an engine somebody else runs: its settings are theirs.
+            if let Err(e) = crate::defaults::telemetry_off(&data_root) {
+                tracing::warn!(instance = id, error = %e, "the telemetry default was not written");
+            }
         }
         if template.is_some_and(|t| t.inherit_providers) {
             if let Err(e) = self.inherit(&data_root) {

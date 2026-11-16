@@ -50,6 +50,7 @@ export { lineDiff, hunks, type DiffLine } from "./diff";
 export { markdown, escapeHtml, type MarkdownOptions } from "./markdown";
 export { zhCN, en, uiStrings, type HarnixUiStrings } from "./strings";
 export { Icon } from "./chat/icons";
+export { DISPLAY_DEFAULTS, FONT_SIZE_RANGE, accepts as displayAccepts, applyTypography, display, setDisplay, subscribeDisplay, useDisplay, type BusyEnter, type Display, type LinkOpening, type UsageDetail } from "./display";
 export { GLYPHS, Glyph, glyphHtml, iconsFrom, toolGlyph } from "./glyph";
 export { rowKeys, useRoving, type Roving } from "./roving";
 export { ago, clock, compact, fileSize, megabytes, millis, since } from "./format";
@@ -139,7 +140,7 @@ export {
   type TabActions,
   type TabInfo,
 } from "./sidebar";
-export { t, translate, useT, useLocale, setLocale, currentLocale, localeChoice, addStrings, DICTIONARIES, type Locale, type LocaleChoice, type Translate } from "./i18n/index";
+export { t, translate, useT, useLocale, setLocale, onLocaleChoice, currentLocale, localeChoice, addStrings, DICTIONARIES, type Locale, type LocaleChoice, type Translate } from "./i18n/index";
 export type { FlowBlockContribution } from "./chat/types";
 export {
   HostProvider,

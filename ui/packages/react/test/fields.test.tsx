@@ -51,6 +51,15 @@ describe("a field's type", () => {
     expect(checkField(rules, [{ tool: "Bash", action: "deny", shell: "x" }])).not.toBeNull();
   });
 
+  it("shows a json value and accepts none of it as a write", async () => {
+    expect(checkField({ key: "execution", type: "json" }, { max_agent_depth: 3 })).toMatchObject({ key: "settings.invalid.readonly" });
+    const field = { key: "execution", type: "json", section: "advanced", writable: [], effective: { max_agent_depth: 3 }, source: "global", tiers: { global: { max_agent_depth: 3 }, scene: null, project: null } } as FieldState;
+    const { store } = memory({ fields: [field] });
+    render(<FieldForm store={store} tier="global" />);
+    expect((await screen.findByTestId("settings-execution")).textContent).toBe('{"max_agent_depth":3}');
+    expect(document.querySelector("input, select")).toBeNull();
+  });
+
   it("says which values are a risk", () => {
     const mode = { key: "m", type: "select" as const, options: ["default", "bypassPermissions"], risk: { values: ["bypassPermissions"], message: "m" } };
     expect(isRisky(mode, "bypassPermissions")).toBe(true);

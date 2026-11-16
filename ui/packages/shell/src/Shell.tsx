@@ -26,7 +26,7 @@ import {
 } from "react";
 import { errorText } from "@harnix/core";
 import type { BlockOf, SessionController, SessionState } from "@harnix/core/state";
-import { ChatComposer, ChatPanel, Contributed, listenForLayers, modalUp, t, useLayer, useRegistry, useT, ComposerNote, askedTool, rowTitle, toolAsks, type Attached, type ChatIds, type ComposerApi, type MentionItem, type ModelOption, type SpaceContribution, type SpaceSecondary, type ToolRowContribution, Glyph } from "@harnix/react";
+import { ChatComposer, ChatPanel, Contributed, listenForLayers, modalUp, t, useLayer, useRegistry, useT, ComposerNote, askedTool, rowTitle, toolAsks, type Attached, type ChatIds, type ComposerApi, type MentionItem, type ModelOption, type SpaceContribution, type SpaceSecondary, type ToolRowContribution, Glyph, useDisplay } from "@harnix/react";
 
 import { ask, detailsWidthOf, keyOf, later, secondaryWidthOf, type App, type OpenModal, type ShellState, type Widths } from "./app.ts";
 import { useBrand } from "./brand.ts";
@@ -841,11 +841,13 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
   const ids = space?.conversation?.ids ? globalIds(app, space, ask(registry, space, () => space.conversation!.ids!(), undefined)) : undefined;
   const steerable = space?.conversation?.composer?.steer === true;
   const running = sessionState?.turn != null || sessionState?.session?.turn_state === "running";
-  const [steer, setSteer] = useState(() => steering.has(sessionKey));
+  // What the person chose for this session, else what the display preferences say Enter does.
+  const enterDefault = useDisplay().enter === "steer";
+  const [steerChoice, setSteerChoice] = useState(() => steering.get(sessionKey));
+  const steer = steerChoice ?? enterDefault;
   const toggleSteer = () => {
-    if (steer) steering.delete(sessionKey);
-    else steering.add(sessionKey);
-    setSteer(!steer);
+    steering.set(sessionKey, !steer);
+    setSteerChoice(!steer);
   };
   const ready = app.modelReady();
   const notice =
@@ -952,7 +954,7 @@ function AskAnnouncer({ state, toolRows }: { state: SessionState | null; toolRow
 }
 
 /** Sessions with "deliver now" on, by session key: kept in the page while it is open. */
-const steering = new Set<string>();
+const steering = new Map<string, boolean>();
 
 /** A space's ids, with the `g` flag `ChatIds` needs: added when missing, and noted. */
 function globalIds(app: App, space: { id: string; owner: string }, ids: ChatIds | undefined): ChatIds | undefined {
