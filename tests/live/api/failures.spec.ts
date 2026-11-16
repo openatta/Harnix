@@ -12,7 +12,7 @@
  * before it gives up, so those turns take their time: the timeouts here are long on purpose.
  */
 
-import { failureClass, failureFacts, type FailureClass } from "@harnix/core/state";
+import { failureAction, failureClass, failureFacts, type FailureClass } from "@harnix/core/state";
 import { type Backend, type TestClient, connect, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
 import { FAULTS, dropStub, stubProvider, useStub, type Fault, type StubProvider } from "./stub-provider";
@@ -59,9 +59,14 @@ function classOf(error: unknown): FailureClass | undefined {
   return failureClass(failureFacts(error));
 }
 
-test("no provider and no key: a message is refused as no model, not as a bare code", TAGS, async () => {
+test("no provider and no key: a message fails as a classed failure that sends to the model settings, not as a bare code", TAGS, async () => {
   const error = await failureOfATurn();
-  expect(classOf(error), JSON.stringify(error)).toBe("no_model");
+  // The engine still builds its default client with no key and lets the turn reach the service,
+  // which refuses it as `auth`; an engine that refuses first says `missing api_key`. Either way the
+  // person is sent to the model settings.
+  const cls = classOf(error);
+  expect(["no_model", "auth"], JSON.stringify(error)).toContain(cls);
+  expect(failureAction(cls!)).toBe("settings.models");
   // The engine's own words stay, for whoever supports it.
   expect(failureFacts(error).raw).not.toBe("");
 });

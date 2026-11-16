@@ -76,8 +76,9 @@ test("without a selection, changing the current flow answers that the user must 
   expect((await api.call("flow.defs")).some((d: any) => d.name === "authored")).toBe(false);
   // The panel's selection is the focus, and is published for the panel.
   const selected = await api.call("flow.focus", { instance: "main", session_id: session, flow: "demo-linear" });
-  expect(selected).toEqual({ flow: "demo-linear" });
-  expect(await topic("focus", { instance: "main", session_id: session })).toEqual({ flow: "demo-linear" });
+  // The focus names the conversation's project too (none here).
+  expect(selected).toEqual({ flow: "demo-linear", project: null });
+  expect(await topic("focus", { instance: "main", session_id: session })).toEqual({ flow: "demo-linear", project: null });
   const missing = await api.refused("flow.focus", { instance: "main", session_id: session, flow: "nothing" });
   expect(missing?.data?.flow).toBe("not_found");
   // Only a flow-author conversation has a focus.
@@ -86,7 +87,7 @@ test("without a selection, changing the current flow answers that the user must 
   expect(notAuthor?.message).toContain("not a flow-author conversation");
   const nobody = await api.refused("flow.focus", { instance: "main", session_id: "no-such-session", flow: "demo-linear" });
   expect(nobody?.message).toContain("no session");
-  expect(await api.call("flow.focus", { instance: "main", session_id: session, flow: null })).toEqual({ flow: null });
+  expect(await api.call("flow.focus", { instance: "main", session_id: session, flow: null })).toEqual({ flow: null, project: null });
 });
 
 test("a flow-author conversation creates a flow (and selects it), shows, changes and dry-runs it, and deletes it", TAGS, async () => {
@@ -100,7 +101,7 @@ test("a flow-author conversation creates a flow (and selects it), shows, changes
   let defs = await topic("defs");
   expect(defs.find((d: any) => d.name === "authored")).toMatchObject({ origin: "user", valid: true, title: "Authored in conversation" });
   // Created means selected: the panel is told.
-  expect(await topic("focus", { instance: "main", session_id: session })).toEqual({ flow: "authored" });
+  expect(await topic("focus", { instance: "main", session_id: session })).toEqual({ flow: "authored", project: null });
   expect((await api.call("flow.def", { name: "authored" })).parts).toEqual({});
   expect((await api.call("flow.catalog")).parts.skill).toContain("authored-note");
 
@@ -119,7 +120,7 @@ test("a flow-author conversation creates a flow (and selects it), shows, changes
   expect(r.flow_delete[0].is_error ?? false).toBe(false);
   defs = await topic("defs");
   expect(defs.some((d: any) => d.name === "authored")).toBe(false);
-  expect(await topic("focus", { instance: "main", session_id: session })).toEqual({ flow: null });
+  expect(await topic("focus", { instance: "main", session_id: session })).toEqual({ flow: null, project: null });
   // Nothing was asked of a person (create, update, delete here; the update without a selection
   // before): authoring runs straight away, and validation is what keeps a bad text out.
   expect(asks.filter((a) => String(a.tool_name ?? "").startsWith("flow_"))).toEqual([]);
