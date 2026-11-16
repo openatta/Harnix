@@ -188,6 +188,7 @@ async fn describe(call: &Call, params: Value) -> Rpc<Value> {
 
     // The providers of this (project, scene): what a model field offers, and a route may name.
     let providers = providers::redacted(call.call("engine.config.getProvider", locate(scene.as_deref(), project_root.as_deref())).await.unwrap_or(json!({})));
+    let providers = providers::with_unanswered(providers, effective.as_ref());
 
     let fields: Vec<Value> = FIELDS
         .iter()
@@ -203,8 +204,8 @@ async fn describe(call: &Call, params: Value) -> Rpc<Value> {
                     ((*tier).to_string(), value)
                 })
                 .collect();
-            let engine = effective.as_ref().and_then(|settings| dig(settings, field.key));
-            let mut view = field_view(field, per_tier, engine);
+            let engine = engine_value(field, effective.as_ref());
+            let mut view = field_view(field, per_tier, engine.as_ref());
             if let Some(view) = view.as_object_mut() {
                 view.extend(fields::offers(field, &providers));
             }
@@ -242,6 +243,18 @@ pub(crate) fn locate(scene: Option<&str>, project_root: Option<&str>) -> Value {
         at["project_root"] = json!(root);
     }
     at
+}
+
+/// A field's value in the engine's effective settings (`None`: they could not be read). The engine
+/// leaves out a list it has no rows of, so an additive field it does not name has none: an
+/// untrusted project's only `allow` rule, withheld, leaves no `permission_rules` at all.
+fn engine_value(field: &fields::Field, effective: Option<&Value>) -> Option<Value> {
+    let settings = effective?;
+    match dig(settings, field.key) {
+        Some(value) => Some(value.clone()),
+        None if field.additive => Some(json!([])),
+        None => None,
+    }
 }
 
 /// One field as the page gets it: its declaration, then where it stands. `effective` is the
@@ -775,6 +788,11 @@ mod tests {
         // Untrusted: the project's allow is not among the engine's.
         let view = field_view(field, tiers(json!([deny.clone()]), json!([allow.clone()])), Some(&json!([deny.clone()])));
         assert_eq!(view["withheld"], json!(true));
+        // Untrusted with no other rows: the engine names no rules at all, which is none of them.
+        let engine = engine_value(field, Some(&json!({"permission_mode": "default"})));
+        let view = field_view(field, tiers(Value::Null, json!([allow.clone()])), engine.as_ref());
+        assert_eq!((&view["effective"], &view["withheld"]), (&json!([]), &json!(true)));
+        assert_eq!(engine_value(fields::find("permission_mode").unwrap(), Some(&json!({}))), None);
         // The engine could not be asked: the tiers' rows together stand in.
         let view = field_view(field, tiers(json!([deny.clone()]), json!([allow.clone()])), None);
         assert_eq!((&view["effective"], &view["withheld"]), (&both, &json!(false)));

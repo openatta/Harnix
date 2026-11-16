@@ -5,6 +5,8 @@
 // offers are the configured providers' own: the engine lists no endpoint's models, so nothing here
 // asks an endpoint for its catalogue.
 
+import { isDeepStrictEqual } from "node:util";
+
 import { INVALID_PARAMS } from "@harnix/core/protocol";
 import { assert, defineSuite } from "@harnix/testkit";
 
@@ -62,7 +64,8 @@ defineSuite("settings-models", { feature: "settings" }, {
           changes: { "task_models.title": { provider: PROVIDER, model: "m-other" }, "task_models.compact": PROVIDER },
         });
         const field = (key: string): Field => written.fields.find((f: Field) => f.key === key);
-        assert(JSON.stringify(field("task_models.title").tiers.global) === JSON.stringify({ provider: PROVIDER, model: "m-other" }), JSON.stringify(field("task_models.title")));
+        // Compared as values: the tier's file comes back with its keys in their own order.
+        assert(isDeepStrictEqual(field("task_models.title").tiers.global, { provider: PROVIDER, model: "m-other" }), JSON.stringify(field("task_models.title")));
         assert(field("task_models.compact").tiers.global === PROVIDER, JSON.stringify(field("task_models.compact")));
 
         const before = await client.call("settings.describe", {});

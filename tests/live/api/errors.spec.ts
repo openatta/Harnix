@@ -37,7 +37,8 @@ defineSuite("errors", { feature: "connection" }, {
         ["plugins.upload", {}, "name"],
         ["plugins.install", {}, "path"],
         ["harnix-app.search", {}, "query"],
-        ["settings.set", {}, "tier"],
+        // `key` and `tier` are both required, and `key` is the one read first.
+        ["settings.set", {}, "key"],
         ["settings.setProvider", {}, "provider_id"],
         ["harnix-app.projects.create", {}, "name"],
       ];
