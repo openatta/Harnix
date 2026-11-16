@@ -35,7 +35,12 @@ fn summary(row: &Row) -> CallSummary {
         (Some(n), Some(ms)) if n > 0 && ms > 0 => Some(((n as f64 * 1000.0 / ms as f64) * 10.0).round() / 10.0),
         _ => None,
     };
-    let system = row.input.system.iter().map(|b| BlockSize::new(b.source.clone(), b.chars.unwrap_or(0))).collect();
+    let system = row
+        .input
+        .system
+        .iter()
+        .map(|b| BlockSize::new(b.source.clone(), b.chars.unwrap_or(0)).with_digest(b.digest.clone()))
+        .collect();
     CallSummary::new(
         row.index,
         row.session_id.clone(),
@@ -48,9 +53,14 @@ fn summary(row: &Row) -> CallSummary {
         time::ms(&row.ts).unwrap_or(sent),
         row.provider.clone(),
         row.model.clone(),
-        CallInput::new(system, row.input.tools.unwrap_or(0), row.input.messages),
-        CallOutput::new(row.output.chars, row.output.thinking_chars, row.output.tool_uses.len()),
-        row.output.tool_uses.iter().map(|t| ToolUseSummary::new(t.id.clone(), t.name.clone())).collect(),
+        CallInput::new(system, row.input.tools.unwrap_or(0), row.input.messages).with_tools_digest(row.input.tools_digest.clone()),
+        CallOutput::new(row.output.chars, row.output.thinking_chars, row.output.tool_uses.len())
+            .with_text_preview(row.output.text_preview.clone()),
+        row.output
+            .tool_uses
+            .iter()
+            .map(|t| ToolUseSummary::new(t.id.clone(), t.name.clone()).with_preview(t.input_preview.clone(), t.result_is_error))
+            .collect(),
     )
     .ended(row.status.clone(), row.error.clone(), row.stop_reason.clone(), row.usage.clone(), row.timing.duration_ms)
     .timed(Some(Timing::new(sent, row.timing.ttft_ms, generate, rate)))

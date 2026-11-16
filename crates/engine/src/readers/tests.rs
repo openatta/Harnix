@@ -164,8 +164,10 @@ fn the_protocols_examples_are_read() {
         "session_id": "s", "recording": {"name": "s", "created_at": "2025-11-15T09:46:40Z", "covers": "latest_run", "generation": 1763200000000u64},
         "calls": [{"index": 0, "session_id": "s", "parent_session_id": null, "agent_type": null, "turn_id": "t", "turn": 1, "step": 0,
             "purpose": null, "ts": "2025-11-15T09:46:40Z", "provider": "anthropic", "model": "m",
-            "input": {"system": [{"source": "identity", "chars": 1234}], "tools": 23, "messages": 8},
-            "output": {"chars": 456, "thinking_chars": 0, "tool_uses": [{"id": "x", "name": "Read"}]},
+            "input": {"system": [{"source": "identity", "chars": 1234, "digest": "879106ac742f0567"}],
+                "tools": 23, "tools_digest": "286e970158096479", "messages": 8},
+            "output": {"chars": 456, "text_preview": "…", "thinking_chars": 0,
+                "tool_uses": [{"id": "x", "name": "Read", "input_preview": "{\"file_path\":\"…\"}", "result_is_error": false}]},
             "status": "ok", "stop_reason": "tool_use",
             "usage": {"input_tokens": 10, "output_tokens": 20, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0},
             "timing": {"sent_at": "2025-11-15T09:46:40Z", "ttft_ms": 800, "duration_ms": 4200}, "error": null}],
@@ -178,6 +180,9 @@ fn the_protocols_examples_are_read() {
     assert_eq!((row.input.tools, row.input.messages, row.output.tool_uses[0].name.as_str()), (Some(23), 8, "Read"));
     assert_eq!(row.input.system[0].chars, Some(1234));
     assert_eq!(row.timing.ttft_ms, Some(800));
+    assert_eq!((row.input.system[0].digest.as_deref(), row.input.tools_digest.as_deref()), (Some("879106ac742f0567"), Some("286e970158096479")));
+    assert_eq!((row.output.text_preview.as_deref(), row.output.tool_uses[0].result_is_error), (Some("…"), Some(false)));
+    assert_eq!(row.output.tool_uses[0].input_preview.as_deref(), Some("{\"file_path\":\"…\"}"));
 
     let detail: Detail = serde_json::from_value(json!({
         "session_id": "s", "index": 0, "generation": 1,
@@ -375,6 +380,26 @@ fn rows_are_summed_per_turn_and_timed() {
     assert!(first["context_delta"].is_null(), "nothing before the first turn");
     assert_eq!(turns[1]["context_delta"], 110);
     assert_eq!(first["duration_ms"], 2250);
+}
+
+/// What a row says of its blocks, its answer and its tool calls reaches the trace's summary; what
+/// it leaves out is left out of the summary too.
+#[test]
+fn a_rows_digests_and_previews_reach_the_summary() {
+    let mut said = row(0, "S", None, 1, None);
+    said["input"]["system"][0]["digest"] = json!("aa");
+    said["input"]["tools_digest"] = json!("bb");
+    said["output"]["text_preview"] = json!("Done.");
+    said["output"]["tool_uses"] = json!([{"id": "u", "name": "Read", "input_preview": "{}", "result_is_error": true}]);
+    let mut kept = super::calls::Kept::default();
+    kept.rows = vec![serde_json::from_value(said).unwrap(), serde_json::from_value(row(1, "S", None, 2, None)).unwrap()];
+    let t = trace::trace(&kept, "S");
+    let (first, second) = (serde_json::to_value(&t.calls[0]).unwrap(), serde_json::to_value(&t.calls[1]).unwrap());
+    assert_eq!((&first["input"]["system"][0]["digest"], &first["input"]["tools_digest"]), (&json!("aa"), &json!("bb")));
+    assert_eq!(first["output"]["text_preview"], "Done.");
+    assert_eq!(first["tools"][0], json!({"id": "u", "name": "Read", "input_preview": "{}", "result_is_error": true}));
+    assert!(second["input"].get("tools_digest").is_none() && second["output"].get("text_preview").is_none());
+    assert!(second["input"]["system"][0].get("digest").is_none());
 }
 
 /// A tree's rows summed per Agent: the session first, a sub-agent with its parent, errors counting

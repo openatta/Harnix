@@ -423,13 +423,9 @@ test("system-ops: operations take effect, and another viewer sees them", TREE, a
   await other.close();
 });
 
-// Pinned as it is, not as it should be: the pane names the model the engine's context reports,
-// and Agix 0.3.15's `engine.session.inspectContext` names the settings' model until the session is rebuilt,
-// not the one `engine.session.setModel` chose for the next turn.
-test("system-ops: a model switched from the system space is not named in the pane until the session is rebuilt", {
-  tag: [...TREE.tag, "@gap"],
-  annotation: { type: "gap", description: "Agix: `engine.session.inspectContext` names the model `engine.session.setModel` chose for the next turn" },
-}, async ({ page }) => {
+// The pane names the model the engine's context reports, and `engine.session.inspectContext` names the
+// one `engine.session.setModel` chose for the next turn.
+test("system-ops: a model switched from the system space is named in the pane", TREE, async ({ page }) => {
   await open(page, backend.url);
   const sid = await sessionWithTurn(page, "main");
   await toSystem(page);
@@ -438,8 +434,7 @@ test("system-ops: a model switched from the system space is not named in the pan
   await page.locator("#modal input").fill("replayed-model-y");
   await page.getByTestId("host-prompt-ok").click();
   await expect(page.getByTestId("modal")).toHaveCount(0);
-  await page.waitForTimeout(1_000);
-  await expect(page.getByTestId("system-session"), "the pane names the new model now: assert that, and drop the @gap").not.toContainText("replayed-model-y");
+  await expect(page.getByTestId("system-session")).toContainText("replayed-model-y");
 });
 
 test("system-ops: an instance restarts, and its sessions are there after", TREE, async ({ page }) => {

@@ -214,11 +214,19 @@ pub struct CallInput {
     pub system: Vec<BlockSize>,
     pub tools: usize,
     pub messages: usize,
+    /// The tool catalog's fingerprint: two calls with the same one sent the same tools.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools_digest: Option<String>,
 }
 
 impl CallInput {
     pub fn new(system: Vec<BlockSize>, tools: usize, messages: usize) -> Self {
-        Self { system, tools, messages }
+        Self { system, tools, messages, tools_digest: None }
+    }
+
+    pub fn with_tools_digest(mut self, digest: Option<String>) -> Self {
+        self.tools_digest = digest;
+        self
     }
 }
 
@@ -228,11 +236,19 @@ impl CallInput {
 pub struct BlockSize {
     pub source: Option<String>,
     pub chars: usize,
+    /// The block's fingerprint: two calls with the same one sent the same block.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest: Option<String>,
 }
 
 impl BlockSize {
     pub fn new(source: Option<String>, chars: usize) -> Self {
-        Self { source, chars }
+        Self { source, chars, digest: None }
+    }
+
+    pub fn with_digest(mut self, digest: Option<String>) -> Self {
+        self.digest = digest;
+        self
     }
 }
 
@@ -243,11 +259,19 @@ pub struct CallOutput {
     pub chars: usize,
     pub thinking_chars: usize,
     pub tool_uses: usize,
+    /// The start of the answer's text, cut with a `…`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_preview: Option<String>,
 }
 
 impl CallOutput {
     pub fn new(chars: usize, thinking_chars: usize, tool_uses: usize) -> Self {
-        Self { chars, thinking_chars, tool_uses }
+        Self { chars, thinking_chars, tool_uses, text_preview: None }
+    }
+
+    pub fn with_text_preview(mut self, preview: Option<String>) -> Self {
+        self.text_preview = preview;
+        self
     }
 }
 
@@ -257,11 +281,23 @@ impl CallOutput {
 pub struct ToolUseSummary {
     pub id: String,
     pub name: String,
+    /// The start of its input, as compact JSON, cut with a `…`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_preview: Option<String>,
+    /// Whether its result was an error, once the next call has carried the result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_is_error: Option<bool>,
 }
 
 impl ToolUseSummary {
     pub fn new(id: String, name: String) -> Self {
-        Self { id, name }
+        Self { id, name, input_preview: None, result_is_error: None }
+    }
+
+    pub fn with_preview(mut self, input_preview: Option<String>, result_is_error: Option<bool>) -> Self {
+        self.input_preview = input_preview;
+        self.result_is_error = result_is_error;
+        self
     }
 }
 
