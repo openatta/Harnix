@@ -70,6 +70,8 @@ export class FlowSpaceState {
   readonly tabs: StateTabs;
   /** The space this one is shown inside, if it is (no right-column list then); null otherwise. */
   readonly within: string | null;
+  /** Where a task was entered from (the projects space): the way back goes there, until left. */
+  private came: { space: string; title: string } | null = null;
 
   /**
    * @param space the interface space this state belongs to: sessions of other spaces are not ours.
@@ -172,14 +174,17 @@ export class FlowSpaceState {
 
   /**
    * Into this space from the one it is shown inside: `flow`'s context (null: the general
-   * conversation's), `run` shown if given, brought to the front with the middle on it.
+   * conversation's), `run` shown if given, brought to the front with the middle on it. `from`
+   * names another space it was entered from (a task opened in the projects space): `leave` goes
+   * back there.
    */
-  async enter(flow: string | null, run: string | null = null): Promise<void> {
+  async enter(flow: string | null, run: string | null = null, options: { from?: { space: string; title: string } } = {}): Promise<void> {
     const host = this.host;
     if (!host) return;
     const same = this.value.flow === flow;
     this.tab = run ? this.tabs.runs : this.tabs.flows;
     this.shut = false;
+    this.came = options.from ?? null;
     // Selected before the switch: whatever draws on arrival already reads it.
     this.set({ flow, run, station: same ? this.value.station : null });
     if (host.spaces.current() !== this.space) await host.spaces.switch(this.space);
@@ -187,9 +192,17 @@ export class FlowSpaceState {
     await this.centre();
   }
 
-  /** Back to the space this one is shown inside; nothing when it is not shown inside one. */
+  /** Back to where it was entered from: the space it came from on a task, else the one it is shown
+   *  inside; nothing when neither. */
   async leave(): Promise<void> {
-    if (this.within && this.host) await this.host.spaces.switch(this.within);
+    const to = this.came?.space ?? this.within;
+    this.came = null;
+    if (to && this.host) await this.host.spaces.switch(to);
+  }
+
+  /** The space a task was entered from, while it was: where the way back goes. */
+  from(): { space: string; title: string } | null {
+    return this.came;
   }
 
   /** Bring a list to the front after showing something there: the right column's tab, where there

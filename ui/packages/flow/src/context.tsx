@@ -57,8 +57,8 @@ export function FlowContext({ state }: { state: FlowSpaceState }) {
   const own = tab === state.tabs.flows;
   return (
     <div className="hx-flow-context" data-testid="flow-context" data-flow={flow ?? ""}>
-      <button type="button" className="hx-flow-back" data-testid="flow-back" onClick={() => void state.leave()}>
-        <span aria-hidden="true">←</span> {t("flowui.context.back")}
+      <button type="button" className="hx-flow-back" data-testid="flow-back" data-to={state.from()?.space ?? state.within ?? undefined} onClick={() => void state.leave()}>
+        <span aria-hidden="true">←</span> {state.from() ? t("flowui.context.backTo", { space: state.from()!.title }) : t("flowui.context.back")}
       </button>
       <div className="hx-flow-context-head">
         <div className="hx-flow-context-title" data-testid="flow-context-title" title={title}>
