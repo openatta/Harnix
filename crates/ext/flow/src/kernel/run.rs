@@ -465,6 +465,10 @@ pub struct RunRecord {
     /// How it came to be started.
     #[serde(default)]
     pub trigger: Trigger,
+    /// A space the main session is shown in besides the flow's own (the start's
+    /// `show_in_space`): where the interface opens the task.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show_in_space: Option<String>,
 }
 
 /// Where a run works.
@@ -713,6 +717,7 @@ impl RunRecord {
             workspace: self.workspace,
             output_dir: self.output_dir.clone(),
             trigger: self.trigger.clone(),
+            show_in_space: self.show_in_space.clone(),
         }
     }
 }
@@ -804,6 +809,9 @@ pub struct RunSummary {
     pub output_dir: Option<String>,
     #[serde(default)]
     pub trigger: Trigger,
+    /// Where its main session is shown besides the flow's space (`RunRecord::show_in_space`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show_in_space: Option<String>,
 }
 
 /// Which runs to list. Every field set must match.

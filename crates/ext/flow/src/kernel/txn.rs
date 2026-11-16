@@ -341,6 +341,7 @@ pub(crate) fn new_record(
         seq: 0,
         created_at: now,
         trigger: Trigger::manual(by.clone()),
+        show_in_space: None,
         created_by: by,
         finished_at: None,
         parent,

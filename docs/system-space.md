@@ -311,6 +311,8 @@ space `system`（界面一侧 `@harnix/system` 把它画成 `center: "hidden"`�
 
 **跨 space**：声称 `system` 的调用可以观看、操作任何 space 的会话，每一次跨 space 的操作都写审计；在系统 space 里看别的 space
 的会话是「观看」，不改归属。`cross_space()` 是**防误**的标志：同页的代码能声称任何 space。真正的跨 space 读写权力是上面那几项能力，它们不对设备与扩展包开放。
+一个会话被它的扩展**展示**到另一个 space（`harnix.session.expose`，[概念与架构](concept_and_architecture.md) §5.4 第 6 条）是另一回事：那是拥有者开的、
+只到那一个 space 的门，不经系统 space，也不写跨 space 审计；系统 space 的列表里它仍在自己的 space 下，行带 `exposed_to`。
 
 **去掉它**：不链 `system`，或者 profile 写 `[extensions] off = ["system"]`。它的方法、主题、space 连同授予一起从路由表撤下；`harnix.spaces.list` 里没有它；
 任何声称 `space: "system"` 的调用一律 `SPACE_MISMATCH`——**撤的是方法，不只是不画**。界面一侧，`@harnix/system` 不激活，它定义的两个贡献点没人定义，

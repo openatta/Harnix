@@ -296,13 +296,18 @@ impl Hub {
                 format!("instance `{instance}` runs an extension's engine: its settings and plugins are its carrier's, and nobody's to change"),
             ));
         }
+        let session = params.get("session_id").and_then(Value::as_str).map(str::to_string);
         // An instance that is some spaces' is theirs and the system space's, whatever the row —
-        // one open to any space included: before anything reaches it, or wakes it.
+        // one open to any space included: before anything reaches it, or wakes it. A session
+        // exposed to the claimed space is reached on its instance as from its own space: the
+        // space check (before this) already held the call to what the exposure allows.
         if let Some(slot) = self.slot(&instance) {
             let (space, crosses) = self.claim_of(&params);
-            crate::spaces::may_use(&slot, cx, &space, crosses)?;
+            let exposed = through.checked && session.as_ref().is_some_and(|sid| self.exposed_to(&(instance.clone(), sid.clone()), &space));
+            if !exposed {
+                crate::spaces::may_use(&slot, cx, &space, crosses)?;
+            }
         }
-        let session = params.get("session_id").and_then(Value::as_str).map(str::to_string);
         // A caller that claimed a space is told of that space's sessions only: the engine lists
         // every one, whoever's it is.
         let held = (through.after == After::Sessions).then(|| self.held_space(&params)).flatten();
@@ -328,9 +333,10 @@ impl Hub {
         }
         if let (Some(space), Some(Value::Array(rows))) = (held, answer.get_mut("sessions")) {
             self.home_of(&instance);
+            let spaces = lock(&self.spaces);
             rows.retain(|row| {
                 let sid = row.get("session_id").and_then(Value::as_str).unwrap_or_default();
-                self.space_known(&(instance.clone(), sid.to_string())) == space
+                spaces.visible_in(&(instance.clone(), sid.to_string()), &space)
             });
         }
         if let (After::Sessions, Some(Value::Array(rows))) = (through.after, answer.get_mut("sessions")) {

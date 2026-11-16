@@ -69,9 +69,35 @@ fn project_dir(root: Option<String>) -> Result<Option<String>, RpcError> {
     }
 }
 
+/// A start's `show_in_space`: a space id as the hub spells them, trimmed; whether the application
+/// has such a space the hub says when the main session is exposed, and a start that names none
+/// shows the session nowhere else.
+fn shown_in(space: Option<String>) -> Result<Option<String>, RpcError> {
+    let Some(space) = space.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    let well_formed = space.len() <= 64 && space.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+    if !well_formed {
+        return Err(RpcError::invalid_params(format!("show_in_space {space:?} is not a space id")));
+    }
+    Ok(Some(space))
+}
+
 #[derive(Deserialize)]
 struct RunIn {
     run: String,
+}
+
+/// `flow.runOf`'s params: a session by its full name.
+#[derive(Deserialize)]
+struct SessionIn {
+    #[serde(default = "main_instance")]
+    instance: String,
+    session_id: String,
+}
+
+fn main_instance() -> String {
+    harnix_ext::MAIN_INSTANCE.to_string()
 }
 
 #[derive(Deserialize)]
@@ -793,7 +819,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         sh,
         packs,
         "start",
-        "start a run: {flow, subject, inputs?, title?, project_root?, workspace?: project|worktree|scratch, output_dir?, trigger?: {kind: manual} | {kind: schedule, schedule, fire_at}} → {run}; with a project_root (an existing absolute directory) the run is a task of that project; only the kernel and extensions start one on a schedule",
+        "start a run: {flow, subject, inputs?, title?, project_root?, workspace?: project|worktree|scratch, output_dir?, trigger?: {kind: manual} | {kind: schedule, schedule, fire_at}, show_in_space?} → {run}; with a project_root (an existing absolute directory) the run is a task of that project; only the kernel and extensions start one on a schedule; show_in_space names a space the main session is also shown in, to be looked at and talked to there",
         |sh, _, cx, p: StartParams| async move {
             let by = caller(&cx);
             let trigger = start_trigger(cx.device().is_some(), p.trigger, &by)?;
@@ -809,11 +835,23 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
                         workspace: p.workspace,
                         output_dir: p.output_dir,
                         trigger: Some(trigger),
+                        show_in_space: shown_in(p.show_in_space)?,
                     },
                     by,
                 )
                 .await;
             change(&sh, None, r).await
+        },
+    );
+    method(
+        m,
+        sh,
+        packs,
+        "runOf",
+        "the run whose main session this is: {instance?, session_id} → {run: id | null}",
+        |sh, _, _, p: SessionIn| async move {
+            let run = super::main::run_of_main(&sh, &p.instance, &p.session_id).await;
+            Ok(json!({"run": run}))
         },
     );
     method(
@@ -1245,8 +1283,24 @@ mod tests {
         assert_eq!(p.workspace, Some(crate::kernel::run::Workspace::Worktree));
         assert_eq!(p.trigger, Some(StartTrigger::Manual {}));
         assert_eq!(p.output_dir.as_deref(), Some("out/${date}"));
+        assert_eq!(p.show_in_space, None);
         let bare: StartParams = serde_json::from_value(json!({"flow": "f", "subject": "s"})).unwrap();
         assert_eq!((bare.project_root, bare.workspace, bare.trigger), (None, None, None));
+        let shown: StartParams = serde_json::from_value(json!({"flow": "f", "subject": "s", "show_in_space": "sessions"})).unwrap();
+        assert_eq!(shown.show_in_space.as_deref(), Some("sessions"));
+    }
+
+    /// The space a start shows the main session in is a space id, trimmed; none or blank is none;
+    /// anything else is refused before a run is made.
+    #[test]
+    fn a_start_s_show_in_space_is_a_space_id_or_nothing() {
+        assert_eq!(shown_in(Some(" sessions ".into())).unwrap().as_deref(), Some("sessions"));
+        assert_eq!(shown_in(Some("my.space-1_x".into())).unwrap().as_deref(), Some("my.space-1_x"));
+        assert_eq!(shown_in(None).unwrap(), None);
+        assert_eq!(shown_in(Some("   ".into())).unwrap(), None);
+        for bad in ["two words", "a/b", &"x".repeat(65)] {
+            assert_eq!(shown_in(Some(bad.to_string())).unwrap_err().code, harnix_ext::codes::INVALID_PARAMS, "{bad}");
+        }
     }
 
     #[test]

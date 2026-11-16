@@ -220,6 +220,11 @@ impl Hub {
                     h.move_session(&cx, p).await
                 })),
             },
+            // Showing a session in another space, and taking that back: the owner's (the
+            // extension that created it), so an extension's row; `to` is the space it is shown
+            // in, not a claim, so it is not checked as one.
+            own_ext(hub, "harnix.session.expose", RowScope::Session, false, |h, cx, p| async move { h.expose_session(&cx, p).await }),
+            own_ext(hub, "harnix.session.unexpose", RowScope::Session, false, |h, cx, p| async move { h.unexpose_session(&cx, p) }),
             own_ext(hub, "harnix.session.answerer", RowScope::Open, false, |h, _, p| async move { h.answerer(&p) }),
             own(hub, "harnix.spaces.list", |h, _, _| async move { Ok(h.spaces_view()) }),
             // A person's judgment of an answer, as setting a model is: a device's alone, about a
