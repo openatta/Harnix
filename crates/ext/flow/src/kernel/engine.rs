@@ -20,7 +20,8 @@ use super::host::{
 };
 use super::run::{
     Actor, CheckRec, CheckStatus, ConfirmRec, ForcedRec, History, ParentRef, RunQuery, RunRecord,
-    RunStatus, RunSummary, RunView, StationStatus, TaskStatus, Trigger, Workspace,
+    RunStatus, RunSummary, RunView, StationStatus, TaskStatus, Trigger, Workspace, WorktreeOutcome,
+    WorktreeRec,
 };
 use super::txn::{apply_inputs, check_output, new_record, new_token, Txn};
 use super::validate::{validate, validate_yaml, Problem};
@@ -65,12 +66,22 @@ pub struct CreateIn {
     pub trigger: Option<Trigger>,
 }
 
+/// What the host made ready for a run before starting it ([`Engine::create_prepared`]): the id it
+/// allocated ([`Engine::alloc_id`]) and the worktree it made under that id. Neither is on the
+/// wire: only the host that made them can say them.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Prepared {
+    pub id: Option<String>,
+    pub worktree: Option<WorktreeRec>,
+}
+
 /// Where a new run works and how it came to be, checked.
 struct Place {
     project_root: Option<String>,
     workspace: Workspace,
     output_dir: Option<String>,
     trigger: Trigger,
+    worktree: Option<WorktreeRec>,
 }
 
 impl Place {
@@ -79,22 +90,16 @@ impl Place {
         rec.workspace = self.workspace;
         rec.output_dir = self.output_dir.clone();
         rec.trigger = self.trigger.clone();
+        rec.worktree = self.worktree.clone();
     }
 }
 
 /// A start's project, workspace, output directory and trigger, as the run will hold them: the
-/// root absolute (kept as given, but for trailing `/`s), a workspace in the project only with one.
-fn placement(input: &CreateIn, by: &Actor) -> Result<Place> {
-    let project_root = match input.project_root.as_deref().map(str::trim) {
-        None | Some("") => None,
-        Some(r) if !std::path::Path::new(r).is_absolute() => {
-            return invalid(format!("project_root {r:?} is not an absolute path"))
-        }
-        Some(r) => Some(super::run::trim_root(r).to_string()),
-    };
-    let workspace = input
-        .workspace
-        .unwrap_or_else(|| Workspace::default_for(project_root.as_deref()));
+/// root absolute (kept as given, but for trailing `/`s), a workspace in the project only with one
+/// (the start's, else the flow's, else the project itself).
+fn placement(input: &CreateIn, by: &Actor, def: &FlowDef, worktree: Option<WorktreeRec>) -> Result<Place> {
+    let project_root = project_root_of(input)?;
+    let workspace = Workspace::chosen(input.workspace, def.workspace, project_root.as_deref());
     if workspace.in_project() && project_root.is_none() {
         return invalid(format!("workspace {} needs a project_root", workspace.as_str()));
     }
@@ -103,7 +108,17 @@ fn placement(input: &CreateIn, by: &Actor) -> Result<Place> {
         workspace,
         output_dir: input.output_dir.clone().filter(|d| !d.trim().is_empty()),
         trigger: input.trigger.clone().unwrap_or_else(|| Trigger::manual(by.clone())),
+        worktree: worktree.filter(|_| workspace == Workspace::Worktree),
     })
+}
+
+/// A start's project as the run will hold it: absolute, kept as given but for trailing `/`s.
+fn project_root_of(input: &CreateIn) -> Result<Option<String>> {
+    match input.project_root.as_deref().map(str::trim) {
+        None | Some("") => Ok(None),
+        Some(r) if !std::path::Path::new(r).is_absolute() => invalid(format!("project_root {r:?} is not an absolute path")),
+        Some(r) => Ok(Some(super::run::trim_root(r).to_string())),
+    }
 }
 
 /// The kernel. Cheap to share behind an `Arc`; it holds no state of its own.
@@ -151,6 +166,24 @@ fn invalid<T>(m: impl Into<String>) -> Result<T> {
     Err(FlowError::Invalid(m.into()))
 }
 
+/// Whether something may still be done with `rec`'s worktree: the run is over, the worktree its
+/// own, and not merged or discarded yet (a kept branch may still be either).
+pub fn worktree_may_end(rec: &RunRecord) -> Result<&WorktreeRec> {
+    let Some(w) = rec.worktree.as_ref().filter(|_| rec.workspace == Workspace::Worktree) else {
+        return invalid(format!("run {} does not work in a worktree", rec.id));
+    };
+    if let Some(p) = &rec.parent {
+        return invalid(format!("run {} works in the worktree of its parent run {}: decide there", rec.id, p.run));
+    }
+    if rec.is_active() {
+        return invalid(format!("run {} is still going: its worktree is decided once it is over", rec.id));
+    }
+    if let Some(o) = w.outcome.as_ref().filter(|_| w.settled()) {
+        return invalid(format!("the worktree of run {} was {} already", rec.id, o.kind.as_str()));
+    }
+    Ok(w)
+}
+
 impl Engine {
     pub fn new(store: Arc<dyn RunStore>, packs: Arc<dyn Packs>) -> Self {
         Self {
@@ -181,11 +214,16 @@ impl Engine {
             .map(|r| super::refs::workspace_of(r, run))
     }
 
-    /// Where a run works (`${workspace}`): a task's project — its worktree's directory is the one
-    /// place that changes when a run works in one — else its scratch directory.
+    /// Where a run works (`${workspace}`): a task's project, or the project's place in its
+    /// worktree (`<project>/.harnix/worktrees/<run>`, the one the run records) — else its scratch
+    /// directory.
     pub fn workspace_for(&self, rec: &RunRecord) -> Option<std::path::PathBuf> {
         match (rec.workspace, &rec.project_root) {
-            (Workspace::Project | Workspace::Worktree, Some(root)) => Some(std::path::PathBuf::from(root)),
+            (Workspace::Project, Some(root)) => Some(std::path::PathBuf::from(root)),
+            (Workspace::Worktree, Some(root)) => Some(match &rec.worktree {
+                Some(w) => w.dir(),
+                None => super::refs::worktree_dir(root, &rec.id),
+            }),
             _ => self.workspace(&rec.id),
         }
     }
@@ -450,20 +488,39 @@ impl Engine {
         )
     }
 
+    /// An id for a run of `flow` not started yet: for a host that makes something under it first
+    /// ([`Prepared`]). An id never used is skipped, never handed out again.
+    pub async fn alloc_id(&self, flow: &str, project_root: Option<&str>) -> Result<String> {
+        let (def, _) = self
+            .packs_for(project_root)
+            .flow(flow)
+            .ok_or_else(|| FlowError::NotFound(format!("flow {flow}")))?;
+        Ok(self.store.alloc_id(&def.name).await?)
+    }
+
     /// Start a run of a pack's flow; the definition is validated and pinned.
     /// `value`: `{run}`.
     pub async fn create(&self, input: CreateIn, by: Actor) -> Result<Outcome> {
+        self.create_prepared(input, by, Prepared::default()).await
+    }
+
+    /// [`Engine::create`] under the id the host allocated, with the worktree it made: what a run in
+    /// a worktree is started with.
+    pub async fn create_prepared(&self, input: CreateIn, by: Actor, prepared: Prepared) -> Result<Outcome> {
         self.may_create(&input, &by)?;
-        let place = placement(&input, &by)?;
         // In a project, its own flows and parts over the application's.
-        let packs = self.packs_for(place.project_root.as_deref());
+        let packs = self.packs_for(project_root_of(&input)?.as_deref());
         let (def, digest) = packs
             .flow(&input.flow)
             .ok_or_else(|| FlowError::NotFound(format!("flow {}", input.flow)))?;
         check_def(&def, packs.as_ref())?;
         let inputs = apply_inputs(&def, &input.inputs).map_err(FlowError::Invalid)?;
+        let place = placement(&input, &by, &def, prepared.worktree.clone())?;
         transact!(self, by.clone(), |t| {
-            let id = self.store.alloc_id(&def.name).await?;
+            let id = match &prepared.id {
+                Some(id) => id.clone(),
+                None => self.store.alloc_id(&def.name).await?,
+            };
             let mut rec = new_record(
                 id.clone(),
                 def.clone(),
@@ -489,6 +546,25 @@ impl Engine {
             t.fx.advance.insert(id.clone());
             t.settle().await?;
             Ok(json!({"run": id}))
+        })
+    }
+
+    /// Record what became of a run's worktree, once the host did it: the run is over, has a
+    /// worktree of its own (not its parent's) that is not merged or discarded yet. `value`:
+    /// `{run, worktree}`.
+    pub async fn worktree_ended(&self, run: &str, outcome: WorktreeOutcome, by: Actor) -> Result<Outcome> {
+        transact!(self, by.clone(), |t| {
+            t.load(run).await?;
+            let rec = t.get(run);
+            worktree_may_end(rec)?;
+            self.authorize(&Op::Worktree { action: outcome.kind.as_str().to_string() }, &by, Some(rec))?;
+            let mut m = t.m(run);
+            let detail = serde_json::to_value(&outcome).unwrap_or(Value::Null);
+            if let Some(w) = m.rec.worktree.as_mut() {
+                w.outcome = Some(outcome.clone());
+            }
+            m.log("worktree", None, None, detail);
+            Ok(json!({"run": run, "worktree": m.rec.worktree}))
         })
     }
 

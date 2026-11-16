@@ -7,6 +7,8 @@
 //! dispatch.rs  carrying out an Outcome: events, programs, and every work item handed on
 //! publish.rs   the topics: `run`, `runs`, `defs`, `focus`, `dry_runs`
 //! project.rs   a run's output directory and process directory in its project
+//! worktree.rs  a run in a worktree of its project: made at start, merged, kept or discarded after
+//! git.rs       the git command line worktree.rs works through
 //! session.rs   a session task: placing, opening and binding its session
 //! turns.rs     a session task's turns: sending, judging, correcting, nudging, interrupting
 //! gate.rs      a gate's work item; `command` gates
@@ -39,6 +41,7 @@
 mod author;
 mod dispatch;
 mod gate;
+mod git;
 mod hooks;
 mod main;
 mod methods;
@@ -49,6 +52,7 @@ mod session;
 mod shared;
 mod tools;
 mod turns;
+mod worktree;
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};

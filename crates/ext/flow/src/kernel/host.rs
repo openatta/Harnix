@@ -321,6 +321,10 @@ pub enum Op {
         kind: PartKind,
         name: String,
     },
+    /// Deciding a finished run's worktree: `merged`, `kept` or `discarded` (`WorktreeEnd`).
+    Worktree {
+        action: String,
+    },
 }
 
 impl Op {
@@ -342,6 +346,7 @@ impl Op {
             Self::AttachSession { .. } => "attach_session",
             Self::EditFlow { .. } => "edit_flow",
             Self::EditPart { .. } => "edit_part",
+            Self::Worktree { .. } => "worktree",
         }
     }
 }

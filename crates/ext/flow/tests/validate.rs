@@ -396,6 +396,16 @@ fn guard_and_output_dir_are_checked() {
 }
 
 #[test]
+fn a_flow_works_in_the_project_or_a_worktree_of_it() {
+    for ws in ["project", "worktree"] {
+        let ok = format!("name: x\nworkspace: {ws}\nstations: [{{id: a, exit: [{{kind: confirm}}]}}]");
+        assert!(problems(&ok).is_empty(), "{ws}: {:#?}", problems(&ok));
+    }
+    assert_problem("name: x\nworkspace: scratch\nstations: [{id: a, exit: [{kind: confirm}]}]", "project | worktree");
+    assert_problem("name: x\nworkspace: elsewhere\nstations: [{id: a, exit: [{kind: confirm}]}]", "elsewhere");
+}
+
+#[test]
 fn input_defaults_satisfy_their_schema() {
     assert_problem(
         "name: x\ninputs: {mode: {schema: {enum: [a, b]}, default: c}}\nstations: [{id: a, exit: [{kind: confirm}]}]",
