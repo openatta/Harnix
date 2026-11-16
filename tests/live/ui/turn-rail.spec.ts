@@ -84,7 +84,8 @@ test("⌥↑ goes to the turn before the one being read, and a composer with tex
   await expect(ticks(page).nth(8)).toHaveAttribute("aria-current", "true");
   await page.keyboard.press("Alt+ArrowUp");
   await expect(ticks(page).nth(7)).toHaveAttribute("aria-current", "true");
-  await expect(page.locator("[data-turn-anchor]").nth(7)).toBeInViewport();
+  // The anchor is drawn as its contents (`display: contents`): what is in view is its first box.
+  await expect(page.locator("[data-turn-anchor]").nth(7).locator(":scope > *").first()).toBeInViewport();
   await page.keyboard.press("Alt+ArrowDown");
   await expect(ticks(page).nth(8)).toHaveAttribute("aria-current", "true");
 

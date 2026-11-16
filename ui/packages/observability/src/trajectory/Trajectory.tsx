@@ -65,6 +65,12 @@ export function Trajectory({ observed, session, tool, compact: compactMode = fal
   const [narrowing, setNarrowing] = useState<Narrowing>({ filter: "all", query: "", range: null });
   const [shown, setShown] = useState(PAGE_TURNS);
   const [selected, setSelected] = useState<number | null>(null);
+  // Back from the inspector: it closes, and the call stays marked in the list, where the person was.
+  const [inspecting, setInspecting] = useState(false);
+  const pick = (index: number) => {
+    setSelected(index);
+    setInspecting(true);
+  };
   // A jump from a tool row names a tool call: the call that asked for it is picked out once the calls are in.
   const [focus, setFocus] = useState(() => tool ?? null);
 
@@ -132,6 +138,7 @@ export function Trajectory({ observed, session, tool, compact: compactMode = fal
     const call = calls.find((c) => c.tools.some((t) => t.id === focus));
     if (call) {
       setSelected(call.index);
+      setInspecting(true);
       const group = groups.find((g) => g.calls.includes(call) || g.agents.some((a) => a.calls.includes(call)));
       if (group) setShown((n) => Math.max(n, groups.length - groups.indexOf(group)));
     }
@@ -140,12 +147,12 @@ export function Trajectory({ observed, session, tool, compact: compactMode = fal
 
   if (error) return <Failure error={error} testId="system-calls-failed" />;
   if (!calls) return null;
-  const opened = selected != null ? (all.find((c) => c.index === selected) ?? null) : null;
+  const opened = selected != null && inspecting ? (all.find((c) => c.index === selected) ?? null) : null;
   const previous = opened ? (all.filter((c) => c.index < opened.index && !c.purpose && c.session_id === opened.session_id).pop() ?? null) : null;
-  const inspector = opened ? <CallDetail observed={observed} session={session} call={opened} ordinal={all.indexOf(opened) + 1} previous={previous} onBack={() => setSelected(null)} /> : null;
+  const inspector = opened ? <CallDetail observed={observed} session={session} call={opened} ordinal={all.indexOf(opened) + 1} previous={previous} onBack={() => setInspecting(false)} /> : null;
   const fold = (level: Level) => setFolding((f) => foldLevel(f, level, !f[level]));
   const jump = (index: number) => {
-    setSelected(index);
+    pick(index);
     const group = groups.find((g) => g.calls.some((c) => c.index === index) || g.aux.some((c) => c.index === index) || g.agents.some((a) => a.calls.some((c) => c.index === index)));
     if (group) setShown((n) => Math.max(n, groups.length - groups.indexOf(group)));
   };
@@ -220,7 +227,7 @@ export function Trajectory({ observed, session, tool, compact: compactMode = fal
                 folding={folding}
                 onFold={(level, key) => setFolding((f) => toggleFold(f, level, key))}
                 selected={selected}
-                onSelect={setSelected}
+                onSelect={pick}
                 narrowedNow={narrowed(narrowing)}
                 located={tool ?? null}
                 follow={!narrowed(narrowing)}
@@ -512,7 +519,7 @@ function TrajectoryRow({
 }
 
 function callOut(call: TraceCall, tr: (k: string, v?: Record<string, unknown>) => string): string {
-  if (call.status === "error") return `${tr("system.error")}: ${call.error?.message ?? call.error?.kind ?? ""}`;
+  if (call.status === "error") return `${tr("system.error")}: ${call.error?.message || call.error?.kind || ""}`;
   if (call.output.text_preview) return call.output.text_preview;
   const tools = call.tools.map((tool) => `tool_use: ${tool.name}`).join(", ");
   const text = call.output.chars ? tr("system.callOutChars", { chars: call.output.chars }) : "";

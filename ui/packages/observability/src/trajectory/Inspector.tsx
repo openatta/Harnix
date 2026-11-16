@@ -95,7 +95,8 @@ export function CallDetail({
       </div>
       <div className="cd-stats">
         {usageText(call.usage)} · {call.duration_ms != null ? `${(call.duration_ms / 1000).toFixed(1)}s` : "—"} · {call.stop_reason ?? call.status}
-        {failed(call) ? <span data-testid="call-failure"> · {call.error?.message ?? call.error?.kind}</span> : null}
+        {/* The engine leaves `message` empty when the provider said nothing more than the kind. */}
+        {failed(call) ? <span data-testid="call-failure"> · {call.error?.message || call.error?.kind}</span> : null}
       </div>
       <div className="stabs" role="tablist">
         {(["input", "output"] as const).map((s) => (

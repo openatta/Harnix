@@ -78,11 +78,16 @@ export function Timeline({
         onWheel={onWheel}
         onPointerDown={(e) => {
           if (e.button !== 0) return;
-          strip.current?.setPointerCapture?.(e.pointerId);
           const t = at(e.clientX);
           setDrag([t, t]);
         }}
-        onPointerMove={(e) => drag && setDrag([drag[0], at(e.clientX)])}
+        onPointerMove={(e) => {
+          if (!drag) return;
+          // Captured once it moves, not on the press: a captured press's click goes to the strip, and
+          // a bar clicked would not open its call.
+          if (!strip.current?.hasPointerCapture?.(e.pointerId)) strip.current?.setPointerCapture?.(e.pointerId);
+          setDrag([drag[0], at(e.clientX)]);
+        }}
         onPointerUp={() => {
           if (!drag) return;
           const [a, b] = drag[0] <= drag[1] ? drag : [drag[1], drag[0]];
