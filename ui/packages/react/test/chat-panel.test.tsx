@@ -507,6 +507,49 @@ describe("菜单", () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
+  it("带 submit 的命令收参数：发出的 `/<名> <参数>` 交给它、不发送，答 false 时字留着；取名字最长的那条", async () => {
+    const submit = vi.fn(async (args: string) => args !== "keep");
+    const other = vi.fn();
+    mount({ commands: [{ name: "flow", submit }, { name: "flowx", submit: other }, { name: "flow review" }] });
+    await settle();
+    type("/flow review fix the bug");
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(submit).toHaveBeenCalledWith("review fix the bug");
+    expect(other).not.toHaveBeenCalled();
+    expect(input().value).toBe("");
+    type("/flow keep");
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(input().value).toBe("/flow keep");
+    expect(server.calls.filter((f) => f.method === "harnix.session.send")).toHaveLength(0);
+    // 不是它的名字：照常发送
+    type("/flowy x");
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(submit).toHaveBeenCalledTimes(2);
+    expect(server.calls.filter((f) => f.method === "harnix.session.send")).toHaveLength(1);
+  });
+
+  it("名字里带空格的命令：打了空格之后菜单仍列接得上的那些；接不上就收起，@ 照旧", async () => {
+    const search = vi.fn(async () => [{ id: "SR-1", label: "x" }]);
+    mount({ commands: [{ name: "flow" }, { name: "flow review" }, { name: "flow ship" }, { name: "compact" }], mention: search });
+    await settle();
+    type("/flow ");
+    expect(within(screen.getByTestId("conv-menu")).getAllByTestId("conv-menu-item").map((n) => n.dataset.id)).toEqual(["flow review", "flow ship"]);
+    type("/flow re");
+    expect(within(screen.getByTestId("conv-menu")).getAllByTestId("conv-menu-item").map((n) => n.dataset.id)).toEqual(["flow review"]);
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(input().value).toBe("/flow review ");
+    type("/flow review fix");
+    expect(screen.queryByTestId("conv-menu")).toBeNull();
+    type("/compact now");
+    expect(screen.queryByTestId("conv-menu")).toBeNull();
+    type("/flow review @s");
+    await settle();
+    expect(screen.getByTestId("conv-menu").dataset.kind).toBe("@");
+  });
+
   it("@ 经应用给的搜索列出条目；点一项插入编号", async () => {
     const search = vi.fn(async (q: string) => [{ id: "SR-002", label: "部署记录" }].filter((x) => x.id.includes(q.toUpperCase())));
     mount({ mention: search });

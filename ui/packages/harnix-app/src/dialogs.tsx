@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { errorText, type Scene } from "@harnix/core";
 import { DialogBody, DialogFoot, Glyph, t, useHello, useT, type HostApi, type MenuItem } from "@harnix/react";
 
+import type { ProjectItemContext, ProjectTrust } from "./items.ts";
 import { SESSIONS, type AppStore, type TrustItem, type TrustStatus, type Workspace } from "./store.ts";
 
 /** Run a call; a failure is said in the banner, in `failed`'s words when given. */
@@ -513,6 +514,35 @@ export async function untrust(host: HostApi, store: AppStore, root: string, name
 
 /** A project's menu, anchored where it was opened; `more` goes after "new session" (what the
  *  registered item kinds make: a task). */
+/**
+ * A project's trust as the kinds of item see it (`ProjectItemContext.trust`): read again each
+ * time, and asked for with the same dialog as the project's menu. A project whose trust cannot be
+ * read says null.
+ */
+export function projectTrust(host: HostApi, store: AppStore, workspace: Workspace): ProjectTrust {
+  const root = workspace.path;
+  const name = workspace.title ?? workspace.path;
+  const status = async () => {
+    try {
+      return (await store.loadTrust(root))?.trust ?? null;
+    } catch {
+      return null;
+    }
+  };
+  return {
+    status,
+    ask: async () => {
+      await trustDialog(host, store, root, name);
+      return store.getSnapshot().trust[root]?.trust === "trusted";
+    },
+  };
+}
+
+/** What a kind of item is handed about a project: its directory, the session space, its trust. */
+export function projectContext(host: HostApi, store: AppStore, workspace: Workspace): ProjectItemContext {
+  return { root: workspace.path, workspace, space: SESSIONS, trust: projectTrust(host, store, workspace) };
+}
+
 export function workspaceMenu(host: HostApi, store: AppStore, workspace: Workspace, anchor: Element | { x: number; y: number }, more: MenuItem[] = []): void {
   const name = workspace.title ?? workspace.path;
   // Trust is offered for a project whose trust could be read, or is still being read: not for one

@@ -50,12 +50,30 @@ interface Trigger {
   to: number;
 }
 
-/** 光标所在的触发：开头的 `/命令`，或任意位置、词首的 `@引用`（与旧界面 composer.js 相同的规则）。 */
-function currentTrigger(value: string, caret: number): Trigger | null {
-  if (value.startsWith("/") && !value.slice(0, caret).includes(" ") && !value.slice(0, caret).includes("\n")) {
-    return { kind: "/", query: value.slice(1, caret), from: 0, to: caret };
+/**
+ * `/<名> <参数>` 交给哪条带 `submit` 的命令：名字是消息开头、后面是空白或结尾的，取名字最长的那条；参数是名字之后去掉首尾空白的部分。
+ */
+export function submitted(commands: readonly ChatCommand[] | null, message: string): { command: ChatCommand; args: string } | null {
+  if (!message.startsWith("/")) return null;
+  let best: ChatCommand | null = null;
+  for (const c of commands ?? []) {
+    if (!c.submit || !c.name) continue;
+    const head = `/${c.name}`;
+    if (message !== head && !(message.startsWith(head) && /\s/.test(message[head.length]!))) continue;
+    if (!best || c.name.length > best.name.length) best = c;
   }
+  return best ? { command: best, args: message.slice(best.name.length + 1).trim() } : null;
+}
+
+/**
+ * 光标所在的触发：开头的 `/命令`，或任意位置、词首的 `@引用`（与旧界面 composer.js 相同的规则）。
+ * `/` 之后打了空格时，只有 `words(query)` 为真（名字里带空格的命令接得上打的字，如 `/<命令> <参数>` 的候选）才仍是 `/` 菜单。
+ */
+function currentTrigger(value: string, caret: number, words: (query: string) => boolean = () => false): Trigger | null {
   const before = value.slice(0, caret);
+  if (value.startsWith("/") && !before.includes("\n") && (!before.includes(" ") || words(before.slice(1)))) {
+    return { kind: "/", query: before.slice(1), from: 0, to: caret };
+  }
   const at = before.lastIndexOf("@");
   if (at === -1) return null;
   const boundary = at === 0 || /\s/.test(before[at - 1]!);
@@ -243,6 +261,22 @@ export function ChatComposer(props: ChatComposerProps) {
   const submitText = (value: string, fromInput: boolean) => {
     const message = value.trim();
     if (!message || props.disabled || sending || uploading) return;
+    // 带 `submit` 的命令：`/<名> <参数>` 交给它，不发送；它答 false 时输入框照旧
+    const taken = fromInput ? submitted(props.commands, message) : null;
+    if (taken) {
+      setSending(true);
+      Promise.resolve()
+        .then(() => taken.command.submit!(taken.args))
+        .then((done) => {
+          if (done !== false) clear();
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          setSending(false);
+          input.current?.focus();
+        });
+      return;
+    }
     setSending(true);
     props
       .send(message, fromInput ? attached.map((a) => a.attachment) : [])
@@ -259,7 +293,9 @@ export function ChatComposer(props: ChatComposerProps) {
   };
 
   const refreshMenu = (value: string, caret: number) => {
-    const trigger = currentTrigger(value, caret);
+    // 打了空格之后还接得上的：名字里带空格、以打的字开头的命令
+    const words = (query: string) => (props.commands ?? []).some((c) => c.name.includes(" ") && c.name.toLowerCase().startsWith(query.toLowerCase()));
+    const trigger = currentTrigger(value, caret, words);
     if (!trigger) {
       setMenu(null);
       return;
