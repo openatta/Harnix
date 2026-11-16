@@ -186,6 +186,18 @@ impl HostSide {
         &self.gates
     }
 
+    /// The hooks registered on the connection as of the last registration, the one before tool
+    /// calls with the providers whose hooks it asks.
+    pub(crate) fn registered_hooks(&self) -> Vec<harnix_engine_link::HostHook> {
+        let (tool_hooks, gates) = *lock(&self.hooks_on);
+        let asked: Vec<String> =
+            self.providers.iter().filter(|p| !p.hooks().is_empty()).map(|p| p.name().to_string()).collect();
+        translate::registered_hooks(tool_hooks, gates)
+            .into_iter()
+            .map(|hook| if hook.tools.is_empty() { hook } else { hook.providers(asked.clone()) })
+            .collect()
+    }
+
     /// Declare the tools and register the hooks on `wire`. Taking a connection (`connecting`), a
     /// registration that fails refuses it: a gate left off would let through what it is there to
     /// stop. After a change, a failure is logged, and the registration made again before the next

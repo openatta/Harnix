@@ -170,6 +170,10 @@ fn contract(cfg: &Config) -> Generated {
         Rating, FeedbackCategory, Feedback, FeedbackFiled, FeedbackNotice,
         // Answering a session's asks.
         AskKind, AskReply, RespondParams, AskAnsweredKind, AskAnswered,
+        // What a session sees: its skills and hooks.
+        SkillTier, SkillRow, ShadowedSkill, SkillDirRow, SessionSkills, HookSource, HookRow, SessionHooks,
+        // Each extension's log.
+        ExtensionLogOrigin, ExtensionLogLine, ExtensionLogCount, ExtensionLog,
     ]);
     Generated {
         path: "core/src/protocol/generated/contract.ts",

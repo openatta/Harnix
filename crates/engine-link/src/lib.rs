@@ -23,7 +23,7 @@ pub mod scene;
 
 pub use chain::{ChainSource, NoChains};
 pub use events::{Completion, DaemonEventKind, EngineEvent, FileWrite, Fragment, Joins, Prompt, SessionEventKind, Waiting};
-pub use link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus, EVENT_CAPACITY};
+pub use link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, HostHook, InstanceCarrier, LinkStatus, EVENT_CAPACITY};
 pub use ops::{Answer, EngineOps, Entry, HistoryPage, Message, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput, HUB_OWNED_OPTIONS};
 pub use readers::Readers;
 pub use scene::{ExpandedScene, SceneLayers};

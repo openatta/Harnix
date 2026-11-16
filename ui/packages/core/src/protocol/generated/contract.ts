@@ -793,3 +793,183 @@ export type AskAnswered = { kind: AskAnsweredKind, prompt_id: string, prompt_typ
  * The extension that answered (`flow`, by its policy); absent when a person did.
  */
 extension?: string, };
+
+/**
+ * Where a skill a session sees comes from.
+ */
+export type SkillTier = "space" | "project" | "plugin" | "user" | "builtin";
+
+/**
+ * One skill a session sees: `harnix.session.skills`'s row.
+ */
+export type SkillRow = { name: string, description: string, tier: SkillTier, 
+/**
+ * The directory it was read from, when it can be said: a space tier's package directory, the
+ * project's `.agents/skills`, a plugin package's root.
+ */
+dir?: string, 
+/**
+ * The extension package that brought it (the space tier).
+ */
+package?: string, 
+/**
+ * The engine plugin package that brought it (the plugin tier).
+ */
+plugin?: string, 
+/**
+ * Held back in part until the project is trusted: its inline commands are not run, and its
+ * `allowed-tools` grant nothing.
+ */
+withheld: boolean, };
+
+/**
+ * A skill of a listed directory that another of the same name hides.
+ */
+export type ShadowedSkill = { skill: string, 
+/**
+ * The tier whose skill holds the name, as the engine says it: `user`, `project` or `host`.
+ */
+by: string, };
+
+/**
+ * One skill directory Harnix lists for the session (a package's, by the session's space).
+ */
+export type SkillDirRow = { path: string, 
+/**
+ * The package whose directory it is, when Harnix knows it.
+ */
+package?: string, 
+/**
+ * `ok`, `missing` (not there yet) or `refused` (did not pass the engine's checks on resume);
+ * absent for a session not in the engine's memory.
+ */
+state?: string, 
+/**
+ * The skills it gives the session.
+ */
+skills: Array<string>, 
+/**
+ * Its skills another of the same name hides.
+ */
+shadowed: Array<ShadowedSkill>, };
+
+/**
+ * `harnix.session.skills`: the skills a session sees, and where each comes from.
+ */
+export type SessionSkills = { instance: string, session_id: string, 
+/**
+ * Whether the engine listed them: it lists a session's skills only while the session is in
+ * its memory. False, and `skills` is empty, for one that is only on disk.
+ */
+listed: boolean, 
+/**
+ * The project's trust, as the engine says it (`trusted`, `untrusted`, `none`); absent with no
+ * project, or when the engine could not say.
+ */
+trust?: string, skills: Array<SkillRow>, dirs: Array<SkillDirRow>, };
+
+/**
+ * Where a hook a session runs comes from.
+ */
+export type HookSource = "global" | "scene" | "project" | "host";
+
+/**
+ * One hook: `harnix.session.hooks`'s row. Never what it runs — no command, URL, header or
+ * prompt text: those can carry credentials, and the settings page shows only how many there are.
+ */
+export type HookRow = { 
+/**
+ * The engine's event (`PreToolUse`, `Stop`, …).
+ */
+event: string, source: HookSource, 
+/**
+ * `command`, `prompt`, `http` or `agent` for a settings hook; `host` for one this process
+ * answers; `other` for a type this version does not know.
+ */
+kind: string, 
+/**
+ * What it applies to: a settings hook's `if`, a host hook's tool patterns; cut short.
+ */
+matcher?: string, 
+/**
+ * A short label safe to show: the kind and the matcher.
+ */
+label: string, 
+/**
+ * What a failure does: `allow` or `block`, when it says.
+ */
+on_error?: string, 
+/**
+ * Whether it runs: not a project's while the project is untrusted, nor one whose event a
+ * higher tier also configures.
+ */
+in_force: boolean, 
+/**
+ * Held back until the project is trusted.
+ */
+withheld: boolean, 
+/**
+ * The tier whose list for the same event replaces this one's.
+ */
+replaced_by?: HookSource, 
+/**
+ * A host hook's providers: whose hooks before a tool call it asks; empty for any other.
+ */
+providers: Array<string>, };
+
+/**
+ * `harnix.session.hooks`: the hooks a session's turns run, by where each comes from.
+ */
+export type SessionHooks = { instance: string, session_id: string, trust?: string, hooks: Array<HookRow>, 
+/**
+ * The settings tiers that could not be read: their hooks are unknown, not absent.
+ */
+unread: Array<HookSource>, };
+
+/**
+ * How a line came to be one extension's.
+ */
+export type ExtensionLogOrigin = "call" | "package" | "process" | "host";
+
+/**
+ * One line of an extension's log.
+ */
+export type ExtensionLogLine = { 
+/**
+ * Rising across the process: what a reader asks after.
+ */
+seq: number, at_ms: number, extension: string, 
+/**
+ * `error`, `warn`, `info`, `debug` or `trace`.
+ */
+level: string, origin: ExtensionLogOrigin, 
+/**
+ * Where it was logged from (the tracing target).
+ */
+target: string, 
+/**
+ * The message, then its other fields as `name=value`; cut short.
+ */
+message: string, };
+
+/**
+ * How many lines one extension has kept.
+ */
+export type ExtensionLogCount = { extension: string, lines: number, };
+
+/**
+ * `harnix.extensions.log` (and `system.extensions.log`): the lines kept, oldest first.
+ */
+export type ExtensionLog = { lines: Array<ExtensionLogLine>, 
+/**
+ * The newest `seq` in the log, whether or not it was asked for: the next read's `after`.
+ */
+last: number, 
+/**
+ * Every extension with lines kept.
+ */
+extensions: Array<ExtensionLogCount>, 
+/**
+ * Lines let go, across the process, since it started: the ring keeps only the newest.
+ */
+dropped: number, };

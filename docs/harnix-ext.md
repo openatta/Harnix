@@ -976,7 +976,7 @@ pub trait Extension: Send + Sync + 'static {
 | `engine.export` | `engine.session.export`、`harnix.session.import` | ✔ | | harnix-app |
 | `engine.mcp` | 引擎的 MCP 服务器与登录：`engine.mcp.addServer`、`updateServer`（只写项目层）、`auth.start / complete / cancel / logout` | ✔ | | settings（可选） |
 | `recordings.read` · `transcripts.read` | 录像与用量的读者 · 转录的读者；都经引擎的协议读（`session.calls`、`call`、`callBlob`、`search`），每台实例各有一套，实例连不上读者返回 `Unavailable` | ✔ | | observability · harnix-app |
-| `process.observe` | 版本、运行时长、内存、线程、已连接的客户端 | ✔ | | system |
+| `process.observe` | 版本、运行时长、内存、线程、已连接的客户端；各扩展的日志 | ✔ | | system |
 | `devices.manage` | 配对码、列设备、撤销设备 | ✔ | | devices |
 | `extensions.manage` | 拿 `harnix-host-api` 的 `HostServices`：运行期登记扩展、拉起扩展进程、收养扩展进程的引擎 | ✔ | | packages |
 | `ui.page` | 进页面的 ES 模块 | ✔ | 只 `trusted` 发布者 | — |
@@ -1068,6 +1068,27 @@ pub trait Extension: Send + Sync + 'static {
 同一个 crate 里还有一个**过渡**服务 `SettingsTiers`（`cx.service::<SettingsTiers>()`，要 `engine.config.write`，句柄 `dyn SettingsFiles`：
 `global(instance)`、`scene(instance, scene)` 给出一台实例的引擎读的全局层与场景层 `settings.json` 在哪）。它是 Agix 设置目录的布局，只有第一方 `settings` 用——
 引擎接下全局层的写入（经协议）之后连它一起删；所以在 S3，不在 S1。
+
+### 17.9 日志：扩展日志
+
+扩展照常用 `tracing` 写日志，不用自己标是谁的。本进程另记一份**扩展日志**：属于某个扩展的行，按扩展分开、有界地留最新的（每个扩展至多 500 行，全进程至多 4000 行，
+超出时先丢全进程最旧的；一行的消息至多 2 KiB），和进程自己的日志分开过滤，`RUST_LOG` 不影响它。系统 space 的「扩展日志」页签读它（[系统 space](system-space.md) §6.1）。
+
+一行算谁的，按这个顺序认：
+
+| 来源 | 怎么认 | `origin` |
+|---|---|---|
+| 扩展进程（模式 3）的 stderr | 载体读 stderr 的那一端把每行记成这个扩展的（字段 `extension`、`stream = "stderr"`），级别照子进程那行写的 | `process` |
+| 宿主关于某个扩展的行 | 事件带 `extension` 字段（停用、迁移、扩展进程起来了……） | `host` |
+| WASM 扩展包 | 它的 `host::log`，以及它的载体关于它的行（字段 `app`）；`debug`、`trace` 的也留 | `package` |
+| 原生扩展 | 宿主在扩展被要求做的每件事外面开一个 span（`harnix_kernel::EXTENSION_SPAN`，即 `harnix.extension`，字段 `extension`）：应答一个方法、计算一个主题、订阅、`start`、`stop`。span 里 `info` 及以上的事件都是它的；一个扩展调另一个，被调的那个应答时写的是被调者的 | `call` |
+
+**原生扩展自己 `tokio::spawn` 的任务不在那个 span 里**，它写的行不进扩展日志（进程日志里照有）。要它们也算进来，把当前 span 带过去：
+`tokio::spawn(work.instrument(tracing::Span::current()))`，或在事件上写 `extension = %cx.id()`。
+
+读它：`harnix.extensions.log {extension?, level?, after?, limit?}`（要 `process.observe`；设备经 `system.extensions.log`）。`level` 是要的最低级别，`after` 是一行的 `seq`
+（全进程递增），答 `after` 之后、合乎条件的最新 `limit` 行（缺省 500，至多 1000），旧的在前：`{lines: [{seq, at_ms, extension, level, origin, target, message}], last, extensions: [{extension, lines}], dropped}`。
+`last` 是日志里最新一行的 `seq`，下一次读拿它当 `after`；`dropped` 是开机以来丢掉的行数。类型在 `harnix_contract::wire`（`ExtensionLog`）。
 
 ---
 
@@ -1251,6 +1272,8 @@ cookie。一帧最大 16 MiB（`MAX_FRAME_BYTES`），一次上传最大 32 MiB�
 | 握手与自述（装配） | `harnix.hello`（见下）、`harnix.reachable`、`harnix.diagnostics`、`harnix.audit`、`harnix.extensions`（每个扩展：id、信任、载体、版本、启用、授予、行数、停用理由）、`harnix.ui`（方法与主题同值：每个扩展的界面条目、Agix 包的界面模块、扩展包的面）、`harnix.bulk.upload` | 设备、扩展（`bulk.upload` 只设备） |
 | 会话驱动（中枢） | `harnix.sessions.list {space? \| instance?}`、`harnix.session.attach`、`.detach`、`.send`、`.queue.remove`、`.queue.edit {session_id, item_id, message}`（改排队中一条的话，位置与附件不变；已开始或已撤回的答 REFUSED）、`.create`、`.interrupt`、`.close`、`.delete`、`.fork`、`.respond {instance?, session_id, prompt_id, prompt_type?, decision? | answer?, tool_use_id?}`（回答一个提问，先答者生效、后来的静默成功；权限与计划审阅（`prompt_type` 缺省或 `permission`）给 `decision`，模型的提问（`question`）给 `answer: {type: answer, text} | {type: decline, reason?}`，MCP server 的询问（`mcp_elicitation`）给 `answer: {type: accept, content?} | {type: decline} | {type: cancel}`，形状不合答 -32602；第一个被收下的回答由中枢写进会话的流（事件 `ask_answered {prompt_id, prompt_type, decision? | answer?, extension?}`，表单的 `content` 不带），类型 `RespondParams`、`AskReply`、`AskAnswered` 在 `harnix_contract::wire`；提问与询问只推给设备建的会话；flow 按策略作答）、`.tasks`、`.rename`（引擎的标题，标题只在引擎）、`.move {instance?, session_id, space}`、`.entries.append`、`.feedback {instance?, session_id, space?, turn_id, call_id?, rating, category?, note?}`（对一轮回答的反馈，只设备调，§7.3）、`.answerer {session_id, tool_use_id}`（回答该工具权限卡的设备 `device:<id>`，没有设备回答时是 `null`；读一次即忘，最多留最近 1024 条）、`.outline {instance?, session_id, space?}`（会话的各轮，见下）、`harnix.topics.subscribe`、`.unsubscribe`、`harnix.spaces.list` | 设备、扩展（再按 `topic:<名>` 与范围判） |
 | 回退（中枢） | `harnix.session.rewind {instance?, session_id, space?, to: "start" \| {turn} \| {before_turn} \| {tool_use}, scope?, dry_run?, fork_first?, force?, allow_partial?}`：文件、对话或两者回到之前一点，先 `dry_run` 看计划（[Harnix app](harnix-app.md) §5.1）；答 `RewindResult`。设备只对它声称的 space 的会话，不跨 space（同 `setModel`）；做完向每个观看者推 `harnix.session_resync` | 设备、`engine.control` |
+| 会话看得到的（中枢） | `harnix.session.skills {instance?, session_id, space?}`：会话看得到的 skill（`engine.commands.list` 里展开成提示词的那些），每个带来源层 `tier`（`space`：Harnix 按 space 给会话列的扩展包目录，带 `package`；`project`：项目的 `.agents/skills`；`plugin`：Agix 插件包，带 `plugin`；`user`：引擎的全局层或场景层，引擎不分；`builtin`）、`dir`、`withheld`（项目未受信时被扣下一部分：内联命令不跑、`allowed-tools` 不给）；另有 `dirs`（Harnix 列的目录、状态、被遮住的同名 skill）、`listed`（会话不在引擎内存里时为 `false`、`skills` 为空）、`trust`。`harnix.session.hooks {instance?, session_id, space?}`：会话的轮次跑的 hook，`source` 是 `global` / `scene` / `project`（设置三层的 `hooks_config`）或 `host`（本进程在连接上登记的，带 `providers`），每条只有 `event`、`kind`（`command` / `prompt` / `http` / `agent` / `host` / `other`）、`matcher`（`if` 或工具模式，至多 80 字）、`label`、`on_error`、`in_force`、`withheld`（项目未受信）、`replaced_by`（同一事件被高层的列表整个替换）——**不带命令、地址、请求头、提示词**；`unread` 列出读不到的层。类型在 `harnix_contract::wire`（`SessionSkills`、`SessionHooks`） | 设备 |
+| 扩展日志（装配） | `harnix.extensions.log {extension?, level?, after?, limit?}`（§17.9） | `process.observe` |
 | `[shell] model_switch = true` 时 | `harnix.session.setModel {instance?, session_id, model, provider?, space?}`：只作用于调用方声称的 space 的会话，会话属别的 space 答 `SPACE_MISMATCH`；扩展改模型用 `engine.session.setModel`（要 `engine.control`） | 设备 |
 | 实例（登记表） | `harnix.instances.list / templates / create / ensure / stop / restart / wait`。`create` / `ensure` 可带 `wait: "ready"`、`timeout_ms`（缺省 60000）：等这台变成 `ready` 再答，变成 `down` 立即以 `-31004` 报错（带理由），超时同样；`wait {instance, timeout_ms?}` 是对已有实例的同一种等。并发 `ensure` 同名同模板都拿到同一台。`templates` 只列调用方能建的 | 设备、扩展（`create` 只认 `ui` 模板；跨拥有者要 `instances.admin`） |
 | 　 | `harnix.instances.inheritProviders`：把 `main` 的 provider 并进所有 `inherit_providers` 模板的实例并让变了的重读，答 `{reloaded: [id…]}` | `engine.config.write` |
@@ -1262,7 +1285,7 @@ cookie。一帧最大 16 MiB（`MAX_FRAME_BYTES`），一次上传最大 32 MiB�
 | 　 | `engine.import.*` | 只有内核 |
 | 　 | `engine.session.run_turn / subscribe / unsubscribe`、`engine.daemon.subscribeEvents / shutdown` | **中枢独占**：谁都不能、不能授予 |
 | `harnix-app` | `harnix-app.workspaces.*`、`.prefs.set`、`.projects.create`、`.recentProjects`、`.listDirectory`、`.files {session_id | project_root, query?, limit?}`（只走会话的项目或这里的项目，见 [Harnix app](harnix-app.md) §6）、`.search`、`.sessions.archive`、`.sessions.importUpload {name}`（一次性上传凭据，答 `{token, url, max_bytes}`；页面把 zip 送到 `url`，走大负载旁路）、`.sessions.import {token, space?, project_root?}`（把上传的数据包装成新会话，答引擎的 `{root_session_id, id_map, sessions, warnings}` 加 `instance`、`space`；包里的项目这台机器上没有就装成无项目会话并在 `warnings` 里说）、`.sessions.export {instance?, session_id, space?, format: markdown \| archive \| bundle, recording?}`（答 `{format, file, content}`：markdown 是可读的对话；archive 是引擎打的 zip（`encoding: "base64"`，另带 `bytes`、`sessions`、`attachments`、`recording`、`warnings`）；bundle 是 Harnix 拼的 JSON；超过一帧时拒绝）、`harnix-app.describe`（项目目录等）、`.projects.status {project_root, instance?, scene?}`、`.projects.trust {project_root, trusted, instance?}`、`.sessions.projectStatus {instance?, session_id, space?}`（项目信任，答的形状见 [Harnix app](harnix-app.md) §3）；主题 `harnix-app.trust` | 设备 |
-| `system` | `system.context / messages.drop / messages.edit / tasks.stop / tasks.message / tasks.output / compact / clear / rename / model / goal / goal.set / goal.update`、`system.instances.stop / restart / create / templates`（面板列全部模板）、`system.process`（版本、运行时长、峰值内存、`threads`、已连接用户） | 设备 |
+| `system` | `system.context / messages.drop / messages.edit / tasks.stop / tasks.message / tasks.output / compact / clear / rename / model / goal / goal.set / goal.update`、`system.instances.stop / restart / create / templates`（面板列全部模板）、`system.process`（版本、运行时长、峰值内存、`threads`、已连接用户）、`system.extensions.log`（同 `harnix.extensions.log`，§17.9） | 设备 |
 | `observability` | `observability.trace`、`.trace.call {index}`、`.turns`、`.usage {instance?, session_ids}`（一次至多 200 个会话）、`.calls {instance?, session_id}` | 设备 |
 | `settings`、`plugins`、`devices` | `settings.*`（`setProvider` 的返回多一个 `reloaded_instances`；MCP 服务器的 `settings.mcp.*` 见 §22.9）、`plugins.*`、`devices.*` | 设备（`settings.mcp.context` 按会话） |
 | `packages` | `packages.*`：列、启停、装、升、卸、清数据、同意、商店。参数与答见 [扩展包](harnix-ext-package.md) | 设备 |

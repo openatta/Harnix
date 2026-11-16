@@ -1042,6 +1042,216 @@ impl AskAnswered {
     }
 }
 
+/* ── what a session sees: its skills and hooks ─────────────────────────── */
+
+/// Where a skill a session sees comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum SkillTier {
+    /// An extension package's skills, which Harnix lists for the session's space.
+    Space,
+    /// The project's own (`.agents/skills`).
+    Project,
+    /// An engine plugin package's.
+    Plugin,
+    /// The engine's user tiers: its global skills or its scene's — the engine does not say which.
+    User,
+    /// Built into the engine.
+    Builtin,
+}
+
+/// One skill a session sees: `harnix.session.skills`'s row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct SkillRow {
+    pub name: String,
+    pub description: String,
+    pub tier: SkillTier,
+    /// The directory it was read from, when it can be said: a space tier's package directory, the
+    /// project's `.agents/skills`, a plugin package's root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub dir: Option<String>,
+    /// The extension package that brought it (the space tier).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub package: Option<String>,
+    /// The engine plugin package that brought it (the plugin tier).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub plugin: Option<String>,
+    /// Held back in part until the project is trusted: its inline commands are not run, and its
+    /// `allowed-tools` grant nothing.
+    pub withheld: bool,
+}
+
+/// A skill of a listed directory that another of the same name hides.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct ShadowedSkill {
+    pub skill: String,
+    /// The tier whose skill holds the name, as the engine says it: `user`, `project` or `host`.
+    pub by: String,
+}
+
+/// One skill directory Harnix lists for the session (a package's, by the session's space).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct SkillDirRow {
+    pub path: String,
+    /// The package whose directory it is, when Harnix knows it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub package: Option<String>,
+    /// `ok`, `missing` (not there yet) or `refused` (did not pass the engine's checks on resume);
+    /// absent for a session not in the engine's memory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub state: Option<String>,
+    /// The skills it gives the session.
+    pub skills: Vec<String>,
+    /// Its skills another of the same name hides.
+    pub shadowed: Vec<ShadowedSkill>,
+}
+
+/// `harnix.session.skills`: the skills a session sees, and where each comes from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct SessionSkills {
+    pub instance: String,
+    pub session_id: String,
+    /// Whether the engine listed them: it lists a session's skills only while the session is in
+    /// its memory. False, and `skills` is empty, for one that is only on disk.
+    pub listed: bool,
+    /// The project's trust, as the engine says it (`trusted`, `untrusted`, `none`); absent with no
+    /// project, or when the engine could not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub trust: Option<String>,
+    pub skills: Vec<SkillRow>,
+    pub dirs: Vec<SkillDirRow>,
+}
+
+/// Where a hook a session runs comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum HookSource {
+    /// The engine's global settings.
+    Global,
+    /// The session's scene's settings.
+    Scene,
+    /// The project's settings.
+    Project,
+    /// Registered by this process on its connection to the engine: what extensions answer.
+    Host,
+}
+
+/// One hook: `harnix.session.hooks`'s row. Never what it runs — no command, URL, header or
+/// prompt text: those can carry credentials, and the settings page shows only how many there are.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HookRow {
+    /// The engine's event (`PreToolUse`, `Stop`, …).
+    pub event: String,
+    pub source: HookSource,
+    /// `command`, `prompt`, `http` or `agent` for a settings hook; `host` for one this process
+    /// answers; `other` for a type this version does not know.
+    pub kind: String,
+    /// What it applies to: a settings hook's `if`, a host hook's tool patterns; cut short.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub matcher: Option<String>,
+    /// A short label safe to show: the kind and the matcher.
+    pub label: String,
+    /// What a failure does: `allow` or `block`, when it says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub on_error: Option<String>,
+    /// Whether it runs: not a project's while the project is untrusted, nor one whose event a
+    /// higher tier also configures.
+    pub in_force: bool,
+    /// Held back until the project is trusted.
+    pub withheld: bool,
+    /// The tier whose list for the same event replaces this one's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub replaced_by: Option<HookSource>,
+    /// A host hook's providers: whose hooks before a tool call it asks; empty for any other.
+    #[serde(default)]
+    pub providers: Vec<String>,
+}
+
+/// `harnix.session.hooks`: the hooks a session's turns run, by where each comes from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct SessionHooks {
+    pub instance: String,
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub trust: Option<String>,
+    pub hooks: Vec<HookRow>,
+    /// The settings tiers that could not be read: their hooks are unknown, not absent.
+    pub unread: Vec<HookSource>,
+}
+
+/* ── extension logs ─────────────────────────────────────────────────────── */
+
+/// How a line came to be one extension's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum ExtensionLogOrigin {
+    /// Logged while the extension answered a call, computed a topic, started or stopped.
+    Call,
+    /// A WebAssembly package's own log, or its carrier's line about it.
+    Package,
+    /// A line its extension process wrote to stderr.
+    Process,
+    /// The host's line about it.
+    Host,
+}
+
+/// One line of an extension's log.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct ExtensionLogLine {
+    /// Rising across the process: what a reader asks after.
+    pub seq: u64,
+    pub at_ms: u64,
+    pub extension: String,
+    /// `error`, `warn`, `info`, `debug` or `trace`.
+    pub level: String,
+    pub origin: ExtensionLogOrigin,
+    /// Where it was logged from (the tracing target).
+    pub target: String,
+    /// The message, then its other fields as `name=value`; cut short.
+    pub message: String,
+}
+
+/// How many lines one extension has kept.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct ExtensionLogCount {
+    pub extension: String,
+    pub lines: usize,
+}
+
+/// `harnix.extensions.log` (and `system.extensions.log`): the lines kept, oldest first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct ExtensionLog {
+    pub lines: Vec<ExtensionLogLine>,
+    /// The newest `seq` in the log, whether or not it was asked for: the next read's `after`.
+    pub last: u64,
+    /// Every extension with lines kept.
+    pub extensions: Vec<ExtensionLogCount>,
+    /// Lines let go, across the process, since it started: the ring keeps only the newest.
+    pub dropped: u64,
+}
+
 /// Build a frame's `params` from one of these: a structure that does not serialize is a bug, and
 /// an empty object is the frame a client can at least parse.
 pub fn params<T: Serialize>(frame: &T) -> Value {

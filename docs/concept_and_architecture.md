@@ -737,7 +737,7 @@ fn main() -> anyhow::Result<()> {
 | `engine.export` | 导出、导入会话 | ✔ | | harnix-app |
 | `engine.mcp` | 给引擎加、改 MCP 服务器，登录远端的 | ✔ | | settings（可选） |
 | `recordings.read` · `transcripts.read` | 录像与用量的读者 · 转录的读者；都经引擎的协议读（`session.calls`、`call`、`callBlob`、`search`），每台实例各有一套，实例连不上读者返回 `Unavailable` | ✔ | | observability · harnix-app |
-| `process.observe` | 版本、运行时长、内存、线程、已连接的客户端 | ✔ | | system |
+| `process.observe` | 版本、运行时长、内存、线程、已连接的客户端；各扩展的日志 | ✔ | | system |
 | `devices.manage` | 配对码、列设备、撤销设备 | ✔ | | devices |
 | `extensions.manage` | 拿宿主组件接口：运行期登记扩展、拉起扩展进程、收养扩展进程的引擎 | ✔ | | packages |
 | `ui.page` | 进页面的 ES 模块 | ✔ | 只 `trusted` 发布者 | — |

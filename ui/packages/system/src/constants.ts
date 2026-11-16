@@ -24,3 +24,8 @@ export const STOP_ARM_MS = 3000;
 
 /** The most of a task's output this page keeps: the engine keeps the last 256 KiB. */
 export const OUTPUT_KEPT = 256 * 1024;
+
+/** How often the extension log is read again while it is live. */
+export const EXTLOG_EVERY = 2000;
+/** The most lines of the extension log the page keeps: the process keeps at most 500 an extension. */
+export const EXTLOG_KEPT = 1000;

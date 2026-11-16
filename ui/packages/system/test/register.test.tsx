@@ -40,7 +40,8 @@ describe("the system space's points", () => {
     r.settle();
     render(<RegistryProvider registry={r}>{space().center!.overview!()}</RegistryProvider>);
     const tabs = [...document.querySelectorAll('[role="tab"]')].map((el) => el.getAttribute("data-tab"));
-    expect(tabs).toEqual(["active", "all", "first", "later"]);
+    // Its own extension log is one of them, after the others' by its order.
+    expect(tabs).toEqual(["active", "all", "first", "later", "system.extlog"]);
     await act(async () => {
       (document.querySelector('[data-tab="later"]') as HTMLElement).click();
       await tick();

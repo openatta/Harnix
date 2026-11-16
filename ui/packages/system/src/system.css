@@ -1074,3 +1074,74 @@
   color: inherit;
   text-align: left;
 }
+
+/* The extension log: its filters above, then one line a row, the newest at the bottom, scrolling in
+ * its own box. Errors and warnings are coloured; the message wraps rather than widening the page. */
+.system-extlog .tools-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.system-extlog .tools-row .end {
+  margin-left: auto;
+}
+
+.system-extlog .btn.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.system-extlog .extlog-lines {
+  max-height: 60vh;
+  overflow: auto;
+  border: 1px solid var(--border-l1);
+  border-radius: 6px;
+  font-family: var(--font-code);
+  font-size: 12px;
+}
+
+.system-extlog .extlog-line {
+  display: grid;
+  grid-template-columns: auto auto minmax(6em, max-content) auto 1fr;
+  gap: 8px;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border-l1);
+}
+
+.system-extlog .extlog-line:last-child {
+  border-bottom: none;
+}
+
+.system-extlog .extlog-line .at,
+.system-extlog .extlog-line .origin {
+  color: var(--label-tertiary);
+  white-space: nowrap;
+}
+
+.system-extlog .extlog-line .ext {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.system-extlog .extlog-line .msg {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.system-extlog .lv {
+  font-size: 10.5px;
+  color: var(--label-secondary);
+}
+
+.system-extlog .lv-error {
+  color: var(--state-error);
+}
+
+.system-extlog .lv-warn {
+  color: var(--state-warn);
+}

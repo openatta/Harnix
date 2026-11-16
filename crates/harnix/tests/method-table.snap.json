@@ -1765,13 +1765,13 @@
         "hub_owned": false,
         "refused": null,
         "requires": [
-          "feedback.read"
+          "process.observe"
         ],
         "scope": "open"
       },
-      "kind": "topic",
-      "name": "harnix.feedback",
-      "owner": "kernel:hub"
+      "kind": "method",
+      "name": "harnix.extensions.log",
+      "owner": "kernel:assembly"
     },
     {
       "access": {
@@ -2060,6 +2060,19 @@
     },
     {
       "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix.session.hooks",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
         "device": false,
         "extensions": [
           "*"
@@ -2227,6 +2240,19 @@
       },
       "kind": "method",
       "name": "harnix.session.setPrompt",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix.session.skills",
       "owner": "kernel:hub"
     },
     {
@@ -2833,6 +2859,19 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "system.extensions.log",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
         "scope": "session"
       },
       "kind": "method",
@@ -3136,6 +3175,23 @@
       "kind": "topic",
       "name": "harnix-app.trust",
       "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "feedback.read"
+        ],
+        "scope": "open"
+      },
+      "kind": "topic",
+      "name": "harnix.feedback",
+      "owner": "kernel:hub"
     },
     {
       "access": {
