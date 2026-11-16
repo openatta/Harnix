@@ -10,6 +10,7 @@
  * in the dictionaries, never pieces put together here.
  */
 
+import { FEEDBACK_CATEGORIES, type FeedbackCategory } from "@harnix/core/protocol";
 import { translate, type Locale } from "./i18n/index";
 
 export interface HarnixUiStrings {
@@ -131,6 +132,20 @@ export interface HarnixUiStrings {
   needsBackend: string;
   contextUsage: (tokens: number, max: number | null) => string;
   retry: string;
+  /* 对回答的反馈 */
+  feedbackUp: string;
+  feedbackDown: string;
+  feedbackUpTitle: string;
+  feedbackDownTitle: string;
+  feedbackCategoryLabel: string;
+  feedbackCategory: (category: FeedbackCategory) => string;
+  feedbackNote: string;
+  /** 对话框里的一行小字：反馈记在哪里、谁看得见。 */
+  feedbackPrivacy: string;
+  feedbackSubmit: string;
+  feedbackUpdate: string;
+  feedbackRetract: string;
+  feedbackCancel: string;
   plusMenu: string;
   uploadFile: string;
   uploadImage: string;
@@ -249,6 +264,19 @@ export function uiStrings(locale: Locale): HarnixUiStrings {
     modelUnsetHint: s("modelUnsetHint"),
     needsBackend: s("needsBackend"),
     retry: s("retry"),
+    feedbackUp: s("feedbackUp"),
+    feedbackDown: s("feedbackDown"),
+    feedbackUpTitle: s("feedbackUpTitle"),
+    feedbackDownTitle: s("feedbackDownTitle"),
+    feedbackCategoryLabel: s("feedbackCategoryLabel"),
+    // One the dictionaries do not name (a newer hub's) reads as "other".
+    feedbackCategory: (category) => s(`feedbackCategory.${FEEDBACK_CATEGORIES.includes(category) ? category : "other"}`),
+    feedbackNote: s("feedbackNote"),
+    feedbackPrivacy: s("feedbackPrivacy"),
+    feedbackSubmit: s("feedbackSubmit"),
+    feedbackUpdate: s("feedbackUpdate"),
+    feedbackRetract: s("feedbackRetract"),
+    feedbackCancel: s("feedbackCancel"),
     plusMenu: s("plusMenu"),
     uploadFile: s("uploadFile"),
     uploadImage: s("uploadImage"),

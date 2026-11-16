@@ -42,7 +42,8 @@ export type ToolStatus = "running" | "ok" | "error" | "interrupted";
 export type Block =
   /** `steered`：运行中送来、在这一轮的步骤边界进了对话（历史里是 origin "steer"）。 */
   | { key: number; kind: "user"; text: string; itemId?: string; at?: number; steered?: boolean }
-  | { key: number; kind: "assistant"; text: string; streaming: boolean; at?: number }
+  /** `turnId`：写下它的那一轮（帧与 transcript 的 `turn_id`）；旧日志里没有。反馈按它记。 */
+  | { key: number; kind: "assistant"; text: string; streaming: boolean; at?: number; turnId?: string }
   | { key: number; kind: "think"; text: string; streaming?: boolean; startedAt?: number; endedAt?: number }
   | {
       key: number;
@@ -294,7 +295,7 @@ export function applyReplay(state: SessionState, attached: AttachResult, promptT
   let next = state;
   for (const frame of attached.replay || []) {
     if (frame.seq > next.seq) next = { ...next, seq: frame.seq };
-    next = applyEvent(next, frame.event, { promptTimeoutSecs, now, live: false });
+    next = applyEvent(next, frame.event, { promptTimeoutSecs, now, live: false, ...(frame.turn_id ? { turnId: frame.turn_id } : {}) });
   }
   for (const prompt of attached.pending_prompts || []) {
     next = applyEvent(next, prompt, { promptTimeoutSecs, now });
@@ -334,7 +335,7 @@ export function applyHistoryMessage(state: SessionState, message: HistoryMessage
         next,
         message.role === "user"
           ? { kind: "user", text, at, ...(message.origin === "steer" ? { steered: true } : {}) }
-          : { kind: "assistant", text, streaming: false, at },
+          : { kind: "assistant", text, streaming: false, at, ...(message.turn_id ? { turnId: message.turn_id } : {}) },
       )[0];
     } else if (part.type === "thinking") {
       next = push(next, { kind: "think", text: String(part.thinking ?? "") })[0];
@@ -365,6 +366,8 @@ export function applyHistoryMessage(state: SessionState, message: HistoryMessage
 export interface ApplyOptions {
   promptTimeoutSecs: number;
   now: number;
+  /** 这一帧所属的一轮（`harnix.event` 与重放帧的 `turn_id`）：记在它产生的回答上。 */
+  turnId?: string;
   /**
    * 是不是正在发生的事件。重放（attach 时中枢缓冲区里的帧）不是：它们发生在过去，`now` 不是它们的时间，
    * 不记时间、不量耗时。缺省 true。
@@ -449,7 +452,7 @@ export function applyEvent(state: SessionState, event: EngineEvent, options: App
       if (!text) return state;
       const base = endThinking(state, now);
       if (base.stream == null) {
-        const [next, key] = push(base, { kind: "assistant", text, streaming: true, at: now });
+        const [next, key] = push(base, { kind: "assistant", text, streaming: true, at: now, ...(options.turnId ? { turnId: options.turnId } : {}) });
         return { ...next, stream: key };
       }
       return update(base, base.stream, (block) => (block.kind === "assistant" ? { ...block, text: block.text + text } : block));

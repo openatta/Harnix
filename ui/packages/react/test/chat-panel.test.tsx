@@ -520,3 +520,110 @@ describe("菜单", () => {
     expect(input().value).toBe("参考 SR-002 ");
   });
 });
+
+describe("对回答的反馈", () => {
+  const FB = { ns: "harnix.feedback", event: "rating" };
+  const rated = (id: string, rating: string | null, extra: Record<string, unknown> = {}) => ({
+    id,
+    ...FB,
+    payload: { turn_id: "t1", rating, at: 1, by: "device:d", ...extra },
+    at: 2,
+  });
+  const oneTurn = (entries: unknown[] = []) => {
+    server.handlers["engine.session.history"] = () => ({
+      messages: [
+        { role: "user", content: "说一句", turn_id: "t1" },
+        { role: "assistant", content: [{ type: "text", text: "好的" }], turn_id: "t1" },
+      ],
+    });
+    server.handlers["engine.session.entries"] = () => ({ entries });
+    server.handlers["harnix.session.attach"] = () => attached("S1", { history_total: 2 });
+  };
+  const actions = () => screen.getByTestId("conv-actions");
+
+  it("结束了的一轮下面有赞与踩；踩先问哪里不好、可补一句，提交后按下；别的设备改了这边跟着变；能撤回", async () => {
+    oneTurn();
+    let n = 0;
+    server.handlers["harnix.session.feedback"] = (p) => {
+      n += 1;
+      const payload = { turn_id: p.turn_id, rating: p.rating, at: n, by: "device:d", ...(p.category ? { category: p.category } : {}), ...(p.note ? { note: p.note } : {}) };
+      return { feedback: payload, entry: { id: `f${n}`, ...FB, payload, at: 2 } };
+    };
+    mount();
+    await settle();
+    expect(screen.getByTestId("conv-group").dataset.turn).toBe("t1");
+    expect(actions().dataset.feedback).toBe("none");
+    expect(screen.getByTestId("conv-feedback-down").dataset.state).toBe("off");
+
+    fireEvent.click(screen.getByTestId("conv-feedback-down"));
+    const dialog = screen.getByTestId("conv-feedback-dialog");
+    expect(dialog.dataset.rating).toBe("down");
+    expect(within(dialog).getAllByTestId("conv-feedback-category").map((c) => c.dataset.id)).toEqual(["inaccurate", "unhelpful", "unsafe", "slow", "other"]);
+    expect(within(dialog).queryByTestId("conv-feedback-retract")).toBeNull();
+    fireEvent.click(within(dialog).getAllByTestId("conv-feedback-category")[0]!);
+    fireEvent.change(within(dialog).getByTestId("conv-feedback-note"), { target: { value: "文件名错了" } });
+    fireEvent.click(within(dialog).getByTestId("conv-feedback-submit"));
+    await settle();
+    expect(server.called("harnix.session.feedback")[0]!.params).toEqual({
+      instance: "main",
+      session_id: "S1",
+      turn_id: "t1",
+      rating: "down",
+      category: "inaccurate",
+      note: "文件名错了",
+    });
+    expect(screen.queryByTestId("conv-feedback-dialog")).toBeNull();
+    expect(screen.getByTestId("conv-feedback-down").dataset.state).toBe("on");
+    expect(actions().dataset.feedback).toBe("down");
+    // The entry is the answer's state, not a block of the flow: still one group, nothing more drawn.
+    expect(screen.getAllByTestId("conv-group")).toHaveLength(1);
+
+    // Another device changed it: pushed as the session's entry.
+    act(() => server.event("S1", { kind: "extension_entry", entry: rated("other", "up", { note: "其实挺好" }) }));
+    expect(screen.getByTestId("conv-feedback-up").dataset.state).toBe("on");
+    expect(screen.getByTestId("conv-feedback-down").dataset.state).toBe("off");
+
+    // Opened again on the same rating: what stands is filled in, and it can be taken back.
+    fireEvent.click(screen.getByTestId("conv-feedback-up"));
+    const again = screen.getByTestId("conv-feedback-dialog");
+    expect(again.dataset.state).toBe("rated");
+    expect(within(again).queryByTestId("conv-feedback-category")).toBeNull();
+    expect((within(again).getByTestId("conv-feedback-note") as HTMLTextAreaElement).value).toBe("其实挺好");
+    fireEvent.click(within(again).getByTestId("conv-feedback-retract"));
+    await settle();
+    expect(server.called("harnix.session.feedback")[1]!.params).toEqual({ instance: "main", session_id: "S1", turn_id: "t1", rating: null });
+    expect(actions().dataset.feedback).toBe("none");
+    expect(screen.getByTestId("conv-feedback-up").dataset.state).toBe("off");
+  });
+
+  it("读回来的反馈照样显示；Esc 关掉对话框，什么也不发", async () => {
+    oneTurn([rated("e1", "up"), rated("e2", "down", { category: "slow" })]);
+    mount();
+    await settle();
+    expect(screen.getByTestId("conv-feedback-down").dataset.state).toBe("on");
+    fireEvent.click(screen.getByTestId("conv-feedback-down"));
+    const dialog = screen.getByTestId("conv-feedback-dialog");
+    const slow = within(dialog).getAllByTestId("conv-feedback-category").find((c) => c.dataset.id === "slow")!;
+    expect(slow.getAttribute("aria-checked")).toBe("true");
+    fireEvent.keyDown(within(dialog).getByTestId("conv-feedback-note"), { key: "Escape" });
+    expect(screen.queryByTestId("conv-feedback-dialog")).toBeNull();
+    expect(server.called("harnix.session.feedback")).toHaveLength(0);
+  });
+
+  it("正在跑的一轮没有赞与踩；features.feedback 关掉就没有", async () => {
+    server.handlers["harnix.session.attach"] = () => attached("S1", { running_turn: "t1" });
+    mount();
+    await settle();
+    act(() => server.event("S1", { kind: "text_delta", text: "还在写" }));
+    act(() => server.event("S1", { kind: "tool_use", id: "u1", name: "Bash", input: { command: "ls" } }));
+    expect(screen.getByTestId("conv-group").dataset.turn).toBe("t1");
+    expect(screen.queryByTestId("conv-feedback-up")).toBeNull();
+    cleanup();
+
+    oneTurn();
+    mount({ features: { feedback: false } });
+    await settle();
+    expect(screen.queryByTestId("conv-feedback-up")).toBeNull();
+    expect(screen.getByTestId("conv-copy")).toBeTruthy();
+  });
+});

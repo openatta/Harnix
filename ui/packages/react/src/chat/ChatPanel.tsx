@@ -17,9 +17,11 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { useConnection, useHello, useSession, useStrings } from "../context";
 import { usageTotals, type Block, type BlockOf, type SessionState } from "@harnix/core/state";
+import { isFeedbackEntry, standingFeedback, type Feedback } from "@harnix/core/protocol";
 import type { SessionController } from "@harnix/core/state";
 import { Agent, AskCard, ContextRow, ImageBlock, rowTitle, toolAsks, type ToolAsks } from "../components/blocks";
 import { ConnectionBadge } from "../components/ConnectionBadge";
+import type { AnswerFeedback } from "./feedback";
 import { ChatComposer, type Attached, type ComposerApi, type ContextRingConfig, type ModelOption } from "./ChatComposer";
 import { useDisplay } from "../display";
 import { t } from "../i18n/index";
@@ -454,6 +456,7 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
           elsewhere={otherClient}
           renderers={props.renderers}
           copy={features.copy !== false}
+          feedback={features.feedback !== false}
           emptyState={props.emptyState}
           unavailable={props.unavailable}
           tail={props.flowTail}
@@ -609,6 +612,17 @@ function speakerOf(block: Block): Speaker {
   return "assistant";
 }
 
+const EMPTY: Block[] = [];
+
+/** The turn a group of the assistant's answered: its last text's. */
+function turnOf(blocks: Block[]): string | undefined {
+  for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    const block = blocks[i]!;
+    if (block.kind === "assistant" && block.turnId) return block.turnId;
+  }
+  return undefined;
+}
+
 function timeOf(block: Block): number | undefined {
   if (block.kind === "assistant" || block.kind === "user") return block.at;
   if (block.kind === "tool" || block.kind === "think") return block.startedAt;
@@ -627,6 +641,7 @@ function ChatFlow({
   elsewhere,
   renderers,
   copy,
+  feedback,
   emptyState,
   unavailable,
   tail,
@@ -641,6 +656,8 @@ function ChatFlow({
   elsewhere: boolean;
   renderers?: ChatRenderers;
   copy: boolean;
+  /** 已结束的一轮的回答下面有赞与踩 */
+  feedback: boolean;
   emptyState?: ReactNode;
   unavailable?: ReactNode;
   tail?: ReactNode;
@@ -681,7 +698,19 @@ function ChatFlow({
     if (e.key === "Enter" && openChip(e.target)) e.preventDefault();
   };
 
-  const blocks = state?.blocks ?? [];
+  const all = state?.blocks ?? EMPTY;
+  // Feedback entries are drawn as the state of the answer they are about, not where they fall.
+  const { blocks, standing } = useMemo(() => {
+    const entryOf = (b: Block) => (b.kind === "custom" && b.type === "entry" ? (b.data as { ns?: unknown; event?: unknown } | null) : null);
+    const given = all.filter((b) => isFeedbackEntry(entryOf(b)));
+    if (!given.length) return { blocks: all, standing: new Map<string, Feedback>() };
+    return { blocks: all.filter((b) => !isFeedbackEntry(entryOf(b))), standing: standingFeedback(given.map(entryOf)) };
+  }, [all]);
+  const runningTurn = state?.turn?.turnId ?? null;
+  const feedbackFor = (turnId: string | undefined): AnswerFeedback | undefined =>
+    feedback && !transcript && controller && turnId && turnId !== runningTurn
+      ? { turnId, current: standing.get(turnId) ?? null, give: (rating, extra) => controller.feedback(turnId, rating, extra) }
+      : undefined;
   const queue = state?.queue ?? [];
   const inQueue = new Set(queue.map((q) => q.message.trim()));
   const extra = (queueConfig?.extra ?? []).filter((q) => !inQueue.has(q.text.trim()));
@@ -743,7 +772,15 @@ function ChatFlow({
       ) : null}
       {entries.map((entry) =>
         entry.kind === "group" ? (
-          <AssistantGroup key={entry.key} blocks={entry.blocks} role={role} controller={controller} renderers={renderers} copy={copy} />
+          <AssistantGroup
+            key={entry.key}
+            blocks={entry.blocks}
+            role={role}
+            controller={controller}
+            renderers={renderers}
+            copy={copy}
+            feedback={feedbackFor(turnOf(entry.blocks))}
+          />
         ) : (
           <FlowItem key={entry.block.key} block={entry.block} controller={controller} transcript={transcript} renderers={renderers} />
         ),
@@ -786,18 +823,20 @@ function AssistantGroup({
   controller,
   renderers,
   copy,
+  feedback,
 }: {
   blocks: Block[];
   role: ChatRole;
   controller: SessionController | null;
   renderers?: ChatRenderers;
   copy: boolean;
+  feedback?: AnswerFeedback;
 }) {
   const first = blocks[0]!;
   const texts = blocks.filter((b): b is Extract<Block, { kind: "assistant" }> => b.kind === "assistant");
   const streaming = texts.some((b) => b.streaming);
   return (
-    <div className="hx-blk hx-cv-a" data-testid="conv-group">
+    <div className="hx-blk hx-cv-a" data-testid="conv-group" data-turn={turnOf(blocks)}>
       <AssistantHead role={role} at={timeOf(first)} />
       {blocks.map((block) => {
         const claimed = claimFlow(renderers, block);
@@ -834,7 +873,9 @@ function AssistantGroup({
             return null;
         }
       })}
-      {copy && texts.length && !streaming ? <MessageActions text={texts.map((t) => t.text).join("\n\n")} /> : null}
+      {(copy || feedback) && texts.length && !streaming ? (
+        <MessageActions text={texts.map((t) => t.text).join("\n\n")} copy={copy} feedback={feedback} />
+      ) : null}
     </div>
   );
 }

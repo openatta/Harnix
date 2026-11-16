@@ -87,6 +87,11 @@ export interface ChatFeatures {
   /** 悬停复制；缺省开 */
   copy?: boolean;
   /**
+   * 已结束的一轮的回答下面的赞与踩（会话的样子）；缺省开。反馈记进会话日志（`harnix.session.feedback`），
+   * 模型看不见，不往任何地方送
+   */
+  feedback?: boolean;
+  /**
    * 上下文环（原型 ctxBtn）：缺省转录开、会话关。用量来自 turn_complete 的 usage（max 不知道就只显示 token 数），
    * 或应用给的 ratio；menu 是点开后的弹层里"压缩""清空"之类的行
    */

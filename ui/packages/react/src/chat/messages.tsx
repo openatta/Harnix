@@ -15,13 +15,15 @@
  * 可测性：消息正文是 data-testid=conv-message（只含正文，不含头像、名字、时间、按钮）。
  */
 
-import { memo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { memo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import type { Rating } from "@harnix/core/protocol";
 import { useStrings } from "../context";
 import { useDisplay } from "../display";
 import { markdown } from "../markdown";
 import type { BlockOf, ToolStatus } from "@harnix/core/state";
 import { ToolDetails, toolDuration, useToolState } from "../components/blocks";
 import { chipifyHtml, clockTime, editOf, numberedDiff, splitIds, toolArgs, toolDisplayName, toolSummary, unifiedDiffRows, type DiffRow } from "./format";
+import { FeedbackButtons, FeedbackDialog, type AnswerFeedback } from "./feedback";
 import { Icon } from "./icons";
 import { useChat, type ChatRole } from "./types";
 
@@ -169,16 +171,33 @@ export function CopyButton({ text }: { text: string }) {
   );
 }
 
-/** 一组发言下面的"复制""重新生成"（原型 .cv-act；重新生成要后端，画成不可用） */
-export function MessageActions({ text }: { text: string }) {
+/**
+ * 一组发言下面的"复制"、赞与踩、"重新生成"（原型 .cv-act；重新生成要后端，画成不可用）。
+ * 给了 `feedback`（这一轮已经结束）才有赞与踩；点了在这一行下面开反馈的对话框。给过反馈的一行一直显示。
+ */
+export function MessageActions({ text, feedback, copy = true }: { text: string; feedback?: AnswerFeedback; copy?: boolean }) {
   const strings = useStrings();
+  const [open, setOpen] = useState<Rating | null>(null);
+  const row = useRef<HTMLDivElement>(null);
   return (
-    <div className="hx-cv-act">
-      <CopyButton text={text} />
-      <button type="button" data-testid="conv-retry" disabled title={strings.retry} aria-label={strings.retry}>
-        <Icon.retry />
-      </button>
-    </div>
+    <>
+      <div
+        ref={row}
+        className="hx-cv-act"
+        data-testid="conv-actions"
+        data-feedback={feedback ? (feedback.current?.rating ?? "none") : undefined}
+        data-open={open ? "" : undefined}
+      >
+        {copy ? <CopyButton text={text} /> : null}
+        {feedback ? <FeedbackButtons feedback={feedback} open={open} onOpen={(rating) => setOpen((was) => (was === rating ? null : rating))} /> : null}
+        {copy ? (
+          <button type="button" data-testid="conv-retry" disabled title={strings.retry} aria-label={strings.retry}>
+            <Icon.retry />
+          </button>
+        ) : null}
+      </div>
+      {feedback && open ? <FeedbackDialog key={open} feedback={feedback} rating={open} onClose={() => setOpen(null)} within={row} /> : null}
+    </>
   );
 }
 
