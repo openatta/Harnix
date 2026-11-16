@@ -40,17 +40,15 @@ proc-probe = ["proc", "harnix-proc/probe"]
 # `harnix::testing`: a product's route table without starting it, and a process started without
 # its listener. Not stable.
 testing = []
-# `harnix::ext::http::axum`: an `axum::Router` as an extension's route. Not stable.
-axum = ["harnix-ext/axum"]
+# `harnix::ext::http::axum`: an `axum::Router` as an extension's route, and `harnix::axum`, the crate
+# it takes it from. Not stable: bound to axum's major version.
+axum = ["harnix-ext/axum", "dep:axum"]
 
 [dependencies]
 harnix-assembly       = { workspace = true }
-# The extension interface, re-exported as `harnix::ext`.
+# The extension interface, re-exported as `harnix::ext`, with the engine interface as `harnix::engine`
+# and the contract's S1 types at the root: every re-export here is one of these two crates' (l24).
 harnix-ext       = { workspace = true }
-harnix-contract  = { workspace = true }
-# What a module gives the engine, re-exported as `harnix::engine`: an application names only this
-# crate.
-harnix-engine-api = { workspace = true }
 # Harnix's own extensions (`first-party`).
 harnix-ext-harnix-app    = { workspace = true, optional = true }
 harnix-ext-system        = { workspace = true, optional = true }
@@ -68,7 +66,7 @@ harnix-carrier-proc      = { workspace = true, optional = true }
 harnix-proc       = { workspace = true, optional = true }
 async-trait = { workspace = true }
 anyhow      = { workspace = true }
-axum        = { workspace = true }
+axum        = { workspace = true, optional = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }
 

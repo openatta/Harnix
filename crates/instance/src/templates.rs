@@ -66,11 +66,11 @@ impl std::fmt::Display for Owner {
 pub use harnix_engine_api::template::{check_value, AttachTo, Contribute, InstanceTemplate, TemplateCarrier};
 
 /// How the instances of a template with `carrier` are reached: what a down link says it was.
-pub fn carrier_of(carrier: &TemplateCarrier) -> harnix_engine_api::InstanceCarrier {
+pub fn carrier_of(carrier: &TemplateCarrier) -> harnix_engine_link::InstanceCarrier {
     match carrier {
-        TemplateCarrier::Spawn { .. } => harnix_engine_api::InstanceCarrier::Spawn,
-        TemplateCarrier::Attach(_) => harnix_engine_api::InstanceCarrier::Attach,
-        _ => harnix_engine_api::InstanceCarrier::InProcess,
+        TemplateCarrier::Spawn { .. } => harnix_engine_link::InstanceCarrier::Spawn,
+        TemplateCarrier::Attach(_) => harnix_engine_link::InstanceCarrier::Attach,
+        _ => harnix_engine_link::InstanceCarrier::InProcess,
     }
 }
 

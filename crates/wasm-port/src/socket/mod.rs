@@ -477,11 +477,11 @@ impl Inner {
     fn closed_error(&self, why: &str) -> RpcError {
         match self.end {
             // The product's view: the extension is gone until it is started again.
-            End::Serve { .. } => RpcError {
-                code: codes::EXTENSION_UNAVAILABLE,
-                message: format!("the extension wire closed: {why}"),
-                data: Some(json!({"failure": "stopped"})),
-            },
+            End::Serve { .. } => RpcError::with_data(
+                codes::EXTENSION_UNAVAILABLE,
+                format!("the extension wire closed: {why}"),
+                json!({"failure": "stopped"}),
+            ),
             End::Client => RpcError::new(codes::INTERNAL_ERROR, format!("the product's wire closed: {why}")),
         }
     }
@@ -781,11 +781,11 @@ fn deadline_exceeded() -> RpcError {
 }
 
 fn busy(max: usize) -> RpcError {
-    RpcError {
-        code: codes::BUSY,
-        message: format!("{max} calls are already running over the extension wire"),
-        data: Some(json!({"limit": "ext_wire", "max_in_flight": max})),
-    }
+    RpcError::with_data(
+        codes::BUSY,
+        format!("{max} calls are already running over the extension wire"),
+        json!({"limit": "ext_wire", "max_in_flight": max}),
+    )
 }
 
 /// Ready once the wire is closed. (The guard `wait_for` answers is not held past it.)

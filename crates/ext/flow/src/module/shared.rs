@@ -499,14 +499,8 @@ pub fn session_name(s: &SessionRef) -> String {
 /// The session a run record names. A bare id is on `main`.
 pub fn session_ref(name: &str) -> SessionRef {
     match name.split_once('/') {
-        Some((instance, id)) if !instance.is_empty() && !id.is_empty() => SessionRef {
-            instance: instance.to_string(),
-            session_id: id.to_string(),
-        },
-        _ => SessionRef {
-            instance: super::FLOW_INSTANCE.to_string(),
-            session_id: name.to_string(),
-        },
+        Some((instance, id)) if !instance.is_empty() && !id.is_empty() => SessionRef::new(instance, id),
+        _ => SessionRef::new(super::FLOW_INSTANCE, name),
     }
 }
 
@@ -663,10 +657,7 @@ mod tests {
 
     #[test]
     fn session_names_round_trip() {
-        let s = SessionRef {
-            instance: "main".into(),
-            session_id: "abc".into(),
-        };
+        let s = SessionRef::new("main", "abc");
         assert_eq!(session_name(&s), "main/abc");
         assert_eq!(session_ref("main/abc"), s);
         assert_eq!(session_ref("abc"), s, "a bare id is on main");

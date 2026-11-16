@@ -21,7 +21,8 @@ use std::time::Duration;
 
 use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
-use harnix_engine_api::{Cancel, ChainSource, EngineContribution, NoChains, PromptGate, SceneLayers, Tool, ToolError, ToolProvider, ToolsWatch};
+use harnix_engine_api::{Cancel, EngineContribution, PromptGate, Tool, ToolError, ToolProvider, ToolsWatch};
+use harnix_engine_link::{ChainSource, NoChains, SceneLayers};
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio::task::AbortHandle;

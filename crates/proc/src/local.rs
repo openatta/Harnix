@@ -15,11 +15,12 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 use async_trait::async_trait;
 use base64::Engine as _;
 use harnix_engine::DaemonLink;
-use harnix_engine_api::ops::EngineOps;
+use harnix_engine_link::ops::EngineOps;
 use harnix_engine_api::{
-    Cancel, ChainLink, ChainSource, EngineLink, HookDecision, Permission, SessionRef, Tool, ToolCallFacts,
-    ToolCx, ToolError, ToolHook, ToolOutput, ToolProvider, ToolSpec, ToolsChanged,
+    Cancel, ChainLink, HookDecision, Permission, SessionRef, Tool, ToolCallFacts, ToolCx, ToolError, ToolHook,
+    ToolOutput, ToolProvider, ToolSpec, ToolsChanged,
 };
+use harnix_engine_link::{ChainSource, EngineLink};
 use harnix_package::acquire::refused;
 use harnix_package::tool_name;
 use harnix_wasm_host::{Host, HttpFetcher, HttpRequest, HttpResponse};

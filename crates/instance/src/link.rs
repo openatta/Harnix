@@ -8,8 +8,8 @@
 use std::sync::Arc;
 
 use harnix_contract::RpcError;
-use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
-use harnix_engine_api::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
+use harnix_engine_link::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
+use harnix_engine_link::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
 use serde_json::Value;
 use tokio::sync::watch;
 

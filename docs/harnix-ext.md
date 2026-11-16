@@ -172,7 +172,7 @@ struct Config {
     quote_api_key: CredentialRef,          // { credential = "helm/quote-api" }
 }
 
-struct State { db: Db, key: harnix::engine::Secret }
+struct State { db: Db, key: harnix::Secret }
 
 #[derive(Deserialize)]
 struct ListParams { filter: Option<String> }
@@ -796,7 +796,7 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 | 名字 | 现在 | 在哪 | 什么时候升 |
 |---|---|---|---|
 | Harnix 版本 | `0.4.3-2026111501` | 各 crate 的 `Cargo.toml`；`harnix::HARNIX_VERSION` | 每次发布（`scripts/set-version.sh` 连这一格一起改，`tests/crate-metadata.mjs` 查它和 crate 一致） |
-| 扩展 API | `1` | `harnix::ext::EXT_API_VERSION` | 写进文档、`--version` 打印的数，不做编译期检查：兼容靠 crate 的版本，从 0.4.4 起扩展接口只做加法（公开的结构与枚举都是 `non_exhaustive` 或只有私有字段，一个 feature 只加函数与模块）；破坏性的变化升它，也升 crate 的大版本。`harnix::ext::http::axum`（feature `axum`）与 `harnix::testing` 不在承诺内 |
+| 扩展 API | `1` | `harnix::ext::EXT_API_VERSION` | 写进文档、`--version` 打印的数，不做编译期检查：兼容靠 crate 的版本，从 0.4.4 起扩展接口只做加法（公开的结构与枚举都是 `non_exhaustive` 或只有私有字段，一个 feature 只加函数与模块）；破坏性的变化升它，也升 crate 的大版本。`harnix::ext::http::axum` 与 `harnix::axum`（feature `axum`）、`harnix::testing`（feature `testing`）不在承诺内 |
 | 贡献点 API | `3` | `harnix::CONTRIB_API_VERSION`；`harnix.hello` 里也有 | 贡献点的契约变了。2：运行期包的界面模块是预编译的 ES 模块，从页面的 import map 拿 React；**React 的大版本是它的一部分**。3：宿主 API `HostApi`/`useHost()`、第九个内核点 `session.action`、扩展自己定义的点（`definePoint`）、`space` 分组、按 `hello.extensions` 激活 |
 | 协议 | `5` | `harnix_contract::PROTOCOL_VERSION` | 握手比对，不一致拒绝（`HANDSHAKE_REFUSED`）。5：名字规整（内核 `harnix.<区域>.<动词>`、引擎直通 `engine.*`、扩展在自己的 id 下），默认实例叫 `main`，新增错误码 `CANCELLED`、`DEADLINE_EXCEEDED`、`EXTENSION_UNAVAILABLE`。`harnix.event` 帧里的事件负载与 `engine.*` 的答是 Agix 的形状，不在加法承诺里，由 `hello.engine_protocol` 标明 |
 | 扩展包接口 | `2` | `harnix-ext.toml` 的 `[app] harnix_api`；`harnix_package::HARNIX_API` | 扩展包的契约（WIT world 与清单）有破坏性变化。见 [扩展包](harnix-ext-package.md) |
@@ -805,8 +805,9 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 `<app> --version` 打印上面全部，加上引擎的版本。从 0.4.4 起线上协议与扩展接口只做加法；契约里露出的 Agix 类型除外。
 这张表的六个数由 `tests/crate-metadata.mjs` 对着代码里的常量查。
 
-稳定的层次：S1（扩展接口：`harnix-ext`、`harnix-engine-api` 的 S1 部分、`harnix-contract` 的 S1 类型）与 S2（线上协议、扩展线、扩展包清单与 WIT、桥）
-是长期稳定的；S3（`harnix-kernel`、`harnix-host-api`、各骨架 crate 的内部接口）随骨架变，扩展作者不该用。层次规则由 `crates/harnix/tests/layering.rs` 守着。
+稳定的层次：S1（扩展接口：`harnix-ext`、`harnix-engine-api`、`harnix_contract::s1`，三者的**全部**公开项）与 S2（线上协议、扩展线、扩展包清单与 WIT、桥）
+是长期稳定的；S3（`harnix-kernel`、`harnix-engine-link`、`harnix-host-api`、各骨架 crate 的内部接口）随骨架变，扩展作者不该用。
+S1 与 S3 的界线是依赖图：`harnix-ext`、`harnix` 门面、`harnix-host-api` 不依赖 `harnix-engine-link`，写不出它的名字。层次规则由 `crates/harnix/tests/layering.rs` 守着。
 
 ---
 
@@ -818,14 +819,16 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 ```text
 harnix::{App, AppBuilder, ExtensionSlot, ExtensionStatus, HARNIX_VERSION, SHUTDOWN_GRACE,
          caps, codes, Capability, CapabilitySpec, ExtId, RpcError, Subject, MAIN_INSTANCE,
-         Access, Attachment, Call, CredentialRef, Credentials, DescriptorBuilder, Entry, EnvCredentials,
+         Access, Attachment, Call, CredentialRef, Credentials, Entry, EnvCredentials,
          Extension, ExtensionContext, ExtensionSet, Manifest, MigrateContext, MigrationReport,
-         OnBusy, Registrar, RowScope, SendOptions, SessionRef, SessionSpec, SpaceDecl, Tap, TapEvent,
+         OnBusy, Registrar, RowScope, Secret, SendOptions, SessionRef, SessionSpec, SpaceDecl, Tap, TapEvent,
          CONTRIB_API_VERSION, EXT_API_VERSION, SETTLED_HELD, TAP_CAPACITY,
-         ext, engine, first_party, agix（feature）, testing（feature）, async_trait, axum}
+         ext, engine, first_party, testing（feature）, async_trait, axum（feature）}
 ```
 
-`harnix::ext` 是扩展接口的整个模块（`harnix-ext`）；`harnix::engine` 是扩展给引擎的东西（`harnix-engine-api` 的 S1）。
+`harnix::ext` 是扩展接口的整个模块（`harnix-ext`）；`harnix::engine` 是扩展给引擎的东西与读引擎的读者，即 `harnix-engine-api` 的**全部**公开项，
+与 `harnix::ext::engine` 是同一张清单。门面只依赖 `harnix-assembly` 与 `harnix-ext`：根部的每一项都是这两个 crate 转出的，
+引擎链接、引擎操作、引擎事件（`harnix-engine-link`，S3）不在其中，应用拿不到也不该拿。
 
 ### 17.1 `App::builder()` → `AppBuilder`
 
@@ -889,7 +892,7 @@ pub trait Extension: Send + Sync + 'static {
 | `TemplateCarrier` | `InProcess { engine }`（只有扩展的模板能带原生贡献）、`Spawn { engine, program: Option<PathBuf>, args }`（`None` = 本二进制的 `daemon` 子命令）、`Attach(AttachTo { socket \| tcp + token })` |
 | `EngineContribution`（`r.engine()`） | `.scene(SceneLayer)`、`.provider(Arc<dyn ToolProvider>)`、`.prompt_gate(Arc<dyn PromptGate>)` |
 | `engine::EngineProfile` | `scene = "harnix"`、`scenes = []`、`model = "claude-sonnet-4-6"`、`max_tokens = 2000`、`session_cap = 32`、`session_idle_timeout_secs = 3600`、`permission_prompt_timeout_secs = 300`（括号里是默认值）；builder：`EngineProfile::new().scene(..).scenes(..).model(..)` |
-| `engine::Tool` 等 | `Tool`、`ToolSpec::new(name, description, schema)`（`.doc`、`.source`、`.read_only`、`.concurrency_safe`、`.destructive`）、`ToolCx`（`session_id()`、`project()`、`chain()`、`cancel()`、`progress()`）、`ToolOutput`、`ToolError`、`Permission::{Allow, Ask, Deny}`、`ToolProvider`、`ToolHook`、`ToolCallFacts`、`HookDecision`、`SceneLayer`、`SceneBase::{builtin, builtin_with, named}`、`PromptText::{cached, plain}`、`PromptGate`、`PromptFacts`、`PromptDecision`、`Delivery`、`Secret`、读者 `engine::readers::{Recordings, Transcripts}` |
+| `engine::Tool` 等 | `Tool`、`ToolSpec::new(name, description, schema)`（`.doc`、`.source`、`.read_only`、`.concurrency_safe`、`.destructive`）、`ToolCx`（`session_id()`、`project()`、`chain()`、`cancel()`、`progress()`）、`ToolOutput`、`ToolError`、`Permission::{Allow, Ask, Deny}`、`ToolProvider`、`ToolHook`、`ToolCallFacts`、`HookDecision`、`SceneLayer`、`SceneBase::{builtin, builtin_with, named}`、`PromptText::{cached, plain}`、`PromptGate`、`PromptFacts`、`PromptDecision`、`Delivery`、读者 `engine::readers::{Recordings, Transcripts}` |
 
 ### 17.4 `Access`、能力、`Trust`、`Subject`
 
@@ -937,7 +940,7 @@ pub trait Extension: Send + Sync + 'static {
 | `instances.admin` | 停、重启任何非内核拥有的实例；按任何模板建实例、列出全部模板 | ✔ | | system |
 | `engine.inspect` | 读**任何**会话的内部：`inspectContext`、`tasks`、`taskOutput`、`goal`、`history` | ✔ | | system、flow |
 | `engine.control` | 改任何会话的内部：`stopTask`、`messageTask`、`dropMessages`、`editMessage`、`compact`、`clear`、`setModel`、`rename`、`setGoal`、`updateGoal` | ✔ | | system、flow |
-| `engine.config.read` / `engine.config.write` | 读 / 写引擎设置与 provider；后者含 `engine.config.reload`、`harnix.instances.inheritProviders`、`EngineView::config_files` | ✔ | | settings、packages（写，可选） |
+| `engine.config.read` / `engine.config.write` | 读 / 写引擎设置与 provider；后者含 `engine.config.reload`、`harnix.instances.inheritProviders`、宿主服务 `SettingsTiers`（§17.8） | ✔ | | settings、packages（写，可选） |
 | `engine.plugins` | Agix 插件的装、卸、启停、重读；往实例里放 skill | ✔ | | plugins、packages |
 | `engine.export` | `engine.session.export` | ✔ | | harnix-app |
 | `engine.mcp` | `engine.mcp.addServer` | ✔ | | — |
@@ -966,7 +969,7 @@ pub trait Extension: Send + Sync + 'static {
 | `call(method, params)` | 以 `ext:<id>` 的身份调任何方法（根调用），和设备走同一个准入点、同样审计 |
 | `sessions()` | `Sessions`，见 §17.6 |
 | `instances()` | `Instances`：`create(template, name, params)`、`ensure(template, name, params)`（幂等，并发调同名也只建一台，`start` 里用）、`ensure_ready(template, name, params, timeout)`（同上，等到 `ready` 再返回；`down` 或超时报 `INSTANCE_UNAVAILABLE`）、`wait_ready(instance, timeout)`、`stop(instance)`（数据根留着） |
-| `engine(instance)` | `Option<EngineView>`，一台实例的只读视图：`instance()`、`active_scenes()`、`model()`、`trust()`；要能力的：`recordings()`（`recordings.read`；`calls`、`call`、`turns`、`envelopes`、`usage`）、`transcripts()`（`transcripts.read`；`search`，返回 `Result`，实例连不上是 `ReadError::Unavailable`）、`config_files()`（`engine.config.write`）。每台实例都有读者：`main`、进程内的模板实例、spawn、attach 的实例与 `proc.<id>`。
+| `engine(instance)` | `Option<EngineView>`，一台实例的只读视图：`instance()`、`active_scenes()`、`model()`、`trust()`；要能力的：`recordings()`（`recordings.read`；`calls`、`call`、`turns`、`envelopes`、`usage`）、`transcripts()`（`transcripts.read`；`search`，返回 `Result`，实例连不上是 `ReadError::Unavailable`）。每台实例都有读者：`main`、进程内的模板实例、spawn、attach 的实例与 `proc.<id>`。
 录像按根会话存：整棵会话树（侧链、子 Agent）的调用在根会话的一份录像里，`calls` 的 `index` 是它在这份录像里的位置，行上有 `session_id` 与 `parent_session_id`。录像只覆盖最近一次运行（daemon 重启后第一次调用会把它重写），`calls`、`turns`、`envelopes`、`usage` 的结果带 `run`，读者见过上一次运行消失时标 `earlier_run`，用量不是跨运行的合计。`calls` 的列表只有每次调用的概况与工具调用的名字、字数，工具的输入与结果在 `call` 的详情里。`usage` 不叫醒休眠的模式 3 进程，给读过的旧数并标 `stale`，其余读者的调用会叫醒它 |
 | `process()` | `process.observe`：版本、运行时长、内存、线程、已连接的客户端 |
 | `bulk()` | 一次性上传凭据：`grant(max_bytes)`、`grant_named(name, max_bytes)`（文件名以清理过的 `name` 结尾，给按名字或后缀读它的，如 `plugins.upload`） |
@@ -999,11 +1002,12 @@ pub trait Extension: Send + Sync + 'static {
 | `in_space(space)` | 返回同样的句柄，经它的每个调用都声称那个 space（落在 create / open / send / send_with / interrupt / close / entries / append_entry；`move_to` 的 `space` 仍是目标）。用归 space 的实例时要它；`SessionRef` 不加字段：它是身份键 |
 
 没有记录的会话（引擎自己建的，如子 Agent 的）归 space 的顺序：引擎报了父会话就随父会话的 space；否则是它所在实例的 space（实例归 space 时）；再否则是缺省 space。
-`SessionRef { instance, session_id }`：会话的全名永远带实例。
+`SessionRef::new(instance, session_id)`（字段 `instance`、`session_id` 公开，`#[non_exhaustive]`，不会再加字段）：会话的全名永远带实例。
 
 ### 17.7 错误：`RpcError`、`harnix::codes`
 
-`RpcError::new(code, msg)`、`::invalid_params`、`::not_found`（没有这个**方法**，-32601）、`::missing`（`NOT_FOUND`）、`::conflict`（`CONFLICT`）、`::refused`。
+`RpcError::new(code, msg)`、`::with_data(code, msg, data)`、`::invalid_params`、`::not_found`（没有这个**方法**，-32601）、`::missing`（`NOT_FOUND`）、`::conflict`（`CONFLICT`）、`::refused`；
+字段 `code`、`message`、`data` 公开，结构 `#[non_exhaustive]`：读字段、`RpcError { data: Some(d), .. }` 模式都行，构造只经构造函数。
 
 | 码 | 名字 | 含义 |
 |---|---|---|
@@ -1028,6 +1032,10 @@ pub trait Extension: Send + Sync + 'static {
 那几样在 `harnix-host-api`（S3），经 `cx.service::<HostServices>()` 拿，要 `extensions.manage`。**应用的扩展用不到它**；测试应用的 `fakehost` 经它演示。
 接口（`HostApi`、`DynamicRegistrar`、`ExtensionHandle`、`Carrier`、`AdoptedEngine`……）与宿主对动态描述做的七项结构检查写在
 [扩展包](harnix-ext-package.md) 的接口清单里。S3 随骨架变，不在扩展接口的稳定承诺内。
+
+同一个 crate 里还有一个**过渡**服务 `SettingsTiers`（`cx.service::<SettingsTiers>()`，要 `engine.config.write`，句柄 `dyn SettingsFiles`：
+`global(instance)`、`scene(instance, scene)` 给出一台实例的引擎读的全局层与场景层 `settings.json` 在哪）。它是 Agix 设置目录的布局，只有第一方 `settings` 用——
+引擎接下全局层的写入（经协议）之后连它一起删；所以在 S3，不在 S1。
 
 ---
 

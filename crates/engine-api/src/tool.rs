@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use harnix_contract::{ChainLink, SessionRef};
+use harnix_contract::s1::{ChainLink, SessionRef};
 use serde_json::Value;
 
 /// A tool a session can call.

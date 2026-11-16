@@ -160,7 +160,7 @@ mod tests {
     /// instance is down, with who holds its data root.
     #[tokio::test]
     async fn a_daemon_that_cannot_have_the_lock_leaves_its_instance_down_saying_who() {
-        use harnix_engine_api::link::{EngineControl as _, LinkStatus};
+        use harnix_engine_link::link::{EngineControl as _, LinkStatus};
         use crate::{DaemonSpec, Endpoint, SpawnSpec, Supervised};
 
         let root = tempfile::tempdir().unwrap();

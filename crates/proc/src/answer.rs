@@ -91,11 +91,11 @@ impl Answering {
 impl Answer for Answering {
     async fn call(&self, call: Inbound, mut args: Value) -> Result<Value, RpcError> {
         let Some(control) = self.control.get() else {
-            return Err(RpcError {
-                code: codes::EXTENSION_UNAVAILABLE,
-                message: "the extension process is still starting".into(),
-                data: Some(json!({"failure": "starting"})),
-            });
+            return Err(RpcError::with_data(
+                codes::EXTENSION_UNAVAILABLE,
+                "the extension process is still starting",
+                json!({"failure": "starting"}),
+            ));
         };
         // Its own directories, from its command line.
         let start = call.method == "ctl.start";

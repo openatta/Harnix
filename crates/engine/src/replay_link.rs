@@ -37,9 +37,9 @@ use std::sync::{Arc, Mutex};
 
 use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
-use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
-use harnix_engine_api::ops::EngineOps;
-use harnix_engine_api::SceneLayers;
+use harnix_engine_link::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
+use harnix_engine_link::ops::EngineOps;
+use harnix_engine_link::SceneLayers;
 use serde_json::{json, Value};
 use tokio::sync::watch;
 

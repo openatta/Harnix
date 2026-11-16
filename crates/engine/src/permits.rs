@@ -16,7 +16,8 @@ use std::time::Duration;
 
 use harnix_contract::codes;
 use harnix_contract::sync::lock;
-use harnix_engine_api::{EngineEvent, Permission, Tool};
+use harnix_engine_api::{Permission, Tool};
+use harnix_engine_link::EngineEvent;
 use serde_json::Value;
 use tokio::sync::mpsc;
 

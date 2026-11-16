@@ -25,8 +25,8 @@ use std::sync::{Arc, Mutex as StdMutex};
 
 use harnix_contract::sync::{lock, read, write};
 use harnix_contract::Subject;
-use harnix_engine_api::link::EngineLink;
-use harnix_engine_api::ops::EngineOps;
+use harnix_engine_link::link::EngineLink;
+use harnix_engine_link::ops::EngineOps;
 use harnix_kernel::instances::{holds, Side};
 use harnix_kernel::{InstanceObserver, InstanceTrust, TopicChanged};
 use serde_json::{json, Value};

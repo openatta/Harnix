@@ -1,7 +1,7 @@
 //! Scene layers, as the hub sets a session up from one.
 //!
 //! The engine serves only its own scenes. An instance's scene layers come with its link
-//! ([`EngineControl::scene_layers`](harnix_engine_api::EngineControl::scene_layers)): a session
+//! ([`EngineControl::scene_layers`](harnix_engine_link::EngineControl::scene_layers)): a session
 //! created in one is created in the engine's scene the layer runs on, set up with what the layer
 //! adds, and the ledger records which layer it was (`spaces.rs`). The engine reports the session's
 //! scene as its own; the hub adds `scene_layer` wherever it describes the session.
@@ -11,8 +11,8 @@
 //! base.
 
 use harnix_contract::RpcError;
-use harnix_engine_api::ops::codes;
-use harnix_engine_api::{ExpandedScene, SceneLayers};
+use harnix_engine_link::ops::codes;
+use harnix_engine_link::{ExpandedScene, SceneLayers};
 use serde_json::{json, Map, Value};
 
 /// The layer a session is created in, when `params` name one; refused when it needs a project
@@ -24,11 +24,11 @@ pub(crate) fn layer_for(layers: &SceneLayers, params: &Value) -> Result<Option<E
     // An omitted project is the engine's default project; only one given as none has none.
     let none = params.get("project_root").is_some_and(Value::is_null);
     if layer.requires_project == Some(true) && none {
-        return Err(RpcError {
-            code: codes::PROJECT_REQUIRED,
-            message: format!("the scene `{}` needs a project: give `project_root`", layer.id),
-            data: Some(json!({"scene": layer.id})),
-        });
+        return Err(RpcError::with_data(
+            codes::PROJECT_REQUIRED,
+            format!("the scene `{}` needs a project: give `project_root`", layer.id),
+            json!({"scene": layer.id}),
+        ));
     }
     Ok(Some(layer.clone()))
 }

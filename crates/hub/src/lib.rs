@@ -64,7 +64,7 @@ use std::sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock, Weak};
 
 use harnix_contract::sync::{lock, read, write};
 use harnix_contract::{codes, FrameSink, RpcError, Subject};
-use harnix_engine_api::ops::Entry;
+use harnix_engine_link::ops::Entry;
 use harnix_kernel::instances::{holding, holds, Holding, Side};
 use harnix_kernel::{InstanceBook, Listed, TopicSource, TurnChains};
 use serde_json::{json, Value};
@@ -524,7 +524,7 @@ pub(crate) fn refuse_hub_owned_options(params: &Value) -> Result<(), RpcError> {
     let Some(options) = params.get("options").and_then(Value::as_object) else {
         return Ok(());
     };
-    match harnix_engine_api::HUB_OWNED_OPTIONS.iter().find(|key| options.contains_key(**key)) {
+    match harnix_engine_link::HUB_OWNED_OPTIONS.iter().find(|key| options.contains_key(**key)) {
         Some(key) => Err(RpcError::refused(format!(
             "session option `{key}` is the hub's to set, from the space and the preset: a caller does not give it"
         ))),
@@ -635,7 +635,7 @@ mod options_tests {
 
     #[test]
     fn options_the_hub_owns_are_refused_by_name_and_the_rest_pass() {
-        for key in harnix_engine_api::HUB_OWNED_OPTIONS {
+        for key in harnix_engine_link::HUB_OWNED_OPTIONS {
             let refused = refuse_hub_owned_options(&json!({"options": {"model": "m", key: true}})).unwrap_err();
             assert_eq!(refused.code, codes::REFUSED);
             assert!(refused.message.contains(key), "{}", refused.message);

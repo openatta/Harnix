@@ -93,7 +93,7 @@ pub(super) fn admit(
     let (listen, listening) = tokio::sync::watch::channel(None);
     let listen = Arc::new(listen);
     let mut dynamic = None;
-    let services = Arc::new(HostServicesRegistry::new(grants.clone()));
+    let services = Arc::new(HostServicesRegistry::new(grants.clone(), instances.clone()));
     // This process's uploads: a device's (`harnix.bulk.upload`) and each extension's.
     let uploads = Arc::new(HostUploads::new(parts.state_root.join("uploads").join(std::process::id().to_string())));
     let _ = behind.uploads.set(uploads.clone());

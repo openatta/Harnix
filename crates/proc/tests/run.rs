@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use harnix_engine::{Connection, DaemonLink};
-use harnix_engine_api::link::{EngineLink, InstanceCarrier};
+use harnix_engine_link::link::{EngineLink, InstanceCarrier};
 use harnix_proc::{run, Options};
 use harnix_wasm_port::rpc::ControlClient;
 use harnix_wasm_port::socket::{Answer, Inbound, Options as WireOptions, SocketWire};

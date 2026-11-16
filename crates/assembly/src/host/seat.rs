@@ -10,7 +10,7 @@ use harnix_contract::s1::ExtId;
 use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
 use harnix_ext::Service;
-use harnix_host_api::{HostApi, HostServices};
+use harnix_host_api::{HostApi, HostServices, SettingsFiles, SettingsTiers};
 use harnix_hub::Hub;
 use harnix_instance::InstanceRegistry;
 use harnix_kernel::seat::{
@@ -103,7 +103,6 @@ impl InstanceService for InstanceViews {
             active_scenes: facts.active_scenes.clone(),
             model: facts.model.clone().unwrap_or_default(),
             trust,
-            settings_root: facts.data_root.clone(),
             recordings,
             transcripts,
         })
@@ -194,17 +193,19 @@ impl CredentialLookup for Secrets {
     }
 }
 
-/// The host's named services: one, the host components' pipes, made for an extension that holds
-/// what it takes. The capability is this side's, by the name asked for: the type an extension
-/// asks through is its own to write, and says nothing.
+/// The host's named services: the host components' pipes, and where an instance's engine reads
+/// its settings tiers. Each is made for an extension that holds what it takes, and the capability
+/// is this side's, by the name asked for: the type an extension asks through is its own to write,
+/// and says nothing.
 pub(crate) struct HostServicesRegistry {
     grants: Arc<dyn GrantBook>,
     host: OnceLock<Weak<super::dynamic::DynamicHost>>,
+    instances: Arc<InstanceRegistry>,
 }
 
 impl HostServicesRegistry {
-    pub fn new(grants: Arc<dyn GrantBook>) -> Self {
-        Self { grants, host: OnceLock::new() }
+    pub fn new(grants: Arc<dyn GrantBook>, instances: Arc<InstanceRegistry>) -> Self {
+        Self { grants, host: OnceLock::new(), instances }
     }
 
     pub fn set(&self, host: &Arc<super::dynamic::DynamicHost>) {
@@ -214,15 +215,34 @@ impl HostServicesRegistry {
 
 impl ServiceRegistry for HostServicesRegistry {
     fn service(&self, ext: &ExtId, name: &str) -> Result<Arc<dyn Any + Send + Sync>, Unserved> {
-        if name != HostServices::NAME {
-            return Err(Unserved::Unknown);
+        let capability = match name {
+            HostServices::NAME => HostServices::CAPABILITY,
+            SettingsTiers::NAME => SettingsTiers::CAPABILITY,
+            _ => return Err(Unserved::Unknown),
+        };
+        if !self.grants.holds(ext, &capability) {
+            return Err(Unserved::Lacks(capability));
         }
-        if !self.grants.holds(ext, &HostServices::CAPABILITY) {
-            return Err(Unserved::Lacks(HostServices::CAPABILITY));
+        if name == HostServices::NAME {
+            // None before the host is made, and in a process that runs no extension host.
+            let host = self.host.get().and_then(Weak::upgrade).ok_or(Unserved::Unknown)?;
+            let api: Arc<dyn HostApi> = Arc::new(super::dynamic::HostFor::new(host, ext.clone()));
+            return Ok(Arc::new(api));
         }
-        // None before the host is made, and in a process that runs no extension host.
-        let host = self.host.get().and_then(Weak::upgrade).ok_or(Unserved::Unknown)?;
-        let api: Arc<dyn HostApi> = Arc::new(super::dynamic::HostFor::new(host, ext.clone()));
-        Ok(Arc::new(api))
+        let files: Arc<dyn SettingsFiles> = Arc::new(TiersOf(self.instances.clone()));
+        Ok(Arc::new(files))
+    }
+}
+
+/// The settings tiers of each instance's engine, under its data root: the engine's own layout.
+struct TiersOf(Arc<InstanceRegistry>);
+
+impl SettingsFiles for TiersOf {
+    fn global(&self, instance: &str) -> Option<PathBuf> {
+        Some(self.0.facts(instance)?.engine.data_root.join("settings.json"))
+    }
+
+    fn scene(&self, instance: &str, scene: &str) -> Option<PathBuf> {
+        Some(self.0.facts(instance)?.engine.data_root.join("scenes").join(scene).join("settings.json"))
     }
 }

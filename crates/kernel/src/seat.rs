@@ -45,8 +45,6 @@ pub struct InstanceView {
     pub active_scenes: Vec<String>,
     pub model: String,
     pub trust: InstanceTrust,
-    /// Where its engine's global and scene settings tiers are written.
-    pub settings_root: PathBuf,
     /// An `Arc<dyn harnix_engine_api::readers::Recordings>`, while the instance is built: through its link.
     pub recordings: Option<Arc<dyn Any + Send + Sync>>,
     /// An `Arc<dyn harnix_engine_api::readers::Transcripts>`, while the instance is built: through its link.

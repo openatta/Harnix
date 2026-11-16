@@ -300,12 +300,12 @@ Harnix 进程
 
 | 层级 | 包含 | 承诺 |
 |---|---|---|
-| **S1 扩展接口** | Rust：`harnix-ext` 的公开 API、`harnix-engine-api` 的扩展用得到的那部分、它们签名里出现的基本类型（经 `harnix` 门面重导出）；包：清单、WIT `harnix:ext@1.0.0`、桥、`@harnix/ext-sdk`、`@harnix/ext-kit`；界面：`@harnix/react` 的公开导出 | 只做加法 |
+| **S1 扩展接口** | Rust：`harnix-ext`、`harnix-engine-api`、`harnix_contract::s1` 的全部公开项（经 `harnix` 门面重导出；门面只依赖前两者）；包：清单、WIT `harnix:ext@1.0.0`、桥、`@harnix/ext-sdk`、`@harnix/ext-kit`；界面：`@harnix/react` 的公开导出 | 只做加法 |
 | **S2 线上协议** | 方法、主题、通知、错误码、握手，**除了**随 Agix 变的两块（§9） | 只做加法；改形状升 `PROTOCOL_VERSION` |
-| **S3 内核内部接口** | `harnix-kernel`、`harnix-engine-api` 里给中枢与实例层的那部分、`harnix-host-api`、端口与扩展线 | 骨架与宿主组件之间的契约；本仓库内可改；普通扩展不许依赖 |
+| **S3 内核内部接口** | `harnix-kernel`、`harnix-engine-link`（引擎链接、操作、事件）、`harnix-host-api`、端口与扩展线 | 骨架与宿主组件之间的契约；本仓库内可改；普通扩展不许依赖 |
 | **U 不稳定** | `harnix::testing`、`harnix_ext::http::axum`、事件负载与 `engine.*` 的答 | 不在任何承诺里，文档首句写明 |
 
-「只做加法」靠的是机制，不是自觉：出现在 S1 签名里的类型就是 S1，不管住在哪个 crate；S1 的公开结构与枚举一律 `#[non_exhaustive]`、经构造函数与
+「只做加法」靠的是机制，不是自觉：出现在 S1 签名里的类型住在 S1 的 crate 里（契约的在 `s1/`），S1 的 crate 不依赖 S3 的，所以写不出 S3 的名字；S1 的公开结构与枚举一律 `#[non_exhaustive]`、经构造函数与
 builder 生成，加字段、加变体都是加法；cargo feature 只加函数与模块，不加字段与变体（feature 是合并的，一个下游开了它，别的下游的穷尽 `match` 不能因此坏）；
 扩展接口里没有 `#[doc(hidden)]`。这几条都是层次规则。
 
@@ -1572,7 +1572,8 @@ Linux 照同一条。所以沙箱开着时，产品收养它的引擎时在它�
 
 | crate | 是什么 | 谁用 |
 |---|---|---|
-| `harnix-engine-api` | **没有 Agix 依赖的引擎词汇**。给扩展的：`Tool`、`ToolSpec`、`ToolProvider`、`ToolHook`、`SceneLayer`、`SceneBase`、`PromptGate`、`EngineContribution`、模板声明、录像与转录的读者。给中枢与实例层的：引擎链接（控制的一半与整条）、一样一个方法的引擎操作、有类型的引擎事件 | 扩展（经 `harnix::engine`）、中枢、实例层 |
+| `harnix-engine-api` | **没有 Agix 依赖的引擎词汇，扩展的一半**（S1，整个 crate 就是 `harnix::engine`）：`Tool`、`ToolSpec`、`ToolProvider`、`ToolHook`、`SceneLayer`、`SceneBase`、`PromptGate`、`EngineContribution`、模板声明、录像与转录的读者 | 扩展（经 `harnix::engine`）、中枢、实例层、引擎 |
+| `harnix-engine-link` | **引擎词汇的骨架一半**（S3）：引擎链接（控制的一半与整条）、一样一个方法的引擎操作、有类型的引擎事件、场景层的展开、调用链的来源、一台实例的两个读者。依赖 `harnix-engine-api`，不被扩展接口、门面、宿主组件依赖 | 中枢、实例层、引擎、装配、扩展进程 |
 | `harnix-engine` | **唯一依赖 Agix 的 crate**：Agix 的 JSON-RPC 与有类型的操作、事件之间的翻译（Agix 的方法名与事件种类只在这一份）；daemon 链路（进程内的内存双工与 socket 同一份）与回放链路；`embed.rs` 里经 `agix::embed` 起引擎与 daemon 的服务；链路上登记的宿主工具、钩子与门；读者的实现（经协议读，不解析录像文件，也不依赖 transcript 存储）；provider 的校验 | 实例层、扩展进程 |
 
 - **中枢只认引擎词汇**：不编译 Agix，不拼 Agix 的方法名，不认 Agix 的事件种类（层次规则从翻译里的常量生成名单去查中枢的源码）。

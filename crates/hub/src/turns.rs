@@ -13,8 +13,8 @@
 use std::sync::Arc;
 
 use harnix_contract::{Frame, RpcError};
-use harnix_engine_api::events::Completion;
-use harnix_engine_api::ops::{codes as engine_codes, TurnInput};
+use harnix_engine_link::events::Completion;
+use harnix_engine_link::ops::{codes as engine_codes, TurnInput};
 use serde_json::{json, Value};
 
 use crate::session::{QueueItem, USER_MESSAGE};
@@ -274,7 +274,7 @@ impl Hub {
             state.seq += 1;
             let seq = state.seq;
             let event = json!({"kind": USER_MESSAGE, "text": item.message});
-            state.replay.push(seq, &turn_id, &harnix_engine_api::SessionEventKind::Other, &event);
+            state.replay.push(seq, &turn_id, &harnix_engine_link::SessionEventKind::Other, &event);
             (seq, event, state.watchers())
         };
         self.fan_out(
@@ -426,11 +426,11 @@ impl Hub {
             ));
         }
         if bound != claimed {
-            return Err(RpcError {
-                code: harnix_contract::codes::SPACE_MISMATCH,
-                message: format!("session `{}` on instance `{}` belongs to the space `{bound}`, not `{claimed}`", key.1, key.0),
-                data: Some(json!({"space": bound, "instance": key.0, "session_id": key.1})),
-            });
+            return Err(RpcError::with_data(
+                harnix_contract::codes::SPACE_MISMATCH,
+                format!("session `{}` on instance `{}` belongs to the space `{bound}`, not `{claimed}`", key.1, key.0),
+                json!({"space": bound, "instance": key.0, "session_id": key.1}),
+            ));
         }
         self.engine(&key.0)?.ops().set_model(&key.1, &model, provider.as_deref()).await
     }
@@ -560,7 +560,7 @@ fn outcome_of(complete: &Completion, answer: &crate::session::Answer) -> Value {
 #[cfg(test)]
 mod outcome_tests {
     use super::*;
-    use harnix_engine_api::events::{Fragment, Joins, SessionEventKind};
+    use harnix_engine_link::events::{Fragment, Joins, SessionEventKind};
 
     #[test]
     fn a_send_is_on_behalf_of_its_calls_chain_and_its_sender() {

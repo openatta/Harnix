@@ -1,0 +1,17 @@
+[package]
+name = "harnix-engine-link"
+version      = "0.4.3-2026111501"
+edition      = "2021"
+rust-version = "1.88"
+license      = "Apache-2.0"
+publish      = false
+description  = "How the hub and the instance layer reach an engine: its link, what it is asked, what it says unasked — the skeleton's half of the engine vocabulary"
+
+[dependencies]
+harnix-contract   = { workspace = true }
+harnix-engine-api = { workspace = true }
+async-trait = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+tokio       = { workspace = true }
+tracing     = { workspace = true }

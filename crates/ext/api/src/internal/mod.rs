@@ -13,7 +13,6 @@ use std::time::Duration;
 use harnix_contract::s1::{Capability, ExtId, Subject};
 use harnix_contract::{Channel, Frame, FrameSink, SessionRef};
 use harnix_engine_api::readers::{Recordings, Transcripts};
-use harnix_engine_api::Secret;
 use harnix_kernel::seat::{DeviceAdmin, InstanceView, Listening, Seat, Seated, Unserved};
 use harnix_kernel::{CallContext, Handler, TopicSource};
 use serde_json::{json, Value};
@@ -21,7 +20,7 @@ use tokio::sync::mpsc;
 
 use crate::call::{Call, Deadline};
 use crate::context::{ExtensionContext, GrantsView, Listen};
-use crate::credentials::Credentials;
+use crate::credentials::{Credentials, Secret};
 use crate::descriptor::{ExtensionDescriptor, MethodDecl, TopicDecl, TopicKind};
 use crate::sessions::{Reattach, Tap};
 use crate::topics::{TopicStream, TopicValue};

@@ -24,6 +24,7 @@
 use std::path::PathBuf;
 
 use harnix_ext::{caps, codes, Access, Call, Extension, Manifest, Registrar, Rpc, RpcError, MAIN_INSTANCE};
+use harnix_host_api::SettingsTiers;
 use serde_json::{json, Map, Value};
 
 mod dir_lock;
@@ -111,19 +112,26 @@ fn require_str(params: &Value, key: &str) -> Rpc<String> {
         .ok_or_else(|| RpcError::invalid_params(format!("missing {key}")))
 }
 
-/// The instance whose settings these are, and where its tiers are written.
+/// The instance whose settings these are.
 fn main_engine(call: &Call) -> Rpc<harnix_ext::EngineView> {
     call.ext()
         .engine(MAIN_INSTANCE)
         .ok_or_else(|| RpcError::new(codes::INTERNAL_ERROR, "the engine has not started yet"))
 }
 
-/// The settings.json a tier writes to, if that tier exists here.
+/// The settings.json a tier writes to, if that tier exists here. The global and scene tiers are
+/// under the engine's data root, which the host says; the project tier is the project's own.
 fn tier_path(call: &Call, tier: &str, scene: Option<&str>, project_root: Option<&str>) -> Rpc<Option<PathBuf>> {
-    let files = main_engine(call)?.config_files()?;
+    let files = call.ext().service::<SettingsTiers>()?;
+    let under_main = |path: Option<PathBuf>| {
+        path.ok_or_else(|| RpcError::new(codes::INTERNAL_ERROR, "the engine has not started yet"))
+    };
     Ok(match tier {
-        "global" => Some(files.global()),
-        "scene" => scene.map(|scene| files.scene(scene)),
+        "global" => Some(under_main(files.global(MAIN_INSTANCE))?),
+        "scene" => match scene {
+            Some(scene) => Some(under_main(files.scene(MAIN_INSTANCE, scene))?),
+            None => None,
+        },
         "project" => project_root.map(|p| PathBuf::from(p).join(".agix").join("settings.json")),
         _ => None,
     })

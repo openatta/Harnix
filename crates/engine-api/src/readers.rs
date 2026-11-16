@@ -6,12 +6,11 @@
 //! definition, a message, a call's usage) it is carried as JSON as the engine wrote it, and
 //! changes with the engine.
 //!
-//! The readers read through the engine's protocol, one set per instance ([`Readers`]): what an
-//! instance records, they read from the instance, so one that is down cannot be read
+//! The readers read through the engine's protocol, one set per instance: what an instance
+//! records, they read from the instance, so one that is down cannot be read
 //! ([`ReadError::Unavailable`]).
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -65,20 +64,6 @@ pub trait Transcripts: Send + Sync {
     /// A case-insensitive search of the messages of `sessions`, in that order (the caller's: most
     /// recent first), one hit per session, as far as `limits` let it go.
     async fn search(&self, sessions: &[String], query: &str, limits: &SearchLimits) -> Result<SearchResult, ReadError>;
-}
-
-/// Both readers of one instance: what its link reads through.
-#[non_exhaustive]
-#[derive(Clone)]
-pub struct Readers {
-    pub recordings: Arc<dyn Recordings>,
-    pub transcripts: Arc<dyn Transcripts>,
-}
-
-impl Readers {
-    pub fn new(recordings: Arc<dyn Recordings>, transcripts: Arc<dyn Transcripts>) -> Self {
-        Self { recordings, transcripts }
-    }
 }
 
 /// Which run of the session a reading covers: its recording started over when the process running

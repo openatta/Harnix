@@ -8,8 +8,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use harnix_engine::{Chains, Endpoint, Engine, EngineConfig, HostSide, InProcessEngine, Recording, ReplayLink};
-use harnix_engine_api::readers::Readers;
-use harnix_engine_api::{EngineContribution, EngineControl, EngineLink, SceneLayers};
+use harnix_engine_link::Readers;
+use harnix_engine_api::EngineContribution;
+use harnix_engine_link::{EngineControl, EngineLink, SceneLayers};
 
 use crate::daemon::{DaemonSpec, SpawnOptions, SpawnSpec, Supervised};
 use crate::profile::EngineProfile;
@@ -107,7 +108,7 @@ pub struct Factory {
 /// The hub's turns, as an engine's tool calls read them.
 struct TurnSource(Arc<harnix_kernel::TurnChains>);
 
-impl harnix_engine_api::ChainSource for TurnSource {
+impl harnix_engine_link::ChainSource for TurnSource {
     fn chain(&self, session: &harnix_engine_api::SessionRef) -> Vec<harnix_engine_api::ChainLink> {
         self.0.chain(&session.instance, &session.session_id).links().to_vec()
     }
@@ -402,7 +403,7 @@ mod tests {
     use super::*;
     use crate::daemon::tests::Fake;
     use crate::templates::AttachTo;
-    use harnix_engine_api::link::LinkStatus;
+    use harnix_engine_link::link::LinkStatus;
     use harnix_engine_api::{Tool, ToolCx, ToolError, ToolOutput, ToolProvider, ToolSpec};
     use serde_json::{json, Value};
     use std::time::Duration;

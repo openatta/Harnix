@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use harnix_contract::sync::lock;
 use harnix_contract::{codes, RpcError};
-use harnix_engine_api::ops::SessionInfo;
+use harnix_engine_link::ops::SessionInfo;
 use harnix_engine_api::readers::{ReadError, Recordings, SearchLimits, Transcripts};
 use serde_json::{json, Value};
 
@@ -81,7 +81,7 @@ impl Rpc for Engine {
                 let generation = *lock(&self.generation);
                 if let Some(g) = params["generation"].as_u64() {
                     if g != generation {
-                        return Err(RpcError { code: codes::INVALID_PARAMS, message: "the recording was rewritten".into(), data: Some(json!({"generation": generation})) });
+                        return Err(RpcError::with_data(codes::INVALID_PARAMS, "the recording was rewritten", json!({"generation": generation})));
                     }
                 }
                 let rows = own.unwrap_or_else(|| lock(&self.rows).clone());
@@ -269,7 +269,7 @@ async fn a_rewritten_recording_is_read_from_the_start() {
     impl Rpc for Fickle {
         async fn call(&self, _: &str, params: Value) -> Result<Value, RpcError> {
             if params.get("generation").is_some() {
-                return Err(RpcError { code: codes::INVALID_PARAMS, message: "again".into(), data: Some(json!({"generation": 9})) });
+                return Err(RpcError::with_data(codes::INVALID_PARAMS, "again", json!({"generation": 9})));
             }
             Ok(json!({"recording": {"created_at": "", "generation": 1}, "calls": [row(0, "S", None, 0, None)], "next": 1, "total": 2}))
         }

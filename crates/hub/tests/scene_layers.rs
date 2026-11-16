@@ -8,10 +8,11 @@
 use std::sync::{Arc, Mutex};
 
 use harnix_contract::{RpcError, SpaceDecl, Subject};
-use harnix_engine_api::events::EngineEvent;
-use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
-use harnix_engine_api::ops::{codes, Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
-use harnix_engine_api::{PromptText, SceneBase, SceneLayer, SceneLayers, Tool, ToolCx, ToolError, ToolOutput, ToolSpec};
+use harnix_engine_link::events::EngineEvent;
+use harnix_engine_link::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
+use harnix_engine_link::ops::{codes, Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
+use harnix_engine_api::{PromptText, SceneBase, SceneLayer, Tool, ToolCx, ToolError, ToolOutput, ToolSpec};
+use harnix_engine_link::SceneLayers;
 use harnix_hub::{Hub, HubCell, HubConfig, HubRow, Spaces};
 use harnix_kernel::{CallContext, Handler, InstanceBook, InstanceObserver, InstanceTrust, Listed, Rpc};
 use serde_json::{json, Value};
@@ -151,11 +152,7 @@ impl EngineOps for FakeLink {
     }
     async fn set_prompt(&self, session: &str, append: Option<Option<String>>, override_text: Option<Option<String>>) -> Answer<Value> {
         if *self.busy.lock().unwrap() {
-            return Err(RpcError {
-                code: codes::SESSION_BUSY,
-                message: "a turn is running".into(),
-                data: Some(json!({"reason": "turn_running"})),
-            });
+            return Err(RpcError::with_data(codes::SESSION_BUSY, "a turn is running", json!({"reason": "turn_running"})));
         }
         self.prompted.lock().unwrap().push((append.clone(), override_text));
         Ok(json!({"session_id": session, "append": append.flatten(), "applies": "next_turn"}))

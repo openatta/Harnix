@@ -80,7 +80,8 @@ crates/authz           准入与审计
 crates/transport       通道语义、拓扑、握手、静态面、/ext/<id>/…
 crates/hub             会话中枢
 crates/instance        实例登记表：一条链路后面的 Agix 实例
-crates/engine-api      不带 Agix 的引擎词汇：Tool、SceneLayer、PromptGate……
+crates/engine-api      扩展用的引擎词汇，不带 Agix（S1）：Tool、SceneLayer、PromptGate……
+crates/engine-link     骨架眼里的引擎（S3）：链路、问它什么、它主动说什么
 crates/engine          唯一用 Agix 的 crate
 crates/supervise       子进程：fork + exec、沙箱、收割
 crates/ext/api         harnix-ext，扩展接口（S1）

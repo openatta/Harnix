@@ -17,9 +17,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use harnix_contract::RpcError;
-use harnix_engine_api::readers::Readers;
+use harnix_engine_link::Readers;
 use harnix_engine::{Connection, DaemonLink, Endpoint, HostSide, Recorder, Refusal, ReplayLink};
-use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, InstanceCarrier, LinkStatus};
+use harnix_engine_link::link::{EngineControl, EngineIdentity, EngineLink, InstanceCarrier, LinkStatus};
 use harnix_supervise::{Child, ChildSpec, RestartPolicy, Restarts};
 use tokio::sync::{watch, Mutex};
 
@@ -359,7 +359,7 @@ impl EngineControl for Supervised {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use harnix_engine_api::EngineEvent;
+    use harnix_engine_link::EngineEvent;
     use serde_json::{json, Value};
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 

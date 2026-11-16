@@ -9,9 +9,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use harnix_contract::{ExtId, RpcError, SkillSource, SpaceDecl, Subject};
-use harnix_engine_api::events::EngineEvent;
-use harnix_engine_api::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
-use harnix_engine_api::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
+use harnix_engine_link::events::EngineEvent;
+use harnix_engine_link::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
+use harnix_engine_link::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
 use harnix_hub::{Hub, HubCell, HubConfig, HubRow, Spaces};
 use harnix_kernel::{CallContext, Handler, InstanceBook, InstanceObserver, InstanceTrust, Listed, Rpc};
 use serde_json::{json, Value};

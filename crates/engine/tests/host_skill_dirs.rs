@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use harnix_engine::{Engine, EngineConfig, HostSide, InProcessEngine};
-use harnix_engine_api::link::EngineLink;
+use harnix_engine_link::link::EngineLink;
 use harnix_engine_api::EngineProfile;
 use serde_json::{json, Value};
 
@@ -44,7 +44,7 @@ impl Rig {
         self.create_with(json!([{"path": self.skills}])).await.expect("a session").session_id.expect("its id")
     }
 
-    async fn create_with(&self, dirs: Value) -> Result<harnix_engine_api::SessionCreated, harnix_contract::RpcError> {
+    async fn create_with(&self, dirs: Value) -> Result<harnix_engine_link::SessionCreated, harnix_contract::RpcError> {
         let params = json!({"project_root": null, "options": {"skill_dirs": dirs}});
         self.engine.link().ops().create(params, Default::default()).await
     }
