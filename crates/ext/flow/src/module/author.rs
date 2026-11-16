@@ -18,9 +18,9 @@
 //! | `flow_dry_run {inputs?, mocks?}` | yes | dry-run the current flow, as far as it goes |
 //! | `flow_start {subject, inputs?, title?}` | no | start the current flow for real |
 //!
-//! Tools that are not read-only are asked about through the engine's permission mechanism —
-//! the person is in the conversation. None of them confirms, rejects, forces, reworks, releases
-//! or cancels anything: an agent still approves nothing on a person's behalf.
+//! No tool asks the person (docs/system-space.md §5): a change is checked, not approved — a
+//! definition with problems is not saved. A run tool acts only when the user asks for it, and the
+//! run's history records the conversation as who did it.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -76,43 +76,30 @@ pub const TOOL_RELEASE: &str = "flow_release";
 pub const GUIDE_EN: &str = include_str!("../../docs/guide.en.md");
 pub const GUIDE_ZH: &str = include_str!("../../docs/guide.zh-CN.md");
 
-/// Who acted when a person approved a run tool in a conversation and the device that answered
-/// is not known: the conversation.
+/// Who acted when a run tool acts in a conversation: the conversation, `<instance>/<session>`.
 pub const CONVERSATION_KIND: &str = "conversation";
-
-/// A flow conversation's permission rules: `ask` for each authoring tool that changes something.
-pub fn ask_rules() -> Value {
-    Value::Array(
-        TOOLS
-            .iter()
-            .filter(|t| t.ask.is_some())
-            .map(|t| json!({"source": "session", "behavior": "ask", "tool_name": t.name}))
-            .collect(),
-    )
-}
 
 /// Every authoring tool, and whether it is read-only: [`TOOLS`], as names.
 pub const AUTHOR_TOOLS: [(&str, bool); TOOLS.len()] = {
     let mut out = [("", false); TOOLS.len()];
     let mut i = 0;
     while i < TOOLS.len() {
-        out[i] = (TOOLS[i].name, TOOLS[i].ask.is_none());
+        out[i] = (TOOLS[i].name, TOOLS[i].read_only);
         i += 1;
     }
     out
 };
 
 /// One authoring tool, everything about it but its code. [`TOOLS`] is the one place a tool is
-/// listed: its name, what the model is told of it, its input, what the person is asked, and which
-/// arm of [`AuthorTool::call`] runs it.
+/// listed: its name, what the model is told of it, its input, whether it changes anything, and
+/// which arm of [`AuthorTool::call`] runs it.
 pub(crate) struct ToolSpec {
     pub name: &'static str,
     pub description: &'static str,
     /// Its input's JSON Schema.
     pub schema: fn() -> Value,
-    /// What the person is asked to let the agent do, from the call's input. `None`: the tool is
-    /// read-only, and runs without asking.
-    pub ask: Option<fn(&Value) -> String>,
+    /// It changes nothing: it may run beside other calls.
+    pub read_only: bool,
     does: Does,
 }
 
@@ -148,20 +135,6 @@ enum Act {
     Release,
 }
 
-/// A name from a tool's input, for the question: `` `name` ``, or nothing.
-fn named(input: &Value, k: &str) -> String {
-    input
-        .get(k)
-        .and_then(Value::as_str)
-        .map(|n| format!(" `{n}`"))
-        .unwrap_or_default()
-}
-
-/// A part's kind from a tool's input, for the question.
-fn kind_named(input: &Value) -> &str {
-    input.get("kind").and_then(Value::as_str).unwrap_or("part")
-}
-
 fn flow_named() -> Value {
     json!({"type": "string", "description": "the flow this acts on, by name: the current one, as flow_show or flow_list gave it"})
 }
@@ -187,71 +160,63 @@ pub(crate) const TOOLS: &[ToolSpec] = &[
         name: TOOL_LIST,
         description: "The flows on offer: name, title, origin (builtin, override, user) and whether each is valid; and which one is current.",
         schema: no_input,
-        ask: None,
+        read_only: true,
         does: Does::List,
     },
     ToolSpec {
         name: TOOL_SHOW,
         description: "The current flow (the one the user selected): its YAML, the texts of the parts it uses (skills, rules, policies, gates), the hooks over it, its problems, and its stations in brief.",
         schema: no_input,
-        ask: None,
+        read_only: true,
         does: Does::Show,
     },
     ToolSpec {
         name: TOOL_SCHEMA,
         description: "The JSON Schemas of a flow definition and of policies, gates and hooks, and the names this application offers (scenes, steps, checks, tools, templates, instances, spaces, models, guarded tools, and the parts on offer by kind).",
         schema: no_input,
-        ask: None,
+        read_only: true,
         does: Does::Schema,
     },
     ToolSpec {
         name: TOOL_VALIDATE,
         description: "Every problem of a flow definition text (YAML), without saving anything. An empty list: it is valid.",
         schema: || json!({"type": "object", "required": ["yaml"], "properties": {"yaml": {"type": "string"}}}),
-        ask: None,
+        read_only: true,
         does: Does::Validate,
     },
     ToolSpec {
         name: TOOL_CREATE,
         description: "Create a new flow from its YAML (and, optionally, parts it uses: [{kind: skill|rule|policy|gate, name, text}]). Everything is validated first and nothing is saved if anything has problems. It becomes the current flow.",
         schema: || json!({"type": "object", "required": ["yaml"], "properties": {"yaml": {"type": "string"}, "parts": parts_given()}}),
-        ask: Some(|input| {
-            let created = input
-                .get("yaml")
-                .and_then(Value::as_str)
-                .and_then(|y| FlowDef::parse(y).ok())
-                .map(|d| format!(" `{}`", d.name))
-                .unwrap_or_default();
-            format!("create the flow{created}")
-        }),
+        read_only: false,
         does: Does::Save { creating: true },
     },
     ToolSpec {
         name: TOOL_UPDATE,
         description: "Change the current flow, named in `flow`: its YAML (same name), and/or parts ([{kind, name, text}]). Validated first; nothing is saved if anything has problems. Runs already started keep their definition.",
         schema: || json!({"type": "object", "required": ["flow"], "properties": {"flow": flow_named(), "yaml": {"type": "string"}, "parts": parts_given()}}),
-        ask: Some(|input| format!("change the flow{}", named(input, "flow"))),
+        read_only: false,
         does: Does::Save { creating: false },
     },
     ToolSpec {
         name: TOOL_DELETE,
         description: "Delete the current flow, named in `flow`. For a built-in flow, this deletes the saved override and the built-in version is back.",
         schema: || json!({"type": "object", "required": ["flow"], "properties": {"flow": flow_named()}}),
-        ask: Some(|input| format!("delete the flow{}", named(input, "flow"))),
+        read_only: false,
         does: Does::Delete,
     },
     ToolSpec {
         name: TOOL_PART_SET,
         description: "Create or change a part of the pack: a skill (its SKILL.md), a rule (markdown, first `# ` heading its title), a policy, a gate or a hook (YAML; its `name` the same). Checked first; the flows it breaks are listed.",
         schema: || json!({"type": "object", "required": ["kind", "name", "text"], "properties": {"kind": {"enum": ["skill", "rule", "policy", "gate", "hook"]}, "name": {"type": "string"}, "text": {"type": "string"}}}),
-        ask: Some(|input| format!("save the {}{}", kind_named(input), named(input, "name"))),
+        read_only: false,
         does: Does::PartSet,
     },
     ToolSpec {
         name: TOOL_PART_DELETE,
         description: "Delete a saved part (a built-in one: its override, and the built-in one is back).",
         schema: || json!({"type": "object", "required": ["kind", "name"], "properties": {"kind": {"enum": ["skill", "rule", "policy", "gate", "hook"]}, "name": {"type": "string"}}}),
-        ask: Some(|input| format!("delete the {}{}", kind_named(input), named(input, "name"))),
+        read_only: false,
         does: Does::PartDelete,
     },
     ToolSpec {
@@ -262,7 +227,7 @@ pub(crate) const TOOLS: &[ToolSpec] = &[
             "inputs": {"type": "object"},
             "mocks": {"type": "object", "properties": {
                 "stations": {"type": "object"}, "gates": {"type": "object"}, "tools": {"type": "object"}}}}}),
-        ask: None,
+        read_only: true,
         does: Does::DryRun,
     },
     ToolSpec {
@@ -271,91 +236,84 @@ pub(crate) const TOOLS: &[ToolSpec] = &[
         schema: || json!({"type": "object", "required": ["flow", "subject"], "properties": {
             "flow": flow_named(),
             "subject": {"type": "string"}, "inputs": {"type": "object"}, "title": {"type": "string"}}}),
-        ask: Some(|input| format!("start a run of the flow{} for{}", named(input, "flow"), named(input, "subject"))),
+        read_only: false,
         does: Does::Start,
     },
     ToolSpec {
         name: TOOL_GUIDE,
         description: "The guide to flows: the objects (flow, station, work, task, executor, exit condition, rule, policy and permission, gate, hook, run, main session, sub-agent, lease, rework, dry run), what they mean, and how to define a flow, with examples. `lang`: en or zh-CN.",
         schema: || json!({"type": "object", "properties": {"lang": {"enum": ["en", "zh-CN"]}}}),
-        ask: None,
+        read_only: true,
         does: Does::Guide,
     },
     ToolSpec {
         name: TOOL_RUNS,
         description: "The runs of the current flow, newest first: id, title, what each is doing (phase), when it started, its tokens.",
         schema: no_input,
-        ask: None,
+        read_only: true,
         does: Does::Runs,
     },
     ToolSpec {
         name: TOOL_RUN,
         description: "One run of the current flow: each station's status, time and tokens, what it waits for, its tasks.",
         schema: run_named,
-        ask: None,
+        read_only: true,
         does: Does::Run,
     },
     ToolSpec {
         name: TOOL_PAUSE,
         description: "Pause a run of the current flow: what is in hand finishes, nothing new starts. Only when the user asks.",
         schema: run_named,
-        ask: Some(|input| format!("pause the run{}", named(input, "run"))),
+        read_only: false,
         does: Does::Act(Act::Pause),
     },
     ToolSpec {
         name: TOOL_RESUME,
         description: "Resume a paused run of the current flow. Only when the user asks.",
         schema: run_named,
-        ask: Some(|input| format!("resume the run{}", named(input, "run"))),
+        read_only: false,
         does: Does::Act(Act::Resume),
     },
     ToolSpec {
         name: TOOL_CANCEL,
         description: "Cancel a run of the current flow, with a reason. Only when the user asks.",
         schema: || json!({"type": "object", "required": ["run", "reason"], "properties": {"run": {"type": "string"}, "reason": {"type": "string"}}}),
-        ask: Some(|input| format!("cancel the run{}", named(input, "run"))),
+        read_only: false,
         does: Does::Act(Act::Cancel),
     },
     ToolSpec {
         name: TOOL_CONFIRM,
-        description: "Confirm a station of a run of the current flow (`pass`: true passes, false rejects), with an optional reason. Only when the user asks: their approval is the confirmation.",
+        description: "Confirm a station of a run of the current flow (`pass`: true passes, false rejects), with an optional reason. Only when the user asks for it.",
         schema: || json!({"type": "object", "required": ["run", "station", "pass"], "properties": {"run": {"type": "string"}, "station": {"type": "string"}, "pass": {"type": "boolean"}, "reason": {"type": "string"}}}),
-        ask: Some(|input| {
-            format!(
-                "{} station{} of the run{}",
-                if input.get("pass").and_then(Value::as_bool) == Some(false) { "reject" } else { "confirm" },
-                named(input, "station"),
-                named(input, "run")
-            )
-        }),
+        read_only: false,
         does: Does::Act(Act::Confirm),
     },
     ToolSpec {
         name: TOOL_FORCE,
         description: "Pass a station of a run by force, with a reason, whatever is not met. Only when the user asks.",
         schema: || json!({"type": "object", "required": ["run", "station", "reason"], "properties": {"run": {"type": "string"}, "station": {"type": "string"}, "reason": {"type": "string"}}}),
-        ask: Some(|input| format!("force station{} of the run{}", named(input, "station"), named(input, "run"))),
+        read_only: false,
         does: Does::Act(Act::Force),
     },
     ToolSpec {
         name: TOOL_REWORK,
         description: "Send a run of the current flow back to station `to` (optionally only `tasks`), with a reason. Only when the user asks.",
         schema: || json!({"type": "object", "required": ["run", "to", "reason"], "properties": {"run": {"type": "string"}, "to": {"type": "string"}, "tasks": {"type": "array", "items": {"type": "string"}}, "reason": {"type": "string"}}}),
-        ask: Some(|input| format!("send the run{} back to{}", named(input, "run"), named(input, "to"))),
+        read_only: false,
         does: Does::Act(Act::Rework),
     },
     ToolSpec {
         name: TOOL_RETRY,
         description: "Put a failed task of a run back to work with a fresh retry budget. Only when the user asks.",
         schema: || json!({"type": "object", "required": ["run", "station", "task"], "properties": {"run": {"type": "string"}, "station": {"type": "string"}, "task": {"type": "string"}}}),
-        ask: Some(|input| format!("retry task{} of the run{}", named(input, "task"), named(input, "run"))),
+        read_only: false,
         does: Does::Act(Act::Retry),
     },
     ToolSpec {
         name: TOOL_RELEASE,
         description: "Release a held station of a run. Only when the user asks.",
         schema: || json!({"type": "object", "required": ["run", "station"], "properties": {"run": {"type": "string"}, "station": {"type": "string"}}}),
-        ask: Some(|input| format!("release station{} of the run{}", named(input, "station"), named(input, "run"))),
+        read_only: false,
         does: Does::Act(Act::Release),
     },
 ];
@@ -392,9 +350,11 @@ How to work:\n\
 - A task without a `scene` works in the run's **main session** (the flow's main Agent, placed by \
   the flow's `main`); `kind: agent` hands a task to a sub-agent of it; a `scene` gives a task a \
   session of its own.\n\
+- Saving, deleting and starting take effect at once, without asking the user: validate first, \
+  and do only what the user asked for.\n\
 - The runs of the current flow: `flow_runs`, `flow_run`. When the user asks, you may pause, resume, \
-  cancel, confirm (pass or reject), force, rework, retry or release with the run tools — each is \
-  asked of the user, and their approval is what decides. Never do one the user did not ask for.";
+  cancel, confirm (pass or reject), force, rework, retry or release with the run tools. Never do \
+  one the user did not ask for.";
 
 /// An application's scene with the authoring tools and prompt added, served as `flow-author`.
 ///
@@ -501,7 +461,7 @@ struct AuthorTool {
 impl AuthorTool {
     fn new(spec: &'static ToolSpec, sh: Arc<Shared>) -> Self {
         let mut told = Spec::new(spec.name, spec.description, (spec.schema)());
-        if spec.ask.is_none() {
+        if spec.read_only {
             told = told.read_only().concurrency_safe();
         }
         Self { spec, told, sh }
@@ -639,12 +599,9 @@ impl Tool for AuthorTool {
     fn spec(&self) -> &Spec {
         &self.told
     }
-    /// What changes something is asked about: the person is in the conversation.
-    fn permission(&self, input: &Value) -> Permission {
-        match self.spec.ask {
-            None => Permission::Allow,
-            Some(what) => Permission::Ask(format!("Let the agent {}?", what(input))),
-        }
+    /// Never asked about: what changes something is checked as it runs.
+    fn permission(&self, _: &Value) -> Permission {
+        Permission::Allow
     }
     async fn call(&self, cx: ToolCx, input: Value) -> ToolOut {
         let sh = &self.sh;
@@ -663,7 +620,7 @@ impl Tool for AuthorTool {
             .filter(|f| packs.flow(f).is_some());
         let need_focus = || focus.clone().ok_or(());
         // What changes or runs a flow names it, and acts only if it is still the current one:
-        // the person approved that flow, not whatever is selected when the call runs.
+        // the call means that flow, not whatever is selected when it runs.
         let target = || target_flow(&input, focus.as_deref());
         match self.spec.does {
             Does::List => text(json!({
@@ -974,22 +931,7 @@ impl Tool for AuthorTool {
                     Err(m) => return error(m),
                 };
                 let run = rec.id.clone();
-                // The device whose approval let the call through (the hub kept it for the audit).
-                let answered = match sh.cx.get() {
-                    Some(mcx) => mcx
-                        .call(
-                            "harnix.session.answerer",
-                            json!({"instance": instance, "session_id": session, "tool_use_id": cx.tool_use_id()}),
-                        )
-                        .await
-                        .ok()
-                        .and_then(|v| v.get("answerer").and_then(Value::as_str).map(String::from)),
-                    None => None,
-                };
-                let who = match answered.as_deref().and_then(|a| a.strip_prefix("device:")) {
-                    Some(device) => Actor::device(device),
-                    None => Actor::new(CONVERSATION_KIND, format!("{instance}/{session}")),
-                };
+                let who = Actor::new(CONVERSATION_KIND, format!("{instance}/{session}"));
                 let station = str_of(&input, "station").unwrap_or_default().to_string();
                 let reason = str_of(&input, "reason").map(String::from);
                 let r = match act {
@@ -1105,7 +1047,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_tools_that_change_nothing_are_read_only_and_the_rest_are_not() {
+    fn the_tools_that_change_nothing_are_read_only_and_none_is_asked_about() {
         let read_only: Vec<&str> = AUTHOR_TOOLS
             .iter()
             .filter(|(_, r)| *r)
@@ -1148,17 +1090,15 @@ mod tests {
                 TOOL_RELEASE
             ]
         );
-        // What decides for a person is asked of the person every time (xops-03 §5): none of
-        // the run tools is read-only.
-        let acts: Vec<&ToolSpec> = TOOLS.iter().filter(|t| matches!(t.does, Does::Act(_))).collect();
-        assert_eq!(acts.len(), 8);
-        for t in acts {
-            assert!(t.ask.is_some(), "{}", t.name);
+        // None of them asks the person: a change is checked as it runs, not approved.
+        let sh = Arc::new(Shared::for_tests());
+        for t in TOOLS {
+            let tool = AuthorTool::new(t, sh.clone());
+            assert_eq!(tool.permission(&json!({"flow": "f", "run": "r-1"})), Permission::Allow, "{}", t.name);
         }
     }
 
-    /// The table is the one list: every name once, each with its words, an input schema and,
-    /// when it changes something, a question that names what it acts on.
+    /// The table is the one list: every name once, each with its words and an input schema.
     #[test]
     fn every_tool_is_one_row_of_the_table() {
         let mut names: Vec<&str> = TOOLS.iter().map(|t| t.name).collect();
@@ -1166,21 +1106,10 @@ mod tests {
         names.sort();
         names.dedup();
         assert_eq!(names.len(), TOOLS.len(), "no name twice");
-        let input = json!({"flow": "f", "run": "r-1", "station": "s", "name": "n", "kind": "rule", "yaml": "name: f\nstations: []"});
         for t in TOOLS {
             assert!(t.name.starts_with("flow_") && !t.description.is_empty(), "{}", t.name);
             assert_eq!((t.schema)()["type"], "object", "{}", t.name);
-            if let Some(ask) = t.ask {
-                let q = ask(&input);
-                assert!(q.contains('`'), "{}: {q}", t.name);
-            }
         }
-        let rules = ask_rules();
-        assert_eq!(
-            rules.as_array().unwrap().len(),
-            AUTHOR_TOOLS.iter().filter(|(_, r)| !r).count(),
-            "a conversation asks about every tool that changes something, and only those"
-        );
     }
 
     #[test]

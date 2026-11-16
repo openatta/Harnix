@@ -295,11 +295,7 @@ pub(crate) async fn flow_session(
             harnix_ext::SessionSpec::new()
                 .space(&sh.cfg.space)
                 .instance(super::FLOW_INSTANCE)
-                .scene(super::AUTHOR_SCENE)
-                // Every tool that changes something is asked of the person, every time: an `ask`
-                // rule outranks an `allow` one ("always allow" included), so an approval stays a
-                // person's decision.
-                .permission_rules(super::author::ask_rules()),
+                .scene(super::AUTHOR_SCENE),
             sh.cfg.conversation_recording.as_ref().and_then(|f| f(flow)),
             |s, v| s.recording(&v),
         ))

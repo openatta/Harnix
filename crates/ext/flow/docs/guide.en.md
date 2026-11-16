@@ -76,7 +76,7 @@ A flow meets other systems in three places: progress goes out, work comes in, an
 | Object | What it is |
 |---|---|
 | **The pack and its parts** | A pack holds flows and five kinds of part: `skills/<name>/SKILL.md`, `rules/<name>.md`, `policies/<name>.yaml`, `gates/<name>.yaml`, `hooks/<name>.yaml`. Each comes from somewhere: `builtin` (shipped), `override` (saved over a shipped one; deleting it brings the shipped one back), `user` (only saved). |
-| **Flow conversation / general conversation** | Each flow has a conversation of its own: ask the Agent there to change it, dry-run it, start it, act on its runs — each change asked of you. With no flow selected it is the general conversation, for new flows and questions. |
+| **Flow conversation / general conversation** | Each flow has a conversation of its own: ask the Agent there to change it, dry-run it, start it, act on its runs — each done straight away, without asking you; validation still holds, and a definition with problems is not saved. With no flow selected it is the general conversation, for new flows and questions. |
 | **Validation** | Before a definition is saved it is checked with the parts it uses, and not saved with problems; a part is checked when it is saved, and the flows it breaks are listed. |
 | **Dry run** | The real kernel, everything outside mocked: no session, no program, no cost. See the path a run takes and the message each session station would get. |
 
@@ -224,6 +224,6 @@ A hook is sent a `POST` of JSON — `{hook, delivery, event: {kind, run, flow, a
 
 ## In the flow space
 
-- **Flows** tab: select a flow and its details open in the second side panel (the diagram, the definition, its skills / rules / policies / gates / hooks, the YAML); the conversation in the middle is that flow's own — ask the Agent there to change it, dry-run it, start it, act on its runs (pause, resume, confirm, force, rework… each asked of you).
+- **Flows** tab: select a flow and its details open in the second side panel (the diagram, the definition, its skills / rules / policies / gates / hooks, the YAML); the conversation in the middle is that flow's own — ask the Agent there to change it, dry-run it, start it, act on its runs (pause, resume, confirm, force, rework… done straight away when you ask for them).
 - **Runs** tab: select a run and its details open in the second side panel; the middle is its main session. Its sub-agents and tasks are listed in the details, open any of them. A call held for a person shows its approval card in the main session.
 - Nothing selected: the general conversation, for new flows and questions. A flow created there makes that conversation its own.
