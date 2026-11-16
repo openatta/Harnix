@@ -148,8 +148,8 @@ pub const POINTS: &[Point] = &[
     Point {
         id: "session.action",
         kind: PointKind::Register,
-        what: "对一个会话或它里面一次工具调用的动作（`at`：标题栏、会话菜单、工具行、工具行的参数）",
-        when: "标题栏、会话菜单、工具行画出时",
+        what: "对一个会话、它里面一次工具调用或人的一条消息的动作（`at`：标题栏、会话菜单、工具行、工具行的参数、消息的菜单）",
+        when: "标题栏、会话菜单、工具行、人的消息画出时",
         frequency: Frequency::PerInteraction,
     },
     Point {

@@ -36,7 +36,7 @@ import { sessionMenu } from "./dialogs.tsx";
 import { MenuHost, menuBelow } from "./Menu.tsx";
 import { openSettingsFor } from "./settings.tsx";
 import { Sidebar, spacesOf } from "./Sidebar.tsx";
-import { ActionButtons } from "./actions.tsx";
+import { ActionButtons, MessageMenu } from "./actions.tsx";
 import { Details } from "./sidebar/Details.tsx";
 import { listenForShortcuts } from "./shortcuts.tsx";
 
@@ -813,6 +813,14 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
   const space = spacesOf(app).find((c) => c.id === s.space);
   const ref = { instance: current.instance, sessionId: current.sessionId };
   const readOnly = space?.conversation?.readOnly ? ask(registry, space, () => space.conversation!.readOnly!(ref), undefined) : undefined;
+  // A message a person sent, its menu (going back to it, say): one that started a turn the history
+  // names, not one handed to a turn already running; none in a conversation the space keeps read-only.
+  const userExtras = readOnly
+    ? undefined
+    : (block: BlockOf<"user">) =>
+        block.turnId && !block.steered ? (
+          <MessageMenu app={app} target={{ kind: "message", session: ref, space: s.space, turnId: block.turnId, text: block.text }} />
+        ) : null;
   const pinned = space?.conversation?.pinned ? ask(registry, space, () => space.conversation!.pinned!(ref), null) : null;
   // Nothing said yet in it: the space may say what this conversation is for. An entry in its log is
   // not something said (an audit decision is filed there whenever the session is read): it does
@@ -903,7 +911,7 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
         models={models}
         onModel={switchable ? onModel : undefined}
         features={{ voice: false, contextRing: true, options: false }}
-        renderers={{ flowBlocks, toolRows }}
+        renderers={{ flowBlocks, toolRows, userExtras }}
       />
       <AskAnnouncer state={sessionState} toolRows={toolRows} />
     </>

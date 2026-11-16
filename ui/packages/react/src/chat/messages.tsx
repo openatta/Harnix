@@ -80,10 +80,10 @@ export function WithIds({ text }: { text: string }) {
   );
 }
 
-export const UserBubble = memo(function UserBubble({ block }: { block: BlockOf<"user"> }) {
+export const UserBubble = memo(function UserBubble({ block, extras }: { block: BlockOf<"user">; extras?: ReactNode }) {
   const strings = useStrings();
   return (
-    <div className="hx-blk hx-cv-u">
+    <div className="hx-blk hx-cv-u" data-turn={block.turnId}>
       <div
         className="hx-cv-ub"
         data-testid="conv-message"
@@ -99,6 +99,8 @@ export const UserBubble = memo(function UserBubble({ block }: { block: BlockOf<"
         ) : null}
         <WithIds text={block.text} />
       </div>
+      {/* 它的动作（外壳的消息菜单）：悬停或聚焦时出现，同助手那一组下面的复制 */}
+      {extras ? <div className="hx-cv-act hx-cv-uact">{extras}</div> : null}
     </div>
   );
 });

@@ -40,8 +40,11 @@ export type ToolStatus = "running" | "ok" | "error" | "interrupted";
  * 从历史读回来的块没有这些（transcript 不带时间），界面就不显示耗时。
  */
 export type Block =
-  /** `steered`：运行中送来、在这一轮的步骤边界进了对话（历史里是 origin "steer"）。 */
-  | { key: number; kind: "user"; text: string; itemId?: string; at?: number; steered?: boolean }
+  /**
+   * `steered`：运行中送来、在这一轮的步骤边界进了对话（历史里是 origin "steer"）。`turnId`：它开启（或送进）的那一轮，
+   * 历史与帧说了才有；回退「回到这里」按它找那一轮。
+   */
+  | { key: number; kind: "user"; text: string; itemId?: string; at?: number; steered?: boolean; turnId?: string }
   | { key: number; kind: "assistant"; text: string; streaming: boolean; at?: number }
   | { key: number; kind: "think"; text: string; streaming?: boolean; startedAt?: number; endedAt?: number }
   | {
@@ -294,7 +297,7 @@ export function applyReplay(state: SessionState, attached: AttachResult, promptT
   let next = state;
   for (const frame of attached.replay || []) {
     if (frame.seq > next.seq) next = { ...next, seq: frame.seq };
-    next = applyEvent(next, frame.event, { promptTimeoutSecs, now, live: false });
+    next = applyEvent(next, frame.event, { promptTimeoutSecs, now, live: false, turnId: frame.turn_id || undefined });
   }
   for (const prompt of attached.pending_prompts || []) {
     next = applyEvent(next, prompt, { promptTimeoutSecs, now });
@@ -333,7 +336,7 @@ export function applyHistoryMessage(state: SessionState, message: HistoryMessage
       next = push(
         next,
         message.role === "user"
-          ? { kind: "user", text, at, ...(message.origin === "steer" ? { steered: true } : {}) }
+          ? { kind: "user", text, at, ...(message.origin === "steer" ? { steered: true } : {}), ...(message.turn_id ? { turnId: message.turn_id } : {}) }
           : { kind: "assistant", text, streaming: false, at },
       )[0];
     } else if (part.type === "thinking") {
@@ -389,6 +392,8 @@ export interface ApplyOptions {
   returnedText?: (text: string) => string;
   /** 别的连接发起的一轮没写进日志（会话中途关闭、引擎中途退出）那一行的话。 */
   unrecordedText?: string;
+  /** 这一帧属于哪一轮（`harnix.event` 与重放帧的 `turn_id`）：一条人的话记下它开启的那一轮。 */
+  turnId?: string;
 }
 
 /** 一个引擎事件。没见过的 kind 一律忽略（daemon_rpc_protocol §7）。 */
@@ -406,7 +411,8 @@ export function applyEvent(state: SessionState, event: EngineEvent, options: App
       }
       // 同一条话作为一轮送来（退回后排队、或引擎没能送进那一轮）：不再待送达
       const base = message.item_id ? dropSteering(state, [message.item_id]) : state;
-      return push(endStream(base, now), { kind: "user", text, itemId: message.item_id, at: now })[0];
+      const turnId = options.turnId ? { turnId: options.turnId } : {};
+      return push(endStream(base, now), { kind: "user", text, itemId: message.item_id, at: now, ...turnId })[0];
     }
 
     // 待送达的话在步骤边界进了对话：画在此刻的位置（transcript 里它也在这里）

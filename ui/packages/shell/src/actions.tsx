@@ -1,6 +1,6 @@
 /**
- * `session.action`: what the shell asks at the title bar, the session menu and a tool row, and how
- * it runs one. The shell's own menu items (open, fork, close, delete, rename) use the kernel's
+ * `session.action`: what the shell asks at the title bar, the session menu, a tool row and a
+ * person's message (its menu), and how it runs one. The shell's own menu items (open, fork, close, delete, rename) use the kernel's
  * methods and stay the shell's; what belongs to one extension — opening a session in the system
  * space, say — is a registration here, drawn wherever its `at` says.
  */
@@ -9,7 +9,7 @@ import { t, useRegistry, type ActionPlace, type ActionTarget, type SessionAction
 
 import type { App } from "./app.ts";
 import { hostDialogs } from "./host-dialogs.tsx";
-import type { MenuEntry } from "./Menu.tsx";
+import { menuBelow, openMenu, type MenuEntry } from "./Menu.tsx";
 
 type Registered = SessionAction & { owner: string };
 
@@ -33,24 +33,69 @@ export async function runAction(app: App, action: Registered, target: ActionTarg
   }
 }
 
-/** The actions at a place for a target, with their labels. */
-function asked(app: App, place: ActionPlace, target: ActionTarget): { action: Registered; label: string }[] {
+/** Why one is not for now, if it says so; a throw counts as enabled. */
+function disabledOf(app: App, action: Registered, target: ActionTarget): string | null {
+  try {
+    return action.disabled?.(target) || null;
+  } catch (e) {
+    queueMicrotask(() => app.registry.fail("session.action", action, e));
+    return null;
+  }
+}
+
+/** The actions at a place for a target, with their labels and why each is not for now. */
+function asked(app: App, place: ActionPlace, target: ActionTarget): { action: Registered; label: string; disabled: string | null }[] {
   return app.registry.actions(place, target).flatMap((action) => {
     const label = labelOf(app, action, target);
-    return label === null ? [] : [{ action, label }];
+    return label === null ? [] : [{ action, label, disabled: disabledOf(app, action, target) }];
   });
 }
 
 /** The session menu's items for a target, after the shell's own. */
 export function actionMenuItems(app: App, target: ActionTarget): MenuEntry[] {
-  return asked(app, "menu", target).map(({ action, label }) => ({
+  return entries(app, "menu", target);
+}
+
+function entries(app: App, place: ActionPlace, target: ActionTarget): MenuEntry[] {
+  return asked(app, place, target).map(({ action, label, disabled }) => ({
     id: `action:${action.id}`,
     icon: action.icon,
     label,
+    sub: disabled ?? undefined,
     danger: action.danger,
+    disabled: disabled !== null,
     testId: `action-${action.id}`,
     run: () => void runAction(app, action, target, label),
   }));
+}
+
+/**
+ * A person's message's menu: `⋯` beside it, when an action at `message` matches it (going back to
+ * it, say). Under the bubble, shown on hover or focus as the copy button under an answer is.
+ */
+export function MessageMenu({ app, target }: { app: App; target: ActionTarget }) {
+  useRegistry(app.registry);
+  if (!app.registry.actions("message", target).length) return null;
+  return (
+    <button
+      type="button"
+      data-testid="conv-message-menu"
+      title={t("flow.messageMenu")}
+      aria-label={t("flow.messageMenu")}
+      aria-haspopup="menu"
+      onClick={(e) =>
+        openMenu({
+          label: t("flow.messageMenu"),
+          at: menuBelow(e.currentTarget),
+          returnTo: e.currentTarget,
+          testId: "message-menu",
+          items: entries(app, "message", target),
+        })
+      }
+    >
+      <Glyph name="more" className="glyph" />
+    </button>
+  );
 }
 
 /**
@@ -92,21 +137,30 @@ export function ActionButtons({ app, place, target }: { app: App; place: "header
   useRegistry(app.registry);
   return (
     <>
-      {asked(app, place, target).map(({ action, label }) =>
+      {asked(app, place, target).map(({ action, label, disabled }) =>
         place === "header" ? (
           <button
             key={action.id}
             type="button"
             className="ib"
             data-testid={`action-${action.id}`}
-            title={label}
+            title={disabled ?? label}
             aria-label={label}
+            disabled={disabled !== null}
             onClick={() => void runAction(app, action, target, label)}
           >
             <Glyph name={action.icon ?? "more"} className="glyph" />
           </button>
         ) : (
-          <button key={action.id} type="button" className="btn sm outline" data-testid={`action-${action.id}`} onClick={() => void runAction(app, action, target, label)}>
+          <button
+            key={action.id}
+            type="button"
+            className="btn sm outline"
+            data-testid={`action-${action.id}`}
+            title={disabled ?? undefined}
+            disabled={disabled !== null}
+            onClick={() => void runAction(app, action, target, label)}
+          >
             {label}
           </button>
         ),

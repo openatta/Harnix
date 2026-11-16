@@ -288,7 +288,7 @@ export class SessionController {
     if (method === "harnix.event") {
       const params = raw as unknown as Notifications["harnix.event"];
       if (params.seq <= this.state.seq) return;
-      const next = applyEvent({ ...this.state, seq: params.seq }, params.event, this.applyOptions());
+      const next = applyEvent({ ...this.state, seq: params.seq }, params.event, { ...this.applyOptions(), turnId: params.turn_id || undefined });
       // 一条 user_message 是一轮开始的信号（中枢合成的那条）。
       const turn = params.event.kind === "user_message" ? { turnId: params.turn_id } : next.turn;
       this.set({ ...next, turn });
