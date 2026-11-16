@@ -1,82 +1,224 @@
-/* The inspector's calls and turns tabs: each call a step, its stats and text, the time line and the
- * turns table. Colours only from tokens. */
+/* The trajectory (in the centre, and compact in the system space's inspector), its time overview and
+ * inspector, and the right column's context and usage tabs. Colours only from tokens. */
 
-#details .diff {
-  margin: 6px 0;
-  font-family: var(--font-code);
-  font-size: 12px;
-}
+/* ── the trajectory ────────────────────────────────────────────────────── */
 
-#details .diff .line.add {
-  color: var(--hx-diff-a-fg);
-  background: var(--hx-diff-a);
-}
-
-#details .diff .line.del {
-  color: var(--hx-diff-d-fg);
-  background: var(--hx-diff-d);
-}
-
-#details .diff .sign {
-  display: inline-block;
-  width: 14px;
-}
-
-#details .diff.none {
-  color: var(--label-caption);
-}
-
-#details .turnh {
-  margin: 12px 0 6px;
-  font-size: 12px;
-  color: var(--label-tertiary);
-}
-
-#details .step {
-  display: block;
-  width: 100%;
-  margin-bottom: 6px;
-  padding: 7px 10px;
-  border: 1px solid var(--border-l1);
-  border-radius: 10px;
-  background: var(--surface);
-  text-align: left;
+.hx-traj {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
   font-size: 12.5px;
 }
 
-#details button.step:hover {
+.hx-traj .traj-tools {
+  flex: none;
+  padding: 0 16px;
+}
+
+.hx-traj .tools-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.hx-traj .tools-row .search {
+  flex: 1;
+  min-width: 160px;
+}
+
+.hx-traj .muted {
+  color: var(--label-tertiary);
+  font-size: 12px;
+}
+
+.hx-traj .traj-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  border-top: 1px solid var(--border-l1);
+}
+
+.hx-traj .traj-rows {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: auto;
+  padding: 6px 16px 16px;
+}
+
+.hx-traj .traj-inspector {
+  flex: 0 0 46%;
+  min-width: 320px;
+  max-width: 720px;
+  overflow: auto;
+  padding: 8px 16px 16px;
+  border-left: 1px solid var(--border-l1);
+}
+
+.hx-traj.compact {
+  font-size: 12px;
+}
+
+.hx-traj.compact .traj-tools,
+.hx-traj.compact .traj-rows,
+.hx-traj.compact .traj-inspector {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.hx-traj.compact .traj-body {
+  border-top: 0;
+}
+
+.hx-traj.compact .traj-inspector {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+  border-left: 0;
+  overflow: visible;
+}
+
+.hx-traj.compact .traj-rows {
+  overflow: visible;
+}
+
+.hx-traj .traj-earlier {
+  margin-bottom: 8px;
+}
+
+/* A row: a turn, the person's words, a call, a tool call, a sub-agent, a call beside the turn. The
+ * depth indents it. */
+.hx-traj .traj-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: calc(100% - var(--depth, 0) * 16px);
+  margin: 0 0 4px calc(var(--depth, 0) * 16px);
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--label-primary);
+  text-align: left;
+  min-width: 0;
+}
+
+.hx-traj .traj-row.turn {
+  height: 32px;
+  cursor: pointer;
+  color: var(--label-secondary);
+}
+
+.hx-traj .traj-row.turn b {
+  color: var(--label-primary);
+  font-weight: 600;
+}
+
+.hx-traj .traj-row.turn.between b {
+  color: var(--label-tertiary);
+}
+
+.hx-traj .traj-row.turn:hover,
+.hx-traj .traj-row.agent:hover {
+  background: var(--interactive-hover);
+}
+
+.hx-traj .traj-row .chev {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--label-tertiary);
+  transition: transform 0.12s;
+}
+
+.hx-traj .traj-row .chev.open,
+.hx-traj .traj-row .chev-btn.open .chev {
+  transform: rotate(90deg);
+}
+
+.hx-traj .chev-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: 4px;
+}
+
+.hx-traj .chev-btn:not(.none):hover {
+  background: var(--interactive-hover);
+}
+
+.hx-traj .traj-row.user {
+  height: 26px;
+  color: var(--label-secondary);
+}
+
+.hx-traj .traj-row .txt {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hx-traj .traj-row.call {
+  display: block;
+  height: 42px;
+  padding: 5px 10px;
+  border-color: var(--border-l1);
+  background: var(--surface);
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.hx-traj .traj-row.call:hover,
+.hx-traj .traj-row.tool:hover,
+.hx-traj .traj-row.aux:hover {
   border-color: var(--border-l3);
 }
 
-#details .step.nested {
-  margin-left: 14px;
-  width: calc(100% - 14px);
-}
-
-/* The call a jump from the conversation asked for. */
-#details .step.on {
+.hx-traj .traj-row.on {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
-#details .step.bad {
+
+.hx-traj .traj-row.located {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.hx-traj .traj-row.bad {
   border-color: var(--state-error);
 }
 
-#details .step .l1,
-#details .step .l2 {
+.hx-traj .traj-row.tool,
+.hx-traj .traj-row.aux,
+.hx-traj .traj-row.agent {
+  height: 24px;
+  cursor: pointer;
+}
+
+.hx-traj .traj-row.tool {
+  border-color: var(--border-l1);
+}
+
+.hx-traj .traj-row .l1,
+.hx-traj .traj-row .l2 {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
 }
 
-#details .step .l1 b {
+.hx-traj .traj-row b {
   font-family: var(--font-code);
   font-weight: 500;
   white-space: nowrap;
 }
 
-#details .step .l1 .r {
+.hx-traj .traj-row .r {
   margin-left: auto;
   min-width: 0;
   overflow: hidden;
@@ -87,36 +229,37 @@
   color: var(--label-tertiary);
 }
 
-#details .step .l2 {
-  margin-top: 3px;
+.hx-traj .traj-row .l2 {
+  margin-top: 2px;
   font-family: var(--font-code);
   font-size: 11.5px;
   color: var(--label-tertiary);
 }
 
-#details .step .l2 .in,
-#details .step .l2 .out {
+.hx-traj .traj-row .l2 .in,
+.hx-traj .traj-row .l2 .out {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-#details .step .l2 .in {
+.hx-traj .traj-row .l2 .in {
   flex: 0 1 auto;
-  max-width: 52%;
+  max-width: 45%;
 }
 
-#details .step .l2 .out {
+.hx-traj .traj-row .l2 .out {
   flex: 1;
   color: var(--label-secondary);
 }
 
-#details .step.bad .l2 .out {
+.hx-traj .traj-row.bad .l2 .out {
   color: var(--state-error);
 }
 
-#details .kd2 {
+.hx-traj .kd2,
+.obs-context .kd2 {
   padding: 0 5px;
   border-radius: 4px;
   background: var(--interactive-hover);
@@ -124,62 +267,75 @@
   font-weight: 600;
   line-height: 16px;
   white-space: nowrap;
+  flex: none;
 }
 
-#details .k-model .kd2 {
+.hx-traj .k-model {
   color: var(--state-info);
 }
 
-#details .k-tool .kd2 {
+.hx-traj .k-tool {
   color: var(--state-success);
 }
 
-#details .bad .kd2 {
-  color: var(--state-error);
+.hx-traj .k-user {
+  color: var(--label-secondary);
 }
 
-#details .cd-h {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.hx-traj .k-agent {
+  color: var(--accent);
 }
 
-#details .cd-h .sp {
-  flex: 1;
-}
-
-#details .cd-h .flip {
-  transform: rotate(180deg);
-}
-
-#details .cd-stats {
-  margin: 4px 0 8px;
-  font-family: var(--font-code);
-  font-size: 12px;
+.hx-traj .k-aux {
   color: var(--label-tertiary);
 }
 
-#details .otext {
-  padding: 8px 10px;
-  border: 1px solid var(--border-l1);
-  border-radius: 8px;
-  background: var(--surface);
-  font-family: var(--font-serif);
-  font-size: 14px;
-  line-height: 1.65;
-  white-space: pre-wrap;
+.hx-traj .bad .kd2 {
+  color: var(--state-error);
 }
 
-/* A row found from the system space ("find in conversation"), for a moment. */
-.hx-flash {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: var(--radius-sm);
+.hx-traj .kd,
+.obs-context .kd {
+  padding: 0 6px;
+  border: 1px solid var(--border-l2);
+  border-radius: var(--radius-pill);
+  font-size: 10.5px;
+  line-height: 16px;
+  white-space: nowrap;
+  color: var(--label-tertiary);
+  flex: none;
 }
 
-/* The calls tab's time line: a bar per call (its wait for the first chunk lighter), the tools
- * between the calls of a turn, and the stretch dragged across it. */
-#details .timeline {
+.hx-traj .kd.mark {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+.hx-traj .kd.fb.up {
+  border-color: var(--state-success);
+  color: var(--state-success);
+}
+
+.hx-traj .kd.fb.down {
+  border-color: var(--state-error);
+  color: var(--state-error);
+}
+
+.obs-context .kd.warn {
+  border-color: var(--state-warn);
+  color: var(--state-warn-label);
+}
+
+/* ── the time overview ─────────────────────────────────────────────────── */
+
+.hx-traj .traj-overview-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.hx-traj .timeline {
   position: relative;
   height: 22px;
   margin: 6px 0 4px;
@@ -190,7 +346,11 @@
   user-select: none;
 }
 
-#details .timeline i {
+.hx-traj .timeline.lanes-2 {
+  height: 36px;
+}
+
+.hx-traj .timeline i {
   position: absolute;
   top: 3px;
   bottom: 3px;
@@ -198,32 +358,57 @@
   border-radius: 3px;
 }
 
-#details .timeline .call,
-#details .legend2 .model::before {
+.hx-traj .timeline.lanes-2 i.lane-0 {
+  bottom: 19px;
+}
+
+.hx-traj .timeline.lanes-2 i.lane-1 {
+  top: 19px;
+}
+
+.hx-traj .timeline .call,
+.hx-traj .traj-legend .model::before {
   background: var(--state-info);
 }
 
-#details .timeline .call.aux {
+.hx-traj .timeline .call.lane-1,
+.hx-traj .traj-legend .agent::before {
+  background: var(--accent);
+}
+
+.hx-traj .timeline .call.aux {
   opacity: 0.5;
 }
 
-#details .timeline .call b {
+.hx-traj .timeline .call.bad {
+  background: var(--state-error);
+}
+
+.hx-traj .timeline .call.on {
+  outline: 2px solid var(--label-primary);
+}
+
+.hx-traj .timeline .call b {
   display: block;
   height: 100%;
   border-radius: 3px 0 0 3px;
   background: var(--accent-soft);
 }
 
-#details .legend2 .wait::before {
+.hx-traj .traj-legend .wait::before {
   background: var(--accent-soft);
 }
 
-#details .timeline .gap,
-#details .legend2 .gap::before {
+.hx-traj .timeline .gap,
+.hx-traj .traj-legend .gap::before {
   background: var(--state-warn);
 }
 
-#details .timeline .range {
+.hx-traj .timeline.lanes-2 .gap {
+  bottom: 19px;
+}
+
+.hx-traj .timeline .range {
   top: 0;
   bottom: 0;
   border: 1px solid var(--accent);
@@ -231,15 +416,182 @@
   pointer-events: none;
 }
 
-#details .calls .search {
-  flex: 1;
-  min-width: 0;
+.hx-traj .traj-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--label-secondary);
 }
 
-#details .turns .turn-row {
+.hx-traj .traj-legend span::before {
+  content: "";
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+/* ── the inspector ─────────────────────────────────────────────────────── */
+
+.hx-traj .cd-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.hx-traj .cd-h .sp {
+  flex: 1;
+}
+
+.hx-traj .cd-stats {
+  margin: 4px 0 8px;
+  font-family: var(--font-code);
+  font-size: 12px;
+  color: var(--label-tertiary);
+}
+
+.hx-traj .stabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+
+.hx-traj .stabs button {
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--label-secondary);
+  font-size: 12px;
   cursor: pointer;
 }
 
-#details .turns .step-row td {
-  color: var(--label-secondary);
+.hx-traj .stabs button.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.hx-traj .otext {
+  padding: 8px 10px;
+  border: 1px solid var(--border-l1);
+  border-radius: 8px;
+  background: var(--surface);
+  font-family: var(--font-serif);
+  font-size: 14px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.hx-traj .label {
+  margin: 10px 0 4px;
+  font-size: 11px;
+  color: var(--label-caption);
+  letter-spacing: 0.04em;
+}
+
+.hx-traj .note {
+  margin: 4px 0;
+  font-size: 12px;
+  color: var(--label-caption);
+}
+
+.hx-traj .diff {
+  margin: 6px 0;
+  font-family: var(--font-code);
+  font-size: 12px;
+}
+
+.hx-traj .diff .line.add {
+  color: var(--hx-diff-a-fg);
+  background: var(--hx-diff-a);
+}
+
+.hx-traj .diff .line.del {
+  color: var(--hx-diff-d-fg);
+  background: var(--hx-diff-d);
+}
+
+.hx-traj .diff .sign {
+  display: inline-block;
+  width: 14px;
+}
+
+.hx-traj .diff.none {
+  color: var(--label-caption);
+}
+
+.hx-traj .empty {
+  padding: 24px 16px;
+  color: var(--label-caption);
+  text-align: center;
+}
+
+/* ── the context and usage tabs ────────────────────────────────────────── */
+
+.obs-section {
+  margin-top: 10px;
+}
+
+.obs-list {
+  margin: 4px 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 3px;
+}
+
+.obs-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12.5px;
+}
+
+.obs-list li.muted {
+  color: var(--label-tertiary);
+}
+
+.obs-list .txt {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.obs-list .txt.mono {
+  font-family: var(--font-code);
+  font-size: 12px;
+}
+
+.obs-usage .stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.obs-usage .stat-grid .cell {
+  padding: 6px 8px;
+  border: 1px solid var(--border-l1);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.obs-usage .stat-grid .v {
+  font-family: var(--font-code);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.obs-usage .stat-grid .l {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--label-caption);
 }
