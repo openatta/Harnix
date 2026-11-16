@@ -99,6 +99,8 @@ export interface ChatFeatures {
   voice?: boolean;
   /** 模型（底栏右侧）：显示当前模型；给了 onModel 才能换。缺省开 */
   modelPicker?: boolean;
+  /** 轮次导航：消息流右缘的竖轨，每轮一个刻度，⌥↑ / ⌥↓ 上一轮、下一轮（`harnix.session.outline`）。缺省开，两轮起才画 */
+  turnRail?: boolean;
 }
 
 /** 流里任何一块的贡献（`flow.block`）：后注册的先匹配；没人认领时内建的画，内建不认识的不画。 */

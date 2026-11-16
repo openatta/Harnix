@@ -193,7 +193,7 @@ describe("the settings section", () => {
   function section() {
     const { app } = scriptedApp();
     registerShellShortcuts(app);
-    app.registry.register("shortcut", command("pkg.up", { title: () => "Up", keys: "Alt+ArrowUp", scope: "composer" }), "pkg");
+    app.registry.register("shortcut", command("pkg.up", { title: () => "Up", keys: "Alt+ArrowLeft", scope: "composer" }), "pkg");
     const view = render(
       <HarnixUiProvider client={app.conn as HarnixClient}>
         <ShortcutsSection app={app} />
@@ -221,6 +221,8 @@ describe("the settings section", () => {
       "shell.composer.focus",
       "shell.details.toggle",
       "shell.settings.open",
+      "chat.turn.previous",
+      "chat.turn.next",
       "pkg.up",
     ]);
     expect(keys("shell.session.new").textContent).toBe("Ctrl+K");
@@ -255,7 +257,7 @@ describe("the settings section", () => {
     await act(async () => {});
     await record("shell.session.new", { key: "j", code: "KeyJ", ctrlKey: true });
     await record("shell.details.toggle", { key: "d", code: "KeyD", ctrlKey: true, altKey: true });
-    await record("pkg.up", { key: "ArrowDown", code: "ArrowDown", altKey: true });
+    await record("pkg.up", { key: "ArrowRight", code: "ArrowRight", altKey: true });
     expect(keys("shell.details.toggle").textContent).toBe("Ctrl+Alt+D");
     await act(async () => {
       fireEvent.click(row("shell.session.new").querySelector('[data-testid="shortcut-reset"]')!);
@@ -267,7 +269,7 @@ describe("the settings section", () => {
       fireEvent.click(view.getByTestId("shortcuts-reset-all-confirm"));
     });
     expect(keys("shell.details.toggle").dataset.state).toBe("none");
-    expect(keys("pkg.up").textContent).toBe("Alt+↑");
+    expect(keys("pkg.up").textContent).toBe("Alt+←");
     expect(Object.keys(localStorage).filter((k) => k.startsWith(SHORTCUT_PREFIX))).toEqual([]);
     expect((view.getByTestId("shortcuts-reset-all") as HTMLButtonElement).disabled).toBe(true);
   });

@@ -6,7 +6,9 @@
  * 会话组件只有一个：ChatPanel（对话 / 转录两种样子，其余靠配置）。SessionView 是它的一种配置。
  */
 
-export { HarnixUiProvider, useConnection, useHello, useHarnixClient, useSession, useStrings, type HarnixUiProviderProps } from "./context";
+export { HarnixUiProvider, useConnection, useHello, useHarnixClient, useSession, useStrings, useTurnOutline, type HarnixUiProviderProps } from "./context";
+export { TurnRail, TICK_SPACING, type TurnRailProps } from "./chat/TurnRail";
+export { TURN_NEXT, TURN_PREVIOUS, addTurnRail, currentTurnRail, registerTurnShortcuts, type TurnRailHandle } from "./chat/turnNav";
 export { ChatPanel, type ChatPanelProps } from "./chat/ChatPanel";
 export { ChatComposer, type Attached, type ChatComposerProps, type ComposerApi, type ModelOption } from "./chat/ChatComposer";
 export { TranscriptList, type TranscriptListProps } from "./chat/TranscriptList";

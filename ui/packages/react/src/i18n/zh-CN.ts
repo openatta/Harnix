@@ -1127,6 +1127,10 @@ const zhCN: Record<string, string> = {
   "chat.interruptStep": "中断当前步骤（Esc）",
   "chat.openFailed": "打开会话失败：{error}",
   "chat.olderHidden": "更早的 {count} 条消息未显示",
+  "chat.turnRail.label": "轮次",
+  "chat.turnRail.tick": "第 {n} 轮：{prompt}",
+  "chat.turnRail.turn": "第 {n} 轮",
+  "chat.turnRail.noText": "（没有文字）",
   "chat.interruptFailed": "中断失败：{error}",
   "chat.sendFailed": "发送失败：{error}",
   "chat.queued": "排队 {index}",
@@ -1235,5 +1239,7 @@ const zhCN: Record<string, string> = {
   "shortcuts.cmd.focusComposer": "聚焦输入框",
   "shortcuts.cmd.toggleDetails": "打开或关闭右栏",
   "shortcuts.cmd.openSettings": "打开设置",
+  "shortcuts.cmd.turnPrevious": "跳到上一轮",
+  "shortcuts.cmd.turnNext": "跳到下一轮",
 };
 export default zhCN;

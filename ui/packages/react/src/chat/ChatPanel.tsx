@@ -16,7 +16,7 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { useConnection, useHello, useSession, useStrings } from "../context";
-import { usageTotals, type Block, type BlockOf, type SessionState } from "@harnix/core/state";
+import { shownTurns, usageTotals, type Block, type BlockOf, type SessionState } from "@harnix/core/state";
 import type { SessionController } from "@harnix/core/state";
 import { Agent, AskCard, ContextRow, ImageBlock, rowTitle, toolAsks, type ToolAsks } from "../components/blocks";
 import { ConnectionBadge } from "../components/ConnectionBadge";
@@ -25,6 +25,7 @@ import { useDisplay } from "../display";
 import { t } from "../i18n/index";
 import { TOOL_NAMES, compactTokens } from "./format";
 import { Icon } from "./icons";
+import { TURN_ANCHOR, TurnRail, turnKey } from "./TurnRail";
 import {
   AssistantHead,
   AssistantText,
@@ -459,6 +460,7 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
           tail={props.flowTail}
           queueConfig={props.queue}
           ids={props.ids}
+          turnRail={features.turnRail !== false}
         />
 
         {readOnly ? (
@@ -632,6 +634,7 @@ function ChatFlow({
   tail,
   queueConfig,
   ids,
+  turnRail,
 }: {
   state: SessionState | null;
   controller: SessionController | null;
@@ -646,6 +649,7 @@ function ChatFlow({
   tail?: ReactNode;
   queueConfig?: ChatPanelProps["queue"];
   ids?: ChatIds;
+  turnRail: boolean;
 }) {
   const strings = useStrings();
   const { status } = useConnection();
@@ -707,11 +711,23 @@ function ChatFlow({
       typing = <Typing head={last && speakerOf(last) === "assistant" ? undefined : <AssistantHead role={role} />} text={text} />;
   }
 
+  // The person's message that starts each turn shown: where the turn rail lands.
+  const anchors = useMemo(() => new Set(shownTurns(blocks).map((t) => t.block.key)), [blocks]);
+  const anchored = (block: Block, node: ReactNode) =>
+    block.kind === "user" && anchors.has(block.key) ? (
+      <div key={block.key} className="hx-turn-anchor" {...{ [TURN_ANCHOR]: "" }} data-turn-key={turnKey(block.turnId, block.seq)}>
+        {node}
+      </div>
+    ) : (
+      node
+    );
+
   const loading = !state ? !unavailable && status === "open" : state.loading && status === "open";
   const empty =
     state != null && !state.loading && blocks.length === 0 && queue.length === 0 && !state.steering.length && !extra.length && !running && !tail;
 
   return (
+    <div className="hx-flow">
     <div
       ref={scroller}
       onScroll={onScroll}
@@ -745,7 +761,7 @@ function ChatFlow({
         entry.kind === "group" ? (
           <AssistantGroup key={entry.key} blocks={entry.blocks} role={role} controller={controller} renderers={renderers} copy={copy} />
         ) : (
-          <FlowItem key={entry.block.key} block={entry.block} controller={controller} transcript={transcript} renderers={renderers} />
+          anchored(entry.block, <FlowItem key={entry.block.key} block={entry.block} controller={controller} transcript={transcript} renderers={renderers} />)
         ),
       )}
       {/* 交给正在跑的一轮、还没进对话：待送达，送达后变成流里的一条人的话 */}
@@ -775,6 +791,8 @@ function ChatFlow({
       ))}
       {tail}
       {typing}
+    </div>
+      {turnRail && state && controller && !state.loading ? <TurnRail controller={controller} state={state} scroller={scroller} pinned={pinned} /> : null}
     </div>
   );
 }
