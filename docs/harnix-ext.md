@@ -1466,7 +1466,7 @@ Harnix 自己的二进制注册了它（`crates/cli/src/main.rs`）。
 | `.recording(…)` / `.main_recording(…)` / `.conversation_recording(…)` | 回放时任务会话、主会话、流程会话用哪份录像（只在 `--replay-dir` 下有意义） |
 
 主会话的 scene 需要项目时，扩展给每个运行建工作目录（扩展数据目录下 `workspaces/<run>`，也是引用 `${workspace}`），
-并写入子 Agent 站缺省用的 agent 类型 `flow-agent`。钩子是流程包里的文件（`hooks/`），扩展自己投递，没有 `Hooks` trait。
+不往里写任何东西。没写 `agent_type` 的子 Agent 站用引擎不带类型的子 Agent：跑在主会话的 scene 上、用它的工具。钩子是流程包里的文件（`hooks/`），扩展自己投递，没有 `Hooks` trait。
 
 方法 `flow.*`（设备调用）：读——`defs`、`def`、`list`、`get`、`history`、`catalog`、`schema`、`validate`、
 `parts {kind}`、`part`、`hooks`、`guide`、`sessions {run}`；写流程与件——`save`、`delete`、`part.save`、`part.delete`；
