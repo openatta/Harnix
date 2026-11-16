@@ -752,6 +752,61 @@
   gap: 8px;
 }
 
+/* Settings · MCP servers: the same cards and form as the providers', with a status in the card's
+ * head and rows of names and values in the form. */
+.provider-card .value {
+  font-size: 12px;
+  color: var(--label-secondary);
+}
+
+.provider-card .value.ok {
+  color: var(--state-success);
+}
+
+.provider-card .value.warn {
+  color: var(--state-warn-label);
+}
+
+.provider-card .value.err,
+.provider-card .pc-meta .err {
+  color: var(--state-error);
+}
+
+.provider-form textarea {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  font-family: var(--font-code);
+  font-size: 12px;
+}
+
+.provider-form .kv-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.provider-form .kv-row input {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.provider-form .kv-row select {
+  flex: none;
+  max-width: 40%;
+}
+
+.provider-form .kv-row .glyph,
+.provider-form .field > .btn .glyph {
+  width: 14px;
+  height: 14px;
+}
+
 .model-setup .text {
   flex: 1 1 auto;
   min-width: 0;

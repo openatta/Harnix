@@ -35,9 +35,17 @@ describe("@harnix/settings", () => {
     expect(calls.length).toBeGreaterThan(0);
   });
 
-  it("shows each MCP server with the tool count and transport Agix reports", async () => {
+  it("shows each MCP server with the tool count and transport the extension reports", async () => {
+    const calls: string[] = [];
     const host = {
-      call: async () => ({ servers: [{ name: "files", transport: "stdio", tool_count: 3 }] }),
+      call: async (method: string) => {
+        calls.push(method);
+        return {
+          servers: [{ name: "files", tier: "global", enabled: true, transport: "stdio", command: "fs", args: [], env: {}, headers: {}, unsupported: [], status: { state: "connected", tool_count: 3, auth: { state: "none", scopes: [] } } }],
+          paths: { global: "/g/settings.json", scene: null, project: null },
+          status_read: true,
+        };
+      },
       session: { current: () => null, context: () => null },
       shell: { notice: () => undefined },
       dialogs: { confirm: async () => false },
@@ -47,8 +55,9 @@ describe("@harnix/settings", () => {
     const mcp = r.at("settings.section").find((s) => s.id === "mcp")!;
     const client = { status: "closed", detail: undefined, onStatus: () => () => undefined, call: async () => ({}) } as unknown as HarnixClient;
     const { findByText } = render(<HarnixUiProvider client={client} strings={en}>{mcp.render()}</HarnixUiProvider>);
-    expect(await findByText("3 tools · stdio")).toBeTruthy();
+    expect(await findByText("3 tools")).toBeTruthy();
     expect(await findByText("connected")).toBeTruthy();
+    expect(calls).toContain("settings.mcp.list");
   });
 
   it("says when the project tier wrote a setting the engine does not use", async () => {

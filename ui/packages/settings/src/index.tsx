@@ -9,6 +9,7 @@
  * one the engine does not use (an untrusted project can only tighten). A field's `section` is
  * which of the sections below draws it. Providers go through `settings.setProvider`, the only path
  * credentials take from the interface; a stored key is only ever shown as its last four characters.
+ * MCP servers go through `settings.mcp.*` (`./mcp.tsx`), with the same rule for their values.
  *
  * And the first run's model step on the empty page (`home.card`): drawn while no model is
  * configured, with the way to these sections.
@@ -17,6 +18,10 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { errorText, modelConfigured, type Hello } from "@harnix/core";
 import { FieldForm, Glyph, SettingsRow, SettingsSection, SettingsValue, SetupStep, onLocaleChoice, setupStepDismissed, t, useHello, useSetupStep, useSettingsReload, useT, type FieldDoc, type FieldStore, type HostApi, type Registry, type LocaleChoice, type SettingsNeed } from "@harnix/react";
+
+import { Mcp } from "./mcp.tsx";
+
+export { givenOf, mcpState, signIn } from "./mcp.tsx";
 
 /** The backend extension this is the interface of. */
 export const extension = "settings";
@@ -33,7 +38,7 @@ export function register(r: Registry, host: HostApi): void {
   // Where the shell sends a reader when a turn has no model to go to.
   section("models", "settings.nav.models", () => <Models host={host} />, ["models"]);
   section("task-models", "settings.nav.taskModels", () => <EngineSettings host={host} section="task-models" title="settings.taskModels" />);
-  section("mcp", "settings.nav.mcp", () => <Mcp host={host} />);
+  section("mcp", "settings.nav.mcp", () => <McpSection host={host} />);
   // permissions, sandbox, network
   section("permissions", "settings.nav.permissions", () => <EngineSettings host={host} section="permissions" title="settings.nav.permissions" />);
   section("sandbox", "settings.nav.sandbox", () => <EngineSettings host={host} section="sandbox" title="settings.nav.sandbox" />);
@@ -722,21 +727,8 @@ function ProviderForm({
   );
 }
 
-function Mcp({ host }: { host: HostApi }) {
-  const t = useT();
-  return (
-    <SettingsSection title={t("settings.mcpServers")} load={() => host.call<{ servers?: { name: string; transport?: string; tool_count?: number }[] }>("engine.mcp.status", {})}>
-      {(data) => (
-        <>
-          {!(data.servers ?? []).length ? <div className="hint">{t("settings.mcpNone")}</div> : null}
-          {(data.servers ?? []).map((server) => (
-            <SettingsRow key={server.name} label={server.name} hint={`${t("settings.mcpTools", { count: server.tool_count ?? 0 })}${server.transport ? ` · ${server.transport}` : ""}`}>
-              <SettingsValue tone="ok">{t("settings.mcpConnected")}</SettingsValue>
-            </SettingsRow>
-          ))}
-          <div className="hint">{t("settings.mcpAddHint")}</div>
-        </>
-      )}
-    </SettingsSection>
-  );
+/** The MCP servers of the open (project, scene). */
+function McpSection({ host }: { host: HostApi }) {
+  const hello = useHello();
+  return <Mcp host={host} request={where(host, hello)} />;
 }
