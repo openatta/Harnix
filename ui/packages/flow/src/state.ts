@@ -9,7 +9,8 @@
  *   selected: the general conversation (`session {}`), where flows are created and questions asked.
  * - A selection is made in the right column's lists or in the left column (`FlowSidebar`: the
  *   flows, the selected flow's runs, the general conversation); a pick in the left column brings
- *   the right column's list to the front with it (`openList`).
+ *   the right column's list to the front with it (`openList`), and a run picked in the right
+ *   column's list selects its flow with it, so the left column opens on it.
  * - The middle is switched when the selection or the tab changes, and when this space comes to the
  *   front; an answer to an older switch is dropped.
  * - The `focus {instance, session_id}` topic is followed for the open session, for the line over
@@ -150,11 +151,16 @@ export class FlowSpaceState {
     void this.centre(this.tabs.flows);
   }
 
-  /** A run chosen (null: none): shown, and its main session opened in the middle. */
-  showRun(run: string | null): void {
+  /**
+   * A run chosen (null: none): shown, and its main session opened in the middle. Given its flow, the
+   * flow is selected with it, so the left column opens on that flow with the run in it, whichever
+   * list it was picked from.
+   */
+  showRun(run: string | null, flow?: string | null): void {
     this.shut = false;
-    // The station stays picked: the same station of another run.
-    this.set({ ...this.value, run });
+    const to = run && flow ? flow : this.value.flow;
+    // The station stays picked — the same station of another run — while the flow does.
+    this.set({ flow: to, run, station: to === this.value.flow ? this.value.station : null });
     void this.centre(this.tabs.runs);
   }
 
