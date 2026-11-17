@@ -6,14 +6,14 @@
 > Rust 写、编进二进制的是**原生扩展**，装上的 `.hxext` 是**扩展包**。Agix 的包叫 **Agix 插件**，它可以是扩展包的一部分。
 >
 > 这是总览。原生扩展怎么写在 [原生扩展](harnix-ext.md)；扩展包怎么写（模式 2 / 3 共用）在 [扩展包](harnix-ext-package.md)；
-> 为什么是这个形状在 [概念与架构](concept_and_architecture.md) §2.2、§4；Harnix 自带的 Harnix app 与系统 space 在 [Harnix app](harnix-app.md)、[系统 space](system-space.md)。
+> 为什么是这个形状在 [概念与架构](concept_and_architecture.md) §2.2、§4；Harnix 自带的 Harnix app（首页、会话、项目）、流程 space 与诊断在 [Harnix app](harnix-app.md)。
 
 ## 0. 一句话
 
 **每个应用都是 Rust 写的。** 模式 1 是一个纯 Rust 应用；模式 2 在它上面再让扩展包跑在产品进程里（**缺省**）；
 模式 3 让每个扩展包各跑在一个操作系统沙箱里的进程中，给安全要求高的场景（**选用，不是缺省**）。
 
-Harnix 本身是**框架 + 第一方扩展**：Harnix app（会话 space、项目 space）、系统 space、设置、Agix 插件、观测、设备、流程、定时，都是用框架的公开扩展接口写的原生扩展；
+Harnix 本身是**框架 + 第一方扩展**：Harnix app（首页、会话 space、项目 space）、设置、Agix 插件、观测、设备、流程、定时，都是用框架的公开扩展接口写的原生扩展；
 管扩展包的 `packages` 也是。Harnix 自己发布的二进制 `harnix` 是全部第一方扩展加 `packages` 与两个载体，profile 不写载体时跑的是模式 2——
 它本身就是一个模式 2 的应用。
 
@@ -158,7 +158,7 @@ Harnix 本身是**框架 + 第一方扩展**：Harnix app（会话 space、项�
   - **它 space 里的会话**落在它自己的引擎 `proc.<id>` 上，但仍由产品的中枢持有：先订阅、给 `seq`、管队列；前端只和产品说话。
     中枢按「扩展的信任」防着这台引擎：不转发它的引擎事件（它的轮开始、结束由中枢照自己读到的另发 `harnix.host_event`，标 `trust: "extension"`）、
     限它的帧（令牌桶：每秒 200 帧、突发 2000 帧；结束一轮的帧不丢）、截断它报的标题与状态，到它的 `engine.config.*`、`engine.plugin.*` 谁都不能调。
-  - **谁够得着它的引擎**：点名 `proc.<id>` 的调用（建会话、挪会话、`engine.*` 直通）只对这个扩展自己（含它的 iframe）、它的 space、跨 space 的调用（系统 space）开放，
+  - **谁够得着它的引擎**：点名 `proc.<id>` 的调用（建会话、挪会话、`engine.*` 直通）只对这个扩展自己（含它的 iframe）、它的 space、跨 space 的调用（`cross_space()` 的 space）开放，
     别的一律 `SPACE_MISMATCH`，在唤醒它之前就判。它的引擎自己建的会话（子 Agent 的）随父会话的 space，没有父会话就是它的 space。
 - **旁路管理**（不在数据路径上）：
   - 安装、验签、披露与同意：与模式 2 同一份代码（`packages`）。
@@ -168,7 +168,7 @@ Harnix 本身是**框架 + 第一方扩展**：Harnix app（会话 space、项�
     进程沙箱开着时，同一份设置里关掉 Agix 自己的命令沙箱（§4）。
   - 秘密：只把同意过的 `env` 名字的值交给它。
   - 出口：`net` 在产品侧判，HTTP 请求经扩展线由产品代发。
-  - 系统 space 控制台的「扩展包」页签。
+  - 设置 → 诊断里的「扩展包运行状况」：状态、调用、被拒的、进程 stderr 的最后几行。
 - 产品不跑扩展包的代码，也不跑它的 Agent。
 
 ### 9.4 扩展进程、扩展线与失败

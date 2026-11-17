@@ -1,36 +1,38 @@
 # Harnix app
 
-> 读者：用 Harnix 自己的二进制 `harnix` 的人；在 Harnix 上做应用、想看「用扩展做一个产品面最少要什么」的人；决定自己的产品留不留这两个 space 的人。
+> 读者：用 Harnix 自己的二进制 `harnix` 的人；在 Harnix 上做应用、想看「用扩展做一个产品面最少要什么」的人；决定自己的产品留不留这几个 space 的人。
 >
-> Harnix 是三部分：**框架**、**Harnix app**、**系统 space**（[系统 space](system-space.md)）。Harnix app 就是会话 space 与项目 space：
-> 新建会话、按时间看会话、按项目管理会话。它由两半组成：后端是第一方原生扩展 `harnix-app`（`crates/ext/harnix-app`），界面是前端包
-> `@harnix/harnix-app`（`ui/packages/harnix-app`）。用词照 [术语](glossary.md)；扩展接口见 [Harnix 扩展](harnix-ext.md)。
+> Harnix 是两部分：**框架**与**第一方扩展**（[概念与架构](concept_and_architecture.md) §1）。Harnix app 是其中的首页、会话 space 与项目 space：
+> 落地的总览、新建会话、按时间看会话、按项目管理会话。它由两半组成：后端是第一方原生扩展 `harnix-app`（`crates/ext/harnix-app`），界面是前端包
+> `@harnix/harnix-app`（`ui/packages/harnix-app`）。同在 `harnix` 二进制里、挂在这几个 space 上的别的第一方部分也写在这里：右栏的上下文与输出（§6.1），
+> 定时（§9），首页上别的包的区块（§10），流程 space（§11），设置里的诊断（§12）。用词照 [术语](glossary.md)；扩展接口见 [Harnix 扩展](harnix-ext.md)。
 >
 > 本文照代码写：后端在 `crates/ext/harnix-app/src/`（`lib.rs`、`workspaces.rs`、`files.rs`、`project.rs`、`export.rs`、`store.rs`），界面在
-> `ui/packages/harnix-app/src/`（`index.tsx`、`sessions.tsx`、`projects.tsx`、`items.ts`、`overview.tsx`、`inbox.tsx`、`sidebar.tsx`、`dialogs.tsx`、`store.ts`），一轮的改动由中枢记（`crates/hub/src/changes.rs`），外壳的菜单、层与新对话页在
-> `ui/packages/shell/src/`（`Menu.tsx`、`Shell.tsx`、`dialogs.tsx`；层与菜单的底子在 `ui/packages/react/src/layers.ts`），profile 在
-> `crates/assembly/src/profile.rs`，定时（§9）在 `crates/ext/schedule/src/`。对不上时以代码为准。
+> `ui/packages/harnix-app/src/`（`index.tsx`、`home.tsx`、`sessions.tsx`、`projects.tsx`、`items.ts`、`overview.tsx`、`inbox.tsx`、`sidebar.tsx`、`dialogs.tsx`、`store.ts`），一轮的改动由中枢记（`crates/hub/src/changes.rs`），外壳的菜单、层与新对话页在
+> `ui/packages/shell/src/`（`Menu.tsx`、`Shell.tsx`、`dialogs.tsx`、`settings.tsx`；层与菜单的底子在 `ui/packages/react/src/layers.ts`），profile 在
+> `crates/assembly/src/profile.rs`，定时（§9）在 `crates/ext/schedule/src/`，观测在 `crates/ext/observability/` 与 `ui/packages/observability/`，
+> 流程的界面在 `ui/packages/flow/`。对不上时以代码为准。
 
 ---
 
 ## 1. 它是什么
 
-| | 会话 space | 项目 space |
-|---|---|---|
-| id · 图标 · 次序 | `sessions` · `chat` · 10 | `projects` · `folder` · 20 |
-| 标题 | 会话（Sessions）：全部会话，按时间 | 项目（Projects）：按项目看会话 |
-| 左栏 | 搜索框 + 全部会话，按时间分组 | 一棵树：项目（工作区），一次只展开一个，它的会话和别的包登记的条目（流程的任务，§3.2）挂在下面 |
-| 中区 | 对话（`center: "chat"`） | 对话；新建的会话跑在展开的项目里 |
-| 右栏 | 会话的停靠面：引导页，文件、预览、改动（§6），`@harnix/system` 的「输出」（Agent 后台 Shell 与监视器的只读输出流，一个后台任务一个页签，从对话里工具行的「查看输出」打开），别的包注册的页签，和 `reveal` 打开的详情 | 同左；展开了项目、没有打开会话时是项目的「概况」（§3.2） |
-| 后端 space | `sessions` | **同一个** `sessions`（界面注册里 `sessions: "sessions"`） |
+| | 首页 | 会话 space | 项目 space |
+|---|---|---|---|
+| id · 图标 · 次序 | `home` · `home` · 5 | `sessions` · `chat` · 10 | `projects` · `folder` · 20 |
+| 标题 | 首页（Home）：新开的页面落在这里（`landing`） | 会话（Sessions）：全部会话，按时间 | 项目（Projects）：按项目看会话 |
+| 左栏 | 只有「待我处理 N」（§3.3） | 搜索框 + 全部会话，按时间分组 | 一棵树：项目（工作区），一次只展开一个，它的会话和别的包登记的条目（流程的任务，§3.2）挂在下面 |
+| 中区 | 首页的区块（`center: "hidden"`，§10），不持有对话 | 对话（`center: "chat"`） | 对话；新建的会话跑在展开的项目里 |
+| 右栏 | — | 会话的停靠面：引导页，文件、预览、改动（§6），`@harnix/observability` 的「输出」（后台 Shell 与监视器的只读输出流，一个后台任务一个页签）与末尾常驻的「上下文」（§6.1），别的包注册的页签，和 `reveal` 打开的详情 | 同左；展开了项目、没有打开会话时是项目的「概况」（§3.2） |
+| 后端 space | `home`（`no_sessions()`：不收会话） | `sessions` | **同一个** `sessions`（界面注册里 `sessions: "sessions"`） |
 
 **项目 space 是界面上的一个视图，不是第二个会话集合。** 「按时间看」和「按项目看」是同一批会话的两种排法；会话按 space 绑定是
 不变量（[概念与架构](concept_and_architecture.md)），如果它们是两个后端 space，同一个会话就得属于两个 space。所以项目 space
 写 `sessions: "sessions"`：两个界面视图，一个后端归属。外壳每次会话调用带的是 `sessions`，不是 `projects`。
 
 **两半，一个扩展。** `harnix-app` 扩展声明后端的会话 space（`SpaceDecl::new("sessions").default_space()`：不声称 space 的设备调用按它检查，
-没人安置的会话归它），提供 `harnix-app.*` 的方法，状态在自己的目录 `~/.<product_id>/ext/harnix-app/data/state.json`（工作区、归档、偏好；
-删掉只丢分组）。会话的标题不在这里：它是引擎给会话的名字，`harnix.session.rename` 改的就是它。界面包 `@harnix/harnix-app` 注册两个 `space`、
+没人安置的会话归它）与首页的 space（`SpaceDecl::new("home").no_sessions()`，§10），提供 `harnix-app.*` 的方法，状态在自己的目录 `~/.<product_id>/ext/harnix-app/data/state.json`（工作区、归档、偏好；
+删掉只丢分组）。会话的标题不在这里：它是引擎给会话的名字，`harnix.session.rename` 改的就是它。界面包 `@harnix/harnix-app` 注册三个 `space`、首页的两块（§10）、
 `sidebar.group` 的 `harnix-app.time`、会话菜单的归档与导出两个 `session.action`、`@` 的文件补全，以及右栏的文件、预览、改动三种页签、
 对话里的改动卡和工具行上「在预览中打开」的 `session.action`（§6）。
 
@@ -38,7 +40,7 @@ Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方�
 它的缺省是原生扩展加模式 2（见 [应用开发](app-development.md)）。
 
 **关掉它**：profile 的 `[extensions] off = ["harnix-app"]`。关掉的扩展照样登记（别人占不了它的名字），但不安装、不迁移、不启动；
-外壳按 `harnix.hello` 里启用的扩展激活 UI 包，所以 `@harnix/harnix-app` 也不注册，两个 space 的入口随之没有。去掉之后，不声称 space 的调用
+外壳按 `harnix.hello` 里启用的扩展激活 UI 包，所以 `@harnix/harnix-app` 也不注册，三个 space 的入口随之没有，新开的页面落在剩下的第一个 space 上。去掉之后，不声称 space 的调用
 没有缺省 space 可落，可以用 `[extensions] default_space = "<space>"` 指一个已启用扩展声明的 space；指的不是这样一个 space，进程起不来。
 
 ## 2. 会话 space
@@ -78,7 +80,7 @@ Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方�
 
 ### 2.1 对话里要人答的
 
-会话停下来等人时，对话里出一张卡（`@harnix/react` 的 `AskCard`），左栏那一行与系统 space 说它在等什么（`waiting`：
+会话停下来等人时，对话里出一张卡（`@harnix/react` 的 `AskCard`），左栏那一行与「待我处理」（§3.3）说它在等什么（`waiting`：
 `approval` 待批准、`plan` 待审阅、`answer` 等回答）。卡分四种，`@harnix/core` 从引擎的 `prompt` 帧读出是哪一种（`AskForm`），
 界面只画它：
 
@@ -177,8 +179,8 @@ agent 类型、skill、规则），没有时是 `null`。主题 `harnix-app.trus
 
 ### 3.2 项目里的条目与概况：`harnix-app.project.items`、`harnix-app.project.panels`
 
-项目 space 不认识流程，也不认识别的会放进项目的东西：它定义两个贡献点（`ui/packages/harnix-app/src/items.ts`，`definePoint`，
-做法同系统 space 的 `system.console.tab`），别的 UI 包往里注册；后端 `harnix-app` 在 `UiDecl` 里声明同样两个点，
+项目 space 不认识流程，也不认识别的会放进项目的东西：它定义两个贡献点（`ui/packages/harnix-app/src/items.ts`，`definePoint`），
+别的 UI 包往里注册；后端 `harnix-app` 在 `UiDecl` 里声明同样两个点，
 [贡献点](contribution_points.md)的第二张表由此生成。没有 `harnix-app` 的产品里这两个点没人定义，注册时给 `orElse` 的包（`@harnix/flow`）就什么都不注册。
 
 **`harnix-app.project.items`**（`register`）：项目树里会话之外的一种条目。
@@ -233,16 +235,16 @@ r.register("harnix-app.project.items", {
 点了行：主会话归 `flow` 的后端 space，项目 space 声明的是 `sessions`，直接在这里打开本会被 `SPACE_MISMATCH` 拒绝（[概念与架构](concept_and_architecture.md) §5.4），
 所以从项目 space 建的任务，`flow.start` 带上 `show_in_space: context.space`，流程扩展把主会话**展示**到 `sessions`（`harnix.session.expose`，可对话；
 运行记录与 `flow.runs` 的行带 `show_in_space`）：任务就像项目里别的会话一样在项目 space 的中区打开、能插话，会话列表不把它当普通会话列（行带 `exposed_from`，
-由任务行来画），右栏开「流程」页签（`sidebar.tab` 的 `kind: "flow"`，`openTab("flow", { params: { run } })`，[系统 space](system-space.md) §5），
+由任务行来画），右栏开「流程」页签（`sidebar.tab` 的 `kind: "flow"`，`openTab("flow", { params: { run } })`，§11），
 页签靠 `flow.runOf {instance, session_id}` 找到自己的运行。关闭、删除、改名这些仍是流程的事，从项目 space 调答 `SPACE_MISMATCH`。
-没有展示到这里的运行（从系统控制台或定时启动的）点了行则和系统控制台进一条运行一样——把流程的界面 space 带到前台、停在这条运行上，「返回」回到项目 space；
+没有展示到这里的运行（从流程 space 或定时启动的）点了行则到流程 space、停在这条运行上（§11），左栏的「返回」回到项目 space；
 任务行的「⋯」菜单里「在流程里打开」对任何任务都这样进。
 「新任务」对话框：流程（全部，标来源，不合法的不能选）、按 `inputs` 的 schema 生成的表单（字符串、数字、布尔、枚举、字符串数组，其余是 JSON 框）、
 对象（必填）、标题、输出目录（留空用缺省 `flows/<流程>-<YYYYMMDD><NN>`，对话框预估当天序号，由扩展最终定）、在 worktree 里跑（见下）；
 项目里已有任务在跑时提示；流程不是 `guard: strict` 时写明「这个流程会直接修改项目文件」（在 worktree 里跑时改说「合回之后项目才会变」）。
 确认即 `flow.start {flow, subject, inputs?, title?, project_root, output_dir?, workspace?, show_in_space}`，然后打开这个任务。
 对话框底部「开始」旁边是别的包经 `flow.start.action` 登记的另一种起法（「定时运行这个流程…」，§9.1）：拿到的是已经填的这些（`draft`，对象可以还空着），对话框先关上；
-流程详情（系统控制台的流程页）的标题行上也有同一批按钮，只带流程名。
+流程详情（流程 space 的二级栏，§11）的标题行上也有同一批按钮，只带流程名。
 
 **对话里的 `/flow <流程> [主题]`**（`@harnix/flow` 的 `ui/packages/flow/src/slash.tsx`，一条 `command`，外壳不认识它）：在项目里的对话中，
 「/」菜单列出 `/flow` 和这个项目能启动的每个流程 `/flow <名>`（`flow.defs {project}`，对话的项目取会话列表那一行的 `project_root`）。
@@ -285,13 +287,12 @@ r.register("harnix-app.project.items", {
 
 中枢不认识流程：它只给会话的提问，流程的部分由流程的界面包从它自己的主题来，页面把两者合在一起。
 
-**在哪里**：项目概况的第一块（只列这个项目的）；会话 space 与项目 space 左栏最上面，有等人的事时出「待我处理 N」（`inbox-open`），
-点了在对话框里打开整张列表（`inbox-list`，每行 `inbox-item`，`data-kind`、`data-source`）；系统 space 指标条的「等你处理」那一格
-（`system.metrics.link`，[系统 space](system-space.md) §2）也打开它。
+**在哪里**：项目概况的第一块（只列这个项目的）；首页的一块（全部的，至多 8 行，§10）；首页、会话 space 与项目 space 左栏最上面，有等人的事时出「待我处理 N」（`inbox-open`），
+点了在对话框里打开整张列表（`inbox-list`，每行 `inbox-item`，`data-kind`、`data-source`）；首页全局统计的「待我处理」那一格（§10.1）也打开它。
 
 ## 4. 新建会话
 
-- **左栏顶上的「新会话」**（⌘K）：不建会话，只打开新对话的空页。前台是系统 space、`center: "hidden"` 的 space 或嵌在别的
+- **左栏顶上的「新会话」**（⌘K）：不建会话，只打开新对话的空页。前台是 `center: "hidden"` 的 space（首页）或嵌在别的
   space 里的 space 时，先换到第一个能对话的 space。⌘\ 收起左栏，⌘/ 聚焦输入框。
 - **快捷键**：上面三个是外壳自己的命令（`shell.session.new`、`shell.sidebar.toggle`、`shell.composer.focus`），缺省键在 Mac 上是
   ⌘K、⌘\、⌘/，别的平台是 Ctrl+K、Ctrl+\、Ctrl+/；「打开或关闭右栏」（`shell.details.toggle`）与「打开设置」（`shell.settings.open`）
@@ -309,8 +310,7 @@ r.register("harnix-app.project.items", {
   目录），然后 `harnix.session.send`。Harnix app 的两个 space 不给建议与提示；卡片是首次运行的三步（§4.1），应用的扩展与扩展包也可以给 `home.card`。
 - **新会话对话框**（从项目菜单或首次运行的「场景与权限」进来）：场景（启用的场景，引擎缺省的在前）、权限模式（`default`、`acceptEdits`、`plan`、
   `bypassPermissions`）、项目目录（`harnix-app.recentProjects` 给的最近目录，或不带项目），可以浏览目录。
-- **换模型**：会话的模型菜单在有 `harnix.session.setModel`（`[shell] model_switch = true`）时用它，否则用系统 space 的
-  `system.model`。
+- **换模型**：会话的模型菜单在有 `harnix.session.setModel`（`[shell] model_switch = true`）时用它，只对前台 space 的会话；没有它时菜单只显示模型、不能换。
 
 ### 4.1 首次运行
 
@@ -424,7 +424,7 @@ r.register("harnix-app.project.items", {
 |---|---|---|
 | `harnix.session.rewind` | `{instance?, session_id, space?, to, scope?, dry_run?, fork_first?, force?, allow_partial?}`。`to` 是 `"start"`（第一轮之前）、`{turn}`（这一轮刚结束时）、`{before_turn}`（这一轮开始前：前一轮结束时，第一轮就是 `start`；「回到这里」用它）或 `{tool_use}`（这次调用写任何东西之前，只回文件）。`scope` 是 `files`、`conversation`、`both`，缺省 `both`，`tool_use` 缺省 `files` | `RewindResult`（`harnix_contract::wire`）：`{instance, session_id, rewind_id, dry_run, scope, to, conversation?: {messages_before, messages_after, removed_turns: [{turn_id, prompt}]}, files?: {restored: [{path, to, outside_project?, unverified?}], skipped: [{path, issue, detail, overridable_by}], overwrote_external}, fork_session_id?}`；`to` 是解析过的（`before_turn` 换成它落到的那一轮或 `start`） |
 
-**谁能调**：设备，只对它声称的 space 的会话（不声称时是缺省 space），不能跨 space——系统 space 的跨 space 也不行，答 `SPACE_MISMATCH`，同
+**谁能调**：设备，只对它声称的 space 的会话（不声称时是缺省 space），不能跨 space——声称 `cross_space()` 的 space 也不行，答 `SPACE_MISMATCH`，同
 `harnix.session.setModel`；扩展要 `engine.control`，扩展包只到自己的 space。**什么时候不行**：这个会话有一轮在跑、在排队，或另一次回退没完，中枢答
 `SESSION_BUSY`（-32015），不排队；后台任务在跑时引擎也这样答。有文件不能照要求恢复时引擎答 `REWIND_PRECONDITION`（-32023，`data.issues`
 同 `skipped` 的形状，什么都没改）；做到一半失败答 `REWIND_FAILED`（-32024，已恢复的退回原样，除非 `data.partial`）。会话不记 checkpoint
@@ -440,9 +440,8 @@ r.register("harnix-app.project.items", {
 
 ## 6. 右栏：文件、预览、改动
 
-右栏是每个会话一个停靠面（[Harnix 扩展](harnix-ext.md) §22.7）。引导页上还有 `@harnix/observability` 的两页——**上下文**（下一次调用带什么：
-系统 space 在时上下文的组成与系统块，生效的技能与钩子，MCP 服务器的工具与指令，被项目信任扣下的项与「信任这个项目」）和**用量**
-（本会话这次运行的轮数、调用、token、缓存命中、用时，带「打开轨迹」）；它们读的是设备自己的方法，在 [Harnix 扩展](harnix-ext.md) §22.7、§22.10。
+右栏是每个会话一个停靠面（[Harnix 扩展](harnix-ext.md) §22.7）。`@harnix/observability` 在里面放三种页签：页签栏末尾常驻的**上下文**、
+引导页上的**用量**（本会话这次运行的轮数、调用、token、缓存命中、用时，带「打开轨迹」）和后台任务的**输出**（§6.1）。
 `@harnix/harnix-app` 往里注册三种页签类型，都只读、都限在**这个会话的项目根**
 （引擎记的 `project_root`）里：
 
@@ -500,13 +499,41 @@ transcript 里没有 diff。所以**一轮结束时，中枢把这一轮写过�
 点了用预览打开那个文件——`Read` 跳到它的 `offset`，`Edit` 跳到它写进去的文字所在的那一行；展开工具行，下面也有「在预览中打开」。
 这是一个 `session.action`（`harnix-app.open-file`，`at: ["arg", "tool"]`），外壳不认识任何工具。
 
+### 6.1 上下文与输出：`@harnix/observability`
+
+产品链了 `observability` 才有（`harnix` 二进制链了）。两页读的都是会话的**内部**，设备自己够不着引擎的这两个方法（`engine.session.inspectContext`、
+`taskOutput` 要 `engine.inspect`），所以经 `observability` 的方法：设备调它，它以自己的身份、凭被授予的 `engine.inspect` 调引擎，两次判定都进审计，后者挂在前者下面。
+两个方法都是设备的、按 `RowScope::Session` 判：只对设备声称的 space 的会话（像别的会话调用一样，`engine.session.get` 查这台设备看不看得到它），`instance` 不写是 `main`。
+
+| 方法 | 参数 | 答 |
+|---|---|---|
+| `observability.context` | `{instance?, session_id, space?}` | 引擎的 `inspectContext`：下一次调用要带的系统块（来源、正文、估算的 token）、工具表、消息，压缩阈值；另带 `measured`，上一次调用 provider 实测的数 |
+| `observability.tasks.output` | `{instance?, session_id, space?, task_id, tail_bytes?, from_byte?}` | 引擎的 `taskOutput`：一个后台任务的输出，整份、末尾或从某个字节起；`{output, from_byte, next_byte, dropped, final}` |
+
+**上下文**（`sidebar.tab`，`kind: "context"`，`pinned`）：每个会话的页签栏最后一个，常驻、不能关，不进引导页（`pinned` 见 [Harnix 扩展](harnix-ext.md) §22.7）。
+下一次调用**将要**带的东西，每一部分各读各的、各自失败——产品没有某个方法时只少那一部分，页签照在：
+
+| 部分 | 从哪来 |
+|---|---|
+| 系统、工具、消息的比例，实测（上一次调用）与估算（下一次），压缩阈值；每个系统块的来源与正文，工具表（`@harnix/react` 的 `ContextReport`） | `observability.context` |
+| 生效的技能与钩子 | `harnix.session.skills`、`harnix.session.hooks` |
+| 每个 MCP 服务器的工具与指令 | `settings.mcp.context` |
+| 被项目信任扣下的项，带「信任这个项目」（§3.1） | `harnix-app.sessions.projectStatus` |
+
+这个会话一轮结束后、项目的信任变了（主题 `harnix-app.trust`）时，各部分重读。
+
+**输出**（`sidebar.tab`，`kind: "output"`，`multiple` 且 `keepMounted`，地址 `harnix-resource://output/<实例>/<会话>/<任务>`）：一个后台 Shell 或监视器一个页签，
+从对话里 `Bash`、`Monitor` 工具行的「查看输出」打开（`session.action` 的 `observability.output`，`at: ["tool"]`）。只读：先读末尾（`observability.tasks.output`），
+再跟着会话推来的 `task_progress` 往下接，中间有缺口就补读；自动跟到末尾，往回翻就停，回到底又跟；页面至多留 256 KiB（引擎留的也是最后 256 KiB）。
+任务本身来自会话的后台任务列表（`harnix.session.tasks`）。模型建的定时没有输出。
+
 ## 7. profile
 
 ### 7.1 `[shell]` 与 `[extensions]`
 
 ```toml
 [shell]
-model_switch = false      # true：加 harnix.session.setModel，没有系统 space 也能在输入框换模型
+model_switch = false      # true：加 harnix.session.setModel，能在输入框换模型（只限前台 space 的会话）
 new_session = true        # false：整个外壳不画「新会话」、⌘K 不归外壳；只是界面
 narrow_details = "over"   # ≤ 960 宽时打开的右栏：over 是盖住中区的抽屉；beside 三栏并排（< 720 仍是抽屉）
 
@@ -519,9 +546,9 @@ default_space = "sessions"  # 不声称 space 的调用按它检查，换掉扩�
 
 | `[extensions] off` 里的名字 | 去掉之后 |
 |---|---|
-| `harnix-app` | 会话 space 与项目 space 的后端与界面都没有；后端的 `sessions` space 也不再声明（见 §1：要另指缺省 space） |
-| `system` | 系统 space 的后端与界面都没有，它的方法连同授权一起撤掉（[系统 space](system-space.md)） |
-| `flow` | 流程的界面不注册；留 `flow` 去掉 `system` 时它是一个单独的流程 space（[系统 space](system-space.md)） |
+| `harnix-app` | 首页、会话 space 与项目 space 的后端与界面都没有；后端的 `sessions`、`home` 两个 space 也不再声明（见 §1：要另指缺省 space） |
+| `flow` | 流程 space 的后端与界面都没有（§11），项目里没有任务，首页没有最近任务 |
+| `observability` | 右栏没有上下文、用量、输出，没有轨迹视图，首页没有全局统计与用量，诊断里没有扩展日志 |
 
 一个 space 都没有时，外壳说「没有注册任何 space」。
 
@@ -541,7 +568,7 @@ Harnix app 的项目在项目根 `projects_dir`（`--data-dir`，缺省 `$HARNIX
 
 外壳不读 profile，读握手之后 `harnix.hello` 的 `shell`：`brand {name, icon, product_id}`、`runtime_modules`、`new_session`、
 `model_switch`、`narrow_details`、`state_dir`、`projects_dir`、`user`。哪些 space 在，外壳看 `hello.extensions` 里启用的扩展
-（会话与项目是 `harnix-app` 的，系统 space 是 `system` 的）。`harnix-app.describe` 也答 `projects_dir`。
+（首页、会话与项目是 `harnix-app` 的，流程 space 是 `flow` 的）。`harnix-app.describe` 也答 `projects_dir`。
 
 ### 7.4 设置页：通用、显示、隐私与高级
 
@@ -608,10 +635,10 @@ Harnix app 是原生扩展最小的例子：一个后端扩展、一个界面包
 |---|---|---|
 | 后端 | 扩展 `harnix-app`：`workspaces.list/create/update/reorder/remove`、`sessions.archive`、`sessions.export`、`sessions.importUpload`、`sessions.import`、`prefs.set`、`search`、`files`、`files.list`、`files.read`、`listDirectory`、`recentProjects`、`projects.create`、`projects.status`、`projects.trust`、`sessions.projectStatus`、`describe`，主题 `trust`；`Manifest::requires([transcripts.read, engine.export])`、`.optional([engine.control])` | 一个 `Extension` 的 `register`、`Manifest::requires`（[Harnix 扩展](harnix-ext.md)） |
 | 行的开放范围 | 全部 `Access::device()`：人经界面做的决定只对设备开；`sessions.*`、`files.list`、`files.read` 另按 `RowScope::Session` | 同一套 `Access`，扩展也要调的行写 `.with_extensions()` |
-| 后端 space | `sessions`，`default_space()` | `register` 里的 `SpaceDecl` |
-| 界面 space | 两个 `space` 注册，owner 是扩展 id `harnix-app`；项目 space 写 `sessions: "sessions"` | `r.register('space', …)`（[Harnix 扩展](harnix-ext.md)的前端一节） |
+| 后端 space | `sessions`，`default_space()`；`home`，`no_sessions()` | `register` 里的 `SpaceDecl` |
+| 界面 space | 三个 `space` 注册，owner 是扩展 id `harnix-app`；项目 space 写 `sessions: "sessions"`；首页写 `landing: true`、`center: "hidden"` | `r.register('space', …)`（[Harnix 扩展](harnix-ext.md)的前端一节） |
 | 分组 | `sidebar.group` 的 `harnix-app.time` | 注册自己的 `sidebar.group` 换掉它 |
-| 自己定义的点 | `harnix-app.project.items`、`harnix-app.project.panels`、`harnix-app.session.badge`（§3.2），`harnix-app.inbox`（§3.3），`definePoint`；后端 `r.ui().point(…)` 声明 | 自己的 space 要让别的包往里放东西，就这样定义一个点 |
+| 自己定义的点 | `harnix-app.project.items`、`harnix-app.project.panels`、`harnix-app.session.badge`（§3.2），`harnix-app.inbox`（§3.3），`harnix-app.home.panels`（§10），`definePoint`；后端 `r.ui().point(…)` 声明 | 自己的 space 要让别的包往里放东西，就这样定义一个点 |
 | 右栏 | `sidebar.tab` 的 `files`、`preview`、`changes`，`flow.block` 的改动卡，`session.action` 的 `harnix-app.open-file`（`at: ["arg", "tool"]`） | 注册同一个 `kind` 的 extension 类型顶替，或更具体的 `patterns` |
 | 数据 | 方法 `harnix.sessions.list`，主题 `harnix.sessions.status` | `useHost()` 的 `call` 与 `subscribe` |
 
@@ -640,7 +667,7 @@ Harnix app 是原生扩展最小的例子：一个后端扩展、一个界面包
 | 回执（`Receipt`） | `scheduled_at`（计划时间；立即执行是按下的时间）、`delivered_at`、`manual`、`outcome`（`pending` · `delivered` · `skipped` · `failed`）、`reason`（跳过的四种理由，或失败的错误）、`target`（`{instance, session_id, created, item?}` 或 `{run}`）。只说明交出去了，不说明模型做得怎样。**失败不重试**。每条留最近 200 条、30 天以内的，最近一条总留着 |
 | 幂等 | 投递一条一条来。先写下 `pending` 回执；新会话一建好就把它的 id 写进回执（`new_once_then_reuse` 还写进 `target.session`），再发提示词——重启后沿用，不会再开一个。启动时还是 `pending` 的回执改成 `failed`（`interrupted…`），不重投：一个时间至多投一次 |
 | 存储 | 扩展数据目录下的 `schedules.json`：整份写到临时文件再改名，带版本号；读不了的放到一边（`.json.unread`），从空开始，不迁移旧格式 |
-| 归属与授权 | 一条定时属于一个 space（`space`，建时声称的，缺省是缺省 space）；带 `space` 的调用只够得着那个 space 的定时（不是的答 `SPACE_MISMATCH`），不带的够得着全部（系统 space 的总览这样调）。会话目标建时核对会话属于这个 space。设备不要能力：人管自己的定时，不审批；别的扩展要被授予 `schedule.manage`（定时扩展声明的） |
+| 归属与授权 | 一条定时属于一个 space（`space`，建时声称的，缺省是缺省 space）；带 `space` 的调用只够得着那个 space 的定时（不是的答 `SPACE_MISMATCH`），不带的够得着全部（首页的「定时」一块这样调，§10.2）。会话目标建时核对会话属于这个 space。设备不要能力：人管自己的定时，不审批；别的扩展要被授予 `schedule.manage`（定时扩展声明的） |
 | 改 | `update` 带读到的 `revision`；别人改过了答 `CONFLICT`，`data.revision` 是现在的。改了时间就从现在重新算下一次；`every`、`after` 原样送回不会重新起算。开关（`enable`、`disable`）也算一次改；重新打开从现在算，关着期间到期的不补 |
 | 模型建的 | 模型用引擎的 `CronCreate` 建的（存在引擎里，按会话、按 UTC）也列在 `schedule.list` 的 `model` 里，标「模型建的」，只能删（`schedule.model.delete {instance, id}`）。读、删走 `engine.schedule.list`、`engine.schedule.delete`，定时扩展为此被授予 `engine.inspect`、`engine.control`；够不着的实例列在 `unreachable` |
 
@@ -663,14 +690,14 @@ Harnix app 是原生扩展最小的例子：一个后端扩展、一个界面包
 ### 9.1 界面：`@harnix/schedule`
 
 第一方 UI 包 `@harnix/schedule`（`ui/packages/schedule/`），`schedule` 扩展启用时激活。它不 import 别的第一方包，只往别人定义的点里注册；点没人定义（产品没有项目 space、
-没有系统 space、没有流程）时那一处悄悄不出现。数据是主题 `schedule.list`（有东西在画时才订阅）和上面的方法。
+没有首页、没有流程）时那一处悄悄不出现。数据是主题 `schedule.list`（有东西在画时才订阅）和上面的方法。
 
 | 在哪 | 贡献点 | 是什么 |
 |---|---|---|
 | 会话菜单「定时…」 | `session.action`（`schedule.session`，`at: ["menu"]`） | 对话框（`schedule-session`）：这个会话的定时和模型在它里面建的；「新建定时」的目标是往它发一轮，定时属于会话所在的 space。别的扩展展示过来的会话（`exposed_from`）不出这一项 |
 | 新任务对话框、流程详情「定时运行这个流程…」 | `flow.start.action`（`@harnix/flow` 定义，[Harnix 扩展](harnix-ext.md) 的扩展定义的点） | 编辑器，目标是任务，对话框里已填的流程、inputs、对象、标题、输出目录、worktree 带过来；从项目来的项目固定，`show_in_space` 与定时的 space 是项目 space 列会话的那个；流程详情没有项目，编辑器里问 |
 | 项目概况第 40 块「定时」 | `harnix-app.project.panels`（`schedule.project`） | 目标在这个项目里的定时（`overview-schedules`）；「新建定时」可选新会话或任务，项目固定，`show_in_space` 同上 |
-| 系统控制台「定时」页签 | `system.console.tab`（`schedule`，`order: 25`） | 全部定时与模型建的，见 [系统 space](system-space.md) §6.3 |
+| 首页第 50 块「定时」 | `harnix-app.home.panels`（`schedule.all`，`wide`） | 全部定时与模型建的，见 §10.2 |
 | 会话行的时钟 | `harnix-app.session.badge`（`schedule.clock`） | 有开着的定时发给它（或复用它），或模型在它里面建了定时：一个时钟（`session-schedule-badge`，`data-count`），悬停列出前两条和下一次时间 |
 | 任务行的下一次时间 | `flow.task.badge`（`schedule.next`） | 起它的那条定时还开着时，「下一次 13 小时后」（`task-schedule-next`）；流程自己的时钟在它前面 |
 
@@ -693,3 +720,198 @@ Harnix app 是原生扩展最小的例子：一个后端扩展、一个界面包
   调度器才知道的（cron 永远不到期、时区不认得、项目目录不在）照它的原话写在底部。
 - **改**只送改了的字段，带读到的 `revision`；`every`、`after` 没动就不送，不会从现在重新起算。别人改过了（`CONFLICT`）时底部是一条提示：
   **保留我的修改并复核**——重读这一条（`schedule.get`），写出别人改了哪几项，自己改过的字段留着、没动过的换成新的，再保存就是在新版本上改；或**用他们的**，丢掉自己的修改。
+
+## 10. 首页
+
+新开的页面落在这里：首页是左栏第一项（`home`，`order: 5`），界面注册写 `landing: true`——新开一个标签页、重开应用时打开它，而不是上次留在前台的 space
+或产品的缺省 space；同一个标签页里刷新留在原处（标签页自己的 `sessionStorage` 记着已经落过地，`harnix.landed`）。外壳不认识它：哪个 space 是落地处，
+是 space 自己说的（[Harnix 扩展](harnix-ext.md) §22.3 的 `landing`）。
+
+| 栏 | 是什么 |
+|---|---|
+| 左 | 只有「待我处理 N」（§3.3），有等人的事时才有；首页没有自己的列表 |
+| 中 | 问候（按钟点）与日期，下面是 `harnix-app.home.panels` 的全部区块，按 `order` 从小到大（没写算 100）；`wide` 的占整行，其余各占一列。一块都没有时说一句 |
+| 右 | 没有 |
+
+**它不持有对话。** 中区是 `center: "hidden"`、`newSession: false`；左栏的「新会话」先换到第一个能对话的 space（§4）。后端的 `home` 是 `SpaceDecl::new("home").no_sessions()`：
+声称它的读照常答（它是一个存在的 space，列出来是空的），而 `harnix.session.create`、`harnix.session.import`、`harnix.session.move` 落进它一律
+`SPACE_MISMATCH`（「the space `home` holds no sessions」）。从首页打开一个会话，就到它所属的 space 打开。
+
+**`harnix-app.home.panels`**（`render`，`ui/packages/harnix-app/src/home.tsx`）：首页的一个区块，`{ id, title(), order?, wide?, render(context) }`。`context` 是只有首页才有的东西：
+`{ waiting, openWaiting() }`——现在等人处理的条数（`harnix-app.inbox` 全部来源合起来，§3.3）与打开整张列表。首页每次画都问 `render`，
+所以要跟着什么变的块自己订阅。每块抛错只丢那一块。首页不认识往里放东西的包，每块由拥有那份数据的包注册：
+
+| `order` | 区块 | id（谁的） | 内容 |
+|---|---|---|---|
+| 10 | 全局统计 | `observability.stats`（`@harnix/observability`），`wide` | 一行数字（§10.1） |
+| 20 | 待我处理 | `harnix-app.inbox` | §3.3 的列表，全部项目的，至多 8 行 |
+| 30 | 最近会话 | `harnix-app.sessions` | 会话 space 最近活动的 8 个（归档的不列），在跑的带点，有项目的写项目名；点了到所属 space 打开（`host.session.open(…, {switchSpace: true})`）；「全部会话」到会话 space |
+| 40 | 最近任务 | `flow.tasks`（`@harnix/flow`） | 全部项目的任务（试运行不算）：运行中、等待、已结束各几个；最近活动的 8 个，同项目概况的任务行（§3.2），后面写项目名；点了照 §3.2 打开 |
+| 50 | 定时 | `schedule.all`（`@harnix/schedule`），`wide` | 这个进程里全部的定时（§10.2） |
+| 60 | 用量 | `observability.summary`（`@harnix/observability`），`wide` | 最近 30 天的用量汇总（§10.3） |
+
+产品没链某个扩展，它那一块就不在；没有 `harnix-app` 就没有首页，别的包往这个点里注册时给的 `orElse` 什么都不做。
+
+### 10.1 全局统计
+
+| 项 | 值 | 来源 |
+|---|---|---|
+| Harnix、Agix | 版本（`-` 之前的部分） | 主题 `observability.process` |
+| 运行时长 | `uptime_secs`，页面每秒往上数（只重画这一格） | `observability.process` |
+| 内存（峰值） | `peak_rss_bytes` | `observability.process` |
+| 系统线程 | `threads` | `observability.process` |
+| 已连接用户 | `connections` 的条数；悬停列出设备、客户端种类（桌面、手机、浏览器、脚本）、拓扑、连上多久 | `observability.process` |
+| 实例 | 实例数 | 主题 `harnix.instances` |
+| Agent（活动/全部） | 主 Agent 的数：活动的是在跑、在排队、在等人、有后台任务在跑或已加载的 | 每台实例的主题 `harnix.instances.sessions {instance}` |
+| 运行中会话 | 有一轮在跑的会话 | 主题 `harnix.sessions.status` |
+| 运行中的后台任务 | 各行 `tasks` 的和 | `harnix.instances.sessions` |
+| 待我处理 | `context.waiting`；点了打开待我处理（`context.openWaiting()`），有等的事时标亮 | 首页 |
+
+每个读都是设备自己的、不声称 space：这些是整个进程的数。`observability.process` 是 `observability` 的方法，也是同名的主题，有人订阅时每 5 秒重算一次推出；
+数据是 `observability` 凭 `process.observe` 从宿主拿的进程信息，值里还有产品名与版本（`app`）、`started_ms`。`process.observe` 是 `observability` 的可选能力：
+产品不授予时这个方法与主题被拒，录像、上下文这些照旧。
+
+### 10.2 定时
+
+`@harnix/schedule` 的 `schedule.all`：不带 `space` 调，所以是这个进程里**全部**的定时，不论属于哪个 space（§9）。数据是主题 `schedule.list`，变了就推，不用刷新。
+
+- 上方：「新建定时」（目标可选新会话或任务，项目在编辑器里填）、按状态过滤（全部、开着、已暂停、已结束）、按标题和提示词搜索。
+- 每条定时一行（`schedule-row`），行的样子与操作同 §9.1：标题、状态、来源、时间的说法、做什么、下一次、上一次投递；立即执行、暂停 / 恢复、编辑、投递记录、删除。
+- 「模型建的」一节：模型用引擎的 `CronCreate` 在会话里建的（`schedule-model-row`），五段 cron（UTC）、提示词、在哪个会话（可打开）、下一次；**只能删**。
+- 读不到定时的实例（`unreachable`）在下面写出来；最下面一行写明 Harnix 没在跑时不投递。
+
+### 10.3 用量
+
+`@harnix/observability` 的 `observability.summary`（组件 `UsageSummaryTab`）：**最近 30 天里每个会话用了多少**，从录像里读。
+
+**读谁**：每台实例（主题 `harnix.instances`）列出的主 Agent（`harnix.instances.sessions {instance}`）里，`last_active` 落在这 30 天里的
+（没写 `last_active` 的也问）。按实例、一次至多 200 个调 `observability.usage.daily {instance, session_ids, days: 30, tz_offset_min}`，
+`tz_offset_min` 是这台设备此刻在 UTC 以东多少分钟：一次调用算在它发出的那天，日界按这台设备的时区。每个会话的数含它下面的子 Agent，
+一个会话只属于它所在的项目（会话行的 `project_root`）。画出来时读一次，「重新读」再读；不跟着轮次自己刷新。
+
+| 部分 | 是什么 |
+|---|---|
+| 合计 | 会话（有调用落在这些天里的）、调用（轮次的调用，`+N` 是轮次之外的：压缩、记忆、标题）、token 合计、输入、输出、缓存读、缓存写、模型用时 |
+| 每天的 token | 30 根竖条，一天一根，高度按最多的那天折算，没调用的那天只留底线；悬停是那天的 token 与调用数 |
+| 按项目、按模型、按天 | 三张表，列是名字、会话、调用、输入、输出、缓存读、缓存写、合计、模型用时；点表头按那一列排，再点反过来（数字列先从大到小）。没有项目的会话归在「（无项目）」，录像没写模型的归在「（未写明）」；按天只列有调用的那几天 |
+| 别的包加的区块 | 贡献点 `observability.usage.section`（见下），按 `order` |
+
+读不到的实例（连不上、重启中）在合计下面点名，其余照常；休眠的模式 3 进程不为这个叫醒，给的是之前读过的数，页面说有几个会话是这样。
+
+**数的口径**：录像只覆盖会话最近一次运行（daemon 重启后录像重写），更早的运行用掉的不在里面，所以这不是「这 30 天一共用了多少」，而是「这些会话现在的录像里、
+落在这 30 天的那部分」。读者另记每个会话按天按模型的合计（每个时区偏移各一份，至多 1024 份，只在内存里）：链路没见到这个会话
+再有动静，就不再读它的录像。
+
+**区块**：`@harnix/observability` 定义贡献点 `observability.usage.section`（呈现，`{id, title(), order?, render(context)}`，
+`context` 是 `{since, days}`：`since` 是第一天零点的毫秒数），别的包往里加自己那一份，汇总不认识它们。`@harnix/flow` 加「按流程」：
+`flow.list {limit: 2000}` 读最新的运行，`created_at` 不早于 `since` 的、不是试运行的，按流程加起来——运行数（没全结束时括号里是结束了的）、
+轮数、四项 token 与合计（运行记录里各站的轮次报上来的，含重试）、运行时长（结束了的运行从开始到结束，含等人的时间）。这一份来自流程自己的
+运行记录，和上面的录像是两本账：流程的会话也在上面的表里。
+
+## 11. 流程 space
+
+流程是 Harnix 内置的应用开发工具链（第一方扩展 `flow`，界面 `@harnix/flow`），产品链了 `flow` 才有——Harnix 自己的二进制 `harnix` 链了，
+二开的产品 `.extension(flow)` 了才有。流程是什么、怎么写见流程指南（`crates/ext/flow/docs/guide.*.md`，这里右栏的「参考」就是它）。
+
+**它是一个 space**（`ui/packages/flow/src/space.tsx` 的 `registerFlowSpace`）：id 是 `harnix.spaces.list` 里 scene 为 `flow-author` 的那个后端 space（缺省 `flow`，
+由 `flow` 扩展声明），图标 `fork`，`place: "bottom"`——它管的是应用的工具链、不是产品的一个面，所以入口在左栏底部、头像上面。自己编外壳产物的产品，
+把 `@harnix/flow` 编进去就行；名字改过的产品自己调 `registerFlowSpace(r, { space, module })`。
+
+| 栏 | 是什么 |
+|---|---|
+| 左（`FlowSidebar`） | 「返回」（只在从项目 space 进来看一个任务时，回到那里）；通用会话；全部流程，选中的那条展开：它自己的对话，它的运行与试运行，新的在前。在这里点了什么，右栏就换到它所在的那张列表，两栏说的是同一件事 |
+| 中 | 左栏选中什么就是它的会话：流程的对话（`flow.session {flow}`，Agent 在里面改它、试运行、启动、操作它的运行，都直接执行、不审批，校验照旧）；运行 → 它的主会话（`flow.get {run}` 的 `@main`；试运行没有会话，是流程的对话）；不属于哪条流程的是通用会话（`flow.session {}`）。输入框上一行写着它在说哪条流程 |
+| 二级栏 | 选中的流程：流程图、定义、件、只读 YAML，可以试运行、启动，标题行上有别的包经 `flow.start.action` 加的起法（「定时运行这个流程…」）；选中的运行：状态、耗时、token，暂停 / 恢复 / 取消、试运行的单步与跑完、站的确认等操作、子 Agent 与后台任务。关掉它只是收起，选中的不变，下一次选或换页签时再出来 |
+| 右 | 三个页签：**流程**、**运行**、**参考** |
+
+- **流程**：标题、来源（内置 / 已改 / 自建 / 项目）、不合法的标记；按来源、合法与否筛选，按名字搜索，按名字或标题排序。「添加」
+  打开通用会话并在输入框里放一句提示。数据是主题 `flow.defs`。
+- **运行**：全部运行与试运行，状态、标题、试运行标记、流程、开始时间、耗时、token；按状态、流程、真跑 / 试运行筛选，按开始、耗时、token 排序。
+  数据是主题 `flow.runs`、`flow.dry_runs`。
+- **参考**：流程指南（`flow.guide {lang}`）、本产品的目录与字段表。
+- 这一处只呈现，不编辑定义：改流程在它的对话里，由 Agent 做。
+
+**同一条运行的另一个入口：项目里的任务**（§3.2）。从项目起的任务，`flow` 把主会话展示到项目 space（`show_in_space`），
+项目树里点它，主会话就在项目 space 的中区打开；没展示到那里的运行（从流程 space 或定时起的）——流程 space 带到前台、停在这条运行上，
+左栏的「返回」回到项目 space（`FlowSpaceState.enter(flow, run, { from })`），任务行菜单的「在流程里打开」对任何任务都这样进。
+两种进法，会话旁的二级栏都不开，改在右栏开「流程」页签（`sidebar.tab`，`kind: "flow"`，`keepMounted`；`openTab("flow", { params: { run } })`；
+没带 `run` 时按这个会话在浏览器里记下的，再没有就在最近的运行里找主会话是它的那条）。
+两处画的是同一组件（`ui/packages/flow/src/RunPanel.tsx`）：`RunHead`（状态，暂停 / 恢复 / 取消）、`FlowGraph`（当前站高亮）、
+选中站的 `StationPanel`（确认、放行、退回、强制通过……按站给）、`RunStations`（每站的状态、耗时、token、输出一行、门禁结果）、
+`OutputDirLine`（输出目录：复制路径、打开文件页签）、`RunSessionsList`（子 Agent 与后台任务）。流程 space 的二级栏是 `RunDetail`，从这里取件。
+
+## 12. 诊断（在设置里）
+
+设置 → 诊断是外壳核心的一节（`ui/packages/shell/src/settings.tsx` 的 `Diagnostics`），排在各扩展的节之后、「关于」之前：
+
+- **引擎**：`engine.daemon.status` 的版本、运行时长、会话数，以及启用的场景。
+- **运行期界面模块**：贡献点 API 版本、`[ext.plugins] ui_modules`、页面的 import map 与 CSP，以及各 Agix 插件的 `[[ui]]` 条目（`plugins.list`）。
+- **扩展**：每个扩展（hello 与 `harnix.ui` 说的）是否启用、载体、信任、版本；在本页上有界面面板的，下面跟着**本页上的面板**
+  （在用的个数 · 崩过的次数，每个面的点、id、状态：加载中 / 运行中 / 出错 / 已搁置 / 已停止）与**最近被拒的界面请求**
+  （iframe 经桥要、被拒的名字与理由，留最近 20 条）。只是这一页的，刷新就清零；一个面 5 分钟内失败 3 次就被置于一旁。
+- **界面部件**：注册表拒掉的贡献与理由，含注册进了没人定义的点、最后被丢掉的那些。
+- **自检**：`engine.daemon.doctor`。
+- 然后是别的包放进这一节的区块（见下），各在自己的标题下。
+
+`harnix.extensions`（每个扩展：id、信任、载体、版本、启用、授予、行数、停用理由）、`harnix.diagnostics`（扩展、授予、路由表、主题、路由、迁移）与
+`harnix.audit`（审计环）由后端提供，这一页不画它们。
+
+**放进诊断的区块**：`settings.section` 写 `within: "diagnostics"` 的，不是导航里单独的一节，而是画在外壳自己的诊断内容之后、它的 `label()` 下面
+（[Harnix 扩展](harnix-ext.md) §22.3）。第一方的两块：
+
+| 区块 | 谁的 | 是什么 |
+|---|---|---|
+| 扩展包运行状况（`packages.runtime`） | `@harnix/packages`（组件 `PackagesTab`） | 下面 §12.1 |
+| 扩展日志（`observability.extlog`） | `@harnix/observability` | 下面 §12.2 |
+
+`host.settings.open("packages.runtime")` 打开设置并停在诊断上。
+
+### 12.1 扩展包运行状况
+
+产品链了 `packages`（管扩展包的宿主组件）才有。数据只有一个：主题 `packages.list`（值同方法 `packages.list`；载体报告状态变了才推，另有至多 10 秒一次的兜底，见 [扩展包](harnix-ext-package.md)）。
+**这一块只看，不操作**：启停、同意、数据、卸载、更新在设置 → 扩展包。
+
+表上方：模式 3 的扩展进程不在沙箱里时，一条红字写明原因——`[ext.packages] sandbox = "off"`（只给开发用），或者这个平台套不上沙箱（扩展进程因此不拉起）。
+
+表有五列；放不下时表在自己的框里横向滚动，不撑宽页面，表头不折字。
+
+| 列 | 是什么 |
+|---|---|
+| 扩展 | 状态点、标题或 id（扩展进程没有沙箱时跟一个「无沙箱」标记），下一行 id 与版本 |
+| 状态 | 见下表 |
+| 后端 | 只对带后端的扩展包：休眠 / 运行中 / 未运行 |
+| 调用 · 出错 | `calls.calls` · `calls.errors` |
+| 被拒 | 最近被拒的调用的条数（它以 `ext:<id>` 经 `host.call` / `host.subscribe` 要、同意的 `calls` 里没有的，或者在它的 space 之外的；留最近 20 条） |
+
+| 状态 | 标签 | 什么时候 |
+|---|---|---|
+| `running` | 运行中 | 起来了 |
+| `hibernating` | 休眠中 | `[backend] resident = "on-demand"` 的后端闲置后卸下了（模式 3 连进程一起停了），下一次要它做事时再起 |
+| `faulted` | 已搁置 | 反复崩溃，不再拉起（模式 3：起来之后 60 秒内崩溃 3 次）；记录仍是启用的，方法答「不可用」；在设置里停用再启用会重起。一个工具连续出错只把那个工具放在一旁（`health.tools_aside`），扩展照常 `running` |
+| `stopped` | 已停用 | 安装记录是停用的 |
+| `failed` | 没有启动 | 启用着但没起来（验签不过、复核不过、名字被原生扩展占了 `namespace_taken`、模式 3 的沙箱套不上……），理由在展开的那一行 |
+
+点一行（或回车）展开：虚拟机的四个数——换新 / 重建（`recycles`，超时后换掉 Store / `rebuilds`，崩溃后重建）、
+故障 · 超时（`faults` · `timeouts`）、内存（`memory_bytes / memory_limit_bytes`）、存储（`storage_bytes / storage_limit_bytes`，
+kv 加 `/data`）；模式 3 另有扩展进程 stderr 的最后几行（至多 40 行）；没起来或置于一旁的理由、最近一次错误、
+它的方法与主题、**最近被拒的调用**（方法 — 理由）。它在本页上的界面面板是外壳的，在上面的「扩展」里。
+
+### 12.2 扩展日志
+
+本进程记下的、属于各个扩展的日志——原生扩展在应答调用、计算主题、启动与停止时写的，WASM 扩展包自己的日志（`host::log`）与载体关于它的行，
+模式 3 扩展进程的 stderr，宿主关于某个扩展的行。怎么认一行是谁的见 [原生扩展](harnix-ext.md) §17.9。进程只留最新的：每个扩展至多 500 行，
+全进程至多 4000 行，超出时先丢最旧的，区块上方说丢了多少。
+
+数据是 `observability.extensions.log {extension?, level?, after?, limit?}`：设备的方法，`observability` 只把这四个键转给内核的 `harnix.extensions.log`
+（要 `process.observe`，`observability` 的可选能力）。日志里的行可能说出包作者没打算给别人看的东西，所以内核那一行不对设备与扩展包开放——设备直接调它被拒，
+经这里读，每次读都进审计。
+
+| 控件 | 做什么 |
+|---|---|
+| 扩展 | 全部，或只看一个（每个扩展后面是它留着的行数）；换了就从头读 |
+| 级别 | 全部，或某一级及以上；换了就从头读 |
+| 实时 | 缺省开：每 2 秒读一次上次最后一行之后的，新行加在底下；读者往上翻时不把视图拉回底部。关掉就不再读 |
+| 复制 | 把显示着的行按 `时间 级别 扩展 [来源] 消息` 一行一条复制成文本 |
+
+每行：时间、级别（错误、警告着色）、扩展 id、来源（调用中 / 扩展包 / stderr / 宿主，悬停是 tracing 的 target）、消息（之后跟着事件的其余字段 `name=value`）。
+页面至多留 1000 行。
