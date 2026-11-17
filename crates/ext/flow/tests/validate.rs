@@ -379,6 +379,33 @@ fn rework_limit_is_bounded() {
 }
 
 #[test]
+fn guard_and_output_dir_are_checked() {
+    let ok = "name: x\nguard: strict\ninputs: {m: {schema: {type: string}, default: a}}\noutput_dir: 'out/${inputs.m}/${date}${seq}'\nstations: [{id: a, permissions: [{effect: allow, tools: [Write], paths: ['${output_dir}/**']}], exit: [{kind: confirm}]}]";
+    assert!(problems(ok).is_empty(), "{:#?}", problems(ok));
+    assert_problem("name: x\nguard: loose\nstations: [{id: a, exit: [{kind: confirm}]}]", "loose");
+    for (dir, needle) in [
+        ("../out", "climbs out"),
+        ("/tmp/out", "absolute"),
+        ("out/${run}", "${run}"),
+        ("out/${inputs.nope}", "no input nope"),
+    ] {
+        assert_problem(&format!("name: x\noutput_dir: '{dir}'\nstations: [{{id: a, exit: [{{kind: confirm}}]}}]"), needle);
+    }
+    let def = definition_schema();
+    assert_eq!(def["properties"]["guard"]["$ref"].as_str().map(|r| r.ends_with("Guard")), Some(true), "{}", def["properties"]["guard"]);
+}
+
+#[test]
+fn a_flow_works_in_the_project_or_a_worktree_of_it() {
+    for ws in ["project", "worktree"] {
+        let ok = format!("name: x\nworkspace: {ws}\nstations: [{{id: a, exit: [{{kind: confirm}}]}}]");
+        assert!(problems(&ok).is_empty(), "{ws}: {:#?}", problems(&ok));
+    }
+    assert_problem("name: x\nworkspace: scratch\nstations: [{id: a, exit: [{kind: confirm}]}]", "project | worktree");
+    assert_problem("name: x\nworkspace: elsewhere\nstations: [{id: a, exit: [{kind: confirm}]}]", "elsewhere");
+}
+
+#[test]
 fn input_defaults_satisfy_their_schema() {
     assert_problem(
         "name: x\ninputs: {mode: {schema: {enum: [a, b]}, default: c}}\nstations: [{id: a, exit: [{kind: confirm}]}]",

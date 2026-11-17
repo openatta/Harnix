@@ -15,6 +15,7 @@
 
 use std::sync::Arc;
 
+use harnix_contract::wire::{self, SessionResync};
 use harnix_contract::{Frame, RpcError};
 use harnix_engine_link::events::{DaemonEventKind, EngineEvent, SessionEventKind};
 use harnix_engine_link::EventReceiver;
@@ -80,12 +81,26 @@ impl Hub {
             _ => None,
         };
         let teams = matches!(kind, SessionEventKind::TeamProgress { .. });
+        let rewound = match kind {
+            SessionEventKind::Rewound { messages } => Some(messages),
+            _ => None,
+        };
         crate::session::route_event(&self.inner, instance, &session_id, &turn_id, &kind, event, self.is_extension(instance)).await;
         if relisted {
             self.refresh("harnix.instances.sessions", json!({"instance": instance}));
         }
         if teams {
             self.refresh("harnix.session.tasks", tasks());
+        }
+        // Not one of the hub's (those it follows up itself, once its marks are filed): every
+        // watcher reads the session again.
+        if let Some(messages) = rewound {
+            let ours = self.inner.lock().await.sessions.get(&key).is_some_and(|s| s.rewinding);
+            if !ours {
+                let hub = self.clone();
+                let key = key.clone();
+                tokio::spawn(async move { hub.redraw_rewound(&key, Some(messages)).await });
+            }
         }
         if let Some((task_id, live_now)) = task {
             {
@@ -180,6 +195,8 @@ impl Hub {
             state.turn_started_ms = Some(crate::now_ms());
             state.external = true;
             state.compacted = false;
+            // What it says, calls and writes is its own, not the turn's before it.
+            state.answer = Default::default();
             state.replay.clear();
         }
         self.refresh("harnix.sessions.status", json!({}));
@@ -338,7 +355,7 @@ impl Hub {
                 &session_id,
                 notification(
                     "harnix.session_resync",
-                    json!({"instance": instance, "session_id": session_id}),
+                    wire::params(&SessionResync { instance: instance.to_string(), session_id: session_id.to_string() }),
                 ),
             ),
         )

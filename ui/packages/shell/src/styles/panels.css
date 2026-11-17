@@ -393,7 +393,9 @@
 }
 
 .srow-setting select,
-.srow-setting input[type="text"] {
+.srow-setting input[type="text"],
+.srow-setting input[type="number"],
+.srow-setting input[type="password"] {
   height: 36px;
   min-width: 160px;
   padding: 0 14px;
@@ -402,6 +404,98 @@
   background: var(--bg-base);
   font-size: 14px;
   line-height: 22px;
+}
+
+.srow-setting .hint .err {
+  color: var(--state-error);
+}
+
+/* A field drawn from its declaration that needs the row's width: a list, a table of rules. */
+.srow-wide {
+  padding: 0 0 10px;
+  border-bottom: 1px solid var(--border-l1);
+}
+
+.srow-wide textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border-l2);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  font: inherit;
+  font-size: 13px;
+}
+
+.settings-rules table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.settings-rules th {
+  color: var(--label-caption);
+  font-weight: normal;
+  text-align: left;
+  padding: 4px 6px;
+}
+
+.settings-rules td {
+  padding: 3px 6px;
+}
+
+.settings-rules td input,
+.settings-rules td select {
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border-l2);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+}
+
+/* A permission rule's tool and what its parentheses hold. */
+.settings-rule-tool {
+  display: flex;
+  gap: 4px;
+}
+
+.settings-rule-tool input:first-child {
+  flex: 0 0 34%;
+}
+
+.settings-rules-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* A model route: the provider, then a model of it. */
+.settings-route {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.settings-route input {
+  min-width: 12em;
+}
+
+/* A risky value waiting for its confirmation; a write over settings that changed; a review. */
+.settings-risk,
+.settings-conflict,
+.settings-review {
+  margin: 6px 0;
+  flex-wrap: wrap;
+}
+
+.settings-risk .check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.srow-setting[data-state="draft"] .label {
+  color: var(--state-info);
 }
 
 .srow-setting input[type="checkbox"] {
@@ -444,6 +538,42 @@
 
 .settings-page .hint.err {
   color: var(--state-error);
+}
+
+/* The keys section: a count and "restore all" over the commands, each key a button that records. */
+.shortcuts-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shortcuts-bar .hint {
+  flex: 1 1 auto;
+}
+
+.shortcut-keys {
+  min-width: 64px;
+  padding: 2px 10px;
+  font: 12px/1.6 var(--font-code);
+  border: 1px solid var(--border-l2);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: var(--bg-base);
+  color: var(--label-primary);
+  cursor: pointer;
+}
+
+.shortcut-keys[data-state="none"] {
+  color: var(--label-caption);
+}
+
+.shortcut-keys[data-state="recording"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.shortcut-row[data-state="conflict"] .shortcut-keys {
+  border-color: var(--state-warn);
 }
 
 /* The pairing code, on the one screen it is ever shown.
@@ -622,6 +752,61 @@
   gap: 8px;
 }
 
+/* Settings · MCP servers: the same cards and form as the providers', with a status in the card's
+ * head and rows of names and values in the form. */
+.provider-card .value {
+  font-size: 12px;
+  color: var(--label-secondary);
+}
+
+.provider-card .value.ok {
+  color: var(--state-success);
+}
+
+.provider-card .value.warn {
+  color: var(--state-warn-label);
+}
+
+.provider-card .value.err,
+.provider-card .pc-meta .err {
+  color: var(--state-error);
+}
+
+.provider-form textarea {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  font-family: var(--font-code);
+  font-size: 12px;
+}
+
+.provider-form .kv-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.provider-form .kv-row input {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.provider-form .kv-row select {
+  flex: none;
+  max-width: 40%;
+}
+
+.provider-form .kv-row .glyph,
+.provider-form .field > .btn .glyph {
+  width: 14px;
+  height: 14px;
+}
+
 .model-setup .text {
   flex: 1 1 auto;
   min-width: 0;
@@ -753,4 +938,113 @@
 
 #main .empty-conversation:empty {
   display: none;
+}
+
+/* ── the session's tabs in the strip ─────────────────────────────────── */
+/* A session tab is a chip: the tab itself, and a close control that shows on hover and while it is
+   in front. The space's tabs beside it are plain buttons, as they were. */
+#details .tabs .chip {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  flex: none;
+}
+
+#details .tabs .chip .tab-close {
+  display: flex;
+  align-items: center;
+  align-self: center;
+  padding: 2px;
+  margin-left: -8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--label-tertiary);
+  cursor: pointer;
+  opacity: 0;
+}
+
+#details .tabs .chip:hover .tab-close,
+#details .tabs .chip.on .tab-close,
+#details .tabs .chip .tab-close:focus-visible {
+  opacity: 1;
+}
+
+#details .tabs .chip .tab-close:hover {
+  color: var(--label-primary);
+  background: var(--interactive-hover);
+}
+
+#details .tabs .chip .tab-close .glyph {
+  width: 12px;
+  height: 12px;
+}
+
+#details .tab-body[hidden] {
+  display: none;
+}
+
+/* ── the guide ───────────────────────────────────────────────────────── */
+#details .guide-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+#details .guide-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-l1);
+  border-radius: var(--radius-card);
+  background: var(--bg-base);
+  color: var(--label-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+#details .guide-card:hover {
+  background: var(--interactive-hover);
+}
+
+#details .guide-card .glyph {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  color: var(--label-secondary);
+}
+
+#details .guide-card .text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+#details .guide-card .title {
+  font-size: 13px;
+  font-weight: 550;
+}
+
+#details .guide-card .desc {
+  color: var(--label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* The rewind dialog: what a dry run says, then the choices. */
+.rewind section { margin: 0 0 12px; }
+.rewind h4 { margin: 0 0 4px; font-size: 13px; font-weight: 600; }
+.rewind ul { margin: 0; padding-left: 18px; font-size: 13px; max-height: 160px; overflow: auto; }
+.rewind li { overflow-wrap: anywhere; }
+.rewind .check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--label-secondary);
+  margin: 6px 0 0;
 }

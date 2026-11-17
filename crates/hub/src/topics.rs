@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use harnix_contract::sync::{lock, read, write};
+use harnix_contract::wire::{self, TopicEnded, TopicFrame};
 use harnix_contract::{Frame, RpcError};
 use harnix_kernel::TopicSource;
 use serde_json::{json, Value};
@@ -149,7 +150,8 @@ impl Topics {
             }
         }
         let frame = |value: &Value| {
-            Frame::host(notification("harnix.topic", json!({"topic": key.0, "params": params, "value": value})))
+            let frame = TopicFrame { topic: key.0.clone(), params: params.clone(), value: value.clone() };
+            Frame::host(notification("harnix.topic", wire::params(&frame)))
         };
         let mut told = vec![(free, frame(&value))];
         for (space, clients) in by_space {
@@ -199,7 +201,7 @@ impl crate::Hub {
             count += clients.len();
             let frame = Frame::host(notification(
                 TOPIC_ENDED,
-                json!({"topic": name, "params": params, "reason": reason}),
+                wire::params(&TopicEnded { topic: name.to_string(), params, reason: reason.to_string() }),
             ));
             out.push(guard.clients.to_many(&clients, frame));
         }
@@ -257,22 +259,42 @@ impl crate::Hub {
         (!lock(&self.spaces).crosses(space)).then(|| space.to_string())
     }
 
-    /// `value` of `topic` as a subscriber held to `space` is told it: the sessions of that space.
-    /// Only the topics that list sessions say which are whose; the others are told as they are.
+    /// `value` of `topic` as a subscriber held to `space` is told it: the sessions of that space,
+    /// and those exposed to it (a row of `harnix.instances.sessions` then says `exposed_from`, as
+    /// in the space's list). Only the topics that list sessions say which are whose; the others
+    /// are told as they are.
     pub(crate) fn within(&self, topic: &str, value: &Value, space: &str) -> Value {
         let mut value = value.clone();
-        let in_space = |row: &Value| match topic {
-            "harnix.instances.sessions" => row.get("space").and_then(Value::as_str) == Some(space),
-            _ => {
-                let field = |k: &str| row.get(k).and_then(Value::as_str).map(str::to_string);
-                field("instance")
-                    .zip(field("session_id"))
-                    .is_some_and(|key| self.space_known(&key) == space)
+        match topic {
+            "harnix.instances.sessions" => {
+                if let Some(Value::Array(rows)) = value.get_mut("sessions") {
+                    rows.retain_mut(|row| {
+                        if row.get("space").and_then(Value::as_str) == Some(space) {
+                            return true;
+                        }
+                        let Some(from) = crate::spaces::lent_from(row, space) else { return false };
+                        if let Some(obj) = row.as_object_mut() {
+                            obj.insert("exposed_from".into(), json!(from));
+                        }
+                        true
+                    });
+                }
             }
-        };
-        if matches!(topic, "harnix.instances.sessions" | "harnix.sessions.status") {
-            if let Some(Value::Array(rows)) = value.get_mut("sessions") {
-                rows.retain(|row| in_space(row));
+            "harnix.sessions.status" => {
+                if let Some(Value::Array(rows)) = value.get_mut("sessions") {
+                    let spaces = lock(&self.spaces);
+                    rows.retain(|row| {
+                        let field = |k: &str| row.get(k).and_then(Value::as_str).map(str::to_string);
+                        field("instance").zip(field("session_id")).is_some_and(|key| spaces.visible_in(&key, space))
+                    });
+                }
+            }
+            _ => {}
+        }
+        // Each ask says its session's space.
+        if topic == wire::INBOX {
+            if let Some(Value::Array(items)) = value.get_mut("items") {
+                items.retain(|item| item.get("space").and_then(Value::as_str) == Some(space));
             }
         }
         value
@@ -323,6 +345,8 @@ impl crate::Hub {
             let state = guard.sessions.entry(key).or_default();
             state.subscribed = true;
             state.pending_prompts = subscribed.pending;
+            drop(guard);
+            self.arc().refresh(wire::INBOX, json!({}));
         }
     }
 

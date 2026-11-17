@@ -35,7 +35,7 @@ Harnix 建立在 [Agix](https://github.com/openatta/agix) 之上。引擎相关�
 | 部分 | 是什么 | 在哪讲 |
 |---|---|---|
 | **框架** | 骨架（传输、路由与准入、中枢、装配）、实例层、扩展接口与扩展宿主、两种 WASM 载体、外壳核心 | 本文 |
-| **第一方扩展** | `system`（系统 space）、`harnix-app`（会话 space 与项目 space）、`settings`、`plugins`、`observability`、`devices`、`flow`，以及管扩展包的宿主组件 `packages`。每一个都是只用公开扩展接口写的原生扩展，界面在同名的 UI 包里 | §4、§5.5、[Harnix app](harnix-app.md)、[系统 space](system-space.md) |
+| **第一方扩展** | `system`（系统 space）、`harnix-app`（会话 space 与项目 space）、`settings`、`plugins`、`observability`、`devices`、`flow`（流程）、`schedule`（定时），以及管扩展包的宿主组件 `packages`。每一个都是只用公开扩展接口写的原生扩展，界面在同名的 UI 包里 | §4、§5.5、[Harnix app](harnix-app.md)、[系统 space](system-space.md) |
 
 Harnix 自己发布的二进制 `harnix` 是框架加上全部第一方扩展、`packages` 与两个载体，profile 不写载体时跑模式 2。一个产品是框架上的另一组扩展，和
 Harnix 自己的二进制同一种做法：链进自己的原生扩展，挑它要的第一方扩展，授予它们能力。
@@ -188,7 +188,7 @@ Harnix 的骨架是四件事：**传输、路由与准入、中枢、装配**。
   模式 3 的扩展进程崩了只影响它自己，按退避重起；它的一个界面面板崩了，外壳只在那一块画「出错了，重试」，连续失败的面被置于一旁。
 
 而且**「它什么也没做」是可查询的**：哪个点、谁、什么原因，都记下来并且能问（`harnix.diagnostics`、`harnix.extensions`、
-设置与系统 space 的诊断）。否则「我的扩展为什么不工作」只能靠猜。扩展包的这些在系统 space 控制台的「扩展」页签里（§5.5）。
+设置与系统 space 的诊断）。否则「我的扩展为什么不工作」只能靠猜。扩展包的这些在系统 space 控制台的「扩展包」页签里（§5.5）。
 
 ### 2.5 每一条承诺都可检查
 
@@ -216,9 +216,9 @@ Harnix 的骨架是四件事：**传输、路由与准入、中枢、装配**。
 Harnix 进程
  ├─ 实例 main             （进程内）  ← 隔离单位：数据根、设置、provider、MCP、Agix 插件、场景
  │   ├─ 会话 a            ← 一条轮次循环；同一时刻至多一轮
- │   │   ├─ 任务：子 Agent "explore"     ← 属于会话，跟着会话的权限、项目根、生命周期
- │   │   ├─ 任务：后台 Bash `npm run dev`
- │   │   └─ 任务：定时任务 0 9 * * *
+ │   │   ├─ 后台任务：子 Agent "explore"     ← 属于会话，跟着会话的权限、项目根、生命周期
+ │   │   ├─ 后台任务：后台 Bash `npm run dev`
+ │   │   └─ 后台任务：模型建的定时 0 9 * * *
  │   └─ 会话 b
  ├─ 实例 helm-l1          （进程内，Helm 的扩展按自己的模板建的）
  ├─ 实例 ci-runner        （spawn 的 daemon，本机另一个进程）
@@ -230,17 +230,17 @@ Harnix 进程
 | **Harnix 进程** | 一个二进制，一个用户 | 中枢、路由表与准入、传输、实例登记表、扩展宿主、账本 | — | 运维 | — |
 | **实例** | 一台 Agix 引擎，一个会话池 | 数据根（设置三层、transcript、记忆、技能、录像）、provider 路由与凭据、MCP 连接、Agix 插件、场景、引擎贡献 | **彼此完全隔离**。daemon 与收养的实例还隔离了崩溃和资源 | profile 声明；扩展、界面按模板建；宿主组件收养 | `instance` |
 | **会话** | 实例里的一条轮次循环 | transcript、场景（创建时定，决定工具集）、项目根、模型、权限规则 | 共享所属实例的配置；彼此的上下文互不可见 | 客户端、扩展（无头）、模型（子 Agent 的侧链） | `(instance, session)` |
-| **任务** | 属于某个会话、在会话之外继续跑的工作 | 子 Agent、团队成员、执行中的 Shell 与监视器、定时任务 | 跟着所属会话：同一套权限、项目根；会话删了，任务一起没 | 会话里的模型（经工具） | `(instance, session, task)` |
+| **后台任务** | 属于某个会话、在会话之外继续跑的工作 | 子 Agent、团队成员、执行中的 Shell 与监视器、模型建的定时 | 跟着所属会话：同一套权限、项目根；会话删了，后台任务一起没 | 会话里的模型（经工具） | `(instance, session, task)` |
 
 由这张表直接推出来的规则：
 
 - **隔离只在实例这一层承诺。** 要两套互不相干的配置（不同的 MCP、凭据、场景），就建两台实例，不在
   一台实例里靠会话区分。进程内实例的隔离由 Agix 承诺（同一进程里的几台会话池互不可见，有守护测试；
   唯一共享的是 OTel 导出器）。
-- **任务是 Agix 的东西，Harnix 只看、只转发停止。** 子 Agent 的侧链在 Agix 里也是一个会话，在 Harnix
-  里它是父会话的任务，不出现在会话列表的顶层，不进中枢的键，不进账本。
-- **会话不跨实例，也不跨 space。** 要跨就用 `@session` 引用或分叉（§5.4）。
-- **轮不一定由 Harnix 发起。** 定时任务会让一个会话自己开始一轮。实例在 `daemon.event` 上报每一轮的
+- **后台任务是 Agix 的东西，Harnix 只看、只转发停止。** 子 Agent 的侧链在 Agix 里也是一个会话，在 Harnix
+  里它是父会话的后台任务，不出现在会话列表的顶层，不进中枢的键，不进账本。
+- **会话不跨实例，也不跨 space。** 要跨就用 `@session` 引用或分叉（§5.4）；拥有它的扩展可以把它**展示**到另一个 space（§5.4），归属不变。
+- **轮不一定由 Harnix 发起。** 模型建的定时会让一个会话自己开始一轮。实例在 `daemon.event` 上报每一轮的
   开始与结束（带 `initiator`），中枢据此知道，不假定「我没发起的轮就不存在」。
 
 **结构。**
@@ -252,14 +252,15 @@ Harnix 进程
  │ UI 包           @harnix/{system,harnix-app,settings,plugins,devices,           │
  │                 packages,observability,flow} 与应用自己的；只依赖 react、core    │
  │ 扩展包的界面     隔离 iframe 里的页面，经桥（@harnix/ext-sdk）借外壳的手           │
- │ @harnix/react   注册表（9 个内核点 + 扩展定义的点）、HostApi/useHost()、i18n、令牌 │
+ │ @harnix/react   注册表（12 个内核点 + 扩展定义的点）、HostApi/useHost()、i18n、令牌 │
  │ @harnix/core    协议类型（生成）、客户端、会话状态；唯一认识 Agix 事件形状的解析层   │
  └───────────────────────────────┬──────────────────────────────────────────┘
                                  │ 五种通道语义（拓扑可选）· /ext/<id>/ 扩展的路由
  ┌───────────────────────────────▼──────────────────────────────────────────┐
  │ 产品进程（应用的二进制 = App::builder() + 扩展）                                 │
  │  第一方扩展与应用的扩展（原生）   system · harnix-app · settings · plugins ·         │
- │                                observability · devices · flow · 应用自己的        │
+ │                                observability · devices · flow · schedule ·       │
+ │                                应用自己的                                        │
  │  宿主组件                       packages · harnix-carrier-wasm · harnix-carrier-proc│
  │ ─────────────── 扩展接口 harnix-ext · harnix-engine-api ── 宿主组件接口 harnix-host-api │
  │  装配 harnix-assembly    App::builder()、profile、子命令、扩展宿主、内核自己的行     │
@@ -462,13 +463,19 @@ spawn 的看护在 `harnix-supervise`：等它就绪；stdin 一断它就退出�
 |---|---|---|---|
 | `harnix.instances` | — | 实例登记表 | 实例登记表：实例载体、模板、拥有者、信任、链接状态、版本、会话数 |
 | `harnix.instances.sessions` | `instance` | 中枢 | 这台实例的顶层会话 |
-| `harnix.session.tasks` | `instance`、`session_id` | 中枢 | 这个会话的任务 |
+| `harnix.session.tasks` | `instance`、`session_id` | 中枢 | 这个会话的后台任务 |
 | `harnix.sessions.status` | — | 中枢 | 所有会话的运行状态 |
 | `harnix.spaces` | — | 中枢 | 已声明的后端 space |
 | `harnix.ui` | — | 装配 | 每个扩展的界面条目、Agix 插件的界面模块、扩展包的面（也是同名的方法） |
 | `<扩展 id>.<主题>` | 扩展声明 | 那个扩展 | 它推的整值快照，例如 `system.process`、`packages.list`；扩展撤下时订阅者收到 `harnix.topic_ended` |
 
 **会话事件不是主题**：`harnix.session.attach` 之后经 `harnix.event` 帧来，带 `seq`。
+
+**历史会变短。** 会话的历史只由引擎的日志投影出来，而日志只追加：压缩把视图换成摘要，**回退**（`harnix.session.rewind`，
+[Harnix app](harnix-app.md) §5.1）在日志里追加一条作废标记，切点之后的轮从 `engine.session.history` 里消失（`total` 变小，`seq` 从切点接着编），
+原样的行还在磁盘上。回退之后，中枢缓冲里画过的帧就不对了：中枢清掉这个会话的缓冲，向每个观看者推 `harnix.session_resync`，各台设备照刷新那条路
+重新读历史——和重连之后是同一条恢复路径，中枢的 `seq` 照常往上数，不回头。中枢自己写进日志的条目（`harnix.changes`）同样不删，回退后追加一条
+标记，列条目时把被撤掉的轮的那几条去掉。
 
 中枢的状态与语义**不可替换**（§2.1）。
 
@@ -590,7 +597,7 @@ Harnix 的传输层发出，与界面**同源**，准入走同一套：传输层
 
 | 调用方 | `Open` 行 | `Space` 行 | `Session` 行 |
 |---|---|---|---|
-| 设备（不经 iframe） | 照访问 | 不声称 space 时按缺省 space 检查（防误） | 会话不属于声称的 space → `SPACE_MISMATCH`（防误）；声称一个 `cross_space()` 的 space 可以跨（防误，写审计） |
+| 设备（不经 iframe） | 照访问 | 不声称 space 时按缺省 space 检查（防误） | 会话不属于声称的 space → `SPACE_MISMATCH`（防误）；声称一个 `cross_space()` 的 space 可以跨（防误，写审计）；会话被它的扩展展示到声称的 space 时，能看、`interact` 时还能说（§5.4 第 6 条） |
 | 原生扩展（`Origin`） | 照访问 | 声称了才检查（出身即信任，防误） | 同左；要读写**任何** space 的会话内部，用要 `engine.inspect` / `engine.control` 的行 |
 | 扩展包（`Consent`） | 访问 ∩ 同意的 `calls` | **只限它自己的 space**（`<id>` 或 `<id>.<名>`）；调用不声称 space 就拒；订阅主题不声称 space 当作声称了 `<id>`，值裁到那个 space（全局的会话主题照订，只投它 space 的会话）；声称了却没有定义的 space，订阅与会话列表都看不到任何会话 | **只限绑在它自己 space 上的会话**；它的引擎自己建的会话（子 Agent 的）随父会话的 space；`engine.inspect` / `engine.control` 不对扩展包开放 |
 | 扩展包的 iframe（设备，代那个扩展） | 设备的权力 ∩ 那个扩展清单的 `[interface] calls` ∩ 对扩展包开放的行；别的扩展包的名字一律拒 | 同上，再收窄到那个扩展的 space | 同上，再收窄到它 space 的会话 |
@@ -720,22 +727,24 @@ fn main() -> anyhow::Result<()> {
 1. **内核目录**：名字都在内核的词里，只有骨架改它。
 2. **扩展声明的能力**：原生扩展在 `manifest` 里声明 `<自己的 id>.<名>`，它自己的行要求它，授予照常在装配时写；扩展包只能申请声明方标了可给扩展包的项。
    例：IPDrun 的 `billing` 声明 `billing.charge`，只让持有它的扩展调某几个方法——不改 Harnix，也不退回按 id 绑定。
+   Harnix 自己的例子是 `schedule` 声明的 `schedule.manage`：别的扩展持有它才能调 `schedule.*`（建、改、删、暂停、立即执行定时，读投递记录）；设备不需要它，人管自己的定时。它不在内核目录里，标准装配里谁都没有。
 
 | 内核能力 | 意思 | 原生 | 扩展包 | Harnix 里谁有 |
 |---|---|---|---|---|
 | `instances.admin` | 停、重启任何不属于内核的实例；按任何模板建实例、列出全部模板 | ✔ | | system |
-| `engine.inspect` | 读**任何**会话的内部：上下文、任务、任务输出、目标、历史 | ✔ | | system、flow |
-| `engine.control` | 改任何会话的内部：任务、消息、压缩、清空、模型、名字、目标 | ✔ | | system、flow（给它开的会话改名） |
+| `engine.inspect` | 读**任何**会话的内部：上下文、后台任务、后台任务的输出、目标、历史 | ✔ | | system、flow、schedule（模型建的定时）、settings（会话的 MCP 上下文，可选） |
+| `engine.control` | 改任何会话的内部：后台任务、消息、压缩、清空、模型、名字、目标；读、改项目的信任 | ✔ | | system、flow（给它开的会话改名）、schedule（删模型建的定时）、harnix-app（项目信任，可选） |
 | `engine.config.read` / `engine.config.write` | 读 / 写引擎设置与 provider；后者含重读设置、交给继承 provider 的实例 | ✔ | | settings · settings |
 | `engine.plugins` | Agix 插件的装、卸、启停、重读 | ✔ | | plugins、packages |
-| `engine.export` | 导出会话 | ✔ | | harnix-app |
-| `engine.mcp` | 给引擎加 MCP 服务器 | ✔ | | — |
+| `engine.export` | 导出、导入会话 | ✔ | | harnix-app |
+| `engine.mcp` | 给引擎加、改 MCP 服务器，登录远端的 | ✔ | | settings（可选） |
 | `recordings.read` · `transcripts.read` | 录像与用量的读者 · 转录的读者；都经引擎的协议读（`session.calls`、`call`、`callBlob`、`search`），每台实例各有一套，实例连不上读者返回 `Unavailable` | ✔ | | observability · harnix-app |
-| `process.observe` | 版本、运行时长、内存、线程、已连接的客户端 | ✔ | | system |
+| `process.observe` | 版本、运行时长、内存、线程、已连接的客户端；各扩展的日志 | ✔ | | system |
 | `devices.manage` | 配对码、列设备、撤销设备 | ✔ | | devices |
 | `extensions.manage` | 拿宿主组件接口：运行期登记扩展、拉起扩展进程、收养扩展进程的引擎 | ✔ | | packages |
 | `ui.page` | 进页面的 ES 模块 | ✔ | 只 `trusted` 发布者 | — |
 | `events.all_tools` | 看到每个会话的每一次工具调用 | | ✔ | — |
+| `feedback.read` | 收到人对回复的每一条反馈（评分、类别、备注原文，连同会话），主题 `harnix.feedback` | ✔ | | —（缺省谁都没有：反馈不出日志，除非产品授予某个扩展） |
 | `net:<主机>` · `env:<名字>` · `storage:<MB>` · `fs:data` · `fs:project` | 扩展包的资源能力 | | ✔ | — |
 
 **跨 space 不是一项能力。** 同页的代码能声称任何 space，所以「在一个 space 里看别的 space 的会话」只能防误。它是 space 声明上的标志 `cross_space()`，
@@ -805,7 +814,7 @@ Harnix 发布时变，商店为每个 wasmtime 版本编一遍。
 
 **它在内核里是谁。** 扩展包不是一个新的主体，它以 `ext:<id>` 行事：它的方法、主题、space 照同意记录登记进路由表与中枢，停用时撤下；
 它的后端 `host.call` / `host.subscribe` 以 `ext:<id>` 进同一张路由表，只到同意的 `calls` 与它自己的名字，再收窄到它自己的 space 与会话；被拒的记审计，
-也显示在系统 space 的扩展页签。它的工具在会话里叫 `ext__<id>__<工具>`（id 里的 `.`、`-` 与工具名里的 `-` 都换成 `_`，引擎的工具名只收字母、数字与 `_`），名字由内核拼；每次调用都先问人，能挡掉它的是 Agix 的权限。
+也显示在系统 space 的扩展包页签。它的工具在会话里叫 `ext__<id>__<工具>`（id 里的 `.` 换成 `_`，引擎的工具名收字母、数字、`_` 与 `-`），名字由内核拼；每次调用都先问人，能挡掉它的是 Agix 的权限。
 
 ### 4.6 模式 3：扩展进程
 
@@ -868,7 +877,7 @@ Harnix 发布时变，商店为每个 wasmtime 版本编一遍。
 | 退避 | 1、2、4、8、16、30、60 秒；健康运行满 120 秒计数清零 |
 | 致命退出 | 进程自己查出来的（fd 不对、虚拟机引擎建不起来、`.cwasm` 哈希不符）以退出码 78 退出，立即放弃、不退避；产品查出来的（版本不符、复核不过）先停再杀，同样不重试；沙箱套不上的根本不拉起 |
 | 置于一旁 | 起来之后 60 秒内崩溃 3 次（它的引擎刷屏被杀，不论跑了多久都算一次）：不再拉起，扩展标 `faulted`，理由与 stderr 最后几行进 `packages` 的快照、每行也进产品日志；停用再启用会重来 |
-| 闲置回收 | `on-demand`，满闲置时限，产品侧没有在途的调用，进程里的虚拟机自报休眠，它的引擎没人用（没有加载着的会话、观看者、在跑或排队的轮、任务、问题）：先存会话列表，再让进程停下退出，状态 `hibernating` |
+| 闲置回收 | `on-demand`，满闲置时限，产品侧没有在途的调用，进程里的虚拟机自报休眠，它的引擎没人用（没有加载着的会话、观看者、在跑或排队的轮、后台任务、问题）：先存会话列表，再让进程停下退出，状态 `hibernating` |
 | 唤醒 | 只有要它做事的调用唤醒：它的方法、它的工具（产品实例上的与 spawn 的 daemon 里的）、它的引擎上的会话调用；列表读（由产品侧存下的会话列表答）、`harnix.hello`、打开系统 space、工具钩子、主题值都不唤醒它 |
 | 产品退出 | 各包同时停：先请它停下、退出（各等 5 秒），关线，关 stdin、等 5 秒、TERM、1.5 秒、KILL；进程组里剩下的 TERM、1.5 秒、KILL |
 
@@ -897,8 +906,9 @@ Harnix 不定义它的包格式、不校验、不解包、不判定能力。第�
 清单是 Harnix 的，披露在装之前，人同意了才装，§4.5。）
 
 **装 Agix 插件是这个人自己的决定。** `plugins.*` 对设备开放：一个进程服务一个用户，设备就是这个人本人。真正的强制边界在引擎：能力门控、
-沙箱、它自己回的那份披露。`engine.mcp.addServer` 要 `engine.mcp`，Harnix 自己谁也不给：它配出来的是一个能起子进程的工具，没有 manifest、
-没有能力声明、没有任何披露。
+沙箱、它自己回的那份披露。`engine.mcp.addServer` 要 `engine.mcp`，设备直接调永远被拒：它配出来的是一个能起子进程的工具，没有 manifest、
+没有能力声明、没有任何披露。设备经设置页的 `settings` 扩展加、改：那里持这项能力，披露写明它替设备做这件事，一次一个服务器、
+一层一层地写，值不回显（[Harnix 扩展](harnix-ext.md) §22.9）。
 
 **包方案不跟着载体走。** 引擎的载体今天是 QuickJS 脚本与编译进宿主的 Rust 插件，带 `[[wasm]]` 段的包拒装（WASM 在 Harnix，§2.2.2）。
 读 manifest、校验、解包、披露、启停不需要任何运行时。一个不带包方案的构建仍然合法，所以 `PLUGINS_DISABLED` **如实透传，不包装成
@@ -922,6 +932,11 @@ Harnix 不定义它的包格式、不校验、不解包、不判定能力。第�
 Harnix 自己的二进制 `harnix` 链了它。它被授予 `engine.inspect` 与 `engine.control`（给它开的会话改名）。它的界面注册进系统 space 定义的控制台页签；没有系统 space 时，它注册一个自己的
 `flow` space（§5.6 的 `orElse`，[系统 space](system-space.md) §5）。
 
+流程也在项目里跑：带 `project_root` 的运行是**项目任务**（界面上叫「任务」），主会话在项目（或它的一个 worktree）里干活，
+交付物落在项目的**输出目录**，软件用的过程落在 `<项目>/.harnix/runs/<运行>/`。它从项目的「新任务」、项目里对话的 `/flow`、或一条定时起；
+`flow` 拥有主会话，把它**展示**给发起的 space（§5.4），项目 space 在自己的中区打开它，右栏的「流程」页签跟着它走到哪一站。
+项目还可以带自己的流程（`<项目>/.harnix/flows/`，项目受信才读）。见 [Harnix app](harnix-app.md) §3.2。
+
 ```
  流程包（内置层 + 可写层）     flows · skills · rules · policies · gates · hooks
           │ 校验、建运行时钉住定义与策略、门禁
@@ -929,7 +944,7 @@ Harnix 自己的二进制 `harnix` 链了它。它被授予 `engine.inspect` 与
  内核（kernel/，纯）          站的有向无环图：进站、派工、租约、出站判定、返工、暂停；
           │                   只经宿主 trait 读写（RunStore、Packs、Authorizer、Tools）
           ▼ 工作项
- 扩展（module/）              会话任务交给会话（主会话 = 主 Agent；子 Agent；独立会话），
+ 扩展（module/）              会话工作项交给会话（主会话 = 主 Agent；子 Agent；独立会话），
                               程序交给应用，命令 / 宿主门禁去跑，钩子去投递；
                               答流程会话的权限询问；flow.* 方法与主题
 ```
@@ -939,7 +954,8 @@ Harnix 自己的二进制 `harnix` 链了它。它被授予 `engine.inspect` 与
 `flow_state`、`flow_propose`，用 `Tool` 写）、作者场景 `flow-author`（用 `SceneLayer` 包在一个底版场景上）、实例模板、方法与主题、系统 space 里的流程界面。
 
 **每个时间点只有一处能拦**：干活过程中是**权限**——流程会话对受限工具和权限提到的工具都 `ask`，`flow` 按这一轮所属
-任务的权限判（`deny` > `ask` > `allow`，`ask` 留给人）；出站时是**出口条件**——输出契约、门禁（`tool` / `command` /
+工作项的权限判（`deny` > `ask` > `allow`，作者写的 `ask` 留给人）；没有权限说话的，按流程的执行语义 `guard`：缺省 `auto` 不审批，
+项目里放行、项目之外的路径拒绝，`strict` 受限工具拒绝、项目之外转给人。任务里的会话没有提问工具，要人拍板的地方写 `confirm` 站；出站时是**出口条件**——输出契约、门禁（`tool` / `command` /
 `host`）、人的确认。**规则**与 skill 只告诉 Agent，不拦。**钩子**是旁观者：不写在流程里，从不阻塞运行。
 
 **不进 Harnix 的**：审批策略（几个人批、批与做不能是同一人）归应用——流程把 `who` 交给应用的授权方。
@@ -984,15 +1000,16 @@ IPDrun 已经有能对着 Harnix 协议跑的 React 对话组件，直接回流�
 
 | 包 | 依赖框架吗 | 职责 |
 |---|---|---|
-| `@harnix/core` | 否 | `/protocol`（从 `harnix-contract` **生成**的类型，漂移就失败）、`/client`（握手、拓扑与回退、追赶）、`/state`（会话事件归约、实例树、每个 space 的当前会话）。**唯一认识 Agix 事件形状的解析层** |
-| `@harnix/react` | React | 注册表（9 个内核点 + 扩展定义的点）、宿主 API `HostApi`/`useHost()`、i18n、令牌、图标、对话组件、对话框与菜单原语、不受信内容的渲染。**写界面只依赖它** |
+| `@harnix/core` | 否 | `/protocol`（从序列化到线上的 Rust 类型**生成**：`harnix-contract` 的帧与行、readers 的答、`packages.list` 的行；漂移就失败）、`/client`（握手、拓扑与回退、追赶）、`/state`（会话事件归约、实例树、每个 space 的当前会话）。**唯一认识 Agix 事件形状的解析层** |
+| `@harnix/react` | React | 注册表（12 个内核点 + 扩展定义的点）、宿主 API `HostApi`/`useHost()`、i18n、令牌、图标、对话组件、对话框与菜单原语、不受信内容的渲染。**写界面只依赖它** |
 | `@harnix/shell` | React | **外壳核心**（§5.3）。应用的入口，不被 import |
 | `@harnix/system` | React | 系统 space；定义 `system.console.tab`、`system.inspector.tab` |
 | `@harnix/harnix-app` | React | 会话 space、项目 space、新会话与添加项目的对话框、`@` 文件候选、归档与导出 |
 | `@harnix/settings` · `@harnix/plugins` · `@harnix/devices` | React | 设置节：模型、场景、MCP · Agix 插件 · 设备 |
-| `@harnix/packages` | React | 设置节「扩展」（装、升、卸、同意、清数据）；系统 space 控制台的「扩展」页签 |
-| `@harnix/observability` | React | 系统 space 检查器的「调用」「每轮」 |
-| `@harnix/flow` | React | 流程；注册进 `system.console.tab`，没人定义时注册自己的 space |
+| `@harnix/packages` | React | 设置节「扩展包」（装、升、卸、同意、清数据）；系统 space 控制台的「扩展包」页签 |
+| `@harnix/observability` | React | 对话区的「轨迹」视图（`conversation.view`）、右栏的「上下文」「用量」页签，以及系统 space 检查器的「轨迹」 |
+| `@harnix/flow` | React | 流程；注册进 `system.console.tab`，没人定义时注册自己的 space；定义任务行的标记与另一种起法两个点 |
+| `@harnix/schedule` | React | 定时：会话菜单「定时…」、项目概况的区块、控制台页签、会话行与任务行的时钟、「定时运行这个流程…」；全经别的包定义的点 |
 | `@harnix/ext-sdk` · `@harnix/ext-kit` | 否 | 扩展包的页面在 iframe 里的一侧：桥的客户端与 mock 宿主 · 外壳的令牌与几样基础部件 |
 | `@harnix/testkit` | 否 | LIVE 测试的启动器、API 客户端、Playwright 夹具 |
 
@@ -1023,7 +1040,7 @@ IPDrun 已经有能对着 Harnix 协议跑的 React 对话组件，直接回流�
 |---|---|---|
 | 左栏中段 | `sidebar`：这个 space 的条目 | 这个 space 的会话列表 |
 | 中区 | `center`：`chat`（默认）/ `minimized`（对话收成底部一条，可展开）/ `hidden`（用 `overview()` 画自己的视图） | 对话 |
-| 右栏 | `details`：一组页签，**可以是当前选中项的函数**，每次绘制时读 | 只有详情抽屉 |
+| 右栏 | `details`：space 自己的一组页签，**可以是当前选中项的函数**，每次绘制时读；打开了会话时，同一条页签栏里还有**这个会话的停靠面**（`sidebar.tab` 的页签类型，§5.6；文件、改动、输出、流程进度都在这一侧） | 只有详情抽屉与会话的停靠面 |
 
 左右两栏都能拖宽并记在本地；窄屏时先把左栏收成图标栏，再把两侧都变成抽屉。一个 space 可以 `within` 另一个：不列在左栏，
 由代码进入，在前台时点亮外层的入口。
@@ -1077,7 +1094,7 @@ IPDrun 已经有能对着 Harnix 协议跑的 React 对话组件，直接回流�
 
 | 规则 | 内容 |
 |---|---|
-| 绑定 | 一个会话在创建时绑定一个 space 和一台实例，**设备不能挪**（应用重整自己的 space 时，扩展可以经 `harnix.session.move` 把会话连同转录绑到另一个 space，目标要是这台实例能服务的、不跨 space 的 space）；要跨 space 延续，用 `@session` 引用（被引用会话说过的话作为附件交给这一轮——复制的是话，不是会话）或分叉。引擎自己建的会话（子 Agent 的）没有经过中枢的创建：引擎报了父会话就随父会话的 space，否则是它所在实例的 space（实例归 space 时），再否则是缺省 space；不放宽 |
+| 绑定 | 一个会话在创建时绑定一个 space 和一台实例，**设备不能挪**（应用重整自己的 space 时，扩展可以经 `harnix.session.move` 把会话连同转录绑到另一个 space，目标要是这台实例能服务的、不跨 space 的 space）；建它的扩展可以把它**展示**到别的 space（`harnix.session.expose`，下面第 6 条），归属不变；要跨 space 延续，用 `@session` 引用（被引用会话说过的话作为附件交给这一轮——复制的是话，不是会话）或分叉。引擎自己建的会话（子 Agent 的）没有经过中枢的创建：引擎报了父会话就随父会话的 space，否则是它所在实例的 space（实例归 space 时），再否则是缺省 space；不放宽 |
 | 多会话 | 一个 space 可以有多个会话，可以分布在它能用的几台实例上 |
 | 缺省实例 | space 声明 `main`（默认）、一台固定实例，或 `template:<id>`（第一次在这个 space 里建会话时按模板建一台，之后复用，归这个 space）。这就是「一个 space 要一台自己的、隔离的 Agent」的写法；模式 3 的扩展包的 space 落在它自己的引擎 `proc.<id>` 上 |
 | 缺省 space | 不声称 space 的设备调用按它检查；一个进程至多一个，由声明它的扩展说（Harnix app 的 `sessions`）。`hello.defaults` 告诉界面它是哪个，外壳与扩展都不写死 |
@@ -1096,6 +1113,15 @@ space 自己的会话。这件事错一次就是把消息发进了别的产品�
    的会话，每一次跨 space 的操作都写审计。
 4. **新建会话的去向只看前台 space。** 不存在「先建再挪」。
 5. **在系统 space 里看别的 space 的会话是「观看」**，不改变归属，也不改写那个 space 记住的当前会话。
+6. **展示（exposure）是第 3 条的另一个例外，由拥有者开**：建了会话的扩展可以把它展示到另一个 space（`harnix.session.expose {to, interact?}`，
+   `cx.sessions().expose(&s, space, Exposure)`），声称那个 space 的调用就能够到它——`interact: false` 只能**看**（attach、history、entries、outline、tasks、
+   skills、hooks、会话主题、`engine.session.get / resume`），`interact: true` 还能**说**（send、respond、队列、interrupt、rewind、feedback、扩展条目）；
+   会话的**生命与身份**（close、delete、fork、rename、setModel、setPrompt、move）无论怎样展示都只能从它自己的 space 做，新加的方法没登记前也算这一类。
+   归属、实例、谁启动的、审计都不变（展示不是跨 space，不写跨 space 审计：是拥有者开的门）；`harnix.sessions.list {space}` 和按 space 裁的会话主题里，
+   被展示来的行带 `exposed_from: <它的 space>`，每一行都带 `exposed_to: [{space, interact}]`。展示记在账本里，随会话一起删，重启不丢；`unexpose` 收回。
+   设备不能展示（会话在哪里出现是应用定的，同归属）；不是建它的扩展也不能；目标要是这个应用有的 space（只有界面的也算），不能是它自己的、
+   关掉的或 `cross_space()` 的。用处：项目里的任务——主会话归 `flow`，展示到项目 space 列的 `sessions`，就能在项目 space 的中区打开、对话，
+   项目 space 仍然不认识流程。
 
 第 3 条是**防误，不是安全边界**：space 是调用方自己声称的，同页的任何代码都能声称任何 space，包括 `system`（§6.2）。真正的跨 space 权力是能力（§4.3）。
 
@@ -1108,11 +1134,11 @@ space 自己的会话。这件事错一次就是把消息发进了别的产品�
 | 栏 | 是什么 |
 |---|---|
 | 左 | 实例列表 |
-| 中（控制台） | 指标条（版本、运行时长、内存、线程、连接、Agent、运行中的会话与任务、等人处理的）；页签：**活动**、**全部**（每行一个主 Agent，展开是子 Agent 与任务）、**诊断**，以及别的扩展经 `system.console.tab` 注册进来的（`flow` 的**流程**、`packages` 的**扩展**） |
-| 右（检查器） | 只出现适用于选中项的页签：实例的概况；会话的概况、上下文、任务、原始帧，以及经 `system.inspector.tab` 注册进来的（`observability` 的**调用**、**每轮**） |
+| 中（控制台） | 指标条（版本、运行时长、内存、线程、连接、Agent、运行中的会话与后台任务、等人处理的）；页签：**活动**、**全部**（每行一个主 Agent，展开是子 Agent 与后台任务）、**扩展日志**，以及别的扩展经 `system.console.tab` 注册进来的（`flow` 的**流程**、`schedule` 的**定时**、`observability` 的**用量**、`packages` 的**扩展包**） |
+| 右（检查器） | 只出现适用于选中项的页签：实例的概况；会话的概况、上下文、后台任务、原始帧，以及经 `system.inspector.tab` 注册进来的（`observability` 的**轨迹**） |
 
 **它的权力就是四项能力。** `system` 被授予 `instances.admin`、`engine.inspect`、`engine.control`、`process.observe`，声明一个 `cross_space()` 的 space。
-设备够不着的引擎方法（上下文、任务的停止与发话、任务输出、去掉与改写消息、压缩、清空、换模型、改名、目标）由它包成 `system.*`：设备调它，它以自己的身份、
+设备够不着的引擎方法（上下文、后台任务的停止与发话、后台任务的输出、去掉与改写消息、压缩、清空、换模型、改名、目标）由它包成 `system.*`：设备调它，它以自己的身份、
 凭自己的能力调 `engine.session.*`，两次判定都进审计。会话的操作与实例的操作**全部写审计**。骨架里没有一行认它：
 一个被授予同样四项能力、声明同样 space 的扩展能做系统 space 能做的每一件事（§2.5）。
 
@@ -1127,7 +1153,7 @@ space 自己的会话。这件事错一次就是把消息发进了别的产品�
 
 ### 5.6 贡献点与宿主 API
 
-**内核贡献点九个**，数量本身是设计的一部分，加第十个是一个需要论证的决定。完整目录由代码生成，见 [contribution_points.md](contribution_points.md)。
+**内核贡献点十二个**，数量本身是设计的一部分，再加一个是一个需要论证的决定。完整目录由代码生成，见 [contribution_points.md](contribution_points.md)。
 
 | 贡献点 | 贡献什么 |
 |---|---|
@@ -1140,6 +1166,9 @@ space 自己的会话。这件事错一次就是把消息发进了别的产品�
 | `command` | 一条 `/` 命令或 `@` 引用的补全候选（`trigger` 选哪个菜单） |
 | `settings.section` | 设置里的一节 |
 | `session.action` | 对一个会话、或它里面一次工具调用的动作；外壳在标题栏、会话菜单、工具行上问它 |
+| `sidebar.tab` | 右栏的一种页签类型：认领 `harnix-resource://` 地址的资源页，或按 `kind` 打开的页；右栏是每个会话一个停靠面 |
+| `shortcut` | 一条有快捷键的命令：按平台的缺省键、生效的地方（全局、输入框、右栏）、动作；人在设置里改的键存在浏览器里 |
+| `conversation.view` | 中区画一个打开的会话的另一种画法（缺省是对话）；外壳在中区顶上画「对话 \| …」的切换，每个会话各记自己的选择 |
 
 **这些是界面自己的接缝。** 它们存在的理由不是给第三方一个扩展面——扩展 agent 是引擎的事——而是让界面不是
 一堆 switch：于是「换一整套界面」是换一批注册，而不是改一堆分支。**频率是约束**：没有一个点跟着流式分片求值。
@@ -1148,9 +1177,20 @@ space 自己的会话。这件事错一次就是把消息发进了别的产品�
 它们是同一种东西，没有现成的点能承载；有了 `session.action`，它们由 `@harnix/system`、`@harnix/harnix-app` 注册，外壳只问。
 外壳自己的菜单项（打开、分叉、关闭、删除、改名）只用内核方法，照旧由外壳画。
 
+**第十个的理由**：右栏照 DSH 的架构做成每个会话一个停靠面之后，在里面打开的东西——文件预览、用量、流程进度、后台任务的输出——是同一种东西：
+一种认领地址、或按名字打开的页签类型，记在会话名下。`details.tabs` 是 space 的，承载不了「这个会话开着哪几页」。于是有 `sidebar.tab`，
+进右栏的每条路都走宿主 API 的 `host.sidebar`；`details.*` 与 `reveal` 原样保留，是同一条页签栏里 space 那一侧（[Harnix 扩展](harnix-ext.md) §22.7）。
+
+**第十一个的理由**：外壳的三个键（新会话、收起左栏、聚焦输入框）是一个监听器里写死的三个分支；别的包要加键只能自己再挂监听器，
+谁占了哪个键没有一处说得清，设置里也没法改。一条带按平台缺省键、生效地方和动作的命令是同一种东西，于是有 `shortcut`：外壳一个监听器按键找命令，
+焦点所在处（输入框、右栏）的先于全局的；设置的「快捷键」列出全部命令、录键、查冲突、恢复缺省。`command` 是输入框里 `/`、`@` 的补全，承载不了它。
+
+**第十二个的理由**：中区把一个会话画成对话，而轨迹（这个会话的调用按轮列成一张表）是同一个会话的另一种画法——它占对话的位置，不在对话旁边。
+`space` 的 `center` 是整个 space 的、不是一个会话的，右栏的页签在对话旁边，都承载不了它；于是有 `conversation.view`，`@harnix/observability` 注册「轨迹」。
+
 **扩展定义的贡献点。** 一个原生扩展的 UI 包可以定义自己的点（`r.definePoint("<自己的 id>.<名>", ..)`），别的包往里注册；后端在界面声明里写同一个点，
 进生成的目录。注册进还没定义的点先挂着，全部注册完还没人定义就丢掉并记进诊断。要「接不上就自己来」，注册时给 `orElse`：点在全部注册结束时还没定义就调它。
-`@harnix/flow` 注册进 `system.console.tab`，`orElse` 注册自己的 `flow` space——这是「挂在哪由点有没有定义决定，不按 id」。扩展定义的点不算进九个。
+`@harnix/flow` 注册进 `system.console.tab`，`orElse` 注册自己的 `flow` space——这是「挂在哪由点有没有定义决定，不按 id」。扩展定义的点不算进十二个。
 
 **外壳必须真的去问。** 一个没人问的贡献点等于只存在于目录里，产品照旧自己直接画，而所有测试都还是绿的。这件
 事真的发生过一次，七个点里的五个。判据因此不是「注册了」，是「被问过」，并且由测试盯着——点的名单本身也从
@@ -1196,7 +1236,7 @@ space 自己的会话。这件事错一次就是把消息发进了别的产品�
 它能请外壳做的是宿主 API 的一个子集：调自己的 `<id>.*` 与清单 `[interface] calls` 列出的少数内核方法，开自己 space 的会话，
 外壳的手（切 space、开右栏、二级栏、设置节、往输入框插字、角标、通知、复制、模态框、确认、外链、上传）。都是外壳去做：`confirm` 是外壳画的，
 扩展造不出假的确认；外链每次问人。**它能调什么由服务端说了算**：桥给每个代理的调用与订阅标上它代的扩展，路由器取「设备的权力 ∩ 清单 `[interface] calls`」
-并按范围收窄到它自己的 space 与会话（§3.4.2）；被拒的记审计，系统 space 控制台的扩展页签看得到。**拿不到的**：页面的令牌、连接本身、别的扩展的名字、DOM。
+并按范围收窄到它自己的 space 与会话（§3.4.2）；被拒的记审计，系统 space 控制台的扩展包页签看得到。**拿不到的**：页面的令牌、连接本身、别的扩展的名字、DOM。
 
 **看起来像原生的。** `@harnix/ext-kit` 是外壳的令牌加几样基础部件，主题与语言经桥推进来、即刻生效；外壳的快捷键在 iframe 里按下也交给外壳，
 外壳的对话框开着时 iframe 收不到键：一个键只落在一处。
@@ -1207,7 +1247,7 @@ space 自己的会话。这件事错一次就是把消息发进了别的产品�
 [[ui]]                          # 同源 ES 模块，浏览器 import
 point       = "tool.row"
 module      = "rows.js"         # 相对包里的 ui/，只在那底下解析
-api_version = 3                 # 贡献点 API，与 [plugin] api_version 是两个数
+api_version = 4                 # 贡献点 API，与 [plugin] api_version 是两个数
 ```
 
 **两个版本号，各由拥有它的一侧检查。** `[plugin] api_version` 是引擎的扩展 API，引擎校验；`[[ui]] api_version`
@@ -1358,7 +1398,7 @@ Documents 是用户的，不该藏着程序的东西；项目里只有一个属�
 | Agix 插件的模型可见文本 | **披露** | 人不知道包往模型面前放了什么 | 文本本身的内容 |
 | 界面模块占了哪些贡献点 | **披露** | 人不知道包改了界面哪里 | 模块在页面里做什么（§5.8） |
 | 原生扩展拿不到中枢、引擎链接、路由表与授予表 | **结构约束**（可见性与层次规则） | 扩展不小心绕过中枢与判定 | 原生扩展是内核级源码，真要绕可以；这一条防的是误用 |
-| `SPACE_MISMATCH`：会话与声称的 space、实例对不上就拒绝；`cross_space()` | **防误** | 界面或扩展的 bug 把消息发进别的 space、别的实例 | 同页的代码：space 是调用方自己声称的，任何设备代码都能声称任何 space，包括 `system`。真正的跨 space 权力是能力 |
+| `SPACE_MISMATCH`：会话与声称的 space、实例对不上就拒绝；`cross_space()`；展示（`harnix.session.expose`，只有建它的扩展能开） | **防误** | 界面或扩展的 bug 把消息发进别的 space、别的实例 | 同页的代码：space 是调用方自己声称的，任何设备代码都能声称任何 space，包括 `system`。真正的跨 space 权力是能力 |
 
 把这些讲清楚比藏起来有用。
 
@@ -1418,7 +1458,7 @@ Linux 照同一条。所以沙箱开着时，产品收养它的引擎时在它�
   内核支持时另限信号与抽象 unix 套接字；产品在拉起前查 `ptrace_scope ≥ 1`。
 - **套不上时拒绝**：`[ext.packages] sandbox = "required"`（缺省）下，没有 Landlock、`ptrace_scope = 0`、没有 `sandbox-exec`、Windows，模式 3 一律拒绝拉起扩展进程，
   `packages` 的快照写明原因（`runtime.sandbox`）；不静默降级。`sandbox = "off"` 只给开发用：启动时警告，快照里每个进程标 `sandbox: off`。
-  沙箱由宿主套，载体跳不过；`off` 只认 profile 里 `[ext.packages]` 写的。`off` 与套不上都在扩展的设置节与系统 space 的扩展页签顶上标红、写明原因，
+  沙箱由宿主套，载体跳不过；`off` 只认 profile 里 `[ext.packages]` 写的。`off` 与套不上都在扩展的设置节与系统 space 的扩展包页签顶上标红、写明原因，
   每一行标「无沙箱」。
 
 **它挡住什么、挡不住什么**：
@@ -1610,7 +1650,7 @@ Harnix 依赖 Agix 提供的、并且已经由它提供的：
 | daemon 与收养的实例 | daemon 服务的入口（接在 socket 或一条现成的流上）、协议版本与能力位、`subscription_dropped`、spawn 的就绪 |
 | 中枢知道每一轮 | 会话与轮的生命周期进 `daemon.event`（带 `initiator`）；订阅冷会话 |
 | 会话列表、改名、换模型 | 列表条目带场景与项目根；`engine.session.rename`、`engine.session.setModel` |
-| 系统 space | 会话的任务可列、可停、可发话；上下文可查看、去掉或改写消息；目标；录像 |
+| 系统 space | 会话的后台任务可列、可停、可发话；上下文可查看、去掉或改写消息；目标；录像 |
 | 扩展条目 | 引擎的 `appendEntry` 与 `entries`（Harnix 这边是 `harnix.session.entries.append` 与 `engine.session.entries`）、`extension_entry` 帧；分叉带上条目 |
 | Agix 插件 | 包方案与载体解耦；`engine.plugin.list` 带包的 `root`、`script_faults`；装不上的包不会假装装上；manifest 里不认识的段只告警 |
 | 工具与场景进会话 | 连接级登记的宿主工具与 hook（引擎回调本进程执行）；会话选项里的 `host_tools`、`skill_dirs`、`attended`、`prompt` 与会话的 `setPrompt`；内置场景 |

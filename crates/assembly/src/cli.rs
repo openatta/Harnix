@@ -56,6 +56,10 @@ pub(crate) struct DaemonCommand {
     /// How long to wait for that lock, in seconds.
     #[arg(long, default_value = "10")]
     pub lock_wait: u64,
+    /// The instance reaps on stop: record the commands' process groups in the data root, and
+    /// stop what a daemon that was killed left there before building the engine.
+    #[arg(long)]
+    pub reap: bool,
 }
 
 impl DaemonCommand {
@@ -77,6 +81,7 @@ impl DaemonCommand {
             exit_with_stdin: self.exit_with_stdin,
             instance: self.instance.clone(),
             lock_wait: std::time::Duration::from_secs(self.lock_wait),
+            reap: self.reap,
         }
     }
 }
@@ -245,16 +250,23 @@ pub(crate) fn parse(app: &str, app_version: &str, args: Option<Vec<OsString>>) -
     Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit())
 }
 
-/// The profile, then the flags on top of it.
+/// The profile, then the flags on top of it. With no profile named, the product's
+/// `default_engine` (`AppBuilder::default_engine`) is the `[engine]`, when it gave one.
 ///
 /// A flag overriding a profile line is the ordinary case — try a different
 /// scene without editing a file. A flag is only applied when it was actually
 /// given, so an unmentioned flag does not quietly reset a profile line to its
 /// own default.
-pub(crate) fn resolve_profile(cli: &Cli) -> anyhow::Result<Profile> {
+pub(crate) fn resolve_profile(cli: &Cli, default_engine: Option<&EngineProfile>) -> anyhow::Result<Profile> {
     let mut profile = match &cli.profile {
         Some(path) => Profile::load(path)?,
-        None => Profile::default(),
+        None => {
+            let mut profile = Profile::default();
+            if let Some(engine) = default_engine {
+                profile.instances.engine = engine.clone();
+            }
+            profile
+        }
     };
     if let Some(port) = cli.port {
         profile.transport.port = port;
@@ -308,5 +320,42 @@ mod child_entry_tests {
         ] {
             assert!(!dispatched(argv), "{argv:?} reached the entry");
         }
+    }
+}
+
+#[cfg(test)]
+mod profile_tests {
+    use std::ffi::OsString;
+
+    use harnix_instance::EngineProfile;
+
+    use super::{parse, resolve_profile, Cli};
+
+    fn cli(argv: &[&str]) -> Cli {
+        parse("harnix", "0", Some(argv.iter().map(OsString::from).collect()))
+    }
+
+    #[test]
+    fn with_no_profile_named_the_products_engine_is_the_default_and_flags_go_on_top() {
+        let engine = EngineProfile::new().scenes(["code"]);
+        let profile = resolve_profile(&cli(&["harnix"]), Some(&engine)).unwrap();
+        assert_eq!(profile.instances.engine.scene, "harnix");
+        assert_eq!(profile.instances.engine.scenes, ["code"]);
+        let profile = resolve_profile(&cli(&["harnix", "--scenes", "mini"]), Some(&engine)).unwrap();
+        assert_eq!(profile.instances.engine.scenes, ["mini"]);
+        // A product that gives none runs on the library's.
+        assert!(resolve_profile(&cli(&["harnix"]), None).unwrap().instances.engine.scenes.is_empty());
+    }
+
+    #[test]
+    fn a_profile_named_is_read_as_written() {
+        let dir = std::env::temp_dir().join(format!("harnix-profile-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("p.toml");
+        std::fs::write(&path, "[engine]\nscene = \"harnix\"\n").unwrap();
+        let engine = EngineProfile::new().scenes(["code"]);
+        let profile = resolve_profile(&cli(&["harnix", "--profile", path.to_str().unwrap()]), Some(&engine)).unwrap();
+        assert!(profile.instances.engine.scenes.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

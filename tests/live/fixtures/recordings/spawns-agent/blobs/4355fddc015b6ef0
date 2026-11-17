@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"tool_use","id":"call_00_ET_YUNymKsROsQ2RmwCWLIS5670","name":"Agent","input":{"description":"list files","prompt":"Run ls in the current directory and reply with the file names only.","subagent_type":"general-purpose"}}]}

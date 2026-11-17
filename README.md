@@ -35,6 +35,12 @@ No environment variable is required. With no model configured it still starts an
 **Set up a model** (or the avatar → **Settings → Models & credentials**) adds providers — Anthropic or
 OpenAI-compatible APIs, one of them the default — kept in `~/.agix/settings.json`, never shown to the
 browser or the logs. `ANTHROPIC_AUTH_TOKEN` (plus an optional `ANTHROPIC_BASE_URL`) works too.
+The empty page of a new conversation walks through the first run in three cards — the model, a
+project to work in, and what a conversation starts with: the `harnix` scene and the default
+permission mode, with `code` (a coding agent in a project) offered beside it. Each goes once it is
+done or closed.
+
+Using the `harnix` program rather than building on it: the [user guide](user-guide/README.md) (also in [简体中文](user-guide/README.zh-CN.md)).
 
 To look around with data in it: `scripts/harnix-demo.sh start` (also `stop`, `restart`, `status`)
 runs the Harnix app in a directory of its own (`~/harnix-demo`) with demo flows, runs and
@@ -79,15 +85,19 @@ conversations; delete the directory to start over.
   operating-system sandbox, and Harnix only routes. Either way it is registered as the same kind of
   extension, on the same route table.
 - **The interface is three columns per space**: a space's own left column, a centre that is the
-  conversation unless it says otherwise (with an optional second side panel beside it), and its own
-  right tabs. Harnix's spaces — the Harnix app's two and the system space — are examples a
+  conversation unless it says otherwise (with an optional second side panel beside it), and a right
+  column that is the open conversation's own dock — tabs any package registers (files, changes,
+  output, a flow's progress) beside the space's own. Harnix's spaces — the Harnix app's two and the system space — are examples a
   product keeps or drops.
 - **Cards in the conversation**: an extension writes entries into a session's log — they
   survive a refresh, a replay and a fork, and the model never sees them.
 - **Flows** (`harnix-ext-flow`, optional): a graph of stations that moves one subject through work done
   by the run's main Agent, its sub-agents, the application's code or someone outside; each tool call
   judged against the flow's permissions, each station judged by its exit conditions and gates, hooks
-  telling other systems about the progress.
+  telling other systems about the progress. Run in a project, a flow is a task: started from the project,
+  by `/flow` in one of its conversations or on a schedule, working in the project or a worktree of it.
+- **Schedules** (`harnix-ext-schedule`, optional): at set times, a turn in a conversation, a new
+  conversation, or a task — run by Harnix, in the schedule's own time zone.
 
 Why it has this shape, layer by layer: [docs/concept_and_architecture.md](docs/concept_and_architecture.md).
 
@@ -108,13 +118,13 @@ crates/supervise       child processes: fork + exec, sandbox, reaping
 crates/ext/api         harnix-ext, the extension interface (S1)
 crates/host-api        the host-component interface (S3): carriers, spawning, adopting
 crates/ext/<id>        Harnix's own extensions: system, harnix-app, settings, plugins,
-                       observability, devices, flow (optional), packages
+                       observability, devices, flow and schedule (optional), packages
 crates/carrier/*       the two package carriers: wasm (mode 2), proc (mode 3), and what they share
 crates/package, wasm-port, wasm-host, wasm, proc
                        extension packages: manifest, signatures and store, the port, the host
                        core, wasmtime (the one place it is linked), the extension process
 crates/client          the light client an application's own tools link
-crates/cli             the `harnix` binary: every first-party extension, with the flow extension
+crates/cli             the `harnix` binary: every first-party extension, with flows and schedules
 crates/testapp         an application for the tests
 ui/packages/           @harnix/core (protocol, client, session state), @harnix/react (host API,
                        contribution registry, i18n, tokens), @harnix/shell (the shell core),

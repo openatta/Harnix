@@ -73,14 +73,6 @@ async function converse(page: Page, fixture: string, flow: string | null): Promi
   return id;
 }
 
-/** Permit the ask the turn raises (a tool that changes something). */
-async function allow(page: Page): Promise<void> {
-  const ask = page.getByTestId("conv-ask").last();
-  await expect(ask).toBeVisible({ timeout: 30_000 });
-  await ask.getByTestId("conv-ask-allow").click();
-  await expect(ask).toHaveAttribute("data-state", "answered");
-}
-
 test("the Flows tab: filter and sort; into a flow, its details beside the conversation — diagram, definition, parts, YAML; its own conversation in the middle", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, backend.url);
@@ -194,15 +186,14 @@ test("asked in a conversation on the flow, the Agent changes it, and the flow's 
   await expect(page.getByTestId("flow-focus-notice")).toHaveAttribute("data-flow", "example-review");
 
   await say(page, "Show the current flow and change its title to “Example: reviewed in conversation”.");
-  // `flow_show` reads; `flow_update` changes something, so it asks. The card itself only says
-  // "Allow flow_update?": the call's row above it names the flow and the new title.
-  await expect(page.getByTestId("conv-ask").last()).toBeVisible({ timeout: 30_000 });
+  // `flow_show` reads; `flow_update` changes something and runs straight away, asking no one: the
+  // call's row names the flow and the new title.
   const target = page.getByTestId("flow-tool-target").last();
-  await expect(target).toHaveAttribute("data-tool", "update");
+  await expect(target).toHaveAttribute("data-tool", "update", { timeout: 30_000 });
   await expect(target).toHaveAttribute("data-flow", "example-review");
   await expect(target).toContainText("Example: reviewed in conversation");
-  await allow(page);
   await expect(reply(page)).toContainText("reviewed in conversation", { timeout: 30_000 });
+  await expect(page.getByTestId("conv-ask")).toHaveCount(0);
 
   await expect(page.getByTestId("flow-context-title")).toHaveText("Example: reviewed in conversation");
   await expect(page.locator("#secondary").getByTestId("flow-detail-title")).toHaveText("Example: reviewed in conversation");
@@ -229,8 +220,8 @@ test("in a conversation on no flow, the Agent is told to have one selected first
 
   await say(page, "Change the flow's title.");
   await expect(page.getByTestId("flow-tool-target").last()).toHaveAttribute("data-flow", "authored", { timeout: 30_000 });
-  await allow(page);
   await expect(reply(page)).toContainText("No flow is selected", { timeout: 30_000 });
+  await expect(page.getByTestId("conv-ask")).toHaveCount(0);
   await expect(page.getByTestId("conv-tool-name").filter({ hasText: /flow_update/ })).toHaveCount(1);
   expect(errors).toEqual([]);
 });
@@ -318,6 +309,10 @@ test("a run started on the flow: its main session in the middle, its state, paus
   await review.click();
   const panel = stationPanel(page);
   await expect(panel.getByTestId("flow-station-spent")).toBeVisible();
+  // Unmet, the panel says what it means and what to do; the reasons are listed under it.
+  if ((await review.getAttribute("data-status")) === "unmet") {
+    await expect(panel.getByTestId("flow-unmet-hint")).toBeVisible();
+  }
   await panel.getByTestId("flow-force").click();
   await panel.getByTestId("flow-reason").fill("reviewed by hand");
   await panel.getByTestId("flow-action-submit").click();

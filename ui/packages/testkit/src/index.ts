@@ -4,7 +4,7 @@
 
 export { ROOT, RECORDINGS, SCRATCH_ROOT, STRICT_ROOT, type ModelMode, carrier, hasModel, loadEnv, modelMode, sleep } from "./env.ts";
 export { type Backend, type LaunchOptions, alive, binary, freePort, gone, makeProject, scratchDir, startHarnix } from "./launcher.ts";
-export { type Frame, type TestClient, Inconclusive, assert, connect, coverage, dropSessions, finish, inconclusive, runTurn } from "./api.ts";
+export { type Answerer, type Frame, type TestClient, Inconclusive, assert, connect, coverage, dropSessions, finish, inconclusive, runTurn } from "./api.ts";
 export { type TestFixtures, type WorkerFixtures, expect, launchFor, test, topology } from "./fixtures.ts";
 export { type Suite, type SuiteContext, type SuiteMeta, defineSuite } from "./suite.ts";
 

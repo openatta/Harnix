@@ -192,7 +192,7 @@ memory_mb = 64                   # 1–4096，缺省 64
 timeout_ms = 30000               # 100–600000，缺省 30000
 
 [[tool]]                         # 组件提供的每一个工具，也只有它们
-name = "search"                  # 字母、数字、_、-；包内唯一；会话里叫 ext__<id>__search（`.`、`-` 换成 `_`），全名至多 64 个字符
+name = "search"                  # 字母、数字、_、-；包内唯一；会话里叫 ext__<id>__search（id 的 `.` 换成 `_`），全名至多 64 个字符
 description = "Search the notes" # 一行：每次都进模型的工具表
 doc = "…"                        # 可选：长的用法，按需取
 read_only = true                 # 可选，缺省 false：只用于调度
@@ -281,7 +281,7 @@ title = "Search · {input.query}"
 [[ui]]                           # 进页面的 ES 模块，同 Agix 插件的 [[ui]]：只对受信发布者生效
 point = "home.card"
 module = "notes.js"
-api_version = 3                  # 等于贡献点 API（CONTRIB_API_VERSION）
+api_version = 4                  # 等于贡献点 API（CONTRIB_API_VERSION）
 ```
 
 各节的意思在 §6。`[interface] calls` 里不能写外壳自己的家族（`packages.*`、`plugins.*`、`settings.*`、`devices.*`、`harnix.instances.*`、`system.*`、`harnix.bulk.*`、
@@ -418,8 +418,8 @@ export!(Ext);
   包的 skill 的信任同 Agix 插件包（来源是包的签名），`allowed-tools` 只认收窄的写法；会话自己的同名 skill 优先——用户层与受信项目里的同名 skill 把它遮住。
 - **QuickJS 脚本**挂在 Agix 的扩展点上，没有 I/O，和包的虚拟机之间**没有通道**：要有逻辑的钩子，写成 WASM 的 `events`。QuickJS 只限资源，
   不是隔离边界：它的信任来自签名（§7），不来自沙箱。
-- **工具名**：会话里叫 `ext__<id>__<tool>`，id 里的 `.` 与 `-`、工具名里的 `-` 都换成 `_`（引擎的工具名只收字母、数字与 `_`，且以字母开头），
-  例如 `ext__acme_notes__search`；全名至多 64 个字符。这个映射不是一一对应的（`a-b` 与 `a_b` 都成 `a_b`），所以装包时查：
+- **工具名**：会话里叫 `ext__<id>__<tool>`，只把 id 里的 `.` 换成 `_`，`-` 与工具名照原样（引擎的工具名收字母、数字、`_` 与 `-`，且以字母开头），
+  例如 `ext__acme_notes__search`、`ext__acme_my-notes__do-it`；全名至多 64 个字符。id 里没有 `_`，所以两个包的名字碰不到一起，装包时照样查：
   一个包的工具名映射后撞了包内或已装包的，装不上；一个提供者的包工具合起来超过 64 个，也装不上。清单里 `[[tool]] name` 的字符规则不变。
   进程内与 spawn 的 daemon 里是同一个名字。
 - **每会话登记**：载体的 `ToolProvider` 在每个进程内会话建起时登记当下在跑的包的工具（子 Agent、团队成员、后台任务都算）。新装的包，新会话马上有；已有的会话在
@@ -477,7 +477,8 @@ export!(Ext);
 - **外框**：外壳给每个面画一圈外框（标题、加载中、出错、重新加载），包只画框里的东西。一个崩掉的包看起来是「这一块出错了，重试」。
   15 秒内不说 `hello`、连续 5 次心跳没答（每秒一次）、或页面第二次加载（它自己导航走了），都算失败；5 分钟内失败 3 次，这个面置于一旁。
 - **常驻的面**（space 的中区与左栏、右栏页签）画在 React 树之外、叠在槽位上，所以换 space 再回来状态还在。
-- **键盘**：外壳的快捷键（⌘K、⌘\、⌘/）在 iframe 里按下也交给外壳；在外壳的对话框（模态框、设置节）里，Esc 也交给外壳；外壳的
+- **键盘**：外壳的全局快捷键在 iframe 里按下也交给外壳：外壳在环境的 `keys` 里说它们现在是哪些（人在设置里改了键，跟着变；
+  旧的外壳不说时是 ⌘K、⌘\、⌘/ 三个）；在外壳的对话框（模态框、设置节）里，Esc 也交给外壳；外壳的
   对话框开着时，iframe 一个键都收不到（整个 inert）。所以一个键只落在一处。
 
 ### 6.3 桥与 `@harnix/ext-sdk`
@@ -523,7 +524,7 @@ ext.onEnv((env) => (document.documentElement.dataset.theme = env.theme));
 - **外壳的手**：`spaces.switch`、`details.open` / `details.show`（只画它自己 `kinds` 的项）、`secondary.open` / `close`、`settings.open`（它自己的节）、
   `composer.insert`、`badge`（落在它自己 space 的入口上）、`notify`、`copy`、`openModal`（它自己的模态框）、`confirm`、`openLink`、`upload`。
   `confirm` 是外壳画的对话框，包造不出假的确认；`openLink` 要 `[interface] links`，每次先问人；`upload` 由外壳代传，答落盘路径，给下一条消息当附件。
-- **被拒**的请求答 `refused`，记进系统 space 控制台「扩展」页签的「最近被拒的界面请求」，也进设置 → 诊断。
+- **被拒**的请求答 `refused`，记进设置 → 诊断的「最近被拒的界面请求」（这一页的，刷新就清零）。
 
 ### 6.4 `@harnix/ext-kit`
 
@@ -609,7 +610,7 @@ ext.onEnv((env) => (document.documentElement.dataset.theme = env.theme));
 - **卸载**：`packages.uninstall {id}`：停下，撤掉安装放进去的一切（Agix 插件、skill、界面），删掉它的目录，连同数据。
 - **清数据**：`packages.clearData {id}`：只删它存的东西（`run/` 下的数据目录与 kv）；在跑的先停、清完再起（`init` 从空开始）。
 - **从文件装**：`packages.installFile {path}`：签了的验签后装；未签名的只在 `[ext.packages] dev = true` 时装。
-- **界面**：设置 → 扩展（`@harnix/packages`：装、升、卸、启停、同意、数据大小与清空；披露是一个模态框），系统 space 控制台的「扩展」页签（只看，[系统 space](system-space.md)）。
+- **界面**：设置 → 扩展包（`@harnix/packages`：装、升、卸、启停、同意、数据大小与清空；披露是一个模态框），系统 space 控制台的「扩展包」页签（只看，[系统 space](system-space.md)）。
   模式 3 的行带「无沙箱」标记（沙箱没套上时），`off` 与 `unavailable` 标红并带原因。
 - 产品可以换自己的商店（`[ext.packages] store`）与受信发布者，也可以不开商店，只用开发模式的 `installFile`。
 
@@ -674,7 +675,7 @@ Harnix 自己怎么测扩展包（两个载体各跑一遍的 `--carrier`、契�
 | WIT 包 | `harnix:ext@1.0.0` | `crates/wasm/wit/ext.wit` | 只增函数时升补丁版本；老组件照样链接 |
 | 桥 | `harnix-ui-bridge@2` | `@harnix/ext-sdk/protocol` 的 `PROTOCOL` | 协议有不兼容的变化 |
 | SDK | `0.1.0` | `@harnix/ext-sdk` 的 `SDK_VERSION`，`hello` 时带给外壳 | |
-| 贡献点 API | `3` | `[[ui]]` 的 `api_version`；`harnix_contract::CONTRIB_API_VERSION` | 进页面的模块的契约变了 |
+| 贡献点 API | `4` | `[[ui]]` 的 `api_version`；`harnix_contract::CONTRIB_API_VERSION` | 进页面的模块的契约变了 |
 | 扩展线 | `1` | `harnix_wasm_port::EXT_WIRE_VERSION` | 模式 3 的产品与扩展进程之间那条线变了；两端是同一次构建，不应用自己碰 |
 | 签名 / 目录格式 | `harnix-ext-signatures@1` / `harnix-store-index@1` | `SIGNATURES` / `index.json` 的 `format` | |
 
@@ -699,7 +700,7 @@ Harnix 自己怎么测扩展包（两个载体各跑一遍的 `--carrier`、契�
 | `… world` | string | 必填 | `harnix:ext/tools-ext@1.0.0` 或 `harnix:ext/backend-ext@1.0.0` |
 | `… memory_mb` | int | 64 | 1–4096 |
 | `… timeout_ms` | int | 30000 | 100–600000 |
-| `[[tool]] name` | string | 必填 | 字母、数字、`_`、`-`，包内唯一；`ext__<id 与 name 的 . 、- 换成 _>__<name>` 至多 64 字符，映射后不撞别的工具；只在有 `[[component]]` 时 |
+| `[[tool]] name` | string | 必填 | 字母、数字、`_`、`-`，包内唯一；`ext__<id 的 . 换成 _>__<name>` 至多 64 字符，映射后不撞别的工具；只在有 `[[component]]` 时 |
 | `… description` | string | 必填 | 一行，非空 |
 | `… doc` | string | 无 | 长的用法 |
 | `… input_schema` | 表 | 必填 | JSON Schema，对象（写成 TOML） |
@@ -731,7 +732,7 @@ Harnix 自己怎么测扩展包（两个载体各跑一遍的 `--carrier`、契�
 | `[[inline.flow_block]]` | `kind`、`icon?`、`title`、`body?`、`field[] {label, value}`、`button[] {label, method, params?, confirm?, done?}` | | `kind` 点分、唯一；至多 12 个字段、4 个按钮；文本至多 200 字，正文 4000 |
 | `[[inline.command]]` | `trigger`（`/` 或 `@`）、`name`、`description?` | | 要有 `[[method]] name = "complete"` |
 | `[[inline.sidebar_group]]` | `space?`、`by`（`scene` / `field` / `method`）、`field?`、`method?`、`other?` | | `space` 是自己的 `[[space]]`（缺省包的 id），每个 space 一次；不能和那个 space 的 `space.sidebar` 并存 |
-| `[[ui]]` | `point`、`module`、`api_version` | | `module` 是 `ui/` 下的 `.js`；`api_version` 等于贡献点 API（3） |
+| `[[ui]]` | `point`、`module`、`api_version` | | `module` 是 `ui/` 下的 `.js`；`api_version` 等于贡献点 API（4） |
 | `[agent] install_into` | [string] | `["main"]` | `main`，或安装时已有的实例的 id；两种载体都在安装时核对，同一句拒绝 |
 
 ## 15. WIT
@@ -891,7 +892,7 @@ greeting = "hi"
 | 方法 | 请求 | 答 |
 |---|---|---|
 | `connect(options?)` | `hello {sdk}` | `HarnixExt`；`options`：`port`（测试给 mock 的）、`timeoutMs`（缺省 10000）、`autoHeight`、`keys`（缺省 true） |
-| `surface`、`env` | — | 它是哪个面：`{ext, point, id, space, params, autoHeight, links}`；外观：`{theme, tokens, locale, narrow, visible, modal}` |
+| `surface`、`env` | — | 它是哪个面：`{ext, point, id, space, params, autoHeight, links}`；外观：`{theme, tokens, locale, narrow, visible, modal, keys?}`（`keys`：外壳的全局快捷键，`pressChord` 的写法，如 `Meta+KeyK`） |
 | `onEnv(fn)`、`onParams(fn)` | — | 外观变了；模态框、二级栏、详情面板拿到新的参数 |
 | `call(method, params?)` | `call` | 方法的结果 |
 | `subscribe(topic, params, fn)` | `subscribe` / `unsubscribe` | 返回取消函数，带 `.ready`（被拒时 reject） |
@@ -940,10 +941,10 @@ greeting = "hi"
 
 | 东西 | 名字 |
 |---|---|
-| 包 id、扩展 id | `<发布者>.<名字>`，例如 `acme.notes`；第一段是保留字（`harnix`、`engine`、`ext`、`topic`、`route`、`proc`、`ctl`、`agix`）、第一方扩展的 id（`system`、`harnix-app`、`settings`、`plugins`、`observability`、`devices`、`flow`、`packages`）或产品链进的原生扩展 id，装的时候就拒 |
+| 包 id、扩展 id | `<发布者>.<名字>`，例如 `acme.notes`；第一段是保留字（`harnix`、`engine`、`ext`、`topic`、`route`、`proc`、`ctl`、`agix`）、第一方扩展的 id（`system`、`harnix-app`、`settings`、`plugins`、`observability`、`devices`、`flow`、`schedule`、`packages`）或产品链进的原生扩展 id，装的时候就拒 |
 | 方法、主题 | `<id>.<名字>`，例如 `acme.notes.notes.list`；名字的所有者是已登记的、整段前缀匹配的最长 id：原生与包跨类重叠一律拒，原生优先，包标 `failed: namespace_taken` |
 | 后端 space、界面 space | `<id>` 或 `<id>.<名字>` |
-| 会话里的工具（进程内与 spawn 的 daemon 里一样） | `ext__<id 与工具名里的 . 与 - 换成 _>__<工具>`，例如 `ext__acme_notes__search` |
+| 会话里的工具（进程内与 spawn 的 daemon 里一样） | `ext__<id 的 . 换成 _>__<工具>`，例如 `ext__acme_notes__search` |
 | 界面文件 | `/ext/<id>/ui/<路径>` |
 | 详情项的种类 | `<id>.<名字>` |
 | 扩展条目的命名空间 | `<id>` |

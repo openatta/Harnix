@@ -100,42 +100,49 @@ pub mod caps {
     pub const INSTANCES_ADMIN: Capability = Capability::new("instances.admin");
     /// Read the inside of any session: its context, tasks, task output, goal.
     pub const ENGINE_INSPECT: Capability = Capability::new("engine.inspect");
-    /// Change the inside of any session: tasks, messages, compaction, model, name, goal.
+    /// Change the inside of any session: tasks, messages, compaction, model, name, goal; and trust a
+    /// project, which changes what every session in it may do.
     pub const ENGINE_CONTROL: Capability = Capability::new("engine.control");
     pub const ENGINE_CONFIG_READ: Capability = Capability::new("engine.config.read");
     /// Write the engine's settings and providers, reload them, hand them to inheriting instances.
     pub const ENGINE_CONFIG_WRITE: Capability = Capability::new("engine.config.write");
     /// Install, remove, switch and reload the engine's plugins.
     pub const ENGINE_PLUGINS: Capability = Capability::new("engine.plugins");
+    /// Export a session, and import a bundle as new sessions.
     pub const ENGINE_EXPORT: Capability = Capability::new("engine.export");
     pub const ENGINE_MCP: Capability = Capability::new("engine.mcp");
     pub const RECORDINGS_READ: Capability = Capability::new("recordings.read");
     pub const TRANSCRIPTS_READ: Capability = Capability::new("transcripts.read");
-    /// Versions, uptime, memory, threads, the connected clients.
+    /// Versions, uptime, memory, threads, the connected clients; each extension's log.
     pub const PROCESS_OBSERVE: Capability = Capability::new("process.observe");
     pub const DEVICES_MANAGE: Capability = Capability::new("devices.manage");
     /// The host's services: registering extensions while the process runs.
     pub const EXTENSIONS_MANAGE: Capability = Capability::new("extensions.manage");
     pub const UI_PAGE: Capability = Capability::new("ui.page");
     pub const EVENTS_ALL_TOOLS: Capability = Capability::new("events.all_tools");
+    /// Hear each piece of feedback people give on answers, note and all, as it is given (the topic
+    /// `harnix.feedback`). Nobody has it unless the product grants it: feedback leaves the
+    /// session's log only through an extension the product chose.
+    pub const FEEDBACK_READ: Capability = Capability::new("feedback.read");
 
     /// Every one of them, as the kernel declares it.
     pub const KERNEL: &[CapabilitySpec] = &[
         CapabilitySpec::new("instances.admin", "停、重启任何不属于内核的实例；按任何模板建实例"),
         CapabilitySpec::new("engine.inspect", "读任何会话的内部：上下文、任务、任务输出、目标"),
-        CapabilitySpec::new("engine.control", "改任何会话的内部：任务、消息、压缩、清空、模型、名字、目标"),
+        CapabilitySpec::new("engine.control", "改任何会话的内部：任务、消息、压缩、清空、模型、名字、目标；读、改项目的信任"),
         CapabilitySpec::new("engine.config.read", "读引擎设置与 provider"),
         CapabilitySpec::new("engine.config.write", "写引擎设置与 provider，重读设置，交给继承它的实例"),
         CapabilitySpec::new("engine.plugins", "装、卸、启停、重读 Agix 插件"),
-        CapabilitySpec::new("engine.export", "导出会话"),
-        CapabilitySpec::new("engine.mcp", "给引擎加 MCP 服务器"),
+        CapabilitySpec::new("engine.export", "导出、导入会话"),
+        CapabilitySpec::new("engine.mcp", "给引擎加、改 MCP 服务器，登录远端的"),
         CapabilitySpec::new("recordings.read", "读模型调用录像与用量"),
         CapabilitySpec::new("transcripts.read", "读会话转录"),
-        CapabilitySpec::new("process.observe", "版本、运行时长、内存、线程、已连接的客户端"),
+        CapabilitySpec::new("process.observe", "版本、运行时长、内存、线程、已连接的客户端；各扩展的日志"),
         CapabilitySpec::new("devices.manage", "配对码、列设备、撤销设备"),
         CapabilitySpec::new("extensions.manage", "运行期登记扩展，用宿主的服务"),
         CapabilitySpec::new("ui.page", "进页面的 ES 模块").package(),
         CapabilitySpec::new("events.all_tools", "看到每个会话的每一次工具调用").package_only(),
+        CapabilitySpec::new("feedback.read", "收到人对回复的每一条反馈：评分、类别和备注原文，连同是哪个会话的哪一轮"),
     ];
 
     /// The kernel's declaration of `cap`, when it is the kernel's.
@@ -166,6 +173,7 @@ mod tests {
             caps::EXTENSIONS_MANAGE,
             caps::UI_PAGE,
             caps::EVENTS_ALL_TOOLS,
+            caps::FEEDBACK_READ,
         ] {
             assert!(caps::kernel(&cap).is_some(), "{cap}");
         }

@@ -20,6 +20,8 @@ use harnix_ext::{codes, ExtId, RpcError};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::wire::Unreadable;
+
 /// Under a package's directory, what its carrier writes for it.
 pub(crate) const RUN: &str = "run";
 
@@ -85,7 +87,7 @@ pub(crate) fn is_package_id(id: &str) -> bool {
 }
 
 /// Every record that reads, by id; and what did not, with why.
-pub(crate) fn read_all(dir: &Path) -> (Vec<InstallRecord>, Vec<Value>) {
+pub(crate) fn read_all(dir: &Path) -> (Vec<InstallRecord>, Vec<Unreadable>) {
     let mut records = Vec::new();
     let mut unreadable = Vec::new();
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -102,7 +104,7 @@ pub(crate) fn read_all(dir: &Path) -> (Vec<InstallRecord>, Vec<Value>) {
     for name in names {
         match read_one(dir, &name) {
             Ok(record) => records.push(record),
-            Err(e) => unreadable.push(json!({"dir": name, "reason": e.message})),
+            Err(e) => unreadable.push(Unreadable { dir: name, reason: e.message }),
         }
     }
     (records, unreadable)
@@ -254,7 +256,7 @@ mod tests {
         let (records, unreadable) = read_all(dir.path());
         assert!(records.is_empty());
         assert_eq!(unreadable.len(), 1, "{unreadable:?}");
-        assert_eq!(unreadable[0]["dir"], json!("acme.notes"));
+        assert_eq!(unreadable[0].dir, "acme.notes");
     }
 
     #[test]

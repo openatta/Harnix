@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"tool_use","id":"call_00_ET_lvP89GCVQKPuMAPCGCzO4418","name":"ext__example_showcase__count","input":{"key":"visits"}}]}

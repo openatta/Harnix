@@ -4,14 +4,13 @@
  * `@harnix/react`'s.
  */
 
+import { agentTokens } from "@harnix/core";
 import { clip, t, compact } from "@harnix/react";
 
 import type { AgentUsage, Task, TraceCall, UsageNote } from "./types.ts";
 
 /** Every token an Agent's run has used: what went in, from the cache or not, and what came out. */
-export function totalTokens(u: AgentUsage): number {
-  return u.input_tokens + u.cache_read_tokens + u.cache_write_tokens + u.output_tokens;
-}
+export const totalTokens: (u: AgentUsage) => number = agentTokens;
 
 /** The tokens of these Agents, split as the provider counts them. */
 export function tokenTip(u: AgentUsage[]): string {
@@ -34,15 +33,6 @@ export function usageText(usage: TraceCall["usage"]): string {
   if (!usage) return "—";
   const input = (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
   return `in ${compact(input)} · out ${compact(usage.output_tokens ?? 0)}`;
-}
-
-export function originLabel(origin: unknown): string {
-  if (typeof origin === "string") return origin;
-  if (origin && typeof origin === "object") {
-    const [kind, value] = Object.entries(origin as Record<string, unknown>)[0] ?? [];
-    return kind ? `${kind}:${String(value)}` : "";
-  }
-  return "";
 }
 
 export function messageText(content: unknown): string {

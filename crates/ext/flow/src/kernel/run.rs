@@ -16,6 +16,7 @@ use super::parts::Pinned;
 #[derive(
     Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
 )]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Actor {
     pub kind: String,
     pub id: String,
@@ -60,6 +61,7 @@ impl std::fmt::Display for Actor {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum RunStatus {
     Active,
@@ -68,6 +70,7 @@ pub enum RunStatus {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum StationStatus {
     /// Not entered yet: some of its needs have not finished.
@@ -98,6 +101,7 @@ impl StationStatus {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
     Ready,
@@ -112,6 +116,7 @@ pub enum TaskStatus {
 /// The token is the claimant's alone: a [`RunView`] (what readers get) carries it empty, and
 /// an empty token is left out of the JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Lease {
     pub by: Actor,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -122,10 +127,12 @@ pub struct Lease {
 
 /// One task of a station.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct TaskRec {
     pub id: String,
     /// The `foreach` item this task works on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
     pub item: Option<Value>,
     pub status: TaskStatus,
     /// Claims made in the current series (a manual retry starts a new one).
@@ -135,6 +142,7 @@ pub struct TaskRec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lease: Option<Lease>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
     pub output: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -161,6 +169,7 @@ pub struct TaskRec {
 
 /// A call held for a person (xops-04 §3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct AskRec {
     pub tool: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -195,13 +204,14 @@ impl TaskRec {
 
 /// Tokens a model spent, summed over turns (`turn_complete.usage`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default)]
 pub struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
-    #[serde(skip_serializing_if = "is_zero")]
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub cache_read_input_tokens: u64,
-    #[serde(skip_serializing_if = "is_zero")]
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub cache_creation_input_tokens: u64,
     /// How many turns were counted.
     pub turns: u64,
@@ -247,12 +257,14 @@ impl Usage {
 
 /// A pause: who asked and when (xops-03 §3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PauseRec {
     pub by: Actor,
     pub at: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum CheckStatus {
     Pass,
@@ -263,6 +275,7 @@ pub enum CheckStatus {
 
 /// The latest result of one exit condition (or of the tasks, `cond: None`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CheckRec {
     /// Index into the station's `exit`; `None` for the station's tasks themselves.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -277,6 +290,7 @@ pub struct CheckRec {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ConfirmRec {
     pub by: Actor,
     pub at: u64,
@@ -288,6 +302,7 @@ pub struct ConfirmRec {
 
 /// A station passed by force: who, why, and what was not met at the time.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ForcedRec {
     pub by: Actor,
     pub at: u64,
@@ -296,6 +311,7 @@ pub struct ForcedRec {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct StationRec {
     pub status: StationStatus,
     /// The current round: bumped on every entry (a skip included). 0 = never entered.
@@ -387,6 +403,7 @@ impl Default for StationRec {
 
 /// The task of a parent run a child run serves.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ParentRef {
     pub run: String,
     pub station: String,
@@ -395,6 +412,7 @@ pub struct ParentRef {
 
 /// One execution of a flow on one subject.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct RunRecord {
     pub id: String,
     pub flow: String,
@@ -409,6 +427,7 @@ pub struct RunRecord {
     pub title: String,
     pub subject: String,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub inputs: Value,
     pub status: RunStatus,
     /// Bumped by every commit; the store compares it.
@@ -433,6 +452,181 @@ pub struct RunRecord {
     /// Turns of the main session that worked on no task (a person talking to it).
     #[serde(default, skip_serializing_if = "Usage::is_empty")]
     pub usage_other: Usage,
+    /// The project the run works in — a task (`docs/glossary.md`, 项目任务): an absolute directory,
+    /// as it was given. Absent: a run of no project, working in its own scratch directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_root: Option<String>,
+    /// Where it works: the project itself, a worktree of it, or its own scratch directory.
+    #[serde(default)]
+    pub workspace: Workspace,
+    /// Where its deliverables go: a directory in the project (a run of no project: in its own
+    /// directory), resolved from its template when the run was started; `${output_dir}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_dir: Option<String>,
+    /// How it came to be started.
+    #[serde(default)]
+    pub trigger: Trigger,
+    /// A space the main session is shown in besides the flow's own (the start's
+    /// `show_in_space`): where the interface opens the task.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show_in_space: Option<String>,
+    /// Its worktree of the project, for a run that works in one (`workspace: worktree`): made at
+    /// start, and what became of it once the run was over. A child run holds its parent's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<WorktreeRec>,
+}
+
+/// A run's worktree of its project (`docs/glossary.md`, 项目任务): `<project>/.harnix/worktrees/<run>`
+/// on the branch `harnix/<run>`, made from the project's `HEAD` when the run started.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct WorktreeRec {
+    /// The worktree's directory, absolute.
+    pub path: String,
+    /// The project's place in its repository (`sub/dir`; empty at the top): the run works in
+    /// `<path>/<prefix>`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub prefix: String,
+    /// Its branch: `harnix/<run>`.
+    pub branch: String,
+    /// The commit it was made from.
+    pub base: String,
+    /// What became of it, once someone decided; absent while nobody has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<WorktreeOutcome>,
+}
+
+impl WorktreeRec {
+    /// Where the run works: the project's place in the worktree.
+    pub fn dir(&self) -> std::path::PathBuf {
+        let path = std::path::Path::new(&self.path);
+        if self.prefix.is_empty() {
+            path.to_path_buf()
+        } else {
+            path.join(&self.prefix)
+        }
+    }
+
+    /// Whether nothing more is to be done with it: merged, or discarded. A kept branch may still
+    /// be merged or discarded.
+    pub fn settled(&self) -> bool {
+        self.outcome.as_ref().is_some_and(|o| o.kind != WorktreeEnd::Kept)
+    }
+}
+
+/// What became of a run's worktree.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct WorktreeOutcome {
+    pub kind: WorktreeEnd,
+    pub at: u64,
+    pub by: Actor,
+    /// `merged`: the project's branch it went into.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub into: Option<String>,
+    /// `merged`: the commit that branch is at after; `kept`: the run's branch's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    /// `merged`: how — `fast_forward`, `merge` (a merge commit), `up_to_date` (nothing to bring).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(type = "\"fast_forward\" | \"merge\" | \"up_to_date\" | null"))]
+    pub how: Option<String>,
+}
+
+/// The three ends of a run's worktree: its branch merged into the project's current branch (the
+/// worktree removed); kept (the worktree removed, the branch left); discarded (both removed).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum WorktreeEnd {
+    Merged,
+    Kept,
+    Discarded,
+}
+
+impl WorktreeEnd {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Merged => "merged",
+            Self::Kept => "kept",
+            Self::Discarded => "discarded",
+        }
+    }
+}
+
+/// Where a run works.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum Workspace {
+    /// The project's own tree.
+    Project,
+    /// A worktree of the project, on a branch of the run's.
+    Worktree,
+    /// A directory of the run's own under the application's data: a run of no project.
+    #[default]
+    Scratch,
+}
+
+impl Workspace {
+    /// What a run works in when its start does not say: the project when it has one.
+    pub fn default_for(project_root: Option<&str>) -> Self {
+        if project_root.is_some() {
+            Self::Project
+        } else {
+            Self::Scratch
+        }
+    }
+
+    /// What a run works in: what its start says, else — with a project — what its flow says, else
+    /// [`Self::default_for`]. A flow's word means nothing to a run of no project.
+    pub fn chosen(given: Option<Self>, defined: Option<Self>, project_root: Option<&str>) -> Self {
+        given
+            .or_else(|| defined.filter(|_| project_root.is_some()))
+            .unwrap_or_else(|| Self::default_for(project_root))
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Project => "project",
+            Self::Worktree => "worktree",
+            Self::Scratch => "scratch",
+        }
+    }
+
+    /// Whether it needs a project to be in.
+    pub fn in_project(self) -> bool {
+        matches!(self, Self::Project | Self::Worktree)
+    }
+}
+
+/// How a run came to be started.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Trigger {
+    /// Someone started it: a person through a device, an extension, the kernel for a child run.
+    Manual { by: Actor },
+    /// A schedule fired: which, and the time it was due (epoch ms).
+    Schedule { schedule: String, fire_at: u64 },
+}
+
+impl Trigger {
+    pub fn manual(by: Actor) -> Self {
+        Self::Manual { by }
+    }
+
+    pub fn is_manual(&self) -> bool {
+        matches!(self, Self::Manual { .. })
+    }
+}
+
+/// What a run record kept from before the field was there reads as: started by hand, by no one
+/// known.
+impl Default for Trigger {
+    fn default() -> Self {
+        Self::manual(Actor::new("unknown", ""))
+    }
 }
 
 impl RunRecord {
@@ -610,6 +804,12 @@ impl RunRecord {
             phase: Some(self.phase()),
             usage: self.usage(),
             dry: false,
+            project_root: self.project_root.clone(),
+            workspace: self.workspace,
+            output_dir: self.output_dir.clone(),
+            trigger: self.trigger.clone(),
+            show_in_space: self.show_in_space.clone(),
+            worktree: self.worktree.clone(),
         }
     }
 }
@@ -619,7 +819,12 @@ impl RunRecord {
 /// `confirm`, `held`, `unmet`, `failed`, `external`, `children`, `work`), `pausing` (paused, work still in hand), `paused`,
 /// `finished`, `cancelled`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Phase {
+    #[cfg_attr(
+        feature = "ts",
+        ts(type = "\"running\" | \"waiting\" | \"pausing\" | \"paused\" | \"finished\" | \"cancelled\"")
+    )]
     pub state: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
@@ -640,6 +845,7 @@ impl Phase {
 
 /// One line of a run's history. Appended, never changed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct History {
     pub run: String,
     /// 1, 2, … within the run.
@@ -652,11 +858,13 @@ pub struct History {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task: Option<String>,
     #[serde(default, skip_serializing_if = "Value::is_null")]
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
     pub detail: Value,
 }
 
 /// A run for a list.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct RunSummary {
     pub id: String,
     pub flow: String,
@@ -684,16 +892,35 @@ pub struct RunSummary {
     /// A dry run (xops-02 §5), when a list mixes them in.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub dry: bool,
+    /// The project it works in (`RunRecord::project_root`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_root: Option<String>,
+    #[serde(default)]
+    pub workspace: Workspace,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_dir: Option<String>,
+    #[serde(default)]
+    pub trigger: Trigger,
+    /// Where its main session is shown besides the flow's space (`RunRecord::show_in_space`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show_in_space: Option<String>,
+    /// Its worktree, branch and what became of them (`RunRecord::worktree`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<WorktreeRec>,
 }
 
 /// Which runs to list. Every field set must match.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(optional_fields))]
 #[serde(default)]
 pub struct RunQuery {
     pub flow: Option<String>,
     pub status: Option<RunStatus>,
     pub subject: Option<String>,
     pub parent: Option<String>,
+    /// Runs of this project (`project_root`, as the run was given it; a trailing `/` aside).
+    pub project: Option<String>,
     /// The newest `limit` runs.
     pub limit: Option<usize>,
 }
@@ -707,6 +934,11 @@ impl RunQuery {
                 .parent
                 .as_ref()
                 .is_none_or(|p| s.parent.as_ref() == Some(p))
+            && self.project.as_ref().is_none_or(|p| {
+                s.project_root
+                    .as_deref()
+                    .is_some_and(|r| same_root(r, p))
+            })
     }
 
     /// Filter, order newest first, and cut to `limit` — what a store returns.
@@ -720,9 +952,25 @@ impl RunQuery {
     }
 }
 
+/// Two project roots as written, the same directory: equal but for trailing `/`s.
+pub fn same_root(a: &str, b: &str) -> bool {
+    trim_root(a) == trim_root(b)
+}
+
+/// A root without its trailing `/`s (`/` stays `/`).
+pub fn trim_root(root: &str) -> &str {
+    let t = root.trim_end_matches('/');
+    if t.is_empty() && root.starts_with('/') {
+        "/"
+    } else {
+        t
+    }
+}
+
 /// A run as a reader sees it: the record (with its pinned definition, every lease token
 /// removed) and, per open station, what is not met yet.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct RunView {
     pub record: RunRecord,
     /// Station id → its exit conditions not passed (failed or waiting).

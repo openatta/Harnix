@@ -14,7 +14,7 @@ import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { Locator, Page } from "@playwright/test";
-import { type Backend, RECORDINGS, expect } from "@harnix/testkit";
+import { type Backend, RECORDINGS, connect, expect } from "@harnix/testkit";
 
 /** Console errors are failures: a page that throws while still looking right is the failure a
  *  screenshot cannot show. */
@@ -147,19 +147,27 @@ export async function flowReference(page: Page): Promise<void> {
  * or the fixture `fixture` with the id it was recorded under replaced by the session's, put where
  * `main`'s engine records it. Nothing is written over it: a recording is rewritten by the session's
  * first call, and this session makes none. Opens the page on `backend`.
+ *
+ * The session is made, and its recording written, with the page away: the engine's reader keeps
+ * what it read until the session shows activity (`crates/engine/src/activity.rs`), and writing a
+ * recording behind the engine's back is none — so a page that read the session while the file was
+ * half written (the session's row reads its usage as soon as it is listed) would go on seeing that.
  */
 export async function recorded(
   page: Page,
   backend: Backend,
   source: { fixture: string; edit?: (lines: string[]) => string[] } | { lines: (sid: string) => object[] },
 ): Promise<string> {
-  await open(page, backend.url);
-  const sid = await page.evaluate(async () => {
-    const { app } = (window as unknown as { harnix: { app: any } }).harnix;
-    const created = await app.call("harnix.session.create", { instance: "main", space: "sessions", scene: "harnix" });
-    await app.call("harnix.session.attach", { instance: "main", session_id: created.session_id, space: "sessions" });
-    return created.session_id as string;
-  });
+  await page.goto("about:blank");
+  const api = await connect(backend);
+  let sid: string;
+  try {
+    const created = await api.call("harnix.session.create", { instance: "main", space: "sessions", scene: "harnix" });
+    sid = created.session_id as string;
+    await api.call("harnix.session.attach", { instance: "main", session_id: sid, space: "sessions" });
+  } finally {
+    api.close();
+  }
   const dir = join(backend.scratch, "agix", "recordings", sid);
   if ("fixture" in source) {
     cpSync(join(RECORDINGS, source.fixture), dir, { recursive: true });
@@ -171,5 +179,15 @@ export async function recorded(
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "calls.jsonl"), source.lines(sid).map((l) => JSON.stringify(l)).join("\n") + "\n");
   }
+  await open(page, backend.url);
   return sid;
+}
+
+/**
+ * The page's Mod key: its shortcuts follow the platform the page reports (`shortcuts.platform`),
+ * which the emulated device sets, not the machine Playwright runs on — Desktop Chrome reports
+ * Windows on a Mac host, where `ControlOrMeta` would press ⌘.
+ */
+export async function modKey(page: Page): Promise<"Meta" | "Control"> {
+  return (await page.evaluate(() => (window as any).harnix.app.shortcuts.platform)) === "mac" ? "Meta" : "Control";
 }

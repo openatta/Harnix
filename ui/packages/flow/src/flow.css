@@ -734,3 +734,239 @@
 .hx-flow-context .hx-flow-hint {
   padding: 0 8px;
 }
+
+/* ── a task: its row in the projects tree, the new-task dialog, the right column's tab ───── */
+
+/* The row's body lives in the shell's `.srow`: the name on one line, the facts under it. */
+#side .srow.item {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+#side .srow.item .hx-flow-task-title {
+  flex: 1 1 100%;
+}
+
+.hx-flow-task-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+}
+
+.hx-flow-task-meta .hx-flow-pill {
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.hx-flow-task-flow,
+.hx-flow-task-step,
+.hx-flow-task-branch {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hx-flow-task-branch {
+  font-family: var(--font-mono);
+  color: var(--label-tertiary);
+}
+
+.hx-flow-task-branch[data-outcome="discarded"],
+.hx-flow-task-branch[data-outcome="merged"] {
+  text-decoration: line-through;
+}
+
+.hx-flow-task-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.hx-flow-task-badges:empty {
+  display: none;
+}
+
+.hx-flow-task-clock {
+  width: 12px;
+  height: 12px;
+  color: var(--label-tertiary);
+}
+
+.hx-flow-task-flows button[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.hx-flow-task-flows button.on {
+  background: var(--accent-soft);
+}
+
+.hx-flow-task-required {
+  color: var(--hx-danger);
+}
+
+.hx-flow-task-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hx-flow-task-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0;
+  font-size: 13px;
+  color: var(--label-secondary);
+}
+
+.hx-flow-task-note .glyph {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+}
+
+.hx-flow-task-tab {
+  padding: 8px;
+}
+
+.hx-flow-run-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hx-flow-task-stations tbody tr {
+  cursor: pointer;
+}
+
+.hx-flow-task-stations tbody tr.on td {
+  background: var(--accent-soft);
+}
+
+.hx-flow-task-stations .hx-flow-link {
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.hx-flow-task-output {
+  max-width: 260px;
+  overflow-wrap: anywhere;
+}
+
+.hx-flow-task-gates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.hx-flow-task-output-dir {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.hx-flow-task-worktree {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hx-flow-task-output-dir .hx-flow-id {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A project's tasks on its overview. */
+.hx-flow-tasks-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.hx-flow-tasks-counts,
+.hx-flow-tasks-none {
+  padding: 2px 6px;
+  color: var(--label-caption);
+  font-size: 12px;
+}
+
+.hx-flow-tasks-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--label-primary);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.hx-flow-tasks-row:hover {
+  background: var(--interactive-hover);
+}
+
+.hx-flow-tasks-row .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hx-flow-tasks-panel > .btn {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+/* ── the card a conversation keeps of a task started from it (`/flow`) ── */
+
+.hx-flow-task-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-l1);
+  border-radius: var(--radius-card);
+}
+
+.hx-flow-task-card-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.hx-flow-task-card-head {
+  color: var(--label-secondary);
+}
+
+.hx-flow-task-card-subject {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hx-flow-task-card .meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

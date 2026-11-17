@@ -9,6 +9,9 @@
  * built is in the ledger, and a restart builds it again.
  */
 
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { INVALID_PARAMS, REFUSED } from "@harnix/core/protocol";
 import { type Backend, type TestClient, connect, expect, test } from "@harnix/testkit";
 
@@ -16,6 +19,12 @@ import { INSTANCES_PROFILE, instances, runOn, until } from "./instances";
 import { startTestApp } from "./testapp";
 
 const TAGS = { tag: ["@feature:instances", "@layer:api"] };
+
+/** An instance's global settings tier, as written on disk; `{}` when there is none. */
+function globalTier(root: string): Record<string, unknown> {
+  const path = join(root, "settings.json");
+  return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};
+}
 
 let backend: Backend;
 let api: TestClient;
@@ -49,6 +58,17 @@ test("the instances are listed with where they came from", TAGS, async () => {
   const ids = hello.instances.map((i: any) => i.id);
   expect(ids).toEqual(expect.arrayContaining(["main", "side", "ci", "fleet-side"]));
   for (const i of hello.instances) expect(i.protocol_version, i.id).toBe(all.main.protocol_version);
+});
+
+// Harnix writes its defaults only where it keeps an instance's data; `main`'s engine root is the
+// person's own, shared with the engine's other clients (harnix-app.md, settings: privacy).
+test("telemetry starts off in the instances Harnix keeps, and main's engine root is left to the engine's default", TAGS, async () => {
+  await until(api, "ci", "ready");
+  const all = await instances(api);
+  for (const id of ["side", "ci", "fleet-side"]) {
+    expect(globalTier(all[id].data_root).telemetry_enabled, `${id}'s global tier`).toBe(false);
+  }
+  expect(globalTier(all.main.data_root), "Harnix wrote into main's engine root").not.toHaveProperty("telemetry_enabled");
 });
 
 test("each instance runs its own sessions and sees none of the others'", TAGS, async () => {
@@ -97,6 +117,7 @@ test("the interface builds only from a template opened to it", TAGS, async () =>
   const built = await api.call("harnix.instances.create", { template: "worker", name: "w1", params: { team: "a" } });
   expect(built).toMatchObject({ id: "w1", owner: "space:sessions", template: "worker", carrier: "spawn" });
   expect(built.data_root).toMatch(/workers\/a\/w1$/);
+  expect(globalTier(built.data_root).telemetry_enabled, "Harnix's default, in a template's instance").toBe(false);
   await api.call("harnix.instances.create", { template: "worker", name: "w2", params: { team: "b" } });
   error = await api.refused("harnix.instances.create", { template: "worker", name: "w3", params: { team: "c" } });
   expect(error?.code, "the template allows two").toBe(REFUSED);

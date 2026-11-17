@@ -118,7 +118,8 @@ function command(app: App, a: RuntimePackage, decl: CommandDecl): Contributions[
   const prefix = `/${decl.name}`;
   return {
     id: `inline.command.${decl.trigger}${decl.name}`,
-    trigger: decl.trigger,
+    // The manifest admits only the two; the declaration says `string`.
+    trigger: decl.trigger as "/" | "@",
     async complete(query: string, ctx?: CommandContext): Promise<CommandCandidate[]> {
       const answer = await app.call<{ candidates?: Candidate[] } | null>(`${a.id}.complete`, {
         trigger: decl.trigger,

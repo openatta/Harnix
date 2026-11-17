@@ -58,6 +58,8 @@ export {
   dryRunsOf,
   dryRunsTopic,
   focusTopic,
+  defBlockedKey,
+  ORIGINS,
   isDryRun,
   problemText,
   toolTarget,
@@ -82,6 +84,9 @@ export {
   stationTitle,
   taskProgress,
   taskTone,
+  runLive,
+  runningIn,
+  sameRoot,
   workLabel,
   workOf,
   PART_KINDS,
@@ -118,4 +123,10 @@ export { FlowContext, SystemFlows } from "./context";
 export { FlowSpaceState, type FlowDetailOf, type FlowSelection, type StateTabs } from "./state";
 export { revealInGuide } from "./tabs";
 export { DryControls, EmptyConversation, FlowDetail, FlowSecondary, FlowsTab, FocusNotice, GuideView, PhaseBadge, ReferenceTab, RunDetail, RunsTab, useSelection, type FlowTabs } from "./tabs";
+export { OutputDirLine, RunHead, RunPanel, RunSessionsList, RunStations, WorktreeLine, currentStation, outputDirOf, taskStep, worktreeOf, worktreeOpen, type RunPanelProps } from "./RunPanel";
+export { PROJECT_ITEMS, ProjectTasks, TASK_KIND, TASK_TAB_KIND, TaskRow, activityOf as taskActivityOf, awaitMain, enterTask, openTask, registerTaskItems, taskRows, type ItemContext, type ItemRow } from "./task";
+export { collectInputs, defOptions, defaultOutputDir, fieldsOf, initialText, newTaskDialog, noWorktreeText, workspaceParam, type FieldKind, type NewTaskOptions, type SchemaField } from "./NewTask";
+export { TaskTab, runOf } from "./TaskTab";
+export { SLASH_FLOW, TASK_STARTED, TaskLinkCard, asksForInput, authorForProject, authorMenuItem, conversationOf, flowArgs, registerSlashFlow, registerTaskCard, slashCandidates, taskCardOf, trustedForAuthoring, type Conversation, type ProjectMenuContext, type TaskCard } from "./slash";
 export { STRINGS, STRINGS_OWNER, registerFlowStrings } from "./strings";
+export { START_ACTION, StartActions, TASK_BADGE, TaskBadges, type StartAction, type StartDraft, type TaskBadge } from "./points";

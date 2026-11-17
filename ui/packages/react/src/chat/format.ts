@@ -180,6 +180,48 @@ export function numberedDiff(oldText: string, newText: string): NumberedDiffLine
   });
 }
 
+/** A row of a drawn diff: a numbered line, or a gap between two runs of them. */
+export type DiffRow = NumberedDiffLine | { op: "gap"; text: string };
+
+/**
+ * A unified diff as numbered rows: each `@@ -a,b +c,d @@` sets where the numbers start and how many
+ * lines the hunk holds, and a hunk after the first is set off by a gap. What is outside a hunk —
+ * file headers (`---`, `+++`, `diff`, `index`) — and "no newline" notes are not rows. Several diffs
+ * one after another (one file written twice) read the same way.
+ */
+export function unifiedDiffRows(diff: string): DiffRow[] {
+  const out: DiffRow[] = [];
+  let o = 0;
+  let n = 0;
+  // Lines of the hunk still to come, on each side: a removed line that reads `--- x` is a row.
+  let oldLeft = 0;
+  let newLeft = 0;
+  for (const line of diff.split("\n")) {
+    if (oldLeft > 0 || newLeft > 0) {
+      if (line.startsWith("+")) {
+        out.push({ op: "add", text: line.slice(1), newNo: n++ });
+        newLeft--;
+      } else if (line.startsWith("-")) {
+        out.push({ op: "del", text: line.slice(1), oldNo: o++ });
+        oldLeft--;
+      } else if (line.startsWith(" ") || line === "") {
+        out.push({ op: "same", text: line.slice(1), oldNo: o++, newNo: n++ });
+        oldLeft--;
+        newLeft--;
+      }
+      continue;
+    }
+    const hunk = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
+    if (!hunk) continue;
+    if (out.length) out.push({ op: "gap", text: "…" });
+    o = Number(hunk[1]);
+    oldLeft = hunk[2] === undefined ? 1 : Number(hunk[2]);
+    n = Number(hunk[3]);
+    newLeft = hunk[4] === undefined ? 1 : Number(hunk[4]);
+  }
+  return out;
+}
+
 export interface ToolSummaryTexts {
   running: string;
   interrupted: string;

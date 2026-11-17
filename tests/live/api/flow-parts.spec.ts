@@ -92,7 +92,7 @@ test("a call a policy asks about waits for a person, the run waits for approval,
 
 test("the parts are read and saved by kind; a part a flow needs cannot go without the flow saying so", TAGS, async () => {
   const gates = await api.call("flow.parts", { kind: "gate" });
-  expect(gates.map((g: any) => g.name)).toEqual(["lint", "open-high", "self-test"]);
+  expect(gates.map((g: any) => g.name)).toEqual(["lint", "open-high", "self-test", "task-check"]);
   expect(gates.find((g: any) => g.name === "open-high")).toMatchObject({ title: "No open high findings", origin: "builtin" });
   expect(gates.find((g: any) => g.name === "open-high").flows.sort()).toEqual(["demo-asked", "demo-review"]);
   const policy = await api.call("flow.part", { kind: "policy", name: "ask-todo" });

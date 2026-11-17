@@ -15,6 +15,7 @@
 //! kernel/def.rs       the definition (YAML) and its JSON Schema
 //! kernel/validate.rs  structural validation: every problem at once
 //! kernel/refs.rs      ${...} references and assertions
+//! kernel/output.rs    the output directory's template
 //! kernel/run.rs       the run record (snapshot + history) and its JSON Schema
 //! kernel/host.rs      what the host implements; events, work items, outcomes
 //! kernel/engine.rs    every operation: load → compute → commit against revs
@@ -24,6 +25,7 @@
 //! store.rs            MemStore, FileStore
 //! packs.rs            MemPacks, DirPacks (both can be writable)
 //! dryrun.rs           dry runs: the kernel in a sandbox, everything outside it mocked
+//! wire.rs             the module's own rows and params (`flow.start`, `flow.defs`)
 //! module/             the Harnix extension (feature `extension`, on by default): Flow, FlowHandle
 //! ```
 
@@ -33,35 +35,37 @@ pub mod kernel;
 pub mod module;
 pub mod packs;
 pub mod store;
+pub mod wire;
 
 pub use dryrun::{Mocks, Sandbox};
 pub use kernel::def::{
-    definition_schema, Assert, Executor, ExitCond, FlowDef, InputDef, MainSession,
-    OnUnmet, Retry, SessionBinding, Station, TaskSpec, Work, DEFAULT_REWORK_LIMIT,
+    definition_schema, Assert, Executor, ExitCond, FlowDef, Guard, InputDef, MainSession,
+    OnUnmet, Retry, SessionBinding, Station, TaskSpec, Work, DEFAULT_OUTPUT_DIR, DEFAULT_REWORK_LIMIT,
     MAIN_SESSION_KEY, MAX_REWORK_LIMIT,
 };
 pub use kernel::engine::{
-    view, CreateIn, Engine, DEFAULT_LEASE_MS, DEFAULT_RETRIES, MAX_LEASE_MS, MAX_SUBFLOW_DEPTH,
+    view, worktree_may_end, CreateIn, Engine, Prepared, DEFAULT_LEASE_MS, DEFAULT_RETRIES, MAX_LEASE_MS, MAX_SUBFLOW_DEPTH,
 };
 pub use kernel::host::{
     digest, AllowAll, Authorizer, Catalog, ChangeSet, Clock, Delivery, Event, FixedClock,
     GateResult, Gates, ManualClock, NoTools, Op, Origin, Outcome, Packs, Placement,
-    Programs, RunStore, StoreError, SystemClock, Tools, WorkItem, EVENT_KINDS,
+    Programs, RunStore, StoreError, SystemClock, Tools, Withheld, WorkItem, EVENT_KINDS,
 };
 pub use kernel::parts::{
-    glob, judge, part_schema, permissions_of, rules_of, Call, Effect, GateDef, GateKind, Granted,
+    glob, judge, judge_under, part_schema, permissions_of, rules_of, Call, Effect, GateDef, GateKind, Granted,
     HookDef, HookKind, PartKind, Permission, Pinned, PolicyDef, Verdict,
 };
 pub use kernel::protocol::{agent_tag, ask_rules, skill_body, STRUCTURED_OUTPUT_TOOL};
 pub use kernel::run::{
     run_schema, Actor, CheckRec, CheckStatus, ConfirmRec, ForcedRec, History, Lease, ParentRef,
     AskRec, PauseRec, Phase, RunQuery, RunRecord, RunStatus, RunSummary, RunView, StationRec,
-    StationStatus, TaskRec, TaskStatus, Usage, AGENT_KIND, DEVICE_KIND, FLOW_KIND,
+    StationStatus, TaskRec, TaskStatus, Trigger, Usage, Workspace, WorktreeEnd, WorktreeOutcome,
+    WorktreeRec, AGENT_KIND, DEVICE_KIND, FLOW_KIND,
 };
 pub use kernel::schema::minimal;
 pub use kernel::validate::{part_problems, validate, validate_yaml, Problem};
 pub use kernel::{FlowError, Result};
 #[cfg(feature = "extension")]
 pub use module::{builtin_scenes, Flow, FlowBuilder, FlowHandle};
-pub use packs::{DirPacks, MemPacks};
+pub use packs::{project_pack_dir, DirPacks, MemPacks, ProjectPacks, ProjectTrust};
 pub use store::{FileStore, Hooked, MemStore};

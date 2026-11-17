@@ -6,12 +6,14 @@
  * 会话组件只有一个：ChatPanel（对话 / 转录两种样子，其余靠配置）。SessionView 是它的一种配置。
  */
 
-export { HarnixUiProvider, useConnection, useHello, useHarnixClient, useSession, useStrings, type HarnixUiProviderProps } from "./context";
+export { HarnixUiProvider, useConnection, useHello, useHarnixClient, useSession, useStrings, useTurnOutline, type HarnixUiProviderProps } from "./context";
+export { TurnRail, TICK_SPACING, type TurnRailProps } from "./chat/TurnRail";
+export { TURN_NEXT, TURN_PREVIOUS, addTurnRail, currentTurnRail, registerTurnShortcuts, type TurnRailHandle } from "./chat/turnNav";
 export { ChatPanel, type ChatPanelProps } from "./chat/ChatPanel";
-export { ChatComposer, type Attached, type ChatComposerProps, type ComposerApi, type ModelOption } from "./chat/ChatComposer";
+export { ChatComposer, ContextRing, ringValue, type Attached, type ChatComposerProps, type ComposerApi, type ModelOption, type RingValue } from "./chat/ChatComposer";
 export { TranscriptList, type TranscriptListProps } from "./chat/TranscriptList";
 export { readDraft, writeDraft } from "./chat/drafts";
-export { Avatar, ComposerNote, DiffView, QueuedBubble, SegmentRow, TranscriptToolRow } from "./chat/messages";
+export { Avatar, ComposerNote, DiffView, QueuedBubble, SegmentRow, TranscriptToolRow, UnifiedDiffView } from "./chat/messages";
 export type { ContextRingConfig } from "./chat/ChatComposer";
 export {
   type ChatCommand,
@@ -38,20 +40,44 @@ export {
   toolArgs,
   toolDisplayName,
   toolSummary,
+  unifiedDiffRows,
+  type DiffRow,
   type NumberedDiffLine,
 } from "./chat/format";
 export { SessionView, type SessionViewProps } from "./components/SessionView";
 export { SessionList, type SessionListProps } from "./components/SessionList";
 export { ConnectionBadge } from "./components/ConnectionBadge";
+export { Bars, FigureTable, type Bar, type FigureColumn, type FigureTableProps } from "./components/Figures";
+export { ContextReport, FactList, originLabel, type ContextReportData } from "./components/ContextReport";
 export { BuiltinToolRow, Disclosure, STATUS_GLYPH, ToolDetails, argumentSummary, askedTool, clip, rowTitle, toolAsks, useToolState, type ToolAsks, type ToolRowContribution, type UserRowContribution } from "./components/blocks";
 export { lineDiff, hunks, type DiffLine } from "./diff";
 export { markdown, escapeHtml, type MarkdownOptions } from "./markdown";
-export { zhCN, en, uiStrings, type HarnixUiStrings } from "./strings";
+export { zhCN, en, uiStrings, explainError, type HarnixUiStrings } from "./strings";
 export { Icon } from "./chat/icons";
+export { DISPLAY_DEFAULTS, FONT_SIZE_RANGE, accepts as displayAccepts, applyTypography, display, setDisplay, subscribeDisplay, useDisplay, type BusyEnter, type Display, type LinkOpening, type UsageDetail } from "./display";
 export { GLYPHS, Glyph, glyphHtml, iconsFrom, toolGlyph } from "./glyph";
 export { rowKeys, useRoving, type Roving } from "./roving";
 export { ago, clock, compact, fileSize, megabytes, millis, since } from "./format";
-export { DialogBody, DialogFoot, SettingsReload, SettingsRow, SettingsSection, SettingsValue, useSettingsReload } from "./settings";
+export { DialogBody, DialogFoot, SettingsReload, SettingsRow, SettingsSection, SettingsValue, useSettingsReload, useSettingsVersion } from "./settings";
+export {
+  FieldForm,
+  FieldsSection,
+  checkField,
+  routeOf,
+  isRisky,
+  localFieldStore,
+  toolPattern,
+  type FieldColumn,
+  type FieldDecl,
+  type FieldDoc,
+  type FieldFormProps,
+  type FieldRisk,
+  type FieldRoute,
+  type FieldState,
+  type FieldStore,
+  type FieldType,
+  type LocalField,
+} from "./fields";
 export {
   focusables,
   isTop,
@@ -68,6 +94,7 @@ export {
   type UseLayer,
 } from "./layers";
 export { MenuBox, type MenuBoxProps } from "./menu";
+export { SetupStep, dismissSetupStep, resetSetupSteps, setupStepDismissed, setupStepState, useSetupStep, type SetupStepState } from "./setup";
 export {
   POINTS,
   Registry,
@@ -86,6 +113,7 @@ export {
   type CommandCandidate,
   type CommandContext,
   type Contributions,
+  type ConversationView,
   type DetailItem,
   type Point,
   type Refusal,
@@ -95,9 +123,55 @@ export {
   type SpaceTab,
   tabsOf,
 } from "./contrib";
-export { t, translate, useT, useLocale, setLocale, currentLocale, localeChoice, addStrings, DICTIONARIES, type Locale, type LocaleChoice, type Translate } from "./i18n/index";
+export {
+  RESOURCE_SCHEME,
+  SIDEBAR_PRIORITIES,
+  SIDEBAR_SCOPES,
+  TabInfoProvider,
+  candidates as sidebarCandidates,
+  claim as sidebarClaim,
+  effectiveTypes as sidebarTypes,
+  guideEntries as sidebarGuideEntries,
+  parseResource,
+  patternMatches,
+  priorityOf as sidebarPriorityOf,
+  resourceAddress,
+  typeOfKind as sidebarTypeOfKind,
+  useTabInfo,
+  type SidebarGuideEntry,
+  type SidebarOpenOptions,
+  type SidebarPriority,
+  type SidebarResourceOptions,
+  type SidebarScope,
+  type SidebarTabType,
+  type TabActions,
+  type TabInfo,
+} from "./sidebar";
+export {
+  SHORTCUT_SCOPES,
+  chordId,
+  chordOf,
+  defaultKeys,
+  keyLabel,
+  keysProblem,
+  parseKeys,
+  pickShortcut,
+  scopesOverlap,
+  shortcutConflicts,
+  shortcutPlatform,
+  writeKeys,
+  type Chord,
+  type ShortcutBinding,
+  type ShortcutCommand,
+  type ShortcutContext,
+  type ShortcutKeys,
+  type ShortcutPlatform,
+  type ShortcutScope,
+} from "./shortcuts";
+export { t, translate, useT, useLocale, setLocale, onLocaleChoice, currentLocale, localeChoice, addStrings, DICTIONARIES, type Locale, type LocaleChoice, type Translate } from "./i18n/index";
 export type { FlowBlockContribution } from "./chat/types";
 export {
+  CONVERSATION_VIEW,
   HostProvider,
   useCurrentSession,
   useHost,

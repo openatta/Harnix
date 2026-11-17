@@ -167,6 +167,79 @@
   color: var(--state-error);
 }
 
+/* The dot at the head of the session's name: what it is doing now. */
+#head .head-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  margin-right: 2px;
+  border-radius: 50%;
+  background: var(--label-caption);
+}
+
+#head .head-dot.running {
+  background: var(--state-info);
+}
+
+#head .head-dot.waiting {
+  background: var(--state-warn);
+}
+
+#head .head-dot.failed {
+  background: var(--state-error);
+}
+
+#head .head-dot.idle {
+  background: var(--state-success);
+}
+
+#head .meta .hx-cmp-ctx {
+  height: 24px;
+  padding: 0 5px;
+  color: var(--accent);
+}
+
+#head .meta .hx-cmp-ctx.hi {
+  color: var(--state-warn);
+}
+
+/* ── the centre's views: the conversation, or one a package registered ─── */
+
+.view-switch {
+  display: flex;
+  gap: 2px;
+  flex: none;
+  padding: 0 16px 6px;
+}
+
+.view-switch button {
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--label-secondary);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.view-switch button:hover {
+  background: var(--interactive-hover);
+}
+
+.view-switch button.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+#main > .centre-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 /* ── the conversation ──────────────────────────────────────────────────── */
 
 #main > .hx-chat {
@@ -174,6 +247,11 @@
   min-height: 0;
   height: auto;
   background: var(--bg-base);
+}
+
+/* Under another view: still on the page (attached, its composer bound), not drawn. */
+#main > .hx-chat.under-view {
+  display: none;
 }
 
 #main > .hx-chat .hx-msgs,
@@ -657,6 +735,39 @@
   display: none;
 }
 
+/* The projects space's offer to trust the open conversation's project, over its messages. */
+#main .trust-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--label-secondary);
+}
+
+#main .trust-banner > .glyph {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--state-warn);
+}
+
+#main .trust-banner .text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The trust dialog's list: a kind of setting, and what of it the project has. */
+.trust-list {
+  margin: 6px 0 10px;
+  padding-left: 18px;
+}
+
+.trust-list .sub {
+  margin-left: 6px;
+  color: var(--label-tertiary);
+  word-break: break-all;
+}
+
 /* "Deliver now" (`SpaceContribution.composer.steer`): on, it is the accent. */
 #main .hx-cmp .steer.on {
   color: var(--accent);
@@ -665,4 +776,14 @@
 
 #main .hx-cmp .steer:disabled {
   opacity: 0.45;
+}
+
+/* A tool row's argument that an action at `arg` opens (`ActionArg`): a link inside the row's toggle. */
+#main .hx-tool-arg.arg-link {
+  color: var(--accent);
+  cursor: pointer;
+}
+
+#main .hx-tool-arg.arg-link:hover {
+  text-decoration: underline;
 }

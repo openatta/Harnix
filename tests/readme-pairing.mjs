@@ -43,7 +43,12 @@ const HEADER = `# Bilingual-pair consistency record: the git blob hash of each s
 #   node tests/readme-pairing.mjs --write
 `;
 
-const FILES = ["README.md", "docs/README.zh-CN.md"];
+// Each pair is [English, Chinese]; the user guide is one more document in two languages.
+const PAIRS = [
+  ["README.md", "docs/README.zh-CN.md"],
+  ["user-guide/README.md", "user-guide/README.zh-CN.md"],
+];
+const FILES = PAIRS.flat();
 const current = Object.fromEntries(FILES.map((f) => [f, blob(f)]));
 
 if (write) {
@@ -53,25 +58,40 @@ if (write) {
 }
 
 const recorded = parse(readFileSync(record, "utf8"));
-const moved = FILES.filter((f) => recorded[f] !== current[f]);
-
-if (moved.length === FILES.length) {
-  ok("both READMEs moved together — re-record with --write once you have checked them");
-} else if (moved.length === 0) {
-  ok("READMEs match their recorded pair");
-} else {
-  const stale = FILES.filter((f) => !moved.includes(f));
-  fail(`${moved.join(", ")} changed but ${stale.join(", ")} did not — the pair has drifted`);
+for (const pair of PAIRS) {
+  const moved = pair.filter((f) => recorded[f] !== current[f]);
+  if (moved.length === pair.length) {
+    ok(`${pair[0]} and ${pair[1]} moved together — re-record with --write once you have checked them`);
+  } else if (moved.length === 0) {
+    ok(`${pair[0]} matches its recorded pair`);
+  } else {
+    const stale = pair.filter((f) => !moved.includes(f));
+    fail(`${moved.join(", ")} changed but ${stale.join(", ")} did not — the pair has drifted`);
+  }
 }
 
 // A structural check the hashes cannot make: each side must point at the other,
 // or the switcher is a dead end.
-const links = { "README.md": "(docs/README.zh-CN.md)", "docs/README.zh-CN.md": "(../README.md)" };
+const links = {
+  "README.md": "(docs/README.zh-CN.md)",
+  "docs/README.zh-CN.md": "(../README.md)",
+  "user-guide/README.md": "(README.zh-CN.md)",
+  "user-guide/README.zh-CN.md": "(README.md)",
+};
 for (const file of FILES) {
   const text = readFileSync(join(root, file), "utf8");
   if (!text.includes(links[file])) fail(`${file} has no link to its counterpart`);
   else ok(`${file} links to its counterpart`);
 }
+
+// The two guides must have the same shape: the same number of sections and tables.
+const shape = (file) => {
+  const text = readFileSync(join(root, file), "utf8");
+  return [(text.match(/^## /gm) || []).length, (text.match(/^\|---/gm) || []).length];
+};
+const [en, zh] = PAIRS[1].map(shape);
+if (en.join() !== zh.join()) fail(`user-guide sections/tables differ: ${en} vs ${zh}`);
+else ok(`user-guide has the same sections and tables in both languages (${en[0]} sections, ${en[1]} tables)`);
 
 // Images are shared between the two, so a missing one breaks both at once.
 const images = new Set();

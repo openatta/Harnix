@@ -1,6 +1,9 @@
 var HarnixExt = (function(exports) {
   "use strict";
   const PROTOCOL = "harnix-ui-bridge@2";
+  function pressChord(press) {
+    return [press.ctrl && "Ctrl", press.alt && "Alt", press.shift && "Shift", press.meta && "Meta", press.code].filter(Boolean).join("+");
+  }
   function shellKey(press) {
     const mod = press.meta || press.ctrl;
     if (press.key === "Escape" && !mod) return "escape";
@@ -272,7 +275,12 @@ var HarnixExt = (function(exports) {
         }
         const press = { key: event.key, code: event.code, meta: event.metaKey, ctrl: event.ctrlKey, shift: event.shiftKey, alt: event.altKey };
         const which = shellKey(press);
-        if (!which || which === "escape" && !inDialog(this.surface.point)) return;
+        if (which === "escape") {
+          if (!inDialog(this.surface.point)) return;
+        } else {
+          const keys = this.environment?.keys;
+          if (keys ? !keys.includes(pressChord(press)) : !which) return;
+        }
         event.preventDefault();
         event.stopImmediatePropagation();
         this.event("key", press);
@@ -492,6 +500,7 @@ var HarnixExt = (function(exports) {
   exports.connect = connect;
   exports.createMockHost = createMockHost;
   exports.inDialog = inDialog;
+  exports.pressChord = pressChord;
   exports.shellKey = shellKey;
   Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
   return exports;

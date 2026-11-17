@@ -68,6 +68,9 @@ pub mod first_party {
     #[cfg(feature = "flow")]
     pub use harnix_ext_flow::Flow;
 
+    #[cfg(feature = "schedule")]
+    pub use harnix_ext_schedule::Schedules;
+
     #[cfg(any(feature = "wasm", feature = "proc"))]
     pub use harnix_ext_packages::Packages;
 
@@ -104,17 +107,22 @@ pub mod first_party {
         standard().with(flow, FLOW_GRANTS)
     }
 
+    /// What the schedule extension is granted: listing the jobs models made in the engines and
+    /// deleting one (`docs/harnix-app.md` §9).
+    #[cfg(feature = "schedule")]
+    pub const SCHEDULE_GRANTS: [harnix_ext::Capability; 2] = harnix_ext_schedule::GRANTS;
+
     /// Every first-party extension, in the order they register: the flow extension is the
     /// product's to configure and add ([`standard_with_flow`]).
     pub fn standard() -> ExtensionSet {
         ExtensionSet::new()
-            .with(HarnixApp, [caps::TRANSCRIPTS_READ, caps::ENGINE_EXPORT])
+            .with(HarnixApp, [caps::TRANSCRIPTS_READ, caps::ENGINE_EXPORT, caps::ENGINE_CONTROL])
             .with(
                 System,
                 [caps::INSTANCES_ADMIN, caps::ENGINE_INSPECT, caps::ENGINE_CONTROL, caps::PROCESS_OBSERVE],
             )
             .with(Observability, [caps::RECORDINGS_READ])
-            .with(Settings, [caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE])
+            .with(Settings, [caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE, caps::ENGINE_MCP, caps::ENGINE_INSPECT])
             .with(Plugins::default(), [caps::ENGINE_PLUGINS])
             .with(Devices, [caps::DEVICES_MANAGE])
     }
@@ -152,7 +160,7 @@ impl App {
 pub use harnix_assembly::{AppBuilder, ExtensionSlot, ExtensionStatus, HARNIX_VERSION, SHUTDOWN_GRACE};
 pub use harnix_ext::{
     caps, codes, Access, Attachment, Call, Capability, CapabilitySpec, CredentialRef, Credentials, Entry,
-    EnvCredentials, ExtId, Extension, ExtensionContext, ExtensionSet, Manifest, MigrateContext, MigrationReport,
+    EnvCredentials, Exposure, ExtId, Extension, ExtensionContext, ExtensionSet, Manifest, MigrateContext, MigrationReport,
     OnBusy, Registrar, RowScope, RpcError, Secret, SendOptions, SessionRef, SessionSpec, SpaceDecl, Subject, Tap,
     TapEvent, CONTRIB_API_VERSION, EXT_API_VERSION, MAIN_INSTANCE, SETTLED_HELD, TAP_CAPACITY,
 };

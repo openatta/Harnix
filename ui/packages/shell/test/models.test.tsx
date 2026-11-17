@@ -11,7 +11,8 @@ import type { Hello } from "@harnix/core";
 import { openSettingsFor } from "../src/settings";
 import { scriptedApp, tick } from "./scripted";
 
-const hello = (engine: Hello["engine"]): Hello => ({ protocol_version: 1, contrib_api_version: 3, engine, scenes: [], commands: [] });
+// What these tests read of `hello`; the rest of the generated shape is not drawn here.
+const hello = (engine: Partial<Hello["engine"]>): Hello => ({ protocol_version: 1, contrib_api_version: 3, engine, scenes: [], commands: [] }) as unknown as Hello;
 
 afterEach(cleanup);
 
@@ -34,7 +35,7 @@ describe("models from hello", () => {
   it("are read again from hello when the settings close", async () => {
     const { app, client } = scriptedApp();
     app.set({ hello: hello({ model: "claude-x", providers: { providers: {}, default_provider: null } }) });
-    client.answer = (method) => (method === "harnix.hello" ? hello({ providers: { providers: { acme: { default_model: "m-1" } }, default_provider: "acme" } }) : {});
+    client.answer = (method) => (method === "harnix.hello" ? hello({ providers: { providers: { acme: { default_model: "m-1", models: [] } }, default_provider: "acme" } }) : {});
     openSettingsFor(app, "models");
     app.closeModal();
     await tick();

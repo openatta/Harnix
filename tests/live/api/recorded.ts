@@ -14,7 +14,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { SessionRow, TaskRow } from "@harnix/core/protocol";
-import { type Backend, type LaunchOptions, type TestClient, runTurn, sleep } from "@harnix/testkit";
+import { type Answerer, type Backend, type LaunchOptions, type TestClient, runTurn, sleep } from "@harnix/testkit";
 
 // With its extension: `record-fixture.mjs` loads this under plain `node`.
 import { SHOWCASE_ID, appsTools, showcasePackage } from "./packages-host.ts";
@@ -40,7 +40,17 @@ export interface Recorded {
    * request carries — so it is recorded here but not replayed strictly.
    */
   varies?: string;
+  /**
+   * How its asks are answered, made afresh for each play: a model's question, a plan's review. The
+   * recording follows from the answers it was made with; an ask this leaves alone is permitted.
+   */
+  answers?: () => Answerer;
 }
+
+/** The question `asks-a-question` makes the model put, and the answer it is recorded with. */
+export const QUESTION = { options: [{ key: "r", label: "red" }, { key: "b", label: "blue" }], answer: "b" };
+/** What `reviews-a-plan` asks of its first plan, before approving the second. */
+export const PLAN_FEEDBACK = "Name the file plan-fixture-2.txt instead.";
 
 const tool = (name: string) => `ext__example_showcase__${name}`;
 /** The `code` scene beside the default, as the suites that replay its tools run it. */
@@ -65,7 +75,13 @@ export const RECORDED: Recorded[] = [
     name: "spawns-agent",
     message:
       "Use the Agent tool exactly once to launch a general-purpose sub-agent with the description 'list files' and the prompt 'Run ls in the current directory and reply with the file names only.' When it returns, reply with one line: 'sub-agent found:' followed by the names.",
-  },  {
+  },
+  {
+    name: "writes-a-file",
+    message:
+      "Use the Write tool once, with file_path set to exactly the relative path notes.txt (just notes.txt, not an absolute path: it is resolved against the working directory) and content of exactly the line harnix-changes-fixture followed by a newline character. Then reply with exactly: written",
+  },
+  {
     name: "leaves-a-process",
     varies: "the Bash call prints the pid of the process it left",
     message: callThen('Use the Bash tool to run exactly: tail -f /dev/null >/dev/null 2>&1 & echo "PID=$!"', "started"),
@@ -86,6 +102,31 @@ export const RECORDED: Recorded[] = [
     tasks: true,
     message:
       "Use the TeamCreate tool exactly once to run a team named ui-team with one member labelled alpha, whose prompt is 'Say exactly: alpha here'. When the team is done, reply with exactly: Team done.",
+  },
+  {
+    name: "asks-a-question",
+    scene: "code",
+    profile: CODE,
+    message:
+      "Use the AskUserQuestion tool now to ask me which color to use, with the header Color and exactly two options: key r with the label red, and key b with the label blue. Do not answer in prose first. When I have answered, reply with exactly the label of the color I picked, and nothing else.",
+    answers: () => (event) =>
+      event.prompt_type === "question" ? { prompt_type: "question", answer: { type: "answer", text: QUESTION.answer } } : undefined,
+  },
+  {
+    name: "reviews-a-plan",
+    scene: "code",
+    profile: CODE,
+    options: { permission_mode: "plan" },
+    message:
+      "Plan, and do not implement yet: a file plan-fixture.txt in the project containing the one line harnix-plan. Use no tool but ExitPlanMode — do not look at the file system first. Present the plan in your reply as a short markdown list under the heading Plan, then call ExitPlanMode. If I ask for changes, present the revised plan the same way and call ExitPlanMode again. Once I approve, reply with exactly the two words: plan approved — nothing else, and write no file.",
+    answers: () => {
+      let reviewed = 0;
+      return (event) => {
+        if (event.tool_name !== "ExitPlanMode") return undefined;
+        reviewed += 1;
+        return reviewed === 1 ? { decision: { type: "deny", reason: PLAN_FEEDBACK } } : { decision: { type: "permit" } };
+      };
+    },
   },
   { name: "app-echo", scene: null, apps: true, message: callThen(`Use the ${tool("echo")} tool with the text showcase-echo-42.`, "The showcase said it back.") },
   { name: "app-count", scene: null, apps: true, message: callThen(`Use the ${tool("count")} tool with the key visits.`, "Counted.") },
@@ -141,7 +182,7 @@ ${entry.profile ?? ""}`,
 }
 
 /**
- * The recording's session, on `backend` through `api`: what the backend needs first (the showcase), then the session, its turn with every ask permitted, and — for one that
+ * The recording's session, on `backend` through `api`: what the backend needs first (the showcase), then the session, its turn with every ask permitted (or answered as `answers` says), and — for one that
  * starts something lasting — that, until it is done. Answers the session and the settlement.
  */
 export async function play(api: TestClient, entry: Recorded, recorder?: string): Promise<{ session_id: string; settled: any }> {
@@ -154,7 +195,7 @@ export async function play(api: TestClient, entry: Recorded, recorder?: string):
   });
   const session = { instance: "main", session_id: created.session_id };
   await api.call("harnix.session.attach", session);
-  const { settled } = await runTurn(api, session, entry.message, { timeout: 240_000 });
+  const { settled } = await runTurn(api, session, entry.message, { timeout: 240_000, answer: entry.answers?.() });
   if (entry.tasks) await tasksDone(api, session);
   return { session_id: created.session_id, settled };
 }

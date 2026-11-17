@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Disclosure, useT, type HostApi, type HostSessionRef as SessionKey } from "@harnix/react";
 
+import { stripAnsi } from "../ansi.ts";
 import { LIVE, OUTPUT_KEPT, STOP_ARM_MS, SYSTEM } from "../constants.ts";
 import { failureText } from "../failure.tsx";
 import { taskDuration, taskLabel } from "../format.ts";
@@ -172,6 +173,9 @@ function StopTask({ onStop }: { onStop: () => void }) {
   );
 }
 
+/** How far from the end (px) still counts as at the end. */
+const TAIL_SLACK = 8;
+
 /** One read of a task's output (`engine.session.taskOutput`): the bytes from `from_byte` to `next_byte`. */
 interface OutputSlice {
   output: string;
@@ -196,7 +200,7 @@ function fromByte(text: string, from: number): string {
  * read, after which the output is final. The session is attached claiming the system space for as
  * long as this is drawn, and detached after unless the page has it open elsewhere.
  */
-function TaskOutput({ host, params, task }: { host: HostApi; params: { instance: string; session_id: string }; task: Task }) {
+export function TaskOutput({ host, params, task }: { host: HostApi; params: { instance: string; session_id: string }; task: Task }) {
   const tr = useT();
   const [out, setOut] = useState<{ text: string; earlier: boolean; final: boolean } | null>(null);
   const [follow, setFollow] = useState(true);
@@ -206,6 +210,13 @@ function TaskOutput({ host, params, task }: { host: HostApi; params: { instance:
   useEffect(() => {
     if (follow && pre.current) pre.current.scrollTop = pre.current.scrollHeight;
   }, [out, follow]);
+  // Reading back stops the following; reaching the end again resumes it.
+  const scrolled = () => {
+    const el = pre.current;
+    if (!el) return;
+    const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight <= TAIL_SLACK;
+    setFollow((was) => (was === atEnd ? was : atEnd));
+  };
   useEffect(() => {
     let stopped = false;
     let next: number | null = null;
@@ -265,8 +276,8 @@ function TaskOutput({ host, params, task }: { host: HostApi; params: { instance:
           </label>
         ) : null}
       </div>
-      <pre className="hx-pre scroll" ref={pre} data-testid="task-output-text">
-        {out.text || tr("system.noOutput")}
+      <pre className="hx-pre scroll" ref={pre} data-testid="task-output-text" onScroll={scrolled}>
+        {stripAnsi(out.text) || tr("system.noOutput")}
       </pre>
     </div>
   );

@@ -1,7 +1,8 @@
 //! The run's main session — the flow's main Agent (xops-03 §1).
 //!
 //! It is opened when the run is created, where the flow's `main` places it (the module's main
-//! scene in the module's space by default), and recorded as the run's `@main` session key, so
+//! scene in the module's space by default) — in the run's project when the run is a task
+//! (`session_root`) — and recorded as the run's `@main` session key, so
 //! the session tasks bound to `main` and the sub-agent tasks take their turns in it (the shared
 //! session's lock, `run#@main`).
 //!
@@ -16,14 +17,15 @@
 
 use std::sync::Arc;
 
-use harnix_ext::{Entry, SessionRef, SessionSpec, TapEvent};
+use harnix_ext::{Entry, Exposure, SessionRef, SessionSpec, TapEvent};
 use serde_json::{json, Value};
 
 use super::dispatch::settle_quiet;
 use super::session::{place_at, SESSION_SETTINGS, TASK_PERMISSION_MODE};
 use super::shared::{session_name, session_ref, Binding, Shared};
 use crate::kernel::def::MAIN_SESSION_KEY;
-use crate::kernel::parts::{judge, Call, Effect, Verdict};
+use crate::kernel::def::Guard;
+use crate::kernel::parts::{judge_under, Call, Effect, Verdict};
 use crate::kernel::run::{RunRecord, Usage};
 
 /// The lock the main session's turns take (the shared-session lock of the `@main` key).
@@ -74,17 +76,7 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
     let (space, instance) = place_at(sh, &placement, run).await?;
     let wanted = main_settings(&scene, &placement, placement.template_instance(run).as_deref());
     let recording = sh.cfg.main_recording.as_ref().and_then(|f| f(&rec));
-    // A scene that needs a project works in a directory of the run's own.
-    let project_root = if sh.cfg.project_scenes.contains(&scene) {
-        let dir = engine
-            .workspace(run)
-            .unwrap_or_else(|| crate::kernel::refs::workspace_of(&cx.data_dir().join("workspaces"), run));
-        std::fs::create_dir_all(&dir).map_err(|e| format!("no workspace for the run: {e}"))?;
-        write_agent_type(&dir, &scene);
-        Some(dir)
-    } else {
-        None
-    };
+    let project_root = super::session::session_root(sh, &engine, &rec, &scene)?;
     let spec = SessionSpec::new()
         .space(&space)
         .scene(&scene)
@@ -100,6 +92,14 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
         .create(spec)
         .await
         .map_err(|e| format!("no main session: {}", e.message))?;
+    // A task started from where a project's sessions are listed is shown there too, to be talked
+    // to: the session stays the flow's, in the flow's space. A space the application does not
+    // have is the hub's to refuse; the run goes on, and the task opens from the flow's side.
+    if let Some(shown) = rec.show_in_space.as_deref().filter(|shown| *shown != space) {
+        if let Err(e) = cx.sessions().expose(&s, shown, Exposure::interactive()).await {
+            tracing::warn!(run, space = shown, error = %e.message, "the main session is not shown in the space the start named");
+        }
+    }
     let _ = cx
         .sessions()
         .append_entry(&s, Entry::new(SESSION_SETTINGS, wanted))
@@ -116,30 +116,22 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
     Ok(s)
 }
 
-/// The agent type a sub-agent station's sub-agent is when the station names none
-/// ([`crate::kernel::protocol::DEFAULT_AGENT_TYPE`]), written into the run's workspace
-/// (`.agix/agents/`, where the engine reads a project's agent types).
-///
-/// It runs on the wrapped scene's own scene (`flow-harnix` → `harnix`): a scene layer is not one of
-/// the engine's scenes. A sub-agent has the session's own tools, not the layer's added text.
-fn write_agent_type(workspace: &std::path::Path, main_scene: &str) {
-    let inner = main_scene.strip_prefix("flow-").unwrap_or(main_scene);
-    let dir = workspace.join(".agix").join("agents");
-    let body = format!(
-        "---\nname: {}\ndescription: Does one task of a flow run, handed over by the run's main \
-         agent\nscene: {inner}\n---\nYou do one task of a flow run, handed to you by the run's \
-         main agent. Do it, then reply with the result only.\n",
-        crate::kernel::protocol::DEFAULT_AGENT_TYPE
-    );
-    let ok = std::fs::create_dir_all(&dir).and_then(|_| {
-        std::fs::write(
-            dir.join(format!("{}.md", crate::kernel::protocol::DEFAULT_AGENT_TYPE)),
-            body,
-        )
-    });
-    if let Err(e) = ok {
-        tracing::warn!(error = %e, "the sub-agent type not written");
+/// The run whose main session this is (`flow.runOf`): the one watching it while it runs, else
+/// the newest run whose record names it; `None` for a session that is no run's main.
+pub(crate) async fn run_of_main(sh: &Arc<Shared>, instance: &str, session_id: &str) -> Option<String> {
+    let name = session_name(&SessionRef::new(instance, session_id));
+    if let Some(run) = sh.watched_run(session_id) {
+        return Some(run);
     }
+    let engine = sh.engine().ok()?;
+    for summary in engine.list(crate::kernel::run::RunQuery::default()).await.ok()? {
+        if let Ok(rec) = engine.record(&summary.id).await {
+            if rec.main_session() == Some(name.as_str()) {
+                return Some(rec.id);
+            }
+        }
+    }
+    None
 }
 
 /// The main session's name in the session list: the run's title, else its flow's and its id.
@@ -184,16 +176,25 @@ pub(crate) async fn watch(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: boo
 const CALLS_KEPT: usize = 64;
 
 async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: bool, mut tap: harnix_ext::Tap) {
-    // What it asks about (the pinned flow's), and where its project is: a question about any other
-    // tool is the engine's own, and a person's to answer; a path outside the project is a
-    // person's to allow.
-    let asked: Vec<String> = match sh.engine() {
+    // What it asks about (the pinned flow's), how the flow judges, and where the run works. Under
+    // `strict` a question about any other tool is the engine's own, and a person's to answer;
+    // under `auto` the engine's own questions of a task's turn (a write it holds back on its own:
+    // `.git`, outside the project) are answered by the same rules.
+    let (asked, judging) = match sh.engine() {
         Ok(e) => match e.record(run).await {
-            Ok(rec) => crate::kernel::parts::asked_tools(&rec.def, &rec.parts.policies, &sh.cfg.guarded),
+            Ok(rec) => (
+                crate::kernel::parts::asked_tools(&rec.def, &rec.parts.policies, &sh.cfg.guarded),
+                Judging {
+                    guard: rec.def.guard,
+                    workspace: e.workspace_for(&rec).and_then(|p| p.to_str().map(String::from)),
+                    root: None,
+                },
+            ),
             Err(_) => return,
         },
         Err(_) => return,
     };
+    // The session's project, else the run's directory: what a path is inside or outside of.
     let root: Option<String> = match sh.cx.get() {
         Some(cx) => cx
             .call("engine.session.get", json!({"instance": s.instance, "session_id": s.session_id}))
@@ -201,6 +202,10 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: bool, mut
             .ok()
             .and_then(|v| v.get("project_root").and_then(Value::as_str).map(String::from)),
         None => None,
+    };
+    let judging = Judging {
+        root: root.or_else(|| judging.workspace.clone()),
+        ..judging
     };
     // Turn → the task it was started for: read when the turn's first frame comes, while that
     // task is in hand (by its settlement it has often handed in and been let go).
@@ -298,7 +303,7 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: bool, mut
                     }
                     Some("prompt") => {
                         let tool = inner.get("tool_name").and_then(Value::as_str).unwrap_or_default();
-                        if !crate::kernel::parts::tool_matches(&asked, tool) {
+                        if !answers(&judging, &asked, inner) {
                             continue;
                         }
                         // The turn's task; a turn begun before this watch saw it (a restart, a lag)
@@ -315,7 +320,7 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: bool, mut
                         }
                         .map(|(_, _, v)| v.clone());
                         if let Some(b) = owner {
-                            let asked_person = answer(sh, s, inner, input.as_ref(), root.as_deref(), &b).await;
+                            let asked_person = answer(sh, s, inner, input.as_ref(), &judging, &b).await;
                             if asked_person {
                                 let key = call_id
                                     .or_else(|| inner.get("prompt_id").and_then(Value::as_str))
@@ -403,24 +408,46 @@ async fn count(sh: &Arc<Shared>, run: &str, task: Option<(String, String)>, u: U
     settle_quiet(sh, run, r).await;
 }
 
+/// How a session's questions are judged, from its run: the flow's guard, where the run works
+/// (`${workspace}`, what relative path patterns are taken under) and what a path must be inside —
+/// the session's project, else the run's directory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Judging {
+    pub guard: Guard,
+    pub workspace: Option<String>,
+    pub root: Option<String>,
+}
+
+/// Whether the module answers a question of a task's turn: one about a tool the flow asks about;
+/// under `auto` every permission question (the engine's own too). A question for words (the
+/// model's, an MCP server's) is never the module's.
+pub(crate) fn answers(j: &Judging, asked: &[String], prompt: &Value) -> bool {
+    let permission = prompt
+        .get("prompt_type")
+        .and_then(Value::as_str)
+        .is_none_or(|t| t == "permission");
+    let tool = prompt.get("tool_name").and_then(Value::as_str).unwrap_or_default();
+    permission && (j.guard == Guard::Auto || crate::kernel::parts::tool_matches(asked, tool))
+}
+
 /// What becomes of a question about a call of a task's turn: its permissions judge it.
-pub(crate) fn verdict(sh: &Shared, b: &Binding, prompt: &Value, input: Option<&Value>, root: Option<&str>) -> Verdict {
+pub(crate) fn verdict(sh: &Shared, b: &Binding, prompt: &Value, input: Option<&Value>, j: &Judging) -> Verdict {
     let tool = prompt.get("tool_name").and_then(Value::as_str).unwrap_or("");
     let paths: Vec<String> = prompt
         .get("paths")
         .and_then(Value::as_array)
         .map(|a| a.iter().filter_map(|p| p.as_str().map(String::from)).collect())
         .unwrap_or_default();
-    let ws = sh.engine().ok().and_then(|e| e.workspace(&b.run));
-    judge(
+    judge_under(
+        j.guard,
         &b.permissions,
         &sh.cfg.guarded,
         &Call {
             tool,
             input,
             paths: &paths,
-            workspace: ws.as_ref().and_then(|p| p.to_str()),
-            root,
+            workspace: j.workspace.as_deref(),
+            root: j.root.as_deref(),
         },
         &b.station,
     )
@@ -442,7 +469,7 @@ async fn answer(
     s: &SessionRef,
     prompt: &Value,
     input: Option<&Value>,
-    root: Option<&str>,
+    j: &Judging,
     b: &Binding,
 ) -> bool {
     let Some(cx) = sh.cx.get() else {
@@ -451,7 +478,7 @@ async fn answer(
     let Some(id) = prompt.get("prompt_id").and_then(Value::as_str) else {
         return false;
     };
-    let v = verdict(sh, b, prompt, input, root);
+    let v = verdict(sh, b, prompt, input, j);
     let Some(d) = decision(&v) else {
         let tool = prompt.get("tool_name").and_then(Value::as_str).unwrap_or("").to_string();
         if let Ok(engine) = sh.engine() {
@@ -499,5 +526,18 @@ mod tests {
             Some(json!({"type": "deny", "reason": "station s does not allow Bash"}))
         );
         assert_eq!(decision(&v(Effect::Ask, "a nod")), None);
+    }
+
+    #[test]
+    fn under_auto_every_permission_question_of_a_task_is_answered_and_under_strict_only_the_asked_ones() {
+        let asked = vec!["Write".to_string()];
+        let j = |guard| Judging { guard, workspace: None, root: None };
+        let about = |tool: &str| json!({"kind": "prompt", "prompt_type": "permission", "tool_name": tool});
+        assert!(answers(&j(Guard::Strict), &asked, &about("Write")));
+        assert!(!answers(&j(Guard::Strict), &asked, &about("Read")), "the engine's own: a person's");
+        assert!(answers(&j(Guard::Auto), &asked, &about("Read")));
+        assert!(answers(&j(Guard::Auto), &asked, &json!({"kind": "prompt", "tool_name": "Glob"})));
+        let question = json!({"kind": "prompt", "prompt_type": "question", "tool_name": "AskUserQuestion"});
+        assert!(!answers(&j(Guard::Auto), &asked, &question), "words are never the module's");
     }
 }

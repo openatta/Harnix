@@ -42,8 +42,14 @@ describe("dictionaries", () => {
 describe("the conversation components' table", () => {
   it("is read from the dictionaries' chat.* keys, in each language, with no key left showing", () => {
     for (const table of [uiStrings("en"), uiStrings("zh-CN")]) {
-      const said = Object.values(table).map((v) => (typeof v === "function" ? (v as (...a: unknown[]) => string)("x", "y") : v));
+      // `explainFailure` answers nothing for a class it has no words for; it is read below.
+      const said = Object.entries(table).filter(([k]) => k !== "explainFailure").map(([, v]) => v).map((v) => (typeof v === "function" ? (v as (...a: unknown[]) => string)("x", "y") : v));
       expect(said.filter((v) => typeof v !== "string" || v.includes("chat."))).toEqual([]);
+    }
+    for (const [table, key] of [[uiStrings("en"), "en"], [uiStrings("zh-CN"), "zh-CN"]] as const) {
+      expect(table.explainFailure("auth", { raw: "" })).toBe(DICTIONARIES[key]["chat.fail.auth"]);
+      expect(table.explainFailure("rate_limited", { raw: "", retryAfterMs: 2100 })).toContain("3");
+      expect(table.explainFailure("nope" as never, { raw: "" })).toBeUndefined();
     }
     expect(en.permAllowOnce).toBe(DICTIONARIES.en["chat.permAllowOnce"]);
     expect(zhCN.permAllowOnce).toBe(DICTIONARIES["zh-CN"]["chat.permAllowOnce"]);

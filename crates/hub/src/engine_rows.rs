@@ -9,6 +9,7 @@
 use std::sync::Arc;
 
 use harnix_contract::sync::lock;
+use harnix_contract::wire::{self, AskAnswered, RespondParams};
 use harnix_contract::{codes, RpcError, Subject};
 use harnix_engine_link::ops::SessionInfo;
 use harnix_contract::s1::{caps, Capability, RowScope};
@@ -16,7 +17,7 @@ use harnix_kernel::{Access, CallContext, Owner, Rpc};
 use serde_json::{json, Value};
 
 use crate::rows::{answer, HubCell, HubRow};
-use crate::{without_instance, Hub, ANSWERERS_KEPT};
+use crate::{without_instance, Hub, SessionKey, ANSWERERS_KEPT};
 
 /// What the hub does once the engine has answered.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -34,6 +35,8 @@ enum After {
     SceneList,
     /// The call is about one scene: a scene layer is asked of as its base, and answered as itself.
     OneScene,
+    /// The answer lists the session's entries: the changes of turns a rewind took out are left out.
+    Entries,
 }
 
 /// The engine's scene list, as the hub's row names it.
@@ -45,7 +48,7 @@ const DEVICE: &[(&str, RowScope, After, bool)] = &[
     ("engine.session.list", RowScope::Space, After::Sessions, false),
     ("engine.session.get", RowScope::Session, After::OneSession, false),
     ("engine.session.history", RowScope::Session, After::Nothing, false),
-    ("engine.session.entries", RowScope::Session, After::Nothing, false),
+    ("engine.session.entries", RowScope::Session, After::Entries, false),
     ("engine.session.resume", RowScope::Session, After::Nothing, false),
     (SCENE_LIST, RowScope::Open, After::SceneList, false),
     ("engine.scene.describe", RowScope::Open, After::OneScene, false),
@@ -58,9 +61,9 @@ const DEVICE: &[(&str, RowScope, After, bool)] = &[
     ("engine.daemon.doctor", RowScope::Open, After::Nothing, false),
 ];
 
-/// The capabilities over an engine's settings and plugins: what no row reaches on an extension's
-/// engine.
-const SETTINGS: &[Capability] = &[caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE, caps::ENGINE_PLUGINS];
+/// The capabilities over an engine's settings, plugins and MCP servers: what no row reaches on an
+/// extension's engine.
+const SETTINGS: &[Capability] = &[caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE, caps::ENGINE_PLUGINS, caps::ENGINE_MCP];
 
 /// What no device calls directly, open to the kernel and an extension holding the capability:
 /// looking into a session and changing its context (a device reaches those through the system
@@ -94,6 +97,32 @@ const BY_CAPABILITY: &[(&str, Capability, After)] = &[
     ("engine.plugin.reload", caps::ENGINE_PLUGINS, After::Nothing),
 ];
 
+/// The engine's context requests: it takes one at a time for a session and refuses another that
+/// comes while one is under way (`SESSION_BUSY`, reason `context_operation`). Two readers of a
+/// session's context — the right column's context tab reads it twice, the system space once more —
+/// are not a conflict, so the hub sends them one after the other rather than let one be refused.
+/// A turn still refuses them while it runs: that is the engine's to say.
+const CONTEXT_REQUESTS: &[&str] = &["engine.session.inspectContext", "engine.session.dropMessages", "engine.session.editMessage"];
+
+/// A project's trust: whether its own hooks, MCP servers, looser settings, agent types and skills
+/// are in force (`docs/harnix-app.md` §3). Read and written by an extension holding
+/// `engine.control` — a device decides through the projects space's own methods, which say what
+/// they are doing. Trust is kept in the engine's global settings, so an extension's engine refuses
+/// it as it refuses its settings.
+const PROJECT_TRUST: &[(&str, Capability)] = &[
+    ("engine.project.status", caps::ENGINE_CONTROL),
+    ("engine.project.trust", caps::ENGINE_CONTROL),
+];
+
+/// The engine's own schedule: jobs a model made with its cron tools, each a turn in its session,
+/// in UTC (`docs/harnix-app.md` §9). Read by an extension holding `engine.inspect`, a job deleted by
+/// one holding `engine.control`; a device sees and deletes them through the extension that lists
+/// them beside its own schedules. Nobody makes one through here: making them is the model's.
+const ENGINE_SCHEDULE: &[(&str, Capability)] = &[
+    ("engine.schedule.list", caps::ENGINE_INSPECT),
+    ("engine.schedule.delete", caps::ENGINE_CONTROL),
+];
+
 /// The engine methods that change credentials, repoint model endpoints, or hand the caller the
 /// process itself. Refused to devices always, with the reason written out — the engine trusts
 /// whoever reaches its dispatch, and in this process that is the hub (concept §3.4). The kernel may
@@ -107,6 +136,8 @@ const BY_CAPABILITY: &[(&str, Capability, After)] = &[
 ///
 /// `engine.mcp.addServer` stays refused, and the difference is the point: it configures a
 /// subprocess-spawning tool with no manifest, no capability declaration and no disclosure at all.
+/// A device adds one through the `settings` extension, which holds `engine.mcp` and says what it
+/// does; the same goes for changing one and for signing in to one.
 pub const ENGINE_REFUSALS: &[(&str, &str, Option<Capability>)] = &[
     (
         "engine.config.setProvider",
@@ -128,9 +159,21 @@ pub const ENGINE_REFUSALS: &[(&str, &str, Option<Capability>)] = &[
         "adding an MCP server is equivalent to installing a tool that runs subprocesses",
         Some(caps::ENGINE_MCP),
     ),
+    (
+        "engine.mcp.updateServer",
+        "changing an MCP server is equivalent to installing a tool that runs subprocesses",
+        Some(caps::ENGINE_MCP),
+    ),
+    ("engine.mcp.auth.start", MCP_SIGN_IN, Some(caps::ENGINE_MCP)),
+    ("engine.mcp.auth.complete", MCP_SIGN_IN, Some(caps::ENGINE_MCP)),
+    ("engine.mcp.auth.cancel", MCP_SIGN_IN, Some(caps::ENGINE_MCP)),
+    ("engine.mcp.auth.logout", MCP_SIGN_IN, Some(caps::ENGINE_MCP)),
     ("engine.import.run", "config import runs outside the disclosure this layer is for", None),
     ("engine.import.list", "config import runs outside the disclosure this layer is for", None),
 ];
+
+/// Why a device does not sign in to an MCP server on the engine directly.
+const MCP_SIGN_IN: &str = "an MCP server's sign-in hands its tokens to the engine: it goes through the settings page, which says which server";
 
 /// What the hub owns. Refused to everyone, the kernel and every module included, and never
 /// grantable: each is a way around the hub, and the hub being the only holder of sessions is the
@@ -191,6 +234,15 @@ pub(crate) fn rows(hub: &HubCell) -> Vec<HubRow> {
             access: Access::device().with_extensions().scoped(RowScope::Session),
             handler: Some(answer(hub, "harnix.session.fork", true, |h, cx, p| async move { h.fork(&cx.subject, p).await })),
         },
+        // A session bundle installed as new sessions in the space the call claims. An extension
+        // holding `engine.export` acts for a device: the bundle's path is what the extension
+        // checked, not what a device said.
+        HubRow::Method {
+            name: "harnix.session.import",
+            owner: Owner::Kernel(harnix_kernel::KernelPart::Hub),
+            access: Access::capability(caps::ENGINE_EXPORT).scoped(RowScope::Space),
+            handler: Some(answer(hub, "harnix.session.import", false, |h, cx, p| async move { h.import(&cx, p).await })),
+        },
         // A session's own prompt text, behind its scene layer's: changed as its context is, by
         // whoever holds `engine.control` (a device through the system space).
         HubRow::Method {
@@ -198,6 +250,14 @@ pub(crate) fn rows(hub: &HubCell) -> Vec<HubRow> {
             owner: Owner::Kernel(harnix_kernel::KernelPart::Hub),
             access: Access::capability(caps::ENGINE_CONTROL).scoped(RowScope::Session),
             handler: Some(answer(hub, "harnix.session.setPrompt", true, |h, _, p| async move { h.set_prompt(p).await })),
+        },
+        // Files, conversation or both back to an earlier point: a person decides it about a session
+        // of the space they are in; an extension acts for one holding `engine.control`.
+        HubRow::Method {
+            name: "harnix.session.rewind",
+            owner: Owner::Kernel(harnix_kernel::KernelPart::Hub),
+            access: Access::device_or_capability(caps::ENGINE_CONTROL).scoped(RowScope::Session),
+            handler: Some(answer(hub, "harnix.session.rewind", true, |h, cx, p| async move { h.rewind(&cx, p).await })),
         },
         HubRow::Method {
             name: "harnix.session.respond",
@@ -216,6 +276,14 @@ pub(crate) fn rows(hub: &HubCell) -> Vec<HubRow> {
         let scope = if on_a_session { RowScope::Session } else { RowScope::Open };
         let through = Through { after: *after, checked: false, settings: SETTINGS.contains(cap) };
         engine(hub, name, Access::capability(cap.clone()).scoped(scope), through)
+    }));
+    rows.extend(PROJECT_TRUST.iter().map(|(name, cap)| {
+        let through = Through { after: After::Nothing, checked: false, settings: true };
+        engine(hub, name, Access::capability(cap.clone()), through)
+    }));
+    rows.extend(ENGINE_SCHEDULE.iter().map(|(name, cap)| {
+        let through = Through { after: After::Nothing, checked: false, settings: false };
+        engine(hub, name, Access::capability(cap.clone()), through)
     }));
     rows.extend(ENGINE_REFUSALS.iter().map(|(name, why, cap)| {
         let access = match cap {
@@ -248,13 +316,18 @@ impl Hub {
                 format!("instance `{instance}` runs an extension's engine: its settings and plugins are its carrier's, and nobody's to change"),
             ));
         }
+        let session = params.get("session_id").and_then(Value::as_str).map(str::to_string);
         // An instance that is some spaces' is theirs and the system space's, whatever the row —
-        // one open to any space included: before anything reaches it, or wakes it.
+        // one open to any space included: before anything reaches it, or wakes it. A session
+        // exposed to the claimed space is reached on its instance as from its own space: the
+        // space check (before this) already held the call to what the exposure allows.
         if let Some(slot) = self.slot(&instance) {
             let (space, crosses) = self.claim_of(&params);
-            crate::spaces::may_use(&slot, cx, &space, crosses)?;
+            let exposed = through.checked && session.as_ref().is_some_and(|sid| self.exposed_to(&(instance.clone(), sid.clone()), &space));
+            if !exposed {
+                crate::spaces::may_use(&slot, cx, &space, crosses)?;
+            }
         }
-        let session = params.get("session_id").and_then(Value::as_str).map(str::to_string);
         // A caller that claimed a space is told of that space's sessions only: the engine lists
         // every one, whoever's it is.
         let held = (through.after == After::Sessions).then(|| self.held_space(&params)).flatten();
@@ -263,13 +336,20 @@ impl Hub {
             After::OneScene => crate::scenes::about_one(&layers, params),
             _ => (params, None),
         };
-        let mut answer = linked.ops().passthrough(method, without_instance(params)).await?;
+        let one = match &session {
+            Some(sid) if CONTEXT_REQUESTS.contains(&method) => Some(self.context_request(&(instance.clone(), sid.clone())).await),
+            _ => None,
+        };
+        let answered = linked.ops().passthrough(method, without_instance(params)).await;
+        drop(one);
+        let mut answer = answered?;
         if extension {
             harden(&mut answer, through.after);
         }
         match (through.after, &layer) {
             (After::OneScene, Some(layer)) => answer = crate::scenes::one_described(layer, answer),
             (After::SceneList, _) => answer = crate::scenes::listed(&layers, answer),
+            (After::Entries, _) => crate::changes::drop_rewound(&mut answer),
             (After::OneSession, _) => {
                 if let Some(sid) = answer.get("session_id").and_then(Value::as_str).map(str::to_string) {
                     lock(&self.spaces).decorate(&(instance.clone(), sid), &mut answer);
@@ -279,9 +359,10 @@ impl Hub {
         }
         if let (Some(space), Some(Value::Array(rows))) = (held, answer.get_mut("sessions")) {
             self.home_of(&instance);
+            let spaces = lock(&self.spaces);
             rows.retain(|row| {
                 let sid = row.get("session_id").and_then(Value::as_str).unwrap_or_default();
-                self.space_known(&(instance.clone(), sid.to_string())) == space
+                spaces.visible_in(&(instance.clone(), sid.to_string()), &space)
             });
         }
         if let (After::Sessions, Some(Value::Array(rows))) = (through.after, answer.get_mut("sessions")) {
@@ -293,7 +374,7 @@ impl Hub {
             }
         }
         match through.after {
-            After::Nothing | After::OneSession | After::Sessions | After::SceneList | After::OneScene => {}
+            After::Nothing | After::OneSession | After::Sessions | After::SceneList | After::OneScene | After::Entries => {}
             After::Goal => {
                 if let (Some(goal), Some(session)) = (answer.get("goal"), session) {
                     self.goal_heard(&(instance.clone(), session), goal.clone()).await;
@@ -301,6 +382,69 @@ impl Hub {
             }
             After::Relisted => self.refresh("harnix.instances.sessions", json!({"instance": instance})),
         }
+        Ok(answer)
+    }
+
+    /// The session's turn at the engine for a context request (`CONTEXT_REQUESTS`), held until the
+    /// guard drops. A session's lock is let go of here once nobody holds or waits for it.
+    async fn context_request(&self, key: &SessionKey) -> tokio::sync::OwnedMutexGuard<()> {
+        let one = {
+            let mut held = lock(&self.context_requests);
+            held.retain(|_, one| Arc::strong_count(one) > 1);
+            held.entry(key.clone()).or_default().clone()
+        };
+        one.lock_owned().await
+    }
+
+    /// `harnix.session.import {path, space?, project_root?}`: the bundle at `path` becomes new
+    /// sessions, the root and its sub-agents', all in the space the call claims, started by a
+    /// person (not by Harnix). `project_root` is passed on only when given: left out, the engine
+    /// uses the bundle's own, and a bundle whose project is not on this machine is imported with
+    /// no project — what the engine cannot honestly place is not placed in a guess.
+    pub(crate) async fn import(self: &Arc<Self>, cx: &CallContext, mut params: Value) -> Rpc<Value> {
+        crate::refuse_hub_owned_options(&params)?;
+        let path = params
+            .get("path")
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError::invalid_params("missing path"))?
+            .to_string();
+        let space = self.place(cx, &mut params).await?;
+        let instance = self.instance_of(&params)?;
+        let linked = self.engine(&instance)?;
+        let mut ask = json!({"path": path});
+        if let Some(root) = params.get("project_root") {
+            ask["project_root"] = root.clone();
+        }
+        let mut warnings = Vec::new();
+        let mut answer = match linked.ops().passthrough("engine.session.import", ask.clone()).await {
+            Err(e) if params.get("project_root").is_none() && e.code == codes::INVALID_PARAMS && e.message.contains("project_root") => {
+                ask["project_root"] = Value::Null;
+                warnings.push(json!("the bundle's project is not on this machine; imported with no project"));
+                linked.ops().passthrough("engine.session.import", ask).await?
+            }
+            other => other?,
+        };
+        let ids: Vec<String> = answer
+            .get("sessions")
+            .and_then(Value::as_array)
+            .map(|rows| rows.iter().filter_map(|r| r.get("session_id").and_then(Value::as_str).map(str::to_string)).collect())
+            .unwrap_or_default();
+        if !space.is_empty() {
+            for sid in &ids {
+                self.bind_space(&(instance.clone(), sid.clone()), &space);
+            }
+        }
+        if let Some(obj) = answer.as_object_mut() {
+            if !warnings.is_empty() {
+                let all = obj.entry("warnings").or_insert_with(|| json!([]));
+                if let Some(all) = all.as_array_mut() {
+                    all.extend(warnings);
+                }
+            }
+            obj.insert("instance".into(), json!(instance));
+            obj.insert("space".into(), json!(space));
+        }
+        self.refresh("harnix.instances.sessions", json!({"instance": instance}));
         Ok(answer)
     }
 
@@ -330,28 +474,40 @@ impl Hub {
         Ok(value)
     }
 
-    /// `harnix.session.respond`: the engine does not take who answered, so the hub keeps it for
-    /// the tool's audit (`harnix.session.answerer`), and tells the session's watchers the ask is
-    /// answered.
+    /// `harnix.session.respond`: the answer is checked against the kind of ask it is for. The
+    /// engine does not take who answered, so the hub keeps it for the tool's audit
+    /// (`harnix.session.answerer`), tells the session's watchers the ask is answered, and — for the
+    /// first answer — what the answer was.
     async fn respond(self: &Arc<Self>, subject: &Subject, mut params: Value) -> Result<Value, RpcError> {
+        let given: RespondParams =
+            serde_json::from_value(params.clone()).map_err(|e| RpcError::invalid_params(format!("harnix.session.respond: {e}")))?;
+        let kind = given.check()?;
         let tool_use = params.as_object_mut().and_then(|o| o.remove("tool_use_id"));
-        if let (Subject::Device { id }, Some(Value::String(tool_use)), Some(session)) =
-            (subject, tool_use, params.get("session_id").and_then(Value::as_str))
-        {
+        if let (Subject::Device { id }, Some(Value::String(tool_use))) = (subject, tool_use) {
             let mut kept = lock(&self.answerers);
             if kept.len() == ANSWERERS_KEPT {
                 kept.pop_front();
             }
-            kept.push_back(((session.to_string(), tool_use), format!("device:{id}")));
+            kept.push_back(((given.session_id.clone(), tool_use), format!("device:{id}")));
         }
         let instance = self.instance_of(&params)?;
-        let field = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_string);
-        let prompt = field("session_id").zip(field("prompt_id"));
-        let answer = self.engine(&instance)?.ops().respond(without_instance(params)).await?;
-        if let Some((session, prompt_id)) = prompt {
-            self.answered(&(instance.clone(), session), |p| p.prompt_id.as_deref() == Some(prompt_id.as_str()))
-                .await;
+        let engine = self.engine(&instance)?;
+        let key = (instance.clone(), given.session_id.clone());
+        let first = crate::session::claim_ask(&self.inner, &key, &given.prompt_id).await;
+        let answer = engine.ops().respond(without_instance(params)).await;
+        if first {
+            crate::session::release_ask(&self.inner, &key, &given.prompt_id).await;
         }
+        let answer = answer?;
+        if first {
+            let by = match subject {
+                Subject::Extension { id } => Some(id.to_string()),
+                _ => None,
+            };
+            let told = wire::params(&AskAnswered::new(&given, kind, by));
+            crate::session::tell_answered(&self.inner, &key, told, self.is_extension(&instance)).await;
+        }
+        self.answered(&key, |p| p.prompt_id.as_deref() == Some(given.prompt_id.as_str())).await;
         Ok(answer)
     }
 }
@@ -371,5 +527,61 @@ fn harden(answer: &mut Value, after: After) {
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod context_request_tests {
+    use super::*;
+    use std::time::Duration;
+
+    use harnix_kernel::{InstanceBook, Listed};
+
+    use crate::{HubConfig, Spaces};
+
+    struct Book;
+
+    #[async_trait::async_trait]
+    impl InstanceBook for Book {
+        fn listed(&self, _: &str) -> Option<Listed> {
+            None
+        }
+        fn all(&self) -> Vec<Listed> {
+            Vec::new()
+        }
+        async fn ensure_for_space(&self, _: &str, _: &str, _: &str) -> Rpc<()> {
+            Ok(())
+        }
+        fn flooding(&self, _: &str, _: u32) {}
+    }
+
+    /// Two context requests of one session reach the engine one after the other — the second is
+    /// not refused for the first — while another session's go on beside them; a session's lock is
+    /// gone from the hub once nobody holds or waits for it.
+    #[tokio::test]
+    async fn a_sessions_context_requests_go_one_at_a_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let spaces = Spaces::load(dir.path().join("spaces.json"), Vec::new(), Default::default()).unwrap();
+        let hub = Hub::new(HubConfig { instances: Arc::new(Book), spaces, turns: Default::default() });
+        let one: SessionKey = ("main".into(), "s1".into());
+        let first = hub.context_request(&one).await;
+
+        let other = tokio::time::timeout(Duration::from_secs(1), hub.context_request(&("main".into(), "s2".into()))).await;
+        assert!(other.is_ok(), "another session's request waited for this one's");
+        drop(other);
+
+        let second = tokio::spawn({
+            let (hub, one) = (hub.clone(), one.clone());
+            async move {
+                let _held = hub.context_request(&one).await;
+            }
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!second.is_finished(), "the second request went on while the first was with the engine");
+        drop(first);
+        tokio::time::timeout(Duration::from_secs(1), second).await.expect("the second request never went on").unwrap();
+
+        let _third = hub.context_request(&("main".into(), "s3".into())).await;
+        assert_eq!(lock(&hub.context_requests).len(), 1, "the locks nobody held were kept");
     }
 }

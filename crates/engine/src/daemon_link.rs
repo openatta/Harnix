@@ -553,6 +553,10 @@ impl EngineControl for DaemonLink {
         self.wire.host.layers().clone()
     }
 
+    fn host_hooks(&self) -> Vec<harnix_engine_link::HostHook> {
+        self.wire.host.registered_hooks()
+    }
+
     async fn reload_settings(&self) -> Result<(), RpcError> {
         Rpc::call(&*self.wire, translate::CONFIG_RELOAD, json!({})).await.map(|_| ())
     }

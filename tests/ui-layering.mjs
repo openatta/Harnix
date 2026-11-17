@@ -17,7 +17,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const packages = join(root, "ui", "packages");
 
 // The first-party UI packages: a space or a part of the system space, each its own package.
-const FIRST_PARTY = ["flow", "system", "harnix-app", "settings", "plugins", "devices", "packages", "observability"];
+const FIRST_PARTY = ["flow", "system", "harnix-app", "settings", "plugins", "devices", "packages", "observability", "schedule"];
 const SPACE_IDS = ["system", "sessions", "projects", "flow", "harnix-app"];
 const PRIVATE = ["__client", "__chain", "app.client", "onNotify", "FRAME_HUB"];
 const ALLOWED_IMPORTS = ["react", "react-dom", "react/jsx-runtime", "@harnix/react", "@harnix/core"];
@@ -44,8 +44,8 @@ function code(text) {
 }
 
 // `import … from "x"`, `export … from "x"`, `import "x"` and `import("x")`: not any `from` or
-// `import(` that happens to sit before a string (`t("packages.from", …`).
-const IMPORT = /\b(?:(?:import|export)\b[^;"'`]*?\bfrom\s*|import\s*\(?\s*)["']([^"']+)["']/g;
+// `import(` that happens to sit before a string (`t("packages.from", …`), or a name that ends in `import` (`"harnix-app.sessions.import"`).
+const IMPORT = /(?<![\w.-])(?:(?:import|export)\b[^;"'`]*?\bfrom\s*|import\s*\(?\s*)["']([^"']+)["']/g;
 
 const imports = (text) =>
   [...text.matchAll(IMPORT)].map((m) => m[1]).filter((spec) => !spec.startsWith("."));

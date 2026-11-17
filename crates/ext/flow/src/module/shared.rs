@@ -120,6 +120,12 @@ pub(crate) struct Shared {
     pub hook_status: Mutex<BTreeMap<String, serde_json::Value>>,
     /// Each hook's delivery queue.
     pub hook_queues: super::hooks::Queues,
+    /// Whether projects are trusted, as last heard from the engine: a project's own packs are
+    /// read only while it is.
+    pub projects: Arc<crate::packs::ProjectTrust>,
+    /// The project each authoring conversation works in, when it has one: `(instance,
+    /// session_id)` → project root. Bounded by [`FOCUS_KEPT`].
+    conversation_projects: Mutex<HashMap<(String, String), String>>,
 }
 
 /// How many runs' sub-agents are remembered.
@@ -157,6 +163,35 @@ impl Shared {
             sent: Mutex::new(HashMap::new()),
             hook_status: Mutex::new(BTreeMap::new()),
             hook_queues: Default::default(),
+            projects: Arc::default(),
+            conversation_projects: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// The project an authoring conversation works in: its flows and parts are read and saved
+    /// there.
+    pub fn conversation_project(&self, instance: &str, session_id: &str) -> Option<String> {
+        lock(&self.conversation_projects)
+            .get(&(instance.to_string(), session_id.to_string()))
+            .cloned()
+    }
+
+    /// Set (or, with `None`, clear) the project a conversation works in.
+    pub fn set_conversation_project(&self, instance: &str, session_id: &str, root: Option<String>) {
+        let key = (instance.to_string(), session_id.to_string());
+        let mut g = lock(&self.conversation_projects);
+        match root {
+            Some(r) => {
+                if g.len() >= FOCUS_KEPT && !g.contains_key(&key) {
+                    if let Some(k) = g.keys().next().cloned() {
+                        g.remove(&k);
+                    }
+                }
+                g.insert(key, r);
+            }
+            None => {
+                g.remove(&key);
+            }
         }
     }
 
@@ -454,6 +489,11 @@ impl Shared {
 
     pub fn unwatch(&self, session_id: &str) {
         lock(&self.watched).remove(session_id);
+    }
+
+    /// The run whose main session is being watched, when it is.
+    pub fn watched_run(&self, session_id: &str) -> Option<String> {
+        lock(&self.watched).get(session_id).cloned()
     }
 
     pub fn end(&self, key: &TaskKey, token: &str) {

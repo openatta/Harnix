@@ -26,6 +26,7 @@ members = [
     "crates/ext/observability",
     "crates/ext/packages",
     "crates/ext/plugins",
+    "crates/ext/schedule",
     "crates/ext/settings",
     "crates/ext/system",
     "crates/harnix",
@@ -104,6 +105,7 @@ harnix-ext-harnix-app = { path = "crates/ext/harnix-app" }
 harnix-ext-observability = { path = "crates/ext/observability" }
 harnix-ext-packages = { path = "crates/ext/packages" }
 harnix-ext-plugins = { path = "crates/ext/plugins" }
+harnix-ext-schedule = { path = "crates/ext/schedule" }
 harnix-ext-settings = { path = "crates/ext/settings" }
 harnix-ext-system  = { path = "crates/ext/system" }
 harnix-host-api  = { path = "crates/host-api" }
@@ -123,13 +125,15 @@ harnix-wasm      = { path = "crates/wasm" }
 # change here.
 #
 # Only the facade `agix` is named: the embedding entry and the types an
-# embedder reads. Its default features are agixd's — the QuickJS script
-# carrier and the package layer among them — without the WebSocket listener,
-# which Harnix does not use. An application's own WebAssembly (its backend and
-# tools) is Harnix's and runs in `harnix-wasm`, which only a build that
-# enables applications links.
+# embedder reads. Its features are agixd's defaults — the QuickJS script
+# carrier and the package layer among them — listed one by one so as to leave
+# out `mcp-oauth-jwt`: MCP's `private_key_jwt`, which brings a second crypto
+# library (aws-lc) for a sign-in Harnix does not offer. There is no WebSocket
+# listener either, which Harnix does not use. An application's own WebAssembly
+# (its backend and tools) is Harnix's and runs in `harnix-wasm`, which only a
+# build that enables applications links.
 # ──────────────────────────────────────────────
-agix = { path = "agix/crates/agix" }
+agix = { path = "agix/crates/agix", default-features = false, features = ["mcp", "agents", "skills", "web", "structured-output", "ptc", "scripts", "plugin-packages", "sandbox"] }
 
 # ──────────────────────────────────────────────
 # Third-party — what Harnix's own crates use.

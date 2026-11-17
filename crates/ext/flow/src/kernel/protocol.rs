@@ -16,7 +16,7 @@ use serde_json::Value;
 
 use std::collections::BTreeMap;
 
-use super::def::{Executor, ExitCond, FlowDef, Station};
+use super::def::{Executor, ExitCond, FlowDef, Guard, Station};
 use super::host::Delivery;
 use super::parts::{Effect, GateDef, GateKind, Granted};
 
@@ -103,6 +103,15 @@ pub fn skill_body(text: &str) -> String {
     body.trim().to_string()
 }
 
+/// A skill's text with `${output_dir}` put in: the one reference a skill may say, so it can name
+/// where the run's deliverables go. Without an output directory it is left as written.
+pub fn skill_with_output_dir(text: &str, output_dir: Option<&str>) -> String {
+    match output_dir {
+        Some(dir) => text.replace("${output_dir}", dir),
+        None => text.to_string(),
+    }
+}
+
 /// The whole first message a session task's session is sent: the protocol layer, the rules it
 /// works under (`rules`: name and text), then the skill's body under its name (`skill`: name and
 /// SKILL.md text).
@@ -144,11 +153,13 @@ pub struct TaskContext<'a> {
     /// The task's executor: a sub-agent task (`kind: agent`) and a task in the main session
     /// are told so.
     pub executor: Option<&'a Executor>,
+    /// How a call no permission speaks for is judged (the flow's `guard`).
+    pub guard: Guard,
+    /// Where the run works: the project (or its worktree), else the run's own directory.
+    pub root: Option<&'a str>,
+    /// Where the run's deliverables go, resolved.
+    pub output_dir: Option<&'a str>,
 }
-
-/// The agent type a sub-agent task asks for when its station names none: the module provides
-/// it where the main session works.
-pub const DEFAULT_AGENT_TYPE: &str = "flow-agent";
 
 /// What a sub-agent task's sub-agent is named by (the `Agent` tool's `description`), so the
 /// module can tell it apart among the main session's tasks.
@@ -189,18 +200,21 @@ pub fn render(t: &TaskContext) -> String {
             "`description: \"{}\"`",
             agent_tag(t.run, &st.id, t.task)
         )];
-        how.push(format!(
-            "`subagent_type: \"{}\"`",
-            agent_type.as_deref().unwrap_or(DEFAULT_AGENT_TYPE)
-        ));
+        match agent_type {
+            Some(ty) => how.push(format!("`subagent_type: \"{ty}\"`")),
+            // The engine's plain sub-agent: it runs on the main session's scene with its tools,
+            // and no definition of it is written anywhere — the run may work in a person's project.
+            None => how.push("no `subagent_type`".into()),
+        }
         if let Some(m) = model {
             how.push(format!("`model: \"{m}\"`"));
         }
         s.push_str(&format!(
             "- **This task is a sub-agent's.** Do not do it yourself: call the `Agent` tool once, \
              with {} and a prompt that gives the sub-agent the task — the item, the contract, \
-             the rules and the skill below. When it answers, check its result against the contract and hand it \
-             in with `flow_submit`; if it falls short, call it again with what is missing.\n",
+             the rules and the skill below — and tells it to reply with the result only. When it \
+             answers, check its result against the contract and hand it in with `flow_submit`; if \
+             it falls short, call it again with what is missing.\n",
             how.join(", ")
         ));
     }
@@ -248,7 +262,17 @@ pub fn render(t: &TaskContext) -> String {
             GateKind::Host => s.push_str(&format!("- Gate `{gate}`: {what}\n")),
         }
     }
-    s.push_str(&permissions_text(t.permissions, t.guarded));
+    s.push_str(&permissions_text(t.permissions, t.guarded, t.guard, t.root));
+    if let Some(dir) = t.output_dir {
+        s.push_str(&format!(
+            "- Deliverables — what the task produces for people to read — go in `{dir}`, the run's \
+             output directory (it exists).\n"
+        ));
+    }
+    s.push_str(
+        "- No one answers questions while the task works: decide for yourself, and say in what you \
+         hand in what you assumed. A person looks at the work where the flow asks them to.\n",
+    );
     match t.delivery {
         Delivery::FlowSubmit => s.push_str(
             "- Rework and cancellation are not yours to decide: propose them with \
@@ -264,9 +288,10 @@ pub fn render(t: &TaskContext) -> String {
     s
 }
 
-/// What the task may do, as the session is told: each permission, then the tools refused unless
-/// one allows them.
-fn permissions_text(granted: &[Granted], guarded: &[String]) -> String {
+/// What the task may do, as the session is told: each permission, then what becomes of a call none
+/// speaks for — under `strict` the tools refused unless one allows them, under `auto` the project
+/// to work in and the outside refused.
+fn permissions_text(granted: &[Granted], guarded: &[String], guard: Guard, root: Option<&str>) -> String {
     let mut s = String::from(
         "- The flow judges each tool call against these permissions (deny over ask over allow); a \
          call refused says why — do not try it another way. A call a person is asked about waits for \
@@ -296,7 +321,16 @@ fn permissions_text(granted: &[Granted], guarded: &[String]) -> String {
         let msg = if p.message.is_empty() { String::new() } else { format!(": {}", p.message) };
         s.push_str(&format!("  - {} {verb}{scope} ({}){msg}\n", p.tools.join(", "), g.from));
     }
-    if guarded.is_empty() {
+    if guard == Guard::Auto {
+        let place = match root {
+            Some(r) => format!("the project (`{r}`)"),
+            None => "the project".to_string(),
+        };
+        s.push_str(&format!(
+            "- Where no permission speaks, work freely inside {place}: no one is asked. A path outside \
+             it is refused unless a permission's paths name it — keep your work inside it.\n"
+        ));
+    } else if guarded.is_empty() {
         s.push_str("- No tool is refused unless a permission says so.\n");
     } else {
         s.push_str(&format!(
@@ -369,6 +403,9 @@ mod tests {
             gates,
             delivery,
             executor: None,
+            guard: Guard::Strict,
+            root: None,
+            output_dir: None,
         }
     }
 
@@ -382,6 +419,20 @@ mod tests {
         assert!(t.contains("`StructuredOutput`"), "{t}");
         assert!(!t.contains("flow_submit") && !t.contains("flow_propose"), "{t}");
         assert!(t.contains("No tool is refused"), "{t}");
+    }
+
+    #[test]
+    fn a_sub_agent_without_a_type_is_the_engines_plain_one() {
+        let def = FlowDef::parse(
+            "name: d\nstations: [{id: a, executor: {kind: agent}, skill: s, output: {type: object}, exit: [{kind: output}]}]",
+        )
+        .unwrap();
+        let gates = BTreeMap::new();
+        let mut c = ctx(&def, &[], &gates, &[], Delivery::FlowSubmit);
+        c.executor = def.stations[0].executor.as_ref();
+        let t = render(&c);
+        assert!(t.contains("no `subagent_type`") && !t.contains("subagent_type: "), "{t}");
+        assert!(t.contains("reply with the result only"), "{t}");
     }
 
     #[test]
@@ -420,6 +471,34 @@ stations:
         ] {
             assert!(t.contains(want), "missing {want}: {t}");
         }
+    }
+
+    #[test]
+    fn auto_says_where_the_task_works_and_where_its_deliverables_go() {
+        let def = FlowDef::parse(
+            "name: d\nstations: [{id: a, executor: {kind: session, scene: harnix}, skill: s, output: {type: object}, exit: [{kind: output}]}]",
+        )
+        .unwrap();
+        let gates = BTreeMap::new();
+        let guarded = ["Bash".to_string()];
+        let mut c = ctx(&def, &[], &gates, &guarded, Delivery::FlowSubmit);
+        c.guard = Guard::Auto;
+        c.root = Some("/p");
+        c.output_dir = Some("/p/flows/d-2026111601");
+        let t = render(&c);
+        assert!(t.contains("work freely inside the project (`/p`)") && t.contains("A path outside"), "{t}");
+        assert!(!t.contains("Refused unless a permission allows them"), "{t}");
+        assert!(t.contains("go in `/p/flows/d-2026111601`"), "{t}");
+        assert!(t.contains("No one answers questions"), "{t}");
+        c.guard = Guard::Strict;
+        let t = render(&c);
+        assert!(t.contains("Refused unless a permission allows them: Bash") && !t.contains("work freely"), "{t}");
+    }
+
+    #[test]
+    fn a_skill_may_name_the_output_directory() {
+        assert_eq!(skill_with_output_dir("Write ${output_dir}/report.md.", Some("/p/flows/x-01")), "Write /p/flows/x-01/report.md.");
+        assert_eq!(skill_with_output_dir("Write ${output_dir}/r.md, not ${run}.", None), "Write ${output_dir}/r.md, not ${run}.");
     }
 
     #[test]

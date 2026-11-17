@@ -4,8 +4,7 @@
  */
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { errorText } from "@harnix/core";
-import { useRegistry, type ChatCommand, type CommandContext, type MentionItem } from "@harnix/react";
+import { useRegistry, type ChatCommand, type CommandContext, type MentionItem, explainError } from "@harnix/react";
 
 import type { App } from "./app.ts";
 import { spacesOf } from "./Sidebar.tsx";
@@ -53,7 +52,8 @@ function commandsFor(app: App, trigger: "/" | "@") {
  * The `/` menu: every `/` contribution's candidates for an empty query, in order, asked again when
  * the registry, the engine's commands, the front space or its session change (`ctx` follows them).
  * The front space's `hideCommands` leave out other owners' commands of those names, so its own
- * command of the same name is the one listed; the first of a name wins otherwise.
+ * command of the same name is the one listed; the first of a name wins otherwise. A candidate
+ * with `submit` takes `/<name> <args>` when it is sent, instead of the turn.
  */
 export function useCommands(app: App): ChatCommand[] {
   const registry = useRegistry(app.registry);
@@ -88,15 +88,28 @@ export function useCommands(app: App): ChatCommand[] {
           if (hidden.has(name) && contribution.owner !== space?.owner) continue;
           seen.add(name);
           const run = candidate.run;
+          const submit = candidate.submit;
           out.push({
             name,
             description: candidate.description,
+            // `/<name> <args>` sent: the contribution's; a failure keeps the text.
+            ...(submit
+              ? {
+                  submit: (args: string) =>
+                    Promise.resolve()
+                      .then(() => submit.call(candidate, args, ctx))
+                      .catch((e: unknown) => {
+                        app.notice(explainError(e), "error");
+                        return false;
+                      }),
+                }
+              : {}),
             ...(run
               ? {
                   run: () =>
                     Promise.resolve()
                       .then(() => run.call(candidate, ctx))
-                      .catch((e: unknown) => app.notice(errorText(e), "error")),
+                      .catch((e: unknown) => app.notice(explainError(e), "error")),
                 }
               : {}),
           });

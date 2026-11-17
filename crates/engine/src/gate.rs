@@ -7,8 +7,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use harnix_contract::wire::{RewindParams, RewindResult};
 use harnix_contract::RpcError;
-use harnix_engine_link::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
+use harnix_engine_link::ops::{Answer, EngineOps, Entry, HistoryPage, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
 use serde_json::Value;
 
 use crate::translate::AgixOps;
@@ -78,6 +79,10 @@ impl EngineOps for GatedOps {
         self.awake().await?;
         self.agix.transcript(session, limit).await
     }
+    async fn history(&self, session: &str, offset: u64, limit: usize) -> Answer<HistoryPage> {
+        self.awake().await?;
+        self.agix.history(session, offset, limit).await
+    }
     async fn tasks(&self, session: &str) -> Answer<Tasks> {
         self.awake().await?;
         self.agix.tasks(session).await
@@ -125,5 +130,21 @@ impl EngineOps for GatedOps {
     async fn passthrough(&self, method: &str, params: Value) -> Answer<Value> {
         self.awake().await?;
         self.agix.passthrough(method, params).await
+    }
+    async fn rewind(&self, session: &str, ask: &RewindParams) -> Answer<RewindResult> {
+        self.awake().await?;
+        self.agix.rewind(session, ask).await
+    }
+    async fn live_turns(&self, session: &str) -> Answer<Vec<String>> {
+        self.awake().await?;
+        self.agix.live_turns(session).await
+    }
+    async fn session_skills(&self, session: &str) -> Answer<harnix_contract::wire::SessionSkills> {
+        self.awake().await?;
+        self.agix.session_skills(session).await
+    }
+    async fn settings_hooks(&self, session: &str) -> Answer<harnix_contract::wire::SessionHooks> {
+        self.awake().await?;
+        self.agix.settings_hooks(session).await
     }
 }

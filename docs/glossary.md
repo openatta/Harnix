@@ -17,6 +17,7 @@
 | **骨架** | — | 传输、路由与准入、中枢、装配四件事。写死，不可插拔 |
 | **应用** | `App::builder()` | 在 Harnix 上做出来的产品，例如 Helm、IPDrun。一个应用 = 一个二进制 + 一份界面产物 |
 | **Harnix app** | 扩展 `harnix-app`、UI 包 `@harnix/harnix-app` | Harnix 自带的一个第一方扩展：会话 space、项目 space，新建会话、按时间看、按项目管理。不叫「最小应用」。见 [Harnix app](harnix-app.md) |
+| **定时** | 扩展 `schedule`（`harnix-ext-schedule`），`Schedule`、`Receipt` | 到点由 Harnix 投递的一件事：往已有会话发一轮、在项目里新建会话发一轮、或起一个项目任务；时间按它的 IANA 时区算。每个到点留一条**投递回执**（已投递、跳过、失败），只说明交出去了。Harnix 没在跑时不投递，起来后按「错过」策略补最近一次或跳过。模型用引擎的 `CronCreate` 建的是「**模型建的定时**」：存在引擎里、按会话、按 UTC，这里只能看和删。不叫「定时任务」：「任务」另有所指。见 [Harnix app](harnix-app.md) §9 |
 | **二开** | — | 在 Harnix 上做应用，不 fork Harnix |
 | **profile** | `profiles/*.toml` | 一份声明式配置：引擎、实例、拓扑、品牌、各扩展的配置节。每一节有一个所有者，没有所有者的节、不认识的键都拒绝启动 |
 | **状态目录** / **账本** | `~/.<product_id>/` | 程序自己的持久状态：令牌、设备、会话与 space 的绑定、实例账本、各扩展的数据与扩展包。不是会话内容。缺省 `~/.harnix/`，`HARNIX_STATE_DIR` 能挪 |
@@ -33,7 +34,7 @@
 | `harnix-ext`、`harnix-ext-<id>`、`harnix-host-api` | 扩展接口、第一方扩展、宿主组件接口这几个 crate |
 | `harnix-ext.toml`、`.hxext` | 扩展包的清单与包 |
 | `/ext/<id>/…` | 一个扩展的 HTTP 路由、静态文件 |
-| `ext__<id>__<工具>` | 扩展包的工具在会话里的名字（id 里的 `.`、`-` 与工具名里的 `-` 都换成 `_`） |
+| `ext__<id>__<工具>` | 扩展包的工具在会话里的名字（id 里的 `.` 换成 `_`） |
 | `ext-proc` | 产品二进制拉起扩展进程用的子命令 |
 | `harnix-pack` | 扩展包作者与商店用的打包工具 |
 
@@ -50,7 +51,7 @@
 | **实例的信任** | `InstanceTrust` | `Product`（产品自己拉起或连上的）或 `Extension`（扩展进程里的引擎，第三方代码控制）。中枢对后者设限、外壳把它的会话当不受信内容画 |
 | **收养的实例** | `proc.<扩展 id>` | 模式 3 里扩展进程自己的引擎，由产品收养进实例登记表。不是模板建的，一个扩展至多一台 |
 | **会话** | `session`，全名 `(instance, session)` | 实例里的一条轮次循环，同一时刻至多一轮。创建时定了场景，场景决定工具集 |
-| **任务** | `task`，全名 `(instance, session, task)` | 属于某个会话、在会话之外继续跑的工作：子 Agent、团队成员、后台 Shell、定时任务与唤醒、监视器、dream。是 Agix 的东西，Harnix 只看、只转发停止 |
+| **后台任务** | `task`，全名 `(instance, session, task)` | 属于某个会话、在会话之外继续跑的工作：子 Agent、团队成员、后台 Shell、模型建的定时与唤醒、监视器、dream。是 Agix 的东西，Harnix 只看、只转发停止。界面与文档里说「后台任务」（系统 space 的页签也叫这个），单说「任务」指项目任务（§7） |
 | **轮** | turn | 一次「用户消息 → 模型若干步 → 结束」 |
 | **步** | step | 一轮里的一次模型调用及其工具执行 |
 | **场景** | scene | Agix 的概念：一套系统提示词与工具集。会话创建时选定 |
@@ -60,7 +61,8 @@
 
 - 「实例」**只**指 Agix 实例。space 左栏里用户新建的东西叫**条目**；虚拟机里的是 **Store**（§4）；流程的一次执行叫**运行**（§7）。都不叫实例。
 - 「载体」要说清是哪一种：**实例载体**是一台引擎怎么跑，**扩展载体**是一个扩展怎么跑（§4）。
-- 「子 Agent」是一种**任务**，不是实例，也不是顶层会话。
+- 「子 Agent」是一种**后台任务**，不是实例，也不是顶层会话。
+- 「任务」「后台任务」「工作项」是三回事：项目里按流程跑的叫**任务**（项目任务，§7），引擎的是**后台任务**，流程一站里的执行单位是**工作项**（§7）。代码里三者都叫 task。
 - 「Agent」单独出现时指「space 的 Agent 部分」（§4）或泛指模型侧行为，不指实例。
 
 ## 3. 中枢与通道
@@ -78,6 +80,7 @@
 | **seq** | `seq` | 中枢按会话分配的帧序号，追赶靠它 |
 | **追赶** | catch_up | 观看者从中枢的缓冲里补齐它没收到的帧 |
 | **resync** | `harnix.session_resync` | 中枢重建一个会话的缓冲后，通知客户端照刷新那条路重新 attach |
+| **回退** | rewind、`harnix.session.rewind` | 把会话的文件、对话或两者退回到之前的一点（两轮之间，或只回文件时一次工具调用之前），引擎按它的 checkpoint 做；先 `dry_run`，人确认后才做。撤掉的轮在日志里作废、不删。界面上是消息菜单的「回到这里」 |
 | **结算** | settle，`harnix.turn_settled` | 中枢认定一轮结束，清掉这一轮的状态 |
 | **引擎链接** | `EngineLink`、`EngineOps`、`EngineEvent` | 中枢与一台实例之间有类型的接口：一样操作一个方法，事件带中枢要用的类型。每种实例载体都实现它；只交给中枢，扩展拿不到 |
 | **降级** | `Degraded` | 实例的链接断了或在刷屏：那边的轮照跑，Harnix 在重连或在丢帧。收养的实例在它的扩展进程没了时也是降级，等下一次运行 |
@@ -94,7 +97,7 @@
 | **扩展载体** | — | 一个扩展怎么跑：**原生** · **WASM 同进程**（模式 2）· **WASM 进程**（模式 3） |
 | **原生扩展** | `impl Extension` | Rust 写、编进二进制的扩展，产品在 `main.rs` 里列出并授予能力。信任来自出身 |
 | **WASM 扩展** | — | 一个装上的扩展包所成的扩展，跑在同进程（模式 2）或它自己的进程（模式 3）。能力来自同意记录 |
-| **第一方扩展** | `harnix-ext-<id>`、`harnix::first_party` | Harnix 自己带的原生扩展：`system`、`harnix-app`、`settings`、`plugins`、`observability`、`devices`、`flow`。**是出处，不是特权**：它们的权力就是被授予的那几项能力 |
+| **第一方扩展** | `harnix-ext-<id>`、`harnix::first_party` | Harnix 自己带的原生扩展：`system`、`harnix-app`、`settings`、`plugins`、`observability`、`devices`、`flow`、`schedule`。**是出处，不是特权**：它们的权力就是被授予的那几项能力 |
 | **宿主组件** | `packages`、`harnix-carrier-wasm`、`harnix-carrier-proc` | 写成扩展的形状、但要碰宿主管道的那几个，凭能力 `extensions.manage` 拿 `harnix-host-api` 的服务 |
 | **`packages`** | `harnix-ext-packages` | 管扩展包的宿主组件：安装记录、商店、披露与同意、升级与回滚、启停、卸载，按名字选载体，把每个启用的包登记成扩展 |
 | **扩展宿主** | `harnix-assembly` 的 `host` | 骨架里登记、迁移、启动、停用扩展，查授予，把描述装进路由表、中枢、传输层与界面板的那部分 |
@@ -123,20 +126,30 @@
 | **后端 space** | `SpaceDecl`、清单的 `[[space]]`、`harnix.spaces.list`、`SPACE_MISMATCH` | 会话的归属：在它里面建的会话落在哪台实例、用哪个场景，会话永远属于建它的 space。由扩展声明，内核不认识任何 space id |
 | **缺省 space** | `SpaceDecl::default_space()` | 不声称 space 的设备调用按它检查的 space；一个进程至多一个（Harnix app 的 `sessions`） |
 | **跨 space 的 space** | `SpaceDecl::cross_space()` | 声称它的设备调用可以观看、操作任何 space 的会话。**防误的标志，不是能力**；只有原生扩展能声明（系统 space） |
+| **展示**（会话的） | `harnix.session.expose`、`cx.sessions().expose`、行的 `exposed_to` / `exposed_from` | 建会话的扩展让它在另一个 space 里也能打开：只看（`view`）或还能说（`interact`）。归属、实例不变，关闭、删除等仍只能从它自己的 space 做。项目里的任务就是这样进项目 space 的 |
 | **部分** | — | 一个 space 的三个组成：**前端部分**（UI 包，或扩展包的面）、**后端部分**（一个扩展）、**Agent 部分**（引擎贡献或 Agix 插件）。任意组合 |
 | **条目** | entry | space 左栏里用户新建的东西，例如项目 space 的项目（工作区）、Helm 的关注组。存在拥有它的扩展的数据里 |
 | **前台 space** | — | 当前显示的 space。中区、输入框、右栏只操作它自己的会话 |
 | **space 的缺省实例** | `SpaceDecl::instance(..)` | space 里新建会话缺省落在哪台实例：`main`、一台固定实例、或 `template:<id>` |
-| **系统 space** | 扩展 `system`、`@harnix/system` | 第一方扩展：开发调测用的面，按实例 → 会话 → 任务看一切、能操作，可以观看与操作任何 space 的会话。见 [系统 space](system-space.md) |
+| **系统 space** | 扩展 `system`、`@harnix/system` | 第一方扩展：开发调测用的面，按实例 → 会话 → 后台任务看一切、能操作，可以观看与操作任何 space 的会话。见 [系统 space](system-space.md) |
 | **固定部分** | — | 外壳里不随 space 变的东西：顶部的标识、新建对话、搜索，底部的头像（设置入口，外圈表示连接）。其余都是 space 的 |
-| **贡献点** | contribution point | 前端的接缝。**内核点** 9 个：`space`、`home.card`、`tool.row`、`flow.block`、`details.panel`、`sidebar.group`、`command`、`settings.section`、`session.action`。外加扩展定义的点 |
-| **扩展定义的贡献点** | `r.definePoint("<id>.<名>", ..)` | 一个原生扩展的界面定义、别的扩展往里注册的点，例如 `system.console.tab`。不算进 9 个 |
+| **贡献点** | contribution point | 前端的接缝。**内核点** 12 个：`space`、`home.card`、`tool.row`、`flow.block`、`details.panel`、`sidebar.group`、`command`、`settings.section`、`session.action`、`sidebar.tab`、`shortcut`、`conversation.view`。外加扩展定义的点 |
+| **扩展定义的贡献点** | `r.definePoint("<id>.<名>", ..)` | 一个原生扩展的界面定义、别的扩展往里注册的点，例如 `system.console.tab`。不算进 12 个 |
 | **宿主 API** | `HostApi`、`useHost()` | 前端代码拿到的全部能力。拿不到 Harnix 自己的连接 |
+| **停靠面** | `SurfaceState`，`harnix.sidebar.v1.<会话>` | 一个会话在右栏里的那一份：开着的页签、哪一页在前、布局树（本版一格）。存在浏览器本地，刷新后还在；会话之间互不影响 |
+| **页签类型** | 贡献点 `sidebar.tab` | 右栏能打开的一种页：资源类按 `patterns` 认领资源地址，页类按 `kind` 打开。一个 `kind` 至多一份 extension 加一份 builtin，extension 生效 |
+| **资源地址** | `harnix-resource://<类型>/<路径>` | 右栏打开的一个资源的名字，由页签类型认领：按优先级档、模式长度、注册顺序 |
+| **导航控制器** | `host.sidebar` | 进右栏的每条路：`openResource`、`openTab`、`close`、`active`、`isExpanded`、`toggleExpanded`。同一内容只开一份 |
+| **页签域** | `useTabInfo()` | 一个打开的页签的正文拿到的东西：它是哪一页、怎么被导航到的（`params`、`revision`）、`signal`、它能做的动作、关闭处理器 |
+| **引导页** | `kind: "guide"` | 停靠面的缺省页：列出各页签类型 `guide` 入口的卡片；恰好一个入口时直接开那一页。外壳的 builtin，扩展可以顶替 |
+| **中区的视图** | 贡献点 `conversation.view`，`host.conversation` | 中区画一个打开的会话的一种画法：对话是缺省，别的由注册方给；顶上「对话 \| …」切换，每个会话各记自己的选择 |
+| **轨迹** | trajectory，`@harnix/observability` | 一个会话记录下来的每一次模型调用，按轮列成一张表（人的话、调用与它的工具调用、子 Agent、旁边的调用），带时间概览和检查器。中区的一种视图；系统 space 的检查器里是同一个 |
 | **令牌覆盖** | `r.tokens` | 扩展改主题已有令牌的值；不能新增令牌名 |
 | **语言包** | `r.strings` | 扩展带的文案；key 以它的 owner 开头 |
 | **引擎贡献** | `EngineContribution`，`Registrar::engine()` / `engine_everywhere()` | 原生扩展交给进程内实例的东西：场景层、原生工具（`Tool`、`ToolProvider`）、`PromptGate`。扩展包没有 |
 | **扩展的 HTTP 路由** | `Registrar::route`、`static_dir`，`/ext/<id>/` | 原生扩展自己的 HTTP 路由与静态文件。同源、同一个准入，但不享受 Harnix 通道的保证 |
 | **扩展条目** | extension entry | 扩展往会话时间线写的、只给人看的条目，由 `flow.block` 画出来；命名空间是写它的扩展的 id |
+| **反馈** | `harnix.session.feedback`，条目 `harnix.feedback` / `rating` | 人对一轮回答的赞或踩，可带类别和备注。中枢记成会话日志里的条目，只给人看，同一轮后来的盖过先前的；不往任何地方送，持 `feedback.read` 的扩展才收得到 |
 
 **别混**：
 
@@ -166,11 +179,14 @@
 | **授予** | `.grant([..])` | 产品在装配时给一个原生扩展的能力；违反启动检查就拒绝启动 |
 | **同意记录** | `ext/<id>/install.json` | 装扩展包时人同意了的：清单的摘要、能力、能调的名字（`calls`）、工具。扩展包的权力只从这里来 |
 | **信任** | `Trust` | `Origin`（原生：出身即信任，按每行的访问判）或 `Consent`（扩展包：只到同意的 `calls`，再收窄到自己的范围） |
+| **受信项目** | `engine.project.trust`；`harnix-app.projects.trust` | 引擎的概念：项目根受信了，项目自己的设置（hook、MCP 服务器、更宽的权限与沙箱、provider、agent 类型、带命令的 skill）才生效；缺省不受信，只能收紧，放不开的叫「被扣下」。记在实例全局层的 `settings.local.json`。界面上的动作是「信任这个项目」「不再信任这个项目」，见 [Harnix app](harnix-app.md) §3.1 |
 | **引擎直通** | `engine.*` | 经中枢转给引擎的方法：每一条是表里显式的一行，有自己的访问与范围 |
 | **中枢独占** | `hub_owned` | 绕过中枢的引擎方法（`run_turn`、`subscribe`……）：谁都不能调，不能授予 |
 | **披露** | disclosure | 装包或链进扩展时给人看的「它能做什么、替谁做」。扩展包的在装之前、人同意了才装；Agix 插件的在装之后（引擎的顺序） |
 | **安全边界** | — | 对恶意代码也成立的约束 |
 | **防误** | — | 只防 bug、不防恶意的约束。文档里必须明说是这一种 |
+
+**别混**：「受信项目」（引擎的项目信任）、扩展的「信任」（`Trust`）、「实例的信任」（`InstanceTrust`）、扩展包的「信任等级」是四回事。
 
 ## 6. 构建、测试、版本
 
@@ -199,32 +215,37 @@
 |---|---|---|
 | **流程** | `FlowDef` | 站组成的有向无环图，一份 YAML，随流程包分发 |
 | **运行** | `RunRecord`，`run` | 一条流程的一次执行，处理一个对象（`subject`）。不叫「实例」：实例只指 Agix 实例 |
+| **项目任务** | `RunRecord.project_root`，`flow.start {project_root}` | 在一个项目里按指定流程执行的运行，界面上简称「**任务**」：带 `project_root`（已存在的绝对目录），`workspace` 是 `project`（缺省）或 `worktree`；`trigger` 记下是手动还是定时起的。从项目的「新任务」、项目里对话的 `/flow`、或定时起；主会话展示给发起它的 space，在项目 space 的中区打开。不带项目的运行在自己的 `scratch` 目录里干活。和流程里的**工作项**（`TaskRec`）、引擎的**后台任务**都不是一回事 |
+| **输出目录** | `output_dir`，`RunRecord.output_dir` | 一个运行的交付物放的地方，属于用户、不加 ignore：相对项目的路径模板（`${flow}`、`${date}`、`${seq}`、`${title}`、`${inputs.<k>}`），这次启动给的 > 流程写的 > 缺省 `flows/${flow}-${date}${seq}`；启动时解析、建好，必须落在项目（或 worktree）里。站的消息里告诉 Agent，skill、权限、门禁里写 `${output_dir}` |
+| **过程目录** | `<项目>/.harnix/runs/<运行>/` | 软件用的中间过程与状态：`task.json`、钉住的 `flow.yaml`、各站的输出与命令门禁的上下文和日志。`<项目>/.harnix/.gitignore` 把它（和 `worktrees/`）挡在版本库外。只是投影，权威的是数据目录里的账本 |
 | **站** | `Station` | 流程里的判定单位：出口条件、返工、确认、强制通过都按站算 |
-| **任务** | `TaskRec` | 流程里的执行单位：一站 0..N 个，每个交一份结构化输出 |
-| **执行者** | `Executor` | 做一个任务的那一方：`session`（会话）· `agent`（主会话下的子 Agent，xops-03）· `program`（应用代码）· `external`（人或外部 Agent 来认领）· `subflow`（子运行） |
+| **工作项** | `TaskRec`，`tasks` | 流程里一站的执行单位：一站 0..N 个，每个交一份结构化输出。界面与文档里说「工作项」，代码、协议、事件名（`task.asking`）里仍是 task |
+| **执行者** | `Executor` | 做一个工作项的那一方：`session`（会话）· `agent`（主会话下的子 Agent，xops-03）· `program`（应用代码）· `external`（人或外部 Agent 来认领）· `subflow`（子运行） |
 | **主会话** / **主 Agent** | `RunRecord::main_session`，会话键 `@main` | 每个运行一个，运行建好就开（xops-03）：没写 `scene` 的会话站、子 Agent 站都在它里面一轮一轮地做；落点与模型写在流程级 `main:`。写了 `scene` 的会话站是**独立会话** |
-| **子 Agent 站** | `kind: agent` | 主 Agent 用 Agix 的 `Agent` 工具把任务交给子 Agent（`agent_type`、`model` 可选），拿到结果用 `flow_submit` 交；`description` 是任务的标签 `flow:<run>/<station>/<task>` |
+| **子 Agent 站** | `kind: agent` | 主 Agent 用 Agix 的 `Agent` 工具把工作项交给子 Agent（`agent_type`、`model` 可选），拿到结果用 `flow_submit` 交；`description` 是工作项的标签 `flow:<run>/<station>/<task>` |
 | **运行状态** | `Phase` | 读者看到的：`running` · `waiting`（`reason`：approval / confirm / held / unmet / failed / external / children / work）· `pausing` · `paused` · `finished` · `cancelled`。由 `RunStatus` 与「此刻有没有活在手上」推出 |
-| **暂停** | `pause` / `resume`，`RunRecord.paused` | 手上的活跑完、照常记下，不进下一站、不派新任务；恢复后接着走。状态仍是 `active` |
-| **用量** | `Usage` | 一个任务各轮的 token 合计（`TaskRec.usage`）；主会话里不属于任务的轮次记在运行的 `usage_other` |
-| **流程会话** / **通用会话** | `flow.session {flow?}` | 每条流程一个 `flow-author` 对话，它的当前流程就是这条、改不了；不属于哪条流程的是通用会话（新建流程、问帮助），在里面新建的流程把它认作自己的会话 |
-| **纯关卡** | — | 没有任务的站，进站就判出口 |
+| **暂停** | `pause` / `resume`，`RunRecord.paused` | 手上的活跑完、照常记下，不进下一站、不派新工作项；恢复后接着走。状态仍是 `active` |
+| **用量** | `Usage` | 一个工作项各轮的 token 合计（`TaskRec.usage`）；主会话里不属于工作项的轮次记在运行的 `usage_other` |
+| **流程会话** / **通用会话** | `flow.session {flow?}` | 每条流程一个 `flow-author` 对话，它的当前流程就是这条、改不了；里面的编写与运行操作直接执行，不审批；不属于哪条流程的是通用会话（新建流程、问帮助），在里面新建的流程把它认作自己的会话 |
+| **纯关卡** | — | 没有工作项的站，进站就判出口 |
 | **出口条件** | `ExitCond` | 出站要满足的结构化条件：`output` · `gate` · `confirm` · `children` |
 | **门禁** | `GateDef`，`gates/<名>.yaml` | 流程包里有名字的确定性检查，`{kind: gate, gate: <名>}` 引用它（xops-04）：`tool`（调应用的只读工具、对结果断言，判站时当场判）· `command`（在运行工作目录跑命令，退出码 0 为过；应用 `command_gates(true)` 才有）· `host`（应用自己的检查 `Gates`，按名字）。运行建立时连同定义一起钉住 |
-| **规则** | `rules/<名>.md` | 有名字的散文：整个流程里应当怎样（xops-04）。流程级、站级 `rules` 引用，放进会话任务的消息里（skill 之前），进站时固定摘要；**从不拦** |
+| **规则** | `rules/<名>.md` | 有名字的散文：整个流程里应当怎样（xops-04）。流程级、站级 `rules` 引用，放进会话工作项的消息里（skill 之前），进站时固定摘要；**从不拦** |
 | **策略** | `PolicyDef`，`policies/<名>.yaml` | 有名字的一组权限，流程级、站级 `policies` 引用（xops-04）；运行建立时钉住 |
-| **权限** | `Permission`、`Granted` | 一条 `allow` / `ask` / `deny`：`tools`（名字或 `ns__*`）＋可选 `paths` / `commands` / `args` 范围、`message`。一个任务的权限 = 流程级策略 → 流程级权限 → 站级策略 → 站级权限，派工时解析引用、定下来 |
-| **判定** | `judge` | 一次工具调用：命中的权限里 `deny` > `ask` > `allow`；都没命中时受限工具拒绝、其余放行。流程会话（主会话、独立会话）对受限工具与权限提到的工具都 `ask`，由 `flow` 扩展按这一轮所属任务的权限答；`ask` 留给人（任务 `asking`，运行 `waiting: approval`），人不答引擎到时（实例的 `permission_prompt_timeout_secs`，缺省 300 秒）当拒绝 |
+| **权限** | `Permission`、`Granted` | 一条 `allow` / `ask` / `deny`：`tools`（名字或 `ns__*`）＋可选 `paths` / `commands` / `args` 范围、`message`。一个工作项的权限 = 流程级策略 → 流程级权限 → 站级策略 → 站级权限，派工时解析引用、定下来 |
+| **判定** | `judge_under` | 一次工具调用：命中的权限里 `deny` > `ask` > `allow`；都没命中时不受限的工具放行，受限工具和项目之外的路径按流程的执行语义（`guard`）。流程会话（主会话、独立会话）对受限工具与权限提到的工具都 `ask`，由 `flow` 扩展按这一轮所属工作项的权限答；作者写的 `ask` 留给人（工作项 `asking`，运行 `waiting: approval`），人不答引擎到时（实例的 `permission_prompt_timeout_secs`，缺省 300 秒）当拒绝 |
+| **执行语义** | `guard`：`auto` · `strict` | 流程顶层的一项，定没有权限说话时怎么判。`auto`（缺省）不审批：受限工具在项目（或 worktree）里放行，项目之外的路径拒绝、理由给会话看，不卡住；带 `paths` 的 `allow` 能放开外面的地方。`strict`：受限工具拒绝，项目之外的路径转给人。两种下作者写的 `ask`、`confirm`、`hold` 都等人。没有项目的运行，「项目」是它自己的工作目录 |
 | **钩子** | `HookDef`，`hooks/<名>.yaml` | 把运行的事件告诉外面（xops-04）：`on`、`flows` 过滤，`kind: webhook`（现在只此一种）、`action` 是 URL、`secret_env` 可签名。**不写在流程里**，放进包里就生效；失败重试三次，从不卡住流程 |
 | **返工** | rework | 退回上游某站：它和它的全部下游过期、重来 |
 | **强制通过** | force | 有人在条件不满足时放行一站，带理由、留痕 |
-| **租约** | lease | 认领一个任务的期限与 token；过期可再认领，旧 token 交不进来 |
+| **租约** | lease | 认领一个工作项的期限与 token；过期可再认领，旧 token 交不进来 |
 | **流程包** | pack，`PartKind` | 流程定义 + 件（skill、规则、策略、门禁、钩子），由应用实现的 `Packs` 给 |
 | **协议层** | — | `flow` 扩展在站的 skill 正文前注入的一段：交什么、怎么交、受哪些权限与门禁，再接这一站的规则 |
 | **落点** | placement，`Placement` | 站的会话建在哪：space、实例或模板实例（`instance` / `template` + `params`），用哪个模型（`model` / `provider`）（xops-02） |
 | **交付方式** | `Delivery` | 会话怎么交输出：结构化输出（`structured_output`，缺省：契约作为会话的 `output_schema`，模型调 `StructuredOutput`）或 `flow_submit`（`flow-*` 包装 scene） |
-| **受限工具** | `guarded_tools` | 没有权限放行就拒绝的工具（缺省引擎的 shell、文件编辑、notebook、解释器）；流程会话对它们都 `ask`，由 `flow` 扩展判 |
-| **来源** | `Origin` | 流程包里一条流程从哪来：`builtin`（随应用）· `override`（可写层里覆盖内置的那份）· `user`（只在可写层） |
+| **受限工具** | `guarded_tools` | 没有权限说话时由执行语义定的工具（缺省引擎的 shell、文件编辑、notebook、解释器）：`auto` 在项目里放行，`strict` 拒绝；流程会话对它们都 `ask`，由 `flow` 扩展判 |
+| **来源** | `Origin` | 流程包里一条流程从哪来：`builtin`（随应用）· `override`（可写层里覆盖内置的那份）· `user`（只在可写层）· `project`（项目自带，`<项目>/.harnix/flows/`，只对这个项目的任务生效，项目受信才读） |
+| **项目自带的流程** | `ProjectPacks`，`Origin::Project`，`flow.defs {project}` | 随项目仓库提交的流程包，放在 `<项目>/.harnix/flows/`：在这个项目里是最上面一层，同名的流程和件以它为准；项目没受信时只按文件名列出（`reason: "untrusted"`，「信任项目后可用」），不读、不跑 |
 | **当前流程** | focus | 一个 `flow-author` 对话操作的那条流程：流程会话的就是它自己那条；别的对话是 `flow.focus` 设的，或 `flow_create` 刚建的 |
 | **试运行** | dry run，`dry-` 运行 | 在沙箱里真跑流程的内核、外部全部模拟：不建会话、不调应用代码、不花模型费用；`mocks` 给站的输出、命令 / 宿主门禁、工具门禁的工具结果 |
 
@@ -233,8 +254,10 @@
 - 「流程」指这个扩展的流程定义；贡献点 `flow.block` 与外壳文案里的 `flow.*` 指**对话流**（转录里的一块），两回事。
   流程扩展的界面文案用 owner `flowui`。
 - 「运行」不是「实例」，也不是「会话」：一条运行有一个主会话，还可能有独立会话与子 Agent 的侧链会话。
-- 流程的「子 Agent」就是 Agix 的子 Agent（父会话的一件**任务**、一条侧链会话）；流程的「任务」（`TaskRec`）是另一回事。
-- 流程的「来源」（`Origin`：`builtin`、`override`、`user`）和扩展的「信任」（`Trust::Origin`）是两回事。
+- 流程的「子 Agent」就是 Agix 的子 Agent（父会话的一件**后台任务**、一条侧链会话）；流程的**工作项**（`TaskRec`）是另一回事。
+- 「任务」只指项目任务；流程一站里的那一份活说「工作项」，外面认领的是「外部工作项」（`kind: external`）。
+- 「输出目录」属于用户、进版本库与否由用户定；「过程目录」是软件的，已 ignore。两者都在项目里，不要混用。
+- 流程的「来源」（`Origin`：`builtin`、`override`、`user`、`project`）和扩展的「信任」（`Trust::Origin`）是两回事；项目自带的流程等的「信任」是项目信任（引擎的 `project.status`），也不是扩展的信任。
 - 「试运行」是一条真的运行，只是活在沙箱里：运行号以 `dry-` 开头，不进 `runs`，最多留最近 20 条；不叫「模拟运行」。
   这个沙箱是流程自己的模拟环境，和扩展进程的操作系统沙箱无关。
 - 界面上，人还没答的权限询问（`ask`，运行的 `waiting: approval`）说「待批准」；站的 `hold`（进站后等人放行）说「等人放行」

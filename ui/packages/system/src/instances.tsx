@@ -2,7 +2,7 @@
 
 import { useT } from "@harnix/react";
 
-import type { InstanceRow } from "./types.ts";
+import { statusReason, type InstanceRow } from "./types.ts";
 import { isSelected, useRunning, useSelection, useTopic, type View } from "./view.ts";
 
 export function InstanceList({ view }: { view: View }) {
@@ -25,7 +25,7 @@ export function InstanceList({ view }: { view: View }) {
             data-testid="system-tree-instance"
             data-instance={instance.id}
             data-state={instance.status.state}
-            title={instance.status.reason ?? instance.status.state}
+            title={statusReason(instance.status) ?? instance.status.state}
             onClick={() => view.select({ kind: "instance", instance: instance.id })}
           >
             <span className={`dot ${instance.status.state}`} />

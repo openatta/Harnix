@@ -28,6 +28,10 @@ cargo build --release
 不需要任何环境变量。没配模型也能启动，页面会提示：**配置模型**（或头像 → **设置 → 模型与凭据**）添加 provider——
 Anthropic 或兼容 OpenAI 的 API，其中一个是缺省——存在 `~/.agix/settings.json`，不会出现在浏览器或日志里。
 `ANTHROPIC_AUTH_TOKEN`（可加 `ANTHROPIC_BASE_URL`）也行。
+新对话的空页用三张卡带着走完第一次：模型、一个项目，以及会话从什么开始——`harnix` 场景和缺省的权限模式，
+旁边推荐 `code`（在项目里写代码的 Agent）。每一张做完或关掉就不再出现。
+
+只是使用 `harnix` 程序、不做开发：见[用户指南](../user-guide/README.zh-CN.md)（也有 [English](../user-guide/README.md)）。
 
 想看带数据的样子：`scripts/harnix-demo.sh start`（还有 `stop`、`restart`、`status`）在单独的目录（`~/harnix-demo`）里
 跑 Harnix app，带示例流程、运行和会话；删掉这个目录就从头来。
@@ -62,11 +66,14 @@ Anthropic 或兼容 OpenAI 的 API，其中一个是缺省——存在 `~/.agix/
 - **扩展包跑在沙箱里。** 一个扩展包是一个签了名的 `.hxext`——WebAssembly 的后端与工具、Agent 一侧的 Agix 插件、隔离 iframe 里的界面——
   它要的每一项能力都写在清单里，得到的是人同意的那些。模式 2（缺省）里它跑在产品进程里；模式 3 里每个包一个自己的进程，
   带着自己的 Agix，关在操作系统沙箱里，Harnix 只路由。两种都登记成同一种扩展、进同一张路由表。
-- **界面按 space 分三栏**：space 自己的左栏、中区（缺省是对话，旁边可以开二级栏）、space 自己的右栏页签。
+- **界面按 space 分三栏**：space 自己的左栏、中区（缺省是对话，旁边可以开二级栏）、右栏——打开的会话自己的停靠面，
+  任何包都能往里注册页签（文件、改动、输出、流程进度），和 space 自己的页签并排。
   Harnix 自带的 space——Harnix app 的两个与系统 space——都是例子，产品自己决定留哪些。
 - **对话里的卡片**：扩展往会话日志里写条目——刷新、回放、分叉都在，模型看不见。
 - **流程**（`harnix-ext-flow`，可选）：一张站的图，带着一个对象走过由运行的主 Agent、子 Agent、应用代码或外部完成的工作；
-  每次工具调用按流程的权限判，每一站按出口条件和门禁判，钩子把进度告诉别的系统。
+  每次工具调用按流程的权限判，每一站按出口条件和门禁判，钩子把进度告诉别的系统。在项目里跑的流程是一个任务：
+  从项目、项目里对话的 `/flow` 或定时起，在项目或它的 worktree 里干活。
+- **定时**（`harnix-ext-schedule`，可选）：到点往一个会话发一轮、新建一个会话、或起一个任务——由 Harnix 执行，按定时自己的时区。
 
 为什么是这个形状，一层一层讲：[概念与架构](concept_and_architecture.md)。
 
@@ -87,12 +94,12 @@ crates/supervise       子进程：fork + exec、沙箱、收割
 crates/ext/api         harnix-ext，扩展接口（S1）
 crates/host-api        宿主组件的接口（S3）：载体、拉起进程、收养
 crates/ext/<id>        Harnix 自己的扩展：system、harnix-app、settings、plugins、
-                       observability、devices、flow（可选）、packages
+                       observability、devices、flow 与 schedule（可选）、packages
 crates/carrier/*       扩展包的两个载体：wasm（模式 2）、proc（模式 3），以及它们共用的部分
 crates/package、wasm-port、wasm-host、wasm、proc
                        扩展包：清单、签名与商店、端口、宿主核心、wasmtime（唯一链它的地方）、扩展进程
 crates/client          应用自己的工具链接的轻量客户端
-crates/cli             `harnix` 二进制：全部第一方扩展，带流程扩展
+crates/cli             `harnix` 二进制：全部第一方扩展，带流程与定时
 crates/testapp         给测试用的应用
 ui/packages/           @harnix/core（协议、客户端、会话状态）、@harnix/react（宿主 API、贡献注册表、i18n、tokens）、
                        @harnix/shell（外壳核心）、每个第一方扩展一个 UI 包（@harnix/system、harnix-app……）、

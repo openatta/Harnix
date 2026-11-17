@@ -62,7 +62,7 @@ CRATES=(-p harnix -p harnix-cli -p harnix-assembly -p harnix-instance -p harnix-
         -p harnix-testapp -p harnix-wasm -p harnix-package -p harnix-wasm-port -p harnix-wasm-host
         -p harnix-carrier-shared -p harnix-carrier-wasm -p harnix-carrier-proc -p harnix-ext-packages -p harnix-supervise -p harnix-proc -p harnix-ext -p harnix-host-api
         -p harnix-ext-system -p harnix-ext-harnix-app -p harnix-ext-settings -p harnix-ext-plugins
-        -p harnix-ext-observability -p harnix-ext-devices)
+        -p harnix-ext-observability -p harnix-ext-devices -p harnix-ext-schedule)
 
 # `harnix` runs packages in its default build, on both carriers (`wasm` and `proc`). The author's
 # packing tool and the test application running packages are built in a target directory of their
@@ -201,10 +201,10 @@ run_frontend() {
   [ -d node_modules ] || pnpm install --frozen-lockfile || return 1
   echo "── typecheck ──"; pnpm -r --if-present run typecheck || return 1
   echo "── unit ──";      pnpm -r --if-present run test || return 1
+  # The committed declarations against the Rust they are generated from: the test compares
+  # instead of writing, and names the files that differ.
   echo "── protocol types ──"
-  HARNIX_TS_OUT="$scratch/ts" cargo test -q -p harnix-contract --features ts --test ts_export || return 1
-  diff -u ui/packages/core/src/protocol/generated/contract.ts "$scratch/ts/contract.ts" || {
-    echo "generated protocol types are stale: cargo test -p harnix-contract --features ts"; return 1; }
+  HARNIX_TS_CHECK=1 cargo test -q -p harnix --features ts --test ts_export || return 1
   echo "── coverage table ──"; node tests/live/coverage.mjs --check || return 1
   echo "── app ui vendored ──"; node tests/app-ui-vendored.mjs || return 1
 }

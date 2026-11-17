@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use harnix_contract::RpcError;
 use harnix_engine_link::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
-use harnix_engine_link::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
+use harnix_engine_link::ops::{Answer, EngineOps, Entry, HistoryPage, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
 use serde_json::Value;
 use tokio::sync::watch;
 
@@ -96,6 +96,9 @@ impl EngineOps for DownLink {
     async fn transcript(&self, _: &str, _: usize) -> Answer<Vec<Said>> {
         Err(self.unavailable())
     }
+    async fn history(&self, _: &str, _: u64, _: usize) -> Answer<HistoryPage> {
+        Err(self.unavailable())
+    }
     async fn tasks(&self, _: &str) -> Answer<Tasks> {
         Err(self.unavailable())
     }
@@ -130,6 +133,12 @@ impl EngineOps for DownLink {
         Err(self.unavailable())
     }
     async fn passthrough(&self, _: &str, _: Value) -> Answer<Value> {
+        Err(self.unavailable())
+    }
+    async fn rewind(&self, _: &str, _: &harnix_contract::wire::RewindParams) -> Answer<harnix_contract::wire::RewindResult> {
+        Err(self.unavailable())
+    }
+    async fn live_turns(&self, _: &str) -> Answer<Vec<String>> {
         Err(self.unavailable())
     }
 }

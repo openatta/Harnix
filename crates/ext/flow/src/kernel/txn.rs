@@ -19,7 +19,7 @@ use super::parts::{GateKind, Pinned};
 use super::refs::{asserts_fail, context_in, resolve, resolve_str, station_output};
 use super::run::{
     Actor, CheckRec, CheckStatus, History, Lease, ParentRef, RunRecord, RunStatus, StationRec,
-    StationStatus, TaskRec, TaskStatus,
+    StationStatus, TaskRec, TaskStatus, Trigger, Workspace,
 };
 use super::validate::validate;
 use super::work::task_work;
@@ -218,13 +218,15 @@ impl<'e> Txn<'e> {
             self.load(&p.run).await?;
             up = self.get(&p.run).parent.clone();
         }
-        let made = match self.eng.packs.flow(&flow) {
+        // A child run works in its parent's project, with that project's packs.
+        let packs = self.eng.packs_for(self.get(&parent.run).project_root.as_deref());
+        let made = match packs.flow(&flow) {
             _ if depth > MAX_SUBFLOW_DEPTH => Err(format!(
                 "child runs nest deeper than {MAX_SUBFLOW_DEPTH}: {flow} is not started"
             )),
             None => Err(format!("no flow {flow}")),
             Some((def, digest)) => {
-                let problems = validate(&def, self.eng.packs.as_ref());
+                let problems = validate(&def, packs.as_ref());
                 if !problems.is_empty() {
                     Err(format!(
                         "flow {flow} is not valid: {}",
@@ -240,8 +242,8 @@ impl<'e> Txn<'e> {
                         Ok(inputs) => {
                             let id = self.eng.store.alloc_id(&flow).await?;
                             let title = format!("{} / {}", parent.run, parent.task);
-                            let parts = super::parts::pin(&def, self.eng.packs.as_ref());
-                            Ok(new_record(
+                            let parts = super::parts::pin(&def, packs.as_ref());
+                            let mut child = new_record(
                                 id,
                                 def,
                                 parts,
@@ -252,7 +254,14 @@ impl<'e> Txn<'e> {
                                 Actor::flow("dispatch"),
                                 self.fx.now,
                                 Some(parent.clone()),
-                            ))
+                            );
+                            // A child run works where its parent does, and delivers there.
+                            let up = self.get(&parent.run);
+                            child.project_root = up.project_root.clone();
+                            child.workspace = up.workspace;
+                            child.output_dir = up.output_dir.clone();
+                            child.worktree = up.worktree.clone();
+                            Ok(child)
                         }
                     }
                 }
@@ -335,6 +344,8 @@ pub(crate) fn new_record(
         rev: 0,
         seq: 0,
         created_at: now,
+        trigger: Trigger::manual(by.clone()),
+        show_in_space: None,
         created_by: by,
         finished_at: None,
         parent,
@@ -346,6 +357,10 @@ pub(crate) fn new_record(
         session_keys: BTreeMap::new(),
         paused: None,
         usage_other: Default::default(),
+        project_root: None,
+        workspace: Workspace::Scratch,
+        output_dir: None,
+        worktree: None,
         def,
     }
 }
@@ -469,7 +484,7 @@ impl<'a> M<'a> {
 
     /// The run's reference context, its workspace included.
     fn ctx(&self, item: Option<&Value>, task: Option<&str>) -> Value {
-        let ws = self.eng.workspace(&self.rec.id);
+        let ws = self.eng.workspace_for(self.rec);
         context_in(self.rec, item, task, ws.as_ref().and_then(|p| p.to_str()))
     }
 
@@ -631,14 +646,15 @@ impl<'a> M<'a> {
 
         let work = st.work();
         let specs = work.clone().into_specs();
+        let packs = self.eng.packs_for(self.rec.project_root.as_deref());
         for skill in specs.iter().filter_map(|t| t.skill.as_ref()) {
-            if let Some((_, digest)) = self.eng.packs.skill(skill) {
+            if let Some((_, digest)) = packs.skill(skill) {
                 self.st(sid).skill_digest.insert(skill.clone(), digest);
             }
         }
         self.st(sid).rule_digest.clear();
         for rule in super::parts::rules_of(&self.rec.def, &st) {
-            if let Some((_, digest)) = self.eng.packs.rule(&rule) {
+            if let Some((_, digest)) = packs.rule(&rule) {
                 self.st(sid).rule_digest.insert(rule, digest);
             }
         }

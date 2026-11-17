@@ -16,6 +16,8 @@ import { join } from "node:path";
 
 import { type Backend, type TestClient, alive, connect, expect, gone, sleep, test } from "@harnix/testkit";
 
+import { failureClass, failureFacts } from "@harnix/core/state";
+
 import { runOn, until } from "./instances";
 import { startTestApp } from "./testapp";
 
@@ -138,6 +140,26 @@ test("a killed daemon degrades its instance, comes back, and its sessions resync
   expect(settled.params.error, "the resumed session replayed rather than called a model").toBeUndefined();
 });
 
+test("a message sent while its daemon is down is told as the instance or the engine being away, then goes through once it is back", TAGS, async () => {
+  const before = await until(api, "ci", "ready");
+  const sessionId = await runOn(api, "ci");
+  process.kill(before.pid, "SIGKILL");
+  await api.waitFor(
+    (f) => f.method === "harnix.topic" && f.params.topic === "harnix.instances"
+      && f.params.value.instances.some((i: any) => i.id === "ci" && i.status.state === "degraded"),
+    { timeout: 20_000, describe: "ci to be shown degraded" },
+  ).catch(() => undefined);
+  // What the person is told is read from the error's code or kind (`failureClass`): either the
+  // send is refused outright (the instance is out of reach) or the turn ends on the engine's link
+  // dropping. A daemon already restarted by now lets the send through, which is not a failure.
+  const sent = await api.call("harnix.session.send", { instance: "ci", session_id: sessionId, message: "Say exactly: fixture ready" })
+    .catch((e: unknown) => ({ refused: e }));
+  if ("refused" in sent) {
+    expect(["instance_unavailable", "engine_down"], JSON.stringify(sent.refused)).toContain(failureClass(failureFacts(sent.refused)));
+  }
+  await until(api, "ci", "ready");
+});
+
 /**
  * A session on `instance` runs the `leaves-a-process` fixture: Bash leaves a `tail -f /dev/null` behind and
  * prints its pid. Answers that pid.
@@ -164,6 +186,15 @@ async function leaveAProcess(api: TestClient, instance: string): Promise<number>
   return pid;
 }
 
+/** SIGKILL `pid`; a process that is already gone is fine (ESRCH). */
+function killQuietly(pid: number): void {
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ESRCH") throw e;
+  }
+}
+
 /** Allow the Bash call the fixture makes: the engine asks before it runs. */
 async function permit(api: TestClient, instance: string, sessionId: string): Promise<void> {
   const ask = await api.waitFor(
@@ -182,30 +213,28 @@ test("reap_on_stop: stopping the instance ends what its sessions left running (i
   const built = await api.call("harnix.instances.create", { template: "reaper", name: "reaper-1", wait: "ready" });
   expect(built.reap).toBe(true);
   const pid = await leaveAProcess(api, "reaper-1");
-  await api.call("harnix.instances.stop", { instance: "reaper-1" });
-  expect(await gone(pid), `${pid} outlived instances.stop`).toBe(true);
+  try {
+    await api.call("harnix.instances.stop", { instance: "reaper-1" });
+    expect(await gone(pid), `${pid} outlived instances.stop`).toBe(true);
+  } finally {
+    killQuietly(pid);
+  }
 });
 
-// Pinned as it is, not as it should be. Since Agix 0.3.15 each command starts in a session of its
-// own (no controlling terminal to push input into), so ending the daemon's session on its restart
-// no longer reaches what its commands left: they outlive a SIGKILL. The engine keeps a list of its
-// commands' process groups for the next run to stop, but only for a host that asks it to.
-test("reap_on_stop: a daemon killed outright leaves its session's processes running when it is restarted (ipdrun-07)", {
-  tag: [...TAGS.tag, "@gap"],
-  annotation: {
-    type: "gap",
-    description: "Harnix: a spawned daemon keeps the engine's list of its commands' process groups (agix::process::orphans::persist_to) and stops a previous run's on start (reap_previous)",
-  },
-}, async () => {
+// Each command starts in a session of its own (no controlling terminal to push input into), so
+// ending the daemon's session on its restart does not reach what its commands left: with
+// reap_on_stop, the daemon's engine records their process groups in the data root, and the next
+// daemon stops what a SIGKILL left there before it builds its engine.
+test("reap_on_stop: a daemon killed outright has its session's processes stopped when it is restarted (ipdrun-07)", TAGS, async () => {
   const built = await api.call("harnix.instances.create", { template: "reaper", name: "reaper-2", wait: "ready" });
   const pid = await leaveAProcess(api, "reaper-2");
   process.kill(built.pid, "SIGKILL");
   try {
     expect(await gone(built.pid, 10_000)).toBe(true);
     await expect.poll(async () => (await until(api, "reaper-2", "ready")).pid, { timeout: 60_000 }).not.toBe(built.pid);
-    expect(await gone(pid, 3_000), `${pid} is reaped after its daemon's SIGKILL now: assert that, and drop the @gap`).toBe(false);
+    expect(await gone(pid, 3_000), `${pid} outlived its daemon's SIGKILL and restart`).toBe(true);
   } finally {
-    if (alive(pid)) process.kill(pid, "SIGKILL");
+    killQuietly(pid);
     await api.call("harnix.instances.stop", { instance: "reaper-2" });
   }
 });
@@ -219,11 +248,7 @@ test("without reap_on_stop, what a session left running outlives the instance, a
     await sleep(2_000);
     expect(alive(pid), "the background process was ended without reap_on_stop").toBe(true);
   } finally {
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch {
-      // already gone
-    }
+    killQuietly(pid);
   }
 });
 

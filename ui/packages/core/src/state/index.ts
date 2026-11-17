@@ -4,4 +4,17 @@
  */
 
 export * from "./model.ts";
+export * from "./asks.ts";
+export * from "./failure.ts";
 export { SessionController, MAIN_INSTANCE, type SessionControllerOptions, type SessionStrings } from "./controller.ts";
+export {
+  OutlineController,
+  OUTLINE_PROMPT_CHARS,
+  OUTLINE_REPLY_CHARS,
+  mergeTurns,
+  previewText,
+  shownTurns,
+  type NavTurn,
+  type OutlineControllerOptions,
+  type OutlineSnapshot,
+} from "./outline.ts";

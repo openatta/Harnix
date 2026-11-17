@@ -15,6 +15,7 @@ use super::parts::{
 use super::refs::{refs_in, refs_in_value, ROOTS};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Problem {
     /// The station it is about; `None` for the flow as a whole.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -119,6 +120,14 @@ pub fn validate(def: &FlowDef, packs: &dyn Packs) -> Vec<Problem> {
                 }
             }
         }
+    }
+    if let Some(t) = &def.output_dir {
+        for m in super::output::template_problems(t, &def.inputs) {
+            c.flow(format!("output_dir {t:?}: {m}"));
+        }
+    }
+    if def.workspace == Some(super::run::Workspace::Scratch) {
+        c.flow("workspace: a flow's tasks work in the project or a worktree of it (project | worktree)".to_string());
     }
     names_problems(&mut c, None, &def.rules, &def.policies);
     for (i, p) in def.permissions.iter().enumerate() {

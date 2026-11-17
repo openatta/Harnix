@@ -7,7 +7,7 @@
  *   it selected (`flow.focus`), or what `flow_create` just made. The recordings call the tools:
  *   `flow-author-unfocused` (`flow_update` with nothing selected), `flow-author-edit` (three turns:
  *   schema, validate, create · show, update, dry-run · delete; a filler between turns answers the
- *   engine's memory extraction). Tools that change something are asked about and permitted here.
+ *   engine's memory extraction). No tool asks: a change runs straight away, checked, not approved.
  * - Through the methods: `save` / `delete` and starting what was saved.
  * - Dry runs: the kernel in a sandbox, everything outside mocked — no session is opened.
  */
@@ -41,10 +41,10 @@ async function author(fixture: string): Promise<string> {
   return created.session_id;
 }
 
-/** Every ask the turns raised, permitted. */
+/** Every ask the turns raised (permitted, so a turn still settles if one comes). */
 const asks: any[] = [];
 
-/** One turn, permitting every ask it raises; its settlement. */
+/** One turn, permitting any ask it raises; its settlement. */
 async function turn(session_id: string, message: string): Promise<any> {
   const { settled, asks: raised } = await runTurn(api, { session_id }, message, { timeout: 60_000 });
   asks.push(...raised.map((a) => a.event));
@@ -76,8 +76,9 @@ test("without a selection, changing the current flow answers that the user must 
   expect((await api.call("flow.defs")).some((d: any) => d.name === "authored")).toBe(false);
   // The panel's selection is the focus, and is published for the panel.
   const selected = await api.call("flow.focus", { instance: "main", session_id: session, flow: "demo-linear" });
-  expect(selected).toEqual({ flow: "demo-linear" });
-  expect(await topic("focus", { instance: "main", session_id: session })).toEqual({ flow: "demo-linear" });
+  // The focus names the conversation's project too (none here).
+  expect(selected).toEqual({ flow: "demo-linear", project: null });
+  expect(await topic("focus", { instance: "main", session_id: session })).toEqual({ flow: "demo-linear", project: null });
   const missing = await api.refused("flow.focus", { instance: "main", session_id: session, flow: "nothing" });
   expect(missing?.data?.flow).toBe("not_found");
   // Only a flow-author conversation has a focus.
@@ -86,7 +87,7 @@ test("without a selection, changing the current flow answers that the user must 
   expect(notAuthor?.message).toContain("not a flow-author conversation");
   const nobody = await api.refused("flow.focus", { instance: "main", session_id: "no-such-session", flow: "demo-linear" });
   expect(nobody?.message).toContain("no session");
-  expect(await api.call("flow.focus", { instance: "main", session_id: session, flow: null })).toEqual({ flow: null });
+  expect(await api.call("flow.focus", { instance: "main", session_id: session, flow: null })).toEqual({ flow: null, project: null });
 });
 
 test("a flow-author conversation creates a flow (and selects it), shows, changes and dry-runs it, and deletes it", TAGS, async () => {
@@ -100,7 +101,7 @@ test("a flow-author conversation creates a flow (and selects it), shows, changes
   let defs = await topic("defs");
   expect(defs.find((d: any) => d.name === "authored")).toMatchObject({ origin: "user", valid: true, title: "Authored in conversation" });
   // Created means selected: the panel is told.
-  expect(await topic("focus", { instance: "main", session_id: session })).toEqual({ flow: "authored" });
+  expect(await topic("focus", { instance: "main", session_id: session })).toEqual({ flow: "authored", project: null });
   expect((await api.call("flow.def", { name: "authored" })).parts).toEqual({});
   expect((await api.call("flow.catalog")).parts.skill).toContain("authored-note");
 
@@ -119,25 +120,18 @@ test("a flow-author conversation creates a flow (and selects it), shows, changes
   expect(r.flow_delete[0].is_error ?? false).toBe(false);
   defs = await topic("defs");
   expect(defs.some((d: any) => d.name === "authored")).toBe(false);
-  expect(await topic("focus", { instance: "main", session_id: session })).toEqual({ flow: null });
-  // Each tool that changes something was asked about (create, update, delete here; the update
-  // without a selection before): the person in the conversation decides.
-  expect(asks.length).toBeGreaterThanOrEqual(4);
-  // Each ask is about a call that names its flow: what the person approves is that flow. (The
-  // engine shows its own "Allow <tool>?", so the card reads the flow from the call's input.)
-  expect(asks.map((a) => a.tool_name)).toEqual(expect.arrayContaining(["flow_create", "flow_update", "flow_delete"]));
-  const { messages: all } = await api.call("engine.session.history", { session_id: session });
-  const calls = new Map<string, any>(
-    all.flatMap((m: any) => (Array.isArray(m.content) ? m.content : [])).filter((b: any) => b.type === "tool_use").map((b: any) => [b.id, b]),
-  );
-  const named = asks
-    .filter((a) => a.tool_name === "flow_update" || a.tool_name === "flow_delete")
-    .map((a) => calls.get(a.tool_use_id))
-    .filter(Boolean);
+  expect(await topic("focus", { instance: "main", session_id: session })).toEqual({ flow: null, project: null });
+  // Nothing was asked of a person (create, update, delete here; the update without a selection
+  // before): authoring runs straight away, and validation is what keeps a bad text out.
+  expect(asks.filter((a) => String(a.tool_name ?? "").startsWith("flow_"))).toEqual([]);
+  // What changes a flow names it: the update and the delete acted on `authored`.
+  const { messages } = await api.call("engine.session.history", { session_id: session });
+  const named = messages
+    .flatMap((m: any) => (Array.isArray(m.content) ? m.content : []))
+    .filter((b: any) => b.type === "tool_use" && (b.name === "flow_update" || b.name === "flow_delete"));
   expect(named).toHaveLength(2);
   for (const call of named) expect(call.input.flow).toBe("authored");
-  // Nothing in the conversation confirms or forces: those tools do not exist.
-  const { messages } = await api.call("engine.session.history", { session_id: session });
+  // Nothing in this conversation confirms or forces: no one asked for it.
   expect(JSON.stringify(messages)).not.toMatch(/flow_(confirm|force|rework|release|cancel)/);
 });
 

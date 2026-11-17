@@ -71,12 +71,23 @@ pub struct Point {
     pub frequency: Frequency,
 }
 
-/// The nine points the interface is built out of.
+/// The twelve points the interface is built out of.
 ///
-/// The number is part of the design (concept §5.6): a tenth is an argument to
+/// The number is part of the design (concept §5.6): one more is an argument to
 /// be made, not a commit to be pushed. The ninth, `session.action`, was argued:
 /// three things the shell drew for one extension (open in the system space, view
-/// a tool call there, archive and export) were one kind of thing with nowhere to go. Every one of them is drawn by a built-in
+/// a tool call there, archive and export) were one kind of thing with nowhere to go. The tenth,
+/// `sidebar.tab`, was argued too: the right column is a docking surface per session, and the
+/// pages opened in it (a file preview, the usage, a flow's progress, an output stream) are one
+/// kind of thing — a tab type that claims an address or is opened by name — which a space's
+/// `details.tabs` could not be, being a space's and not a session's. The eleventh, `shortcut`, was
+/// argued as well: the shell's keys were three branches of one listener, any package's key would
+/// have been another, and the settings could list none of them — a command with a key per platform,
+/// where it is in force and what it runs is one kind of thing, and `command` (completions for what is
+/// typed) is not it. The twelfth, `conversation.view`: the centre shows a session as its
+/// conversation, and a trajectory (the session's calls by turn) is the same session another way —
+/// a view of the centre, switched to at its top, which no `space` member or right-column tab
+/// could carry: it takes the conversation's place, it does not sit beside it. Every one of them is drawn by a built-in
 /// registration **and asked for by the shell**, which is what makes the count
 /// honest — a seam nothing uses is not a seam, it is a line in this list.
 /// It has happened: five of the seven points there were once went unasked.
@@ -126,7 +137,7 @@ pub const POINTS: &[Point] = &[
     Point {
         id: "command",
         kind: PointKind::Register,
-        what: "一条 `/` 命令或 `@` 引用的补全候选（`trigger` 选哪个菜单）",
+        what: "一条 `/` 命令或 `@` 引用的补全候选（`trigger` 选哪个菜单；带 `submit` 的 `/` 候选收下发出的 `/<名> <参数>`）",
         when: "命令面板打开时",
         frequency: Frequency::PerInteraction,
     },
@@ -140,8 +151,29 @@ pub const POINTS: &[Point] = &[
     Point {
         id: "session.action",
         kind: PointKind::Register,
-        what: "对一个会话或它里面一次工具调用的动作（`at`：标题栏、会话菜单、工具行）",
-        when: "标题栏、会话菜单、工具行画出时",
+        what: "对一个会话、它里面一次工具调用或人的一条消息的动作（`at`：标题栏、会话菜单、工具行、工具行的参数、消息的菜单）",
+        when: "标题栏、会话菜单、工具行、人的消息画出时",
+        frequency: Frequency::PerInteraction,
+    },
+    Point {
+        id: "sidebar.tab",
+        kind: PointKind::Register,
+        what: "右栏的一种页签类型：按 `patterns` 认领 `harnix-resource://` 地址，或按 `kind` 打开的页；`guide` 进引导页",
+        when: "右栏打开一个地址或一种页时",
+        frequency: Frequency::PerInteraction,
+    },
+    Point {
+        id: "shortcut",
+        kind: PointKind::Register,
+        what: "一条有快捷键的命令：按平台的缺省键、生效的地方（全局、输入框、右栏）、要跑的动作；设置的「快捷键」列出它、可改键",
+        when: "按下一个键时；设置的「快捷键」打开时",
+        frequency: Frequency::PerInteraction,
+    },
+    Point {
+        id: "conversation.view",
+        kind: PointKind::Render,
+        what: "中间区里对话之外的另一种视图（轨迹……）：有会话打开、有注册方时，中间区顶部出现「对话 | …」的切换；每个会话各记自己的选择",
+        when: "有会话打开的中间区画出时，以及切换时",
         frequency: Frequency::PerInteraction,
     },
 ];
@@ -150,7 +182,7 @@ pub fn point(id: &str) -> Option<&'static Point> {
     POINTS.iter().find(|p| p.id == id)
 }
 
-/// A point a first-party extension defines for the others to fill, beside the shell's nine and not
+/// A point a first-party extension defines for the others to fill, beside the shell's twelve and not
 /// counted among them: the extension declares it (`UiDecl::point`) and its UI package defines it.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy)]
@@ -188,6 +220,70 @@ pub const EXTENSION_POINTS: &[ExtensionPoint] = &[
         kind: PointKind::Render,
         what: "系统 space 右栏里选中会话的一页（`{id, title(target), match(target), render(target), tools?}`）",
         when: "右栏的选中项变化时",
+        frequency: Frequency::PerInteraction,
+    },
+    ExtensionPoint {
+        owner: "system",
+        id: "system.metrics.link",
+        kind: PointKind::Register,
+        what: "系统 space 指标条上一格数字去哪（`{id, metric, title(), open()}`）：`metric: \"waiting\"` 的「等你处理」打开待我处理",
+        when: "指标条画出时、点那一格时",
+        frequency: Frequency::PerInteraction,
+    },
+    ExtensionPoint {
+        owner: "harnix-app",
+        id: "harnix-app.project.items",
+        kind: PointKind::Register,
+        what: "项目树里会话之外的一种条目（`{id, title(), rows(root), subscribe(fn), render(row), open(row), menu?(row), create?, projectMenu?(context)}`）：流程的任务",
+        when: "项目 space 的树画出时、条目的 `subscribe` 说变了时",
+        frequency: Frequency::PerInteraction,
+    },
+    ExtensionPoint {
+        owner: "harnix-app",
+        id: "harnix-app.project.panels",
+        kind: PointKind::Render,
+        what: "项目概况页的一个区块（`{id, title(), order?, render(context)}`）",
+        when: "项目的概况页画出时",
+        frequency: Frequency::PerInteraction,
+    },
+    ExtensionPoint {
+        owner: "harnix-app",
+        id: "harnix-app.inbox",
+        kind: PointKind::Register,
+        what: "待我处理的一个来源（`{id, items(), subscribe(fn), open(item)}`）：中枢的提问、流程的确认、hold、外部工作项",
+        when: "来源的 `subscribe` 说变了时、点一项时",
+        frequency: Frequency::PerInteraction,
+    },
+    ExtensionPoint {
+        owner: "harnix-app",
+        id: "harnix-app.session.badge",
+        kind: PointKind::Render,
+        what: "左栏会话行上的一个标记（`{id, render(session)}`）：定时的时钟",
+        when: "会话行画出时",
+        frequency: Frequency::PerInteraction,
+    },
+    ExtensionPoint {
+        owner: "flow",
+        id: "flow.task.badge",
+        kind: PointKind::Render,
+        what: "任务行上的一个标记（`{id, render(run)}`）：定时的下一次时间",
+        when: "任务行画出时",
+        frequency: Frequency::PerInteraction,
+    },
+    ExtensionPoint {
+        owner: "flow",
+        id: "flow.start.action",
+        kind: PointKind::Register,
+        what: "新任务对话框和流程详情里「现在启动」之外的另一种起法（`{id, label(), icon?, run(draft)}`）：定时运行",
+        when: "新任务对话框、流程详情画出时",
+        frequency: Frequency::PerInteraction,
+    },
+    ExtensionPoint {
+        owner: "observability",
+        id: "observability.usage.section",
+        kind: PointKind::Render,
+        what: "系统 space「用量」页签里的一个区块（`{id, title(), order?, render(context)}`，`context` 是 `{since, days}`）：流程按流程的用量",
+        when: "「用量」页签画出时",
         frequency: Frequency::PerInteraction,
     },
 ];
@@ -249,13 +345,15 @@ mod tests {
             assert!(p.id.starts_with(&format!("{}.", p.owner)), "{} is not under {}", p.id, p.owner);
             assert!(point(p.id).is_none(), "{} is one of the shell's", p.id);
         }
-        assert_eq!(points_of("system").count(), 2);
+        assert_eq!(points_of("system").count(), 3);
+        assert_eq!(points_of("harnix-app").count(), 4);
+        assert_eq!(points_of("flow").count(), 2);
     }
 
-    /// Nine, and adding one is a decision (concept §5.6).
+    /// Twelve, and adding one is a decision (concept §5.6).
     #[test]
-    fn the_interface_has_nine_points() {
-        assert_eq!(POINTS.len(), 9);
+    fn the_interface_has_twelve_points() {
+        assert_eq!(POINTS.len(), 12);
     }
 
     /// Nothing here may fire per streaming delta — the whole reason frequency

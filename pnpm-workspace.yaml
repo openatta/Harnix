@@ -4,7 +4,7 @@
 #   ui/packages/*  @harnix/core, @harnix/react, @harnix/shell, @harnix/testkit,
 #                  the first-party UI packages the shell's build compiles in (@harnix/system,
 #                  @harnix/harnix-app, @harnix/settings, @harnix/plugins, @harnix/devices,
-#                  @harnix/packages, @harnix/observability, @harnix/flow),
+#                  @harnix/packages, @harnix/observability, @harnix/flow, @harnix/schedule),
 #                  @harnix/ext-sdk, @harnix/ext-kit (an application's page in its isolated frame)
 #   tests/live     the LIVE suites: Playwright Test, against the real binary
 #   examples/hello-app/ui  the example application's interface modules

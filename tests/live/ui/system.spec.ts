@@ -97,12 +97,14 @@ test("system-tree: every instance, its sessions of every space, and their tasks;
   for (const id of ["main", "side", "ci"]) await expect(tree.locator(`[data-testid="system-tree-instance"][data-instance="${id}"]`)).toBeVisible();
   await expect(tree.locator('[data-testid="system-tree-instance"][data-instance="side"]')).toHaveAttribute("data-state", "ready");
   await expect(tree.locator('[data-testid="system-tree-instance"][data-instance="ci"]')).toHaveAttribute("data-state", "ready", { timeout: 30_000 });
-  // Both turns have settled; both Agents are loaded, so active, and idle.
+  // Both turns have settled; both Agents are loaded, so active, and idle — or `done` (unseen): the
+  // page holds main's list, whose push after the settle comes a beat later, so this space can be
+  // handed it still running first.
   const agents = page.getByTestId("system-agents");
   await expect(agents).toHaveAttribute("data-scope", "active");
-  await expect(agents.locator(`[data-testid="system-agent-group"][data-instance="side"][data-sid="${onSide}"]`)).toHaveAttribute("data-state", "idle", { timeout: 10_000 });
+  await expect(agents.locator(`[data-testid="system-agent-group"][data-instance="side"][data-sid="${onSide}"]`)).toHaveAttribute("data-state", /^(idle|done)$/, { timeout: 10_000 });
   const parent = agents.locator(`[data-testid="system-agent-group"][data-instance="main"][data-sid="${withAgent}"]`);
-  await expect(parent).toHaveAttribute("data-state", "idle");
+  await expect(parent).toHaveAttribute("data-state", /^(idle|done)$/);
   // Its sub-agent is counted on the row, and under it once the row is open.
   await expect(parent.locator('[data-stat="subagents"]')).toHaveText("1", { timeout: 10_000 });
   await parent.getByTestId("system-agent-toggle").click();
@@ -170,14 +172,14 @@ test("system-agents: the active tab lists the loaded Agents, the all tab every o
   await expect(pane.getByTestId("agent-subs")).toContainText("1");
   await expect(pane.getByTestId("agent-goal")).toHaveCount(0);
   // The model the next call goes to, and how full that call's context is.
-  await expect(pane.locator(".facts")).toContainText(/claude-|big/);
+  await expect(pane.locator(".hx-facts")).toContainText(/claude-|big/);
   await expect(pane.getByTestId("agent-context")).toBeVisible();
   // The sub-agent, picked: its own figures out of the parent's recording, and the way back.
   await sub.click();
   const subPane = page.getByTestId("system-subagent-pane");
   await expect(subPane.getByTestId("agent-stats").locator('[data-cell="total"] .v')).toHaveText("200");
   await expect(subPane.getByTestId("agent-stats").locator('[data-cell="model"] .v')).toHaveText("600ms");
-  await expect(subPane.locator(".facts")).toContainText("small");
+  await expect(subPane.locator(".hx-facts")).toContainText("small");
   await subPane.getByTestId("agent-open-parent").click();
   await expect(page.getByTestId("system-session")).toContainText(id);
 
@@ -331,13 +333,14 @@ test("system-strip: versions, uptime, memory and the connected users", TREE, asy
   await other.close();
 });
 
-test("system-calls: every model call with what went in and what came out, and its tool calls", TREE, async ({ page }) => {
+test("system-trajectory: every model call by turn with what went in and what came out, and its tool calls; a call opens in the inspector", TREE, async ({ page }) => {
   const sid = await recorded(page, recorder, { fixture: "spawns-agent" });
   await toSystem(page);
   await pick(page, "main", sid);
-  await tab(page, "observability.calls");
+  await tab(page, "observability.trajectory");
   const calls = page.getByTestId("system-call");
   await expect(calls.first()).toBeVisible();
+  await expect(page.getByTestId("turn-row")).toHaveCount(1);
   await expect(page.locator('#details [data-testid="system-call-tool"]').first()).toContainText("Agent");
   await page.locator('#details [data-filter="tools"]').click();
   // The calls that called a tool: the parent's Agent call. The sub-agent's call to list the files is
@@ -345,8 +348,14 @@ test("system-calls: every model call with what went in and what came out, and it
   await expect(calls).toHaveCount(1);
   await page.locator('#details [data-filter="all"]').click();
 
-  await calls.nth(1).click();
+  // In the narrow column the inspector takes the list's place.
+  // The parent's second call: its index is its place among every call in the recording, the
+  // sub-agent's included, so it is read off the row rather than counted.
+  const second = calls.nth(1);
+  const index = (await second.getAttribute("data-call"))!;
+  await second.click();
   const detail = page.getByTestId("call-detail");
+  await expect(detail).toHaveAttribute("data-call", index);
   await expect(detail.getByTestId("call-input")).toContainText(/scene\./);
   await detail.locator('[data-side="output"]').click();
   await expect(detail.getByTestId("call-output")).toContainText(/tool_result|sub-agent/);
@@ -354,6 +363,11 @@ test("system-calls: every model call with what went in and what came out, and it
   await expect(page.locator('#details [data-testid="system-diff"], #details .diff.none').first()).toBeVisible();
   await detail.getByTestId("call-back").click();
   await expect(calls.first()).toBeVisible();
+  // The way into the session: opened where it belongs, shown as its trajectory.
+  await page.getByTestId("traj-open-session").click();
+  await expect(page.locator("#main")).toHaveAttribute("data-space", "sessions");
+  await expect(page.locator("#main")).toHaveAttribute("data-view", "observability.trajectory");
+  await expect(page.locator('#main [data-testid="trajectory"]')).toHaveAttribute("data-session", sid);
 });
 
 test("system-ops: operations take effect, and another viewer sees them", TREE, async ({ page, context }) => {
@@ -423,13 +437,9 @@ test("system-ops: operations take effect, and another viewer sees them", TREE, a
   await other.close();
 });
 
-// Pinned as it is, not as it should be: the pane names the model the engine's context reports,
-// and Agix 0.3.15's `engine.session.inspectContext` names the settings' model until the session is rebuilt,
-// not the one `engine.session.setModel` chose for the next turn.
-test("system-ops: a model switched from the system space is not named in the pane until the session is rebuilt", {
-  tag: [...TREE.tag, "@gap"],
-  annotation: { type: "gap", description: "Agix: `engine.session.inspectContext` names the model `engine.session.setModel` chose for the next turn" },
-}, async ({ page }) => {
+// The pane names the model the engine's context reports, and `engine.session.inspectContext` names the
+// one `engine.session.setModel` chose for the next turn.
+test("system-ops: a model switched from the system space is named in the pane", TREE, async ({ page }) => {
   await open(page, backend.url);
   const sid = await sessionWithTurn(page, "main");
   await toSystem(page);
@@ -438,8 +448,7 @@ test("system-ops: a model switched from the system space is not named in the pan
   await page.locator("#modal input").fill("replayed-model-y");
   await page.getByTestId("host-prompt-ok").click();
   await expect(page.getByTestId("modal")).toHaveCount(0);
-  await page.waitForTimeout(1_000);
-  await expect(page.getByTestId("system-session"), "the pane names the new model now: assert that, and drop the @gap").not.toContainText("replayed-model-y");
+  await expect(page.getByTestId("system-session")).toContainText("replayed-model-y");
 });
 
 test("system-ops: an instance restarts, and its sessions are there after", TREE, async ({ page }) => {
@@ -535,17 +544,18 @@ test("system-jump: the header's button opens the space's sessions in the system 
   expect(errors).toEqual([]);
 });
 
-test("system-jump: a tool row opens its session's calls in the system space", TREE, async ({ page }) => {
-  // Replayed, the conversation has no recording, so there is no call to find: the calls are said to
-  // be none. The calls tab finding the call that asked for a tool is its unit test
-  // (ui/packages/observability/test/register.test.tsx).
+test("system-jump: a tool row opens its session's trajectory in the system space", TREE, async ({ page }) => {
+  // Replayed, the conversation has no recording, so there is no call to find: its turn is drawn from
+  // the session's own turns, with no calls. The trajectory finding the call that asked for a tool is
+  // its unit test (ui/packages/observability/test/register.test.tsx).
   const errors = watchConsole(page);
   await conversationWithTool(page);
   const row = page.locator('[data-testid="conv-tool"]').first();
   await row.getByTestId("conv-tool-toggle").click();
   await row.getByTestId("action-system.tool").click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", "system");
-  await expect(page.locator("#details")).toContainText("No calls recorded for this session");
+  await expect(page.locator('#details [data-testid="traj-count"]')).toHaveText(/^1 (turns|轮) · 0 (calls|次调用)$/);
+  await expect(page.locator('#details [data-testid="traj-user"]')).toContainText("echo harnix-fixture");
   await expect(page.locator('#details [data-testid="system-call"]')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
@@ -575,26 +585,33 @@ test("system-context: measured apart from estimated, and a fork from any message
   expect(errors).toEqual([]);
 });
 
-test("system-timeline: calls on a time line, searched and narrowed by a stretch of time; a row per turn", TREE, async ({ page }) => {
+test("system-timeline: calls on a time line, searched and narrowed by a stretch of time; each turn's sums on its row", TREE, async ({ page }) => {
   const errors = watchConsole(page);
   const sid = await recorded(page, recorder, { fixture: "spawns-agent" });
   await toSystem(page);
   await pick(page, "main", sid);
-  await tab(page, "observability.calls");
+  await tab(page, "observability.trajectory");
   const calls = page.getByTestId("system-call");
   await expect(calls.first()).toBeVisible();
   const all = await calls.count();
+  const aux = await page.getByTestId("traj-aux").count();
   const timeline = page.getByTestId("calls-timeline");
-  await expect(timeline.getByTestId("timeline-call")).toHaveCount(all);
+  // A bar per timed call: the turn's, and the ones beside it.
+  await expect(timeline.getByTestId("timeline-call")).toHaveCount(all + aux);
+  await expect(page.getByTestId("traj-start")).not.toBeEmpty();
   await expect(calls.first().getByTestId("call-ttft")).toBeVisible();
 
-  // Search: only the calls that say or call the Agent tool, fewer than all of them.
-  await page.getByTestId("calls-search").fill("agent");
+  // Search: only the call whose Agent call says "list files", fewer than all of them — found though
+  // the turns are folded. ("agent" alone is said by the last call too: "sub-agent found: …".)
+  await page.getByTestId("traj-fold-turns").click();
+  await expect(calls).toHaveCount(0);
+  await page.getByTestId("calls-search").fill("list files");
   await expect.poll(() => calls.count()).toBeLessThan(all);
   expect(await calls.count()).toBeGreaterThan(0);
   await page.getByTestId("calls-search").fill("no call says this");
   await expect(page.getByTestId("calls-none")).toBeVisible();
   await page.getByTestId("calls-search").fill("");
+  await page.getByTestId("traj-fold-turns").click();
   await expect(calls).toHaveCount(all);
 
   // Drag across the first call's bar alone: the list is that call.
@@ -610,39 +627,43 @@ test("system-timeline: calls on a time line, searched and narrowed by a stretch 
   await page.getByTestId("timeline-clear").click();
   await expect(calls).toHaveCount(all);
 
-  // Per turn: one row for the turn, opened into its calls; the context as a change or a total.
-  await tab(page, "observability.turns");
+  // The turn's sums on its row: the context as a change or a total.
   const rows = page.getByTestId("turn-row");
   await expect(rows).toHaveCount(1);
-  await rows.first().click();
-  // Its calls: the parent's two. The two of the sub-agent it started are the sub-agent's own.
-  await expect(page.getByTestId("turn-step")).toHaveCount(2);
+  await expect(rows.first().getByTestId("turn-cache")).toHaveText(/^(\d+%|—)$/);
   await page.getByTestId("turns-total").click();
   await expect(page.getByTestId("turn-context").first()).not.toHaveText("—");
+  // Folded, the turn keeps its row and loses its calls; unfolded, they are back.
+  await rows.first().click();
+  await expect(calls).toHaveCount(0);
+  await rows.first().click();
+  await expect(calls).toHaveCount(all);
   expect(errors).toEqual([]);
 });
 
-test("system-calls: a failed call is one click away, and listed alone on asking", TREE, async ({ page }) => {
+test("system-trajectory: a failed call is one click away, and listed alone on asking", TREE, async ({ page }) => {
   const errors = watchConsole(page);
   // `calls-a-tool`, the turn's second call (the one after the tool) failed as an overloaded provider
   // would have failed it. The recording also holds the calls beside the turn (its title, the memory).
-  let all = 0;
+  let turnCalls = 0;
   const sid = await recorded(page, recorder, {
     fixture: "calls-a-tool",
     edit: (lines) => {
       const records = lines.map((line) => JSON.parse(line));
       const second = records.filter((r) => r.type === "call" && !r.purpose)[1].seq;
       const at = records.findIndex((r) => r.type === "end" && r.call === second);
-      all = records.filter((r) => r.type === "call").length;
+      turnCalls = records.filter((r) => r.type === "call" && !r.purpose).length;
       return lines.map((line, i) => (i === at ? JSON.stringify({ ...records[at], outcome: { status: "error", error: "overloaded" } }) : line));
     },
   });
 
   await toSystem(page);
   await pick(page, "main", sid);
-  await tab(page, "observability.calls");
+  await tab(page, "observability.trajectory");
   const calls = page.getByTestId("system-call");
-  await expect(calls).toHaveCount(all);
+  await expect(calls).toHaveCount(turnCalls);
+  // The calls beside the turn are rows of their own, under it.
+  await expect(page.getByTestId("traj-aux")).toHaveCount(2);
   await expect(calls.nth(1)).toHaveAttribute("data-state", "failed");
   await expect(calls.nth(0)).not.toHaveAttribute("data-state", "failed");
 
@@ -653,19 +674,24 @@ test("system-calls: a failed call is one click away, and listed alone on asking"
   await expect(calls).toHaveCount(1);
   await expect(calls.first()).toHaveAttribute("data-call", "0");
   await page.locator('#details [data-filter="all"]').click();
-  await expect(calls).toHaveCount(all);
+  await expect(calls).toHaveCount(turnCalls);
 
+  // One click: the failed call open in the inspector, its failure said.
   await page.getByTestId("jump-to-failure").click();
-  await expect(page.locator('#details [data-testid="system-call"][data-call="1"]')).toBeInViewport();
+  const detail = page.getByTestId("call-detail");
+  await expect(detail).toHaveAttribute("data-call", "1");
+  await expect(detail.getByTestId("call-failure")).toContainText(/overloaded/);
+  await detail.getByTestId("call-back").click();
+  await expect(page.locator('#details [data-testid="system-call"][data-call="1"]')).toHaveClass(/on/);
   expect(errors).toEqual([]);
 });
 
-test("system-turns: a turn's cache hits are said as a share, or not at all", TREE, async ({ page }) => {
+test("system-trajectory: a turn's cache hits are said as a share, or not at all", TREE, async ({ page }) => {
   const sid = await recorded(page, recorder, { fixture: "calls-a-tool" });
   await toSystem(page);
   await pick(page, "main", sid);
-  await tab(page, "observability.turns");
-  await expect(page.getByTestId("system-turns")).toBeVisible();
+  await tab(page, "observability.trajectory");
+  await expect(page.getByTestId("trajectory")).toBeVisible();
   await expect(page.getByTestId("turn-cache").first()).toHaveText(/^(\d+%|—)$/);
 });
 

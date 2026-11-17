@@ -6,12 +6,16 @@
 //! shared.rs    what the module, its tools and its dispatcher share
 //! dispatch.rs  carrying out an Outcome: events, programs, and every work item handed on
 //! publish.rs   the topics: `run`, `runs`, `defs`, `focus`, `dry_runs`
+//! project.rs   a run's output directory and process directory in its project
+//! worktree.rs  a run in a worktree of its project: made at start, merged, kept or discarded after
+//! git.rs       the git command line worktree.rs works through
 //! session.rs   a session task: placing, opening and binding its session
 //! turns.rs     a session task's turns: sending, judging, correcting, nudging, interrupting
 //! gate.rs      a gate's work item; `command` gates
 //! tools.rs     the scene wrappers: flow-* (flow_state, flow_submit, flow_propose)
 //! author.rs    flow-author: writing flows in conversation (xops-02 §4)
 //! methods.rs   flow.* — the device methods
+//! project_packs.rs  a project's own packs: whether the project is trusted, as the engine says
 //! ```
 //!
 //! What a task may do is judged by the module call by call: a flow session `ask`s about every
@@ -37,20 +41,24 @@
 mod author;
 mod dispatch;
 mod gate;
+mod git;
 mod hooks;
 mod main;
 mod methods;
+mod project;
+mod project_packs;
 mod publish;
 mod session;
 mod shared;
 mod tools;
 mod turns;
+mod worktree;
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use harnix_ext::engine::{InstanceTemplate, SceneBase, SceneLayer};
-use harnix_ext::{caps, Extension, ExtensionContext, Manifest, Registrar, SpaceDecl};
+use harnix_ext::{caps, catalog, Extension, ExtensionContext, Manifest, Registrar, SpaceDecl};
 use serde_json::json;
 use tokio::sync::broadcast;
 
@@ -446,6 +454,7 @@ impl FlowBuilder {
             guarded: sh.cfg.guarded.clone(),
             main_scene: sh.cfg.main_scene.clone(),
             command_gates: sh.cfg.command_gates,
+            projects: Some(sh.projects.clone()),
         });
         let problems = crate::kernel::protocol::guard_problems(&self.guarded);
         let config_error = (!problems.is_empty()).then(|| {
@@ -483,6 +492,8 @@ struct CatalogPacks {
     guarded: Vec<String>,
     main_scene: Option<String>,
     command_gates: bool,
+    /// Whose trust a project's own packs wait on; `None` for a project's view itself.
+    projects: Option<Arc<crate::packs::ProjectTrust>>,
 }
 
 impl CatalogPacks {
@@ -545,6 +556,27 @@ impl Packs for CatalogPacks {
     }
     fn delete_part(&self, kind: crate::PartKind, name: &str) -> Result<(), String> {
         self.inner().delete_part(kind, name)
+    }
+    /// The project's own packs over the application's, with the same additions to the catalog;
+    /// read only while the project is trusted, as last heard.
+    fn project(&self, root: &str) -> Option<Arc<dyn Packs>> {
+        let trust = self.projects.as_ref()?;
+        let base = self.inner.get()?.clone();
+        let view = crate::packs::ProjectPacks::new(base, root, trust.trusted(root));
+        let inner = OnceLock::new();
+        let _ = inner.set(Arc::new(view) as Arc<dyn Packs>);
+        Some(Arc::new(CatalogPacks {
+            inner,
+            scenes: self.scenes.clone(),
+            templates: self.templates.clone(),
+            guarded: self.guarded.clone(),
+            main_scene: self.main_scene.clone(),
+            command_gates: self.command_gates,
+            projects: None,
+        }))
+    }
+    fn withheld_flows(&self) -> Vec<(String, crate::Withheld)> {
+        self.inner().withheld_flows()
     }
 }
 
@@ -623,6 +655,10 @@ impl Extension for Flow {
         r.topic("defs");
         r.topic("focus").param("instance").param("session_id");
         r.topic("dry_runs");
+        // Its UI package defines a task row's badges and the other ways to start a flow, for others to fill.
+        for point in catalog::points_of(MODULE_ID) {
+            r.ui().point(point.decl());
+        }
     }
 
     async fn start(&self, cx: ExtensionContext) -> anyhow::Result<()> {
@@ -692,6 +728,8 @@ impl Extension for Flow {
         let sh = self.sh.clone();
         self.sh.spawn(async move {
             dispatch::stop_stale_instances(&sh).await;
+            // Runs in projects read their project's packs as they go: its trust first.
+            project_packs::hear_active(&sh).await;
             dispatch::recover(&sh).await
         });
         let sh = self.sh.clone();
@@ -762,6 +800,7 @@ mod tests {
             guarded: vec![],
             main_scene: None,
             command_gates: false,
+            projects: None,
         };
         let _ = packs.inner.set(Arc::new(inner));
         packs
@@ -838,6 +877,7 @@ mod tests {
             guarded: vec![],
             main_scene: None,
             command_gates: false,
+            projects: None,
         };
         assert!(packs.flows().is_empty() && !packs.writable());
         let _ = packs.inner.set(Arc::new(MemPacks::new().writable()));

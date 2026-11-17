@@ -35,12 +35,17 @@
 //! speaks to `dyn FrameSink`, which is "a downstream that can take frames",
 //! and that is all it ever learns about the other side.
 
+mod changes;
 mod clients;
+mod effective;
 mod engine_rows;
+mod feedback;
 mod lifecycle;
 mod links;
+mod outline;
 mod prompt;
 mod replay;
+mod rewind;
 mod rows;
 mod scenes;
 mod session;
@@ -52,6 +57,7 @@ mod views;
 
 pub use clients::ClientId;
 pub use engine_rows::{ENGINE_REFUSALS, HUB_OWNED};
+pub use outline::{preview, PROMPT_CHARS, REPLY_CHARS};
 pub use links::{EXTENSION_BUFFER_FRAMES, FRAMES_BURST, FRAMES_PER_SECOND, FRAME_MAX_BYTES};
 pub use rows::{HubCell, HubRow, HUB_TOPICS};
 pub use replay::{MAX_BYTES as REPLAY_MAX_BYTES, MAX_FRAMES as REPLAY_MAX_FRAMES};
@@ -159,6 +165,9 @@ pub struct Hub {
     /// answers push it out: what the tool's own audit names as the person who
     /// confirmed.
     answerers: StdMutex<VecDeque<((String, String), String)>>,
+    /// The outlines of the sessions most recently asked about, to read each on from
+    /// (`outline.rs`).
+    outlines: StdMutex<VecDeque<(SessionKey, outline::Folded)>>,
     /// What each connected client said about itself (device, topology, user agent, since): who
     /// is connected, for the process's own view. A tap or another in-process client has none and
     /// is not listed.
@@ -172,6 +181,9 @@ pub struct Hub {
     pub(crate) turns: Arc<TurnChains>,
     /// One `harnix.session.setPrompt` at a time (`prompt.rs`).
     prompting: Mutex<()>,
+    /// One context request at a time for each session (`engine_rows.rs`): held while one is with
+    /// the engine, and dropped from here once nobody holds or waits for it.
+    context_requests: StdMutex<HashMap<SessionKey, Arc<Mutex<()>>>>,
 }
 
 pub struct HubConfig {
@@ -197,6 +209,8 @@ impl Hub {
                     .declare(name, params.iter().map(|p| p.to_string()).collect());
                 sources.insert(name.to_string(), views::own(this, name));
             }
+            // Published, not computed: its value is the last piece of feedback given.
+            inner.topics.declare(harnix_contract::wire::FEEDBACK_TOPIC, Vec::new());
             Self {
                 this: this.clone(),
                 instances: config.instances.clone(),
@@ -209,12 +223,14 @@ impl Hub {
                 next_barrier: AtomicU64::new(1),
                 refreshing: StdMutex::new(views::Refreshes::default()),
                 answerers: StdMutex::new(VecDeque::new()),
+                outlines: StdMutex::new(VecDeque::new()),
                 described: StdMutex::new(BTreeMap::new()),
                 spaces: StdMutex::new(config.spaces),
                 skills: StdRwLock::new(BTreeMap::new()),
                 audit: StdRwLock::new(None),
                 turns: config.turns.clone(),
                 prompting: Mutex::new(()),
+                context_requests: StdMutex::new(HashMap::new()),
             }
         });
         hub

@@ -63,22 +63,21 @@ pub(crate) async fn notify(sh: &Arc<Shared>, events: &[Event]) {
         return;
     }
     let Ok(engine) = sh.engine() else { return };
-    let hooks = engine.packs().hooks();
-    if hooks.is_empty() {
+    if engine.packs().hooks().is_empty() && !sh.projects.any_trusted() {
         return;
     }
-    let mut runs: HashMap<String, Option<Value>> = HashMap::new();
+    // A run in a project is told to its project's hooks too (the project's packs over the rest).
+    let mut runs: HashMap<String, Option<(Value, Vec<HookDef>)>> = HashMap::new();
     for e in events {
         if !runs.contains_key(&e.run) {
-            let summary = engine
-                .record(&e.run)
-                .await
-                .ok()
-                .map(|r| r.summary())
-                .and_then(|s| serde_json::to_value(s).ok());
-            runs.insert(e.run.clone(), summary);
+            let seen = engine.record(&e.run).await.ok().and_then(|r| {
+                let hooks = engine.packs_for(r.project_root.as_deref()).hooks();
+                let summary = serde_json::to_value(r.summary()).ok()?;
+                Some((summary, hooks))
+            });
+            runs.insert(e.run.clone(), seen);
         }
-        let Some(Some(run)) = runs.get(&e.run) else {
+        let Some(Some((run, hooks))) = runs.get(&e.run) else {
             continue;
         };
         let flow = run.get("flow").and_then(Value::as_str).unwrap_or_default();

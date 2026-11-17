@@ -13,7 +13,9 @@
  */
 
 import { errorText, type HarnixClient } from "../client/index.ts";
-import type { Decision, Notifications } from "../protocol/index.ts";
+import type { AskReply, Decision, FeedbackCategory, Notifications, Rating } from "../protocol/index.ts";
+import { answerOf } from "./asks.ts";
+import type { FailureClass, FailureFacts } from "./failure.ts";
 import {
   addCustom,
   addEntry,
@@ -25,8 +27,9 @@ import {
   applySettled,
   blockByKey,
   emptySession,
+  failureNote,
   note,
-  type AskAnswer,
+  reopenAsk,
   type SessionEntry,
   type SessionState,
 } from "./model.ts";
@@ -47,6 +50,8 @@ export interface SessionStrings {
   turnUnrecorded?: string;
   interrupted: string;
   turnFailed(reason: string): string;
+  /** 认得的失败（没有模型、密钥被拒、限流、实例不可达……）说成一句话；缺省照原话。 */
+  explainFailure?(cls: FailureClass, facts: FailureFacts): string | undefined;
   sendFailed(reason: string): string;
   interruptFailed(reason: string): string;
   answerFailed(reason: string): string;
@@ -213,24 +218,34 @@ export class SessionController {
   private held: [string, Record<string, unknown>][] = [];
 
   private async loadHistory(state: SessionState, total: number, stale: () => boolean, replayed: Set<string>): Promise<SessionState> {
-    let next = state;
     const start = Math.max(0, total - HISTORY_PAGE * HISTORY_PAGES_AT_OPEN);
-    // The extension's entries go back between the messages they were written between; the
-    // ones before the first message shown are as hidden as those messages.
-    const entries = (await this.entries()).filter((e) => e.at >= start);
-    if (stale()) return next;
+    this.knownEntries = await this.entries();
+    if (stale()) return state;
+    let next: SessionState = { ...state, historyFrom: start };
+    if (start > 0) next = { ...note(next, this.strings.olderHidden(start)), hiddenNote: next.nextKey };
+    return this.readHistory(next, start, total, true, stale, replayed);
+  }
+
+  /**
+   * History from `from` up to `to`, read into `state` after what it has, with the extension's entries
+   * back between the messages they were written between: the ones before `from` are as hidden as
+   * those messages, and the ones from `to` on are left to what follows unless `tail` (the end of
+   * the transcript, where they go last).
+   */
+  private async readHistory(state: SessionState, from: number, to: number, tail: boolean, stale: () => boolean, replayed: Set<string>): Promise<SessionState> {
+    let next = state;
+    const entries = this.knownEntries.filter((e) => e.at >= from && (tail || e.at < to));
     let pending = 0;
     const placeUpTo = (seq: number) => {
       while (pending < entries.length && entries[pending]!.at <= seq) next = addEntry(next, entries[pending++]!);
     };
-    if (start > 0) next = note(next, this.strings.olderHidden(start));
-    for (let offset = start; offset < total; offset += HISTORY_PAGE) {
+    for (let offset = from; offset < to; offset += HISTORY_PAGE) {
       const page = await this.client.call("engine.session.history", {
         ...this.key(),
         session_id: next.sessionId,
         offset,
-        // 读到 total 为止：其后由重放接上，多读的部分会画两遍
-        limit: Math.min(HISTORY_PAGE, total - offset),
+        // 读到 to 为止：其后由已有的（或重放）接上，多读的部分会画两遍
+        limit: Math.min(HISTORY_PAGE, to - offset),
       });
       if (stale()) return next;
       for (const message of page.messages || []) {
@@ -241,6 +256,58 @@ export class SessionController {
     }
     placeUpTo(Number.POSITIVE_INFINITY);
     return next;
+  }
+
+  /** The entries read at open, oldest first: what history read later puts back in place. */
+  private knownEntries: SessionEntry[] = [];
+  /** A read of older history under way. */
+  private older: Promise<boolean> | null = null;
+
+  /**
+   * Read the history before what is shown, back to `seq` (an `engine.session.history` offset), and put it
+   * before the rest: what a jump to an older turn needs first. True once `seq` is shown; false when the
+   * session was opened again meanwhile, or the read failed (the banner says why).
+   */
+  async loadOlder(seq: number): Promise<boolean> {
+    if (this.older) await this.older;
+    const from = Math.max(0, Math.floor(seq));
+    const shownFrom = this.state.historyFrom ?? 0;
+    if (from >= shownFrom) return true;
+    if (this.state.loading || this.stopped) return false;
+    const generation = this.generation;
+    const stale = () => this.stopped || generation !== this.generation;
+    const read = async (): Promise<boolean> => {
+      let older: SessionState = { ...emptySession(this.state.sessionId), loading: false, nextKey: this.state.nextKey };
+      try {
+        older = await this.readHistory(older, from, shownFrom, false, stale, new Set());
+      } catch (e) {
+        if (!stale()) this.set({ ...this.state, banner: this.strings.openFailed(errorText(e)) });
+        return false;
+      }
+      if (stale()) return false;
+      const current = this.state;
+      let nextKey = older.nextKey;
+      let head = older.blocks;
+      let hiddenNote: number | undefined;
+      if (from > 0) {
+        hiddenNote = nextKey++;
+        head = [{ key: hiddenNote, kind: "note", text: this.strings.olderHidden(from), tone: "info" }, ...head];
+      }
+      this.set({
+        ...current,
+        blocks: [...head, ...current.blocks.filter((b) => b.key !== current.hiddenNote)],
+        nextKey,
+        tools: { ...older.tools, ...current.tools },
+        agents: { ...older.agents, ...current.agents },
+        historyFrom: from,
+        hiddenNote,
+      });
+      return true;
+    };
+    this.older = read().finally(() => {
+      this.older = null;
+    });
+    return this.older;
   }
 
   /** The session's entries, oldest first. An engine without them (before Agix 0.2.8) has none. */
@@ -288,7 +355,7 @@ export class SessionController {
     if (method === "harnix.event") {
       const params = raw as unknown as Notifications["harnix.event"];
       if (params.seq <= this.state.seq) return;
-      const next = applyEvent({ ...this.state, seq: params.seq }, params.event, this.applyOptions());
+      const next = applyEvent({ ...this.state, seq: params.seq }, params.event, { ...this.applyOptions(), turnId: params.turn_id || undefined });
       // 一条 user_message 是一轮开始的信号（中枢合成的那条）。
       const turn = params.event.kind === "user_message" ? { turnId: params.turn_id } : next.turn;
       this.set({ ...next, turn });
@@ -308,6 +375,7 @@ export class SessionController {
           {
             interrupted: this.strings.interrupted,
             failed: this.strings.turnFailed,
+            explain: this.strings.explainFailure?.bind(this.strings),
           },
           this.now(),
         ),
@@ -353,7 +421,7 @@ export class SessionController {
         this.set({ ...this.state, turn: { turnId: result.turn_id } });
       }
     } catch (e) {
-      this.set(note(this.state, this.strings.sendFailed(errorText(e)), "error"));
+      this.set(failureNote(this.state, e, this.strings.sendFailed, this.strings.explainFailure?.bind(this.strings)));
     }
   }
 
@@ -377,24 +445,41 @@ export class SessionController {
   }
 
   /**
-   * 回答一张权限卡。任何一个观看者都能答，先答者生效，第二个回答是静默成功——所以每个
+   * 回答一张权限卡或计划审阅（`decision`）。任何一个观看者都能答，先答者生效，第二个回答是静默成功——所以每个
    * 打开的页面上按钮都保持可用，而不是只留一个。
    */
   async answer(key: number, decision: Decision): Promise<void> {
+    await this.respond(key, { decision });
+  }
+
+  /**
+   * 回答模型的提问或 MCP server 的询问（`answer`）。没被收下（表单不合 server 的 schema，提问不撤）时卡片回到没答，
+   * 横幅说为什么，可以改了再答。
+   */
+  async reply(key: number, answer: AskReply): Promise<boolean> {
+    return this.respond(key, { answer });
+  }
+
+  private async respond(key: number, given: { decision: Decision } | { answer: AskReply }): Promise<boolean> {
     const block = blockByKey(this.state, key);
-    if (!block || block.kind !== "ask" || block.answered) return;
-    const answer: AskAnswer = decision.type === "deny" ? "deny" : "allow";
-    this.set(answerAsk(this.state, key, answer));
+    if (!block || block.kind !== "ask" || block.answered) return false;
+    const { answered, reply } = answerOf(block.form, given);
+    this.set(answerAsk(this.state, key, answered, reply));
+    const kind = block.prompt.prompt_type;
     try {
       await this.client.answer("harnix.session.respond", {
         ...this.key(),
         prompt_id: block.prompt.prompt_id,
+        ...(kind === "question" || kind === "mcp_elicitation" ? { prompt_type: kind } : {}),
         // Who answered is kept by the hub for the tool's audit; the engine never sees it.
         ...(block.prompt.tool_use_id ? { tool_use_id: block.prompt.tool_use_id } : {}),
-        decision,
+        ...given,
       });
+      return true;
     } catch (e) {
-      this.set({ ...this.state, banner: this.strings.answerFailed(errorText(e)) });
+      const state = "answer" in given ? reopenAsk(this.state, key) : this.state;
+      this.set({ ...state, banner: this.strings.answerFailed(errorText(e)) });
+      return false;
     }
   }
 
@@ -424,6 +509,27 @@ export class SessionController {
         message,
       });
       this.set({ ...this.state, queue: result.items || [] });
+      return true;
+    } catch (e) {
+      this.set({ ...this.state, banner: errorText(e) });
+      return false;
+    }
+  }
+
+  /**
+   * 对一轮回答的反馈（`harnix.session.feedback`）：`rating` 为 null 是撤回。记下的条目立即进状态，
+   * 正在看这个会话的别的设备经推送拿到同一条（按 id 去重）。失败时横幅说明，返回 false。
+   */
+  async feedback(turnId: string, rating: Rating | null, extra: { category?: FeedbackCategory; note?: string } = {}): Promise<boolean> {
+    try {
+      const filed = await this.client.call("harnix.session.feedback", {
+        ...this.key(),
+        turn_id: turnId,
+        rating,
+        ...(rating && extra.category ? { category: extra.category } : {}),
+        ...(rating && extra.note?.trim() ? { note: extra.note.trim() } : {}),
+      });
+      if (filed?.entry?.id) this.set(addEntry(this.state, filed.entry as SessionEntry, this.now()));
       return true;
     } catch (e) {
       this.set({ ...this.state, banner: errorText(e) });

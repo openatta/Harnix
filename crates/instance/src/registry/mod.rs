@@ -24,6 +24,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use harnix_contract::sync::lock;
+use harnix_contract::wire::{self, HelloInstance};
 use harnix_contract::{codes, RpcError};
 use harnix_kernel::instances::{holding, holds, Holding, Side};
 use harnix_engine::ReplayLink;
@@ -353,19 +354,19 @@ impl InstanceRegistry {
 
     /// What each instance says it is, for `hello`: carrier, how far its engine is trusted, status,
     /// and the protocol it speaks.
-    pub fn identities(&self) -> Vec<Value> {
+    pub fn identities(&self) -> Vec<HelloInstance> {
         self.slots()
             .iter()
             .map(|slot| {
                 let identity = slot.control.identity();
-                json!({
-                    "id": slot.id,
-                    "carrier": slot.control.carrier(),
-                    "trust": slot.trust.label(),
-                    "status": slot.status(),
-                    "version": identity.version,
-                    "protocol_version": identity.protocol_version,
-                })
+                HelloInstance {
+                    id: slot.id.clone(),
+                    carrier: slot.control.carrier(),
+                    trust: (&slot.trust).into(),
+                    status: slot.status(),
+                    version: identity.version,
+                    protocol_version: identity.protocol_version,
+                }
             })
             .collect()
     }
@@ -838,27 +839,22 @@ impl InstanceRegistry {
 
     fn instance_view(&self, slot: &Slot) -> Value {
         let identity = slot.control.identity();
-        let mut view = json!({
-            "id": slot.id,
-            "carrier": slot.control.carrier(),
-            "template": slot.template,
-            "params": slot.params,
-            "owner": slot.owner,
-            "status": slot.status(),
-            "version": identity.version,
-            "protocol_version": identity.protocol_version,
-            "data_root": slot.facts.root_label(),
-            "scenes": slot.facts.active_scenes,
-            "pid": slot.control.pid(),
-            "created_ms": slot.created_ms,
-        });
-        if slot.trust.is_extension() {
-            view["trust"] = json!(slot.trust.label());
-        }
-        if slot.control.reaps_on_stop() {
-            view["reap"] = json!(true);
-        }
-        view
+        wire::params(&wire::InstanceRow {
+            id: slot.id.clone(),
+            carrier: slot.control.carrier(),
+            template: slot.template.clone(),
+            params: slot.params.clone(),
+            owner: String::from(slot.owner.clone()),
+            status: slot.status(),
+            version: identity.version,
+            protocol_version: identity.protocol_version,
+            data_root: slot.facts.root_label(),
+            scenes: slot.facts.active_scenes.clone(),
+            pid: slot.control.pid(),
+            created_ms: slot.created_ms,
+            trust: slot.trust.is_extension().then_some(wire::EngineTrust::Extension),
+            reap: slot.control.reaps_on_stop(),
+        })
     }
 
     /// `harnix.instances.list`, and the value of the `harnix.instances` topic.

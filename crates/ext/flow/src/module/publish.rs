@@ -4,16 +4,18 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use serde_json::{json, Value};
+use serde_json::json;
 
 use super::shared::{Binding, Shared};
 use crate::kernel::engine::view;
 use crate::kernel::run::{RunQuery, RunRecord, StationStatus, TaskStatus};
+use crate::wire::DefRow;
 
 /// How many runs the `runs` topic carries, newest first.
 pub const RUNS_LISTED: usize = 200;
 
-/// The newest snapshot of each run, and the list; bindings of claims that are over dropped.
+/// The newest snapshot of each run, and the list; bindings of claims that are over dropped; each
+/// run's process directory written (`project.rs`).
 pub(crate) async fn publish(sh: &Arc<Shared>, runs: &BTreeSet<String>) {
     publish_runs(sh, runs, true).await;
 }
@@ -28,6 +30,10 @@ pub(crate) async fn publish_runs(sh: &Arc<Shared>, runs: &BTreeSet<String>, list
     for run in runs {
         if let Ok(rec) = engine.record(run).await {
             sh.prune_bindings(run, |b| binding_current(&rec, b));
+            // Its process directory follows each change; bookkeeping changes nothing shown there.
+            if list {
+                super::project::project_run(engine, &rec);
+            }
             if let Err(e) = events.publish("run", json!({"run": run}), view(rec)).await {
                 tracing::warn!(run, error = %e, "run not published");
             }
@@ -80,20 +86,43 @@ pub(crate) async fn publish_all(sh: &Arc<Shared>) {
     publish(sh, &listed).await;
 }
 
-/// The flows on offer, as the `defs` topic carries them: `[{name, title, digest, origin, valid}]`.
-pub(crate) fn defs_list(packs: &dyn crate::kernel::host::Packs) -> Vec<Value> {
-    packs
+/// The flows on offer, as `flow.defs` and the `defs` topic carry them; and, for a project, the
+/// project's own that are withheld (not valid, with the reason), in name order with the rest.
+pub(crate) fn defs_list(packs: &dyn crate::kernel::host::Packs) -> Vec<DefRow> {
+    let mut rows: Vec<DefRow> = packs
         .flows()
         .into_iter()
         .filter_map(|n| {
             let (def, digest) = packs.flow(&n)?;
             let valid = crate::kernel::validate::validate(&def, packs).is_empty();
-            Some(json!({
-                "name": n, "title": def.title, "digest": digest,
-                "origin": packs.origin(&n), "valid": valid,
-            }))
+            Some(DefRow {
+                origin: packs.origin(&n),
+                inputs: def.inputs_schema(),
+                name: n,
+                title: def.title,
+                description: def.description,
+                digest,
+                valid,
+                reason: None,
+            })
         })
-        .collect()
+        .collect();
+    let withheld = packs.withheld_flows();
+    if withheld.is_empty() {
+        return rows;
+    }
+    rows.extend(withheld.into_iter().map(|(name, why)| DefRow {
+        origin: packs.origin(&name),
+        title: String::new(),
+        description: String::new(),
+        digest: String::new(),
+        valid: false,
+        reason: Some(why),
+        inputs: json!({"type": "object"}),
+        name,
+    }));
+    rows.sort_by(|a, b| a.name.cmp(&b.name));
+    rows
 }
 
 /// The `defs` topic, after the packs changed.
@@ -111,10 +140,12 @@ pub(crate) async fn publish_defs(sh: &Arc<Shared>) {
 pub(crate) async fn publish_focus(sh: &Arc<Shared>, instance: &str, session_id: &str) {
     let Some(cx) = sh.cx.get() else { return };
     let flow = sh.focus(instance, session_id);
+    // The same answer `flow.focus` gives: the flow, and the project the conversation works in.
+    let project = sh.conversation_project(instance, session_id);
     let params = json!({"instance": instance, "session_id": session_id});
     if let Err(e) = cx
         .topics()
-        .publish("focus", params, json!({"flow": flow}))
+        .publish("focus", params, json!({"flow": flow, "project": project}))
         .await
     {
         tracing::warn!(error = %e, "focus not published");

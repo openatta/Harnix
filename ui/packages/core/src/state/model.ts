@@ -11,7 +11,10 @@
  * 实时是 step_start … step_end 之间的帧；正文段、思考、工具调用各成一块，次序相同。
  */
 
+import { answeredBy, askForm, type AskAnswer, type AskForm } from "./asks.ts";
+import { failureAction, failureClass, failureDetail, failureFacts, type FailureAction, type FailureClass, type FailureFacts } from "./failure.ts";
 import type {
+  AskAnswered,
   AttachResult,
   ContextUsage,
   EngineEvent,
@@ -41,8 +44,13 @@ export type ToolStatus = "running" | "ok" | "error" | "interrupted";
  */
 export type Block =
   /** `steered`：运行中送来、在这一轮的步骤边界进了对话（历史里是 origin "steer"）。 */
-  | { key: number; kind: "user"; text: string; itemId?: string; at?: number; steered?: boolean }
-  | { key: number; kind: "assistant"; text: string; streaming: boolean; at?: number }
+  /**
+   * `turnId`：开了这一轮的那条话所在的轮（实时的取帧的 `turn_id`，历史的取消息的）；`seq`：从历史读回来的，它在历史里的位置
+   * （`engine.session.history` 的 offset）。轮次导航按它们找到一轮的开头，回退「回到这里」按 `turnId` 找那一轮。
+   */
+  | { key: number; kind: "user"; text: string; itemId?: string; at?: number; steered?: boolean; turnId?: string; seq?: number }
+  /** `turnId`：写下它的那一轮（帧与 transcript 的 `turn_id`）；旧日志里没有。反馈按它记。 */
+  | { key: number; kind: "assistant"; text: string; streaming: boolean; at?: number; turnId?: string }
   | { key: number; kind: "think"; text: string; streaming?: boolean; startedAt?: number; endedAt?: number }
   | {
       key: number;
@@ -56,8 +64,21 @@ export type Block =
       startedAt?: number;
       endedAt?: number;
     }
-  | { key: number; kind: "ask"; prompt: PromptEvent; deadline: number; answered?: AskAnswer }
-  | { key: number; kind: "note"; text: string; tone: NoteTone }
+  /**
+   * 一个提问：`form` 是要人答的是什么（`asks.ts`）。答了之后 `answered` 是结局，`reply` 是一起显示的话（提问的答案、
+   * 要求修改的意见）；`elsewhere`：不是这个页面答的，是从中枢（`ask_answered`）或引擎（`prompt_resolved`）听说的。
+   */
+  | {
+      key: number;
+      kind: "ask";
+      prompt: PromptEvent;
+      form: AskForm;
+      deadline: number;
+      answered?: AskAnswer;
+      reply?: string;
+      elsewhere?: boolean;
+    }
+  | { key: number; kind: "note"; text: string; tone: NoteTone; /** 悬停提示：原话与错误码，给支持看 */ detail?: string; /** 说完之后给的入口 */ action?: FailureAction }
   /**
    * 注入进对话、不是人说的话：提醒、召回、技能指令，或者压缩留下的消息。`compact` 说它和压缩有关：实时看到的是一次压缩，
    * 带上压缩前后的消息数与省下的 token（`compact` 帧）；从历史读回来的是压缩替换进来的一条消息，只有它的内容。
@@ -78,10 +99,6 @@ export interface CompactFacts {
   after?: number;
   saved?: number;
 }
-/**
- * 权限卡的结局：允许、拒绝、超时（引擎超时即按拒绝处理）；引擎撤回（取消）；别处已答（不知道是允许还是拒绝）。
- */
-export type AskAnswer = "allow" | "deny" | "timeout" | "withdrawn" | "answered";
 export interface AgentLine {
   text: string;
   streaming?: boolean;
@@ -115,6 +132,10 @@ export interface SessionState {
   seq: number;
   /** 正在跑的一轮。 */
   turn: { turnId: string } | null;
+  /** 读进来的历史从哪里开始（`engine.session.history` 的 offset）：大于 0 时更早的还没读，`SessionController.loadOlder` 读进来。 */
+  historyFrom?: number;
+  /** 说「更早的还没显示」的那一行的 key。 */
+  hiddenNote?: number;
   /** 队列：整值快照，不做增量合并。 */
   queue: QueueItem[];
   /** 待送达：交给了正在跑的一轮、还没进对话的话。 */
@@ -239,8 +260,24 @@ export function addEntry(state: SessionState, entry: SessionEntry, at?: number):
   return seen ? state : addCustom(state, "entry", entry, at);
 }
 
-export function note(state: SessionState, text: string, tone: NoteTone = "info"): SessionState {
-  return push(state, { kind: "note", text, tone })[0];
+export function note(state: SessionState, text: string, tone: NoteTone = "info", extra?: { detail?: string; action?: FailureAction }): SessionState {
+  return push(state, { kind: "note", text, tone, ...extra })[0];
+}
+
+/**
+ * 一次失败说给人听：认得的（`failureClass`）用 `explain` 的话，原话与码放进 `detail`；不认得的照原话。
+ */
+export function failureNote(
+  state: SessionState,
+  error: unknown,
+  frame: (error: string) => string,
+  explain?: SettleTexts["explain"],
+): SessionState {
+  const facts = failureFacts(error);
+  const cls = failureClass(facts);
+  const said = cls ? explain?.(cls, facts) : undefined;
+  if (!cls || !said) return note(state, frame(facts.raw), "error");
+  return note(state, frame(said), "error", { detail: failureDetail(facts), action: failureAction(cls) });
 }
 
 /**
@@ -294,7 +331,7 @@ export function applyReplay(state: SessionState, attached: AttachResult, promptT
   let next = state;
   for (const frame of attached.replay || []) {
     if (frame.seq > next.seq) next = { ...next, seq: frame.seq };
-    next = applyEvent(next, frame.event, { promptTimeoutSecs, now, live: false });
+    next = applyEvent(next, frame.event, { promptTimeoutSecs, now, live: false, ...(frame.turn_id ? { turnId: frame.turn_id } : {}) });
   }
   for (const prompt of attached.pending_prompts || []) {
     next = applyEvent(next, prompt, { promptTimeoutSecs, now });
@@ -333,8 +370,15 @@ export function applyHistoryMessage(state: SessionState, message: HistoryMessage
       next = push(
         next,
         message.role === "user"
-          ? { kind: "user", text, at, ...(message.origin === "steer" ? { steered: true } : {}) }
-          : { kind: "assistant", text, streaming: false, at },
+          ? {
+              kind: "user",
+              text,
+              at,
+              ...(message.origin === "steer" ? { steered: true } : {}),
+              ...(message.turn_id ? { turnId: message.turn_id } : {}),
+              ...(typeof message.seq === "number" ? { seq: message.seq } : {}),
+            }
+          : { kind: "assistant", text, streaming: false, at, ...(message.turn_id ? { turnId: message.turn_id } : {}) },
       )[0];
     } else if (part.type === "thinking") {
       next = push(next, { kind: "think", text: String(part.thinking ?? "") })[0];
@@ -365,6 +409,8 @@ export function applyHistoryMessage(state: SessionState, message: HistoryMessage
 export interface ApplyOptions {
   promptTimeoutSecs: number;
   now: number;
+  /** 这一帧所属的一轮（`harnix.event` 与重放帧的 `turn_id`）：开一轮的那条人的话、它产生的回答都记下它。 */
+  turnId?: string;
   /**
    * 是不是正在发生的事件。重放（attach 时中枢缓冲区里的帧）不是：它们发生在过去，`now` 不是它们的时间，
    * 不记时间、不量耗时。缺省 true。
@@ -406,7 +452,7 @@ export function applyEvent(state: SessionState, event: EngineEvent, options: App
       }
       // 同一条话作为一轮送来（退回后排队、或引擎没能送进那一轮）：不再待送达
       const base = message.item_id ? dropSteering(state, [message.item_id]) : state;
-      return push(endStream(base, now), { kind: "user", text, itemId: message.item_id, at: now })[0];
+      return push(endStream(base, now), { kind: "user", text, itemId: message.item_id, at: now, ...(options.turnId ? { turnId: options.turnId } : {}) })[0];
     }
 
     // 待送达的话在步骤边界进了对话：画在此刻的位置（transcript 里它也在这里）
@@ -449,7 +495,7 @@ export function applyEvent(state: SessionState, event: EngineEvent, options: App
       if (!text) return state;
       const base = endThinking(state, now);
       if (base.stream == null) {
-        const [next, key] = push(base, { kind: "assistant", text, streaming: true, at: now });
+        const [next, key] = push(base, { kind: "assistant", text, streaming: true, at: now, ...(options.turnId ? { turnId: options.turnId } : {}) });
         return { ...next, stream: key };
       }
       return update(base, base.stream, (block) => (block.kind === "assistant" ? { ...block, text: block.text + text } : block));
@@ -516,11 +562,22 @@ export function applyEvent(state: SessionState, event: EngineEvent, options: App
       const prompt = event as PromptEvent;
       // 同一个提问可能既在重放里又在 pending_prompts 里：按 prompt_id 去重。
       if (state.blocks.some((b) => b.kind === "ask" && b.prompt.prompt_id === prompt.prompt_id)) return state;
-      return push(endStream(state, now), {
+      const ended = endStream(state, now);
+      return push(ended, {
         kind: "ask",
         prompt,
+        form: askForm(prompt, ended.blocks),
         deadline: options.now + options.promptTimeoutSecs * 1000,
       })[0];
+    }
+
+    // 中枢说第一个回答被引擎收下了、答的是什么：别处答的卡片也画出答案。本页答的已经是那个结局，不动。
+    case "ask_answered": {
+      const told = event as AskAnswered;
+      const block = state.blocks.find((b) => b.kind === "ask" && b.prompt.prompt_id === told.prompt_id);
+      if (!block || block.kind !== "ask" || (block.answered && !block.elsewhere)) return state;
+      const { answered, reply } = answeredBy(block.form, told);
+      return update(state, block.key, (b) => (b.kind === "ask" ? { ...b, answered, reply, elsewhere: true } : b));
     }
 
     // 提问不再悬着：本地已答的不动；别处答的、被撤回的把卡片收起（超时与取消分开说）
@@ -530,7 +587,7 @@ export function applyEvent(state: SessionState, event: EngineEvent, options: App
       if (!block || block.kind !== "ask" || block.answered) return state;
       const how: AskAnswer =
         resolved.resolution === "answered" ? "answered" : resolved.reason === "timed_out" ? "timeout" : "withdrawn";
-      return answerAsk(state, block.key, how);
+      return update(state, block.key, (b) => (b.kind === "ask" ? { ...b, answered: how, elsewhere: true } : b));
     }
 
     // 引擎的提示（模型要人回来看，或引擎自己的提醒）：原文说出来
@@ -657,6 +714,8 @@ function subagentEvent(
 export interface SettleTexts {
   interrupted: string;
   failed: (error: string) => string;
+  /** 认得的失败说成一句话（做什么、下一步）；没有话说就不给，界面照原话。 */
+  explain?: (cls: FailureClass, facts: FailureFacts) => string | undefined;
 }
 
 /**
@@ -665,7 +724,7 @@ export interface SettleTexts {
  */
 export function applySettled(
   state: SessionState,
-  params: { error?: { message?: string }; result?: { usage?: Usage; name?: string | null } },
+  params: { error?: { message?: string; code?: number; data?: unknown }; result?: { usage?: Usage; name?: string | null } },
   wasInterrupted: boolean,
   texts: SettleTexts,
   now?: number,
@@ -682,7 +741,7 @@ export function applySettled(
   }
   if (wasInterrupted) next = note(next, texts.interrupted, "interrupted");
   if (params.error) {
-    if (!wasInterrupted) next = note(next, texts.failed(params.error.message ?? ""), "error");
+    if (!wasInterrupted) next = failureNote(next, params.error, texts.failed, texts.explain);
   } else if (params.result) {
     if (params.result.usage) next = { ...next, usage: params.result.usage };
     if (params.result.name && next.session) next = { ...next, session: { ...next.session, name: params.result.name } };
@@ -690,9 +749,20 @@ export function applySettled(
   return next;
 }
 
-/** 一张权限卡被回答（或超时）。 */
-export function answerAsk(state: SessionState, key: number, answer: AskAnswer): SessionState {
-  return update(state, key, (block) => (block.kind === "ask" && !block.answered ? { ...block, answered: answer } : block));
+/** 一张卡在这个页面被回答（或超时）；`reply` 是一起显示的话。 */
+export function answerAsk(state: SessionState, key: number, answer: AskAnswer, reply?: string): SessionState {
+  return update(state, key, (block) =>
+    block.kind === "ask" && !block.answered ? { ...block, answered: answer, ...(reply ? { reply } : {}) } : block,
+  );
+}
+
+/** 回答没被收下（例如表单不合 schema，提问不撤）：卡片回到没答，可以改了再答。 */
+export function reopenAsk(state: SessionState, key: number): SessionState {
+  return update(state, key, (block) => {
+    if (block.kind !== "ask" || block.elsewhere) return block;
+    const { answered: _answered, reply: _reply, ...open } = block;
+    return open;
+  });
 }
 
 /** 用量的合计：四项互不重叠，总量是四项之和；缓存一项是总量的一部分。 */

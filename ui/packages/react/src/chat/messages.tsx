@@ -15,12 +15,16 @@
  * 可测性：消息正文是 data-testid=conv-message（只含正文，不含头像、名字、时间、按钮）。
  */
 
-import { memo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { memo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import type { Rating } from "@harnix/core/protocol";
 import { useStrings } from "../context";
+import { useDisplay } from "../display";
+import { useOptionalHost } from "../host";
 import { markdown } from "../markdown";
 import type { BlockOf, ToolStatus } from "@harnix/core/state";
 import { ToolDetails, toolDuration, useToolState } from "../components/blocks";
-import { chipifyHtml, clockTime, editOf, numberedDiff, splitIds, toolArgs, toolDisplayName, toolSummary } from "./format";
+import { chipifyHtml, clockTime, editOf, numberedDiff, splitIds, toolArgs, toolDisplayName, toolSummary, unifiedDiffRows, type DiffRow } from "./format";
+import { FeedbackButtons, FeedbackDialog, type AnswerFeedback } from "./feedback";
 import { Icon } from "./icons";
 import { useChat, type ChatRole } from "./types";
 
@@ -79,10 +83,10 @@ export function WithIds({ text }: { text: string }) {
   );
 }
 
-export const UserBubble = memo(function UserBubble({ block }: { block: BlockOf<"user"> }) {
+export const UserBubble = memo(function UserBubble({ block, extras }: { block: BlockOf<"user">; extras?: ReactNode }) {
   const strings = useStrings();
   return (
-    <div className="hx-blk hx-cv-u">
+    <div className="hx-blk hx-cv-u" data-turn={block.turnId}>
       <div
         className="hx-cv-ub"
         data-testid="conv-message"
@@ -98,6 +102,8 @@ export const UserBubble = memo(function UserBubble({ block }: { block: BlockOf<"
         ) : null}
         <WithIds text={block.text} />
       </div>
+      {/* 它的动作（外壳的消息菜单）：悬停或聚焦时出现，同助手那一组下面的复制 */}
+      {extras ? <div className="hx-cv-act hx-cv-uact">{extras}</div> : null}
     </div>
   );
 });
@@ -168,16 +174,33 @@ export function CopyButton({ text }: { text: string }) {
   );
 }
 
-/** 一组发言下面的"复制""重新生成"（原型 .cv-act；重新生成要后端，画成不可用） */
-export function MessageActions({ text }: { text: string }) {
+/**
+ * 一组发言下面的"复制"、赞与踩、"重新生成"（原型 .cv-act；重新生成要后端，画成不可用）。
+ * 给了 `feedback`（这一轮已经结束）才有赞与踩；点了在这一行下面开反馈的对话框。给过反馈的一行一直显示。
+ */
+export function MessageActions({ text, feedback, copy = true }: { text: string; feedback?: AnswerFeedback; copy?: boolean }) {
   const strings = useStrings();
+  const [open, setOpen] = useState<Rating | null>(null);
+  const row = useRef<HTMLDivElement>(null);
   return (
-    <div className="hx-cv-act">
-      <CopyButton text={text} />
-      <button type="button" data-testid="conv-retry" disabled title={strings.retry} aria-label={strings.retry}>
-        <Icon.retry />
-      </button>
-    </div>
+    <>
+      <div
+        ref={row}
+        className="hx-cv-act"
+        data-testid="conv-actions"
+        data-feedback={feedback ? (feedback.current?.rating ?? "none") : undefined}
+        data-open={open ? "" : undefined}
+      >
+        {copy ? <CopyButton text={text} /> : null}
+        {feedback ? <FeedbackButtons feedback={feedback} open={open} onOpen={(rating) => setOpen((was) => (was === rating ? null : rating))} /> : null}
+        {copy ? (
+          <button type="button" data-testid="conv-retry" disabled title={strings.retry} aria-label={strings.retry}>
+            <Icon.retry />
+          </button>
+        ) : null}
+      </div>
+      {feedback && open ? <FeedbackDialog key={open} feedback={feedback} rating={open} onClose={() => setOpen(null)} within={row} /> : null}
+    </>
   );
 }
 
@@ -228,7 +251,8 @@ export const TranscriptText = memo(function TranscriptText({ block, extras }: { 
 export const ThinkRow = memo(function ThinkRow({ block }: { block: BlockOf<"think"> }) {
   const strings = useStrings();
   const { untrusted } = useChat();
-  const [open, setOpen] = useState(false);
+  // Folded when first drawn unless the display preferences say otherwise.
+  const [open, setOpen] = useState(!useDisplay().thinkingFolded);
   const seconds =
     block.startedAt != null && block.endedAt != null ? Math.max(1, Math.round((block.endedAt - block.startedAt) / 1000)) : null;
   const label = block.streaming ? strings.thinkingLive : seconds != null ? strings.thoughtFor(seconds) : strings.thinking;
@@ -264,14 +288,22 @@ export const ThinkRow = memo(function ThinkRow({ block }: { block: BlockOf<"thin
 /* ── 系统事件 ─────────────────────────────────────────────────────── */
 
 export const SystemLine = memo(function SystemLine({ block, transcript }: { block: BlockOf<"note">; transcript?: boolean }) {
+  const strings = useStrings();
+  const host = useOptionalHost();
   return (
     <div
       className={`hx-blk ${transcript ? "hx-cc-sys" : "hx-cv-sys"} hx-tone-${block.tone}`}
       data-testid="conv-note"
       data-state={block.tone}
       role={block.tone === "error" ? "alert" : undefined}
+      title={block.detail}
     >
       <span>{block.text}</span>
+      {block.action === "settings.models" && host ? (
+        <button type="button" className="btn sm" data-testid="conv-note-action" data-action={block.action} onClick={() => host.settings.open("models")}>
+          {strings.openModels}
+        </button>
+      ) : null}
     </div>
   );
 });
@@ -309,9 +341,21 @@ export function DiffView({ path, pairs }: { path: string; pairs: { old: string; 
     const rows = numberedDiff(p.old, p.new);
     return i > 0 ? [{ op: "gap" as const, text: "…" }, ...rows] : rows;
   });
+  return <DiffFrame path={path} rows={lines} />;
+}
+
+/**
+ * 一段 unified diff（引擎报的一轮改动，`@harnix/core` 的 `FileChange.diff`），画成和工具行的 diff 一样的样子：
+ * 行号是文件里的行号（hunk 头给的），不是这段改动里的。
+ */
+export function UnifiedDiffView({ path, diff, testId }: { path: string; diff: string; testId?: string }) {
+  return <DiffFrame path={path} rows={unifiedDiffRows(diff)} testId={testId} />;
+}
+
+function DiffFrame({ path, rows: lines, testId = "conv-tool-diff" }: { path: string; rows: DiffRow[]; testId?: string }) {
   const shown = lines.slice(0, DIFF_MAX_LINES);
   return (
-    <div className="hx-cc-diff" data-testid="conv-tool-diff" onClick={(e) => e.stopPropagation()}>
+    <div className="hx-cc-diff" data-testid={testId} onClick={(e) => e.stopPropagation()}>
       <div className="hx-cc-dh">
         <Icon.file />
         <span>{path}</span>
@@ -360,10 +404,12 @@ const BULLET: Record<ToolStatus, string> = { ok: "ok", running: "run", error: "x
 export const TranscriptToolRow = memo(function TranscriptToolRow({ block }: { block: BlockOf<"tool"> }) {
   const strings = useStrings();
   const { toolNames, diffsCollapsed, diffGeneration, toolSummary: domainSummary } = useChat();
+  const { toolsOpen } = useDisplay();
   const { state, tail } = useToolState(block);
   const [local, setLocal] = useState<{ generation: number; open: boolean } | null>(null);
   const edit = editOf(block);
-  const fallback = edit ? !diffsCollapsed : false;
+  // A diff opens unless they were all folded; any other tool's details as the display preferences say.
+  const fallback = edit ? !diffsCollapsed : toolsOpen;
   const open = local && local.generation === diffGeneration ? local.open : fallback;
   const can = block.status !== "running" && (edit != null || block.input !== undefined || block.result != null);
   const toggle = () => setLocal({ generation: diffGeneration, open: !open });

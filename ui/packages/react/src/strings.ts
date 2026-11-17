@@ -10,7 +10,26 @@
  * in the dictionaries, never pieces put together here.
  */
 
-import { translate, type Locale } from "./i18n/index";
+import { failureClass, failureFacts, type FailureClass, type FailureFacts } from "@harnix/core/state";
+import { errorText } from "@harnix/core";
+import { FEEDBACK_CATEGORIES, type FeedbackCategory } from "@harnix/core/protocol";
+import { t, translate, type Locale } from "./i18n/index";
+
+const FAIL_KEYS: Record<FailureClass, string> = {
+  no_model: "noModel",
+  auth: "auth",
+  billing: "billing",
+  model_rejected: "modelRejected",
+  rate_limited: "rateLimited",
+  overloaded: "overloaded",
+  model_unavailable: "modelUnavailable",
+  context_too_long: "contextTooLong",
+  egress_denied: "egressDenied",
+  engine_down: "engineDown",
+  instance_unavailable: "instanceUnavailable",
+  extension_unavailable: "extensionUnavailable",
+  deadline: "deadline",
+};
 
 export interface HarnixUiStrings {
   untitled: string;
@@ -40,6 +59,9 @@ export interface HarnixUiStrings {
   uploading: string;
   interrupted: string;
   turnFailed: (error: string) => string;
+  /** A failure the interface has words for (what happened, what to do next); none for one it does not know. */
+  explainFailure: (cls: FailureClass, facts: FailureFacts) => string | undefined;
+  openModels: string;
   stopReason: (reason: string) => string;
   /** 人的话被拒收（ipdrun-13）：`reason` 是理由；`text` 是被拒的那句，只在它不在流里时给（steer）。 */
   messageRefused?: (reason: string, text?: string) => string;
@@ -77,6 +99,45 @@ export interface HarnixUiStrings {
   permDecisionWithdrawn: string;
   permDecisionElsewhere: string;
   permCountdown: (seconds: number) => string;
+  /* The other asks: a model's question, a plan's review, an MCP server's form or page. */
+  askQuestion: string;
+  askOther: string;
+  askOtherPlaceholder: string;
+  askSubmit: string;
+  askDecline: string;
+  askReplied: (text: string) => string;
+  askDeclined: string;
+  askTimeout: string;
+  askElsewhere: string;
+  planHead: string;
+  planEmpty: string;
+  planAllowed: string;
+  planApprove: string;
+  planRequestChanges: string;
+  planFeedbackPlaceholder: string;
+  planSendFeedback: string;
+  planApproved: string;
+  planChangesRequested: (text: string) => string;
+  planChangesRequestedBare: string;
+  elicitHead: (server: string) => string;
+  elicitFrom: (server: string) => string;
+  elicitLimited: string;
+  elicitAccept: string;
+  elicitOpenUrl: string;
+  elicitUrlHost: (host: string) => string;
+  elicitUrlDone: string;
+  elicitDecline: string;
+  elicitCancel: string;
+  elicitChoose: string;
+  elicitAccepted: string;
+  elicitDeclined: string;
+  elicitCancelled: string;
+  elicitRequired: string;
+  elicitNumber: string;
+  elicitInteger: string;
+  elicitRange: string;
+  elicitLength: string;
+  elicitUnsupported: string;
   answerFailed: (error: string) => string;
   sessions: string;
   newSession: string;
@@ -131,6 +192,20 @@ export interface HarnixUiStrings {
   needsBackend: string;
   contextUsage: (tokens: number, max: number | null) => string;
   retry: string;
+  /* 对回答的反馈 */
+  feedbackUp: string;
+  feedbackDown: string;
+  feedbackUpTitle: string;
+  feedbackDownTitle: string;
+  feedbackCategoryLabel: string;
+  feedbackCategory: (category: FeedbackCategory) => string;
+  feedbackNote: string;
+  /** 对话框里的一行小字：反馈记在哪里、谁看得见。 */
+  feedbackPrivacy: string;
+  feedbackSubmit: string;
+  feedbackUpdate: string;
+  feedbackRetract: string;
+  feedbackCancel: string;
   plusMenu: string;
   uploadFile: string;
   uploadImage: string;
@@ -249,6 +324,19 @@ export function uiStrings(locale: Locale): HarnixUiStrings {
     modelUnsetHint: s("modelUnsetHint"),
     needsBackend: s("needsBackend"),
     retry: s("retry"),
+    feedbackUp: s("feedbackUp"),
+    feedbackDown: s("feedbackDown"),
+    feedbackUpTitle: s("feedbackUpTitle"),
+    feedbackDownTitle: s("feedbackDownTitle"),
+    feedbackCategoryLabel: s("feedbackCategoryLabel"),
+    // One the dictionaries do not name (a newer hub's) reads as "other".
+    feedbackCategory: (category) => s(`feedbackCategory.${FEEDBACK_CATEGORIES.includes(category) ? category : "other"}`),
+    feedbackNote: s("feedbackNote"),
+    feedbackPrivacy: s("feedbackPrivacy"),
+    feedbackSubmit: s("feedbackSubmit"),
+    feedbackUpdate: s("feedbackUpdate"),
+    feedbackRetract: s("feedbackRetract"),
+    feedbackCancel: s("feedbackCancel"),
     plusMenu: s("plusMenu"),
     uploadFile: s("uploadFile"),
     uploadImage: s("uploadImage"),
@@ -276,6 +364,13 @@ export function uiStrings(locale: Locale): HarnixUiStrings {
     sendFailed: (error) => s("sendFailed", { error }),
     queued: (index) => s("queued", { index }),
     turnFailed: (error) => s("turnFailed", { error }),
+    explainFailure: (cls, facts) =>
+      cls === "rate_limited" && facts.retryAfterMs
+        ? s("fail.rateLimitedWait", { seconds: Math.ceil(facts.retryAfterMs / 1000) })
+        : FAIL_KEYS[cls]
+          ? s(`fail.${FAIL_KEYS[cls]}`)
+          : undefined,
+    openModels: s("openModels"),
     stopReason: (reason) => s("stopReason", { reason }),
     messageRefused: (reason, text) =>
       text ? (reason ? s("refusedTextBecause", { text, reason }) : s("refusedText", { text })) : reason ? s("refusedBecause", { reason }) : s("refused"),
@@ -295,6 +390,44 @@ export function uiStrings(locale: Locale): HarnixUiStrings {
               ? s("permAnsweredElsewhere", { tool })
               : s("permAnsweredTimeout", { tool }),
     permCountdown: (seconds) => s("permCountdown", { seconds }),
+    askQuestion: s("askQuestion"),
+    askOther: s("askOther"),
+    askOtherPlaceholder: s("askOtherPlaceholder"),
+    askSubmit: s("askSubmit"),
+    askDecline: s("askDecline"),
+    askReplied: (text) => s("askReplied", { text }),
+    askDeclined: s("askDeclined"),
+    askTimeout: s("askTimeout"),
+    askElsewhere: s("askElsewhere"),
+    planHead: s("planHead"),
+    planEmpty: s("planEmpty"),
+    planAllowed: s("planAllowed"),
+    planApprove: s("planApprove"),
+    planRequestChanges: s("planRequestChanges"),
+    planFeedbackPlaceholder: s("planFeedbackPlaceholder"),
+    planSendFeedback: s("planSendFeedback"),
+    planApproved: s("planApproved"),
+    planChangesRequested: (text) => s("planChangesRequested", { text }),
+    planChangesRequestedBare: s("planChangesRequestedBare"),
+    elicitHead: (server) => s("elicitHead", { server }),
+    elicitFrom: (server) => s("elicitFrom", { server }),
+    elicitLimited: s("elicitLimited"),
+    elicitAccept: s("elicitAccept"),
+    elicitOpenUrl: s("elicitOpenUrl"),
+    elicitUrlHost: (host) => s("elicitUrlHost", { host }),
+    elicitUrlDone: s("elicitUrlDone"),
+    elicitDecline: s("elicitDecline"),
+    elicitCancel: s("elicitCancel"),
+    elicitChoose: s("elicitChoose"),
+    elicitAccepted: s("elicitAccepted"),
+    elicitDeclined: s("elicitDeclined"),
+    elicitCancelled: s("elicitCancelled"),
+    elicitRequired: s("elicitRequired"),
+    elicitNumber: s("elicitNumber"),
+    elicitInteger: s("elicitInteger"),
+    elicitRange: s("elicitRange"),
+    elicitLength: s("elicitLength"),
+    elicitUnsupported: s("elicitUnsupported"),
     answerFailed: (error) => s("answerFailed", { error }),
     thoughtFor: (seconds) => s("thoughtFor", { seconds }),
     readLines: (n) => s("readLines", { n }),
@@ -312,3 +445,23 @@ export function uiStrings(locale: Locale): HarnixUiStrings {
 
 export const zhCN: HarnixUiStrings = uiStrings("zh-CN");
 export const en: HarnixUiStrings = uiStrings("en");
+
+/** The words for a failure class, in the interface's language (the rate limit's wait, when it said how long). */
+export function failureWords(cls: FailureClass, facts: FailureFacts): string {
+  return cls === "rate_limited" && facts.retryAfterMs
+    ? t("chat.fail.rateLimitedWait", { seconds: Math.ceil(facts.retryAfterMs / 1000) })
+    : t(`chat.fail.${FAIL_KEYS[cls]}`);
+}
+
+/**
+ * A rejected call for a notice or banner: what happened and what to do next when the error is one
+ * the interface knows (the code stays, in parentheses, for whoever supports it); the backend's own
+ * words when it is not.
+ */
+export function explainError(e: unknown): string {
+  const facts = failureFacts(e);
+  const cls = failureClass(facts);
+  if (!cls) return errorText(e);
+  const tag = [facts.code !== undefined ? String(facts.code) : "", facts.kind ?? ""].filter(Boolean).join(" ");
+  return tag ? `${failureWords(cls, facts)} (${tag})` : failureWords(cls, facts);
+}

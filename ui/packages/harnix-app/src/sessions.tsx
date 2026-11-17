@@ -8,8 +8,10 @@
  */
 
 import { useSyncExternalStore, type MouseEvent } from "react";
-import { Glyph, ago, clip, t, useCurrentSession, useRegistry, useT, type HostApi, type Registry, type SidebarGroup } from "@harnix/react";
+import { Contributed, Glyph, ago, clip, t, useContributions, useCurrentSession, useRegistry, useT, type HostApi, type Registry, type SidebarGroup } from "@harnix/react";
 
+import { importDialog } from "./dialogs.tsx";
+import { SESSION_BADGE, type SessionBadge } from "./items.ts";
 import { keyOf, type AppSession, type AppStore } from "./store.ts";
 
 const PAGE = 8;
@@ -86,7 +88,7 @@ export function SessionsSidebar({ host, r, store }: { host: HostApi; r: Registry
               <span className="count">{group.rows.length}</span>
             </div>
             {rows.map((row) => (
-              <SessionRow key={keyOf((row as AppSession).instance ?? host.defaults.instance, row.session_id)} host={host} store={store} session={row as AppSession} />
+              <SessionRow key={keyOf((row as AppSession).instance ?? host.defaults.instance, row.session_id)} host={host} r={r} store={store} session={row as AppSession} />
             ))}
             {group.rows.length > rows.length || all ? (
               <button type="button" className="more-rows" onClick={() => store.toggleExpanded(group.key)}>
@@ -102,6 +104,10 @@ export function SessionsSidebar({ host, r, store }: { host: HostApi; r: Registry
           <span>{s.showArchived ? t("sidebar.archivedHide") : t("sidebar.archivedShow", { count: archived })}</span>
         </button>
       ) : null}
+      <button type="button" className="archive-toggle" data-testid="session-import" onClick={() => void importDialog(host, store)}>
+        <Glyph name="upload" className="glyph" />
+        <span>{t("sidebar.importSession")}</span>
+      </button>
     </>
   );
 }
@@ -111,7 +117,7 @@ function anchorOf(event: MouseEvent<HTMLElement>): Element | { x: number; y: num
   return event.clientX || event.clientY ? { x: event.clientX, y: event.clientY } : event.currentTarget;
 }
 
-export function SessionRow({ host, store, session, nested = false }: { host: HostApi; store: AppStore; session: AppSession; nested?: boolean }) {
+export function SessionRow({ host, r, store, session, nested = false }: { host: HostApi; r: Registry; store: AppStore; session: AppSession; nested?: boolean }) {
   const t = useT();
   const s = useApp(store);
   const current = useCurrentSession();
@@ -148,6 +154,7 @@ export function SessionRow({ host, store, session, nested = false }: { host: Hos
       >
         {running ? <span className="live" /> : null}
         <span className="tt name">{session.name || t("sidebar.untitled")}</span>
+        <SessionBadges r={r} instance={instance} sessionId={session.session_id} />
         <span className="meta time">{ago(session.last_active, t)}</span>
       </button>
       <button
@@ -163,6 +170,26 @@ export function SessionRow({ host, store, session, nested = false }: { host: Hos
       </button>
     </div>
   );
+}
+
+/** The other packages' badges on a session's row (`harnix-app.session.badge`), each in its own guard. */
+function SessionBadges({ r, instance, sessionId }: { r: Registry; instance: string; sessionId: string }) {
+  const badges = useContributions<SessionBadge>(SESSION_BADGE, r);
+  if (!badges.length) return null;
+  return (
+    <span className="badges" data-testid="session-badges">
+      {badges.map((badge) => (
+        <Contributed key={`${badge.owner}/${badge.id}`} registry={r} point={SESSION_BADGE} contribution={badge}>
+          <BadgeBody badge={badge} instance={instance} sessionId={sessionId} />
+        </Contributed>
+      ))}
+    </span>
+  );
+}
+
+/** Called inside the guard: a `render` that throws costs that badge, not the row. */
+function BadgeBody({ badge, instance, sessionId }: { badge: SessionBadge; instance: string; sessionId: string }) {
+  return <>{badge.render({ instance, sessionId })}</>;
 }
 
 /* The session space lists everything by when it was last active: today, the last seven days,

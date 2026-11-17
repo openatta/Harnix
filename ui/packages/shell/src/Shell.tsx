@@ -3,7 +3,8 @@
  * its own left column, a centre that is the conversation unless it says otherwise, and its right
  * tabs — inside the chrome that stays: the brand and the avatar. Beside the centre a space may open
  * a second side panel (`secondary`, xops-04 §7): the details of what is selected on the right. Every
- * side column is dragged wider or narrower, and remembers it.
+ * side column is dragged wider or narrower, and remembers it. The right column itself is
+ * `sidebar/Details.tsx`: the space's tabs and the open session's docking surface in one strip.
  *
  * What is inside the conversation column is `ChatPanel`, the conversation trunk shared with
  * IPDrun.
@@ -25,9 +26,9 @@ import {
 } from "react";
 import { errorText } from "@harnix/core";
 import type { BlockOf, SessionController, SessionState } from "@harnix/core/state";
-import { ChatComposer, ChatPanel, Contributed, listenForLayers, modalUp, t, useLayer, useRegistry, useT, ComposerNote, askedTool, rowTitle, toolAsks, type Attached, type ChatIds, type ComposerApi, type MentionItem, type ModelOption, type SpaceContribution, type SpaceSecondary, type ToolRowContribution, Glyph, useRoving } from "@harnix/react";
+import { CONVERSATION_VIEW, ChatComposer, ChatPanel, ContextRing, Contributed, listenForLayers, modalUp, ringValue, t, useLayer, useRegistry, useT, ComposerNote, askedTool, rowTitle, toolAsks, type Attached, type ChatIds, type ComposerApi, type MentionItem, type ModelOption, type SpaceContribution, type SpaceSecondary, type ToolRowContribution, Glyph, useDisplay, explainError } from "@harnix/react";
 
-import { ask, detailsWidthOf, keyOf, later, orderTabs, safeTabs, secondaryWidthOf, type App, type OpenModal, type ShellState, type Widths } from "./app.ts";
+import { ask, detailsWidthOf, keyOf, later, secondaryWidthOf, type App, type OpenModal, type ShellState, type Widths } from "./app.ts";
 import { useBrand } from "./brand.ts";
 import { referencesIn, sessionMentions, useCommands, withContributed } from "./commands.ts";
 import { followEnvelopes } from "./envelope.tsx";
@@ -35,7 +36,9 @@ import { sessionMenu } from "./dialogs.tsx";
 import { MenuHost, menuBelow } from "./Menu.tsx";
 import { openSettingsFor } from "./settings.tsx";
 import { Sidebar, spacesOf } from "./Sidebar.tsx";
-import { ActionButtons } from "./actions.tsx";
+import { ActionButtons, MessageMenu } from "./actions.tsx";
+import { Details } from "./sidebar/Details.tsx";
+import { listenForShortcuts } from "./shortcuts.tsx";
 
 export function Shell({ app }: { app: App }) {
   const s = useSyncExternalStore(app.subscribe, app.getSnapshot);
@@ -78,7 +81,7 @@ export function Shell({ app }: { app: App }) {
           <Main app={app} s={s} />
           {secondary && space ? <Secondary app={app} space={space} panel={secondary} max={app.secondaryMax(s)} /> : null}
         </div>
-        {space || s.detail ? <Details app={app} s={s} /> : <aside id="details" aria-hidden inert />}
+        {space || s.detail ? <Details app={app} s={s} resizer={<Resizer app={app} column="details" />} /> : <aside id="details" aria-hidden inert />}
         {narrow.veil ? <div className="drawer-veil" data-testid="drawer-veil" aria-hidden="true" onClick={narrow.closeTop} /> : null}
       </div>
       <ModalHost app={app} s={s} />
@@ -259,31 +262,12 @@ export function isDark(): boolean {
 
 /**
  * The shell's keys. Escape belongs to the layers (`@harnix/react`'s `layers.ts`): their listener comes first and
- * takes it while one is open. The shortcuts do nothing while a dialog is: what is under it is not
- * the page's to act on.
+ * takes it while one is open. Every other key is a `shortcut` command's (`shortcuts.tsx`), and
+ * none runs while a dialog is open: what is under it is not the page's to act on.
  */
 function useShortcuts(app: App) {
   useEffect(() => listenForLayers(), []);
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (modalUp()) return;
-      const mod = event.metaKey || event.ctrlKey;
-      if (mod && event.key.toLowerCase() === "k") {
-        // `[shell] new_session = false` (ipdrun-46): ⌘K is not the shell's — left to the page.
-        if (!app.startsSessions()) return;
-        event.preventDefault();
-        document.querySelector<HTMLButtonElement>("#new")?.click();
-      } else if (mod && event.key === "\\") {
-        event.preventDefault();
-        app.toggleSidebar();
-      } else if (mod && event.key === "/") {
-        event.preventDefault();
-        document.querySelector<HTMLTextAreaElement>('[data-testid="conv-input"]')?.focus();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [app]);
+  useEffect(() => listenForShortcuts(app), [app]);
 }
 
 /* ── banner ───────────────────────────────────────────────────────────── */
@@ -358,15 +342,60 @@ function Main({ app, s }: { app: App; s: ShellState }) {
     );
   }
   const empty = !s.current;
+  const views = app.viewsFor(s.current);
+  const view = app.conversationView(s.current);
+  const chosen = view === CONVERSATION_VIEW ? null : views.find((v) => v.id === view) ?? null;
   return (
-    <section id="main" className={empty ? "empty" : ""} data-space={s.space} data-state={empty ? "empty" : "open"}>
+    <section id="main" className={empty ? "empty" : ""} data-space={s.space} data-state={empty ? "empty" : "open"} data-view={s.current ? view : undefined}>
       <Header app={app} s={s} session={session} onBack={center !== "chat" ? () => setTalking(false) : null} onTalk={null} />
+      {s.current && views.length ? <ViewSwitch app={app} current={s.current} views={views} view={view} /> : null}
       {s.current ? (
-        <Conversation key={keyOf(s.current.instance, s.current.sessionId)} app={app} s={s} onController={setController} />
+        <>
+          {/* The conversation stays on the page under another view: the session stays attached, its composer bound, its stream followed. */}
+          <Conversation key={keyOf(s.current.instance, s.current.sessionId)} app={app} s={s} onController={setController} hidden={chosen !== null} />
+          {chosen ? (
+            <div className="centre-view" data-testid="conversation-view" data-view={chosen.id}>
+              <Contributed registry={app.registry} point="conversation.view" contribution={chosen}>
+                {chosen.render({ instance: s.current.instance, sessionId: s.current.sessionId })}
+              </Contributed>
+            </div>
+          ) : null}
+        </>
       ) : (
         <Hero app={app} />
       )}
     </section>
+  );
+}
+
+/**
+ * The views of the open session (`conversation.view`): the conversation first, then each
+ * registration that applies, as a tab strip at the top of the centre. The choice is the session's,
+ * kept in this browser.
+ */
+function ViewSwitch({ app, current, views, view }: { app: App; current: { instance: string; sessionId: string }; views: ReturnType<App["viewsFor"]>; view: string }) {
+  const t = useT();
+  const registry = useRegistry(app.registry);
+  // A title that throws costs that view its name, not the strip.
+  const titleOf = (v: ReturnType<App["viewsFor"]>[number]) => {
+    try {
+      return v.title();
+    } catch (e) {
+      later(() => registry.fail("conversation.view", v, e));
+      return v.id;
+    }
+  };
+  return (
+    <div className="view-switch" role="tablist" data-testid="view-switch" aria-label={t("view.switch")}>
+      <button type="button" role="tab" data-view={CONVERSATION_VIEW} aria-selected={view === CONVERSATION_VIEW} className={view === CONVERSATION_VIEW ? "on" : ""} onClick={() => app.setConversationView(current, CONVERSATION_VIEW)}>
+        {t("view.conversation")}
+      </button>
+      {views.map((v) => (
+        <button type="button" role="tab" key={v.id} data-view={v.id} aria-selected={view === v.id} className={view === v.id ? "on" : ""} onClick={() => app.setConversationView(current, v.id)}>
+          {titleOf(v)}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -426,7 +455,7 @@ function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app:
       onSent?.();
       return true;
     } catch (e) {
-      app.notice(errorText(e), "error");
+      app.notice(explainError(e), "error");
       return false;
     }
   };
@@ -609,7 +638,7 @@ function Hero({ app }: { app: App }) {
                   await app.sessionCall("harnix.session.send", { instance: key.instance, session_id: key.sessionId }, { message: text });
                   setSeed((n) => n + 1);
                 } catch (e) {
-                  app.notice(errorText(e), "error");
+                  app.notice(explainError(e), "error");
                 }
               }}
             >
@@ -625,7 +654,8 @@ function Hero({ app }: { app: App }) {
 }
 
 /** The `home.card` registrations, under a new conversation's composer: what the product wants in
- *  front of someone about to start something. */
+ *  front of someone about to start something. A card with no title whose `render()` draws nothing
+ *  takes no place (`:empty`): a first-run step that is done. */
 function HomeCards({ app }: { app: App }) {
   const registry = useRegistry(app.registry);
   const cards = [...registry.at("home.card")].sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
@@ -659,6 +689,19 @@ function usagePills(t: (k: string, v?: Record<string, unknown>) => string, usage
   );
 }
 
+/**
+ * How the open session stands, for the dot at the head of its name: waiting on a person (an ask
+ * nobody answered), running a turn, failed to attach, or idle. Read off the session's own state —
+ * the same the conversation draws from.
+ */
+export function sessionStatus(session: SessionState | null, running: boolean): "waiting" | "running" | "failed" | "idle" | null {
+  if (!session) return null;
+  if (session.failed) return "failed";
+  if (session.blocks.some((b) => b.kind === "ask" && !b.answered)) return "waiting";
+  if (running || session.turn != null || session.session?.turn_state === "running") return "running";
+  return "idle";
+}
+
 function Header({
   app,
   s,
@@ -678,6 +721,9 @@ function Header({
   const name = row?.name ?? session?.session?.name ?? null;
   const scene = session?.session?.scene_layer ?? row?.scene_layer ?? session?.session?.scene ?? row?.scene;
   const overview = space?.center?.mode && space.center?.mode !== "chat" && !onBack;
+  const status = overview ? null : sessionStatus(session, Boolean(s.current && s.running[keyOf(s.current.instance, s.current.sessionId)]));
+  // The same ring the composer draws, from the same session state: the last call's context against the window.
+  const ring = overview || !session ? null : ringValue({}, session);
   const registry = useRegistry(app.registry);
   const actions = space?.conversation?.headerActions
     ? ask(registry, space, () => space.conversation!.headerActions!(s.current ? { instance: s.current.instance, sessionId: s.current.sessionId } : null), null)
@@ -689,6 +735,7 @@ function Header({
           <Glyph name="chevronRight" className="glyph flip" />
         </button>
       ) : null}
+      {status ? <span className={`head-dot ${status}`} data-testid="head-status" data-state={status} title={t(`head.status.${status}`)} aria-label={t(`head.status.${status}`)} /> : null}
       {row && !overview ? (
         <button
           type="button"
@@ -712,6 +759,7 @@ function Header({
           </span>
         ) : null}
         {!overview && scene ? <span className="pill">{scene}</span> : null}
+        {ring ? <ContextRing value={ring} testId="head-context-ring" open={false} onClick={() => app.toggleDetails(true)} /> : null}
         {!overview ? usagePills(t, session?.usage ?? null) : null}
       </div>
       <div className="spacer" />
@@ -734,14 +782,24 @@ function Header({
       <button type="button" className="ib" data-testid="theme-toggle" title={t("app.theme")} onClick={() => app.setTheme(isDark() ? "light" : "dark")}>
         <Glyph name={isDark() ? "sun" : "moon"} className="glyph" />
       </button>
-      <button type="button" className="ib" data-testid="details-toggle" title={t("app.details")} onClick={() => app.toggleDetails()}>
+      {/* The way back into a collapsed right column, at the corner of the session's header; open, it collapses it. */}
+      <button
+        type="button"
+        className="ib"
+        data-testid="details-toggle"
+        data-state={app.detailsOpen(s) ? "expanded" : "collapsed"}
+        aria-expanded={app.detailsOpen(s)}
+        aria-controls="details"
+        title={app.detailsOpen(s) ? t("app.detailsCollapse") : t("app.detailsExpand")}
+        onClick={() => app.toggleDetails()}
+      >
         <Glyph name="details" className="glyph" />
       </button>
     </header>
   );
 }
 
-function Conversation({ app, s, onController }: { app: App; s: ShellState; onController: (c: SessionController | null) => void }) {
+function Conversation({ app, s, onController, hidden = false }: { app: App; s: ShellState; onController: (c: SessionController | null) => void; hidden?: boolean }) {
   const t = useT();
   const registry = useRegistry(app.registry);
   const current = s.current!;
@@ -771,7 +829,7 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
         chosenModels.set(sessionKey, option.id);
         setChosen(option.id);
       } catch (e) {
-        app.notice(errorText(e), "error");
+        app.notice(explainError(e), "error");
         throw e;
       }
     },
@@ -818,6 +876,14 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
   const space = spacesOf(app).find((c) => c.id === s.space);
   const ref = { instance: current.instance, sessionId: current.sessionId };
   const readOnly = space?.conversation?.readOnly ? ask(registry, space, () => space.conversation!.readOnly!(ref), undefined) : undefined;
+  // A message a person sent, its menu (going back to it, say): one that started a turn the history
+  // names, not one handed to a turn already running; none in a conversation the space keeps read-only.
+  const userExtras = readOnly
+    ? undefined
+    : (block: BlockOf<"user">) =>
+        block.turnId && !block.steered ? (
+          <MessageMenu app={app} target={{ kind: "message", session: ref, space: s.space, turnId: block.turnId, text: block.text }} />
+        ) : null;
   const pinned = space?.conversation?.pinned ? ask(registry, space, () => space.conversation!.pinned!(ref), null) : null;
   // Nothing said yet in it: the space may say what this conversation is for. An entry in its log is
   // not something said (an audit decision is filed there whenever the session is read): it does
@@ -829,11 +895,13 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
   const ids = space?.conversation?.ids ? globalIds(app, space, ask(registry, space, () => space.conversation!.ids!(), undefined)) : undefined;
   const steerable = space?.conversation?.composer?.steer === true;
   const running = sessionState?.turn != null || sessionState?.session?.turn_state === "running";
-  const [steer, setSteer] = useState(() => steering.has(sessionKey));
+  // What the person chose for this session, else what the display preferences say Enter does.
+  const enterDefault = useDisplay().enter === "steer";
+  const [steerChoice, setSteerChoice] = useState(() => steering.get(sessionKey));
+  const steer = steerChoice ?? enterDefault;
   const toggleSteer = () => {
-    if (steer) steering.delete(sessionKey);
-    else steering.add(sessionKey);
-    setSteer(!steer);
+    steering.set(sessionKey, !steer);
+    setSteerChoice(!steer);
   };
   const ready = app.modelReady();
   const notice =
@@ -853,6 +921,7 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
   return (
     <>
       <ChatPanel
+        className={hidden ? "under-view" : undefined}
         sessionId={current.sessionId}
         instance={current.instance}
         space={app.claim(s.space)}
@@ -906,7 +975,7 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
         models={models}
         onModel={switchable ? onModel : undefined}
         features={{ voice: false, contextRing: true, options: false }}
-        renderers={{ flowBlocks, toolRows }}
+        renderers={{ flowBlocks, toolRows, userExtras }}
       />
       <AskAnnouncer state={sessionState} toolRows={toolRows} />
     </>
@@ -922,25 +991,35 @@ function Conversation({ app, s, onController }: { app: App; s: ShellState; onCon
 function AskAnnouncer({ state, toolRows }: { state: SessionState | null; toolRows: readonly ToolRowContribution[] }) {
   const t = useT();
   const heard = useRef(new Set<string>());
-  const [said, setSaid] = useState<BlockOf<"ask">["prompt"] | null>(null);
+  const [said, setSaid] = useState<BlockOf<"ask"> | null>(null);
   const blocks = state?.blocks ?? [];
   const asks = blocks.filter((b) => b.kind === "ask" && !b.answered);
   const fresh = asks.find((b) => b.kind === "ask" && !heard.current.has(b.prompt.prompt_id));
   useEffect(() => {
     if (!fresh || fresh.kind !== "ask") return;
     heard.current.add(fresh.prompt.prompt_id);
-    setSaid(fresh.prompt);
+    setSaid(fresh);
   }, [fresh]);
-  const tool = said && asks.length ? askedTool(said, toolAsks(blocks, (block) => rowTitle(block, toolRows))) : "";
+  let text = "";
+  if (said && asks.length) {
+    const form = said.form;
+    if (form.type === "question") text = t("layers.askAnnounceQuestion", { question: form.question });
+    else if (form.type === "plan") text = t("layers.askAnnouncePlan");
+    else if (form.type === "elicitation") text = t("layers.askAnnounceForm", { server: form.server });
+    else {
+      const tool = askedTool(said.prompt, toolAsks(blocks, (block) => rowTitle(block, toolRows)));
+      text = t("layers.askAnnounce", { tool: tool || t("layers.askAnnounceTool") });
+    }
+  }
   return (
     <div className="sr-only" role="alert" data-testid="ask-announce">
-      {said && asks.length ? t("layers.askAnnounce", { tool: tool || t("layers.askAnnounceTool") }) : ""}
+      {text}
     </div>
   );
 }
 
 /** Sessions with "deliver now" on, by session key: kept in the page while it is open. */
-const steering = new Set<string>();
+const steering = new Map<string, boolean>();
 
 /** A space's ids, with the `g` flag `ChatIds` needs: added when missing, and noted. */
 function globalIds(app: App, space: { id: string; owner: string }, ids: ChatIds | undefined): ChatIds | undefined {
@@ -1013,87 +1092,6 @@ function Secondary({ app, space, panel, max }: { app: App; space: SpaceContribut
         <Contributed registry={registry} point="space" contribution={space}>
           {ask(registry, space, () => panel.render(), null)}
         </Contributed>
-      </div>
-    </aside>
-  );
-}
-
-/* ── details ──────────────────────────────────────────────────────────── */
-
-function Details({ app, s }: { app: App; s: ShellState }) {
-  const t = useT();
-  const registry = useRegistry(app.registry);
-  const space = spacesOf(app).find((c) => c.id === s.space);
-  const tabs = orderTabs(safeTabs(registry, space));
-  const firstEnd = tabs.find((x) => x.align === "end")?.id;
-  const setTab = (id: string) => app.selectTab(id);
-  const item = s.detail;
-  const panel = item ? registry.claim("details.panel", item) : null;
-  // The selected tab is the app's, per space (the host API can choose it). A space's tabs can change
-  // with what is selected: a tab that went falls back to the first.
-  const current = app.shownTab(s);
-  const shown = tabs.find((x) => x.id === current);
-  // One Tab stop for the strip; the arrows go along it.
-  const strip = useRef<HTMLDivElement>(null);
-  const roving = useRoving(strip, { items: '[role="tab"]', orientation: "horizontal", activate: true });
-  return (
-    // Closed it is zero wide, not gone: inert, or Tab would still walk through what is in it.
-    <aside id="details" aria-hidden={!app.detailsOpen(s)} inert={!app.detailsOpen(s)}>
-      <Resizer app={app} column="details" />
-      <div className="strip" data-tauri-drag-region="deep">
-        <div className="tabs" role="tablist" ref={strip} onKeyDown={roving.onKeyDown} onFocus={roving.onFocus}>
-          {tabs.map((x) => (
-            <button
-              type="button"
-              role="tab"
-              key={x.id}
-              id={`details-tab-${x.id}`}
-              aria-controls="details-panel"
-              data-tab={x.id}
-              data-align={x.id === firstEnd ? "end" : undefined}
-              aria-selected={current === x.id}
-              className={current === x.id ? "on" : ""}
-              onClick={() => setTab(x.id)}
-            >
-              {x.title()}
-            </button>
-          ))}
-          {item || !tabs.length ? (
-            <button type="button" role="tab" id="details-tab-details" aria-controls="details-panel" data-tab="details" aria-selected={current === "details"} className={current === "details" ? "on" : ""} onClick={() => setTab("details")}>
-              {item && !tabs.length ? (panel?.title?.(item) ?? item.name ?? t("details.title")) : t("details.title")}
-            </button>
-          ) : null}
-        </div>
-        <div className="win">
-          <button
-            type="button"
-            className="icon-btn"
-            data-testid="details-max"
-            title={s.detailsMax ? t("details.restore") : t("details.maximize")}
-            aria-pressed={s.detailsMax}
-            onClick={() => app.toggleDetailsMax()}
-          >
-            <Glyph name={s.detailsMax ? "restore" : "maximize"} className="glyph" />
-          </button>
-          <button type="button" className="icon-btn close" data-testid="details-close" title={t("common.close")} onClick={() => app.toggleDetails(false)}>
-            <Glyph name="close" className="glyph" />
-          </button>
-        </div>
-      </div>
-      <div className="body" role="tabpanel" id="details-panel" aria-labelledby={`details-tab-${shown ? shown.id : "details"}`}>
-        {shown && space ? (
-          <Contributed registry={registry} point="space" contribution={space}>
-            {shown.render()}
-          </Contributed>
-        ) : !item ? (
-          <div className="empty">{t("details.empty")}</div>
-        ) : panel ? (
-          <Contributed registry={registry} point="details.panel" contribution={panel}>
-            {panel.render(item)}
-          </Contributed>
-        ) : (
-          <div className="empty">{t("details.noPanel")}</div>
-        )}
       </div>
     </aside>
   );

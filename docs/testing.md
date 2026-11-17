@@ -298,7 +298,7 @@ Harnix 侧绕过。
 
 1. 拷一份结构相同的：一次工具调用加一句话的，从 `calls-a-native-tool` 或 `app-echo` 拷；两个会话的（子 Agent），从 `app-subagent` 拷。
 2. 改 `calls.jsonl` 里属于它自己的那几行：`tool_args_chunks` 的 `args`（工具输入的 JSON 文本）、`kind: "tool_use"` 那一块的 `name` 与 `input`、
-   `text_chunks` 的 `texts`（最后那句话）。扩展包的工具名是 `ext__<id 与工具名里的 . 与 - 换成 _>__<工具>`，进程内与 spawn 的实例里一样。
+   `text_chunks` 的 `texts`（最后那句话）。扩展包的工具名是 `ext__<id 的 . 换成 _>__<工具>`，进程内与 spawn 的实例里一样。
 3. `blobs/` 里是请求的内容（按哈希存）。缺省回放按位置、不严格，请求和录下的不一样只记日志，所以 blob 可以原样留着。手做的录像
    严格回放过不了，也不进 `strict-replay.spec.ts`；要它也过，就得用 `record-fixture.mjs` 真录一份。
 4. 在 `recordings/README.md` 的表里加一行：它演示什么、从哪一份改出来、改了什么。
@@ -409,11 +409,23 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
 
 ## 10. 协议类型
 
-`@harnix/core/protocol` 的 `generated/contract.ts` 由 `harnix-contract` 生成：
+`@harnix/core/protocol` 的 `generated/` 由 Rust 里真正序列化到线上的类型生成（`crates/harnix/tests/ts_export.rs`，ts-rs），
+一个来源一个文件：`contract.ts` 是 `harnix-contract`（版本号、错误码、握手，`harnix.hello`、中枢的帧与行，
+`harnix_contract::wire`），`readers.ts` 是 `harnix-engine-api` 的 readers（`observability.*` 的答），
+`packages.ts` 是 `harnix-ext-packages`（`packages.list` 的行，连同清单的 `[inline]`）。只有一个第一方包读的生成进那个包：
+`@harnix/flow` 的 `src/generated/flow.ts` 是 `harnix-ext-flow`（流程定义、运行记录、`flow.*` 的行与参数），由它的 `types.ts` 转出：
 
 ```sh
-cargo test -p harnix-contract --features ts       # 改了 harnix-contract 的类型后
+cargo test -p harnix --features ts --test ts_export                     # 改了这些类型后：重新生成，连生成的文件一起提交
+HARNIX_TS_CHECK=1 cargo test -p harnix --features ts --test ts_export   # 只比对：有漂移就失败，并点名文件
 ```
 
-`scripts/check.sh` 的 `frontend` 层把它生成到临时目录再比对，手改或忘了重新生成都会失败。
-`ts-rs` 只在 `ts` feature 下链接，不进发布的二进制。
+`scripts/check.sh` 的 `frontend` 层跑第二条，手改生成的文件或忘了重新生成都会失败。`ts-rs` 只在各 crate 的 `ts` feature 下
+链接（`harnix` 的 `ts` 把它们一起打开），不进发布的二进制。
+
+**加一个字段或一个方法**：字段加在序列化它的 Rust 结构上（中枢的帧与行在 `harnix_contract::wire`，各扩展的答在它自己的
+`wire` 模块），加法就写成 `Option` 加 `skip_serializing_if`（并标 `ts(optional)`），重新生成，再在 `ui/packages/core/src/protocol/frames.ts`
+的 `Methods` / `Notifications` 表里把新方法或新通知接到它的类型上；界面包从 `@harnix/core` 拿类型，不自己再声明一份。
+引擎的形状（`harnix.event` 的负载、`engine.*` 的答、`SessionInfo`）不生成，手写在 `engine.ts`，照 `hello.engine_protocol`：
+它们是 Agix 的，不在这个协议的加法承诺里。一个新的 Rust 来源要在 `ts_export.rs` 里加一个文件（`Generated`），
+它的 crate 加一个 `ts` feature，`harnix` 的 `ts` feature 带上它。

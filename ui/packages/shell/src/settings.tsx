@@ -1,7 +1,7 @@
 /**
  * The settings panel: a section list on the left, the chosen section on the right.
  *
- * The frame is the shell's, and so are four sections every product has: the appearance first;
+ * The frame is the shell's, and so are five sections every product has: the appearance and the keys first;
  * this page's diagnostics and what the product is last. Between them, whatever is registered at
  * `settings.section`, in order — the engine's settings, the plugins, the devices are UI packages'
  * like any application's. A section that throws loses its page, not the panel: the nav stays usable.
@@ -9,13 +9,14 @@
 
 import { Fragment, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { errorText } from "@harnix/core";
-import { Contributed, Glyph, SettingsReload, SettingsRow, SettingsSection, SettingsValue, localeChoice, setLocale, t, useRegistry, useT, type LocaleChoice, type SettingsNeed } from "@harnix/react";
+import { Contributed, DISPLAY_DEFAULTS, FONT_SIZE_RANGE, FieldForm, Glyph, SettingsReload, SettingsRow, SettingsSection, SettingsValue, display, localFieldStore, localeChoice, setDisplay, setLocale, t, useRegistry, useT, type Display, type LocalField, type LocaleChoice, type SettingsNeed } from "@harnix/react";
 
 import type { App, ThemeChoice } from "./app.ts";
 import { APPS_LIST } from "./constants.ts";
 import { Body, CloseFoot } from "./dialogs.tsx";
 import { packagesOf } from "./inline/index.tsx";
 import { PageFrames } from "./surfaces/status.tsx";
+import { ShortcutsSection } from "./shortcuts.tsx";
 
 let active = "general";
 
@@ -35,7 +36,7 @@ export function openSettingsFor(app: App, need: SettingsNeed): void {
 function ownSections(app: App) {
   const section = (id: string, label: string, render: () => ReactNode) => ({ id, label: () => t(label), render, owner: "shell" });
   return {
-    first: [section("general", "settings.nav.general", () => <General app={app} />)],
+    first: [section("general", "settings.nav.general", () => <General app={app} />), section("shortcuts", "settings.nav.shortcuts", () => <ShortcutsSection app={app} />)],
     last: [section("diagnostics", "settings.nav.diagnostics", () => <Diagnostics app={app} />), section("about", "settings.nav.about", () => <About app={app} />)],
   };
 }
@@ -91,59 +92,87 @@ function Settings({ app }: { app: App }) {
   );
 }
 
-/* ── pieces ───────────────────────────────────────────────────────────── */
+/* ── the sections ───────────────────────────────────────────────────── */
 
-function Select({ options, value, onChange, testId }: { options: [string, string][]; value: string; onChange: (v: string) => void; testId?: string }) {
-  return (
-    <select value={value} data-testid={testId} onChange={(e) => onChange(e.target.value)}>
-      {options.map(([key, text]) => (
-        <option key={key} value={key}>
-          {text}
-        </option>
-      ))}
-    </select>
+/**
+ * This browser's preferences, drawn from their declarations like any section's fields: the theme
+ * the shell applies, the language. Kept here, not in the engine's settings; more come the same way
+ * (a row each).
+ */
+function preferences(app: App) {
+  return localFieldStore(
+    [
+      {
+        key: "theme",
+        type: "select",
+        label: "settings.theme",
+        hint: "settings.themeHint",
+        options: ["auto", "light", "dark"],
+        optionLabels: { auto: "settings.theme.auto", light: "settings.theme.light", dark: "settings.theme.dark" },
+        default: "auto",
+        get: () => app.snapshot.theme,
+        set: (value) => app.setTheme(value as ThemeChoice),
+      },
+      {
+        key: "language",
+        type: "select",
+        label: "settings.language",
+        hint: "settings.languageHint",
+        options: ["auto", "zh-CN", "en"],
+        optionLabels: { auto: "settings.language.auto", "zh-CN": "settings.language.zh-CN", en: "settings.language.en" },
+        default: "auto",
+        get: () => localeChoice(),
+        set: (value) => setLocale(value as LocaleChoice),
+      },
+    ],
+    { prefix: "harnix.pref.shell." },
   );
 }
 
-/* ── the sections ───────────────────────────────────────────────────── */
+/** A display preference: kept by the display module, which the chat components read. */
+function shown<K extends keyof Display>(key: K, rest: Omit<LocalField, "key" | "get" | "set" | "default">): LocalField {
+  return {
+    key,
+    default: DISPLAY_DEFAULTS[key],
+    get: () => display()[key],
+    set: (value: unknown) => setDisplay({ [key]: value } as Partial<Display>),
+    ...rest,
+  };
+}
+
+const options = (prefix: string, ids: string[]) => ({
+  options: ids,
+  optionLabels: Object.fromEntries(ids.map((id) => [id, `${prefix}.${id}`])),
+});
+
+/**
+ * How this browser draws the conversation, as rows of their own like the preferences above.
+ */
+function displayPreferences() {
+  return localFieldStore(
+    [
+      // general & display
+      shown("fontSize", { type: "number", label: "settings.display.fontSize", hint: "settings.display.fontSizeHint", ...FONT_SIZE_RANGE }),
+      shown("fontBody", { type: "text", label: "settings.display.fontBody", hint: "settings.display.fontHint" }),
+      shown("fontCode", { type: "text", label: "settings.display.fontCode", hint: "settings.display.fontHint" }),
+      shown("toolsOpen", { type: "toggle", label: "settings.display.toolsOpen", hint: "settings.display.toolsOpenHint" }),
+      shown("thinkingFolded", { type: "toggle", label: "settings.display.thinkingFolded", hint: "settings.display.thinkingFoldedHint" }),
+      shown("usage", { type: "select", label: "settings.display.usage", hint: "settings.display.usageHint", ...options("settings.display.usage", ["none", "compact", "full"]) }),
+      shown("links", { type: "select", label: "settings.display.links", hint: "settings.display.linksHint", ...options("settings.display.links", ["same", "new", "ask"]) }),
+      shown("enter", { type: "select", label: "settings.display.enter", hint: "settings.display.enterHint", ...options("settings.display.enter", ["queue", "steer"]) }),
+    ],
+    { prefix: "harnix.pref.display." },
+  );
+}
 
 function General({ app }: { app: App }) {
   const t = useT();
-  const [theme, setTheme] = useState<ThemeChoice>(app.snapshot.theme);
-  const [locale, setLocaleChoice] = useState<LocaleChoice>(localeChoice());
+  const [store] = useState(() => preferences(app));
+  const [shownStore] = useState(displayPreferences);
   return (
     <>
-      <h3>{t("settings.appearance")}</h3>
-      <SettingsRow label={t("settings.theme")} hint={t("settings.themeHint")}>
-        <Select
-          testId="settings-theme"
-          options={[
-            ["auto", t("settings.theme.auto")],
-            ["light", t("settings.theme.light")],
-            ["dark", t("settings.theme.dark")],
-          ]}
-          value={theme}
-          onChange={(value) => {
-            setTheme(value as ThemeChoice);
-            app.setTheme(value as ThemeChoice);
-          }}
-        />
-      </SettingsRow>
-      <SettingsRow label={t("settings.language")} hint={t("settings.languageHint")}>
-        <Select
-          testId="settings-language"
-          options={[
-            ["auto", t("settings.language.auto")],
-            ["zh-CN", "简体中文"],
-            ["en", "English"],
-          ]}
-          value={locale}
-          onChange={(value) => {
-            setLocaleChoice(value as LocaleChoice);
-            setLocale(value as LocaleChoice);
-          }}
-        />
-      </SettingsRow>
+      <FieldForm title={t("settings.appearance")} store={store} />
+      <FieldForm title={t("settings.display")} store={shownStore} />
       <PackagesMark app={app} />
     </>
   );

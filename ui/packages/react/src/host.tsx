@@ -16,11 +16,15 @@ import type { SessionState } from "@harnix/core/state";
 
 import type { DetailItem } from "./contrib";
 import type { Translate } from "./i18n/index";
+import type { SidebarOpenOptions, SidebarResourceOptions } from "./sidebar";
 
 export interface SessionRef {
   instance: string;
   sessionId: string;
 }
+
+/** The centre's own view of a session: what `host.conversation.current()` answers when no view is chosen. */
+export const CONVERSATION_VIEW = "conversation";
 
 /** One line under the left column's brand that the application owns (`host.shell.context`,
  *  ipdrun-49): what it is working on right now. */
@@ -78,8 +82,8 @@ export interface HostApi {
      * With `reveal`, once open and its transcript caught up, the entry with that key is scrolled to
      * the centre and highlighted (see `reveal`); the promise says whether it was found.
      */
-    open(ref: SessionRef, options: { switchSpace?: boolean; reveal: string }): Promise<boolean>;
-    open(ref: SessionRef, options?: { switchSpace?: boolean; reveal?: undefined }): void | Promise<void>;
+    open(ref: SessionRef, options: { switchSpace?: boolean; reveal: string; view?: string }): Promise<boolean>;
+    open(ref: SessionRef, options?: { switchSpace?: boolean; reveal?: undefined; view?: string }): void | Promise<void>;
     /**
      * In the open session's conversation, the entry with this key — an element with
      * `data-reveal="<key>"` (a `flow.block` renderer puts it on its block), else the block whose id is
@@ -109,6 +113,19 @@ export interface HostApi {
     /** The front space's id. */
     current(): string;
   };
+  /**
+   * Which view of the centre the open session is shown in (harnix-ext.md §22.10): the
+   * conversation (`CONVERSATION_VIEW`), or a `conversation.view` registration's id. Each session
+   * remembers its own choice in this browser; `session.open(ref, { view })` opens with one.
+   */
+  conversation: {
+    /** The open session's view: `CONVERSATION_VIEW` while it is the conversation, or no session is open. */
+    current(): string;
+    /** Show the open session in this view; an id no registration has falls back to the conversation. */
+    show(view: string): void;
+    /** The open session's view changed — switched, or another session opened. Returns the unsubscribe. */
+    onChange(fn: (view: string) => void): () => void;
+  };
   details: {
     /** Open the right column; with a tab, select it (one of the front space's tabs, or "details"). */
     open(tab?: string): void;
@@ -118,6 +135,23 @@ export interface HostApi {
     tab(): string;
     /** The selected tab changed — clicked, or by `open(tab)`. Returns the unsubscribe. */
     onTab(fn: (tab: string) => void): () => void;
+  };
+  /**
+   * The right column as the open session's docking surface (harnix-ext.md §22.7): every way into
+   * it goes through here. Opening expands the column; the same content already open is focused,
+   * not opened twice. An address no type claims, or a kind no type has, throws — a wiring error.
+   */
+  sidebar: {
+    /** Open `harnix-resource://<type>/…` with the type that claims it (or `kind`'s); answers the tab's id. */
+    openResource(address: string, options?: SidebarResourceOptions): string;
+    /** Open a page type by kind; answers the tab's id. */
+    openTab(kind: string, options?: SidebarOpenOptions): string;
+    /** Close a tab of the open session's surface; nothing for an id that is not there. */
+    close(tabId: string): void;
+    /** The open session's tab in front, if it has one. */
+    active(): { id: string; kind: string; address: string | null } | null;
+    isExpanded(): boolean;
+    toggleExpanded(open?: boolean): void;
   };
   settings: {
     /** Open the settings panel at a section (a `settings.section` id, or a built-in one such as
@@ -208,6 +242,11 @@ export function useHost(): HostApi {
   const host = useContext(HostContext);
   if (!host) throw new Error("@harnix/react: useHost() needs a <HostProvider> above it");
   return host;
+}
+
+/** The host, or null where there is none (the conversation drawn on its own, outside the shell). */
+export function useOptionalHost(): HostApi | null {
+  return useContext(HostContext);
 }
 
 /** The front space's current session, kept up to date: `session.current()` and `session.onChange`. */

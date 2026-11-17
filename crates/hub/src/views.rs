@@ -15,6 +15,7 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use harnix_contract::sync::lock;
+use harnix_contract::wire::{self, HubSessionRow, SessionActivity, SessionStatusRow, SessionsList, SessionsStatus};
 use harnix_contract::{codes, RpcError};
 use harnix_kernel::{Rpc, TopicSource};
 use serde_json::{json, Value};
@@ -121,6 +122,8 @@ impl TopicSource for Own {
                 hub.tasks_view(&key).await
             }
             "harnix.sessions.status" => Ok(hub.status_view().await),
+            // The whole of it: a subscriber that claimed a space is told its part (`within`).
+            wire::INBOX => Ok(hub.inbox_view(None).await),
             crate::SPACES_TOPIC => Ok(hub.spaces_view()),
             other => Err(RpcError::not_found(format!("`{other}` is not the hub's"))),
         }
@@ -137,6 +140,11 @@ impl TopicSource for Own {
 impl Hub {
     /// Recompute a computed topic soon, if anyone is subscribed to it.
     pub(crate) fn refresh(self: &Arc<Self>, topic: &str, params: Value) {
+        // The inbox is what the sessions' rows say they wait on: whatever lists a row again may
+        // have changed it.
+        if topic == "harnix.instances.sessions" {
+            self.refresh(wire::INBOX, json!({}));
+        }
         let marker: Marker = (topic.to_string(), params.to_string());
         if !lock(&self.refreshing).want(&marker) {
             return;
@@ -189,46 +197,46 @@ impl Hub {
                 }
                 let sid = info.session_id().unwrap_or("").to_string();
                 let mut row = info.into_value();
-                let state = guard.sessions.get(&(instance.to_string(), sid.clone()));
+                let key = (instance.to_string(), sid);
+                let state = guard.sessions.get(&key);
                 let running = state.is_some_and(|s| s.running_turn.is_some());
                 let queued = state.map(|s| s.queue.len()).unwrap_or(0);
-                let tasks = state.map(|s| s.live_tasks.len()).unwrap_or(0);
-                let waiting = state.and_then(|s| s.pending_prompts.first()).map(|p| p.waiting.as_str());
-                let key = (instance.to_string(), sid.clone());
-                let space = self.space_known(&key);
-                if let Some(obj) = row.as_object_mut() {
-                    if extension {
-                        obj.insert("trust".into(), json!("extension"));
-                    }
-                    obj.insert("instance".into(), json!(instance));
-                    obj.insert("space".into(), json!(space));
-                    obj.insert("running".into(), json!(running));
-                    obj.insert("queued".into(), json!(queued));
-                    obj.insert("tasks".into(), json!(tasks));
-                    obj.insert("waiting".into(), json!(waiting));
-                    obj.insert(
-                        "turn_started_ms".into(),
-                        json!(state.and_then(|s| s.turn_started_ms)),
-                    );
-                    obj.insert("started_by".into(), json!(self.starter_of(&key)));
+                // Under the spaces lock only for these two: `space_known` and `starter_of` take it
+                // themselves.
+                let (scene_layer, prompt_append, exposed_to) = {
+                    let spaces = lock(&self.spaces);
+                    (spaces.layer_of(&key).map(str::to_string), spaces.prompt_of(&key).map(str::to_string), spaces.exposures_of(&key))
+                };
+                let hub_row = HubSessionRow {
+                    instance: instance.to_string(),
+                    space: self.space_known(&key),
+                    running,
+                    queued,
+                    tasks: state.map(|s| s.live_tasks.len()).unwrap_or(0),
+                    waiting: state.and_then(|s| s.pending_prompts.first()).map(|p| p.waiting),
+                    turn_started_ms: state.and_then(|s| s.turn_started_ms),
+                    started_by: self.starter_of(&key),
+                    state: match (running, queued) {
+                        (false, _) => SessionActivity::Idle,
+                        (true, 0) => SessionActivity::Running,
+                        (true, _) => SessionActivity::Queued,
+                    },
                     // What the hub last heard of its goal; absent when it has heard nothing.
-                    if let Some(goal) = state.and_then(|s| s.goal.as_ref()) {
-                        obj.insert("goal".into(), goal.clone());
-                    }
-                    obj.insert(
-                        "state".into(),
-                        json!(match (running, queued) {
-                            (false, _) => "idle",
-                            (true, 0) => "running",
-                            (true, _) => "queued",
-                        }),
-                    );
+                    goal: state.and_then(|s| s.goal.clone()),
+                    scene_layer,
+                    prompt_append,
+                    trust: extension.then_some(wire::EngineTrust::Extension),
+                    exposed_to: Some(exposed_to).filter(|shown| !shown.is_empty()),
+                    exposed_from: None,
+                };
+                // Folded into the engine's row: the hub's fields beside the engine's.
+                if let (Some(obj), Value::Object(added)) = (row.as_object_mut(), wire::params(&hub_row)) {
+                    obj.extend(added);
                 }
-                lock(&self.spaces).decorate(&key, &mut row);
                 row
             })
             .collect();
-        Ok(json!({"instance": instance, "sessions": rows}))
+        Ok(wire::params(&SessionsList { instance: Some(instance.to_string()), space: None, sessions: rows }))
     }
 
     /// A session's tasks, as the engine reports them, and its teams as the hub last heard them.
@@ -265,23 +273,83 @@ impl Hub {
     /// a session list needs to draw a spinner without asking each one.
     pub(crate) async fn status_view(&self) -> Value {
         let guard = self.inner.lock().await;
-        let mut rows: Vec<Value> = guard
+        let mut rows: Vec<SessionStatusRow> = guard
             .sessions
             .iter()
             .filter(|(_, s)| s.running_turn.is_some() || !s.queue.is_empty())
-            .map(|((instance, session_id), s)| {
-                json!({
-                    "instance": instance,
-                    "session_id": session_id,
-                    "state": if s.running_turn.is_some() { "running" } else { "queued" },
-                    "turn_id": s.running_turn,
-                    "queued": s.queue.len(),
-                    "external": s.external,
-                })
+            .map(|((instance, session_id), s)| SessionStatusRow {
+                instance: instance.clone(),
+                session_id: session_id.clone(),
+                state: if s.running_turn.is_some() { SessionActivity::Running } else { SessionActivity::Queued },
+                turn_id: s.running_turn.clone(),
+                queued: s.queue.len(),
+                external: s.external,
             })
             .collect();
-        rows.sort_by_key(|row| row.to_string());
-        json!({"sessions": rows})
+        rows.sort_by(|a, b| (&a.instance, &a.session_id).cmp(&(&b.instance, &b.session_id)));
+        wire::params(&SessionsStatus { sessions: rows })
+    }
+
+    /// What waits on a person (`harnix.inbox`): every ask a session holds, in the spaces this
+    /// application has — one it turned off is nobody's to see — and, for a call claiming a space
+    /// that does not reach across spaces, in that one alone. The session's name and project are
+    /// the engine's, asked of each waiting session: few wait at once.
+    pub(crate) async fn inbox_view(&self, claimed: Option<&str>) -> Value {
+        let waiting: Vec<(SessionKey, Vec<(wire::Waiting, Value)>)> = {
+            let guard = self.inner.lock().await;
+            guard
+                .sessions
+                .iter()
+                .filter(|(_, s)| !s.pending_prompts.is_empty())
+                .map(|(key, s)| (key.clone(), s.pending_prompts.iter().map(|p| (p.waiting, p.value.clone())).collect()))
+                .collect()
+        };
+        let mut items = Vec::new();
+        for (key, asks) in waiting {
+            let space = self.space_of(&key);
+            let seen = {
+                let spaces = lock(&self.spaces);
+                spaces.exists(&space)
+                    && match claimed {
+                        None => true,
+                        Some(claimed) => claimed == space || spaces.crosses(claimed),
+                    }
+            };
+            if !seen {
+                continue;
+            }
+            let extension = self.is_extension(&key.0);
+            let info = match self.engine(&key.0) {
+                Ok(linked) => linked.ops().get(&key.1).await.ok(),
+                Err(_) => None,
+            };
+            let info = info.map(|mut info| {
+                if extension {
+                    info.harden();
+                }
+                info
+            });
+            let name = info.as_ref().and_then(|i| i.title()).map(str::to_string);
+            let project_root = info.as_ref().and_then(|i| i.project_root()).and_then(Value::as_str).map(str::to_string);
+            let started_by = self.starter_of(&key);
+            for (waiting, prompt) in asks {
+                items.push(wire::InboxRow {
+                    instance: key.0.clone(),
+                    session_id: key.1.clone(),
+                    space: space.clone(),
+                    waiting,
+                    prompt,
+                    name: name.clone(),
+                    project_root: project_root.clone(),
+                    started_by,
+                    trust: extension.then_some(wire::EngineTrust::Extension),
+                });
+            }
+        }
+        // The hub keeps sessions in no order: listed by instance and session, each session's asks
+        // in the order they were put.
+        items.sort_by(|a, b| (&a.instance, &a.session_id).cmp(&(&b.instance, &b.session_id)));
+        wire::params(&wire::Inbox { items })
     }
 }
 

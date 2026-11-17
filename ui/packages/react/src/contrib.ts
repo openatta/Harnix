@@ -1,19 +1,22 @@
 /**
  * 贡献点注册表（概念 §5.6）：界面上哪些地方可以由内建、UI 包或运行期包填，以及怎么填。
  *
- * v3 的九个内核点，都注册 React 组件：
+ * v4 的十二个内核点：
  *
  * | 点 | 形状 | 怎么用 |
  * |---|---|---|
  * | `space` | `id`、`icon`、`title()`，与四组 `sidebar`、`center`、`conversation`、`details`，可选的 `store` | 全部，按 `order` 再按注册顺序 |
- * | `home.card` | `id`、`render()`、`title?()` | 全部，按 `order` 再按注册顺序 |
+ * | `home.card` | `id`、`render()`、`title?()` | 全部，按 `order` 再按注册顺序；没有 `title`、`render()` 什么都没画的卡不占位 |
  * | `tool.row` | `match(tool块)`、`render(tool块)` | 后注册的先认领 |
  * | `details.panel` | `match(item)`、`render(item)`、`title?(item)` | 后注册的先认领 |
  * | `flow.block` | `match(块)`、`render(块)` | 后注册的先认领 |
  * | `sidebar.group` | `group(会话) → 组[]`、`label?()` | 只用最后注册的那一个 |
  * | `command` | `trigger?`（`/` 或 `@`）、`complete(query, ctx?) → 候选[]`（候选可带 `run`） | 全部，按注册顺序拼起来；`/` 与 `@` 两个菜单各问各的 |
- * | `settings.section` | `id`、`label()`、`render()`，可选的 `covers` | 全部，按注册顺序；外壳要人去配模型时打开 `covers` 里有 `"models"` 的那一节 |
- * | `session.action` | `id`、`at`、`label(target)`、`match(target)`、`run(target)` | 标题栏、会话菜单、工具行各问 `at` 里有它的，按注册顺序 |
+ * | `settings.section` | `id`、`label()`、`render()`，可选的 `covers`；或不给 `render`，给 `fields`（字段声明，见 `fields.tsx`）与可选的 `store` | 全部，按注册顺序；外壳要人去配模型时打开 `covers` 里有 `"models"` 的那一节；只给 `fields` 的按声明画表单，值缺省存在这个浏览器里 |
+ * | `session.action` | `id`、`at`、`label(target)`、`match(target)`、`run(target)`，可选的 `disabled(target)` | 标题栏、会话菜单、工具行（按钮与参数）、人的消息的菜单（`message`）各问 `at` 里有它的，按注册顺序 |
+ * | `sidebar.tab` | `id`、`kind`、`title(address?)`、`render()`，可选的 `patterns`、`priority`、`canOpen`、`guide`、`multiple`、`keepMounted`、`scope` | 右栏的页签类型（`sidebar.ts`）：资源地址按优先级档、模式长度、注册顺序认领；一个 `kind` 至多一份 extension 加一份 builtin，extension 生效 |
+ * | `shortcut` | `id`、`title()`、`run(ctx)`，可选的 `keys`、`scope`、`enabled()` | 一条有快捷键的命令（`shortcuts.ts`）：设置里列出、可改键；一个键按下时焦点所在处的先于全局的，再按注册顺序；`id` 在全页唯一 |
+ * | `conversation.view` | `id`、`title()`、`render(session)`，可选的 `match(session)`、`order` | 中间区里对话之外的一种视图：有会话打开、有注册方时顶上出现「对话 \| …」的切换，全部按 `order` 再按注册顺序；每个会话各记自己的选择 |
  *
  * 扩展还可以定义自己的点（`definePoint("<扩展 id>.<名>")`），别的包往里注册；注册进还没定义的点先挂着，全部注册完
  * （`settle`）还没人定义就丢掉并记进诊断，给了 `orElse` 的调它。一个扩展激活时注册的（`activate`）记在它名下，
@@ -31,6 +34,9 @@ import type { SessionRow } from "@harnix/core";
 import type { ChatIds } from "./chat/types";
 import type { SessionRef } from "./host";
 import { addStrings, type Locale } from "./i18n/index";
+import { FieldsSection, type FieldStore, type LocalField } from "./fields";
+import { SIDEBAR_PRIORITIES, SIDEBAR_SCOPES, sameTier, type SidebarTabType } from "./sidebar";
+import { SHORTCUT_SCOPES, parseKeys, type ShortcutCommand } from "./shortcuts";
 
 export const POINTS = [
   "space",
@@ -42,8 +48,29 @@ export const POINTS = [
   "command",
   "settings.section",
   "session.action",
+  "sidebar.tab",
+  "shortcut",
+  "conversation.view",
 ] as const;
 export type Point = (typeof POINTS)[number];
+
+/**
+ * A view of the centre beside the conversation (a trajectory, say): the same session another way,
+ * taking the conversation's place while it is chosen. The shell draws the switch at the top of the
+ * centre whenever a session is open and at least one view applies; the conversation stays the
+ * default, and each session remembers its own choice in this browser.
+ */
+export interface ConversationView {
+  id: string;
+  /** The switch's label. Read at every draw. */
+  title(): string;
+  /** Whether it applies to this session; absent, it applies to every one. A throw drops it. */
+  match?(session: SessionRef): boolean;
+  /** Where it goes among the views; 100 when absent. */
+  order?: number;
+  /** The centre while it is chosen. */
+  render(session: SessionRef): ReactNode;
+}
 
 /** 右栏详情里打开的东西：一行工具调用、一次请求信封，或贡献自己的。 */
 export interface DetailItem {
@@ -69,6 +96,11 @@ export interface CommandCandidate {
   /** Given: choosing it runs this instead — nothing is inserted or sent, and the `/xxx` typed so
    *  far is cleared. A failure is shown as the shell's error. */
   run?(ctx: CommandContext): void | Promise<void>;
+  /** Given: the command takes what follows it. `/<name> <args>` sent from the composer comes here
+   *  instead of being sent (`args` trimmed, possibly empty), the longest name that matches taking
+   *  it; the composer keeps the text when this answers `false`, and is cleared otherwise. Choosing
+   *  the candidate in the menu still inserts it. A failure is shown as the shell's error. */
+  submit?(args: string, ctx: CommandContext): void | boolean | Promise<void | boolean>;
 }
 
 /** Where a command or mention is being asked for: the front space and its open session. */
@@ -111,14 +143,19 @@ export function tabsOf(space: SpaceContribution | undefined): SpaceTab[] {
 /** A badge on a space's entry: a number or a very short text; nothing for null, undefined, 0, "". */
 export type Badge = string | number | null | undefined;
 
-/** What a session action is asked about: a session, or one tool call in it. `space` is the interface
- *  space it is asked in (a space's `sessions` says which backend space that lists). */
+/** What a session action is asked about: a session, one tool call in it, or a message a person sent
+ *  in it (`turnId`: the turn it started; `text`: what it said). `space` is the interface space it is
+ *  asked in (a space's `sessions` says which backend space that lists). */
 export type ActionTarget =
   | { kind: "session"; session: SessionRef; space: string }
-  | { kind: "tool"; session: SessionRef; space: string; toolUseId: string; tool: string };
+  | { kind: "tool"; session: SessionRef; space: string; toolUseId: string; tool: string; input?: unknown }
+  | { kind: "message"; session: SessionRef; space: string; turnId: string; text: string };
 
-/** Where the shell asks for session actions: the title bar, the session menu, a tool row. */
-export type ActionPlace = "header" | "menu" | "tool";
+/** Where the shell asks for session actions: the title bar, the session menu, a tool row — its
+ *  buttons, and its argument (`arg`: the first action that matches makes the argument a link, its
+ *  label the link's title; a file tool's path opening the file, say) — and a person's message's
+ *  menu (`message`). */
+export type ActionPlace = "header" | "menu" | "tool" | "arg" | "message";
 
 /**
  * A space as the interface draws it (concept §5.4), its members grouped by where they are drawn.
@@ -231,6 +268,9 @@ export interface SessionAction {
   label(target: ActionTarget): string;
   /** Read at every draw; a throw drops this one only. */
   match(target: ActionTarget): boolean;
+  /** Shown but not for now: why, as its hover text (a turn running, say). Read at every draw; a
+   *  throw counts as enabled. */
+  disabled?(target: ActionTarget): string | false | null | undefined;
   run(target: ActionTarget): void | Promise<void>;
 }
 
@@ -259,9 +299,21 @@ export interface Contributions {
     render(): ReactNode;
     /** What the shell may send a reader here for: `"models"` — a turn has no model to go to. */
     covers?: SettingsNeed[];
+    /** The fields it declares, when it is drawn from them (a registration without `render`). */
+    fields?: LocalField[];
+    /** Where those fields' values are: this browser's (`harnix.pref.<owner>.<key>`) when none. */
+    store?: FieldStore;
   };
   "session.action": SessionAction;
+  "sidebar.tab": SidebarTabType;
+  shortcut: ShortcutCommand;
+  "conversation.view": ConversationView;
 }
+
+/** What a registration may give: a settings section may declare its fields in place of drawing itself. */
+export type ContributionInput<P extends Point> = P extends "settings.section"
+  ? Omit<Contributions["settings.section"], "render"> & ({ render(): ReactNode } | { render?: undefined; fields: LocalField[] })
+  : Contributions[P];
 
 /** What the shell itself sends a reader to the settings for, to whichever section `covers` it. */
 export type SettingsNeed = "models";
@@ -292,13 +344,54 @@ const SHAPE: { [P in Point]: string[] } = {
   command: ["complete"],
   "settings.section": ["label", "render"],
   "session.action": ["label", "match", "run"],
+  "sidebar.tab": ["title", "render"],
+  shortcut: ["title", "run"],
+  "conversation.view": ["title", "render"],
 };
 
-const ACTION_PLACES: readonly string[] = ["header", "menu", "tool"];
+const ACTION_PLACES: readonly string[] = ["header", "menu", "tool", "arg", "message"];
 const SPACE_GROUPS = ["sidebar", "center", "conversation", "details", "store"] as const;
+
+const FIELD_TYPES: readonly string[] = ["toggle", "select", "number", "text", "secret", "list", "rules", "route"];
+
+/** What is wrong with a settings section's `fields`; null when nothing. */
+function fieldsError(fields: unknown): string | null {
+  if (!Array.isArray(fields) || !fields.length) return "a settings section draws itself (`render`) or declares `fields`";
+  for (const f of fields as Record<string, unknown>[]) {
+    if (!f || typeof f.key !== "string" || !f.key || !FIELD_TYPES.includes(f.type as string)) {
+      return `a settings field needs a \`key\` and a \`type\`: ${FIELD_TYPES.join(", ")}`;
+    }
+  }
+  return null;
+}
 
 /** What is wrong with a kernel point's contribution beyond its functions; null when nothing. */
 function shapeError(point: Point, c: Record<string, unknown>): string | null {
+  if (point === "sidebar.tab") {
+    if (typeof c.kind !== "string" || !c.kind) return "a tab type needs a `kind`";
+    if (c.priority !== undefined && !(SIDEBAR_PRIORITIES as readonly unknown[]).includes(c.priority)) {
+      return `a tab type's priority is ${SIDEBAR_PRIORITIES.join(", ")}, not ${JSON.stringify(c.priority)}`;
+    }
+    if (c.scope !== undefined && !(SIDEBAR_SCOPES as readonly unknown[]).includes(c.scope)) {
+      return `a tab type's scope is ${SIDEBAR_SCOPES.join(" or ")}, not ${JSON.stringify(c.scope)}`;
+    }
+    if (c.patterns !== undefined && (!Array.isArray(c.patterns) || c.patterns.some((p) => typeof p !== "string" || !p))) {
+      return "a tab type's `patterns` are strings";
+    }
+    if (c.guide !== undefined && (!Array.isArray(c.guide) || c.guide.some((g) => !g || typeof g !== "object" || typeof (g as { id?: unknown }).id !== "string" || typeof (g as { title?: unknown }).title !== "function"))) {
+      return "a tab type's `guide` entries are `{ id, title() }`";
+    }
+  }
+  if (point === "shortcut") {
+    if (c.scope !== undefined && !(SHORTCUT_SCOPES as readonly unknown[]).includes(c.scope)) {
+      return `a shortcut's scope is ${SHORTCUT_SCOPES.join(", ")}, not ${JSON.stringify(c.scope)}`;
+    }
+    const keys = c.keys;
+    const written = typeof keys === "string" ? [keys] : keys && typeof keys === "object" ? Object.values(keys as Record<string, unknown>) : [];
+    if ((keys !== undefined && keys !== null && typeof keys !== "string" && typeof keys !== "object") || written.some((k) => k !== null && k !== undefined && (typeof k !== "string" || !parseKeys(k, "mac")))) {
+      return `a shortcut's keys are written like "Mod+K", not ${JSON.stringify(keys)}`;
+    }
+  }
   if (point === "command" && c.trigger !== undefined && c.trigger !== "/" && c.trigger !== "@") {
     return `a command's trigger is "/" or "@", not ${JSON.stringify(c.trigger)}`;
   }
@@ -341,7 +434,7 @@ interface Defined {
 }
 
 export class Registry {
-  /** Every registration, by point name: the kernel's nine, and whatever else was named — a point an
+  /** Every registration, by point name: the kernel's twelve, and whatever else was named — a point an
    *  extension defines, or one nobody has defined yet. */
   private readonly entries = new Map<string, Entry<Point>[]>(POINTS.map((p) => [p, []]));
   private readonly meta = new WeakMap<object, Meta>();
@@ -360,14 +453,22 @@ export class Registry {
   private readonly listeners = new Set<() => void>();
   private version = 0;
 
-  register<P extends Point>(point: P, contribution: Contributions[P], owner: string, options?: RegisterOptions): boolean;
+  register<P extends Point>(point: P, contribution: ContributionInput<P>, owner: string, options?: RegisterOptions): boolean;
   /** Any other point: one an extension defines, or a name only known at run time. A kernel
    *  point's name goes through the typed overload above, so its shape is checked when compiled. */
   register<N extends string>(point: Exclude<N, Point>, contribution: unknown, owner: string, options?: RegisterOptions): boolean;
   register(point: string, contribution: unknown, owner: string, options: RegisterOptions = {}): boolean {
-    const c = contribution as Record<string, unknown> | null;
-    if (!c || typeof c !== "object" || typeof c.id !== "string") {
+    const given = contribution as Record<string, unknown> | null;
+    if (!given || typeof given !== "object" || typeof given.id !== "string") {
       return this.refuse({ point, owner, reason: "a contribution needs an `id`" });
+    }
+    let c: Record<string, unknown> & { id: string } = given as Record<string, unknown> & { id: string };
+    if (point === "settings.section" && typeof c.render !== "function" && c.fields !== undefined) {
+      const wrong = fieldsError(c.fields);
+      if (wrong) return this.refuse({ point, owner, id: c.id, reason: wrong });
+      const fields = c.fields as LocalField[];
+      const store = c.store as FieldStore | undefined;
+      c = { ...c, render: () => createElement(FieldsSection, { fields, store, owner }) };
     }
     const kernel = (POINTS as readonly string[]).includes(point);
     if (kernel) {
@@ -377,6 +478,18 @@ export class Registry {
       }
       const wrong = shapeError(point as Point, c);
       if (wrong) return this.refuse({ point, owner, id: c.id, reason: wrong });
+      // A kind carries one extension type and one of the product's (`sidebar.ts`); a second at the
+      // same tier is a clash, not an override — the later one is refused and the first stays in force.
+      if (point === "sidebar.tab") {
+        const type = c as unknown as SidebarTabType;
+        const clash = this.at("sidebar.tab").find((held) => held.kind === type.kind && sameTier(held, type));
+        if (clash) return this.refuse({ point, owner, id: c.id, reason: `\`${type.kind}\` already has a ${clash.priority ?? "extension"} type (${clash.id}, ${clash.owner})` });
+      }
+      // A command's id is what the person's own key for it is kept under: one command per id.
+      if (point === "shortcut") {
+        const held = this.at("shortcut").find((s) => s.id === c.id);
+        if (held) return this.refuse({ point, owner, id: c.id, reason: `\`${c.id}\` is already a command (${held.owner})` });
+      }
     }
     const entry = { ...(c as object), owner } as Entry<Point>;
     // A kernel point and one already defined take it as it is; any other waits for its definer.

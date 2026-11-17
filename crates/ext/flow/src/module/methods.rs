@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::future::Future;
 use std::sync::Arc;
 
-use harnix_ext::{Access, Call, Registrar, RpcError};
+use harnix_ext::{Access, Call, ExtId, Registrar, RpcError, Subject};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -23,7 +23,8 @@ use crate::kernel::def::definition_schema;
 use crate::kernel::engine::{CreateIn, Engine};
 use crate::kernel::host::Packs;
 use crate::kernel::protocol;
-use crate::kernel::run::{run_schema, Actor, RunQuery};
+use crate::kernel::run::{run_schema, Actor, RunQuery, Trigger, WorktreeEnd};
+use crate::wire::{StartParams, StartTrigger, StartedFrom};
 use crate::kernel::validate::validate;
 use crate::kernel::FlowError;
 
@@ -31,9 +32,92 @@ fn device(cx: &Call) -> Actor {
     Actor::device(cx.device().unwrap_or("unknown"))
 }
 
+/// Whoever calls, as a run records it: the device, or an extension or the kernel acting as itself.
+fn caller(cx: &Call) -> Actor {
+    match cx.subject() {
+        Subject::Extension { id } => Actor::new("extension", id.to_string()),
+        Subject::Kernel => Actor::new("kernel", "harnix"),
+        _ => device(cx),
+    }
+}
+
+/// How a start came about, as the run will hold it. Started by hand is by the caller, whatever
+/// the params say; only the kernel and extensions (a scheduler) may say a schedule started it.
+fn start_trigger(device: bool, given: Option<StartTrigger>, by: &Actor) -> Result<Trigger, RpcError> {
+    match given {
+        None | Some(StartTrigger::Manual {}) => Ok(Trigger::manual(by.clone())),
+        Some(StartTrigger::Schedule { .. }) if device => Err(RpcError::refused(
+            "a device starts a run by hand: only the kernel and extensions start one on a schedule",
+        )),
+        Some(StartTrigger::Schedule { schedule, fire_at }) => Ok(Trigger::Schedule { schedule, fire_at }),
+    }
+}
+
+/// A start's project: an existing absolute directory, as given. The same holds for every caller,
+/// as for a session's project: a person may open a session in any directory they name, so a task
+/// too (`docs/glossary.md`, «项目任务»).
+fn project_dir(root: Option<String>) -> Result<Option<String>, RpcError> {
+    let Some(root) = root.map(|r| r.trim().to_string()).filter(|r| !r.is_empty()) else {
+        return Ok(None);
+    };
+    if !std::path::Path::new(&root).is_absolute() {
+        return Err(RpcError::invalid_params(format!("project_root {root:?} is not an absolute path")));
+    }
+    match std::fs::metadata(&root) {
+        Ok(m) if m.is_dir() => Ok(Some(root)),
+        _ => Err(RpcError::invalid_params(format!("project_root {root:?} is not an existing directory"))),
+    }
+}
+
+/// A start's `show_in_space`: a space id as the hub spells them, trimmed; whether the application
+/// has such a space the hub says when the main session is exposed, and a start that names none
+/// shows the session nowhere else.
+fn shown_in(space: Option<String>) -> Result<Option<String>, RpcError> {
+    let Some(space) = space.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    let well_formed = space.len() <= 64 && space.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+    if !well_formed {
+        return Err(RpcError::invalid_params(format!("show_in_space {space:?} is not a space id")));
+    }
+    Ok(Some(space))
+}
+
+/// A start's `from_session`: a session id and a space id, both given; the space is the one the
+/// card is written claiming, so the hub refuses it for a conversation of another.
+fn started_from(from: Option<StartedFrom>) -> Result<Option<StartedFrom>, RpcError> {
+    let Some(from) = from else {
+        return Ok(None);
+    };
+    let session_id = from.session_id.trim().to_string();
+    if session_id.is_empty() {
+        return Err(RpcError::invalid_params("from_session names no session_id"));
+    }
+    let space = shown_in(Some(from.space))?.ok_or_else(|| RpcError::invalid_params("from_session names no space"))?;
+    let instance = from.instance.map(|i| i.trim().to_string()).filter(|i| !i.is_empty());
+    Ok(Some(StartedFrom { instance, session_id, space }))
+}
+
 #[derive(Deserialize)]
 struct RunIn {
     run: String,
+}
+
+/// `flow.runOf`'s params: a session by its full name.
+#[derive(Deserialize)]
+struct SessionIn {
+    #[serde(default = "main_instance")]
+    instance: String,
+    session_id: String,
+}
+
+fn main_instance() -> String {
+    harnix_ext::MAIN_INSTANCE.to_string()
+}
+
+#[derive(Deserialize)]
+struct ProjectIn {
+    project_root: String,
 }
 
 #[derive(Deserialize)]
@@ -83,16 +167,17 @@ struct FocusIn {
     session_id: String,
     #[serde(default)]
     flow: Option<String>,
+    /// The project the conversation works in from now on; `""` takes it out of one.
+    #[serde(default)]
+    project: Option<String>,
 }
 
 #[derive(Deserialize)]
-struct StartIn {
-    flow: String,
-    subject: String,
+struct DefIn {
+    name: String,
+    /// Read as a task of this project would: the project's own over the rest.
     #[serde(default)]
-    inputs: Value,
-    #[serde(default)]
-    title: Option<String>,
+    project: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -207,12 +292,38 @@ fn method<C, P, F, Fut>(
     F: Fn(Arc<Shared>, Arc<dyn Packs>, Call, P) -> Fut + Send + Sync + Copy + 'static,
     Fut: Future<Output = Answer> + Send + 'static,
 {
+    method_for(m, sh, packs, name, Access::device(), describe, f);
+}
+
+/// [`method`], open as `access` says.
+fn method_for<C, P, F, Fut>(
+    m: &mut Registrar<'_, C>,
+    sh: &Arc<Shared>,
+    packs: &Arc<dyn Packs>,
+    name: &str,
+    access: Access,
+    describe: &str,
+    f: F,
+) where
+    P: DeserializeOwned + Send + 'static,
+    F: Fn(Arc<Shared>, Arc<dyn Packs>, Call, P) -> Fut + Send + Sync + Copy + 'static,
+    Fut: Future<Output = Answer> + Send + 'static,
+{
     let sh = sh.clone();
     let packs = packs.clone();
     m.method(name)
-        .access(Access::device())
+        .access(access)
         .describe(describe)
         .handler(move |cx: Call, p: P| f(sh.clone(), packs.clone(), cx, p));
+}
+
+/// The scheduler, which starts a project's task when its schedule says (`docs/harnix-app.md`
+/// §9) and reads whether the last one still runs: `flow.start` and `flow.get` are open to it by
+/// name, and to no other extension.
+const SCHEDULER: &str = "schedule";
+
+fn devices_and_the_scheduler() -> Access {
+    Access::device().with_extension(ExtId::native(SCHEDULER).expect("a native extension's id"))
 }
 
 /// Run a change, carry out what it produced (a dry run's: queue it in the sandbox), answer its
@@ -295,11 +406,7 @@ pub(crate) async fn flow_session(
             harnix_ext::SessionSpec::new()
                 .space(&sh.cfg.space)
                 .instance(super::FLOW_INSTANCE)
-                .scene(super::AUTHOR_SCENE)
-                // Every tool that changes something is asked of the person, every time: an `ask`
-                // rule outranks an `allow` one ("always allow" included), so an approval stays a
-                // person's decision.
-                .permission_rules(super::author::ask_rules()),
+                .scene(super::AUTHOR_SCENE),
             sh.cfg.conversation_recording.as_ref().and_then(|f| f(flow)),
             |s, v| s.recording(&v),
         ))
@@ -412,14 +519,15 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         sh,
         packs,
         "list",
-        "runs, newest first: {flow?, status?, subject?, parent?, limit?}",
+        "runs, newest first: {flow?, status?, subject?, parent?, project?, limit?}; project: the runs of that project (its tasks)",
         |sh, _, _, q: RunQuery| async move { to_value(engine(&sh)?.list(q).await.map_err(rpc_error)?) },
     );
-    method(
+    method_for(
         m,
         sh,
         packs,
         "get",
+        devices_and_the_scheduler(),
         "a run with its pinned definition and what each open station lacks (a dry run's session tasks carry `preview`): {run}",
         |sh, _, _, p: RunIn| async move {
             if in_sandbox(&sh, &p.run).await {
@@ -449,16 +557,29 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         sh,
         packs,
         "defs",
-        "the flows on offer, as the `defs` topic has them: [{name, title, digest, origin, valid}]",
-        |_, packs, _, _: Value| async move { Ok(Value::Array(publish::defs_list(packs.as_ref()))) },
+        "the flows on offer, as the `defs` topic has them: [{name, title, description?, digest, origin, valid, reason?, inputs}]; inputs: a JSON Schema of what a run is started with. {project?}: the flows a task of that project may run, the project's own (origin project, <project>/.harnix/flows/) over the rest; while the project is not trusted its own are listed unread, valid false, reason untrusted",
+        |sh, packs, _, p: Value| async move {
+            let project = p.get("project").and_then(Value::as_str).filter(|r| !r.trim().is_empty());
+            match project {
+                Some(root) => to_value(publish::defs_list(super::project_packs::packs_in(&sh, Some(root)).await?.as_ref())),
+                None => to_value(publish::defs_list(packs.as_ref())),
+            }
+        },
     );
     method(
         m,
         sh,
         packs,
         "def",
-        "one flow: {def, yaml, digest, origin, valid, problems, writable, skills: {name: body}, protocol: {station: text}}",
-        |sh, packs, _, p: NameIn| async move { def_info(&*engine(&sh)?, packs.as_ref(), &p.name) },
+        "one flow: {name, project?} → {def, yaml, digest, origin, valid, problems, writable, skills: {name: body}, protocol: {station: text}}; project: as a task of that project reads it",
+        |sh, packs, _, p: DefIn| async move {
+            let packs = match p.project.as_deref() {
+                Some(root) if !root.trim().is_empty() => super::project_packs::packs_in(&sh, Some(root)).await?,
+                _ => packs,
+            };
+            super::project_packs::withheld(packs.as_ref(), &p.name).map_err(rpc_error)?;
+            def_info(&*engine(&sh)?, packs.as_ref(), &p.name)
+        },
     );
     method(
         m,
@@ -585,7 +706,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         sh,
         packs,
         "focus",
-        "the flow a conversation works on (the panel's selection): {instance, session_id, flow | null} → {flow}; the session must be a flow-author conversation",
+        "the flow a conversation works on (the panel's selection): {instance, session_id, flow | null, project?} → {flow, project}; the session must be a flow-author conversation; project: the project it works in from now on (its flows are read and saved in <project>/.harnix/flows/), \"\" for none",
         |sh, packs, cx, p: FocusIn| async move {
             // Only a conversation that can use it: an existing session in the flow-author scene.
             let session = cx
@@ -609,6 +730,19 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
                     super::AUTHOR_SCENE
                 )));
             }
+            match p.project.as_deref().map(str::trim) {
+                None => {}
+                Some("") => sh.set_conversation_project(&p.instance, &p.session_id, None),
+                Some(root) => {
+                    let root = super::project_packs::project_root(root).map_err(RpcError::invalid_params)?;
+                    sh.set_conversation_project(&p.instance, &p.session_id, Some(root));
+                }
+            }
+            let project = sh.conversation_project(&p.instance, &p.session_id);
+            let packs = match &project {
+                Some(root) => super::project_packs::packs_in(&sh, Some(root)).await?,
+                None => packs,
+            };
             let flow = p.flow.filter(|f| !f.is_empty());
             if let Some(f) = &flow {
                 if packs.flow(f).is_none() {
@@ -626,11 +760,11 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
                         own.map_or("the general conversation".to_string(), |f| format!("flow {f}'s conversation")),
                     )));
                 }
-                return Ok(json!({"flow": own}));
+                return Ok(json!({"flow": own, "project": project}));
             }
             sh.set_focus(&p.instance, &p.session_id, flow.clone());
             publish::publish_focus(&sh, &p.instance, &p.session_id).await;
-            Ok(json!({"flow": flow}))
+            Ok(json!({"flow": flow, "project": project}))
         },
     );
 
@@ -764,26 +898,47 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
     );
 
     // ── runs ─────────────────────────────────────────────────────────────────
-    method(
+    method_for(
         m,
         sh,
         packs,
         "start",
-        "start a run: {flow, subject, inputs?, title?} → {run}",
-        |sh, _, cx, p: StartIn| async move {
-            let r = engine(&sh)?
-                .create(
-                    CreateIn {
-                        flow: p.flow,
-                        subject: p.subject,
-                        inputs: p.inputs,
-                        title: p.title,
-                        parent: None,
-                    },
-                    device(&cx),
-                )
-                .await;
-            change(&sh, None, r).await
+        devices_and_the_scheduler(),
+        "start a run: {flow, subject, inputs?, title?, project_root?, workspace?: project|worktree|scratch, output_dir?, trigger?: {kind: manual} | {kind: schedule, schedule, fire_at}, show_in_space?, from_session?: {instance?, session_id, space}} → {run}; with a project_root (an existing absolute directory) the run is a task of that project; output_dir (a template relative to the project, before the flow's and flows/${flow}-${date}${seq}) is made at start and must stay inside it; workspace (absent: the flow's, else project) worktree needs a git repository with a commit: the run works in <project>/.harnix/worktrees/<run> on the branch harnix/<run>, decided with worktree.merge|keep|discard once over; only the kernel and extensions start one on a schedule; show_in_space names a space the main session is also shown in, to be looked at and talked to there; from_session names the conversation it was started from, which gets a card linking to the run (an entry task_started; one that cannot be written is logged and the run goes on)",
+        |sh, _, cx, p: StartParams| async move {
+            let by = caller(&cx);
+            let trigger = start_trigger(cx.device().is_some(), p.trigger, &by)?;
+            let input = CreateIn {
+                flow: p.flow,
+                subject: p.subject,
+                inputs: p.inputs,
+                title: p.title,
+                parent: None,
+                project_root: project_dir(p.project_root)?,
+                workspace: p.workspace,
+                output_dir: p.output_dir,
+                trigger: Some(trigger),
+                show_in_space: shown_in(p.show_in_space)?,
+            };
+            let from = started_from(p.from_session)?;
+            let engine = engine(&sh)?;
+            let r = super::project::start(&sh, &engine, input, by).await;
+            let value = change(&sh, None, r).await?;
+            if let (Some(from), Some(run)) = (&from, value.get("run").and_then(Value::as_str)) {
+                super::project::link_from(&sh, &engine, from, run).await;
+            }
+            Ok(value)
+        },
+    );
+    method(
+        m,
+        sh,
+        packs,
+        "runOf",
+        "the run whose main session this is: {instance?, session_id} → {run: id | null}",
+        |sh, _, _, p: SessionIn| async move {
+            let run = super::main::run_of_main(&sh, &p.instance, &p.session_id).await;
+            Ok(json!({"run": run}))
         },
     );
     method(
@@ -963,6 +1118,56 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
             change(&sh, Some(&p.run), r).await
         },
     );
+
+    // ── worktrees ────────────────────────────────────────────────────────────
+    method(
+        m,
+        sh,
+        packs,
+        "workspace_info",
+        "whether a task of a project can run in a worktree: {project_root} → {git: true, branch, prefix} | {git: false, reason: not_a_repository|bare|no_commit|no_git, detail}",
+        |_, _, _, p: ProjectIn| async move {
+            let Some(root) = project_dir(Some(p.project_root))? else {
+                return Err(RpcError::invalid_params("project_root is empty"));
+            };
+            Ok(super::worktree::info(root.into()).await)
+        },
+    );
+    for (name, end, describe) in [
+        (
+            "worktree.merge",
+            WorktreeEnd::Merged,
+            "merge a finished run's worktree branch into the project's current branch — a fast-forward when it can be, else a merge commit; what the task left uncommitted is committed on the branch first; on a conflict (CONFLICT, data.files) nothing in the project changes; merged, the worktree and the branch are removed: {run} → {run, worktree}",
+        ),
+        (
+            "worktree.keep",
+            WorktreeEnd::Kept,
+            "keep a finished run's worktree branch: what the task left uncommitted is committed on it, the worktree directory removed: {run} → {run, worktree}",
+        ),
+        (
+            "worktree.discard",
+            WorktreeEnd::Discarded,
+            "discard a finished run's worktree: the directory and the branch removed, uncommitted work and all: {run} → {run, worktree}",
+        ),
+    ] {
+        let sh = sh.clone();
+        m.method(name)
+            .access(Access::device())
+            .describe(describe)
+            .handler(move |cx: Call, p: RunIn| {
+                let sh = sh.clone();
+                async move {
+                    if in_sandbox(&sh, &p.run).await {
+                        return Err(RpcError::invalid_params("a dry run has no worktree"));
+                    }
+                    let engine = engine(&sh)?;
+                    let o = super::worktree::end(&engine, &p.run, end, device(&cx)).await?;
+                    let value = o.value.clone();
+                    dispatch::apply(&sh, Some(&p.run), o).await;
+                    Ok(value)
+                }
+            });
+    }
 }
 
 /// The entry a proposal's acceptance is recorded as, in the proposal's own session.
@@ -1064,6 +1269,9 @@ fn def_info(engine: &Engine, packs: &dyn Packs, name: &str) -> Answer {
                 gates: &pinned.gates,
                 delivery,
                 executor: Some(&t.executor),
+                guard: def.guard,
+                root: Some("<project>"),
+                output_dir: Some("<output_dir>"),
             });
             // What the session is told before its skill: the rules too.
             let rules: Vec<(String, String)> = crate::kernel::parts::rules_of(&def, s)
@@ -1166,4 +1374,115 @@ fn part_info(packs: &dyn Packs, kind: crate::PartKind, name: &str) -> Answer {
         "parsed": parsed, "problems": crate::kernel::validate::part_problems(kind, name, &text, packs),
         "flows": users_of(packs, kind, name), "writable": packs.writable(),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_project_root_is_an_existing_absolute_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+        assert_eq!(project_dir(Some(root.clone())).unwrap(), Some(root.clone()));
+        assert_eq!(project_dir(None).unwrap(), None);
+        assert_eq!(project_dir(Some("  ".into())).unwrap(), None);
+        let file = dir.path().join("f");
+        std::fs::write(&file, "").unwrap();
+        for bad in [
+            "relative/dir".to_string(),
+            dir.path().join("missing").to_string_lossy().to_string(),
+            file.to_string_lossy().to_string(),
+        ] {
+            let e = project_dir(Some(bad.clone())).unwrap_err();
+            assert_eq!(e.code, harnix_ext::codes::INVALID_PARAMS, "{bad}");
+        }
+    }
+
+    #[test]
+    fn only_the_kernel_and_extensions_start_a_run_on_a_schedule() {
+        let me = Actor::device("d1");
+        let fired = || Some(StartTrigger::Schedule { schedule: "nightly".into(), fire_at: 7 });
+        assert_eq!(start_trigger(true, None, &me).unwrap(), Trigger::manual(me.clone()));
+        assert_eq!(start_trigger(true, Some(StartTrigger::Manual {}), &me).unwrap(), Trigger::manual(me.clone()));
+        assert_eq!(start_trigger(true, fired(), &me).unwrap_err().code, harnix_ext::codes::REFUSED);
+        let ext = Actor::new("extension", "schedule");
+        assert_eq!(
+            start_trigger(false, fired(), &ext).unwrap(),
+            Trigger::Schedule { schedule: "nightly".into(), fire_at: 7 }
+        );
+    }
+
+    #[test]
+    fn start_params_take_a_task_s_fields() {
+        let p: StartParams = serde_json::from_value(json!({
+            "flow": "f", "subject": "s", "project_root": "/p", "workspace": "worktree",
+            "output_dir": "out/${date}", "trigger": {"kind": "manual"},
+        }))
+        .unwrap();
+        assert_eq!(p.workspace, Some(crate::kernel::run::Workspace::Worktree));
+        assert_eq!(p.trigger, Some(StartTrigger::Manual {}));
+        assert_eq!(p.output_dir.as_deref(), Some("out/${date}"));
+        assert_eq!(p.show_in_space, None);
+        let bare: StartParams = serde_json::from_value(json!({"flow": "f", "subject": "s"})).unwrap();
+        assert_eq!((bare.project_root, bare.workspace, bare.trigger), (None, None, None));
+        let shown: StartParams = serde_json::from_value(json!({"flow": "f", "subject": "s", "show_in_space": "sessions"})).unwrap();
+        assert_eq!(shown.show_in_space.as_deref(), Some("sessions"));
+    }
+
+    /// The space a start shows the main session in is a space id, trimmed; none or blank is none;
+    /// anything else is refused before a run is made.
+    #[test]
+    fn a_start_s_show_in_space_is_a_space_id_or_nothing() {
+        assert_eq!(shown_in(Some(" sessions ".into())).unwrap().as_deref(), Some("sessions"));
+        assert_eq!(shown_in(Some("my.space-1_x".into())).unwrap().as_deref(), Some("my.space-1_x"));
+        assert_eq!(shown_in(None).unwrap(), None);
+        assert_eq!(shown_in(Some("   ".into())).unwrap(), None);
+        for bad in ["two words", "a/b", &"x".repeat(65)] {
+            assert_eq!(shown_in(Some(bad.to_string())).unwrap_err().code, harnix_ext::codes::INVALID_PARAMS, "{bad}");
+        }
+    }
+
+    /// The conversation a start came from names a session and the space it belongs to; a
+    /// blank one of either is refused before a run is made.
+    #[test]
+    fn a_start_s_from_session_names_a_session_and_its_space() {
+        let p: StartParams = serde_json::from_value(json!({
+            "flow": "f", "subject": "s", "from_session": {"instance": "main", "session_id": "s1", "space": "sessions"},
+        }))
+        .unwrap();
+        let from = started_from(p.from_session).unwrap().unwrap();
+        assert_eq!((from.instance.as_deref(), from.session_id.as_str(), from.space.as_str()), (Some("main"), "s1", "sessions"));
+        assert_eq!(started_from(None).unwrap(), None);
+        let given = |instance: &str, session_id: &str, space: &str| StartedFrom { instance: Some(instance.into()), session_id: session_id.into(), space: space.into() };
+        assert_eq!(started_from(Some(given(" ", " s1 ", " sessions "))).unwrap(), Some(StartedFrom { instance: None, session_id: "s1".into(), space: "sessions".into() }));
+        for bad in [given("main", "  ", "sessions"), given("main", "s1", " "), given("main", "s1", "two words")] {
+            assert_eq!(started_from(Some(bad.clone())).unwrap_err().code, harnix_ext::codes::INVALID_PARAMS, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_defs_row_carries_its_inputs_as_a_schema() {
+        let packs = crate::MemPacks::new().flow(
+            "name: f\ntitle: F\ndescription: does f\ninputs:\n  topic: {schema: {type: string}, description: what about}\n  depth: {schema: {type: integer}, default: 2}\nstations: [{id: a, exit: [{kind: confirm}]}]",
+        );
+        let rows = super::publish::defs_list(&packs);
+        let row = serde_json::to_value(&rows[0]).unwrap();
+        assert_eq!(row["name"], "f");
+        assert_eq!(row["description"], "does f");
+        assert_eq!(row["origin"], "builtin");
+        assert_eq!(row["valid"], true);
+        assert_eq!(
+            row["inputs"],
+            json!({
+                "type": "object",
+                "properties": {
+                    "depth": {"type": "integer", "default": 2},
+                    "topic": {"type": "string", "description": "what about"},
+                },
+                "required": ["topic"],
+                "additionalProperties": false,
+            })
+        );
+    }
 }

@@ -173,6 +173,22 @@ export const Icon = {
       <path d="m4.8 10.4 3.4 3.3L15.4 6.4" />
     </Svg>
   ),
+  /** 赞；`filled`：已给。 */
+  thumbUp: ({ filled }: { filled?: boolean }) => (
+    <Svg size={15}>
+      <path d="M3.5 9h3v7.5h-3z" />
+      <path d="M6.5 9 9.4 3.6c1.3 0 2.1 1 1.9 2.2L10.8 8h4.3c1 0 1.8.9 1.6 1.9l-1.1 5.3c-.2.8-.9 1.3-1.7 1.3H6.5z" fill={filled ? "currentColor" : "none"} />
+    </Svg>
+  ),
+  /** 踩；`filled`：已给。 */
+  thumbDown: ({ filled }: { filled?: boolean }) => (
+    <Svg size={15}>
+      <g transform="matrix(1 0 0 -1 0 20)">
+        <path d="M3.5 9h3v7.5h-3z" />
+        <path d="M6.5 9 9.4 3.6c1.3 0 2.1 1 1.9 2.2L10.8 8h4.3c1 0 1.8.9 1.6 1.9l-1.1 5.3c-.2.8-.9 1.3-1.7 1.3H6.5z" fill={filled ? "currentColor" : "none"} />
+      </g>
+    </Svg>
+  ),
   back: () => (
     <Svg size={15}>
       <path d="M15.5 10h-11M9 5.5 4.5 10 9 14.5" />

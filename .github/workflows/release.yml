@@ -1,0 +1,116 @@
+# Release artifacts for the `harnix` command-line binary.
+#
+# Pushing a tag `Harnix-v<x.y.z>-<YYYYMMDD><NN>` builds the binary on each platform,
+# packages it as `harnix-<tag>-<target>.tar.gz` with a `.sha256` beside it, and creates a
+# GitHub Release for the tag whose body is the tag's message (its first line names the Agix
+# release). `workflow_dispatch` is a dry run: it builds and uploads the artifacts to the run
+# and creates no release.
+#
+# Not covered: Windows (nothing in this repository builds or tests it — check.yml is Linux
+# alone) and the desktop installers.
+
+name: release
+
+on:
+  push:
+    tags: ['Harnix-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-14,        target: aarch64-apple-darwin }
+          - { runner: macos-15-intel,  target: x86_64-apple-darwin }
+          - { runner: ubuntu-latest,   target: x86_64-unknown-linux-gnu }
+          - { runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+    env:
+      # The tag on a release; a dry run is named after the commit.
+      NAME: ${{ github.ref_type == 'tag' && github.ref_name || format('dry-run-{0}', github.sha) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Agix is a submodule and the whole product is assembled from it.
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: pnpm/action-setup@v4
+
+      # The binary embeds the built interface and will not build without it.
+      - name: Build the interface
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter @harnix/shell build
+
+      # The `harnix` binary is `harnix-cli`; the same build check.yml ships.
+      - name: Build the binary
+        run: cargo build --release -p harnix-cli
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="harnix-${NAME}-${{ matrix.target }}"
+          mkdir -p "dist/$base"
+          cp target/release/harnix LICENSE README.md "dist/$base/"
+          tar -C dist -czf "dist/$base.tar.gz" "$base"
+          (cd dist && if command -v sha256sum >/dev/null; then sha256sum "$base.tar.gz"; else shasum -a 256 "$base.tar.gz"; fi > "$base.tar.gz.sha256")
+          rm -rf "dist/$base"
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: harnix-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    # Only a pushed tag makes a release; a manual run stops after `build`.
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: harnix-*
+          merge-multiple: true
+
+      # The checkout may leave the tag lightweight; fetch it as it was pushed, so its
+      # message is there to read.
+      - name: Release notes from the tag message
+        run: |
+          git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          git tag -l --format='%(contents)' "${GITHUB_REF_NAME}" > notes.md
+          test -s notes.md
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file notes.md \
+            --verify-tag

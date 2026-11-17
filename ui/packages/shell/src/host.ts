@@ -17,6 +17,7 @@ import { hostDialogs } from "./host-dialogs.tsx";
 import { menuBelow } from "./Menu.tsx";
 import { revealEntry } from "./reveal.ts";
 import { openSettings, settingsSections } from "./settings.tsx";
+import { activeTab, closeTab, openResource, openTab } from "./sidebar/controller.ts";
 import { topicsOf } from "./topics.ts";
 
 export function hostFor(app: App, owner = "page"): HostApi {
@@ -53,7 +54,9 @@ export function hostFor(app: App, owner = "page"): HostApi {
       },
       context: () => app.controller?.getSnapshot() ?? null,
       list: () => app.snapshot.sessions,
-      open: ((ref: SessionRef, options?: { switchSpace?: boolean; reveal?: string }) => {
+      open: ((ref: SessionRef, options?: { switchSpace?: boolean; reveal?: string; view?: string }) => {
+        // The view is remembered for the session before it opens: it is drawn in that view at once.
+        if (options?.view !== undefined) app.setConversationView({ instance: ref.instance, sessionId: ref.sessionId }, options.view);
         const opened = !options?.switchSpace
           ? app.open(ref)
           : (async () => {
@@ -90,6 +93,14 @@ export function hostFor(app: App, owner = "page"): HostApi {
       switch: switchTo,
       current: () => app.snapshot.space,
     },
+    conversation: {
+      current: () => app.conversationView(app.snapshot.current),
+      show(view) {
+        const current = app.snapshot.current;
+        if (current) app.setConversationView(current, view);
+      },
+      onChange: (fn) => app.onView(fn),
+    },
     instances: {
       list: () => call("harnix.instances.list", {}),
       sessions: (instance) => call("harnix.sessions.list", { instance }),
@@ -117,6 +128,14 @@ export function hostFor(app: App, owner = "page"): HostApi {
       isOpen: () => app.detailsOpen(),
       tab: () => app.shownTab(),
       onTab: (fn) => app.onTab(fn),
+    },
+    sidebar: {
+      openResource: (address, options) => openResource(app, address, options),
+      openTab: (kind, options) => openTab(app, kind, options),
+      close: (tabId) => void closeTab(app, tabId),
+      active: () => activeTab(app),
+      isExpanded: () => app.detailsOpen(),
+      toggleExpanded: (open) => app.toggleDetails(open),
     },
     settings: {
       open(section) {
@@ -189,17 +208,23 @@ export function hostFor(app: App, owner = "page"): HostApi {
 
 /**
  * The interface space a session opens in: the front one if it lists the backend space the hub has
- * the session in, else the first that does. The shell's own list cannot say — it lists the session
- * space alone — so the hub is asked.
+ * the session in — or one the session is exposed to (`exposed_to`: shown there by its owner) —
+ * else the first that lists its own space, else the first listing one it is exposed to. The
+ * shell's own list cannot say — it lists the session space alone — so the hub is asked.
  */
 async function spaceOfSession(app: App, ref: { instance: string; sessionId: string }): Promise<string> {
-  const { sessions } = await app.call<{ sessions: { session_id: string; space?: string }[] }>("harnix.sessions.list", { instance: ref.instance });
+  const { sessions } = await app.call<{ sessions: { session_id: string; space?: string; exposed_to?: { space: string }[] }[] }>("harnix.sessions.list", {
+    instance: ref.instance,
+  });
   const row = sessions.find((r) => r.session_id === ref.sessionId);
   if (!row) throw new Error(t("host.noSession", { session: `${ref.instance}/${ref.sessionId}` }));
   const backend = row.space ?? app.snapshot.hello?.defaults?.space ?? app.claim();
-  if (app.claim() === backend) return app.snapshot.space;
+  const shown = (row.exposed_to ?? []).map((e) => e.space);
+  const lists = (claim: string) => claim === backend || shown.includes(claim);
+  if (lists(app.claim())) return app.snapshot.space;
   const spaces = [...app.registry.at("space")].sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
-  const space = spaces.find((c) => c.id === backend) ?? spaces.find((c) => app.claim(c.id) === backend);
+  const space =
+    spaces.find((c) => c.id === backend) ?? spaces.find((c) => app.claim(c.id) === backend) ?? spaces.find((c) => shown.includes(app.claim(c.id)));
   if (!space) throw new Error(t("host.noSpace", { space: backend }));
   return space.id;
 }

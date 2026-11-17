@@ -7,11 +7,15 @@
  * answers the main session's question each time from the station being worked on.
  *
  * `demo-agent`: a sub-agent station; the main session is on `flow-harnix` in a directory of the
- * run's, and replays `flow-agent` (an `Agent` call named by the task's tag, then `flow_submit`).
+ * run's, and replays `flow-agent` (an `Agent` call named by the task's tag and no type, then
+ * `flow_submit`). Nothing is written into that directory for the sub-agent.
  *
  * Also: pause and resume, each station's time and tokens, a run's sessions, a flow's own
  * conversation and the general one, the guide.
  */
+
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 import { type Backend, type TestClient, connect, expect, test } from "@harnix/testkit";
 
@@ -127,6 +131,10 @@ test("a sub-agent station: the main Agent hands the task to a sub-agent of the m
   const session = main(v)!;
   const info = await api.call("engine.session.get", ref(session));
   expect(info.scene_layer).toBe("flow-harnix");
+  // The station names no agent type: the engine's plain sub-agent, with no definition written
+  // into the run's directory (which may be a person's project).
+  expect(info.project_root).toEqual(expect.any(String));
+  expect(existsSync(join(info.project_root, ".agix", "agents"))).toBe(false);
   const { messages } = await api.call("engine.session.history", ref(session));
   expect(JSON.stringify(messages)).toContain("flow:demo-agent-1/check/check");
   const sessions = await api.call("flow.sessions", { run });

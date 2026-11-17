@@ -27,6 +27,7 @@
 import {
   PROTOCOL,
   inDialog,
+  pressChord,
   shellKey,
   type DetailItem,
   type Environment,
@@ -375,7 +376,13 @@ export class HarnixExt {
       const press: KeyPress = { key: event.key, code: event.code, meta: event.metaKey, ctrl: event.ctrlKey, shift: event.shiftKey, alt: event.altKey };
       const which = shellKey(press);
       // Escape is the page's own, unless the frame is inside a dialog of the shell: then it closes that.
-      if (!which || (which === "escape" && !inDialog(this.surface.point))) return;
+      if (which === "escape") {
+        if (!inDialog(this.surface.point)) return;
+      } else {
+        // The shell's keys as it says they are now; the first three where it does not say.
+        const keys = this.environment?.keys;
+        if (keys ? !keys.includes(pressChord(press)) : !which) return;
+      }
       event.preventDefault();
       event.stopImmediatePropagation();
       this.event("key", press);

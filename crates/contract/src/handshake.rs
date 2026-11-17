@@ -35,7 +35,16 @@ pub const PROTOCOL_VERSION: u32 = 5;
 ///
 /// 3: the host API (`HostApi`, `useHost()`), a ninth kernel point (`session.action`), points an
 /// extension defines (`definePoint`), `space` in groups, and activation by `hello.extensions`.
-pub const CONTRIB_API_VERSION: u32 = 3;
+///
+/// 4: a tenth kernel point (`sidebar.tab`: the right column's tab types), the host API's
+/// `sidebar` (the navigation controller) and the tab domain `useTabInfo()`; an eleventh
+/// (`shortcut`: a command with a key the person may change). Additive: a module written for 3
+/// still finds everything it used.
+///
+/// Still 4, within the same unreleased version: a twelfth kernel point (`conversation.view`:
+/// another view of the centre beside the conversation — a trajectory, say) and the host API's
+/// `conversation` (which view is in front). Additive again: nothing a module for 4 used moved.
+pub const CONTRIB_API_VERSION: u32 = 4;
 
 /// How the five channel semantics are carried.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -75,6 +75,20 @@ export function defsOf(value: unknown): DefSummary[] {
   return Array.isArray(defs) ? (defs as DefSummary[]) : [];
 }
 
+/** Where a flow on offer may come from, in the order a filter lists them. */
+export const ORIGINS = ["builtin", "override", "user", "project"] as const;
+
+/**
+ * Why a flow on offer cannot be started, as a string key: the project's own while the project
+ * is not trusted (`flowui.def.untrusted`, "trust the project first"), a project file that is not
+ * its definition (`flowui.def.unreadable`), any other invalid one (`flowui.def.invalid`); `null`
+ * when it can be.
+ */
+export function defBlockedKey(d: Pick<DefSummary, "valid" | "reason">): string | null {
+  if (d.reason) return `flowui.def.${d.reason}`;
+  return d.valid === false ? "flowui.def.invalid" : null;
+}
+
 /** The dry runs' list: the list itself, or `{runs: […]}`. */
 export function dryRunsOf(value: unknown): DryRunSummary[] {
   if (Array.isArray(value)) return value as DryRunSummary[];
@@ -145,10 +159,8 @@ function yamlField(yaml: unknown, key: string): string | undefined {
 }
 
 /**
- * The flow (or skill) a `flow-author` tool call acts on, from the call's input — what the
- * permission to run it is about. The engine asks "Allow flow_update?" whatever the tool says, so the
- * name has to come from here. Null for any other tool. A name may arrive as
- * `<namespace>__flow_update`.
+ * The flow (or skill) a `flow-author` tool call acts on, from the call's input: the call's row
+ * names it. Null for any other tool. A name may arrive as `<namespace>__flow_update`.
  */
 export function toolTarget(name: string | undefined, input: unknown): ToolTarget | null {
   const bare = (name ?? "").split("__").pop() ?? "";
@@ -186,10 +198,10 @@ export function toolTarget(name: string | undefined, input: unknown): ToolTarget
   return out;
 }
 
-/** A problem as one line: `station path: message`. */
+/** A problem as one line: `station: message`. */
 export function problemText(p: Problem | string): string {
   if (typeof p === "string") return p;
-  return [p.station, p.path].filter(Boolean).join(" ") + (p.station || p.path ? ": " : "") + p.message;
+  return (p.station ? `${p.station}: ` : "") + p.message;
 }
 
 /** The run id in what `start` answered: an id, `{run}`, `{id}`, `{value: …}` or a run view. */
@@ -211,19 +223,19 @@ export function runsOf(value: unknown): RunSummary[] {
   return Array.isArray(runs) ? (runs as RunSummary[]) : [];
 }
 
-/** A run view's pinned definition: `record.def`, or a `def` beside the record. */
-export function defOf(view: Pick<RunView, "record" | "def"> | null | undefined): FlowDef | undefined {
-  return view?.def ?? view?.record?.def ?? undefined;
+/** A run view's pinned definition. */
+export function defOf(view: Pick<RunView, "record"> | null | undefined): FlowDef | undefined {
+  return view?.record?.def ?? undefined;
 }
 
 /** The stations a run summary says are open. */
 export function openOf(r: RunSummary): string[] {
-  return r.open ?? r.current ?? [];
+  return r.open ?? [];
 }
 
-/** Whether a judged condition passed: `status: "pass"`, or a bare `ok`. */
-export function checkOk(c: Pick<CheckRec, "status" | "ok">): boolean {
-  return c.status !== undefined ? c.status === "pass" : !!c.ok;
+/** Whether a judged condition passed. */
+export function checkOk(c: Pick<CheckRec, "status">): boolean {
+  return c.status === "pass";
 }
 
 /** A station's pinned skill digests as `name: digest` lines (a bare digest as itself). */
@@ -505,6 +517,24 @@ export function phaseOf(r: { phase?: Phase | null; status?: RunStatus | string |
   return { state: "running" };
 }
 
+/** Whether a run is still going: not finished, not cancelled. */
+export function runLive(r: { phase?: Phase | null; status?: RunStatus | string | null }): boolean {
+  const state = phaseOf(r).state;
+  return state !== "finished" && state !== "cancelled";
+}
+
+/** A project root as a run holds it and as a workspace spells it: a trailing `/` aside. */
+export function sameRoot(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  const strip = (s: string) => (s.length > 1 ? s.replace(/\/+$/, "") : s);
+  return strip(a) === strip(b);
+}
+
+/** The runs of a project (its tasks) still going; dry runs left out. */
+export function runningIn(runs: RunSummary[], root: string): RunSummary[] {
+  return runs.filter((r) => sameRoot(r.project_root, root) && !r.dry && !isDryRun(r.id) && runLive(r));
+}
+
 export function phaseTone(state: PhaseState | string): Tone {
   return PHASE_TONE[state as PhaseState] ?? "muted";
 }
@@ -527,6 +557,36 @@ export function addUsage(...us: (Usage | null | undefined)[]): Usage {
     out.turns += u.turns ?? 0;
   }
   return out;
+}
+
+/** One flow's runs, summed: what the 用量 tab's section lists a row of. */
+export interface FlowUsageRow {
+  flow: string;
+  runs: number;
+  finished: number;
+  usage: Usage;
+  /** From start to finish, over the runs that finished: waiting on people included. */
+  elapsedMs: number;
+}
+
+/**
+ * The runs started at or after `since` (ms), dry runs aside, summed per flow, the most tokens first.
+ * What each run spent is what its stations' turns reported (`RunSummary.usage`), kept with the run.
+ */
+export function usageByFlow(runs: readonly RunSummary[], since: number): FlowUsageRow[] {
+  const by = new Map<string, FlowUsageRow>();
+  for (const run of runs) {
+    if (run.dry || isDryRun(run.id) || Number(run.created_at ?? 0) < since) continue;
+    let row = by.get(run.flow);
+    if (!row) by.set(run.flow, (row = { flow: run.flow, runs: 0, finished: 0, usage: addUsage(), elapsedMs: 0 }));
+    row.runs += 1;
+    row.usage = addUsage(row.usage, run.usage);
+    if (run.finished_at != null) {
+      row.finished += 1;
+      row.elapsedMs += Math.max(0, Number(run.finished_at) - Number(run.created_at ?? 0));
+    }
+  }
+  return [...by.values()].sort((a, b) => tokensOf(b.usage) - tokensOf(a.usage) || a.flow.localeCompare(b.flow));
 }
 
 /** A station's tokens: its tasks', summed. */

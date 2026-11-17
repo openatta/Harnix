@@ -305,6 +305,10 @@ impl EngineControl for ReplayLink {
         self.inner.scene_layers()
     }
 
+    fn host_hooks(&self) -> Vec<harnix_engine_link::HostHook> {
+        self.inner.host_hooks()
+    }
+
     async fn reload_settings(&self) -> Result<(), RpcError> {
         self.inner.reload_settings().await
     }

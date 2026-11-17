@@ -75,6 +75,16 @@ describe("抬头与框架", () => {
     view.unmount();
   });
 
+  it("语音键：后端没有，缺省不画；features.voice 打开才画（不可用的键）", async () => {
+    mount();
+    await settle();
+    expect(screen.queryByTestId("conv-voice")).toBeNull();
+    cleanup();
+    mount({ features: { voice: true } });
+    await settle();
+    expect((screen.getByTestId("conv-voice") as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("空状态按上下文给；只读时输入框换成说明", async () => {
     mount({ emptyState: <p data-testid="custom-empty">这一条的对话会长期保留</p>, readOnly: "这个工位已归档" });
     await settle();
@@ -497,6 +507,49 @@ describe("菜单", () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
+  it("带 submit 的命令收参数：发出的 `/<名> <参数>` 交给它、不发送，答 false 时字留着；取名字最长的那条", async () => {
+    const submit = vi.fn(async (args: string) => args !== "keep");
+    const other = vi.fn();
+    mount({ commands: [{ name: "flow", submit }, { name: "flowx", submit: other }, { name: "flow review" }] });
+    await settle();
+    type("/flow review fix the bug");
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(submit).toHaveBeenCalledWith("review fix the bug");
+    expect(other).not.toHaveBeenCalled();
+    expect(input().value).toBe("");
+    type("/flow keep");
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(input().value).toBe("/flow keep");
+    expect(server.calls.filter((f) => f.method === "harnix.session.send")).toHaveLength(0);
+    // 不是它的名字：照常发送
+    type("/flowy x");
+    fireEvent.keyDown(input(), { key: "Enter" });
+    await settle();
+    expect(submit).toHaveBeenCalledTimes(2);
+    expect(server.calls.filter((f) => f.method === "harnix.session.send")).toHaveLength(1);
+  });
+
+  it("名字里带空格的命令：打了空格之后菜单仍列接得上的那些；接不上就收起，@ 照旧", async () => {
+    const search = vi.fn(async () => [{ id: "SR-1", label: "x" }]);
+    mount({ commands: [{ name: "flow" }, { name: "flow review" }, { name: "flow ship" }, { name: "compact" }], mention: search });
+    await settle();
+    type("/flow ");
+    expect(within(screen.getByTestId("conv-menu")).getAllByTestId("conv-menu-item").map((n) => n.dataset.id)).toEqual(["flow review", "flow ship"]);
+    type("/flow re");
+    expect(within(screen.getByTestId("conv-menu")).getAllByTestId("conv-menu-item").map((n) => n.dataset.id)).toEqual(["flow review"]);
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(input().value).toBe("/flow review ");
+    type("/flow review fix");
+    expect(screen.queryByTestId("conv-menu")).toBeNull();
+    type("/compact now");
+    expect(screen.queryByTestId("conv-menu")).toBeNull();
+    type("/flow review @s");
+    await settle();
+    expect(screen.getByTestId("conv-menu").dataset.kind).toBe("@");
+  });
+
   it("@ 经应用给的搜索列出条目；点一项插入编号", async () => {
     const search = vi.fn(async (q: string) => [{ id: "SR-002", label: "部署记录" }].filter((x) => x.id.includes(q.toUpperCase())));
     mount({ mention: search });
@@ -508,5 +561,112 @@ describe("菜单", () => {
     expect(item.dataset.id).toBe("SR-002");
     fireEvent.click(item);
     expect(input().value).toBe("参考 SR-002 ");
+  });
+});
+
+describe("对回答的反馈", () => {
+  const FB = { ns: "harnix.feedback", event: "rating" };
+  const rated = (id: string, rating: string | null, extra: Record<string, unknown> = {}) => ({
+    id,
+    ...FB,
+    payload: { turn_id: "t1", rating, at: 1, by: "device:d", ...extra },
+    at: 2,
+  });
+  const oneTurn = (entries: unknown[] = []) => {
+    server.handlers["engine.session.history"] = () => ({
+      messages: [
+        { role: "user", content: "说一句", turn_id: "t1" },
+        { role: "assistant", content: [{ type: "text", text: "好的" }], turn_id: "t1" },
+      ],
+    });
+    server.handlers["engine.session.entries"] = () => ({ entries });
+    server.handlers["harnix.session.attach"] = () => attached("S1", { history_total: 2 });
+  };
+  const actions = () => screen.getByTestId("conv-actions");
+
+  it("结束了的一轮下面有赞与踩；踩先问哪里不好、可补一句，提交后按下；别的设备改了这边跟着变；能撤回", async () => {
+    oneTurn();
+    let n = 0;
+    server.handlers["harnix.session.feedback"] = (p) => {
+      n += 1;
+      const payload = { turn_id: p.turn_id, rating: p.rating, at: n, by: "device:d", ...(p.category ? { category: p.category } : {}), ...(p.note ? { note: p.note } : {}) };
+      return { feedback: payload, entry: { id: `f${n}`, ...FB, payload, at: 2 } };
+    };
+    mount();
+    await settle();
+    expect(screen.getByTestId("conv-group").dataset.turn).toBe("t1");
+    expect(actions().dataset.feedback).toBe("none");
+    expect(screen.getByTestId("conv-feedback-down").dataset.state).toBe("off");
+
+    fireEvent.click(screen.getByTestId("conv-feedback-down"));
+    const dialog = screen.getByTestId("conv-feedback-dialog");
+    expect(dialog.dataset.rating).toBe("down");
+    expect(within(dialog).getAllByTestId("conv-feedback-category").map((c) => c.dataset.id)).toEqual(["inaccurate", "unhelpful", "unsafe", "slow", "other"]);
+    expect(within(dialog).queryByTestId("conv-feedback-retract")).toBeNull();
+    fireEvent.click(within(dialog).getAllByTestId("conv-feedback-category")[0]!);
+    fireEvent.change(within(dialog).getByTestId("conv-feedback-note"), { target: { value: "文件名错了" } });
+    fireEvent.click(within(dialog).getByTestId("conv-feedback-submit"));
+    await settle();
+    expect(server.called("harnix.session.feedback")[0]!.params).toEqual({
+      instance: "main",
+      session_id: "S1",
+      turn_id: "t1",
+      rating: "down",
+      category: "inaccurate",
+      note: "文件名错了",
+    });
+    expect(screen.queryByTestId("conv-feedback-dialog")).toBeNull();
+    expect(screen.getByTestId("conv-feedback-down").dataset.state).toBe("on");
+    expect(actions().dataset.feedback).toBe("down");
+    // The entry is the answer's state, not a block of the flow: still one group, nothing more drawn.
+    expect(screen.getAllByTestId("conv-group")).toHaveLength(1);
+
+    // Another device changed it: pushed as the session's entry.
+    act(() => server.event("S1", { kind: "extension_entry", entry: rated("other", "up", { note: "其实挺好" }) }));
+    expect(screen.getByTestId("conv-feedback-up").dataset.state).toBe("on");
+    expect(screen.getByTestId("conv-feedback-down").dataset.state).toBe("off");
+
+    // Opened again on the same rating: what stands is filled in, and it can be taken back.
+    fireEvent.click(screen.getByTestId("conv-feedback-up"));
+    const again = screen.getByTestId("conv-feedback-dialog");
+    expect(again.dataset.state).toBe("rated");
+    expect(within(again).queryByTestId("conv-feedback-category")).toBeNull();
+    expect((within(again).getByTestId("conv-feedback-note") as HTMLTextAreaElement).value).toBe("其实挺好");
+    fireEvent.click(within(again).getByTestId("conv-feedback-retract"));
+    await settle();
+    expect(server.called("harnix.session.feedback")[1]!.params).toEqual({ instance: "main", session_id: "S1", turn_id: "t1", rating: null });
+    expect(actions().dataset.feedback).toBe("none");
+    expect(screen.getByTestId("conv-feedback-up").dataset.state).toBe("off");
+  });
+
+  it("读回来的反馈照样显示；Esc 关掉对话框，什么也不发", async () => {
+    oneTurn([rated("e1", "up"), rated("e2", "down", { category: "slow" })]);
+    mount();
+    await settle();
+    expect(screen.getByTestId("conv-feedback-down").dataset.state).toBe("on");
+    fireEvent.click(screen.getByTestId("conv-feedback-down"));
+    const dialog = screen.getByTestId("conv-feedback-dialog");
+    const slow = within(dialog).getAllByTestId("conv-feedback-category").find((c) => c.dataset.id === "slow")!;
+    expect(slow.getAttribute("aria-checked")).toBe("true");
+    fireEvent.keyDown(within(dialog).getByTestId("conv-feedback-note"), { key: "Escape" });
+    expect(screen.queryByTestId("conv-feedback-dialog")).toBeNull();
+    expect(server.called("harnix.session.feedback")).toHaveLength(0);
+  });
+
+  it("正在跑的一轮没有赞与踩；features.feedback 关掉就没有", async () => {
+    server.handlers["harnix.session.attach"] = () => attached("S1", { running_turn: "t1" });
+    mount();
+    await settle();
+    act(() => server.event("S1", { kind: "text_delta", text: "还在写" }));
+    act(() => server.event("S1", { kind: "tool_use", id: "u1", name: "Bash", input: { command: "ls" } }));
+    expect(screen.getByTestId("conv-group").dataset.turn).toBe("t1");
+    expect(screen.queryByTestId("conv-feedback-up")).toBeNull();
+    cleanup();
+
+    oneTurn();
+    mount({ features: { feedback: false } });
+    await settle();
+    expect(screen.queryByTestId("conv-feedback-up")).toBeNull();
+    expect(screen.getByTestId("conv-copy")).toBeTruthy();
   });
 });

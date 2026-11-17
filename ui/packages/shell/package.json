@@ -24,6 +24,7 @@
     "@harnix/observability": "workspace:*",
     "@harnix/packages": "workspace:*",
     "@harnix/plugins": "workspace:*",
+    "@harnix/schedule": "workspace:*",
     "@harnix/settings": "workspace:*",
     "@harnix/system": "workspace:*",
     "@testing-library/react": "16.3.3",

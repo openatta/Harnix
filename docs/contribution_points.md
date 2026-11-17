@@ -1,7 +1,8 @@
 # 界面贡献点
 
-Harnix 的界面由九个具名的贡献点拼起来（贡献点 v3：在 0.4.2 的八个之上加了 `session.action`），外加第一方扩展自己定义、
-别的 UI 包往里注册的点（如 `system.console.tab`，见第二张表，不算进九个）。
+Harnix 的界面由十二个具名的贡献点拼起来（贡献点 v3 在 0.4.2 的八个之上加了 `session.action`，v4 加了 `sidebar.tab` 与 `shortcut`，
+同一版里又加了 `conversation.view`），外加第一方扩展自己定义、
+别的 UI 包往里注册的点（如 `system.console.tab`、`harnix-app.project.items`，见第二张表，不算进十二个）。
 
 **这首先不是给第三方代码用的扩展面。** 扩展 agent 是 Agix 的事——脚本、manifest、能力门控、沙箱、披露，全在那边；
 Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发给浏览器，与页面同级（见[概念与架构](concept_and_architecture.md)，产品可以用
@@ -16,11 +17,20 @@ Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发
 什么都养不起。所以这里没有一个点跟着流式增量走——一轮十几次谁都养得起，一轮几千次谁都
 养不起。
 
-**九个，加第十个是一个需要论证的决定。** 一个没人用的点不是接缝，只是这张表里的一行，所以每个点
-都要有人在用：第一方 UI 包（`@harnix/harnix-app`、`@harnix/system`、`@harnix/settings` 等）注册 `space`（会话、项目、系统）、`sidebar.group`、`command`、`settings.section`、`session.action`，
-外壳自己注册 `tool.row`、`flow.block`、`details.panel`。`home.card` 是例外：外壳在新对话的输入框下读它，`examples/hello-app` 注册了一张。
+**十二个，再加一个是一个需要论证的决定。** 一个没人用的点不是接缝，只是这张表里的一行，所以每个点
+都要有人在用：第一方 UI 包（`@harnix/harnix-app`、`@harnix/system`、`@harnix/settings` 等）注册 `space`（会话、项目、系统）、`sidebar.group`、`command`、`settings.section`、`session.action`、`sidebar.tab`，
+以及 `home.card` 的首次运行三步（`@harnix/settings` 的模型，`@harnix/harnix-app` 的项目、场景与权限；见 [Harnix app](harnix-app.md) §4.1），
+外壳自己注册 `tool.row`、`flow.block`、`details.panel`，`sidebar.tab` 的引导页，以及 `shortcut` 里外壳自己的命令（新会话、收起左栏、聚焦输入框……）。`home.card` 由外壳在新对话的输入框下读，`examples/hello-app` 也注册了一张；
+没有 `title`、`render()` 什么都没画的卡不占位（做完的一步就是这样收起的）。
 第九个 `session.action` 的理由：0.4.2 的外壳里写死了三样只属于某个扩展的东西——标题栏的「在系统里打开」、工具行的「在系统里看」、
 会话菜单里的归档与导出——它们是同一种东西，没有现成的点能承载。
+第十个 `sidebar.tab` 的理由：右栏是每个会话一个停靠面，在里面打开的页（文件预览、用量、流程进度、输出流）是同一种东西——认领一个地址、或按名字打开的页签类型；
+`details.tabs` 是 space 的、不是会话的，承载不了它。`details.*` 全部保留，适配成同一条页签栏里 space 那一侧（[Harnix 扩展](harnix-ext.md) §22.7）。
+第十一个 `shortcut` 的理由：外壳的三个键是一个监听器里写死的三个分支，别的包要加键只能再挂一个监听器，设置里也列不出谁占了哪个键；
+一条带按平台缺省键、生效地方和动作的命令是同一种东西。`command` 是输入框里 `/`、`@` 的补全候选，按的是文字不是键，承载不了它（[Harnix 扩展](harnix-ext.md) §22.8）。
+第十二个 `conversation.view` 的理由：中间区把一个会话画成对话，而轨迹（这个会话的调用按轮列成一张表）是同一个会话的另一种画法——它占对话的位置，不在对话旁边；
+`space` 的 `center` 是整个 space 的、不是一个会话的，右栏的页签在对话旁边，都承载不了它。外壳在中间区顶上画「对话 | …」的切换，每个会话各记自己的选择，
+`@harnix/observability` 注册「轨迹」（[Harnix 扩展](harnix-ext.md) §22.10）。
 
 **谁注册、什么时候撤。** 第一方 UI 包是编进外壳的，外壳按 `harnix.hello` 里启用的扩展激活它们：一个包只在它对应的扩展启用时才调自己的
 `register`，扩展被 `[extensions] off` 关掉，或被停用，它名下注册的点一起撤掉。点的注册带 owner（扩展 id），诊断按 owner 列。
@@ -42,13 +52,17 @@ Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发
 | `details.panel` | 呈现 | 详情栏里的一页 | 选中项变化时 | 每次交互(10⁰–10¹ 量级) |
 | `flow.block` | 呈现 | 流里的一种新块 | 该块状态变化时 | 每次块状态变化(10¹ 量级) |
 | `sidebar.group` | 注册 | 会话列表的分组与排序 | 会话集合变化时 | 每次交互(10⁰–10¹ 量级) |
-| `command` | 注册 | 一条 `/` 命令或 `@` 引用的补全候选（`trigger` 选哪个菜单） | 命令面板打开时 | 每次交互(10⁰–10¹ 量级) |
+| `command` | 注册 | 一条 `/` 命令或 `@` 引用的补全候选（`trigger` 选哪个菜单；带 `submit` 的 `/` 候选收下发出的 `/<名> <参数>`） | 命令面板打开时 | 每次交互(10⁰–10¹ 量级) |
 | `settings.section` | 呈现 | 设置面板里的一节 | 设置页打开时 | 每次交互(10⁰–10¹ 量级) |
-| `session.action` | 注册 | 对一个会话或它里面一次工具调用的动作（`at`：标题栏、会话菜单、工具行） | 标题栏、会话菜单、工具行画出时 | 每次交互(10⁰–10¹ 量级) |
+| `session.action` | 注册 | 对一个会话、它里面一次工具调用或人的一条消息的动作（`at`：标题栏、会话菜单、工具行、工具行的参数、消息的菜单） | 标题栏、会话菜单、工具行、人的消息画出时 | 每次交互(10⁰–10¹ 量级) |
+| `sidebar.tab` | 注册 | 右栏的一种页签类型：按 `patterns` 认领 `harnix-resource://` 地址，或按 `kind` 打开的页；`guide` 进引导页 | 右栏打开一个地址或一种页时 | 每次交互(10⁰–10¹ 量级) |
+| `shortcut` | 注册 | 一条有快捷键的命令：按平台的缺省键、生效的地方（全局、输入框、右栏）、要跑的动作；设置的「快捷键」列出它、可改键 | 按下一个键时；设置的「快捷键」打开时 | 每次交互(10⁰–10¹ 量级) |
+| `conversation.view` | 呈现 | 中间区里对话之外的另一种视图（轨迹……）：有会话打开、有注册方时，中间区顶部出现「对话 | …」的切换；每个会话各记自己的选择 | 有会话打开的中间区画出时，以及切换时 | 每次交互(10⁰–10¹ 量级) |
 <!-- END GENERATED TABLE -->
 
 第一方扩展定义的点：定义者的 UI 包 `definePoint`，后端在 `UiDecl` 里声明同一个点；别的包往里注册，没人定义时注册丢掉、
-进诊断，给了 `orElse` 的改调它（`@harnix/flow` 没有系统 space 时注册自己的 space）。
+进诊断，给了 `orElse` 的改调它（`@harnix/flow` 没有系统 space 时注册自己的 space；没有项目 space 时它的「任务」条目悄悄不注册）。
+`harnix-app` 的点的形状见 [Harnix app](harnix-app.md) §3.2、§3.3；`flow` 的两个点（任务行的标记、另一种起法）见同一篇 §3.2、§9.1。
 
 <!-- BEGIN GENERATED EXTENSION TABLE — see harnix_ext::catalog::render_extension_markdown -->
 
@@ -56,6 +70,14 @@ Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发
 |---|---|---|---|---|---|
 | `system.console.tab` | `system` | 注册 | 系统 space 控制台的一个页签（`{id, title(), render(), order?, about?()}`） | 系统 space 的控制台画出时 | 每次交互(10⁰–10¹ 量级) |
 | `system.inspector.tab` | `system` | 呈现 | 系统 space 右栏里选中会话的一页（`{id, title(target), match(target), render(target), tools?}`） | 右栏的选中项变化时 | 每次交互(10⁰–10¹ 量级) |
+| `system.metrics.link` | `system` | 注册 | 系统 space 指标条上一格数字去哪（`{id, metric, title(), open()}`）：`metric: "waiting"` 的「等你处理」打开待我处理 | 指标条画出时、点那一格时 | 每次交互(10⁰–10¹ 量级) |
+| `harnix-app.project.items` | `harnix-app` | 注册 | 项目树里会话之外的一种条目（`{id, title(), rows(root), subscribe(fn), render(row), open(row), menu?(row), create?, projectMenu?(context)}`）：流程的任务 | 项目 space 的树画出时、条目的 `subscribe` 说变了时 | 每次交互(10⁰–10¹ 量级) |
+| `harnix-app.project.panels` | `harnix-app` | 呈现 | 项目概况页的一个区块（`{id, title(), order?, render(context)}`） | 项目的概况页画出时 | 每次交互(10⁰–10¹ 量级) |
+| `harnix-app.inbox` | `harnix-app` | 注册 | 待我处理的一个来源（`{id, items(), subscribe(fn), open(item)}`）：中枢的提问、流程的确认、hold、外部工作项 | 来源的 `subscribe` 说变了时、点一项时 | 每次交互(10⁰–10¹ 量级) |
+| `harnix-app.session.badge` | `harnix-app` | 呈现 | 左栏会话行上的一个标记（`{id, render(session)}`）：定时的时钟 | 会话行画出时 | 每次交互(10⁰–10¹ 量级) |
+| `flow.task.badge` | `flow` | 呈现 | 任务行上的一个标记（`{id, render(run)}`）：定时的下一次时间 | 任务行画出时 | 每次交互(10⁰–10¹ 量级) |
+| `flow.start.action` | `flow` | 注册 | 新任务对话框和流程详情里「现在启动」之外的另一种起法（`{id, label(), icon?, run(draft)}`）：定时运行 | 新任务对话框、流程详情画出时 | 每次交互(10⁰–10¹ 量级) |
+| `observability.usage.section` | `observability` | 呈现 | 系统 space「用量」页签里的一个区块（`{id, title(), order?, render(context)}`，`context` 是 `{since, days}`）：流程按流程的用量 | 「用量」页签画出时 | 每次交互(10⁰–10¹ 量级) |
 <!-- END GENERATED EXTENSION TABLE -->
 
 上面两张表由 `harnix_ext::catalog` 生成，这份文件一旦和它对不上，
@@ -92,7 +114,7 @@ Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发
 
 ## 扩展包落在哪些点上
 
-扩展包（[扩展包](harnix-ext-package.md)）不加新的贡献点：外壳照它的清单，替它往这九个点上注册，注册的 owner 是扩展的 id。两种载体（同进程、独立进程）
+扩展包（[扩展包](harnix-ext-package.md)）不加新的贡献点：外壳照它的清单，替它往这些点上注册，注册的 owner 是扩展的 id。两种载体（同进程、独立进程）
 的包落在同一批点上，界面一侧没有区别。
 
 **面**（`[[surface]] point`，画在隔离的 iframe 里；iframe 的沙箱、CSP 与面的生命周期见 [扩展包](harnix-ext-package.md)）：

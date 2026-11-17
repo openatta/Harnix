@@ -61,6 +61,13 @@ describe("TranscriptList", () => {
     expect(screen.queryByTestId("conv-typing")).toBeNull();
   });
 
+  it("人的一条话旁边画 userExtras（它的菜单），带上它开启的那一轮", () => {
+    const said = { key: 1, kind: "user" as const, text: "改 a", turnId: "t1" };
+    mount(<TranscriptList blocks={[said]} renderers={{ userExtras: (b) => <button data-testid="extra">{b.turnId}</button> }} />);
+    expect(screen.getByTestId("extra").textContent).toBe("t1");
+    expect(screen.getByTestId("extra").closest("[data-turn]")!.getAttribute("data-turn")).toBe("t1");
+  });
+
   it("没有块 ⇒ 空的说明", () => {
     mount(<TranscriptList blocks={[]} emptyState={<p data-testid="nothing">还没有转录。</p>} />);
     expect(screen.getByTestId("conv-empty")).toBeTruthy();

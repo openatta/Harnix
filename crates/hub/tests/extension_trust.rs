@@ -23,7 +23,7 @@ use std::time::Duration;
 use harnix_contract::{codes, ExtId, Frame, FrameSink, RpcError, SpaceDecl, Subject};
 use harnix_engine_link::events::{Completion, DaemonEventKind, EngineEvent, Fragment, Joins, SessionEventKind};
 use harnix_engine_link::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
-use harnix_engine_link::ops::{Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
+use harnix_engine_link::ops::{Answer, EngineOps, Entry, HistoryPage, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
 use harnix_hub::{Hub, HubCell, HubConfig, HubRow, Spaces};
 use harnix_kernel::{CallContext, Handler, InstanceBook, InstanceObserver, InstanceTrust, Listed, Rpc};
 use serde_json::{json, Value};
@@ -106,6 +106,9 @@ impl EngineOps for FakeLink {
     }
     async fn transcript(&self, _: &str, _: usize) -> Answer<Vec<Said>> {
         Ok(Vec::new())
+    }
+    async fn history(&self, _: &str, _: u64, _: usize) -> Answer<HistoryPage> {
+        Ok(HistoryPage::default())
     }
     async fn tasks(&self, _: &str) -> Answer<Tasks> {
         Ok(Tasks::new(json!({"tasks": []}), Default::default()))
@@ -418,16 +421,29 @@ async fn what_an_extensions_engine_says_of_a_session_is_held_to_what_a_session_c
 async fn nobody_reaches_an_extensions_engines_settings_or_plugins() {
     let rig = Rig::new().await;
     let kernel = || CallContext::root(Subject::Kernel, None);
-    for method in ["engine.config.get", "engine.config.reload", "engine.plugin.install", "engine.plugin.list", "engine.config.setProvider"] {
+    let methods = [
+        "engine.config.get",
+        "engine.config.reload",
+        "engine.plugin.install",
+        "engine.plugin.list",
+        "engine.config.setProvider",
+        // Trust is kept in its global settings too.
+        "engine.project.status",
+        "engine.project.trust",
+    ];
+    for method in methods {
         let refused = rig.call(kernel(), method, json!({"instance": "ext"})).await.unwrap_err();
         assert_eq!(refused.code, codes::REFUSED, "{method}: {}", refused.message);
         rig.call(kernel(), method, json!({"instance": "own"})).await.unwrap_or_else(|e| panic!("{method}: {}", e.message));
     }
     assert!(rig.ext.0.passed().is_empty(), "{:?}", rig.ext.0.passed());
-    assert_eq!(rig.own.0.passed().len(), 5);
+    assert_eq!(rig.own.0.passed().len(), methods.len());
     // What is not its settings passes through as for any engine.
     rig.call(kernel(), "engine.scene.list", json!({"instance": "ext"})).await.unwrap();
-    assert_eq!(rig.ext.0.passed(), ["engine.scene.list"]);
+    // Its own schedule's jobs, the model's, are its sessions' and no setting.
+    rig.call(kernel(), "engine.schedule.list", json!({"instance": "ext"})).await.unwrap();
+    rig.call(kernel(), "engine.schedule.delete", json!({"instance": "ext", "id": "j1"})).await.unwrap();
+    assert_eq!(rig.ext.0.passed(), ["engine.scene.list", "engine.schedule.list", "engine.schedule.delete"]);
 }
 
 #[tokio::test]

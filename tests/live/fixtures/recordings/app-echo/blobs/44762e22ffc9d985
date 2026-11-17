@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"thinking","text":"The user wants me to call the echo tool with text \"showcase-echo-42\" and then reply exactly \"The showcase said it back.\"","signature":"fa910900-2f66-4ca4-91dd-3ae357abda82"},{"type":"tool_use","id":"call_00_udTWoozJIhZh75d3XHOc5110","name":"ext__example_showcase__echo","input":{"text":"showcase-echo-42"}}]}

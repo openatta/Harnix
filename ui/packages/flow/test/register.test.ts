@@ -49,6 +49,19 @@ describe("the flow package", () => {
     expect(r.refusals()).toEqual([]);
   });
 
+  it("a section of the 用量 tab where the observability package defines it, and none, quietly, where not", () => {
+    const r = new Registry();
+    r.activate("observability", () => r.definePoint("observability.usage.section", { kind: "render" }));
+    r.activate("flow", () => register(r, host));
+    r.settle();
+    expect(r.list<{ id: string }>("observability.usage.section").map((c) => [c.id, c.owner])).toEqual([["flow.usage", "flow"]]);
+    const alone = new Registry();
+    alone.activate("flow", () => register(alone, host));
+    alone.settle();
+    expect(alone.list("observability.usage.section")).toEqual([]);
+    expect(alone.refusals()).toEqual([]);
+  });
+
   it("goes with its extension: everything it registered, as one batch", () => {
     const r = new Registry();
     r.activate("flow", () => register(r, host));

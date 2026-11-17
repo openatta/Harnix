@@ -7,60 +7,18 @@
  * Also the reader's choice of whether the mark is drawn, kept in this browser.
  */
 
+import type { Button, Command, Field, FlowBlock, Inline, PackagesList, SidebarGroup, ToolRow } from "@harnix/core";
+
 import type { App } from "../app.ts";
-import type { Text } from "./template.ts";
 
-export interface ToolRowDecl {
-  tool: string;
-  icon?: string;
-  title?: Text;
-  /** `result`, or `input.<path>`. */
-  summary?: string;
-  collapsed?: boolean;
-}
-
-export interface FieldDecl {
-  label: Text;
-  value: string;
-}
-
-export interface ButtonDecl {
-  label: Text;
-  method: string;
-  params?: Record<string, unknown>;
-  confirm?: Text;
-  done?: Text;
-}
-
-export interface FlowBlockDecl {
-  kind: string;
-  icon?: string;
-  title: Text;
-  body?: Text;
-  field?: FieldDecl[];
-  button?: ButtonDecl[];
-}
-
-export interface CommandDecl {
-  trigger: "/" | "@";
-  name: string;
-  description?: Text;
-}
-
-export interface GroupDecl {
-  space?: string;
-  by: "scene" | "field" | "method";
-  field?: string;
-  method?: string;
-  other?: Text;
-}
-
-export interface Inline {
-  tool_row?: ToolRowDecl[];
-  flow_block?: FlowBlockDecl[];
-  command?: CommandDecl[];
-  sidebar_group?: GroupDecl[];
-}
+/** The manifest's `[inline]` declarations, as `packages.list` carries them: generated from the Rust that reads the manifest. */
+export type { Inline };
+export type ToolRowDecl = ToolRow;
+export type FieldDecl = Field;
+export type ButtonDecl = Button;
+export type FlowBlockDecl = FlowBlock;
+export type CommandDecl = Command;
+export type GroupDecl = SidebarGroup;
 
 /** One installed package, as the shell draws for it. */
 export interface RuntimePackage {
@@ -71,14 +29,6 @@ export interface RuntimePackage {
   /** Enabled and running: its inline points are drawn. */
   running: boolean;
   inline: Inline;
-}
-
-interface Listed {
-  id: string;
-  title?: string | null;
-  enabled?: boolean;
-  trust?: string;
-  runtime?: { state?: string; inline?: Inline | null } | null;
 }
 
 /** What the reader chose about the mark: `off` hides it. */
@@ -92,7 +42,7 @@ export class PackagesWatch {
 
   /** A value of `packages.list`. */
   take(value: unknown): void {
-    const listed = ((value as { packages?: Listed[] } | null)?.packages ?? []).filter((a) => a && typeof a.id === "string");
+    const listed = ((value as PackagesList | null)?.packages ?? []).filter((a) => a && typeof a.id === "string");
     this.packages = new Map(
       listed.map((a) => [
         a.id,
@@ -101,7 +51,7 @@ export class PackagesWatch {
           title: a.title || a.id,
           trust: a.trust ?? "unsigned",
           running: Boolean(a.enabled) && a.runtime?.state === "running",
-          inline: (a.runtime?.inline as Inline | null | undefined) ?? {},
+          inline: a.runtime?.inline ?? {},
         },
       ]),
     );
@@ -165,7 +115,7 @@ export function packagesOf(app: App): PackagesWatch {
   return watch;
 }
 
-/** The names a session knows a package's tool by: the same in every session, of any instance. */
+/** The names a session knows a package's tool by (`harnix_package::tool_name`): the same in every session, of any instance. */
 export function toolNames(id: string, tool: string): string[] {
-  return [`ext__${id.replace(/[.-]/g, "_")}__${tool.replace(/-/g, "_")}`];
+  return [`ext__${id.replace(/\./g, "_")}__${tool}`];
 }

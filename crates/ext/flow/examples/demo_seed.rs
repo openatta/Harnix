@@ -60,6 +60,7 @@ impl Seed {
                     inputs: Value::Null,
                     title: Some(title.into()),
                     parent: None,
+                    ..Default::default()
                 },
                 person(),
             )

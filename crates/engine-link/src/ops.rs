@@ -11,6 +11,8 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+use harnix_contract::wire::{RewindParams, RewindResult};
+use harnix_contract::wire::{SessionHooks, SessionSkills};
 use harnix_contract::RpcError;
 use serde_json::{json, Value};
 
@@ -28,6 +30,11 @@ pub mod codes {
     pub const SESSION_BUSY: i32 = -32015;
     /// The scene needs a project, and the session was created with none.
     pub const PROJECT_REQUIRED: i32 = -32012;
+    /// A rewind: files that cannot be restored as asked, and nothing was changed; `data.issues`
+    /// lists them.
+    pub const REWIND_PRECONDITION: i32 = -32023;
+    /// A rewind failed part way; what it had restored was put back unless `data.partial`.
+    pub const REWIND_FAILED: i32 = -32024;
 }
 
 /// The longest session title an extension's engine may give: past it, the hub cuts it.
@@ -68,6 +75,10 @@ pub trait EngineOps: Send + Sync {
     /// The first `limit` messages of the session's transcript, as text.
     async fn transcript(&self, session: &str, limit: usize) -> Answer<Vec<Said>>;
 
+    /// Up to `limit` messages of the session's transcript from `offset` on, each with where it is,
+    /// who put it there and which turn wrote it.
+    async fn history(&self, session: &str, offset: u64, limit: usize) -> Answer<HistoryPage>;
+
     /// The session's tasks; none for a session not in memory.
     async fn tasks(&self, session: &str) -> Answer<Tasks>;
 
@@ -101,11 +112,46 @@ pub trait EngineOps: Send + Sync {
     /// An entry in the session's log, for people and never for the model.
     async fn append_entry(&self, session: &str, entry: Entry) -> Answer<Value>;
 
-    /// Answer a question the session asked. `params` are the engine's own.
+    /// Answer a question the session asked. `params` are `harnix.session.respond`'s
+    /// (`harnix_contract::wire::RespondParams`, checked, without `instance` and `tool_use_id`); the
+    /// link puts them in its engine's terms.
     async fn respond(&self, params: Value) -> Answer<Value>;
 
     /// Any other engine method, under the name the hub's row gives it; the answer as it is.
     async fn passthrough(&self, method: &str, params: Value) -> Answer<Value>;
+
+    /// The skills a session sees, as the engine says them: each with its tier, its directory and
+    /// its plugin package, the host directories the session lists, and its project's trust. Which
+    /// package a directory is, is the hub's to say; `instance` and `session_id` are left empty.
+    /// An engine that cannot say answers so.
+    async fn session_skills(&self, session: &str) -> Answer<SessionSkills> {
+        let _ = session;
+        Err(RpcError::not_found("this engine does not say which skills a session sees"))
+    }
+
+    /// The hooks the engine's settings tiers configure for a session's turns, each said by its
+    /// kind and matcher only, which are in force, and the tiers it could not read. What this
+    /// process registers on its connection is the link's to say ([`crate::EngineControl::host_hooks`]);
+    /// `instance` and `session_id` are left empty.
+    async fn settings_hooks(&self, session: &str) -> Answer<SessionHooks> {
+        let _ = session;
+        Err(RpcError::not_found("this engine does not say which hooks a session runs"))
+    }
+
+    /// Put the session's files, its conversation or both back to an earlier point between turns
+    /// — or, with `dry_run`, say what that would do. `ask.to` is never a `before_turn`: the hub
+    /// finds the turn it comes to first ([`EngineOps::live_turns`]). The answer's `instance` is
+    /// the hub's to fill.
+    async fn rewind(&self, session: &str, ask: &RewindParams) -> Answer<RewindResult> {
+        let _ = (session, ask);
+        Err(RpcError::new(harnix_contract::codes::METHOD_NOT_FOUND, "this engine does not rewind"))
+    }
+
+    /// The turns still in the session's conversation, oldest first: what a rewind can go back to.
+    async fn live_turns(&self, session: &str) -> Answer<Vec<String>> {
+        let _ = session;
+        Err(RpcError::new(harnix_contract::codes::METHOD_NOT_FOUND, "this engine does not rewind"))
+    }
 }
 
 /// What the hub sets a new session up with, beyond what its caller gave.
@@ -116,6 +162,9 @@ pub struct SessionSetup {
     pub scene: Option<ExpandedScene>,
     /// The skill directories it sees.
     pub skill_dirs: Vec<PathBuf>,
+    /// A person started it, and answers more than permissions: the model's questions and an MCP
+    /// server's asks reach the host, as they cannot for an extension that answers by policy.
+    pub person: bool,
 }
 
 impl SessionSetup {
@@ -130,6 +179,11 @@ impl SessionSetup {
 
     pub fn skill_dirs(mut self, dirs: Vec<PathBuf>) -> Self {
         self.skill_dirs = dirs;
+        self
+    }
+
+    pub fn person(mut self, person: bool) -> Self {
+        self.person = person;
         self
     }
 }
@@ -279,6 +333,67 @@ pub struct Said {
 impl Said {
     pub fn new(role: impl Into<String>, text: impl Into<String>) -> Self {
         Self { role: role.into(), text: text.into() }
+    }
+}
+
+/// A page of a session's transcript: how many messages it holds in all, and the page's own.
+#[non_exhaustive]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct HistoryPage {
+    pub total: u64,
+    pub messages: Vec<Message>,
+}
+
+impl HistoryPage {
+    pub fn new(total: u64, messages: Vec<Message>) -> Self {
+        Self { total, messages }
+    }
+}
+
+/// One message of a transcript, as text, with the points read off it to find its turn.
+#[non_exhaustive]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Message {
+    /// Where it is in the transcript: a history `offset`.
+    pub seq: u64,
+    pub role: String,
+    /// Who put it there: `user` (a person typed it), `steer` (sent into a running turn),
+    /// `command` (a person's command, expanded), and the engine's own kinds; `None` in a log
+    /// written before messages said.
+    pub origin: Option<String>,
+    /// The turn that wrote it; `None` in a log written before turns had ids.
+    pub turn_id: Option<String>,
+    /// The id of the log row it was written as: what tells it from another at the same `seq`.
+    pub id: Option<String>,
+    /// When it was written, as the engine wrote it.
+    pub ts: Option<String>,
+    /// Its text parts, joined.
+    pub text: String,
+}
+
+impl Message {
+    pub fn new(seq: u64, role: impl Into<String>, text: impl Into<String>) -> Self {
+        Self { seq, role: role.into(), text: text.into(), ..Self::default() }
+    }
+
+    pub fn origin(mut self, origin: impl Into<String>) -> Self {
+        self.origin = Some(origin.into());
+        self
+    }
+
+    pub fn turn(mut self, turn_id: impl Into<String>) -> Self {
+        self.turn_id = Some(turn_id.into());
+        self
+    }
+
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    pub fn at(mut self, ts: impl Into<String>) -> Self {
+        self.ts = Some(ts.into());
+        self
     }
 }
 

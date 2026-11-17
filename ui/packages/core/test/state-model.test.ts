@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyEvent,
   applyHistoryMessage,
+  applyReplay,
   answerAsk,
   applySettled,
   emptySession,
@@ -262,6 +263,19 @@ describe("立即送达：交给正在跑的一轮，赶不上的退回队首", (
     const labels = { result: "结果", image: "[图片]" };
     const s = applyHistoryMessage(emptySession("S"), { role: "user", content: "插一句", origin: "steer", turn_id: "t1", seq: 2, id: "c" }, labels);
     expect(s.blocks[0]).toMatchObject({ kind: "user", text: "插一句", steered: true });
+  });
+
+  it("人的话记下它开启的那一轮：历史的 turn_id、实时与重放帧的 turn_id（回退按它找那一轮）", () => {
+    const labels = { result: "结果", image: "[图片]" };
+    const fromHistory = applyHistoryMessage(emptySession("S"), { role: "user", content: "改 a", origin: "user", turn_id: "t1", seq: 0, id: "a" }, labels);
+    expect(fromHistory.blocks[0]).toMatchObject({ kind: "user", turnId: "t1" });
+    const old = applyHistoryMessage(emptySession("S"), { role: "user", content: "旧日志" }, labels);
+    expect(old.blocks[0]).not.toHaveProperty("turnId");
+    const live = applyEvent({ ...emptySession("S"), loading: false }, { kind: "user_message", text: "改 b" }, { ...opts, turnId: "t2" });
+    expect(live.blocks[0]).toMatchObject({ kind: "user", text: "改 b", turnId: "t2" });
+    const attached = { replay: [{ seq: 1, turn_id: "t3", event: { kind: "user_message", text: "改 c" } }], pending_prompts: [] };
+    const replayed = applyReplay(emptySession("S"), attached as never, 300, 1_000);
+    expect(replayed.blocks[0]).toMatchObject({ kind: "user", text: "改 c", turnId: "t3" });
   });
 });
 

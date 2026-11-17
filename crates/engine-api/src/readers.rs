@@ -56,6 +56,13 @@ pub trait Recordings: Send + Sync {
     /// What each Agent of each session used this run: the session first, then every sub-agent
     /// under it. Never wakes an instance that sleeps: what was read before, marked `stale`.
     async fn usage(&self, sessions: &[String]) -> Result<BTreeMap<String, SessionUsage>, ReadError>;
+    /// What the whole tree of Agents under each session used this run, summed per day and model,
+    /// the days counted in `window`'s offset and none before its start. Never wakes an instance
+    /// that sleeps, as [`Recordings::usage`]. A reader that does not sum by day says so.
+    async fn usage_by_day(&self, sessions: &[String], window: &DayWindow) -> Result<BTreeMap<String, SessionDays>, ReadError> {
+        let _ = (sessions, window);
+        Err(ReadError::Unreadable("this reader does not sum usage by day".into()))
+    }
 }
 
 /// One instance's transcripts.
@@ -70,6 +77,7 @@ pub trait Transcripts: Send + Sync {
 /// the session first called the model, so what an earlier process recorded is not in it.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct RecordingRun {
     /// RFC 3339: when this run's recording began.
     pub created_at: String,
@@ -89,6 +97,7 @@ impl RecordingRun {
 /// A session's calls.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Trace {
     /// False: the session has not called the model in this run.
     pub recording: bool,
@@ -114,6 +123,7 @@ impl Trace {
 /// One call, for a row.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CallSummary {
     /// The call's place in the recording of the session's root.
     pub index: usize,
@@ -135,9 +145,11 @@ pub struct CallSummary {
     /// `ok`, `cancelled`, `error`, `in_flight` or `unfinished`.
     pub status: String,
     /// The engine's: `{kind, message, http_status, retry_after_ms}`.
+    #[cfg_attr(feature = "ts", ts(type = "{ kind?: string; message?: string; http_status?: number | null; retry_after_ms?: number | null } | null"))]
     pub error: Option<Value>,
     pub stop_reason: Option<String>,
     /// The engine's.
+    #[cfg_attr(feature = "ts", ts(type = "Usage | null"))]
     pub usage: Option<Value>,
     pub duration_ms: Option<u64>,
     pub timing: Option<Timing>,
@@ -210,58 +222,98 @@ impl CallSummary {
 /// What a call was sent, counted.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CallInput {
     pub system: Vec<BlockSize>,
     pub tools: usize,
     pub messages: usize,
+    /// The tool catalog's fingerprint: two calls with the same one sent the same tools.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools_digest: Option<String>,
 }
 
 impl CallInput {
     pub fn new(system: Vec<BlockSize>, tools: usize, messages: usize) -> Self {
-        Self { system, tools, messages }
+        Self { system, tools, messages, tools_digest: None }
+    }
+
+    pub fn with_tools_digest(mut self, digest: Option<String>) -> Self {
+        self.tools_digest = digest;
+        self
     }
 }
 
 /// A system block: which one, and how long.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct BlockSize {
     pub source: Option<String>,
     pub chars: usize,
+    /// The block's fingerprint: two calls with the same one sent the same block.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest: Option<String>,
 }
 
 impl BlockSize {
     pub fn new(source: Option<String>, chars: usize) -> Self {
-        Self { source, chars }
+        Self { source, chars, digest: None }
+    }
+
+    pub fn with_digest(mut self, digest: Option<String>) -> Self {
+        self.digest = digest;
+        self
     }
 }
 
 /// What a call answered, counted.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CallOutput {
     pub chars: usize,
     pub thinking_chars: usize,
     pub tool_uses: usize,
+    /// The start of the answer's text, cut with a `…`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_preview: Option<String>,
 }
 
 impl CallOutput {
     pub fn new(chars: usize, thinking_chars: usize, tool_uses: usize) -> Self {
-        Self { chars, thinking_chars, tool_uses }
+        Self { chars, thinking_chars, tool_uses, text_preview: None }
+    }
+
+    pub fn with_text_preview(mut self, preview: Option<String>) -> Self {
+        self.text_preview = preview;
+        self
     }
 }
 
 /// A tool call a call asked for: its input and result are in the call's detail.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ToolUseSummary {
     pub id: String,
     pub name: String,
+    /// The start of its input, as compact JSON, cut with a `…`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_preview: Option<String>,
+    /// Whether its result was an error, once the next call has carried the result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_is_error: Option<bool>,
 }
 
 impl ToolUseSummary {
     pub fn new(id: String, name: String) -> Self {
-        Self { id, name }
+        Self { id, name, input_preview: None, result_is_error: None }
+    }
+
+    pub fn with_preview(mut self, input_preview: Option<String>, result_is_error: Option<bool>) -> Self {
+        self.input_preview = input_preview;
+        self.result_is_error = result_is_error;
+        self
     }
 }
 
@@ -269,6 +321,7 @@ impl ToolUseSummary {
 /// gives the call's end, not its last chunk), its output rate.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Timing {
     pub sent_at: u64,
     pub ttft_ms: Option<u64>,
@@ -285,6 +338,7 @@ impl Timing {
 /// One call in full.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CallDetail {
     pub index: usize,
     pub input: CallDetailInput,
@@ -299,18 +353,23 @@ impl CallDetail {
 
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CallDetailInput {
     pub session_id: String,
     pub system: Vec<SystemBlock>,
     /// The engine's tool definitions.
+    #[cfg_attr(feature = "ts", ts(type = "unknown[]"))]
     pub tools: Vec<Value>,
     /// The engine's messages, as sent.
+    #[cfg_attr(feature = "ts", ts(type = "unknown[]"))]
     pub messages: Vec<Value>,
     pub model: String,
     pub max_tokens: u32,
     /// The engine's.
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
     pub thinking_mode: Value,
     /// The engine's; `null` when none was set.
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
     pub effort: Value,
     pub provider: String,
     pub purpose: Option<String>,
@@ -340,17 +399,21 @@ impl CallDetailInput {
 
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CallDetailOutput {
     pub text: String,
     pub thinking_chars: usize,
     /// `{id, name, input}` each.
+    #[cfg_attr(feature = "ts", ts(type = "{ id: string; name: string; input?: unknown }[]"))]
     pub tool_uses: Vec<Value>,
     /// What the tool calls got back, as the next call of the same session sent it to the model;
     /// empty when that call is not made yet.
     pub tool_results: Vec<ToolResultView>,
     pub status: String,
+    #[cfg_attr(feature = "ts", ts(type = "{ kind?: string; message?: string; http_status?: number | null; retry_after_ms?: number | null } | null"))]
     pub error: Option<Value>,
     pub stop_reason: Option<String>,
+    #[cfg_attr(feature = "ts", ts(type = "Usage | null"))]
     pub usage: Option<Value>,
     pub duration_ms: Option<u64>,
 }
@@ -379,6 +442,7 @@ impl CallDetailOutput {
 /// What one tool call got back, as the next call of the same session sent it to the model.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ToolResultView {
     pub id: String,
     /// Clipped; `chars` is the whole length.
@@ -397,10 +461,15 @@ impl ToolResultView {
 /// `cache_strategy`, `source` (which block) beside `origin` (who put it there).
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SystemBlock {
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
     pub role: Value,
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
     pub cache: Value,
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     pub source: Value,
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
     pub origin: Value,
     pub text: String,
 }
@@ -414,6 +483,7 @@ impl SystemBlock {
 /// A session's turns.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Turns {
     pub recording: bool,
     pub turns: Vec<TurnSummary>,
@@ -434,6 +504,7 @@ impl Turns {
 /// One turn's calls, summed: auxiliary calls are counted beside it, not inside its figures.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct TurnSummary {
     pub turn: u32,
     pub calls: Vec<usize>,
@@ -477,6 +548,7 @@ impl TurnSummary {
 /// A session's envelopes.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Envelopes {
     pub recording: bool,
     pub headers: Vec<Envelope>,
@@ -501,6 +573,7 @@ impl Envelopes {
 /// What a call was sent besides the messages.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Envelope {
     /// `initial`, `changed`, or `detail`.
     pub reason: String,
@@ -510,8 +583,10 @@ pub struct Envelope {
     pub provider: String,
     pub model: String,
     pub max_tokens: u32,
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
     pub thinking_mode: Value,
     pub system: Vec<SystemBlock>,
+    #[cfg_attr(feature = "ts", ts(type = "unknown[]"))]
     pub tools: Vec<Value>,
 }
 
@@ -536,6 +611,7 @@ impl Envelope {
 /// What one session has used this run, per Agent: its own figures first, then each sub-agent's.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SessionUsage {
     pub recording: bool,
     pub agents: Vec<AgentUsage>,
@@ -564,6 +640,7 @@ impl SessionUsage {
 
 #[non_exhaustive]
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct AgentUsage {
     pub session_id: String,
     pub parent_session_id: Option<String>,
@@ -584,6 +661,80 @@ pub struct AgentUsage {
 impl AgentUsage {
     pub fn new(session_id: &str) -> Self {
         Self { session_id: session_id.to_string(), ..Self::default() }
+    }
+}
+
+/// Which days [`Recordings::usage_by_day`] sums: from the day `since_ms` falls on, a day running
+/// from midnight to midnight at `offset_minutes` east of UTC (the reader's clock, not the engine's).
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DayWindow {
+    pub since_ms: u64,
+    pub offset_minutes: i32,
+}
+
+impl DayWindow {
+    pub fn new(since_ms: u64, offset_minutes: i32) -> Self {
+        Self { since_ms, offset_minutes }
+    }
+}
+
+/// What the tree of Agents under one session used this run, per day and model.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct SessionDays {
+    pub recording: bool,
+    /// Oldest day first; within a day, by model.
+    pub days: Vec<DayUsage>,
+    /// The run these figures cover: only the latest, not a total over runs.
+    pub run: Option<RecordingRun>,
+    /// The instance sleeps: these are the figures read before, not read now.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stale: bool,
+}
+
+impl SessionDays {
+    pub fn new(recording: bool, days: Vec<DayUsage>) -> Self {
+        Self { recording, days, run: None, stale: false }
+    }
+
+    pub fn run(mut self, run: Option<RecordingRun>) -> Self {
+        self.run = run;
+        self
+    }
+
+    pub fn stale(mut self, stale: bool) -> Self {
+        self.stale = stale;
+        self
+    }
+}
+
+/// One day's calls to one model, by every Agent of a session's tree: a call counts on the day it
+/// was sent.
+#[non_exhaustive]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct DayUsage {
+    /// `YYYY-MM-DD`.
+    pub day: String,
+    /// As the recording names it; empty when it names none.
+    pub model: String,
+    /// The turns' calls.
+    pub calls: u64,
+    /// The calls beside the turns: compaction, memory, a title.
+    pub auxiliary: u64,
+    pub input_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub output_tokens: u64,
+    pub model_ms: u64,
+    pub errors: u64,
+}
+
+impl DayUsage {
+    pub fn new(day: String, model: String) -> Self {
+        Self { day, model, ..Self::default() }
     }
 }
 
@@ -613,6 +764,7 @@ impl SearchLimits {
 
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SearchHit {
     pub session_id: String,
     pub role: String,
@@ -636,6 +788,7 @@ impl SearchHit {
 
 #[non_exhaustive]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SearchResult {
     pub hits: Vec<SearchHit>,
     pub scanned: usize,

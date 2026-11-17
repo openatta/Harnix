@@ -63,7 +63,7 @@
 //! [[ui]]                        # ES modules under ui/, as a package's [[ui]]: run in the page,
 //! point = "home.card"           # a trusted publisher's only
 //! module = "showcase.js"
-//! api_version = 3
+//! api_version = 4
 //!
 //! [interface]                   # the interface in isolated frames (`surface.rs`)
 //! calls = ["harnix.sessions.list"]   # beyond <id>.*, what a frame may call
@@ -901,7 +901,7 @@ nested = { a = 1 }
 [[ui]]
 point = "home.card"
 module = "showcase.js"
-api_version = 3
+api_version = 4
 
 [agent]
 install_into = ["main"]
@@ -1033,7 +1033,7 @@ install_into = ["main"]
                 "which is 0",
             ),
             (GOOD.replace("storage_mb = 1", "net = [\"https://x.example\"]"), "lists hosts"),
-            (GOOD.replace("api_version = 3", "api_version = 2"), "contribution API 2"),
+            (GOOD.replace("api_version = 4", "api_version = 2"), "contribution API 2"),
             (GOOD.replace("showcase.js", "../escape.js"), "under ui/"),
             (GOOD.replace("[app]", "[app]\n").replace("id = ", "ident = "), "in `[app]`"),
             (format!("{GOOD}\n[[component]]\nname = \"two\"\nworld = \"harnix:ext/tools-ext@1.0.0\"\n"), "one component"),
@@ -1111,10 +1111,6 @@ scene = "harnix"
 
         let cases: Vec<(String, &str)> = vec![
             (format!("{GOOD}{TOOL}{TOOL}"), "are both `ext__acme_showcase__echo`"),
-            (
-                format!("{GOOD}{}{}", TOOL.replace("\"echo\"", "\"a-b\""), TOOL.replace("\"echo\"", "\"a_b\"")),
-                "`a-b` and `a_b` are both `ext__acme_showcase__a_b`",
-            ),
             (format!("{GOOD}{}", TOOL.replace("\"echo\"", "\"bad name\"")), "cannot be offered"),
             (format!("{GOOD}{}", TOOL.replace("\"Echo a text\"", "\"two\\nlines\"")), "one line"),
             (format!("{GOOD}{}", TOOL.replace("type = \"object\"", "type = 7")), "not a JSON Schema"),
@@ -1134,9 +1130,9 @@ scene = "harnix"
 
     #[test]
     fn tool_names_are_the_engines_and_do_not_meet() {
-        assert_eq!(crate::tool_name("acme.my-notes", "do-it"), "ext__acme_my_notes__do_it");
-        assert!(crate::engine_tool_name("ext__acme_my_notes__do_it"));
-        for bad in ["", "1a", "a-b", "a.b", &"a".repeat(65)] {
+        assert_eq!(crate::tool_name("acme.my-notes", "do-it"), "ext__acme_my-notes__do-it");
+        assert!(crate::engine_tool_name("ext__acme_my-notes__do-it"));
+        for bad in ["", "1a", "-a", "a.b", &"a".repeat(65)] {
             assert!(!crate::engine_tool_name(bad), "{bad}");
         }
         assert!(crate::engine_tool_name(&"a".repeat(64)));
@@ -1148,21 +1144,24 @@ scene = "harnix"
             }
             Manifest::parse(&text).unwrap()
         };
-        // `acme.a-b`'s `x` and `acme.a.b`'s `x` are the same name in a session.
+        // `-` is kept, so `acme.a-b`'s `x` and `acme.a.b`'s `x` are two names in a session.
         let first = with("acme.a-b", &["x"]);
         let same = with("acme.a-b", &["x", "y"]);
-        let other = with("acme.a.b", &["x"]);
-        let apart = with("acme.c", &["x"]);
-        assert_eq!(
-            crate::tool_clashes(&other, [&first]),
-            [("ext__acme_a_b__x".to_string(), "acme.a-b".to_string())]
-        );
+        let apart = with("acme.a.b", &["x"]);
+        assert_eq!(crate::tool_name("acme.a-b", "x"), "ext__acme_a-b__x");
         assert!(crate::tool_clashes(&apart, [&first]).is_empty());
         // An update is its own package's replacement, not a clash.
         assert!(crate::tool_clashes(&same, [&first]).is_empty());
         assert_eq!(crate::tool_count(&same, [&first, &apart]), 3);
-        let err = crate::check_tools_beside(&other, [&first]).unwrap_err();
-        assert!(err.contains("ext__acme_a_b__x") && err.contains("acme.a-b"), "{err}");
+        // A valid id has no `_`, so only an id that is not one could take another's names.
+        let mut other = with("acme.c", &["x"]);
+        other.app.id = "acme_a.b".into();
+        assert_eq!(
+            crate::tool_clashes(&other, [&apart]),
+            [("ext__acme_a_b__x".to_string(), "acme.a.b".to_string())]
+        );
+        let err = crate::check_tools_beside(&other, [&apart]).unwrap_err();
+        assert!(err.contains("ext__acme_a_b__x") && err.contains("acme.a.b"), "{err}");
     }
 
     #[test]

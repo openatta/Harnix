@@ -118,6 +118,7 @@ pub struct Catalog {
 
 /// Where the flow a pack offers under a name comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum Origin {
     /// Shipped with the application; read-only.
@@ -126,6 +127,9 @@ pub enum Origin {
     Override,
     /// Only in the writable layer.
     User,
+    /// The project's own, in `<project>/.harnix/flows/`: offered to runs in that project, over
+    /// every other layer, and read only while the project is trusted.
+    Project,
 }
 
 /// Where flows and the other parts of a pack (skills, rules, policies, gates, hooks) come from.
@@ -211,6 +215,31 @@ pub trait Packs: Send + Sync {
     fn delete_part(&self, _kind: PartKind, _name: &str) -> Result<(), String> {
         Err("read-only".into())
     }
+
+    // ── a project's own packs ────────────────────────────────────────────────
+
+    /// The packs a run in the project at `root` sees, when the project brings packs of its own
+    /// (`<project>/.harnix/flows/`): its layer over these. `None`: these, as everywhere else.
+    fn project(&self, _root: &str) -> Option<std::sync::Arc<dyn Packs>> {
+        None
+    }
+    /// The flows these packs have but do not offer, and why: a project's own while it is not
+    /// trusted (named by their files alone, unread), or one whose file is not a definition of
+    /// that name. Each hides a flow of the same name below it.
+    fn withheld_flows(&self) -> Vec<(String, Withheld)> {
+        vec![]
+    }
+}
+
+/// Why a flow the packs have is not offered (`Packs::withheld_flows`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum Withheld {
+    /// The project is not trusted: its own flows are not read, nor run, until it is.
+    Untrusted,
+    /// Its file is not a flow definition, or defines a flow of another name than the file's.
+    Unreadable,
 }
 
 /// Hex SHA-256 of a text: the digest pinned for definitions and skills.
@@ -292,6 +321,10 @@ pub enum Op {
         kind: PartKind,
         name: String,
     },
+    /// Deciding a finished run's worktree: `merged`, `kept` or `discarded` (`WorktreeEnd`).
+    Worktree {
+        action: String,
+    },
 }
 
 impl Op {
@@ -313,6 +346,7 @@ impl Op {
             Self::AttachSession { .. } => "attach_session",
             Self::EditFlow { .. } => "edit_flow",
             Self::EditPart { .. } => "edit_part",
+            Self::Worktree { .. } => "worktree",
         }
     }
 }
@@ -600,6 +634,7 @@ pub fn default_instance(run: &str, template: &str) -> String {
 
 /// How a session task hands in its output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum Delivery {
     /// The session's `output_schema` is the station's contract; the model calls

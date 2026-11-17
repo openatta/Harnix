@@ -1,1 +1,0 @@
-{"role":"assistant","content":[{"type":"thinking","text":"The user wants me to call the tool with no arguments, then reply with exactly that phrase.","signature":"839ba317-53db-4acd-a077-956b33a7e7ca"},{"type":"tool_use","id":"call_00_1jFsuxN7F2aMdPN89MAm8942","name":"ext__example_showcase__board","input":{}}]}

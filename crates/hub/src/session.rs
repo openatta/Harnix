@@ -3,8 +3,9 @@
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 
+use harnix_contract::wire::{self, AttachResult, EventFrame, ToolCallOutcome};
 use harnix_contract::{Frame, RpcError};
-use harnix_engine_link::events::{Completion, Joins, Prompt, SessionEventKind};
+use harnix_engine_link::events::{Completion, FileWrite, Joins, Prompt, SessionEventKind};
 use harnix_contract::sync::lock;
 use harnix_engine_link::ops::{SessionInfo, SessionSetup};
 use harnix_kernel::CallContext;
@@ -35,12 +36,8 @@ impl QueueItem {
     /// a running turn draws as a bare question, and there is no other call
     /// that would tell the client otherwise. They reach the turn either way —
     /// what was missing was the client being able to see that they would.
-    pub fn view(&self) -> Value {
-        json!({
-            "item_id": self.item_id,
-            "message": self.message,
-            "attachments": self.attachments,
-        })
+    pub fn view(&self) -> wire::QueueItem {
+        wire::QueueItem { item_id: self.item_id.clone(), message: self.message.clone(), attachments: self.attachments.clone() }
     }
 }
 
@@ -54,6 +51,9 @@ pub(crate) struct SessionState {
     pub turn_started_ms: Option<u64>,
     pub queue: VecDeque<QueueItem>,
     pub pending_prompts: Vec<Prompt>,
+    /// The asks an answer is on its way to the engine for, by `prompt_id`: the first answer through
+    /// the hub claims its ask, and only that one is told to every watcher (`ask_answered`).
+    pub answering: HashSet<String>,
     pub watchers: HashSet<ClientId>,
     /// Projected-message count before the running turn began, so settling can
     /// tell whether the transcript has caught up.
@@ -79,6 +79,8 @@ pub(crate) struct SessionState {
     /// it (a schedule), or the link that was running it went away. Its end
     /// arrives as `turn_completed` or is found by a resync.
     pub external: bool,
+    /// A rewind of the hub's is under way: the engine's frame for it is the hub's to follow up.
+    pub rewinding: bool,
     /// How the running turn ended, once the engine has said: what settling reports as the
     /// turn's `outcome` (ipdrun-17).
     pub last_complete: Option<Completion>,
@@ -87,12 +89,14 @@ pub(crate) struct SessionState {
     pub answer: Answer,
 }
 
-/// What a turn said and which tools it called, gathered from its events.
+/// What a turn said, which tools it called and which files they wrote, gathered from its events.
 #[derive(Default)]
 pub(crate) struct Answer {
     pub text: String,
     pub truncated: bool,
-    pub tool_calls: Vec<Value>,
+    pub tool_calls: Vec<ToolCallOutcome>,
+    /// In the order written, a sub-agent's among them: what the turn's changes entry is made of.
+    pub wrote: Vec<FileWrite>,
 }
 
 /// The most answer text `outcome.text` carries; the rest is in `engine.session.history`.
@@ -112,14 +116,14 @@ impl Answer {
                     self.truncated = true;
                 }
             }
-            SessionEventKind::ToolCall { id, name } => self.tool_calls.push(json!({"id": id, "name": name})),
-            SessionEventKind::ToolResult { id, is_error } => {
-                if let Some(call) = self
-                    .tool_calls
-                    .iter_mut()
-                    .find(|c| c.get("id").and_then(Value::as_str) == Some(id.as_str()))
-                {
-                    call["is_error"] = json!(is_error);
+            SessionEventKind::ToolCall { id, name } => {
+                self.tool_calls.push(ToolCallOutcome { id: id.clone(), name: name.clone(), is_error: None })
+            }
+            SessionEventKind::Wrote(wrote) => self.wrote.extend(wrote.iter().cloned()),
+            SessionEventKind::ToolResult { id, is_error, wrote } => {
+                self.wrote.extend(wrote.iter().cloned());
+                if let Some(call) = self.tool_calls.iter_mut().find(|c| c.id == *id) {
+                    call.is_error = Some(*is_error);
                 }
             }
             _ => {}
@@ -132,7 +136,7 @@ impl SessionState {
         self.watchers.iter().copied().collect()
     }
 
-    pub fn queue_view(&self) -> Vec<Value> {
+    pub fn queue_view(&self) -> Vec<wire::QueueItem> {
         self.queue.iter().map(QueueItem::view).collect()
     }
 
@@ -169,6 +173,12 @@ pub(crate) async fn route_event(
     }
     match kind {
         SessionEventKind::Compacted => state.compacted = true,
+        // What was drawn past the point it went back to is gone, its frames with it; the frame
+        // itself goes to whoever watches, and no one catches up on it.
+        SessionEventKind::Rewound { messages } => {
+            state.replay.clear();
+            state.history_total_before_turn = *messages;
+        }
         SessionEventKind::Asked(prompt) => state.pending_prompts.push(prompt.clone()),
         SessionEventKind::GoalChanged { goal } => state.goal = Some(goal.clone()),
         SessionEventKind::TeamProgress { team_id } => {
@@ -191,13 +201,19 @@ pub(crate) async fn route_event(
     }
     state.seq += 1;
     let seq = state.seq;
-    state.replay.push(seq, turn_id, kind, &event);
-    let watchers = state.watchers();
-    let mut params = json!({"instance": instance, "session_id": session_id, "seq": seq, "turn_id": turn_id, "event": event});
-    if extension {
-        params["trust"] = json!("extension");
+    if !matches!(kind, SessionEventKind::Rewound { .. }) {
+        state.replay.push(seq, turn_id, kind, &event);
     }
-    let frame = Frame::session(session_id.to_string(), notification("harnix.event", params));
+    let watchers = state.watchers();
+    let params = EventFrame {
+        instance: instance.to_string(),
+        session_id: session_id.to_string(),
+        seq,
+        turn_id: turn_id.to_string(),
+        event,
+        trust: extension.then_some(wire::EngineTrust::Extension),
+    };
+    let frame = Frame::session(session_id.to_string(), notification("harnix.event", wire::params(&params)));
     let out = guard.clients.to_many(&watchers, frame);
     crate::send_after(guard, [out]).await;
 }
@@ -259,21 +275,19 @@ impl Hub {
         } else {
             Vec::new()
         };
-        let mut attached = json!({
-            "instance": instance,
-            "session": session,
-            "history_total": history_total,
-            "replay": replay,
-            "truncated": state.replay.truncated,
-            "pending_prompts": state.prompts_view(),
-            "running_turn": state.running_turn,
-            "queue": state.queue_view(),
-            "seq": state.seq,
-        });
-        if extension {
-            attached["trust"] = json!("extension");
-        }
-        Ok(attached)
+        let attached = AttachResult {
+            instance,
+            session,
+            history_total,
+            replay,
+            truncated: state.replay.truncated,
+            pending_prompts: state.prompts_view(),
+            running_turn: state.running_turn.clone(),
+            queue: state.queue_view(),
+            seq: state.seq,
+            trust: extension.then_some(wire::EngineTrust::Extension),
+        };
+        Ok(wire::params(&attached))
     }
 
     /// Subscribe the hub to a session once, resuming it first if it exists
@@ -318,6 +332,8 @@ impl Hub {
         // the hub already held.
         state.pending_prompts = subscribed.pending;
         drop(guard);
+        // What it waits on, heard afresh.
+        self.arc().refresh(wire::INBOX, json!({}));
         self.reconcile_skill_dirs(key, info).await;
         Ok(subscribed.last_seq)
     }
@@ -364,7 +380,10 @@ impl Hub {
         let instance = self.instance_of(&params)?;
         let linked = self.engine(&instance)?;
         let layer = crate::scenes::layer_for(&linked.link.scene_layers(), &params)?;
-        let setup = SessionSetup::new().scene(layer.clone()).skill_dirs(self.skill_dirs_for(&instance, &space));
+        let setup = SessionSetup::new()
+            .scene(layer.clone())
+            .skill_dirs(self.skill_dirs_for(&instance, &space))
+            .person(matches!(subject, harnix_contract::Subject::Device { .. }));
         let created = self.create_listing(linked.ops(), without_instance(params), setup).await?;
         let mut value = created.value;
         if let Some(sid) = &created.session_id {
@@ -404,6 +423,31 @@ impl Hub {
         let out = guard.clients.to_many(watchers, frame);
         crate::send_after(guard, [out]).await;
     }
+}
+
+/// Claim an ask for the answer on its way to the engine: true when it is still waiting and no other
+/// answer is on its way. Whoever answers first is the answer, and the claim is how the hub knows
+/// which one that was: the engine answers a later one with the same silent success.
+pub(crate) async fn claim_ask(inner: &Arc<InnerLock>, key: &SessionKey, prompt_id: &str) -> bool {
+    let mut guard = inner.lock().await;
+    let Some(state) = guard.sessions.get_mut(key) else { return false };
+    let waiting = state.pending_prompts.iter().any(|p| p.prompt_id.as_deref() == Some(prompt_id));
+    waiting && state.answering.insert(prompt_id.to_string())
+}
+
+/// The claimed answer is back from the engine, taken or refused (a form that does not fit its
+/// schema stays asked, and may be answered again).
+pub(crate) async fn release_ask(inner: &Arc<InnerLock>, key: &SessionKey, prompt_id: &str) {
+    if let Some(state) = inner.lock().await.sessions.get_mut(key) {
+        state.answering.remove(prompt_id);
+    }
+}
+
+/// The engine took the claimed answer: written into the session's stream as the hub's own event,
+/// so every watcher's card shows it, and a client that attaches later finds it in the replay.
+pub(crate) async fn tell_answered(inner: &Arc<InnerLock>, key: &SessionKey, event: Value, extension: bool) {
+    let turn = inner.lock().await.sessions.get(key).and_then(|s| s.running_turn.clone()).unwrap_or_default();
+    route_event(inner, &key.0, &key.1, &turn, &SessionEventKind::Other, event, extension).await;
 }
 
 /// Which client this call is on behalf of.
@@ -450,5 +494,26 @@ mod tests {
         let resolved = SessionEventKind::AskResolved { prompt_id: "p1".into(), answered: false };
         route_event(&inner, "main", "s", "t", &resolved, json!({"kind": "prompt_resolved"}), false).await;
         assert_eq!(pending(&inner).await, ["p2"]);
+    }
+
+    /// The first answer claims its ask; a second while it is on its way, or one to an ask nobody
+    /// is waiting on, does not. A refused answer gives the claim back.
+    #[tokio::test]
+    async fn the_first_answer_claims_its_ask() {
+        let inner = Arc::new(InnerLock::default());
+        let key = ("main".to_string(), "s".to_string());
+        assert!(!claim_ask(&inner, &key, "p1").await, "a session the hub has not heard of");
+        route_event(&inner, "main", "s", "t", &asked("p1"), json!({"kind": "prompt"}), false).await;
+        assert!(claim_ask(&inner, &key, "p1").await);
+        assert!(!claim_ask(&inner, &key, "p1").await, "another answer on its way");
+        assert!(!claim_ask(&inner, &key, "p2").await, "not asked");
+        release_ask(&inner, &key, "p1").await;
+        assert!(claim_ask(&inner, &key, "p1").await, "the first was refused");
+
+        tell_answered(&inner, &key, json!({"kind": "ask_answered", "prompt_id": "p1"}), false).await;
+        let guard = inner.lock().await;
+        let state = &guard.sessions[&key];
+        assert_eq!(state.seq, 2);
+        assert_eq!(state.pending_prompts.len(), 1, "the engine's own frame resolves it");
     }
 }

@@ -1147,3 +1147,195 @@ async fn dispatched_work_includes_gates_still_waiting() {
     let rec = h.eng.record(&run).await.unwrap();
     assert!(h.eng.dispatched_work(&rec, h.clock.now_ms()).is_empty());
 }
+
+// ── tasks: runs in a project ─────────────────────────────────────────────────
+
+async fn start_in(h: &H, input: CreateIn) -> Result<String> {
+    let o = h.eng.create(input, me()).await?;
+    Ok(o.value["run"].as_str().unwrap().to_string())
+}
+
+fn seq_in(project_root: Option<&str>) -> CreateIn {
+    CreateIn {
+        flow: "seq".into(),
+        subject: "repo".into(),
+        project_root: project_root.map(String::from),
+        ..Default::default()
+    }
+}
+
+#[tokio::test]
+async fn a_run_without_a_project_works_in_scratch_and_was_started_by_hand() {
+    let h = h();
+    let (run, _) = start(&h, "seq").await;
+    let rec = h.eng.record(&run).await.unwrap();
+    assert_eq!(rec.project_root, None);
+    assert_eq!(rec.workspace, Workspace::Scratch);
+    assert_eq!(rec.output_dir, None);
+    assert_eq!(rec.trigger, Trigger::manual(me()));
+}
+
+#[tokio::test]
+async fn a_task_works_in_its_project_and_its_summary_says_so() {
+    let h = h();
+    let run = start_in(
+        &h,
+        CreateIn {
+            output_dir: Some("flows/seq-2026111601".into()),
+            trigger: Some(Trigger::Schedule { schedule: "nightly".into(), fire_at: T0 }),
+            ..seq_in(Some("/work/app/"))
+        },
+    )
+    .await
+    .unwrap();
+    let rec = h.eng.record(&run).await.unwrap();
+    // Kept as given, but for the trailing `/`.
+    assert_eq!(rec.project_root.as_deref(), Some("/work/app"));
+    assert_eq!(rec.workspace, Workspace::Project);
+    // A relative output directory is taken where the run works: its project.
+    assert_eq!(rec.output_dir.as_deref(), Some("/work/app/flows/seq-2026111601"));
+    // `${output_dir}` and `${workspace}` read it and the project.
+    let ctx = harnix_ext_flow::kernel::refs::context_in(&rec, None, None, h.eng.workspace_for(&rec).as_deref().and_then(|p| p.to_str()));
+    assert_eq!((ctx["output_dir"].as_str(), ctx["workspace"].as_str()), (Some("/work/app/flows/seq-2026111601"), Some("/work/app")));
+    let summary = rec.summary();
+    assert_eq!(summary.project_root.as_deref(), Some("/work/app"));
+    assert_eq!(summary.workspace, Workspace::Project);
+    assert_eq!(summary.output_dir, rec.output_dir);
+    let row = serde_json::to_value(&summary).unwrap();
+    assert_eq!(row["workspace"], json!("project"));
+    assert_eq!(row["trigger"], json!({"kind": "schedule", "schedule": "nightly", "fire_at": T0}));
+    assert_eq!(row["project_root"], json!("/work/app"));
+
+    let worktree = start_in(
+        &h,
+        CreateIn {
+            workspace: Some(Workspace::Worktree),
+            ..seq_in(Some("/work/app"))
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(h.eng.record(&worktree).await.unwrap().workspace, Workspace::Worktree);
+}
+
+/// Where the main session is shown besides the flow's space is the start's to say: recorded as
+/// given (trimmed), in the summary too, and absent when the start says nothing or an empty word.
+#[tokio::test]
+async fn a_task_records_the_space_its_main_session_is_shown_in() {
+    let h = h();
+    let shown = start_in(&h, CreateIn { show_in_space: Some(" sessions ".into()), ..seq_in(Some("/work/app")) }).await.unwrap();
+    let rec = h.eng.record(&shown).await.unwrap();
+    assert_eq!(rec.show_in_space.as_deref(), Some("sessions"));
+    assert_eq!(rec.summary().show_in_space.as_deref(), Some("sessions"));
+    assert_eq!(serde_json::to_value(rec.summary()).unwrap()["show_in_space"], json!("sessions"));
+    let plain = start_in(&h, seq_in(Some("/work/app"))).await.unwrap();
+    assert_eq!(h.eng.record(&plain).await.unwrap().show_in_space, None);
+    let blank = start_in(&h, CreateIn { show_in_space: Some("  ".into()), ..seq_in(None) }).await.unwrap();
+    let rec = h.eng.record(&blank).await.unwrap();
+    assert_eq!(rec.show_in_space, None);
+    assert!(serde_json::to_value(rec.summary()).unwrap().get("show_in_space").is_none());
+}
+
+#[tokio::test]
+async fn a_project_root_must_be_absolute_and_a_project_workspace_needs_one() {
+    let h = h();
+    let relative = start_in(&h, seq_in(Some("work/app"))).await;
+    assert!(matches!(relative, Err(FlowError::Invalid(ref m)) if m.contains("absolute")), "{relative:?}");
+    for ws in [Workspace::Project, Workspace::Worktree] {
+        let none = start_in(&h, CreateIn { workspace: Some(ws), ..seq_in(None) }).await;
+        assert!(matches!(none, Err(FlowError::Invalid(ref m)) if m.contains("project_root")), "{none:?}");
+    }
+    // Scratch in a project: the run belongs to it and works in its own directory.
+    let scratch = start_in(&h, CreateIn { workspace: Some(Workspace::Scratch), ..seq_in(Some("/work/app")) })
+        .await
+        .unwrap();
+    assert_eq!(h.eng.record(&scratch).await.unwrap().workspace, Workspace::Scratch);
+}
+
+#[tokio::test]
+async fn runs_are_listed_by_project() {
+    let h = h();
+    let a = start_in(&h, seq_in(Some("/work/a"))).await.unwrap();
+    let b = start_in(&h, seq_in(Some("/work/b"))).await.unwrap();
+    let (none, _) = start(&h, "seq").await;
+    let listed = |p: &str| {
+        let q = RunQuery { project: Some(p.into()), ..Default::default() };
+        let eng = &h.eng;
+        async move { eng.list(q).await.unwrap().into_iter().map(|s| s.id).collect::<Vec<_>>() }
+    };
+    assert_eq!(listed("/work/a").await, [a]);
+    assert_eq!(listed("/work/b/").await, [b]);
+    assert!(listed("/work").await.is_empty());
+    let all = h.eng.list(RunQuery::default()).await.unwrap();
+    assert_eq!(all.len(), 3);
+    assert!(all.iter().any(|s| s.id == none && s.project_root.is_none()));
+}
+
+#[tokio::test]
+async fn a_child_run_works_where_its_parent_does() {
+    let h = h();
+    // The worktree the host made for the run, under the id it allocated for it.
+    let id = h.eng.alloc_id("parent", Some("/work/app")).await.unwrap();
+    let worktree = WorktreeRec {
+        path: format!("/work/app/.harnix/worktrees/{id}"),
+        prefix: "sub".into(),
+        branch: format!("harnix/{id}"),
+        base: "0123".into(),
+        outcome: None,
+    };
+    let prepared = Prepared { id: Some(id.clone()), worktree: Some(worktree.clone()) };
+    let o = h
+        .eng
+        .create_prepared(
+            CreateIn {
+                flow: "parent".into(),
+                subject: "repo".into(),
+                inputs: json!({"items": ["x"]}),
+                project_root: Some("/work/app".into()),
+                workspace: Some(Workspace::Worktree),
+                ..Default::default()
+            },
+            me(),
+            prepared,
+        )
+        .await
+        .unwrap();
+    let run = o.value["run"].as_str().unwrap().to_string();
+    assert_eq!(run, id);
+    let rec = h.eng.record(&run).await.unwrap();
+    assert_eq!(rec.worktree.as_ref(), Some(&worktree));
+    let at = Some(std::path::PathBuf::from(format!("/work/app/.harnix/worktrees/{id}/sub")));
+    assert_eq!(h.eng.workspace_for(&rec), at);
+    let child = h.eng.record("child-1").await.unwrap();
+    assert_eq!(child.parent.as_ref().unwrap().run, run);
+    assert_eq!(child.project_root.as_deref(), Some("/work/app"));
+    assert_eq!(child.workspace, Workspace::Worktree);
+    assert_eq!(h.eng.workspace_for(&child), at, "in its parent's worktree");
+    assert_eq!(child.trigger, Trigger::manual(Actor::flow("dispatch")));
+    // A worktree is decided once the run is over, on the run that has it, not its child.
+    assert!(matches!(worktree_may_end(&rec), Err(FlowError::Invalid(ref m)) if m.contains("still going")));
+    assert!(matches!(worktree_may_end(&child), Err(FlowError::Invalid(ref m)) if m.contains("parent")));
+}
+
+#[test]
+fn a_trigger_is_tagged_by_its_kind() {
+    let manual = Trigger::manual(Actor::device("d1"));
+    assert_eq!(serde_json::to_value(&manual).unwrap(), json!({"kind": "manual", "by": {"kind": "device", "id": "d1"}}));
+    let fired: Trigger = serde_json::from_value(json!({"kind": "schedule", "schedule": "s1", "fire_at": 5})).unwrap();
+    assert_eq!(fired, Trigger::Schedule { schedule: "s1".into(), fire_at: 5 });
+    assert!(serde_json::from_value::<Trigger>(json!({"kind": "cron"})).is_err());
+}
+
+#[test]
+fn a_run_record_from_before_reads_as_a_manual_run_in_scratch() {
+    let rec: RunRecord = serde_json::from_value(json!({
+        "id": "r-1", "flow": "f", "def_digest": "d", "subject": "s", "status": "active",
+        "rev": 1, "created_at": 0, "created_by": {"kind": "device", "id": "d1"},
+        "def": {"name": "f", "stations": [{"id": "a", "exit": [{"kind": "confirm"}]}]},
+        "stations": {"a": {"status": "working", "round": 1}}
+    }))
+    .unwrap();
+    assert_eq!(rec.project_root, None);
+    assert_eq!(rec.workspace, Workspace::Scratch);
+    assert!(rec.trigger.is_manual());
+}

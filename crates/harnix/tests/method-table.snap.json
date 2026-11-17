@@ -285,6 +285,74 @@
     },
     {
       "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": "an MCP server's sign-in hands its tokens to the engine: it goes through the settings page, which says which server",
+        "requires": [
+          "engine.mcp"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.mcp.auth.cancel",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": "an MCP server's sign-in hands its tokens to the engine: it goes through the settings page, which says which server",
+        "requires": [
+          "engine.mcp"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.mcp.auth.complete",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": "an MCP server's sign-in hands its tokens to the engine: it goes through the settings page, which says which server",
+        "requires": [
+          "engine.mcp"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.mcp.auth.logout",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": "an MCP server's sign-in hands its tokens to the engine: it goes through the settings page, which says which server",
+        "requires": [
+          "engine.mcp"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.mcp.auth.start",
+      "owner": "engine"
+    },
+    {
+      "access": {
         "device": true,
         "extensions": [
           "*"
@@ -296,6 +364,23 @@
       },
       "kind": "method",
       "name": "engine.mcp.status",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": "changing an MCP server is equivalent to installing a tool that runs subprocesses",
+        "requires": [
+          "engine.mcp"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.mcp.updateServer",
       "owner": "engine"
     },
     {
@@ -400,6 +485,40 @@
     },
     {
       "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "engine.control"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.project.status",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "engine.control"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.project.trust",
+      "owner": "engine"
+    },
+    {
+      "access": {
         "device": true,
         "extensions": [
           "*"
@@ -441,6 +560,40 @@
       },
       "kind": "method",
       "name": "engine.scene.list",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "engine.control"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.schedule.delete",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "engine.inspect"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.schedule.list",
       "owner": "engine"
     },
     {
@@ -1010,7 +1163,9 @@
     {
       "access": {
         "device": true,
-        "extensions": [],
+        "extensions": [
+          "schedule"
+        ],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -1225,6 +1380,19 @@
         "scope": "open"
       },
       "kind": "method",
+      "name": "flow.runOf",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
       "name": "flow.save",
       "owner": "ext:flow"
     },
@@ -1270,7 +1438,9 @@
     {
       "access": {
         "device": true,
-        "extensions": [],
+        "extensions": [
+          "schedule"
+        ],
         "hub_owned": false,
         "refused": null,
         "requires": [],
@@ -1316,8 +1486,8 @@
         "scope": "open"
       },
       "kind": "method",
-      "name": "harnix-app.describe",
-      "owner": "ext:harnix-app"
+      "name": "flow.workspace_info",
+      "owner": "ext:flow"
     },
     {
       "access": {
@@ -1329,7 +1499,85 @@
         "scope": "open"
       },
       "kind": "method",
+      "name": "flow.worktree.discard",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.worktree.keep",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "flow.worktree.merge",
+      "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix-app.describe",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
       "name": "harnix-app.files",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix-app.files.list",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix-app.files.read",
       "owner": "ext:harnix-app"
     },
     {
@@ -1369,6 +1617,32 @@
       },
       "kind": "method",
       "name": "harnix-app.projects.create",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix-app.projects.status",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix-app.projects.trust",
       "owner": "ext:harnix-app"
     },
     {
@@ -1421,6 +1695,45 @@
       },
       "kind": "method",
       "name": "harnix-app.sessions.export",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "harnix-app.sessions.import",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "harnix-app.sessions.importUpload",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix-app.sessions.projectStatus",
       "owner": "ext:harnix-app"
     },
     {
@@ -1548,6 +1861,23 @@
     },
     {
       "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "process.observe"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "harnix.extensions.log",
+      "owner": "kernel:assembly"
+    },
+    {
+      "access": {
         "device": true,
         "extensions": [
           "*"
@@ -1560,6 +1890,21 @@
       "kind": "method",
       "name": "harnix.hello",
       "owner": "kernel:assembly"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "harnix.inbox",
+      "owner": "kernel:hub"
     },
     {
       "access": {
@@ -1805,6 +2150,34 @@
     },
     {
       "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix.session.expose",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix.session.feedback",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
         "device": true,
         "extensions": [
           "*"
@@ -1816,6 +2189,36 @@
       },
       "kind": "method",
       "name": "harnix.session.fork",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix.session.hooks",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "engine.export"
+        ],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "harnix.session.import",
       "owner": "kernel:hub"
     },
     {
@@ -1846,6 +2249,21 @@
       },
       "kind": "method",
       "name": "harnix.session.move",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix.session.outline",
       "owner": "kernel:hub"
     },
     {
@@ -1916,6 +2334,23 @@
         ],
         "hub_owned": false,
         "refused": null,
+        "requires": [
+          "engine.control"
+        ],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix.session.rewind",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
         "requires": [],
         "scope": "session"
       },
@@ -1943,6 +2378,19 @@
     {
       "access": {
         "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix.session.skills",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
+        "device": true,
         "extensions": [
           "*"
         ],
@@ -1953,6 +2401,21 @@
       },
       "kind": "method",
       "name": "harnix.session.tasks",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix.session.unexpose",
       "owner": "kernel:hub"
     },
     {
@@ -2037,7 +2500,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": "open"
+        "scope": "session"
       },
       "kind": "method",
       "name": "observability.calls",
@@ -2050,7 +2513,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": "open"
+        "scope": "session"
       },
       "kind": "method",
       "name": "observability.trace",
@@ -2063,7 +2526,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": "open"
+        "scope": "session"
       },
       "kind": "method",
       "name": "observability.trace.call",
@@ -2076,7 +2539,7 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": "open"
+        "scope": "session"
       },
       "kind": "method",
       "name": "observability.turns",
@@ -2093,6 +2556,19 @@
       },
       "kind": "method",
       "name": "observability.usage",
+      "owner": "ext:observability"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "observability.usage.daily",
       "owner": "ext:observability"
     },
     {
@@ -2306,6 +2782,176 @@
     {
       "access": {
         "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "schedule.manage"
+        ],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "schedule.create",
+      "owner": "ext:schedule"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "schedule.manage"
+        ],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "schedule.delete",
+      "owner": "ext:schedule"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "schedule.manage"
+        ],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "schedule.disable",
+      "owner": "ext:schedule"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "schedule.manage"
+        ],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "schedule.enable",
+      "owner": "ext:schedule"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "schedule.manage"
+        ],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "schedule.get",
+      "owner": "ext:schedule"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "schedule.manage"
+        ],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "schedule.history",
+      "owner": "ext:schedule"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "schedule.manage"
+        ],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "schedule.list",
+      "owner": "ext:schedule"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "schedule.manage"
+        ],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "schedule.model.delete",
+      "owner": "ext:schedule"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "schedule.manage"
+        ],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "schedule.runNow",
+      "owner": "ext:schedule"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "schedule.manage"
+        ],
+        "scope": "space"
+      },
+      "kind": "method",
+      "name": "schedule.update",
+      "owner": "ext:schedule"
+    },
+    {
+      "access": {
+        "device": true,
         "extensions": [],
         "hub_owned": false,
         "refused": null,
@@ -2314,6 +2960,149 @@
       },
       "kind": "method",
       "name": "settings.describe",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.mcp.add",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.mcp.authCancel",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.mcp.authComplete",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.mcp.authorize",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "settings.mcp.context",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.mcp.enable",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.mcp.list",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.mcp.logout",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.mcp.reconnect",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.mcp.remove",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.mcp.update",
       "owner": "ext:settings"
     },
     {
@@ -2340,6 +3129,19 @@
       },
       "kind": "method",
       "name": "settings.setProvider",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "settings.write",
       "owner": "ext:settings"
     },
     {
@@ -2379,6 +3181,19 @@
       },
       "kind": "method",
       "name": "system.context",
+      "owner": "ext:system"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "system.extensions.log",
       "owner": "ext:system"
     },
     {
@@ -2592,6 +3407,19 @@
     {
       "access": {
         "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "route",
+      "name": "settings",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
         "extensions": [
           "*"
         ],
@@ -2663,6 +3491,53 @@
       "kind": "topic",
       "name": "flow.runs",
       "owner": "ext:flow"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "topic",
+      "name": "harnix-app.trust",
+      "owner": "ext:harnix-app"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "feedback.read"
+        ],
+        "scope": "open"
+      },
+      "kind": "topic",
+      "name": "harnix.feedback",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "space"
+      },
+      "kind": "topic",
+      "name": "harnix.inbox",
+      "owner": "kernel:hub"
     },
     {
       "access": {
@@ -2779,6 +3654,23 @@
       "kind": "topic",
       "name": "packages.progress",
       "owner": "ext:packages"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "schedule.manage"
+        ],
+        "scope": "open"
+      },
+      "kind": "topic",
+      "name": "schedule.list",
+      "owner": "ext:schedule"
     },
     {
       "access": {

@@ -16,13 +16,18 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { useConnection, useHello, useSession, useStrings } from "../context";
-import { usageTotals, type Block, type BlockOf, type SessionState } from "@harnix/core/state";
+import { shownTurns, usageTotals, type Block, type BlockOf, type SessionState } from "@harnix/core/state";
+import { isFeedbackEntry, standingFeedback, type Feedback } from "@harnix/core/protocol";
 import type { SessionController } from "@harnix/core/state";
 import { Agent, AskCard, ContextRow, ImageBlock, rowTitle, toolAsks, type ToolAsks } from "../components/blocks";
 import { ConnectionBadge } from "../components/ConnectionBadge";
+import type { AnswerFeedback } from "./feedback";
 import { ChatComposer, type Attached, type ComposerApi, type ContextRingConfig, type ModelOption } from "./ChatComposer";
-import { TOOL_NAMES } from "./format";
+import { useDisplay } from "../display";
+import { t } from "../i18n/index";
+import { TOOL_NAMES, compactTokens } from "./format";
 import { Icon } from "./icons";
+import { TURN_ANCHOR, TurnRail, turnKey } from "./TurnRail";
 import {
   AssistantHead,
   AssistantText,
@@ -226,6 +231,20 @@ export function ChatPanel(props: ChatPanelProps) {
   return <LiveChat {...props} sessionId={props.sessionId} />;
 }
 
+/**
+ * A link in a message, as the display preferences open it: in this tab, or after asking. (A new
+ * tab is what the link says itself.) Only links the markdown made, in a message's text.
+ */
+function openLink(event: MouseEvent<HTMLElement>, links: "same" | "ask"): void {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
+  const link = (event.target as Element | null)?.closest?.(".hx-md a[href]") as HTMLAnchorElement | null;
+  if (!link) return;
+  const href = link.getAttribute("href") ?? "";
+  event.preventDefault();
+  if (links === "same") window.open(href, "_self", "noopener");
+  else if (window.confirm(t("chat.linkAsk", { url: href }))) window.open(href, "_blank", "noopener,noreferrer");
+}
+
 function LiveChat(props: ChatPanelProps & { sessionId: string }) {
   const { state, controller } = useSession(props.sessionId, props.instance, props.space, props.sendExtras);
   const { onController } = props;
@@ -401,6 +420,7 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
   const readOnly = props.readOnly === true ? strings.readOnly : props.readOnly || null;
   const header = props.header === false ? null : (props.header ?? {});
   const model = features.modelPicker === false ? null : (props.model ?? (typeof hello?.engine?.model === "string" ? hello.engine.model : null));
+  const { links } = useDisplay();
 
   return (
     <ChatContext.Provider value={context}>
@@ -411,6 +431,7 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
         data-state={viewState}
         data-variant={variant}
         aria-busy={!state || state.loading}
+        onClick={links === "new" ? undefined : (event) => openLink(event, links)}
       >
         {header ? <ChatHeader config={header} role={role} state={state} selection={props.selection} /> : null}
         {props.pinned ? (
@@ -436,11 +457,13 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
           elsewhere={otherClient}
           renderers={props.renderers}
           copy={features.copy !== false}
+          feedback={features.feedback !== false}
           emptyState={props.emptyState}
           unavailable={props.unavailable}
           tail={props.flowTail}
           queueConfig={props.queue}
           ids={props.ids}
+          turnRail={features.turnRail !== false}
         />
 
         {readOnly ? (
@@ -474,7 +497,7 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
             contextRing={ring}
             options={options}
             attachments={features.attachments !== false}
-            voice={features.voice !== false}
+            voice={features.voice === true}
             model={model}
             modelUnset={props.modelUnset}
             models={props.models}
@@ -501,6 +524,7 @@ function ChatHeader({
   selection?: ChatPanelProps["selection"];
 }) {
   const strings = useStrings();
+  const { usage } = useDisplay();
   const totals = usageTotals(state?.usage ?? null);
   const shownRole = config.role === false ? null : (config.role ?? role);
   const data: Record<string, string> = {};
@@ -546,10 +570,10 @@ function ChatHeader({
             {config.model}
           </span>
         ) : null}
-        {config.usage && totals ? (
-          <span className="hx-pill" data-testid="conv-usage" data-total={totals.total} data-cached={totals.cached}>
-            {strings.tokens(totals.total)}
-            {totals.cached ? ` · ${strings.cached(totals.cached)}` : ""}
+        {config.usage && totals && usage !== "none" ? (
+          <span className="hx-pill" data-testid="conv-usage" data-detail={usage} data-total={totals.total} data-cached={totals.cached}>
+            {usage === "compact" ? strings.tokens(totals.total).replace(totals.total.toLocaleString(), compactTokens(totals.total)) : strings.tokens(totals.total)}
+            {usage === "full" && totals.cached ? ` · ${strings.cached(totals.cached)}` : ""}
           </span>
         ) : null}
         {config.meta}
@@ -590,6 +614,17 @@ function speakerOf(block: Block): Speaker {
   return "assistant";
 }
 
+const EMPTY: Block[] = [];
+
+/** The turn a group of the assistant's answered: its last text's. */
+function turnOf(blocks: Block[]): string | undefined {
+  for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    const block = blocks[i]!;
+    if (block.kind === "assistant" && block.turnId) return block.turnId;
+  }
+  return undefined;
+}
+
 function timeOf(block: Block): number | undefined {
   if (block.kind === "assistant" || block.kind === "user") return block.at;
   if (block.kind === "tool" || block.kind === "think") return block.startedAt;
@@ -608,11 +643,13 @@ function ChatFlow({
   elsewhere,
   renderers,
   copy,
+  feedback,
   emptyState,
   unavailable,
   tail,
   queueConfig,
   ids,
+  turnRail,
 }: {
   state: SessionState | null;
   controller: SessionController | null;
@@ -622,11 +659,14 @@ function ChatFlow({
   elsewhere: boolean;
   renderers?: ChatRenderers;
   copy: boolean;
+  /** 已结束的一轮的回答下面有赞与踩 */
+  feedback: boolean;
   emptyState?: ReactNode;
   unavailable?: ReactNode;
   tail?: ReactNode;
   queueConfig?: ChatPanelProps["queue"];
   ids?: ChatIds;
+  turnRail: boolean;
 }) {
   const strings = useStrings();
   const { status } = useConnection();
@@ -662,7 +702,19 @@ function ChatFlow({
     if (e.key === "Enter" && openChip(e.target)) e.preventDefault();
   };
 
-  const blocks = state?.blocks ?? [];
+  const all = state?.blocks ?? EMPTY;
+  // Feedback entries are drawn as the state of the answer they are about, not where they fall.
+  const { blocks, standing } = useMemo(() => {
+    const entryOf = (b: Block) => (b.kind === "custom" && b.type === "entry" ? (b.data as { ns?: unknown; event?: unknown } | null) : null);
+    const given = all.filter((b) => isFeedbackEntry(entryOf(b)));
+    if (!given.length) return { blocks: all, standing: new Map<string, Feedback>() };
+    return { blocks: all.filter((b) => !isFeedbackEntry(entryOf(b))), standing: standingFeedback(given.map(entryOf)) };
+  }, [all]);
+  const runningTurn = state?.turn?.turnId ?? null;
+  const feedbackFor = (turnId: string | undefined): AnswerFeedback | undefined =>
+    feedback && !transcript && controller && turnId && turnId !== runningTurn
+      ? { turnId, current: standing.get(turnId) ?? null, give: (rating, extra) => controller.feedback(turnId, rating, extra) }
+      : undefined;
   const queue = state?.queue ?? [];
   const inQueue = new Set(queue.map((q) => q.message.trim()));
   const extra = (queueConfig?.extra ?? []).filter((q) => !inQueue.has(q.text.trim()));
@@ -688,11 +740,23 @@ function ChatFlow({
       typing = <Typing head={last && speakerOf(last) === "assistant" ? undefined : <AssistantHead role={role} />} text={text} />;
   }
 
+  // The person's message that starts each turn shown: where the turn rail lands.
+  const anchors = useMemo(() => new Set(shownTurns(blocks).map((t) => t.block.key)), [blocks]);
+  const anchored = (block: Block, node: ReactNode) =>
+    block.kind === "user" && anchors.has(block.key) ? (
+      <div key={block.key} className="hx-turn-anchor" {...{ [TURN_ANCHOR]: "" }} data-turn-key={turnKey(block.turnId, block.seq)}>
+        {node}
+      </div>
+    ) : (
+      node
+    );
+
   const loading = !state ? !unavailable && status === "open" : state.loading && status === "open";
   const empty =
     state != null && !state.loading && blocks.length === 0 && queue.length === 0 && !state.steering.length && !extra.length && !running && !tail;
 
   return (
+    <div className="hx-flow">
     <div
       ref={scroller}
       onScroll={onScroll}
@@ -724,9 +788,17 @@ function ChatFlow({
       ) : null}
       {entries.map((entry) =>
         entry.kind === "group" ? (
-          <AssistantGroup key={entry.key} blocks={entry.blocks} role={role} controller={controller} renderers={renderers} copy={copy} />
+          <AssistantGroup
+            key={entry.key}
+            blocks={entry.blocks}
+            role={role}
+            controller={controller}
+            renderers={renderers}
+            copy={copy}
+            feedback={feedbackFor(turnOf(entry.blocks))}
+          />
         ) : (
-          <FlowItem key={entry.block.key} block={entry.block} controller={controller} transcript={transcript} renderers={renderers} />
+          anchored(entry.block, <FlowItem key={entry.block.key} block={entry.block} controller={controller} transcript={transcript} renderers={renderers} />)
         ),
       )}
       {/* 交给正在跑的一轮、还没进对话：待送达，送达后变成流里的一条人的话 */}
@@ -757,6 +829,8 @@ function ChatFlow({
       {tail}
       {typing}
     </div>
+      {turnRail && state && controller && !state.loading ? <TurnRail controller={controller} state={state} scroller={scroller} pinned={pinned} /> : null}
+    </div>
   );
 }
 
@@ -767,18 +841,20 @@ function AssistantGroup({
   controller,
   renderers,
   copy,
+  feedback,
 }: {
   blocks: Block[];
   role: ChatRole;
   controller: SessionController | null;
   renderers?: ChatRenderers;
   copy: boolean;
+  feedback?: AnswerFeedback;
 }) {
   const first = blocks[0]!;
   const texts = blocks.filter((b): b is Extract<Block, { kind: "assistant" }> => b.kind === "assistant");
   const streaming = texts.some((b) => b.streaming);
   return (
-    <div className="hx-blk hx-cv-a" data-testid="conv-group">
+    <div className="hx-blk hx-cv-a" data-testid="conv-group" data-turn={turnOf(blocks)}>
       <AssistantHead role={role} at={timeOf(first)} />
       {blocks.map((block) => {
         const claimed = claimFlow(renderers, block);
@@ -815,7 +891,9 @@ function AssistantGroup({
             return null;
         }
       })}
-      {copy && texts.length && !streaming ? <MessageActions text={texts.map((t) => t.text).join("\n\n")} /> : null}
+      {(copy || feedback) && texts.length && !streaming ? (
+        <MessageActions text={texts.map((t) => t.text).join("\n\n")} copy={copy} feedback={feedback} />
+      ) : null}
     </div>
   );
 }
@@ -841,7 +919,7 @@ function FlowItem({
         const contribution = rows[i]!;
         if (contribution.match(block)) return <>{contribution.render(block)}</>;
       }
-      return <UserBubble block={block} />;
+      return <UserBubble block={block} extras={renderers?.userExtras?.(block)} />;
     }
     case "assistant":
       return <TranscriptText block={block} extras={renderers?.assistantExtras?.(block)} />;

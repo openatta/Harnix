@@ -4,7 +4,8 @@
  * Its three columns: on the left, the instances; in the centre, the console — the process at a
  * glance, then the Agents (the active ones, or all of them: each main Agent on a row with its
  * sub-agents, tasks, tokens and model time, opened into its sub-agents and tasks), then the tabs
- * other packages put on it (`system.console.tab`: the flows, the extensions); on the right,
+ * put on it (`system.console.tab`: the flows and the extension packages from other packages, and
+ * its own extension log); on the right,
  * whatever was picked there: an instance's facts and its restart, or a session's facts and
  * operations, the context the next call will carry, its tasks, its frames as they arrive, and the
  * tabs other packages put there (`system.inspector.tab`: every model call, each turn). There is no
@@ -17,8 +18,9 @@
 
 import { Contributed, t, type ActionTarget, type HostApi, type HostSessionRef as SessionKey, type Registry, type SpaceTab } from "@harnix/react";
 
-import { CONSOLE_TAB, INSPECTOR_TAB, SYSTEM } from "./constants.ts";
+import { CONSOLE_TAB, INSPECTOR_TAB, METRICS_LINK, SYSTEM } from "./constants.ts";
 import { Console, ConsoleAbout, Drawn } from "./console.tsx";
+import { ExtensionLogTab } from "./extlog.tsx";
 import { InstanceList } from "./instances.tsx";
 import { ContextTab } from "./pane/context.tsx";
 import { FramesTab } from "./pane/frames.tsx";
@@ -26,6 +28,7 @@ import { InstanceOverview } from "./pane/instance.tsx";
 import { SessionOverview } from "./pane/session.tsx";
 import { SpaceSessions } from "./pane/space.tsx";
 import { SubAgentOverview } from "./pane/subagent.tsx";
+import { OUTPUT_KIND, OutputTab, outputTitle, openToolOutput } from "./pane/output.tsx";
 import { TasksTab } from "./pane/tasks.tsx";
 import type { InspectorTab, InspectorTarget } from "./types.ts";
 import { View, type Selection } from "./view.ts";
@@ -33,7 +36,10 @@ import "./system.css";
 
 export type { ConsoleTab, InspectorTab, InspectorTarget } from "./types.ts";
 export type { Selection } from "./view.ts";
-export { SYSTEM, CONSOLE_TAB, INSPECTOR_TAB };
+export { SYSTEM, CONSOLE_TAB, INSPECTOR_TAB, METRICS_LINK };
+
+/** The tools that start a task whose output can be followed. */
+const OUTPUT_TOOLS = new Set(["Bash", "Monitor"]);
 
 /** The backend extension this package is the interface of. */
 export const extension = "system";
@@ -57,6 +63,8 @@ async function openInSystem(view: View, target: { session: SessionKey; space: st
 export function register(r: Registry, host: HostApi): void {
   r.definePoint(CONSOLE_TAB, { kind: "register" });
   r.definePoint(INSPECTOR_TAB, { kind: "render" });
+  // Where a count leads: the list it counts, kept by whoever has one (the Harnix app's 待我处理).
+  r.definePoint(METRICS_LINK, { kind: "register" });
   const view = new View(host, r);
   r.register(
     "space",
@@ -80,6 +88,12 @@ export function register(r: Registry, host: HostApi): void {
     },
     SYSTEM,
   );
+  // Each extension's log, a tab of the console like the ones other packages put there.
+  r.register(
+    CONSOLE_TAB,
+    { id: "system.extlog", order: 60, title: () => t("system.extlog"), about: () => t("system.about.extlog"), render: () => <ExtensionLogTab host={host} /> },
+    SYSTEM,
+  );
   // Into this space from a conversation elsewhere, or from one tool call in it.
   r.register(
     "session.action",
@@ -90,6 +104,34 @@ export function register(r: Registry, host: HostApi): void {
       label: () => t("head.inSystem"),
       match: (target: ActionTarget) => target.space !== SYSTEM,
       run: (target: ActionTarget) => openInSystem(view, { session: target.session, space: target.space }),
+    },
+    SYSTEM,
+  );
+  // The output of a background command or a monitor, in the open session's right column: one tab a task.
+  r.register(
+    "sidebar.tab",
+    {
+      id: "system.output",
+      kind: OUTPUT_KIND,
+      multiple: true,
+      keepMounted: true,
+      title: (address?: string) => outputTitle(address, t("system.output.title")),
+      render: () => <OutputTab view={view} />,
+    },
+    SYSTEM,
+  );
+  r.register(
+    "session.action",
+    {
+      id: "system.output",
+      at: ["tool"],
+      icon: "terminal",
+      label: () => t("system.output.view"),
+      match: (target: ActionTarget) => target.kind === "tool" && OUTPUT_TOOLS.has(target.tool),
+      run: async (target: ActionTarget) => {
+        if (target.kind !== "tool") return;
+        if (!(await openToolOutput(host, target.session, target.toolUseId))) host.shell.notice(t("system.output.noTask"));
+      },
     },
     SYSTEM,
   );

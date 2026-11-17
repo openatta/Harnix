@@ -215,6 +215,29 @@ impl Attachment {
     }
 }
 
+/// How far a session is exposed to another space ([`Sessions::expose`]): to be looked at there,
+/// or talked to as well.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Exposure {
+    /// A call claiming the space may send to the session, answer its questions, edit its queue,
+    /// interrupt, rewind and rate it — not only attach and read. Its life (closing, deleting,
+    /// forking, renaming, its model and prompt) stays the owner's, from its own space.
+    pub interact: bool,
+}
+
+impl Exposure {
+    /// Looked at only.
+    pub fn view() -> Self {
+        Self { interact: false }
+    }
+
+    /// Looked at and talked to.
+    pub fn interactive() -> Self {
+        Self { interact: true }
+    }
+}
+
 /// How [`Sessions::send_with`] sends: what [`Sessions::send`] takes, and what a message from the
 /// interface can carry besides its text.
 #[derive(Debug, Clone, Default)]
@@ -342,6 +365,28 @@ impl<'a> Sessions<'a> {
         let mut params = key(session);
         params["space"] = json!(space);
         self.cx.call("harnix.session.move", params).await
+    }
+
+    /// Show the session in another space (`harnix.session.expose`): a call claiming `space` then
+    /// reaches it as far as `exposure` allows, while it stays this extension's, in its own space,
+    /// on its instance. Only the extension that created the session may; `space` must be one the
+    /// application has, not the session's own and not one reaching across spaces. Kept across
+    /// restarts, and gone with the session. Answers `{instance, session_id, space, to, exposed,
+    /// interact, changed}`; exposing again with another `exposure` changes it.
+    pub async fn expose(&self, session: &SessionRef, space: &str, exposure: Exposure) -> Rpc<Value> {
+        // `to` is where it is shown, not a claim.
+        let mut params = key(session);
+        params["to"] = json!(space);
+        params["interact"] = json!(exposure.interact);
+        self.cx.call("harnix.session.expose", params).await
+    }
+
+    /// Take an exposure back (`harnix.session.unexpose`); the same answer, `exposed: false`,
+    /// whether or not there was one (`changed` says).
+    pub async fn unexpose(&self, session: &SessionRef, space: &str) -> Rpc<Value> {
+        let mut params = key(session);
+        params["to"] = json!(space);
+        self.cx.call("harnix.session.unexpose", params).await
     }
 
     /// Write an entry into the session's log: a card, a decision, a job's result — for people,
@@ -776,6 +821,13 @@ mod tests {
             json!({"instance": "i", "session_id": "s", "message": "hi", "on_busy": "queue"}),
             "nothing extra: exactly what send sends"
         );
+    }
+
+    #[test]
+    fn an_exposure_is_looked_at_unless_said_otherwise() {
+        assert_eq!(Exposure::default(), Exposure::view());
+        assert!(!Exposure::view().interact);
+        assert!(Exposure::interactive().interact);
     }
 
     #[test]

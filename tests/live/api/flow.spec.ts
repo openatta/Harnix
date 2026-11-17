@@ -8,6 +8,10 @@
  * a restart — never the model.
  */
 
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { type Backend, type TestClient, connect, expect, test } from "@harnix/testkit";
 
 import { startTestApp } from "./testapp";
@@ -59,8 +63,8 @@ const status = (id: string, s: string) => (v: View) => station(v, id)?.status ==
 test("the module says what it offers: flows, a definition with its parts, the catalog, schemas", TAGS, async () => {
   const defs = await api.call("flow.defs");
   expect(defs.map((d: any) => d.name).sort()).toEqual([
-    "demo-agent", "demo-asked", "demo-bypassed", "demo-guarded", "demo-linear", "demo-main", "demo-misplaced", "demo-placed",
-    "demo-propose", "demo-review", "demo-shared",
+    "demo-agent", "demo-asked", "demo-bypassed", "demo-guarded", "demo-linear", "demo-main", "demo-misplaced", "demo-outside",
+    "demo-outside-strict", "demo-placed", "demo-propose", "demo-review", "demo-shared", "demo-task",
   ]);
   // Where each comes from and whether it is valid (xops-02 §3): all built in here.
   expect(defs.every((d: any) => d.origin === "builtin" && d.valid === true)).toBe(true);
@@ -80,11 +84,18 @@ test("the module says what it offers: flows, a definition with its parts, the ca
   // The wrapped scenes (flow_submit) and the application's own, for its templates' sessions
   // (structured output, xops-02 §2).
   expect(catalog.scenes).toEqual(["flow-code", "flow-harnix", "flow-mini", "harnix"]);
-  expect(info.protocol.analyze).toContain("Refused unless a permission allows them: Bash, PowerShell, REPL, Write, Edit, NotebookEdit, TodoWrite");
+  // `guard: auto` (the default): no approvals inside the project, nothing outside it.
+  expect(info.protocol.analyze).toContain("work freely inside the project");
+  expect(info.protocol.analyze).not.toContain("Refused unless a permission allows them");
+  // `guard: strict`: the guarded tools are refused unless a permission allows them.
+  const strict = await api.call("flow.def", { name: "demo-propose" });
+  expect(strict.def.guard).toBe("strict");
+  expect(strict.protocol.propose).toContain("Refused unless a permission allows them: Bash, PowerShell, REPL, Write, Edit, NotebookEdit, TodoWrite");
   expect(catalog.steps).toEqual(["collect", "self-check"]);
   expect(catalog).toMatchObject({ checks: ["lint"], tools: ["open_high"], command_gates: true });
   expect(catalog.parts).toMatchObject({
-    skill: ["analyze", "report"], rule: ["review-rules"], policy: ["ask-todo"], gate: ["lint", "open-high", "self-test"], hook: [],
+    skill: ["analyze", "report", "write-notes", "write-outside"], rule: ["review-rules"], policy: ["ask-todo"],
+    gate: ["lint", "open-high", "self-test", "task-check"], hook: [],
   });
   const def = await api.call("flow.schema", { of: "definition" });
   expect(def.properties.stations).toBeTruthy();
@@ -358,6 +369,62 @@ test("tasks sharing the run's session take turns in it, each handing in under it
   const hist = await api.call("flow.history", { run });
   expect(hist.filter((h: any) => h.op === "submit").map((h: any) => h.station)).toEqual(["first", "second"]);
   expect(hist.some((h: any) => h.op === "fail")).toBe(false);
+});
+
+test("a task: a run in a project carries its root, workspace, output directory and trigger, and runs list by project", TAGS, async () => {
+  const project = realpathSync(mkdtempSync(join(tmpdir(), "harnix-task-")));
+  try {
+    // Every flow on offer says what a run of it is started with, as a JSON Schema a form is drawn from.
+    const defs = await api.call("flow.defs");
+    for (const d of defs) {
+      expect(d.inputs, d.name).toMatchObject({ type: "object", properties: expect.any(Object), required: expect.any(Array) });
+    }
+
+    const task = await start("demo-review", { project_root: `${project}/`, output_dir: "flows/${flow}-${date}${seq}" });
+    const plain = await start("demo-review");
+    const rec = (await api.call("flow.get", { run: task })).record;
+    // The root as given, but for its trailing `/`; the project is where it works.
+    expect(rec.project_root).toBe(project);
+    expect(rec.workspace).toBe("project");
+    // The template resolved and made at start, inside the project: the first of the day is `01`.
+    expect(rec.output_dir).toMatch(new RegExp(`^${project}/flows/demo-review-\\d{8}01$`));
+    expect(existsSync(rec.output_dir)).toBe(true);
+    expect(readFileSync(join(project, ".harnix", ".gitignore"), "utf8")).toBe("runs/\nworktrees/\n");
+    expect(rec.trigger).toMatchObject({ kind: "manual", by: { kind: "device" } });
+    const other = (await api.call("flow.get", { run: plain })).record;
+    expect(other.project_root).toBeUndefined();
+    expect(other.workspace).toBe("scratch");
+    expect(other.trigger.kind).toBe("manual");
+
+    // `flow.list {project}`: that project's runs alone; the topic's rows carry the same fields.
+    const listed = await api.call("flow.list", { project });
+    expect(listed.map((r: any) => r.id)).toEqual([task]);
+    expect(listed[0]).toMatchObject({ project_root: project, workspace: "project", trigger: { kind: "manual" } });
+    expect(listed[0].output_dir).toBe(rec.output_dir);
+    const rows = (await api.call("harnix.topics.subscribe", { topic: "flow.runs" })).value;
+    expect(rows.find((r: any) => r.id === task)).toMatchObject({ project_root: project, workspace: "project" });
+    expect(rows.find((r: any) => r.id === plain)).toMatchObject({ workspace: "scratch" });
+
+    // A root that is not an existing absolute directory, a workspace in a project without one, a
+    // device saying a schedule started it: refused, nothing started.
+    const file = join(project, "file");
+    writeFileSync(file, "");
+    for (const project_root of ["relative/dir", join(project, "missing"), file]) {
+      expect((await api.refused("flow.start", { flow: "demo-review", subject: "repo", project_root }))?.code, project_root).toBe(INVALID);
+    }
+    expect((await api.refused("flow.start", { flow: "demo-review", subject: "repo", workspace: "worktree" }))?.code).toBe(INVALID);
+    const scheduled = await api.refused("flow.start", {
+      flow: "demo-review", subject: "repo", project_root: project, trigger: { kind: "schedule", schedule: "s1", fire_at: 1 },
+    });
+    expect(scheduled?.code).toBe(REFUSED);
+    expect((await api.call("flow.list", { project })).length).toBe(1);
+
+    await api.call("flow.cancel", { run: task, reason: "done" });
+    await api.call("flow.cancel", { run: plain, reason: "done" });
+  } finally {
+    // Retried: the engine may still be writing under the project (its `.agix/`) as it goes.
+    rmSync(project, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
 });
 
 test("only a device may drive a flow: another module is refused", TAGS, async () => {

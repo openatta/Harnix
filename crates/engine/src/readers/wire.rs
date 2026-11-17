@@ -53,6 +53,7 @@ pub(super) struct Row {
 pub(super) struct RowInput {
     pub system: Vec<BlockSizeRow>,
     pub tools: Option<usize>,
+    pub tools_digest: Option<String>,
     pub messages: usize,
 }
 
@@ -61,12 +62,14 @@ pub(super) struct RowInput {
 pub(super) struct BlockSizeRow {
     pub source: Option<String>,
     pub chars: Option<usize>,
+    pub digest: Option<String>,
 }
 
 #[derive(Deserialize, Default, Clone)]
 #[serde(default)]
 pub(super) struct RowOutput {
     pub chars: usize,
+    pub text_preview: Option<String>,
     pub thinking_chars: usize,
     pub tool_uses: Vec<ToolRef>,
 }
@@ -76,6 +79,8 @@ pub(super) struct RowOutput {
 pub(super) struct ToolRef {
     pub id: String,
     pub name: String,
+    pub input_preview: Option<String>,
+    pub result_is_error: Option<bool>,
 }
 
 #[derive(Deserialize, Default, Clone)]

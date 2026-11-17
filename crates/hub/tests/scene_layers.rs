@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use harnix_contract::{RpcError, SpaceDecl, Subject};
 use harnix_engine_link::events::EngineEvent;
 use harnix_engine_link::link::{EngineControl, EngineIdentity, EngineLink, EventReceiver, InstanceCarrier, LinkStatus};
-use harnix_engine_link::ops::{codes, Answer, EngineOps, Entry, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
+use harnix_engine_link::ops::{codes, Answer, EngineOps, Entry, HistoryPage, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
 use harnix_engine_api::{PromptText, SceneBase, SceneLayer, Tool, ToolCx, ToolError, ToolOutput, ToolSpec};
 use harnix_engine_link::SceneLayers;
 use harnix_hub::{Hub, HubCell, HubConfig, HubRow, Spaces};
@@ -41,6 +41,7 @@ struct FakeLink {
     created: Mutex<Vec<(Value, SessionSetup)>>,
     prompted: Mutex<Vec<PromptAsked>>,
     passed: Mutex<Vec<(String, Value)>>,
+    responded: Mutex<Vec<Value>>,
     busy: Mutex<bool>,
     _tx: mpsc::Sender<EngineEvent>,
 }
@@ -56,6 +57,7 @@ impl FakeLink {
             created: Mutex::default(),
             prompted: Mutex::default(),
             passed: Mutex::default(),
+            responded: Mutex::default(),
             busy: Mutex::new(false),
             _tx: tx,
         })
@@ -123,6 +125,9 @@ impl EngineOps for FakeLink {
     async fn transcript(&self, _: &str, _: usize) -> Answer<Vec<Said>> {
         Ok(Vec::new())
     }
+    async fn history(&self, _: &str, _: u64, _: usize) -> Answer<HistoryPage> {
+        Ok(HistoryPage::default())
+    }
     async fn tasks(&self, _: &str) -> Answer<Tasks> {
         Ok(Tasks::new(json!({"tasks": []}), Default::default()))
     }
@@ -141,8 +146,10 @@ impl EngineOps for FakeLink {
     async fn append_entry(&self, _: &str, _: Entry) -> Answer<Value> {
         Ok(json!({}))
     }
-    async fn respond(&self, _: Value) -> Answer<Value> {
-        Ok(json!({}))
+    async fn respond(&self, params: Value) -> Answer<Value> {
+        let prompt_id = params["prompt_id"].clone();
+        self.responded.lock().unwrap().push(params);
+        Ok(json!({"prompt_id": prompt_id}))
     }
     async fn rename(&self, session: &str, _: &str) -> Answer<Value> {
         Ok(described(session))
@@ -165,6 +172,12 @@ impl EngineOps for FakeLink {
         Ok(match method {
             "engine.scene.list" => json!({"scenes": [{"scene": "harnix", "name": "Harnix", "description": "the main one", "active": true, "sessions": 1, "requires_project": false}]}),
             "engine.scene.describe" | "engine.scene.activate" => json!({"scene": params["scene"], "name": "Harnix", "active": true, "capabilities": {"requires_project": false}}),
+            "engine.session.import" => {
+                if params["path"] == "/gone.zip" && params.get("project_root").is_none() {
+                    return Err(RpcError::invalid_params("project_root `/nowhere` does not exist; pass one"));
+                }
+                json!({"root_session_id": "i1", "sessions": [{"session_id": "i1", "kind": "primary"}, {"session_id": "i2", "kind": "sidechain"}], "warnings": []})
+            }
             "engine.session.list" => json!({"sessions": [described("s1"), described("s2")]}),
             _ => described(params["session_id"].as_str().unwrap_or("?")),
         })
@@ -229,7 +242,11 @@ impl Rig {
     }
 
     async fn call(&self, method: &str, params: Value) -> Rpc<Value> {
-        let cx = CallContext::root(Subject::Kernel, None);
+        self.call_as(Subject::Kernel, method, params).await
+    }
+
+    async fn call_as(&self, subject: Subject, method: &str, params: Value) -> Rpc<Value> {
+        let cx = CallContext::root(subject, None);
         self.rows.get(method).unwrap_or_else(|| panic!("no row `{method}`")).call(cx, params).await
     }
 
@@ -325,6 +342,40 @@ async fn the_engines_own_set_prompt_and_prompt_options_are_the_hubs() {
 }
 
 #[tokio::test]
+async fn a_persons_session_is_set_up_for_more_than_permissions() {
+    let rig = Rig::new().await;
+    rig.call_as(Subject::device("d1"), "harnix.session.create", json!({})).await.unwrap();
+    assert!(rig.last_setup().1.person, "a person's");
+    rig.call("harnix.session.create", json!({})).await.unwrap();
+    assert!(!rig.last_setup().1.person, "the kernel's");
+}
+
+#[tokio::test]
+async fn an_answer_is_checked_against_its_kind_of_ask_and_reaches_the_engine_as_given() {
+    let rig = Rig::new().await;
+    let device = || Subject::device("d1");
+    for wrong in [
+        json!({"session_id": "s1", "prompt_id": "p"}),
+        json!({"session_id": "s1", "prompt_id": "p", "prompt_type": "question", "decision": {"type": "permit"}}),
+        json!({"session_id": "s1", "prompt_id": "p", "prompt_type": "mcp_elicitation", "answer": {"type": "answer", "text": "a"}}),
+    ] {
+        let refused = rig.call_as(device(), "harnix.session.respond", wrong.clone()).await.unwrap_err();
+        assert_eq!(refused.code, harnix_contract::codes::INVALID_PARAMS, "{wrong}");
+    }
+    assert!(rig.link.responded.lock().unwrap().is_empty(), "nothing misshapen reaches the engine");
+
+    let question = json!({
+        "session_id": "s1", "prompt_id": "p", "prompt_type": "question",
+        "answer": {"type": "answer", "text": "b"}, "tool_use_id": "u",
+    });
+    rig.call_as(device(), "harnix.session.respond", question).await.unwrap();
+    let sent = rig.link.responded.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(sent, json!({"session_id": "s1", "prompt_id": "p", "prompt_type": "question", "answer": {"type": "answer", "text": "b"}}));
+    let answerer = rig.call("harnix.session.answerer", json!({"session_id": "s1", "tool_use_id": "u"})).await;
+    assert_eq!(answerer.unwrap()["answerer"], "device:d1");
+}
+
+#[tokio::test]
 async fn a_layer_is_listed_described_and_activated_as_its_base() {
     let rig = Rig::new().await;
     let listed = rig.call("engine.scene.list", json!({})).await.unwrap();
@@ -341,4 +392,32 @@ async fn a_layer_is_listed_described_and_activated_as_its_base() {
     assert_eq!(sent.1, json!({"scene": "harnix"}), "the engine is asked of the base");
     let described = rig.call("engine.scene.describe", json!({"scene": "strict"})).await.unwrap();
     assert_eq!(described["capabilities"]["requires_project"], true);
+}
+
+#[tokio::test]
+async fn an_imported_bundle_lands_in_the_claimed_space() {
+    let rig = Rig::new().await;
+    let done = rig.call("harnix.session.import", json!({"path": "/b.zip", "space": "lab"})).await.unwrap();
+    assert_eq!((&done["root_session_id"], &done["space"]), (&json!("i1"), &json!("lab")));
+    let passed = rig.link.passed.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(passed.0, "engine.session.import");
+    assert_eq!(passed.1, json!({"path": "/b.zip"}), "nothing but the path and what the caller gave");
+    // The sub-agent's session is the root's space's too.
+    for sid in ["i1", "i2"] {
+        assert!(rig.call("engine.session.get", json!({"session_id": sid, "space": "lab"})).await.is_ok(), "{sid}");
+    }
+    assert_eq!(rig.call("harnix.session.import", json!({"space": "lab"})).await.unwrap_err().code, -32602);
+}
+
+#[tokio::test]
+async fn a_bundle_whose_project_is_gone_is_imported_with_none() {
+    let rig = Rig::new().await;
+    let done = rig.call("harnix.session.import", json!({"path": "/gone.zip"})).await.unwrap();
+    assert_eq!(done["root_session_id"], "i1");
+    assert_eq!(done["warnings"].as_array().map(Vec::len), Some(1));
+    let passed = rig.link.passed.lock().unwrap().last().cloned().unwrap();
+    assert_eq!(passed.1, json!({"path": "/gone.zip", "project_root": null}));
+    // One the caller named a project for is not retried: its refusal stands.
+    let refused = rig.call("harnix.session.import", json!({"path": "/gone.zip", "project_root": "/x"})).await;
+    assert!(refused.is_ok(), "the fake accepts a named project");
 }

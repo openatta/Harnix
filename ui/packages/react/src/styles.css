@@ -53,6 +53,23 @@
   flex: none;
 }
 @keyframes hx-spin { to { transform: rotate(360deg); } }
+/* Figures: a sortable table and a row of bars (Figures.tsx). */
+.hx-figures { width: 100%; border-collapse: collapse; font-size: 12px; }
+.hx-figures th { padding: 0; border-bottom: 1px solid var(--border-l2); text-align: left; white-space: nowrap; }
+.hx-figures th button { width: 100%; padding: 4px 6px; border: 0; background: none; font: inherit; font-size: 11.5px; font-weight: 500; color: var(--label-tertiary); text-align: inherit; cursor: pointer; }
+.hx-figures th[aria-sort] button { color: var(--label-primary); }
+.hx-figures td { padding: 4px 6px; border-bottom: 1px solid var(--border-l1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 28em; }
+.hx-figures .num { text-align: right; font-family: var(--font-code); font-variant-numeric: tabular-nums; }
+.hx-bars { margin: 6px 0; }
+.hx-bars .plot { display: flex; align-items: flex-end; gap: 2px; height: 96px; border-bottom: 1px solid var(--border-l2); }
+.hx-bars .col { flex: 1; height: 100%; display: flex; align-items: flex-end; min-width: 3px; }
+.hx-bars .col:hover i { background: var(--accent-line); }
+.hx-bars .col i { display: block; width: 100%; border-radius: 4px 4px 0 0; background: var(--accent); }
+.hx-bars .col i.zero { height: 1px; border-radius: 0; background: var(--border-l1); }
+.hx-bars .axis { display: flex; gap: 2px; font-size: 10.5px; color: var(--label-caption); }
+.hx-bars .axis span { flex: 1; min-width: 3px; overflow: visible; white-space: nowrap; }
+.hx-bars .axis span:last-child { text-align: right; direction: rtl; }
+
 @media (prefers-reduced-motion: reduce) { .hx-spinner { animation: none; } }
 
 .hx-placeholder { color: var(--hx-fg-faint); font-size: 13px; padding: 24px 0; text-align: center; }
@@ -79,7 +96,7 @@
   background: var(--hx-bg);
   color: var(--hx-fg);
   font-family: var(--hx-font);
-  font-size: 14px;
+  font-size: var(--font-size-base, 14px);
   line-height: 1.55;
 }
 :where(.hx-chat) button { font: inherit; color: inherit; cursor: pointer; }
@@ -135,6 +152,30 @@
 /* 消息流（原型 .msgs / .cli） */
 .hx-msgs { flex: 1; overflow: auto; padding: 20px 18px 10px; display: flex; flex-direction: column; gap: 20px; min-height: 0; }
 .hx-cli { flex: 1; overflow: auto; padding: 18px 18px 10px; display: flex; flex-direction: column; gap: 12px; min-height: 0; background: var(--hx-bg); font-size: 13.5px; }
+
+/* The flow and the turn rail on its right edge (TurnRail.tsx). The rail is not drawn where the flow is
+   narrow: there the transcript needs the width, and ⌥↑ / ⌥↓ still go from turn to turn. */
+.hx-flow { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; container-type: inline-size; }
+.hx-turn-anchor { display: contents; }
+.hx-turnrail { position: absolute; top: 12px; bottom: 12px; right: 2px; width: 20px; z-index: 5; }
+.hx-turnrail-track { height: 100%; overflow-y: auto; overflow-x: visible; scrollbar-width: none; }
+.hx-turnrail-track::-webkit-scrollbar { display: none; }
+.hx-turnrail-list { position: relative; margin: 0; padding: 0; }
+.hx-turnrail-item { position: absolute; left: 0; right: 0; height: 12px; }
+.hx-turnrail-tick { all: unset; box-sizing: border-box; display: flex; align-items: center; justify-content: flex-end; width: 100%; height: 12px; padding-right: 3px; cursor: pointer; }
+.hx-turnrail-mark { display: block; width: 8px; height: 2px; border-radius: 1px; background: var(--hx-fg-faint); opacity: 0.55; transition: width 0.12s, opacity 0.12s; }
+.hx-turnrail-tick:hover .hx-turnrail-mark,
+.hx-turnrail-tick:focus-visible .hx-turnrail-mark { width: 14px; opacity: 1; }
+.hx-turnrail-tick[data-state="active"] .hx-turnrail-mark { width: 14px; height: 3px; opacity: 1; background: var(--hx-accent); }
+.hx-turnrail-tick[data-mark] .hx-turnrail-mark { background: var(--hx-flow-g2); opacity: 0.9; }
+.hx-turnrail-tick:focus-visible { outline: 2px solid var(--hx-accent); outline-offset: 0; border-radius: 3px; }
+.hx-turnrail-preview { position: absolute; right: calc(100% + 6px); width: min(320px, 70cqw); z-index: 21; background: var(--hx-bg); border: 1px solid var(--hx-line); border-radius: 10px; box-shadow: var(--hx-shadow); padding: 8px 10px; font-size: 12.5px; line-height: 1.5; pointer-events: none; }
+.hx-turnrail-head { display: flex; gap: 8px; align-items: baseline; color: var(--hx-fg-faint); font-size: 11.5px; margin-bottom: 2px; }
+.hx-turnrail-tag { color: var(--hx-flow-g2); }
+.hx-turnrail-prompt { color: var(--hx-fg); font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.hx-turnrail-reply { color: var(--hx-fg-soft); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+@container (max-width: 560px) { .hx-turnrail { display: none; } }
+@media (prefers-reduced-motion: reduce) { .hx-turnrail-mark { transition: none; } }
 .hx-blk { min-width: 0; }
 .hx-placeholder { color: var(--hx-fg-faint); font-size: 13px; padding: 24px 0; text-align: center; }
 
@@ -161,11 +202,27 @@
 .hx-cv-a > .hx-card { margin-top: 4px; line-height: 1.75; }
 .hx-cv-act { display: flex; gap: 2px; margin-left: -4px; opacity: 0; transition: opacity 0.15s; }
 .hx-cv-a:hover .hx-cv-act, .hx-cv-a:focus-within .hx-cv-act { opacity: 1; }
+.hx-cv-u:hover .hx-cv-act, .hx-cv-u:focus-within .hx-cv-act { opacity: 1; }
+.hx-cv-uact { margin-left: 0; margin-right: -4px; }
 @media (hover: none) { .hx-cv-act { opacity: 1; } }
 .hx-cv-act button { background: none; border: 0; padding: 4px; border-radius: 6px; color: var(--hx-fg-faint); display: inline-grid; place-items: center; }
 .hx-chat .hx-cv-act button { color: var(--hx-fg-faint); }
 .hx-cv-act button:hover:not(:disabled) { background: var(--hx-bg-sunk); color: var(--hx-fg); }
 .hx-cv-act button:disabled { opacity: 0.45; }
+/* Feedback given, or its dialog open: the row stays, so the state shows without hovering. */
+.hx-cv-act[data-feedback="up"], .hx-cv-act[data-feedback="down"], .hx-cv-act[data-open] { opacity: 1; }
+.hx-chat .hx-cv-act button[aria-pressed="true"] { color: var(--hx-accent); }
+
+/* 反馈的对话框：动作行下面的一张小卡，不是模态的 */
+.hx-fb { display: flex; flex-direction: column; gap: 8px; max-width: 420px; padding: 10px 12px; border: 1px solid var(--hx-line); border-radius: var(--hx-radius, 8px); background: var(--hx-bg); box-shadow: var(--hx-shadow); }
+.hx-fb-title { font-size: 13px; font-weight: 600; }
+.hx-fb-cats { display: flex; flex-wrap: wrap; gap: 6px; }
+.hx-chat .hx-fb-cat { border: 1px solid var(--hx-line); background: var(--hx-bg); border-radius: 999px; padding: 2px 10px; font-size: 12.5px; color: var(--hx-fg-soft); }
+.hx-chat .hx-fb-cat:hover { border-color: var(--hx-fg-faint); }
+.hx-chat .hx-fb-cat.on { border-color: var(--hx-accent); background: var(--hx-accent-soft); color: var(--hx-fg); }
+.hx-fb-note { font: inherit; font-size: 13px; resize: vertical; min-height: 56px; border: 1px solid var(--hx-line); border-radius: 6px; padding: 6px 8px; background: var(--hx-bg); color: var(--hx-fg); }
+.hx-fb-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.hx-fb-privacy { flex: 1; font-size: 12px; min-width: 160px; }
 
 /* 系统事件：两侧细线的居中小字 */
 .hx-cv-sys { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--hx-fg-faint); text-align: center; }
@@ -250,6 +307,19 @@
 .hx-cc-sys.hx-tone-error { color: var(--hx-danger); }
 .hx-cc-work { display: flex; align-items: center; gap: 8px; color: var(--hx-fg-soft); font-size: 13px; }
 
+/* 上下文报告（ContextReport）：系统块、工具、消息各占多长的一条，图例，事实表。系统 space 与右栏的上下文页共用。 */
+.hx-ctx-stack { display: flex; height: 14px; margin: 8px 0 4px; overflow: hidden; border-radius: 6px; background: var(--hx-line); }
+.hx-ctx-stack i { display: block; height: 100%; }
+.hx-ctx-stack .sys, .hx-ctx-legend .sys::before { background: var(--state-info); }
+.hx-ctx-stack .tools, .hx-ctx-legend .tools::before { background: var(--state-warn); }
+.hx-ctx-stack .msgs, .hx-ctx-legend .msgs::before { background: var(--state-success); }
+.hx-ctx-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 10px; font-size: 12px; color: var(--hx-fg-soft); }
+.hx-ctx-legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 5px; border-radius: 2px; vertical-align: -1px; }
+.hx-facts { margin: 0; display: grid; gap: 4px; }
+.hx-fact { display: grid; grid-template-columns: 120px 1fr; gap: 8px; font-size: 12.5px; }
+.hx-fact dt { color: var(--hx-fg-faint); }
+.hx-fact dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--hx-mono); }
+
 /* 工具行展开后的输入与结果、注入的上下文、权限卡、子 agent、图片 */
 .hx-label { font-size: 11px; color: var(--hx-fg-faint); letter-spacing: 0.04em; }
 .hx-pre { margin: 2px 0 0; font-family: var(--hx-mono); font-size: 12px; background: var(--hx-bg-sunk); border-radius: 6px; padding: 6px 8px; max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -274,6 +344,20 @@
 .hx-ask-msg { color: var(--hx-fg-soft); }
 .hx-ask-args { font: 12.5px/1.5 var(--hx-mono); color: var(--hx-fg-soft); }
 .hx-ask-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* The other asks: a question's options, a plan to read, an MCP server's form. */
+.hx-ask-question { white-space: pre-wrap; color: var(--hx-fg); }
+.hx-ask-form { display: flex; flex-direction: column; gap: 6px; }
+.hx-ask-options { display: flex; flex-direction: column; gap: 4px; }
+.hx-ask-option { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.hx-ask-input { font: inherit; padding: 5px 8px; border: 1px solid var(--hx-line); border-radius: 6px; background: var(--hx-bg); color: var(--hx-fg); }
+.hx-ask-input[aria-invalid="true"] { border-color: var(--hx-danger); }
+.hx-ask-plan { max-height: 360px; overflow: auto; padding: 8px 10px; border: 1px solid var(--hx-line); border-radius: 8px; background: var(--hx-bg); }
+.hx-ask-list { margin: 2px 0 0; padding-left: 18px; }
+.hx-ask-faint { color: var(--hx-fg-faint); font-size: 12px; }
+.hx-ask-problem { color: var(--hx-danger); }
+.hx-ask-url { font: 12.5px/1.5 var(--hx-mono); word-break: break-all; }
+.hx-ask-fields { gap: 10px; }
+.hx-ask-field { display: flex; flex-direction: column; gap: 3px; }
 .hx-countdown { font-size: 12px; color: var(--hx-fg-faint); margin-left: auto; }
 .hx-agent { border-left: 2px solid var(--hx-line); padding-left: 10px; }
 .hx-agent-head { display: flex; align-items: center; gap: 8px; }

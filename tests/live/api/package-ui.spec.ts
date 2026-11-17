@@ -3,7 +3,7 @@
  *
  *   demo-rows     its `[[ui]]` is contribution API 1: the entry does not take, with the reason,
  *                 and nothing of it is offered to the page
- *   demo-rows-v2  API 3: offered in `harnix.ui` with its version, served same-origin by the
+ *   demo-rows-v2  the current API: offered in `harnix.ui` with its version, served same-origin by the
  *                 `plugins` extension (`/ext/plugins/ui/<package>/<file>`) to a caller with a
  *                 credential, nothing else of the package reachable
  *
@@ -15,6 +15,8 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
+import { CONTRIB_API_VERSION } from "@harnix/core/protocol";
 import { type Backend, ROOT, type TestClient, connect, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
 const TAGS = { tag: ["@feature:plugins", "@layer:api"] };
@@ -56,16 +58,16 @@ test.describe("runtime modules on", () => {
     const v2 = listed.contributes.find((c: any) => c.plugin === "demo-rows-v2");
     expect(v1.ui).toEqual([]);
     expect(v1.inert.join(" ")).toContain("这一条不生效");
-    expect(v2.ui.map((e: any) => [e.point, e.module, e.api_version])).toEqual([["tool.row", "rows.js", 3]]);
+    expect(v2.ui.map((e: any) => [e.point, e.module, e.api_version])).toEqual([["tool.row", "rows.js", CONTRIB_API_VERSION]]);
     expect(v2.inert).toEqual([]);
 
     // A fresh client is told what to load: the v2 entry, with its version, and nothing of v1.
     const fresh = await connect(backend);
     try {
       const hello = await fresh.call("harnix.hello");
-      expect(hello.contrib_api_version).toBe(3);
+      expect(hello.contrib_api_version).toBe(CONTRIB_API_VERSION);
       expect(hello.shell.runtime_modules).toBe(true);
-      expect((await fresh.call("harnix.ui")).contributions).toEqual([{ plugin: "demo-rows-v2", point: "tool.row", api_version: 3, module: "/ext/plugins/ui/demo-rows-v2/rows.js" }]);
+      expect((await fresh.call("harnix.ui")).contributions).toEqual([{ plugin: "demo-rows-v2", point: "tool.row", api_version: CONTRIB_API_VERSION, module: "/ext/plugins/ui/demo-rows-v2/rows.js" }]);
     } finally {
       fresh.close();
     }

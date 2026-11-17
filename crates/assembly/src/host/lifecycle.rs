@@ -13,6 +13,7 @@ use harnix_kernel::seat::Seated;
 use harnix_kernel::GrantTable;
 use harnix_router::{IdKind, Row, RouteTable};
 use serde_json::Value;
+use tracing::Instrument;
 
 use super::seat::Seats;
 use super::{Entry, ExtensionStatus, Record};
@@ -243,7 +244,7 @@ pub(crate) async fn start(records: &mut [Record], seats: &Seats) -> Vec<String> 
     for record in records.iter_mut().filter(|r| r.is_enabled()) {
         let (Some(id), Some(d)) = (record.id.clone(), record.descriptor.as_ref()) else { continue };
         d.seat(seats.seat(&id, &record.config, &record.data_dir));
-        let started = record.ext.start(d.context().expect("seated just now")).await;
+        let started = record.ext.start(d.context().expect("seated just now")).instrument(span(&id)).await;
         if let Err(e) = started {
             record.disabled("start", format!("{e:#}"));
             failed.push(id.to_string());
@@ -262,8 +263,16 @@ pub(crate) async fn start(records: &mut [Record], seats: &Seats) -> Vec<String> 
 /// Stop the enabled extensions in reverse: a later one may depend on an earlier one.
 pub(crate) async fn stop(records: &[Record]) {
     for record in records.iter().rev().filter(|r| r.is_enabled()) {
-        record.ext.stop().await;
+        match &record.id {
+            Some(id) => record.ext.stop().instrument(span(id)).await,
+            None => record.ext.stop().await,
+        }
     }
+}
+
+/// What an extension logs while it starts or stops is its own (`harnix_kernel::EXTENSION_SPAN`).
+fn span(id: &ExtId) -> tracing::Span {
+    tracing::info_span!(harnix_kernel::EXTENSION_SPAN, extension = %id)
 }
 
 #[cfg(test)]

@@ -213,3 +213,34 @@ test("a session is exported from its menu: markdown to read, or the engine's arc
   expect(archive.bytes.includes(`sessions/${id}/`)).toBe(true);
   await expect(page.locator("#modal")).toHaveCount(0);
 });
+
+test("a session bundle is imported from the session list: picked, uploaded, listed and opened", SPACE, async ({ page }) => {
+  await open(page, URL);
+  const id = await withTurn(page);
+  const [exported] = await Promise.all([page.waitForEvent("download"), (async () => {
+    await fromMenu(page, id, "action:harnix-app.export");
+    await page.getByTestId("export-archive").check();
+    await page.getByTestId("export-go").click();
+  })()]);
+  // Under the name it was offered as: the download's own path has no extension, and a bundle is a .zip.
+  const zip = { name: exported.suggestedFilename(), mimeType: "application/zip", buffer: readFileSync((await exported.path())!) };
+
+  await page.getByTestId("session-import").click();
+  await page.getByTestId("import-file").setInputFiles(zip);
+  // Imported, the dialog is gone and the new session is the open one, beside the original.
+  await expect(page.locator("#modal")).toHaveCount(0);
+  const current = () => page.evaluate(() => (window as any).harnix.app.snapshot.current?.sessionId ?? null);
+  await expect.poll(current).not.toBe(id);
+  const imported = (await current()) as string;
+  // By the two sessions, not the list's length: a session an earlier test left behind may still be listed.
+  await expect(row(page, imported)).toBeVisible();
+  await expect(row(page, id)).toBeVisible();
+  await expect(page.locator("#banner")).not.toContainText(/failed|-32/i);
+
+  // Not a bundle: the dialog stays and says why.
+  const rows = await page.locator("[data-testid=session-row]").count();
+  await page.getByTestId("session-import").click();
+  await page.getByTestId("import-file").setInputFiles({ name: "nothing.zip", mimeType: "application/zip", buffer: Buffer.from("not a zip") });
+  await expect(page.getByTestId("import-status")).not.toBeEmpty();
+  await expect(page.locator("[data-testid=session-row]")).toHaveCount(rows);
+});

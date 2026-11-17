@@ -30,6 +30,10 @@ default = []
 # `harnix_ext::http::axum`: an `axum::Router` as an extension's route. Not stable: it is bound to
 # axum's major version, which the routes themselves (`http` 1.x) are not.
 axum = ["dep:axum", "dep:tower"]
+# The interface's protocol declarations are generated from the contract's and the engine
+# interface's types (`crates/harnix/tests/ts_export.rs`): this forwards the switch to both. Never
+# in a build that ships.
+ts = ["harnix-contract/ts", "harnix-engine-api/ts"]
 
 [dev-dependencies]
 # `tests/contract.rs` runs a test extension on `harnix::testing::Kernel`: the real router and hub.

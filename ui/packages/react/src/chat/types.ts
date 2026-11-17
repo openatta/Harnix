@@ -73,6 +73,11 @@ export interface ChatCommand {
   description?: string;
   /** 给了就选中即执行：不插入文字、不发送，输入框里已打的 `/xxx` 清掉 */
   run?: () => void | Promise<void>;
+  /**
+   * 给了就收参数：输入框里发出的 `/<name> <参数>` 交给它（参数去掉首尾空白，可以为空），不发送；
+   * 答 `false` 时输入框里的字留着，否则清掉。选中候选照旧插入 `/<name> `。
+   */
+  submit?: (args: string) => void | boolean | Promise<void | boolean>;
 }
 
 /**
@@ -87,6 +92,11 @@ export interface ChatFeatures {
   /** 悬停复制；缺省开 */
   copy?: boolean;
   /**
+   * 已结束的一轮的回答下面的赞与踩（会话的样子）；缺省开。反馈记进会话日志（`harnix.session.feedback`），
+   * 模型看不见，不往任何地方送
+   */
+  feedback?: boolean;
+  /**
    * 上下文环（原型 ctxBtn）：缺省转录开、会话关。用量来自 turn_complete 的 usage（max 不知道就只显示 token 数），
    * 或应用给的 ratio；menu 是点开后的弹层里"压缩""清空"之类的行
    */
@@ -95,10 +105,12 @@ export interface ChatFeatures {
   options?: boolean;
   /** ＋ 添加：文件与图片（给了 upload）、引用条目（给了 mention）、命令；截图要后端，不可用。缺省开 */
   attachments?: boolean;
-  /** 语音输入：要后端（转写），画成不可用的按钮。缺省开 */
+  /** 语音输入：要后端（转写），后端没有就不画按钮。缺省关 */
   voice?: boolean;
   /** 模型（底栏右侧）：显示当前模型；给了 onModel 才能换。缺省开 */
   modelPicker?: boolean;
+  /** 轮次导航：消息流右缘的竖轨，每轮一个刻度，⌥↑ / ⌥↓ 上一轮、下一轮（`harnix.session.outline`）。缺省开，两轮起才画 */
+  turnRail?: boolean;
 }
 
 /** 流里任何一块的贡献（`flow.block`）：后注册的先匹配；没人认领时内建的画，内建不认识的不画。 */
@@ -117,6 +129,8 @@ export interface ChatRenderers {
   userRows?: readonly UserRowContribution[];
   /** 助手一段话后面的附加内容（例如疑点卡、动作按钮） */
   assistantExtras?: (block: BlockOf<"assistant">) => ReactNode;
+  /** 人的一条话旁边的附加内容（例如它的菜单：回到这里）；气泡画它，认领了这条话的 userRows 自己决定 */
+  userExtras?: (block: BlockOf<"user">) => ReactNode;
   /** 工具行"⎿"后面那一句（领域工具的结果怎么说最明白）；返回空就用内建的摘要 */
   toolSummary?: (block: BlockOf<"tool">) => string | null | undefined;
 }

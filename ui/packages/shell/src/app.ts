@@ -10,11 +10,13 @@
  */
 
 import type { ReactNode } from "react";
-import { TOKEN_STALE, errorText, type ConnectionStatus, type ExtensionEntry, type HarnixClient, type Hello, type SessionRow, type UiView } from "@harnix/core";
+import { TOKEN_STALE, modelConfigured, type ConnectionStatus, type ExtensionEntry, type HarnixClient, type Hello, type SessionRow, type UiView } from "@harnix/core";
 import { MAIN_INSTANCE, type SessionController } from "@harnix/core/state";
-import { t, tabsOf, type ComposerApi, type DetailItem, type Registry, type ShellContext, type SpaceContribution, type SpaceTab } from "@harnix/react";
+import { CONVERSATION_VIEW, sidebarTypes, t, tabsOf, type ComposerApi, type Contributions, type DetailItem, type Registry, type ShellContext, type SidebarTabType, type SpaceContribution, type SpaceTab, explainError } from "@harnix/react";
 
+import { SurfaceStore, type SidebarTab } from "./sidebar/surface.ts";
 import { topicsOf } from "./topics.ts";
+import { Shortcuts } from "./shortcuts.tsx";
 
 export interface SessionKey {
   instance: string;
@@ -161,6 +163,14 @@ export interface ShellState {
    *  when the space is entered again; a tab the reader clicked goes back to the first, as before
    *  (kept too for a space that gives `tab()`). */
   tabBySpace: Record<string, { id: string; asked: boolean }>;
+  /** Which side of the right column's strip is in front: the front space's tabs (`details.tabs`,
+   *  the details, the `scope: "space"` types — `tabBySpace` says which), or the open session's
+   *  surface (`sidebar`, whose active tab it is). Opening or clicking a session tab brings that side
+   *  in front; selecting a space tab or revealing a detail brings the space's. */
+  stripSide: "space" | "session";
+  /** Each session's chosen view of the centre (a `conversation.view` id), by session key; one not
+   *  here is shown as its conversation. Kept in this browser. */
+  viewBySession: Record<string, string>;
   /** Bumped by `redraw()`: the shell reads the front space's functions again. */
   drawn: number;
 }
@@ -171,6 +181,18 @@ const CURRENT_KEY = "harnix.space.current";
 const WIDTHS_KEY = "harnix.widths";
 const DETAILS_KEY = "harnix.details";
 const SECONDARY_MAX_KEY = "harnix.secondaryMax";
+/** Which view of the centre each session is shown in (`conversation.view`), by session key; the
+ *  conversation when absent. */
+const VIEW_KEY = "harnix.view";
+
+/** The page's storage, if it has one that can be touched at all. */
+function storage(): Storage | null {
+  try {
+    return typeof localStorage === "undefined" ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
 
 function stored<T>(key: string, fallback: T): T {
   try {
@@ -213,9 +235,16 @@ export function orderTabs<T extends { align?: "start" | "end" }>(tabs: T[]): T[]
   return [...tabs.filter((x) => x.align !== "end"), ...tabs.filter((x) => x.align === "end")];
 }
 
-/** A space's tabs; a `tabs()` that throws gives none, and is counted as failed. */
-export function safeTabs(registry: Registry, space: (SpaceContribution & { owner?: string }) | undefined): SpaceTab[] {
-  return ask(registry, space, () => tabsOf(space), []);
+/** A tab of the strip's space side: one of the space's own, or a `scope: "space"` tab type in
+ *  force, which stands in the strip for every space and is drawn with a tab domain of its own. */
+export type StripTab = SpaceTab & { type?: SidebarTabType & { owner: string } };
+
+/** A space's tabs — a `tabs()` that throws gives none, and is counted as failed — then the
+ *  `scope: "space"` tab types in force, each as a tab whose id is its kind. */
+export function safeTabs(registry: Registry, space: (SpaceContribution & { owner?: string }) | undefined): StripTab[] {
+  const own: StripTab[] = ask(registry, space, () => tabsOf(space), []);
+  const types = sidebarTypes(registry.at("sidebar.tab")).filter((type) => type.scope === "space");
+  return [...own, ...types.map((type): StripTab => ({ id: type.kind, title: () => type.title(), render: () => type.render(), type }))];
 }
 
 /** One of a space's functions, read while drawing: one that throws gives `fallback`, and the space
@@ -263,10 +292,17 @@ export class App {
   composer: ComposerApi | null = null;
   private builtins: ((app: App) => void | Promise<void>) | null = null;
   private interfaces: ((app: App, view: UiView) => Promise<void>) | null = null;
+  /** Each session's docking surface in the right column (`sidebar/surface.ts`). */
+  readonly sidebar: SurfaceStore;
+  /** The `shortcut` commands and the keys they have now (`shortcuts.tsx`). */
+  readonly shortcuts: Shortcuts;
 
   constructor(client: HarnixClient, registry: Registry) {
     this.conn = client;
     this.registry = registry;
+    this.sidebar = new SurfaceStore(storage());
+    this.sidebar.failed = (tabId, e) => registry.fail("sidebar.tab", { id: tabId, owner: "page" }, e);
+    this.shortcuts = new Shortcuts(registry, { storage: storage() });
     // Until hello says which space this product starts in, the one left in front last time.
     const space = stored<string>(SPACE_KEY, "");
     const currentBySpace = stored<Record<string, SessionKey | null>>(CURRENT_KEY, {});
@@ -299,6 +335,8 @@ export class App {
       dragged: stored<Partial<Widths>>(WIDTHS_KEY, {}),
       menu: false,
       tabBySpace: {},
+      stripSide: "space",
+      viewBySession: stored<Record<string, string>>(VIEW_KEY, {}),
       drawn: 0,
     };
   }
@@ -332,6 +370,11 @@ export class App {
       const ref = next.current ? { instance: next.current.instance, sessionId: next.current.sessionId } : null;
       for (const fn of [...this.currentListeners]) fn(ref);
     }
+    if (!sameKey(before.current, next.current) || before.viewBySession !== next.viewBySession) {
+      const was = this.conversationView(before.current, before);
+      const now = this.conversationView(next.current, next);
+      if (was !== now) for (const fn of [...this.viewListeners]) fn(now);
+    }
     if (before.search.query !== next.search.query) this.search(next.search.query);
     // The settings panel closed: what it changed may be the model providers the composer offers.
     if (before.modals.some((m) => m.key === "settings") && !next.modals.some((m) => m.key === "settings")) void this.refreshEngine();
@@ -351,6 +394,53 @@ export class App {
   onCurrent(fn: (current: SessionKey | null) => void): () => void {
     this.currentListeners.add(fn);
     return () => this.currentListeners.delete(fn);
+  }
+
+  /* ── the centre's view of a session ───────────────────────────────── */
+
+  private readonly viewListeners = new Set<(view: string) => void>();
+
+  /** The open session's view changed: switched, or another session is open. */
+  onView(fn: (view: string) => void): () => void {
+    this.viewListeners.add(fn);
+    return () => this.viewListeners.delete(fn);
+  }
+
+  /** The `conversation.view` registrations that apply to a session, in the switch's order; a
+   *  `match` that throws drops its view. */
+  viewsFor(key: SessionKey | null): (Contributions["conversation.view"] & { owner: string })[] {
+    if (!key) return [];
+    const ref = { instance: key.instance, sessionId: key.sessionId };
+    return [...this.registry.at("conversation.view")]
+      .filter((view) => {
+        if (!view.match) return true;
+        try {
+          return view.match(ref) === true;
+        } catch (e) {
+          later(() => this.registry.fail("conversation.view", view, e));
+          return false;
+        }
+      })
+      .sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
+  }
+
+  /** Which view the centre shows a session in: its remembered choice while that view still applies
+   *  to it, else the conversation. */
+  conversationView(key: SessionKey | null, state: ShellState = this.state): string {
+    if (!key) return CONVERSATION_VIEW;
+    const chosen = state.viewBySession[keyOf(key.instance, key.sessionId)];
+    if (!chosen || chosen === CONVERSATION_VIEW) return CONVERSATION_VIEW;
+    return this.viewsFor(key).some((view) => view.id === chosen) ? chosen : CONVERSATION_VIEW;
+  }
+
+  /** Show a session in a view, and remember it for the session; the conversation forgets the entry. */
+  setConversationView(key: SessionKey, view: string): void {
+    const id = keyOf(key.instance, key.sessionId);
+    const viewBySession = { ...this.state.viewBySession };
+    if (view === CONVERSATION_VIEW) delete viewBySession[id];
+    else viewBySession[id] = view;
+    remember(VIEW_KEY, viewBySession);
+    this.set({ viewBySession });
   }
 
   private readonly modalListeners = new Set<(open: boolean) => void>();
@@ -482,7 +572,7 @@ export class App {
         // Before the stored front space is looked for: the spaces are the UI packages'. Bounded
         // (`within`): an extension's start that awaits the backend and never hears back does not
         // stop the shell's.
-        const registering = Promise.resolve(this.builtins?.(this)).catch((e: unknown) => this.notice(errorText(e), "error"));
+        const registering = Promise.resolve(this.builtins?.(this)).catch((e: unknown) => this.notice(explainError(e), "error"));
         await within(registering, BOOT_WAIT_MS);
         // Every registration of the start is in: what went into a point nobody defined goes now.
         this.registry.settle();
@@ -491,7 +581,7 @@ export class App {
       }
       await this.refreshSessions();
     } catch (e) {
-      this.notice(errorText(e), "error");
+      this.notice(explainError(e), "error");
     }
   }
 
@@ -507,7 +597,7 @@ export class App {
       if (JSON.stringify(before) !== JSON.stringify(view.extensions)) for (const fn of [...this.extensionListeners]) fn();
       this.uiChain = this.uiChain
         .then(() => this.interfaces?.(this, view))
-        .catch((e: unknown) => this.notice(errorText(e), "error"));
+        .catch((e: unknown) => this.notice(explainError(e), "error"));
     });
   }
 
@@ -541,10 +631,7 @@ export class App {
    * with. Unknown (hello could not read the providers) counts as yes, so the page does not cry wolf.
    */
   modelReady(): boolean {
-    const engine = this.state.hello?.engine;
-    const providers = engine?.providers;
-    if (!providers) return true;
-    return Object.keys(providers.providers).length > 0 || engine?.has_credentials === true;
+    return modelConfigured(this.state.hello?.engine);
   }
 
   /** The model a new session runs on: the default provider's, else the engine's; none while no
@@ -642,7 +729,7 @@ export class App {
       if (mine !== this.refreshes || space !== this.state.space) return;
       this.set({ sessions });
     } catch (e) {
-      if (mine === this.refreshes) this.notice(errorText(e), "error");
+      if (mine === this.refreshes) this.notice(explainError(e), "error");
     }
   }
 
@@ -679,14 +766,18 @@ export class App {
     }
   }
 
-  /** Forget a session wherever it was current: it was deleted. */
+  /** Forget a session wherever it was current: it was deleted. Its surface in the right column goes too. */
   forget(key: { instance: string; sessionId: string }): void {
+    this.sidebar.drop(key);
     const currentBySpace = { ...this.state.currentBySpace };
     for (const [space, current] of Object.entries(currentBySpace)) {
       if (current && current.instance === key.instance && current.sessionId === key.sessionId) currentBySpace[space] = null;
     }
     remember(CURRENT_KEY, currentBySpace);
-    this.set({ currentBySpace });
+    const viewBySession = { ...this.state.viewBySession };
+    delete viewBySession[keyOf(key.instance, key.sessionId)];
+    remember(VIEW_KEY, viewBySession);
+    this.set({ currentBySpace, viewBySession });
   }
 
   /** New sessions belong to the front space and land on its default instance unless one is named. */
@@ -729,6 +820,29 @@ export class App {
     this.selectTab("details");
   }
 
+  /**
+   * What the right column shows for the front space: a tab of the space's side (`shownTab()`), or
+   * the open session's tab in front. The session's side is shown when it was brought in front last
+   * (`stripSide`) and has a tab — or when the space's side has nothing at all to show.
+   */
+  stripShown(state: ShellState = this.state): { side: "space"; id: string } | { side: "session"; tab: SidebarTab } {
+    const active = state.current ? this.sidebar.active(state.current) : null;
+    if (active) {
+      if (state.stripSide === "session") return { side: "session", tab: active };
+      const space = this.registry.at("space").find((c) => c.id === state.space);
+      if (!safeTabs(this.registry, space).length && !state.detail) return { side: "session", tab: active };
+    }
+    return { side: "space", id: this.shownTab(state) };
+  }
+
+  /** Bring a tab of the open session's surface to the front, and that side of the strip with it. */
+  focusSessionTab(id: string): void {
+    const current = this.state.current;
+    if (!current) return;
+    this.sidebar.select(current, id);
+    if (this.state.stripSide !== "session") this.set({ stripSide: "session" });
+  }
+
   /** The tab the right column shows for the front space: the one chosen while it is still there,
    *  else the first. "details" stands while there is a detail to show. */
   shownTab(state: ShellState = this.state): string {
@@ -745,7 +859,7 @@ export class App {
   /** Select a tab of the front space's right column; `asked` when the host API asked for it. */
   selectTab(id: string, asked = false): void {
     const before = this.shownTab();
-    this.set({ tabBySpace: { ...this.state.tabBySpace, [this.state.space]: { id, asked } } });
+    this.set({ tabBySpace: { ...this.state.tabBySpace, [this.state.space]: { id, asked } }, stripSide: "space" });
     const after = this.shownTab();
     if (after !== before) for (const fn of [...this.tabListeners]) fn(after);
   }

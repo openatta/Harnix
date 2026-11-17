@@ -18,10 +18,11 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::def::{Assert, FlowDef, Station};
+use super::def::{Assert, FlowDef, Guard, Station};
 
 /// The kinds of part a pack holds besides flows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum PartKind {
     Skill,
@@ -92,6 +93,7 @@ pub fn rule_parts(name: &str, text: &str) -> (String, String) {
 // ── permissions ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum Effect {
     Allow,
@@ -118,6 +120,7 @@ impl Effect {
 /// `*` is anything) and may hold references (`${run}`, `${inputs.k}`, `${item…}`, `${workspace}`),
 /// resolved when the task is dispatched.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct Permission {
     pub effect: Effect,
@@ -165,6 +168,7 @@ impl Permission {
 
 /// A policy: a named set of permissions.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct PolicyDef {
     pub name: String,
@@ -177,6 +181,7 @@ pub struct PolicyDef {
 
 /// A permission with where it came from, as a task holds it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Granted {
     #[serde(flatten)]
     pub permission: Permission,
@@ -259,16 +264,24 @@ pub struct Verdict {
     pub reason: String,
 }
 
-/// Judge a call against a task's permissions: of those that match, `deny` > `ask` > `allow`;
-/// none matching, a guarded tool is refused and any other allowed.
+/// Judge a call against a task's permissions as a `strict` flow does: [`judge_under`] with
+/// [`Guard::Strict`].
+pub fn judge(granted: &[Granted], guarded: &[String], call: &Call, station: &str) -> Verdict {
+    judge_under(Guard::Strict, granted, guarded, call, station)
+}
+
+/// Judge a call against a task's permissions: of those that match, `deny` > `ask` > `allow`.
+/// None matching, a tool not guarded is allowed, and a guarded one is refused under `strict` and
+/// allowed under `auto` (the flow's [`Guard`]).
 ///
 /// Fails closed. A scoped permission whose scope cannot be read from the call (no input) is taken
 /// to match when it denies or asks and not to when it allows. A `deny` or `ask` with paths
 /// matches when any of the call's paths does, an `allow` only when all do. Paths are compared
 /// normalised (`.`, `..`, `//` folded; a relative one taken from the session's root). And what
-/// would be allowed while touching a path outside the session's root is asked of a person
-/// instead — unless an `allow` whose own `paths` cover it matched: that is the author saying so.
-pub fn judge(granted: &[Granted], guarded: &[String], call: &Call, station: &str) -> Verdict {
+/// would be allowed while touching a path outside the session's root is asked of a person under
+/// `strict` and refused under `auto` — unless an `allow` whose own `paths` cover it matched: that
+/// is the author saying so.
+pub fn judge_under(guard: Guard, granted: &[Granted], guarded: &[String], call: &Call, station: &str) -> Verdict {
     let paths = call_paths(call);
     let mut best: Option<(&Granted, bool)> = None;
     for g in granted {
@@ -302,7 +315,7 @@ pub fn judge(granted: &[Granted], guarded: &[String], call: &Call, station: &str
             };
             Verdict { effect: p.effect, reason }
         }
-        None if tool_matches(guarded, call.tool) => Verdict {
+        None if guard == Guard::Strict && tool_matches(guarded, call.tool) => Verdict {
             effect: Effect::Deny,
             reason: format!(
                 "station {station} of the flow does not allow {}: no permission of it allows this tool",
@@ -317,13 +330,25 @@ pub fn judge(granted: &[Granted], guarded: &[String], call: &Call, station: &str
     let scoped_allow = matches!(best, Some((_, true)));
     if verdict.effect == Effect::Allow && !scoped_allow && !outside.is_empty() {
         let list: Vec<&str> = outside.iter().map(|p| p.as_str()).collect();
-        return Verdict {
-            effect: Effect::Ask,
-            reason: format!(
-                "{} touches {} outside the session's project: a person decides (a permission whose paths name it would allow it)",
-                call.tool,
-                list.join(", ")
-            ),
+        return match guard {
+            Guard::Strict => Verdict {
+                effect: Effect::Ask,
+                reason: format!(
+                    "{} touches {} outside the session's project: a person decides (a permission whose paths name it would allow it)",
+                    call.tool,
+                    list.join(", ")
+                ),
+            },
+            Guard::Auto => Verdict {
+                effect: Effect::Deny,
+                reason: format!(
+                    "station {station} of the flow does not allow {} to touch {}: it is outside the task's project{}. \
+                     Work inside the project; only a permission whose paths name the place allows it",
+                    call.tool,
+                    list.join(", "),
+                    call.root.map(|r| format!(" ({r})")).unwrap_or_default()
+                ),
+            },
         };
     }
     verdict
@@ -542,6 +567,7 @@ pub fn glob(pattern: &str, text: &str, path: bool) -> bool {
 // ── gates ────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum GateKind {
     /// Call a read-only, idempotent application tool and assert on its result; judged on the spot.
@@ -560,6 +586,7 @@ pub const DEFAULT_GATE_SECONDS: u64 = 600;
 
 /// A gate: a named deterministic check a `gate` exit refers to.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct GateDef {
     pub name: String,
@@ -573,6 +600,7 @@ pub struct GateDef {
     pub tool: Option<String>,
     /// `tool`: its arguments (references resolved against the run).
     #[serde(default, skip_serializing_if = "Value::is_null")]
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
     pub args: Value,
     /// `tool`: what must hold of its result.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -610,6 +638,7 @@ impl GateDef {
 
 /// How a hook tells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
 pub enum HookKind {
     /// `POST` the event as JSON to the URL in `action`.
@@ -619,6 +648,7 @@ pub enum HookKind {
 /// A hook: when an event of a run happens, tell something outside. No flow names a hook; one
 /// put in the pack applies at once, and blocks nothing.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct HookDef {
     pub name: String,
@@ -659,6 +689,7 @@ impl HookDef {
 /// judging a call or a station reads only what the run holds. (Skills and rules, read only when
 /// a task is sent, are pinned by digest when their station is entered.)
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Pinned {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub policies: BTreeMap<String, PolicyDef>,
@@ -824,6 +855,45 @@ mod tests {
         assert_eq!(judge(&tmp, &g, &call("Write", Some(&t)), "s").effect, Effect::Allow);
         assert_eq!(normalize("a/./b//../c", Some("/r")), "/r/a/c");
         assert_eq!(normalize("/../x", None), "/x");
+    }
+
+    #[test]
+    fn auto_lets_the_project_be_worked_on_and_refuses_what_is_outside_it() {
+        let g = ["Bash".to_string(), "Write".to_string()];
+        let judged = |guard, p: &[Granted], tool: &str, input: Value| judge_under(guard, p, &g, &call(tool, Some(&input)), "s");
+        let inside = json!({"file_path": "src/a.rs"});
+        let outside = json!({"file_path": "/home/u/.bashrc"});
+        let none: Vec<Granted> = vec![];
+        // No permission: a guarded tool works inside the project under auto, refused under strict.
+        assert_eq!(judged(Guard::Auto, &none, "Write", inside.clone()).effect, Effect::Allow);
+        assert_eq!(judged(Guard::Strict, &none, "Write", inside.clone()).effect, Effect::Deny);
+        assert_eq!(judged(Guard::Auto, &none, "Bash", json!({"command": "cargo test"})).effect, Effect::Allow);
+        // Outside the project: refused, saying why, under auto; a person's under strict.
+        let v = judged(Guard::Auto, &none, "Write", outside.clone());
+        assert_eq!(v.effect, Effect::Deny);
+        assert!(v.reason.contains("/home/u/.bashrc") && v.reason.contains("outside the task's project"), "{}", v.reason);
+        let unscoped = vec![perm("{effect: allow, tools: [Write]}")];
+        assert_eq!(judged(Guard::Auto, &unscoped, "Write", outside.clone()).effect, Effect::Deny);
+        assert_eq!(judged(Guard::Strict, &unscoped, "Write", outside.clone()).effect, Effect::Ask);
+        // A tool no one guards, reading outside: the same.
+        assert_eq!(judged(Guard::Auto, &none, "Read", outside.clone()).effect, Effect::Deny);
+        assert_eq!(judged(Guard::Strict, &none, "Read", outside.clone()).effect, Effect::Ask);
+        // An allow whose own paths name the place lets it through under both.
+        let home = vec![perm("{effect: allow, tools: [Write], paths: ['/home/u/**']}")];
+        for guard in [Guard::Auto, Guard::Strict] {
+            assert_eq!(judged(guard, &home, "Write", outside.clone()).effect, Effect::Allow);
+        }
+        // What the author wrote holds under both: an ask waits for a person, a deny refuses.
+        let asked = vec![perm("{effect: ask, tools: [Write], paths: [release/**]}"), perm("{effect: deny, tools: [Bash], commands: ['git push*']}")];
+        for guard in [Guard::Auto, Guard::Strict] {
+            assert_eq!(judged(guard, &asked, "Write", json!({"file_path": "release/n.md"})).effect, Effect::Ask);
+            assert_eq!(judged(guard, &asked, "Bash", json!({"command": "git push"})).effect, Effect::Deny);
+        }
+        // `judge` is strict.
+        assert_eq!(judge(&none, &g, &call("Write", Some(&inside)), "s").effect, Effect::Deny);
+        // A session with no root: every path is outside it.
+        let rootless = Call { root: None, ..call("Write", Some(&inside)) };
+        assert_eq!(judge_under(Guard::Auto, &none, &g, &rootless, "s").effect, Effect::Deny);
     }
 
     #[test]

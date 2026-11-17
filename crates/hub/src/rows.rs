@@ -7,7 +7,8 @@
 use std::future::Future;
 use std::sync::{Arc, OnceLock};
 
-use harnix_contract::s1::RowScope;
+use harnix_contract::s1::{caps, RowScope};
+use harnix_contract::wire::{FEEDBACK_TOPIC, INBOX};
 use harnix_contract::{codes, RpcError};
 use harnix_kernel::{Access, CallContext, Handler, KernelPart, Owner, Rpc};
 use serde_json::Value;
@@ -139,6 +140,7 @@ pub const HUB_TOPICS: &[(&str, &[&str])] = &[
     ("harnix.instances.sessions", &["instance"]),
     ("harnix.session.tasks", &["instance", "session_id"]),
     ("harnix.sessions.status", &[]),
+    (INBOX, &[]),
 ];
 
 /// How far each of the hub's topics is narrowed for a package, or a page in a frame: one
@@ -166,6 +168,22 @@ impl Hub {
         }
     }
 
+    /// `harnix.session.skills` and `harnix.session.hooks`: what a session sees beyond its
+    /// conversation, by where each comes from. A person's to look at, so a device's alone: a
+    /// package has no need of what the settings tiers configure.
+    fn seen_rows(hub: &HubCell) -> Vec<HubRow> {
+        let row = |name: &'static str, handler: Arc<dyn Handler>| HubRow::Method {
+            name,
+            owner: Owner::Kernel(KernelPart::Hub),
+            access: Access::device().scoped(RowScope::Session),
+            handler: Some(handler),
+        };
+        vec![
+            row("harnix.session.skills", answer(hub, "harnix.session.skills", true, |h, _, p| async move { h.session_skills(p).await })),
+            row("harnix.session.hooks", answer(hub, "harnix.session.hooks", true, |h, _, p| async move { h.session_hooks(p).await })),
+        ]
+    }
+
     /// Every row the hub answers: its own methods and topics, and the engine's that pass through
     /// it. `hub` holds the hub once it is built; until then each answers that it is not up.
     pub fn rows(hub: &HubCell) -> Vec<HubRow> {
@@ -189,6 +207,7 @@ impl Hub {
                 h.tasks_view(&key).await
             }),
             own_session(hub, "harnix.session.rename", |h, _, p| async move { h.rename(p).await }),
+            own_session(hub, "harnix.session.outline", |h, _, p| async move { h.outline(p).await }),
             own_ext(hub, "harnix.session.entries.append", RowScope::Session, true, |h, cx, p| async move {
                 h.append_entry(&cx.subject, p).await
             }),
@@ -202,8 +221,28 @@ impl Hub {
                     h.move_session(&cx, p).await
                 })),
             },
+            // Showing a session in another space, and taking that back: the owner's (the
+            // extension that created it), so an extension's row; `to` is the space it is shown
+            // in, not a claim, so it is not checked as one.
+            own_ext(hub, "harnix.session.expose", RowScope::Session, false, |h, cx, p| async move { h.expose_session(&cx, p).await }),
+            own_ext(hub, "harnix.session.unexpose", RowScope::Session, false, |h, cx, p| async move { h.unexpose_session(&cx, p) }),
             own_ext(hub, "harnix.session.answerer", RowScope::Open, false, |h, _, p| async move { h.answerer(&p) }),
             own(hub, "harnix.spaces.list", |h, _, _| async move { Ok(h.spaces_view()) }),
+            // What waits on a person across the sessions, within the space a call claims.
+            own_space(hub, INBOX, |h, _, p| async move {
+                let claimed = p.get("space").and_then(Value::as_str);
+                Ok(h.inbox_view(claimed).await)
+            }),
+            // A person's judgment of an answer, as setting a model is: a device's alone, about a
+            // session it can see.
+            HubRow::Method {
+                name: "harnix.session.feedback",
+                owner: Owner::Kernel(KernelPart::Hub),
+                access: Access::device().scoped(RowScope::Session),
+                handler: Some(answer(hub, "harnix.session.feedback", true, |h, cx, p| async move {
+                    h.feedback(&cx.subject, p).await
+                })),
+            },
             // Intercepted engine methods, the hub's semantics: still the device's to ask for.
             own_session(hub, "harnix.session.interrupt", |h, _, p| async move { h.interrupt(p).await }),
             own_session(hub, "harnix.session.close", |h, _, p| async move { h.close_or_delete(p, false).await }),
@@ -214,6 +253,10 @@ impl Hub {
                 .iter()
                 .map(|(name, _)| HubRow::Topic { name, access: Access::device().with_extensions().scoped(topic_scope(name)) }),
         );
+        // Every piece of feedback, note and all, from every space: only for whom the product
+        // granted it, and never a device's — the page has the log.
+        rows.push(HubRow::Topic { name: FEEDBACK_TOPIC, access: Access::capability(caps::FEEDBACK_READ).scoped(RowScope::Open) });
+        rows.extend(Self::seen_rows(hub));
         rows.extend(crate::engine_rows::rows(hub));
         rows
     }

@@ -247,6 +247,7 @@ fn the_guides_examples_are_valid_flows() {
         .rule("no-secrets", "# No secrets\n\nNever paste keys.")
         .policy("{name: read-only, permissions: [{effect: deny, tools: [Write]}]}")
         .skill("draft", "Draft it.")
+        .skill("fix", "Fix it; the report goes to ${output_dir}/report.md.")
         .skill("collect", "Collect.")
         .skill("review-code", "Review the code.")
         .skill("review-docs", "Review the docs.")
@@ -266,7 +267,7 @@ fn the_guides_examples_are_valid_flows() {
             let problems = validate_yaml(yaml, &packs);
             assert!(problems.is_empty(), "{lang}: {yaml}\n{problems:?}");
         }
-        assert_eq!(whole, 4, "{lang}: four whole examples");
+        assert_eq!(whole, 5, "{lang}: five whole examples");
     }
 }
 

@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useT, Glyph } from "@harnix/react";
 
 import { SYSTEM } from "../constants.ts";
-import type { InstanceRow, SessionRowView } from "../types.ts";
+import { statusReason, type InstanceRow, type SessionRowView } from "../types.ts";
 import { act, useTopic, type View } from "../view.ts";
 import { Facts } from "./facts.tsx";
 
@@ -30,7 +30,7 @@ export function InstanceOverview({ view, instance: id }: { view: View; instance:
           <Facts
             rows={[
               [tr("system.fact.instance"), instance.id],
-              [tr("system.fact.state"), instance.status.reason ? `${instance.status.state} — ${instance.status.reason}` : instance.status.state],
+              [tr("system.fact.state"), statusReason(instance.status) ? `${instance.status.state} — ${statusReason(instance.status)}` : instance.status.state],
               [tr("system.fact.carrier"), tr(`system.carrier.${instance.carrier}`)],
               [tr("system.fact.template"), instance.template ?? ""],
               [tr("system.fact.owner"), instance.owner],

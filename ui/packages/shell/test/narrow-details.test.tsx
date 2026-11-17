@@ -14,7 +14,7 @@ import { scriptedApp } from "./scripted";
 
 afterEach(cleanup);
 
-function frameOf(shell: Hello["shell"]): HTMLElement {
+function frameOf(shell: Partial<Hello["shell"]>): HTMLElement {
   const { app } = scriptedApp();
   app.set({ hello: { shell } as unknown as Hello });
   const { container } = render(

@@ -9,7 +9,7 @@
 //! again ([`crate::activity`]). A sleeping instance is not woken for it: what was read before is
 //! given, marked stale.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use futures::stream::{self, StreamExt};
 use harnix_engine_api::readers::{AgentUsage, ReadError, SessionUsage};
@@ -75,20 +75,8 @@ fn fold(kept: &Kept, session: &str, stale: bool) -> SessionUsage {
             agent.last_at = Some(agent.last_at.map_or(ended, |t| t.max(ended)));
         }
     }
-    // Under `session`: itself, and whatever its parents lead up to it.
-    let under = |id: &str| {
-        let mut at = id;
-        for _ in 0..=16 {
-            if at == session {
-                return true;
-            }
-            match agents.get(at).and_then(|a| a.parent.as_deref()) {
-                Some(parent) => at = parent,
-                None => return false,
-            }
-        }
-        false
-    };
+    let tree = tree_of(kept, session);
+    let under = |id: &str| tree.contains(id);
     order.sort_by_key(|id| id != session);
     let listed: Vec<AgentUsage> = order
         .iter()
@@ -113,6 +101,30 @@ fn fold(kept: &Kept, session: &str, stale: bool) -> SessionUsage {
         })
         .collect();
     SessionUsage::new(kept.run.is_some(), listed).run(run_of(kept)).stale(stale && kept.run.is_some())
+}
+
+/// The sessions of `kept`'s rows under `session`: itself, and whatever its parents lead up to it.
+pub(super) fn tree_of(kept: &Kept, session: &str) -> HashSet<String> {
+    let mut parents: HashMap<&str, &str> = HashMap::new();
+    for row in &kept.rows {
+        if let Some(parent) = row.parent_session_id.as_deref() {
+            parents.entry(row.session_id.as_str()).or_insert(parent);
+        }
+    }
+    let under = |id: &str| {
+        let mut at = id;
+        for _ in 0..=16 {
+            if at == session {
+                return true;
+            }
+            match parents.get(at) {
+                Some(parent) => at = parent,
+                None => return false,
+            }
+        }
+        false
+    };
+    kept.rows.iter().map(|r| r.session_id.as_str()).filter(|id| under(id)).map(str::to_string).collect()
 }
 
 impl ProtocolReader {
