@@ -1529,5 +1529,23 @@ const zhCN: Record<string, string> = {
   "usageAll.col.cacheWrite": "缓存写",
   "usageAll.col.total": "Token",
   "usageAll.col.modelMs": "模型用时",
+  // ── 首页（Harnix app 的 home space；区块是别的包的） ──
+  "space.home": "首页",
+  "space.home.subtitle": "这里在跑什么、等你处理什么、最近做了什么",
+  "home.none": "这个产品没有往首页放任何东西。",
+  "home.stats.title": "全局统计",
+  "home.stats.uptime": "运行时长",
+  "home.stats.memory": "内存（峰值）",
+  "home.stats.threads": "系统线程",
+  "home.stats.users": "已连接用户",
+  "home.stats.instances": "实例",
+  "home.stats.agents": "Agent（活动/全部）",
+  "home.stats.sessions": "运行中会话",
+  "home.stats.tasks": "运行中的后台任务",
+  "home.stats.waiting": "待我处理",
+  "home.stats.noProcess": "这里读不到本进程的数字：{reason}",
+  "home.sessions.title": "最近会话",
+  "home.sessions.none": "还没有会话。",
+  "home.sessions.all": "全部会话",
 };
 export default zhCN;

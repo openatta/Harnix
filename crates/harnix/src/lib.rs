@@ -116,9 +116,9 @@ pub mod first_party {
     pub fn standard() -> ExtensionSet {
         ExtensionSet::new()
             .with(HarnixApp, [caps::TRANSCRIPTS_READ, caps::ENGINE_EXPORT, caps::ENGINE_CONTROL])
-            // The recordings, and a session's inside read through the engine: its context and
-            // its tasks' output.
-            .with(Observability, [caps::RECORDINGS_READ, caps::ENGINE_INSPECT])
+            // The recordings, a session's inside read through the engine (its context and its
+            // tasks' output), and this process's figures.
+            .with(Observability, [caps::RECORDINGS_READ, caps::ENGINE_INSPECT, caps::PROCESS_OBSERVE])
             .with(Settings, [caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE, caps::ENGINE_MCP, caps::ENGINE_INSPECT])
             .with(Plugins::default(), [caps::ENGINE_PLUGINS])
             .with(Devices, [caps::DEVICES_MANAGE])

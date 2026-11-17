@@ -6,6 +6,7 @@
  * space entered on it; the tab), and the tab drawing the run.
  */
 
+import type { ReactNode } from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HostProvider, Registry, TabInfoProvider, setLocale, type HostApi, type HostSessionRef, type TabInfo } from "@harnix/react";
@@ -15,7 +16,7 @@ import { register } from "../src/register";
 import { WorktreeLine, currentStation, taskStep, worktreeOpen } from "../src/RunPanel";
 import { registerFlowSpace } from "../src/space";
 import { registerFlowStrings } from "../src/strings";
-import { INBOX, PROJECT_ITEMS, PROJECT_PANELS, ProjectTasks, TASK_KIND, TASK_TAB_KIND, TaskRow, TasksPanel, enterTask, openTask, taskCounts, taskRows, waitingItems } from "../src/task";
+import { HOME_PANELS, INBOX, PROJECT_ITEMS, PROJECT_PANELS, ProjectTasks, TASK_KIND, TASK_TAB_KIND, TaskRow, TasksPanel, enterTask, openTask, recentTaskRows, taskCounts, taskRows, waitingItems } from "../src/task";
 import { START_ACTION, TASK_BADGE, type StartAction, type StartDraft, type TaskBadge } from "../src/points";
 import { TaskTab } from "../src/TaskTab";
 import type { DefSummary, FlowDef, RunSummary, RunView, WorktreeRec } from "../src/types";
@@ -306,6 +307,19 @@ describe("what waits on a person, and the overview's block", () => {
       summary({ id: "e", phase: { state: "running" }, project_root: "/work/beta" }),
     ];
     expect(taskCounts(runs, ROOT)).toEqual({ running: 1, waiting: 1, finished: 2 });
+    // Every project's, for the home page.
+    expect(taskCounts(runs, null)).toEqual({ running: 2, waiting: 1, finished: 2 });
+  });
+
+  it("the latest tasks of every project: dry runs left out, newest activity first, at most the limit", () => {
+    const runs = [
+      summary({ id: "example-review-1", created_at: 10 }),
+      summary({ id: "example-review-2", created_at: 20, project_root: "/work/beta" }),
+      summary({ id: "dry-example-review-1", created_at: 40, dry: true }),
+      summary({ id: "example-review-3", created_at: 30, project_root: null }),
+    ];
+    expect(recentTaskRows(runs).map((r) => r.id)).toEqual(["example-review-3", "example-review-2", "example-review-1"]);
+    expect(recentTaskRows(runs, 1).map((r) => r.id)).toEqual(["example-review-3"]);
   });
 
   it("registers its source and its block where the Harnix app defines them; the source opens the task", async () => {
@@ -331,6 +345,25 @@ describe("what waits on a person, and the overview's block", () => {
     const panel = r.list<{ id: string; order: number; title(): string }>(PROJECT_PANELS)[0]!;
     expect([panel.id, panel.order, panel.title()]).toEqual(["flow.tasks", 30, "Tasks"]);
     expect(r.refusals()).toEqual([]);
+  });
+
+  it("puts the latest tasks on the home page where the Harnix app defines it, each with its project", async () => {
+    const fake = fakeHost({ "flow.defs": DEFS, "flow.get": view() });
+    const r = new Registry();
+    r.activate("harnix-app", () => r.definePoint(HOME_PANELS, { kind: "render" }));
+    r.activate("flow", () => register(r, fake.host));
+    r.settle();
+    const block = r.list<{ id: string; order: number; title(): string; render(): ReactNode }>(HOME_PANELS)[0]!;
+    expect([block.id, block.order, block.title()]).toEqual(["flow.tasks", 40, "Recent tasks"]);
+    const page = render(<HostProvider host={fake.host}>{block.render()}</HostProvider>);
+    expect(page.getByTestId("home-tasks").textContent).toBe("No tasks yet.");
+    act(() => fake.push("flow.runs", {}, { runs: [summary({ phase: { state: "running" } }), summary({ id: "other", created_at: 1, project_root: "/work/beta" })] }));
+    await settle();
+    expect(page.getAllByTestId("home-task").map((el) => el.dataset.run)).toEqual(["example-review-1", "other"]);
+    expect(page.getAllByTestId("home-task")[1]!.textContent).toContain("beta");
+    fireEvent.click(page.getAllByTestId("home-task")[0]!);
+    await settle();
+    expect(fake.opened.at(-1)).toEqual({ instance: "main", sessionId: "main-1" });
   });
 
   it("the block: the counts, the latest tasks each opening, and 新任务", async () => {

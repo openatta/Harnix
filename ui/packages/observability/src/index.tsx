@@ -9,9 +9,11 @@
  *   and size, the tools, the skills and hooks in force, the MCP servers' tools, what trust holds
  *   back, the model; **usage** (this run's figures, with the way into the trajectory); and
  *   **output**, one tab per background command or monitor, opened from the tool's row.
- * - The usage summary (`UsageSummaryTab`): every session's figures over the last 30 days by
- *   project, day and model (`observability.usage.daily`), with the sections other packages add to
- *   `observability.usage.section`. A component for whoever has a page for it.
+ * - Two blocks of the home page (`harnix-app.home.panels`), where the product has the Harnix app:
+ *   the process at a glance (`observability.process`, the instances and their Agents, what waits),
+ *   and the usage summary (`UsageSummaryTab`: every session's figures over the last 30 days by
+ *   project, day and model, `observability.usage.daily`, with the sections other packages add to
+ *   `observability.usage.section`).
  *
  * Read through the host API alone: `observability.*` (the recording, the context, a task's
  * output), `harnix.session.outline`, `.skills`, `.hooks`, `.tasks`, `engine.session.entries` (the
@@ -21,11 +23,12 @@
 import { t, type ActionTarget, type HostApi, type Registry } from "@harnix/react";
 
 import { ContextTab } from "./context.tsx";
+import { GlobalStats, HOME_PANELS, type HomeContext } from "./home.tsx";
 import { OUTPUT_KIND, OUTPUT_TOOLS, OutputTab, openToolOutput, outputTitle } from "./output.tsx";
 import { TRAJECTORY_VIEW, type Observed } from "./shared.tsx";
 import { Trajectory } from "./trajectory/Trajectory.tsx";
 import { UsageTab } from "./usage.tsx";
-import { USAGE_SECTION } from "./summary.tsx";
+import { USAGE_SECTION, UsageSummaryTab } from "./summary.tsx";
 import "./observability.css";
 
 export { summarizeUsage, type UsageSummary } from "@harnix/core";
@@ -33,6 +36,7 @@ export { USAGE_SECTION, UsageSummaryTab, type UsageSection, type UsageSectionCon
 export { SessionContext } from "./context.tsx";
 export { OUTPUT_KIND, outputAddress, parseOutputAddress, stripAnsi, taskLabel } from "./output.tsx";
 export { TRAJECTORY_VIEW };
+export { GlobalStats, agentActive, type ProcessFigures } from "./home.tsx";
 
 /** The backend extension this package is the interface of. */
 export const extension = "observability";
@@ -93,6 +97,20 @@ export function register(r: Registry, host: HostApi): void {
       render: () => <OutputTab observed={observed} />,
     },
     extension,
+  );
+  // The home page: the process at a glance first, the usage of the last days after the lists.
+  // Where there is no Harnix app there is no home page, and neither block.
+  r.register(
+    HOME_PANELS,
+    { id: "observability.stats", order: 10, wide: true, title: () => t("home.stats.title"), render: (context: HomeContext) => <GlobalStats host={host} context={context} /> },
+    extension,
+    { orElse: () => undefined },
+  );
+  r.register(
+    HOME_PANELS,
+    { id: "observability.summary", order: 60, wide: true, title: () => t("usageAll.title"), render: () => <UsageSummaryTab observed={observed} /> },
+    extension,
+    { orElse: () => undefined },
   );
   r.register(
     "session.action",

@@ -105,7 +105,7 @@ fn first_party(without: &str) -> Modules {
         modules = modules.extension(HarnixApp, [caps::TRANSCRIPTS_READ, caps::ENGINE_EXPORT, caps::ENGINE_CONTROL]);
     }
     if without != "observability" {
-        modules = modules.extension(Observability, [caps::RECORDINGS_READ, caps::ENGINE_INSPECT]);
+        modules = modules.extension(Observability, [caps::RECORDINGS_READ, caps::ENGINE_INSPECT, caps::PROCESS_OBSERVE]);
     }
     if without != "settings" {
         modules = modules.extension(Settings, [caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE, caps::ENGINE_MCP, caps::ENGINE_INSPECT]);
@@ -223,7 +223,7 @@ mod capabilities {
     fn the_built_ins_hold_what_they_require_and_nothing_else() {
         let r = registered(first_party("")).unwrap();
         let observability = r.extensions.iter().find(|m| m.id == "observability").unwrap();
-        assert_eq!(observability.granted, ["recordings.read", "engine.inspect"]);
+        assert_eq!(observability.granted, ["recordings.read", "engine.inspect", "process.observe"]);
         // What each requires, and what it lists as optional and Harnix grants it too: the Harnix
         // app reads and changes a project's trust with `engine.control`; the settings page writes a
         // project's MCP servers and signs in to them with `engine.mcp`, and reads a session's MCP

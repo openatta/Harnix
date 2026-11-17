@@ -741,3 +741,98 @@
   overflow: auto;
   height: calc(100vh - 220px);
 }
+
+/* The home page's 全局统计: the process, its instances and Agents, and what waits, as a row of figures. */
+.obs-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 8px;
+}
+
+.obs-kpi {
+  position: relative;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--border-l1);
+  border-radius: 10px;
+  background: var(--bg-base);
+}
+
+.obs-kpi .v {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--label-primary);
+  font-family: var(--font-serif);
+  font-size: 18px;
+}
+
+.obs-kpi .l {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--label-tertiary);
+  font-size: 12px;
+}
+
+/* A count that opens the list it counts. */
+.obs-kpi.link {
+  display: block;
+  width: 100%;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.obs-kpi.link .l {
+  text-decoration: underline dotted;
+}
+
+.obs-kpi.link:hover {
+  border-color: var(--accent-line);
+  background: var(--interactive-hover);
+}
+
+.obs-kpi.link.hot .v {
+  color: var(--accent);
+}
+
+.obs-kpi-tip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  min-width: 300px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-l1);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+}
+
+.obs-kpi.has-tip:hover .obs-kpi-tip {
+  display: block;
+}
+
+.obs-kpi-tip .row {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+  border-top: 1px solid var(--border-l1);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.obs-kpi-tip .row:first-child {
+  border-top: 0;
+}
+
+.obs-kpi-tip .dev {
+  font-weight: 500;
+}
+
+.obs-kpi-tip .since {
+  margin-left: auto;
+  color: var(--label-caption);
+}

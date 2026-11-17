@@ -6,10 +6,12 @@
  * the banner over a conversation in a project that is not trusted); and the right column's files,
  * preview and changes tabs, with the changes card a turn that wrote files leaves in the conversation;
  * and two first-run steps on the empty page (`home.card`): a project, and the scene and permission
- * mode a conversation starts with. It defines four points of its own — the kinds of item a project
+ * mode a conversation starts with. It defines five points of its own — the kinds of item a project
  * tree lists besides its conversations, and the blocks of a project's overview (`items.ts`,
  * `overview.tsx`); the sources of what waits on a person, put together as one list (`inbox.tsx`);
- * and a badge on a session's row (`items.ts`).
+ * a badge on a session's row (`items.ts`); and the blocks of the home page (`home.tsx`), the home
+ * space where the interface lands — its own blocks there what waits on a person and the recent
+ * sessions, the others' the process at a glance, the usage, the recent tasks.
  *
  * Only the host API: the sessions come from the hub (`harnix.sessions.list`, kept current by the
  * instance's pushed session list) and what this product notes about them from its own methods
@@ -20,6 +22,7 @@
 import { t, type ActionTarget, type CommandCandidate, type Dispose, type HostApi, type Registry } from "@harnix/react";
 
 import { exportDialog } from "./dialogs.tsx";
+import { HOME, HOME_PANELS, HomePage, registerHome } from "./home.tsx";
 import { INBOX, Inbox, InboxEntryButton, hubAsks } from "./inbox.tsx";
 import { PROJECT_ITEMS, PROJECT_PANELS, SESSION_BADGE } from "./items.ts";
 import { OVERVIEW, OverviewTab, registerOverview } from "./overview.tsx";
@@ -35,6 +38,7 @@ export { interleave } from "./projects.tsx";
 export { CHANGES_KIND, FILES_KIND, FILE_PATTERN, PREVIEW_KIND, fileOfCall, lineOf } from "./sidebar.tsx";
 export { PROJECT_STEP, SCENE_STEP } from "./setup.tsx";
 export { INBOX, Inbox, askDetail, askItem, askKind, sameDir, type InboxEntry, type InboxItem, type InboxSource } from "./inbox.tsx";
+export { HOME, HOME_PANELS, HomePage, recentSessions, type HomeContext, type HomePanel } from "./home.tsx";
 export { OVERVIEW, orderedPanels, projectSessions, recentChanges, rulesByTier, skillsByTier, type RecentChange } from "./overview.tsx";
 export {
   PROJECT_ITEMS,
@@ -62,6 +66,8 @@ export function register(r: Registry, host: HostApi): Dispose {
   r.definePoint(SESSION_BADGE, { kind: "render" });
   // What waits on a person, from whoever says so: the hub's asks are this package's own source.
   r.definePoint(INBOX, { kind: "register" });
+  // The home page's blocks, from whoever owns what they show.
+  r.definePoint(HOME_PANELS, { kind: "render" });
   const store = new AppStore(host);
   store.start();
   const followed = { subscribe: store.subscribe, getSnapshot: store.getSnapshot };
@@ -72,6 +78,22 @@ export function register(r: Registry, host: HostApi): Dispose {
   // conversation is (the new conversation's page); a conversation's column is its own.
   const overview = { id: OVERVIEW, title: () => t("overview.title"), render: () => <OverviewTab r={r} store={store} /> };
 
+  // Where the interface lands: the first entry of the left column, an overview with no conversation.
+  r.register(
+    "space",
+    {
+      id: HOME,
+      icon: "home",
+      order: 5,
+      landing: true,
+      title: () => t("space.home"),
+      conversation: { subtitle: () => t("space.home.subtitle"), newSession: false },
+      center: { mode: "hidden", overview: () => <HomePage r={r} host={host} inbox={inbox} /> },
+      // Under the space list: the way to what waits, as in the other two spaces; no list of its own.
+      sidebar: { render: () => <InboxEntryButton host={host} r={r} inbox={inbox} /> },
+    },
+    extension,
+  );
   r.register(
     "space",
     {
@@ -201,6 +223,8 @@ export function register(r: Registry, host: HostApi): Dispose {
   r.register("home.card", { id: SCENE_STEP, order: 30, render: () => <SceneStep host={host} store={store} /> }, extension);
   // The overview's own blocks; other packages' go between them by order.
   registerOverview(r, host, store, inbox, extension);
+  // The home page's own blocks.
+  registerHome(r, host, store, inbox, extension);
 
   // Disabled: the stores stop following the hub with everything they fed.
   return () => {
