@@ -59,7 +59,7 @@ function full(method: string): unknown {
     case "observability.context":
       return CONTEXT;
     case "harnix.session.skills":
-      return { instance: "main", session_id: "s1", listed: true, skills: [{ name: "deploy", description: "ship it", tier: "project", withheld: true }, { name: "notes", description: "", tier: "user", withheld: false }], dirs: [] };
+      return { instance: "main", session_id: "s1", listed: true, skills: [{ name: "deploy", description: "ship it", tier: "project", withheld: true }, { name: "notes", description: "", tier: "user", user_tier: "scene", dir: "/e/scenes/code/skills", withheld: false }], dirs: [] };
     case "harnix.session.hooks":
       return { instance: "main", session_id: "s1", hooks: [{ event: "PreToolUse", source: "project", kind: "command", label: "command · Bash", in_force: false, withheld: true, providers: [] }, { event: "Stop", source: "global", kind: "prompt", label: "prompt", in_force: true, withheld: false, providers: [] }], unread: ["scene"] };
     case "settings.mcp.context":
@@ -88,6 +88,10 @@ describe("the context tab", () => {
     const skills = container.querySelectorAll('[data-testid="context-skill"]');
     expect(skills).toHaveLength(2);
     expect(skills[0]?.getAttribute("data-withheld")).toBe("true");
+    // A user tier's skill says which tier: the scene's here.
+    expect(skills[1]?.getAttribute("data-tier")).toBe("scene");
+    expect(skills[1]?.textContent).toContain("scene");
+    expect(skills[1]?.getAttribute("title")).toBe("/e/scenes/code/skills");
     const hooks = container.querySelectorAll('[data-testid="context-hook"]');
     expect([...hooks].map((h) => h.getAttribute("data-in-force"))).toEqual(["false", "true"]);
     expect(container.querySelector('[data-testid="context-mcp-server"]')?.textContent).toContain("github");

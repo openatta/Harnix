@@ -4,6 +4,7 @@
  * space tier, from its package's directory (`harnix.session.skills`); the hooks a session's turns
  * run are its event hook among this process's own, and a hook the project configures, said by its
  * kind and matcher only and held back while the project is untrusted (`harnix.session.hooks`);
+ * a skill of the engine's own user tiers says which — global or the scene's;
  * its backend's own log is in its extension log, which a device reads through
  * `observability.extensions.log` alone (harnix-app.md §12).
  *
@@ -68,6 +69,35 @@ test.describe("what a session sees, and each extension's log", () => {
     expect(tour, JSON.stringify(seen.skills)).toMatchObject({ tier: "space", package: SHOWCASE_ID, withheld: false });
     expect(tour.dir).toMatch(new RegExp(`ext/${SHOWCASE_ID.replace(".", "\\.")}/skills$`));
     expect(seen.dirs.find((d: any) => d.package === SHOWCASE_ID)?.skills).toContain("showcase-tour");
+  });
+
+  test("a skill of the engine's user tiers says which: the global skills or the scene's, and the directory it was read from", TAGS, async () => {
+    const engine = join(backend.scratch, "engine");
+    const skill = (dir: string, name: string) => {
+      mkdirSync(join(dir, name), { recursive: true });
+      writeFileSync(join(dir, name, "SKILL.md"), `---\nname: ${name}\ndescription: a skill of a user tier\n---\nSay ${name}.\n`);
+    };
+    // The scene a new session of the main instance runs in, from one made to ask.
+    const probe = await api.call("harnix.session.create", { instance: "main", project_root: api.project });
+    const { scene } = await api.call("engine.session.get", { instance: "main", session_id: probe.session_id });
+    const global = join(engine, "skills");
+    const own = join(engine, "scenes", scene, "skills");
+    skill(global, "hx-global-skill");
+    skill(own, "hx-scene-skill");
+    try {
+      const created = await api.call("harnix.session.create", { instance: "main", project_root: api.project });
+      const s = { instance: "main", session_id: created.session_id };
+      await api.call("harnix.session.attach", s);
+      const seen = await api.call("harnix.session.skills", s);
+      const text = JSON.stringify(seen.skills);
+      expect(seen.skills.find((k: any) => k.name === "hx-global-skill"), text).toMatchObject({ tier: "user", user_tier: "global", dir: global });
+      expect(seen.skills.find((k: any) => k.name === "hx-scene-skill"), text).toMatchObject({ tier: "user", user_tier: "scene", dir: own });
+      // A skill of another tier names no user tier.
+      expect(seen.skills.every((k: any) => k.tier === "user" || k.user_tier === undefined), text).toBe(true);
+    } finally {
+      rmSync(join(global, "hx-global-skill"), { recursive: true, force: true });
+      rmSync(join(own, "hx-scene-skill"), { recursive: true, force: true });
+    }
   });
 
   test("a session of another space does not, and a claim that is not the session's is refused", TAGS, async () => {

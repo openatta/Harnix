@@ -50,6 +50,12 @@ describe("the conversation components' table", () => {
       expect(table.explainFailure("auth", { raw: "" })).toBe(DICTIONARIES[key]["chat.fail.auth"]);
       expect(table.explainFailure("rate_limited", { raw: "", retryAfterMs: 2100 })).toContain("3");
       expect(table.explainFailure("nope" as never, { raw: "" })).toBeUndefined();
+      // A rate limit carries what the service said about it, summed up; without it, the words alone.
+      const said = table.explainFailure("rate_limited", { raw: "rate_limited: Usage limit reached, resets at 09:00 UTC", kind: "rate_limited", retryAfterMs: 7000 });
+      expect(said).toContain("Usage limit reached, resets at 09:00 UTC");
+      expect(said).toContain("7");
+      expect(table.explainFailure("rate_limited", { raw: "rate_limited (HTTP 429): busy", kind: "rate_limited" })).toContain("busy");
+      expect(table.explainFailure("rate_limited", { raw: "rate_limited", kind: "rate_limited" })).toBe(DICTIONARIES[key]["chat.fail.rateLimited"]);
     }
     expect(en.permAllowOnce).toBe(DICTIONARIES.en["chat.permAllowOnce"]);
     expect(zhCN.permAllowOnce).toBe(DICTIONARIES["zh-CN"]["chat.permAllowOnce"]);
