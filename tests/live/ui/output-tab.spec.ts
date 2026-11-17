@@ -1,7 +1,8 @@
 /**
  * A background task's output in the session's right column (harnix-app.md §6.1): the output tab,
- * @harnix/observability's, opened from a Monitor's tool row, read-only and followed while it runs;
- * and the home page's figure of the background tasks running (§10.1) counting it.
+ * @harnix/observability's, opened from a Monitor's tool row, read-only and followed while it runs,
+ * and stopped from its head (two presses, `observability.tasks.stop`); and the home page's figure
+ * of the background tasks running (§10.1) counting it.
  *
  * The task is a Monitor printing a line every quarter second (`streams-output`). Monitor is a tool
  * of the `code` scene, so this backend activates it beside the default.
@@ -83,6 +84,39 @@ test("output-tab: a Monitor's tool row opens its output in the right column, fol
   // Beside the pinned context tab, which stays last.
   const kinds = await page.locator('#details [data-testid="sidebar-tab"]').evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.kind));
   expect(kinds.at(-1)).toBe("context");
+  expect(errors).toEqual([]);
+});
+
+/** The output tab of the counter's task, opened from its Monitor row. */
+async function outputOf(page: Page) {
+  const row = page.locator('[data-testid="conv-tool"]').first();
+  await row.getByTestId("conv-tool-toggle").click();
+  const view = row.getByTestId("action-observability.output");
+  const outputs = page.locator('#details [data-testid="sidebar-tab"][data-kind="output"]');
+  await expect.poll(async () => { await view.click(); return outputs.count(); }, { timeout: 15_000 }).toBeGreaterThan(0);
+  return page.locator('#details [data-testid="output-tab"]');
+}
+
+test("output-tab: a running task is stopped from its tab, with a second press; stopped, it offers no stop", TAGS, async ({ page }) => {
+  const errors = watchConsole(page);
+  await counting(page);
+  const tab = await outputOf(page);
+  await expect(tab.getByTestId("task-output-text")).toContainText("line-1", { timeout: 15_000 });
+  await expect(tab).toHaveAttribute("data-status", "running");
+  const stop = tab.getByTestId("output-stop");
+  // One press only arms it: nothing is stopped by a stray click.
+  await stop.click();
+  await expect(stop).toHaveAttribute("data-armed", "true");
+  await expect(stop).toHaveText(/Press again to stop|再按一次停止/);
+  await page.waitForTimeout(500);
+  await expect(tab).toHaveAttribute("data-status", "running");
+  await stop.click();
+  // Stopped long before its ten seconds: the list says so, and there is nothing left to stop.
+  await expect(tab).toHaveAttribute("data-status", "stopped", { timeout: 10_000 });
+  await expect(tab.getByTestId("output-status")).toHaveText(/Stopped|已停止/);
+  await expect(tab.getByTestId("output-stop")).toHaveCount(0);
+  // The counter stops too: no line comes after the last one read once its output is final.
+  await expect(tab.getByTestId("task-output")).toHaveAttribute("data-final", "", { timeout: 20_000 });
   expect(errors).toEqual([]);
 });
 

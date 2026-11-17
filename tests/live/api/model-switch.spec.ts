@@ -2,11 +2,13 @@
  * Changing a session's model from where it is shown (ipdrun-12).
  *
  * `[shell] model_switch = true` opens `harnix.session.setModel` — scoped to the space the caller
- * claims, never across — and without the line nothing is added: the model is the settings'.
+ * claims, never across — and without the line the product's own default stands: off for an
+ * application that says nothing (the test application), so the model is the settings'; on for the
+ * `harnix` binary, where `model_switch = false` closes it again.
  */
 
 import { INVALID_PARAMS, SPACE_MISMATCH } from "@harnix/core/protocol";
-import { type Backend, connect, expect, test } from "@harnix/testkit";
+import { type Backend, connect, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
 import { startTestApp } from "./testapp";
 
@@ -85,3 +87,27 @@ test("without the line, nothing is added", TAGS, async () => {
     await plain.dispose();
   }
 });
+
+test("the harnix binary switches models without the line, and the line written false closes it", TAGS, async () => {
+  for (const [profile, offered] of [["", true], ["\n[shell]\nmodel_switch = false\n", false]] as const) {
+    const harnix = await startHarnix(launchFor("replay", { profile }));
+    try {
+      const api = await connect(harnix);
+      const { methods } = await api.call("harnix.reachable");
+      expect(methods.includes("harnix.session.setModel"), profile || "no line").toBe(offered);
+      const hello = await api.call("harnix.hello", {});
+      expect(hello.shell.model_switch).toBe(offered);
+      if (offered) {
+        const created = await api.call("harnix.session.create", { space: "sessions" });
+        const session = { instance: created.instance, session_id: created.session_id, space: "sessions" };
+        expect(await api.call("harnix.session.setModel", { ...session, model: "switched-model" })).toMatchObject({ model: "switched-model" });
+        // Its own space only, here too.
+        expect((await api.refused("harnix.session.setModel", { ...session, space: "flow", model: "x" }))?.code).toBe(SPACE_MISMATCH);
+      }
+      api.close();
+    } finally {
+      await harnix.dispose();
+    }
+  }
+});
+

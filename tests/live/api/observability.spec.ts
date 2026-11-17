@@ -1,7 +1,10 @@
 /**
  * What `observability` reads of a session and of this process (harnix-app.md §6.1, §10): a
  * session's context and its tasks' output, asked of the engine with the extension's own
- * `engine.inspect`, for the sessions of the space the caller claims and no other; its model calls,
+ * `engine.inspect`, for the sessions of the space the caller claims and no other; a person's
+ * changes to it — a message rewritten or taken out of the context, with the extension's own
+ * `engine.control`, against the history's `total`, the session's watchers told to read it again
+ * (harnix-app.md §5.1; stopping a task is `task-stop.spec.ts`'s); its model calls,
  * turns and usage read back out of the engine's recording; this process's figures, a method and a
  * topic. Beside them, what a session's row says and what it is exported and imported as.
  *
@@ -29,6 +32,9 @@ const SHELL = { tag: ["@feature:shell", "@layer:api"] };
 const METHODS = [
   "observability.context",
   "observability.tasks.output",
+  "observability.tasks.stop",
+  "observability.messages.edit",
+  "observability.messages.drop",
   "observability.calls",
   "observability.trace",
   "observability.trace.call",
@@ -161,6 +167,52 @@ test.describe("on", () => {
     expect(across?.code).toBe(SPACE_MISMATCH);
     expect(across?.data?.space).toBe("fleet");
     expect((await api.refused("observability.tasks.output", { instance: s.instance, space: "fleet", task_id: "x" }))?.code).toBe(INVALID_PARAMS);
+  });
+
+  test("a person's message is rewritten in its own space, against the history's count; the watchers read it again; another space's is refused", TAGS, async () => {
+    const s = await oneTurn(api, "fleet");
+    const history = await api.call("engine.session.history", { ...s, space: "fleet" });
+    const at = history.messages.findIndex((m: any) => m.origin === "user");
+    const total = history.total;
+    // Without the count it was seen against, or with a stale one, nothing is changed.
+    expect((await api.refused("observability.messages.edit", { ...s, space: "fleet", at, text: "Say exactly: edited" }))?.code).toBe(INVALID_PARAMS);
+    expect((await api.refused("observability.messages.edit", { ...s, space: "fleet", at, text: "Say exactly: edited", total: total + 1 }))?.code).toBe(INVALID_PARAMS);
+    // Claiming another space, the hub refuses it before the engine is asked.
+    const across = await api.refused("observability.messages.edit", { ...s, space: "sessions", at, text: "x", total });
+    expect(across?.code).toBe(SPACE_MISMATCH);
+    expect(across?.data?.space).toBe("fleet");
+
+    const resynced = api.waitFor((f) => f.method === "harnix.session_resync" && f.params.session_id === s.session_id, {
+      timeout: 15_000,
+      describe: "the watcher told to read the session again",
+    });
+    expect(await api.call("observability.messages.edit", { ...s, space: "fleet", at, text: "Say exactly: edited", total })).toEqual({ edited: at });
+    await resynced;
+    const after = await api.call("engine.session.history", { ...s, space: "fleet" });
+    expect(JSON.stringify(after.messages[at].content)).toContain("Say exactly: edited");
+    expect(after.total).toBe(total);
+
+    // On the record: the device's call, and under it the engine's change asked as observability.
+    const { entries } = await api.call("harnix.audit", { limit: 200 });
+    const asked = entries.filter((e: any) => e.method === "observability.messages.edit" && e.decision === "allow");
+    const edited = entries.filter((e: any) => e.method === "engine.session.editMessage" && asked.some((a: any) => a.call_id === e.parent));
+    expect(edited).toHaveLength(1);
+    expect(edited[0]).toMatchObject({ subject: "ext:observability", decision: "allow" });
+  });
+
+  test("a person's message is taken out of the context, its place kept; the model's own is not", TAGS, async () => {
+    const s = await oneTurn(api, "fleet");
+    const history = await api.call("engine.session.history", { ...s, space: "fleet" });
+    const at = history.messages.findIndex((m: any) => m.origin === "user");
+    const total = history.total;
+    // The model's reply cannot be taken out: the engine says so.
+    expect((await api.refused("observability.messages.drop", { ...s, space: "fleet", at: [at + 1], total }))?.code).toBe(INVALID_PARAMS);
+    expect((await api.refused("observability.messages.drop", { ...s, space: "fleet", at: [at], total: total + 1 }))?.code).toBe(INVALID_PARAMS);
+    expect(await api.call("observability.messages.drop", { ...s, space: "fleet", at: [at], total })).toEqual({ dropped: [at] });
+    const after = await api.call("engine.session.history", { ...s, space: "fleet" });
+    expect(after.total, "its place is kept").toBe(total);
+    expect(JSON.stringify(after.messages[at].content)).toContain("removed by the host");
+    expect((await api.refused("observability.messages.drop", { ...s, space: "sessions", at: [at], total }))?.code).toBe(SPACE_MISMATCH);
   });
 
   test("observability.usage: what each Agent of a session used this run — the session first, then its sub-agents with their parents", TAGS, async () => {

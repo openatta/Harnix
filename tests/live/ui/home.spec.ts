@@ -1,9 +1,10 @@
 /**
  * The home page in the browser (harnix-app.md §10): a page opened afresh lands on it, first in the
  * left column; a reload stays where the tab was. It holds no conversation — no composer, no "new
- * session" — only the blocks of `harnix-app.home.panels`, by order, each its package's: the
- * process at a glance (§10.1), what waits, the recent sessions, the recent tasks, every schedule
- * (§10.2, `schedule.spec.ts`), the usage of the last 30 days (§10.3, `usage-summary.spec.ts`).
+ * session" — only the blocks of `harnix-app.home.panels`, by order, each its package's: the first
+ * run while unfinished (`first-run.spec.ts`), the process at a glance (§10.1), what waits, the
+ * recent sessions, the recent tasks, every schedule (§10.2, `schedule.spec.ts`), the usage of the
+ * last 30 days (§10.3, `usage-summary.spec.ts`).
  * That the backend refuses a session there is the API's (`no_sessions`).
  *
  * Replayed: `says-ready`, `runs-a-while` (a turn whose Bash call waits on its permission).
@@ -15,7 +16,7 @@ import { type Backend, expect, launchFor, startHarnix, test } from "@harnix/test
 import { connected, newSession, open, reply, say, sessionRow, spaceEntry, toSpace, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:home", "@layer:ui"] };
-const BLOCKS = ["observability.stats", "harnix-app.inbox", "harnix-app.sessions", "flow.tasks", "schedule.all", "observability.summary"];
+const BLOCKS = ["harnix-app.setup", "observability.stats", "harnix-app.inbox", "harnix-app.sessions", "flow.tasks", "schedule.all", "observability.summary"];
 
 let backend: Backend;
 
