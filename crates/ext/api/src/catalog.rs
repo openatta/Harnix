@@ -248,6 +248,14 @@ pub const EXTENSION_POINTS: &[ExtensionPoint] = &[
     },
     ExtensionPoint {
         owner: "harnix-app",
+        id: "harnix-app.home.panels",
+        kind: PointKind::Render,
+        what: "首页的一个区块（`{id, title(), order?, render(context)}`）：全局统计、用量、待我处理、最近会话、最近任务",
+        when: "首页画出时",
+        frequency: Frequency::PerInteraction,
+    },
+    ExtensionPoint {
+        owner: "harnix-app",
         id: "harnix-app.inbox",
         kind: PointKind::Register,
         what: "待我处理的一个来源（`{id, items(), subscribe(fn), open(item)}`）：中枢的提问、流程的确认、hold、外部工作项",
@@ -346,7 +354,7 @@ mod tests {
             assert!(point(p.id).is_none(), "{} is one of the shell's", p.id);
         }
         assert_eq!(points_of("system").count(), 3);
-        assert_eq!(points_of("harnix-app").count(), 4);
+        assert_eq!(points_of("harnix-app").count(), 5);
         assert_eq!(points_of("flow").count(), 2);
     }
 
