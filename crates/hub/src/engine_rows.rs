@@ -27,6 +27,9 @@ enum After {
     Goal,
     /// What the session list shows changed, and the engine sends no event for it.
     Relisted,
+    /// The session's task list changed at once — a task stopped is `stopped` before its work has
+    /// wound down, and the frame saying it is over may come seconds later: its watchers are told now.
+    Tasks,
     /// What the conversation said is changed in place, and the engine sends no event for it: its
     /// watchers read it again, as after a rewind, and the session list is told.
     Redrawn,
@@ -80,7 +83,7 @@ const BY_CAPABILITY: &[(&str, Capability, After)] = &[
     ("engine.session.taskOutput", caps::ENGINE_INSPECT, After::Nothing),
     ("engine.session.inspectContext", caps::ENGINE_INSPECT, After::Nothing),
     ("engine.session.goal", caps::ENGINE_INSPECT, After::Goal),
-    ("engine.session.stopTask", caps::ENGINE_CONTROL, After::Nothing),
+    ("engine.session.stopTask", caps::ENGINE_CONTROL, After::Tasks),
     ("engine.session.messageTask", caps::ENGINE_CONTROL, After::Nothing),
     ("engine.session.dropMessages", caps::ENGINE_CONTROL, After::Redrawn),
     ("engine.session.editMessage", caps::ENGINE_CONTROL, After::Redrawn),
@@ -404,6 +407,11 @@ impl Hub {
                 }
             }
             After::Relisted => self.refresh("harnix.instances.sessions", json!({"instance": instance})),
+            After::Tasks => {
+                if let Some(session) = session {
+                    self.refresh("harnix.session.tasks", json!({"instance": instance, "session_id": session}));
+                }
+            }
             After::Redrawn => match session {
                 Some(session) => self.redraw_rewound(&(instance.clone(), session), None).await,
                 None => self.refresh("harnix.instances.sessions", json!({"instance": instance})),
