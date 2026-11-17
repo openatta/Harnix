@@ -308,7 +308,7 @@ test.describe("the store, trusted", () => {
     expect(existsSync(join(backend.state, "ext", SHOWCASE_ID)), "its directory, kv, skills and data").toBe(false);
     expect((await fetch(`${backend.url.replace(/\/$/, "")}/ext/${SHOWCASE_ID}/ui/showcase.js`)).status).toBe(404);
     const s = await session(api, "says-ready");
-    const context = JSON.stringify(await api.call("system.context", s));
+    const context = JSON.stringify(await api.call("observability.context", s));
     expect(context).not.toContain(TOOL("echo"));
     expect(JSON.stringify(await api.call("engine.commands.list", s))).not.toContain("showcase-tour");
     // Installed again, it starts from nothing: the count with it.

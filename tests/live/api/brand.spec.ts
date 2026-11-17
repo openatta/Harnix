@@ -1,14 +1,13 @@
 /**
  * What a product says about itself (concept §5.10): `[brand]` — its name, its icon, and
  * the id its own directory is named after — and `[shell] spaces`, which of the built-in spaces it
- * keeps. Plus `system.process`, the system space's strip: versions, uptime, memory, and who is
- * connected.
+ * keeps.
  */
 
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SPACE_MISMATCH } from "@harnix/core/protocol";
-import { type Backend, connect, expect, launchFor, sleep, startHarnix, test, topology } from "@harnix/testkit";
+import { type Backend, connect, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
 const BRAND = { tag: ["@feature:brand", "@layer:api"] };
 const SHELL = { tag: ["@feature:shell", "@layer:api"] };
@@ -62,52 +61,22 @@ test("without a brand the state is ~/.harnix, and a product id that is not a nam
 });
 
 test("a product switches off the extensions whose spaces it does not want, and their methods go too", SHELL, async () => {
-  const backend = await startHarnix(launchFor("replay", { profile: '\n[extensions]\noff = ["system", "flow"]\n' }));
+  const backend = await startHarnix(launchFor("replay", { profile: '\n[extensions]\noff = ["flow"]\n' }));
   try {
     const api = await connect(backend);
     const { extensions } = await api.call("harnix.hello");
     const enabled = extensions.filter((e: any) => e.enabled).map((e: any) => e.id);
     expect(enabled).toContain("harnix-app");
-    expect(enabled).not.toContain("system");
     expect(enabled).not.toContain("flow");
     const reachable = (await api.call("harnix.reachable")).methods as string[];
-    expect(reachable.some((m) => m.startsWith("system."))).toBe(false);
-    expect(reachable).not.toContain("system.compact");
+    expect(reachable.some((m) => m.startsWith("flow."))).toBe(false);
+    expect((await api.call("harnix.spaces.list")).spaces.map((s: any) => s.id)).not.toContain("flow");
     const created = await api.call("harnix.session.create", { space: "sessions" });
-    const refused = await api.refused("harnix.session.attach", { instance: created.instance, session_id: created.session_id, space: "system" });
+    const refused = await api.refused("harnix.session.attach", { instance: created.instance, session_id: created.session_id, space: "flow" });
     expect(refused?.code).toBe(SPACE_MISMATCH);
     api.close();
   } finally {
     await backend.dispose();
   }
   await expect(startHarnix(launchFor("replay", { profile: '\n[shell]\nspaces = ["sessions"]\n' }))).rejects.toThrow(/spaces/);
-});
-
-test("system.process: versions, uptime, peak memory, and every connected user", SHELL, async () => {
-  const backend = await startHarnix(launchFor("replay"));
-  try {
-    const one = await connect(backend);
-    const two = await connect(backend);
-    const process = await one.call("system.process");
-    expect(process.harnix).toMatch(/^0\.4\.\d+-\d{10}$/);
-    expect(typeof process.agix).toBe("string");
-    expect(process.uptime_secs).toBeGreaterThanOrEqual(0);
-    expect(process.connections.length).toBeGreaterThanOrEqual(2);
-    for (const c of process.connections) expect(c).toMatchObject({ device: expect.any(String), topology: expect.any(String), since_ms: expect.any(Number) });
-    two.close();
-    if (topology() === "split_streams") {
-      // A split-streams client says nothing when it goes: closing its streams looks the same as
-      // streams that dropped and are being reopened (a proxy's timeout, a laptop asleep), and its
-      // handshake has to outlive that or the page loses its subscriptions. So it is listed until
-      // the transport's idle sweep ends it — streams closed and no `/rpc` for SPLIT_IDLE, five
-      // minutes (crates/transport/src/session.rs, whose unit test covers the sweep).
-      await sleep(500);
-      expect((await one.call("system.process")).connections.length).toBe(process.connections.length);
-    } else {
-      await expect.poll(async () => (await one.call("system.process")).connections.length).toBe(process.connections.length - 1);
-    }
-    one.close();
-  } finally {
-    await backend.dispose();
-  }
 });

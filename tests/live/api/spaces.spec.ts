@@ -1,7 +1,7 @@
 /**
  * Spaces (concept §5.4): a session belongs to one space from its creation, and a call that
- * claims a space is checked against that — on the server, not only in the interface. The system
- * space is the exception, and each time it reaches across a space it is on the record.
+ * claims a space is checked against that — on the server, not only in the interface. No space of
+ * the product reaches across. The home page is a space that holds no sessions (harnix-app.md §10).
  *
  * `fleet` is a space the testapp declares, on its own instance (`fleet-side`).
  */
@@ -48,14 +48,12 @@ test("a space's new session lands on its default instance and is listed in it al
   expect(inFleet).not.toContain(mine.session_id);
   expect(inSessions).toContain(mine.session_id);
   expect(inSessions).not.toContain(fleet.session_id);
-  const all = (await api.call("harnix.sessions.list", { space: "system" })).sessions.map((s: any) => s.session_id);
-  expect(all).toEqual(expect.arrayContaining([fleet.session_id, mine.session_id]));
 });
 
 test("the kernel has no space of its own: the session space is the Harnix app's, and the default", TAGS, async () => {
   const { spaces } = await api.call("harnix.spaces.list");
   expect(spaces.filter((s: any) => s.default).map((s: any) => s.id)).toEqual(["sessions"]);
-  expect(spaces.find((s: any) => s.id === "system")).toMatchObject({ cross_space: true, default: false });
+  expect(spaces.filter((s: any) => s.cross_space).map((s: any) => s.id), "no space reaches across").toEqual([]);
   // A session created claiming no space is the default space's, and checked as it.
   const created = await api.call("harnix.session.create", { options: { recorder: { name: "says-ready" } } });
   const inSessions = (await api.call("harnix.sessions.list", { space: "sessions" })).sessions.map((s: any) => s.session_id);
@@ -104,14 +102,6 @@ test("the instance has to be the session's own", TAGS, async () => {
   expect(taken, "an instance is usable by spaces other than the one that owns it only when no space owns it").toBeNull();
 });
 
-test("the system space reaches any space's session, and that is audited", TAGS, async () => {
-  const fleet = await createIn("fleet");
-  await api.call("harnix.session.attach", { ...fleet, space: "system" });
-  const { entries } = await api.call("harnix.audit", { limit: 50 });
-  const crossed = entries.find((e: any) => e.method === "harnix.session.attach" && e.reason?.includes("cross-space"));
-  expect(crossed, JSON.stringify(entries.slice(0, 5))).toBeTruthy();
-});
-
 test("a session never moves: forking it keeps the space", TAGS, async () => {
   const fleet = await createIn("fleet");
   await api.call("harnix.session.send", { ...fleet, space: "fleet", message: "Say exactly: fixture ready" });
@@ -142,21 +132,6 @@ test("@session references carry another space's conversation into a turn", TAGS,
   expect(bad, "a reference to nothing is refused rather than dropped").not.toBeNull();
 });
 
-test("with the system space turned off, nobody may claim it", TAGS, async () => {
-  const off = await startTestApp({ profile: "\n[extensions]\noff = [\"system\"]\n" });
-  try {
-    const client = await connect(off);
-    const created = await client.call("harnix.session.create", { space: "sessions" });
-    const error = await client.refused("harnix.session.attach", { instance: created.instance, session_id: created.session_id, space: "system" });
-    expect(error?.code).toBe(SPACE_MISMATCH);
-    const { spaces } = await client.call("harnix.spaces.list");
-    expect(spaces.map((s: any) => s.id)).not.toContain("system");
-    client.close();
-  } finally {
-    await off.dispose();
-  }
-});
-
 test("a module moves a session to another space, where it is listed alone; a space it cannot go to is refused (ipdrun-51)", TAGS, async () => {
   const mine = await createIn("sessions");
   const move = (params: Record<string, unknown>) =>
@@ -171,9 +146,9 @@ test("a module moves a session to another space, where it is listed alone; a spa
   // Moving it where it already is changes nothing.
   expect(await move({ space: "projects" })).toMatchObject({ moved: false });
 
-  // Not to the system space, nor to a name no space can have (a well-formed one is a space — one
-  // may live only in the interface).
-  for (const space of ["system", "not a space!"]) {
+  // Not to the home page, which holds none, nor to a name no space can have (a well-formed one is
+  // a space — one may live only in the interface).
+  for (const space of ["home", "not a space!"]) {
     const refused = await api.refused("probe.call", { method: "harnix.session.move", params: { ...mine, space } });
     expect(refused?.code, space).toBe(SPACE_MISMATCH);
   }
@@ -215,8 +190,8 @@ test("a module exposes its session to another space: looked at there, talked to 
   }
   await api.call("engine.session.get", { ...mine, space: "sessions" });
 
-  // Not to its own space, the system space, a space the product turned off, nor a name no space can have.
-  for (const to of ["sessions", "system", "not a space!"]) {
+  // Not to its own space, nor a name no space can have.
+  for (const to of ["sessions", "not a space!"]) {
     expect((await refusedExpose({ to }))?.code, to).toBe(SPACE_MISMATCH);
   }
   expect((await refusedExpose({}))?.code, "no `to`").toBe(INVALID_PARAMS);
@@ -243,4 +218,37 @@ test("moving a session to another space is the application's: a device is refuse
   const error = await api.refused("harnix.session.move", { ...mine, space: "fleet" });
   expect(error, "a device cannot rebind a session").not.toBeNull();
   await api.call("engine.session.get", { ...mine, space: "sessions" });
+});
+
+test("the home page is a space that holds no sessions: none is created, imported or moved there, and it lists none", TAGS, async () => {
+  const { spaces } = await api.call("harnix.spaces.list");
+  expect(spaces.find((s: any) => s.id === "home")).toMatchObject({ no_sessions: true, default: false });
+  expect(spaces.find((s: any) => s.id === "sessions").no_sessions, "absent where it holds them").toBeUndefined();
+  const listed = async (space: string) => (await api.call("harnix.sessions.list", { space })).sessions.map((r: any) => r.session_id);
+  const before = await listed("sessions");
+  const holdsNone = (error: any, what: string) => {
+    expect(error?.code, what).toBe(SPACE_MISMATCH);
+    expect(error?.message, what).toContain("holds no sessions");
+  };
+
+  // Created there, by a device or a module.
+  holdsNone(await api.refused("harnix.session.create", { space: "home" }), "a device's create");
+  holdsNone(await api.refused("probe.call", { method: "harnix.session.create", params: { space: "home" } }), "a module's create");
+
+  // Imported there: the bundle is not even read, the space is refused first.
+  const grant = await api.call("harnix-app.sessions.importUpload", { name: "home.zip", space: "home" });
+  const sent = await fetch(`${backend.url.replace(/\/$/, "")}${grant.url}`, { method: "POST", body: new Uint8Array(Buffer.from("not read")) });
+  expect(sent.ok).toBe(true);
+  holdsNone(await api.refused("harnix-app.sessions.import", { token: grant.token, space: "home" }), "an import");
+
+  // Moved there: to a move, it is no space a session can go to.
+  const mine = await createIn("sessions");
+  const moved = await api.refused("probe.call", { method: "harnix.session.move", params: { ...mine, space: "home" } });
+  expect(moved?.code).toBe(SPACE_MISMATCH);
+  expect(moved?.message).toContain("no space `home` to move a session to");
+  expect(await listed("sessions")).toEqual(expect.arrayContaining([...before, mine.session_id]));
+
+  // It lists none, and nothing was left anywhere: the session space has only the one made here.
+  expect(await listed("home")).toEqual([]);
+  expect((await listed("sessions")).filter((id: string) => !before.includes(id))).toEqual([mine.session_id]);
 });

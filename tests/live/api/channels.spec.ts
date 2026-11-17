@@ -110,7 +110,7 @@ test.describe("on loopback", () => {
 
     const first = stream();
     expect((await first.response).status).toBe(200);
-    expect((await rpc("harnix.topics.subscribe", { topic: "system.process" })).result).toBeTruthy();
+    expect((await rpc("harnix.topics.subscribe", { topic: "observability.process" })).result).toBeTruthy();
     // The connection drops, as a proxy's idle timeout or a laptop's sleep drops it.
     first.abort.abort();
     await sleep(200);
@@ -121,8 +121,8 @@ test.describe("on loopback", () => {
     const reopened = await second.response;
     expect(reopened.status).toBe(200);
     // A value computed afresh goes to who already watches it: this client, on the new stream.
-    expect((await rpc("harnix.topics.subscribe", { topic: "system.process" })).result).toBeTruthy();
-    const frame = await readUntil(reopened, (f) => f.method === "harnix.topic" && f.params?.topic === "system.process");
+    expect((await rpc("harnix.topics.subscribe", { topic: "observability.process" })).result).toBeTruthy();
+    const frame = await readUntil(reopened, (f) => f.method === "harnix.topic" && f.params?.topic === "observability.process");
     expect(frame?.params?.value?.uptime_secs).toBeGreaterThanOrEqual(0);
   });
 

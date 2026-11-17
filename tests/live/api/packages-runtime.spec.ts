@@ -51,7 +51,7 @@ const results = (api: TestClient, s: Session) => JSON.stringify(api.eventsOfKind
 /** What a new session in `instance` would send the model: its system prompt's text and its tools. */
 async function context(api: TestClient, instance = "main"): Promise<{ text: string; tools: string[]; s: Session }> {
   const s = await session(api, "says-ready", instance);
-  const context = await api.call("system.context", s);
+  const context = await api.call("observability.context", s);
   const text = JSON.stringify(context);
   const tools: string[] = (context.tools ?? context.context?.tools ?? []).map((t: any) => t.name ?? t);
   return { text, tools, s };
@@ -86,7 +86,7 @@ async function mainCommands(api: TestClient): Promise<string> {
 async function agentContext(api: TestClient): Promise<string> {
   if (!ON_PROCESS) return (await context(api)).text;
   const created = await api.call("harnix.session.create", { space: SHOWCASE_ID });
-  return JSON.stringify(await api.call("system.context", { ...AGENT_AT, session_id: created.session_id }));
+  return JSON.stringify(await api.call("observability.context", { ...AGENT_AT, session_id: created.session_id }));
 }
 
 test.describe("an application, installed from a file", () => {
@@ -398,12 +398,8 @@ carrier = "spawn"
           return [] as string[];
         },
       );
-    // Restarted: a new link, which registers them before it is ready.
-    await api.call("system.instances.restart", { instance: "far", space: "system" });
-    await expect.poll(has, { timeout: 60_000, intervals: [500] }).toContain(TOOL("echo"));
-
-    // Killed: its link starts another process and registers them on the new connection.
-    // Restarted, its process may not be listed yet.
+    // Killed: its link starts another process and registers them on the new connection, before
+    // it is ready. Until it is up, its process may not be listed yet.
     const farPid = async () => (await api.call("harnix.instances.list")).instances.find((i: any) => i.id === "far").pid ?? 0;
     await expect.poll(farPid, { timeout: 60_000, intervals: [250] }).toBeGreaterThan(0);
     const pid = await farPid();

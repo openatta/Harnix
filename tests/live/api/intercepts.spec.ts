@@ -4,7 +4,7 @@
  * from the outside so that moving the handler somewhere else keeps them:
  *
  * - who answered a permission prompt is kept for the application's audit;
- * - a goal heard in an engine answer lands on the session's row;
+ * - a goal heard from the engine lands on the session's row;
  * - a method after which the session list reads differently pushes the list again.
  *
  * `probe.call` (crates/testapp) calls a method as the `probe` module.
@@ -69,18 +69,15 @@ test("the device that answered a prompt is kept once for a module, and dropped f
   expect((await api.refused("harnix.session.answerer", { session_id: s.session_id, tool_use_id: toolUse }))?.code).toBe(REFUSED);
 });
 
-test("a goal the engine answers with is on the session's row, and off it once cleared", TAGS, async () => {
-  const created = await api.call("harnix.session.create", { project_root: api.project, options: { recorder: { name: "says-ready" } } });
+test("a goal the engine reports is on the session's row", TAGS, async () => {
+  const created = await api.call("harnix.session.create", { project_root: api.project, options: { recorder: { name: "sets-a-goal" } } });
   const s = { instance: created.instance, session_id: created.session_id };
   await api.call("harnix.session.attach", s);
   expect((await row(s)).goal).toBeUndefined();
 
-  await api.call("system.goal.set", { ...s, objective: "Keep the suite green", max_rounds: 4 });
-  await expect.poll(async () => (await row(s))?.goal?.objective, { timeout: 10_000 }).toBe("Keep the suite green");
-  await api.call("system.goal.update", { ...s, action: "pause" });
-  await expect.poll(async () => (await row(s))?.goal?.phase, { timeout: 10_000 }).toBe("paused");
-  await api.call("system.goal.update", { ...s, action: "clear" });
-  await expect.poll(async () => (await row(s))?.goal ?? null, { timeout: 10_000 }).toBeNull();
+  // The model sets it with its goal tool; the engine says so, and the hub keeps it on the row.
+  await api.call("harnix.session.send", { ...s, message: "Set the goal: keep the fixture tests green" });
+  await expect.poll(async () => (await row(s))?.goal?.objective, { timeout: 30_000 }).toBe("Keep the fixture tests green");
 });
 
 test("a rename the engine makes is pushed to whoever watches the session list", TAGS, async () => {
@@ -91,7 +88,7 @@ test("a rename the engine makes is pushed to whoever watches the session list", 
   expect(first.value.sessions.find((r: any) => r.session_id === s.session_id)?.name).not.toBe("renamed by the engine");
 
   // The engine sends no event for a rename: the push is the hub's, after the answer.
-  await api.call("system.rename", { ...s, name: "renamed by the engine" });
+  await api.call("harnix.session.rename", { ...s, title: "renamed by the engine" });
   await api.waitFor(
     (f) =>
       f.method === "harnix.topic" &&

@@ -166,8 +166,18 @@ test("a flow saved through the methods can be started; an override gives way to 
   await api.call("flow.delete", { name: "saved-one" });
 });
 
+/** How many sessions every space that holds them lists. */
+async function everySession(): Promise<number> {
+  const { spaces } = await api.call("harnix.spaces.list");
+  let n = 0;
+  for (const space of spaces.filter((s: any) => !s.no_sessions)) {
+    n += (await api.call("harnix.sessions.list", { space: space.id })).sessions.length;
+  }
+  return n;
+}
+
 test("a dry run opens no session, runs to a person, takes their part through the same methods, and finishes", TAGS, async () => {
-  const before = (await api.call("harnix.sessions.list", { space: "system" })).sessions.length;
+  const before = await everySession();
   // The program's output is mocked (its contract's minimal value is no modules at all).
   const mocks = { stations: { collect: { modules: ["core", "ui"] } } };
   const { run } = await api.call("flow.dry_run.start", { flow: "demo-review", mocks });
@@ -203,7 +213,7 @@ test("a dry run opens no session, runs to a person, takes their part through the
   // Not a run of the module's, and nothing was opened for it.
   expect((await api.call("flow.list", {})).some((r: any) => r.id === run)).toBe(false);
   expect((await topic("dry_runs")).find((d: any) => d.id === run)).toMatchObject({ flow: "demo-review", status: "finished" });
-  expect((await api.call("harnix.sessions.list", { space: "system" })).sessions.length).toBe(before);
+  expect(await everySession()).toBe(before);
 });
 
 test("a gate mocked to fail stops the dry run at its station", TAGS, async () => {
