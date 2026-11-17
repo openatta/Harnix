@@ -119,6 +119,10 @@ pub(crate) fn parse_part<T: serde::de::DeserializeOwned>(text: &str, what: &str)
     serde_yaml::from_str(text).map_err(|e| e.to_string())
 }
 
+/// The reasoning efforts a session may be opened with (`effort`), least first. A sub-agent
+/// (`kind: agent`) takes the host's settings: it has none of its own.
+pub const EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
+
 /// Where a run's deliverables go when neither its flow nor its start says.
 pub const DEFAULT_OUTPUT_DIR: &str = "flows/${flow}-${date}${seq}";
 
@@ -165,6 +169,9 @@ pub struct MainSession {
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
+    /// How hard the model reasons ([`EFFORTS`]); the host's settings when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instance: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -298,6 +305,9 @@ pub enum Executor {
         /// The provider of that model (`SessionSpec.provider`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         provider: Option<String>,
+        /// How hard the model reasons ([`EFFORTS`]); the host's settings when absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effort: Option<String>,
         /// An instance that exists already, by name. Not with `template`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         instance: Option<String>,

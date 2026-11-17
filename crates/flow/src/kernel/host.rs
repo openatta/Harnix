@@ -582,6 +582,9 @@ pub struct Placement {
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
+    /// How hard the model reasons (`EFFORTS`); the host's settings when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instance: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

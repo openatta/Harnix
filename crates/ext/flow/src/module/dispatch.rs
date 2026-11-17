@@ -402,6 +402,7 @@ mod tests {
                 session: Some(SessionBinding::New),
                 model: None,
                 provider: None,
+                effort: None,
                 instance: None,
                 template: None,
                 params: Default::default(),

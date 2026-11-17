@@ -603,3 +603,24 @@ fn a_definition_says_its_format_and_one_for_a_newer_library_is_refused_whole() {
     let packs = MemPacks::new().policy(&policy("format: 2\n"));
     assert!(Packs::policy(&packs, "ro").is_none(), "a pack does not read it either");
 }
+
+/// A session's reasoning effort: one of the efforts, on a station's own session or the flow's
+/// main one — not on a task in the main session, which takes the main one's. Tasks that share a
+/// session share it.
+#[test]
+fn a_session_may_say_how_hard_its_model_reasons() {
+    let p = packs();
+    let flow = |main: &str, exec: &str| {
+        format!("name: f\n{main}stations: [{{id: a, executor: {{kind: session{exec}}}, skill: analyze, output: {{type: object}}, exit: [{{kind: output}}]}}]")
+    };
+    assert!(validate_yaml(&flow("main: {effort: max}\n", ", scene: harnix, effort: high"), &p).is_empty());
+    let def = FlowDef::parse(&flow("main: {effort: max}\n", ", scene: harnix, effort: high")).unwrap();
+    assert_eq!(def.main.as_ref().unwrap().effort.as_deref(), Some("max"));
+    assert!(matches!(&def.stations[0].executor, Some(Executor::Session { effort: Some(e), .. }) if e == "high"));
+    let says = |yaml: String| validate_yaml(&yaml, &p).into_iter().map(|x| x.message).collect::<Vec<_>>().join("; ");
+    assert!(says(flow("main: {effort: huge}\n", "")).contains("main: effort \"huge\" is not one of low, medium, high, xhigh, max"));
+    assert!(says(flow("", ", scene: harnix, effort: Max")).contains("effort \"Max\" is not one of"));
+    assert!(says(flow("", ", effort: high")).contains("takes its scene, model and place from the flow's `main`"));
+    let shared = "name: f\nstations:\n  - {id: a, executor: {kind: session, scene: harnix, session: per_run, effort: low}, skill: analyze, output: {type: object}, exit: [{kind: output}]}\n  - {id: b, executor: {kind: session, scene: harnix, session: per_run, effort: high}, skill: analyze, output: {type: object}, exit: [{kind: output}]}";
+    assert!(says(shared.to_string()).contains("effort"), "{}", says(shared.to_string()));
+}

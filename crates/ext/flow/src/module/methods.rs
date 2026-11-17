@@ -69,7 +69,7 @@ fn project_dir(root: Option<String>) -> Result<Option<String>, RpcError> {
     }
 }
 
-/// A start's `show_in_space`: a space id as the hub spells them, trimmed; whether the application
+/// A start's `shown_in`: a space id as the hub spells them, trimmed; whether the application
 /// has such a space the hub says when the main session is exposed, and a start that names none
 /// shows the session nowhere else.
 fn shown_in(space: Option<String>) -> Result<Option<String>, RpcError> {
@@ -78,7 +78,7 @@ fn shown_in(space: Option<String>) -> Result<Option<String>, RpcError> {
     };
     let well_formed = space.len() <= 64 && space.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
     if !well_formed {
-        return Err(RpcError::invalid_params(format!("show_in_space {space:?} is not a space id")));
+        return Err(RpcError::invalid_params(format!("shown_in {space:?} is not a space id")));
     }
     Ok(Some(space))
 }
@@ -904,7 +904,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         packs,
         "start",
         devices_and_the_scheduler(),
-        "start a run: {flow, subject, inputs?, title?, project_root?, workspace?: project|worktree|scratch, output_dir?, trigger?: {kind: manual} | {kind: schedule, schedule, fire_at}, show_in_space?, from_session?: {instance?, session_id, space}} → {run}; with a project_root (an existing absolute directory) the run is a task of that project; output_dir (a template relative to the project, before the flow's and flows/${flow}-${date}${seq}) is made at start and must stay inside it; workspace (absent: the flow's, else project) worktree needs a git repository with a commit: the run works in a worktree of its own out of the project, on the branch harnix/flow/<run>, decided with worktree.merge|keep|discard once over; only the kernel and extensions start one on a schedule; show_in_space names a space the main session is also shown in, to be looked at and talked to there; from_session names the conversation it was started from, which gets a card linking to the run (an entry task_started; one that cannot be written is logged and the run goes on)",
+        "start a run: {flow, subject, inputs?, title?, project_root?, workspace?: project|worktree|scratch, output_dir?, trigger?: {kind: manual} | {kind: schedule, schedule, fire_at}, shown_in?, from_session?: {instance?, session_id, space}} → {run}; with a project_root (an existing absolute directory) the run is a task of that project; output_dir (a template relative to the project, before the flow's and flows/${flow}-${date}${seq}) is made at start and must stay inside it; workspace (absent: the flow's, else project) worktree needs a git repository with a commit: the run works in a worktree of its own out of the project, on the branch harnix/flow/<run>, decided with worktree.merge|keep|discard once over; only the kernel and extensions start one on a schedule; shown_in (show_in_space, its earlier name, is read too) names a space the main session is also shown in, to be looked at and talked to there; from_session names the conversation it was started from, which gets a card linking to the run (an entry task_started; one that cannot be written is logged and the run goes on)",
         |sh, _, cx, p: StartParams| async move {
             let by = caller(&cx);
             let trigger = start_trigger(cx.device().is_some(), p.trigger, &by)?;
@@ -918,7 +918,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
                 workspace: p.workspace,
                 output_dir: p.output_dir,
                 trigger: Some(trigger),
-                show_in_space: shown_in(p.show_in_space)?,
+                shown_in: shown_in(p.shown_in)?,
             };
             let from = started_from(p.from_session)?;
             let engine = engine(&sh)?;
@@ -1423,17 +1423,20 @@ mod tests {
         assert_eq!(p.workspace, Some(crate::kernel::run::Workspace::Worktree));
         assert_eq!(p.trigger, Some(StartTrigger::Manual {}));
         assert_eq!(p.output_dir.as_deref(), Some("out/${date}"));
-        assert_eq!(p.show_in_space, None);
+        assert_eq!(p.shown_in, None);
         let bare: StartParams = serde_json::from_value(json!({"flow": "f", "subject": "s"})).unwrap();
         assert_eq!((bare.project_root, bare.workspace, bare.trigger), (None, None, None));
-        let shown: StartParams = serde_json::from_value(json!({"flow": "f", "subject": "s", "show_in_space": "sessions"})).unwrap();
-        assert_eq!(shown.show_in_space.as_deref(), Some("sessions"));
+        let shown: StartParams = serde_json::from_value(json!({"flow": "f", "subject": "s", "shown_in": "sessions"})).unwrap();
+        assert_eq!(shown.shown_in.as_deref(), Some("sessions"));
+        // Its earlier name still reads.
+        let earlier: StartParams = serde_json::from_value(json!({"flow": "f", "subject": "s", "show_in_space": "sessions"})).unwrap();
+        assert_eq!(earlier.shown_in.as_deref(), Some("sessions"));
     }
 
     /// The space a start shows the main session in is a space id, trimmed; none or blank is none;
     /// anything else is refused before a run is made.
     #[test]
-    fn a_start_s_show_in_space_is_a_space_id_or_nothing() {
+    fn a_start_s_shown_in_is_a_space_id_or_nothing() {
         assert_eq!(shown_in(Some(" sessions ".into())).unwrap().as_deref(), Some("sessions"));
         assert_eq!(shown_in(Some("my.space-1_x".into())).unwrap().as_deref(), Some("my.space-1_x"));
         assert_eq!(shown_in(None).unwrap(), None);

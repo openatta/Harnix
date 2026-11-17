@@ -20,7 +20,7 @@ use super::host::{
     SystemClock, Tools,
 };
 use super::run::{
-    Actor, CheckRec, CheckStatus, ConfirmRec, ForcedRec, History, ParentRef, RunQuery, RunRecord,
+    Actor, BoundSession, CheckRec, CheckStatus, ConfirmRec, ForcedRec, History, ParentRef, RunQuery, RunRecord,
     RunStatus, RunSummary, RunView, StationStatus, TaskStatus, Trigger, Workspace, WorktreeOutcome,
     WorktreeRec,
 };
@@ -65,10 +65,10 @@ pub struct CreateIn {
     /// How it came to be started; absent: by hand, by whoever starts it.
     #[serde(default)]
     pub trigger: Option<Trigger>,
-    /// A space the main session is shown in besides the flow's own; recorded, the host exposes
-    /// the session once it is opened.
+    /// Where else the main session is shown — a place the host names (Harnix: a space besides the
+    /// flow's own); recorded, the host shows the session there once it is opened.
     #[serde(default)]
-    pub show_in_space: Option<String>,
+    pub shown_in: Option<String>,
 }
 
 /// What the host made ready for a run before starting it ([`Engine::create_prepared`]): the id it
@@ -86,7 +86,7 @@ struct Place {
     workspace: Workspace,
     output_dir: Option<String>,
     trigger: Trigger,
-    show_in_space: Option<String>,
+    shown_in: Option<String>,
     worktree: Option<WorktreeRec>,
 }
 
@@ -96,7 +96,7 @@ impl Place {
         rec.workspace = self.workspace;
         rec.output_dir = self.output_dir.clone();
         rec.trigger = self.trigger.clone();
-        rec.show_in_space = self.show_in_space.clone();
+        rec.shown_in = self.shown_in.clone();
         rec.worktree = self.worktree.clone();
     }
 }
@@ -115,7 +115,7 @@ fn placement(input: &CreateIn, by: &Actor, def: &FlowDef, worktree: Option<Workt
         workspace,
         output_dir: input.output_dir.clone().filter(|d| !d.trim().is_empty()),
         trigger: input.trigger.clone().unwrap_or_else(|| Trigger::manual(by.clone())),
-        show_in_space: input.show_in_space.clone().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+        shown_in: input.shown_in.clone().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
         worktree: worktree.filter(|_| workspace == Workspace::Worktree),
     })
 }
@@ -771,17 +771,19 @@ impl Engine {
         })
     }
 
-    /// Record the run's main session (xops-03 §1), opened before any task needed it.
-    pub async fn attach_main(&self, run: &str, session: &str) -> Result<Outcome> {
+    /// Record the run's main session (xops-03 §1), opened before any task needed it, with what
+    /// the host opened it with (`BoundSession::opened_with`).
+    pub async fn attach_main(&self, run: &str, session: &str, opened_with: Value) -> Result<Outcome> {
         transact!(self, Actor::flow("dispatch"), |t| {
             t.load(run).await?;
             let mut m = t.m(run);
             if m.rec.main_session() == Some(session) {
                 return Ok(json!({"run": run, "changed": false}));
             }
-            m.rec
-                .session_keys
-                .insert(super::def::MAIN_SESSION_KEY.to_string(), session.to_string());
+            m.rec.session_keys.insert(
+                super::def::MAIN_SESSION_KEY.to_string(),
+                BoundSession { id: session.to_string(), opened_with: opened_with.clone() },
+            );
             m.log("attach_main", None, None, json!({"session": session}));
             Ok(json!({"run": run, "changed": true}))
         })
@@ -1072,7 +1074,9 @@ impl Engine {
         })
     }
 
-    /// Record the session serving a task (and its session key's binding). Module use.
+    /// Record the session serving a task (and its session key's binding, with what the host
+    /// opened the session with: a key bound to it already keeps what it was opened with). Module
+    /// use.
     #[allow(clippy::too_many_arguments)]
     pub async fn attach_session(
         &self,
@@ -1082,6 +1086,7 @@ impl Engine {
         token: &str,
         session: &str,
         session_key: Option<&str>,
+        opened_with: &Value,
         by: Actor,
     ) -> Result<Outcome> {
         transact!(self, by.clone(), |t| {
@@ -1104,9 +1109,13 @@ impl Engine {
                 tr.session = Some(session.to_string());
             }
             if let Some(k) = session_key {
-                m.rec
-                    .session_keys
-                    .insert(k.to_string(), session.to_string());
+                let bound = m.rec.session_keys.get(k).is_some_and(|b| b.id == session);
+                if !bound {
+                    m.rec.session_keys.insert(
+                        k.to_string(),
+                        BoundSession { id: session.to_string(), opened_with: opened_with.clone() },
+                    );
+                }
             }
             m.log(
                 "attach_session",

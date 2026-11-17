@@ -381,6 +381,7 @@ async fn rework_closes_the_sessions_of_cancelled_tasks() {
             &m1.token,
             "sess-1",
             None,
+            &serde_json::Value::Null,
             Actor::flow("dispatch"),
         )
         .await
@@ -785,6 +786,7 @@ async fn session_tasks_carry_protocol_and_share_a_per_run_session() {
             &j.token,
             "s-9",
             Some("run"),
+            &json!({"scene": "flow-harnix"}),
             Actor::flow("dispatch"),
         )
         .await
@@ -796,6 +798,9 @@ async fn session_tasks_carry_protocol_and_share_a_per_run_session() {
         _ => None,
     });
     assert_eq!(session.as_deref(), Some("s-9"));
+    // The key holds the session and what it was opened with.
+    let bound = &h.eng.record(&run).await.unwrap().session_keys["run"];
+    assert_eq!((bound.id.as_str(), &bound.opened_with), ("s-9", &json!({"scene": "flow-harnix"})));
 }
 
 #[tokio::test]
@@ -1078,6 +1083,7 @@ async fn dispatched_work_rebuilds_what_the_dispatcher_holds() {
             &m1.token,
             "main/s-1",
             None,
+            &serde_json::Value::Null,
             Actor::flow("dispatch"),
         )
         .await
@@ -1223,17 +1229,17 @@ async fn a_task_works_in_its_project_and_its_summary_says_so() {
 #[tokio::test]
 async fn a_task_records_the_space_its_main_session_is_shown_in() {
     let h = h();
-    let shown = start_in(&h, CreateIn { show_in_space: Some(" sessions ".into()), ..seq_in(Some("/work/app")) }).await.unwrap();
+    let shown = start_in(&h, CreateIn { shown_in: Some(" sessions ".into()), ..seq_in(Some("/work/app")) }).await.unwrap();
     let rec = h.eng.record(&shown).await.unwrap();
-    assert_eq!(rec.show_in_space.as_deref(), Some("sessions"));
-    assert_eq!(rec.summary().show_in_space.as_deref(), Some("sessions"));
-    assert_eq!(serde_json::to_value(rec.summary()).unwrap()["show_in_space"], json!("sessions"));
+    assert_eq!(rec.shown_in.as_deref(), Some("sessions"));
+    assert_eq!(rec.summary().shown_in.as_deref(), Some("sessions"));
+    assert_eq!(serde_json::to_value(rec.summary()).unwrap()["shown_in"], json!("sessions"));
     let plain = start_in(&h, seq_in(Some("/work/app"))).await.unwrap();
-    assert_eq!(h.eng.record(&plain).await.unwrap().show_in_space, None);
-    let blank = start_in(&h, CreateIn { show_in_space: Some("  ".into()), ..seq_in(None) }).await.unwrap();
+    assert_eq!(h.eng.record(&plain).await.unwrap().shown_in, None);
+    let blank = start_in(&h, CreateIn { shown_in: Some("  ".into()), ..seq_in(None) }).await.unwrap();
     let rec = h.eng.record(&blank).await.unwrap();
-    assert_eq!(rec.show_in_space, None);
-    assert!(serde_json::to_value(rec.summary()).unwrap().get("show_in_space").is_none());
+    assert_eq!(rec.shown_in, None);
+    assert!(serde_json::to_value(rec.summary()).unwrap().get("shown_in").is_none());
 }
 
 #[tokio::test]

@@ -54,7 +54,7 @@ pub use dryrun::{Mocks, Sandbox};
 pub use kernel::def::{
     definition_schema, Assert, Executor, ExitCond, FlowDef, Guard, InputDef, MainSession,
     OnUnmet, Retry, SessionBinding, Station, TaskSpec, Work, DEFAULT_OUTPUT_DIR, DEFAULT_REWORK_LIMIT,
-    MAIN_SESSION_KEY, MAX_REWORK_LIMIT,
+    EFFORTS, MAIN_SESSION_KEY, MAX_REWORK_LIMIT,
 };
 pub use kernel::engine::{
     view, worktree_may_end, CreateIn, Engine, Prepared, DEFAULT_LEASE_MS, DEFAULT_RETRIES, MAX_LEASE_MS, MAX_SUBFLOW_DEPTH,
@@ -71,7 +71,7 @@ pub use kernel::parts::{
 };
 pub use kernel::protocol::{agent_tag, ask_rules, skill_body, STRUCTURED_OUTPUT_TOOL};
 pub use kernel::run::{
-    run_schema, Actor, CheckRec, CheckStatus, ConfirmRec, ForcedRec, History, Lease, ParentRef,
+    run_schema, Actor, BoundSession, CheckRec, CheckStatus, ConfirmRec, ForcedRec, History, Lease, ParentRef,
     AskRec, PauseRec, Phase, RunQuery, RunRecord, RunStatus, RunSummary, RunView, StationRec,
     StationStatus, TaskRec, TaskStatus, Trigger, Usage, Workspace, WorktreeEnd, WorktreeOutcome,
     WorktreeRec, AGENT_KIND, DEVICE_KIND, FLOW_KIND,

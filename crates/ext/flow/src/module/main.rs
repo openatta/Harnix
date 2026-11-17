@@ -17,11 +17,11 @@
 
 use std::sync::Arc;
 
-use harnix_ext::{Entry, Exposure, SessionRef, SessionSpec, TapEvent};
+use harnix_ext::{Exposure, SessionRef, SessionSpec, TapEvent};
 use serde_json::{json, Value};
 
 use super::dispatch::settle_quiet;
-use super::session::{place_at, SESSION_SETTINGS, TASK_PERMISSION_MODE};
+use super::session::{place_at, TASK_PERMISSION_MODE};
 use super::shared::{session_name, session_ref, Binding, Shared};
 use crate::kernel::def::MAIN_SESSION_KEY;
 use crate::kernel::def::Guard;
@@ -37,7 +37,7 @@ pub(crate) fn main_lock(run: &str) -> String {
 pub(crate) fn main_settings(scene: &str, p: &crate::Placement, instance: Option<&str>) -> Value {
     json!({
         "scene": scene, "delivery": crate::Delivery::FlowSubmit, "main": true,
-        "model": p.model, "provider": p.provider, "space": p.space, "template": p.template,
+        "model": p.model, "provider": p.provider, "effort": p.effort, "space": p.space, "template": p.template,
         "instance": instance.map(String::from).or_else(|| p.instance.clone()),
     })
 }
@@ -86,6 +86,7 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
     let spec = super::spec_with(spec, project_root, |s, v| s.project_root(v));
     let spec = super::spec_with(spec, placement.model.clone(), |s, v| s.model(&v));
     let spec = super::spec_with(spec, placement.provider.clone(), |s, v| s.provider(&v));
+    let spec = super::spec_with(spec, placement.effort.clone(), |s, v| s.effort(&v));
     let spec = super::spec_with(spec, recording, |s, v| s.recording(&v));
     let s = cx
         .sessions()
@@ -95,15 +96,11 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
     // A task started from where a project's sessions are listed is shown there too, to be talked
     // to: the session stays the flow's, in the flow's space. A space the application does not
     // have is the hub's to refuse; the run goes on, and the task opens from the flow's side.
-    if let Some(shown) = rec.show_in_space.as_deref().filter(|shown| *shown != space) {
+    if let Some(shown) = rec.shown_in.as_deref().filter(|shown| *shown != space) {
         if let Err(e) = cx.sessions().expose(&s, shown, Exposure::interactive()).await {
             tracing::warn!(run, space = shown, error = %e.message, "the main session is not shown in the space the start named");
         }
     }
-    let _ = cx
-        .sessions()
-        .append_entry(&s, Entry::new(SESSION_SETTINGS, wanted))
-        .await;
     let title = main_title(&rec);
     let _ = cx
         .call(
@@ -111,7 +108,7 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
             json!({"instance": s.instance, "session_id": s.session_id, "name": title}),
         )
         .await;
-    let attached = engine.attach_main(run, &session_name(&s)).await;
+    let attached = engine.attach_main(run, &session_name(&s), wanted).await;
     settle_quiet(sh, run, attached).await;
     Ok(s)
 }

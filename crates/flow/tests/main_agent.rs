@@ -229,11 +229,13 @@ async fn tokens_count_on_the_task_or_on_the_run() {
 async fn the_main_session_is_recorded_once() {
     let h = h();
     let (run, _) = start(&h, "main").await;
-    let o = h.eng.attach_main(&run, "main/s1").await.unwrap();
+    let o = h.eng.attach_main(&run, "main/s1", json!({"scene": "flow-harnix", "main": true})).await.unwrap();
     assert_eq!(o.value["changed"], true);
-    let o = h.eng.attach_main(&run, "main/s1").await.unwrap();
+    let o = h.eng.attach_main(&run, "main/s1", json!({"scene": "other"})).await.unwrap();
     assert_eq!(o.value["changed"], false);
-    assert_eq!(h.eng.record(&run).await.unwrap().main_session(), Some("main/s1"));
+    let rec = h.eng.record(&run).await.unwrap();
+    assert_eq!(rec.main_session(), Some("main/s1"));
+    assert_eq!(rec.session_keys[MAIN_SESSION_KEY].opened_with["scene"], "flow-harnix", "what it was opened with stays");
 }
 
 /// Every whole flow in the guide (a YAML block that starts `name:`) is valid: the guide is what
@@ -326,4 +328,21 @@ async fn a_station_entered_again_while_paused_is_judged_on_resume() {
     assert!(!o.work.iter().any(|w| matches!(w, WorkItem::Gate { .. })), "no gate while paused");
     let o = h.eng.resume(&run, me()).await.unwrap();
     assert!(o.work.iter().any(|w| matches!(w, WorkItem::Gate { .. })), "the gate runs on resume");
+}
+
+/// A session task's effort, and the main session's, go to the host with where the session goes.
+#[tokio::test]
+async fn a_sessions_effort_is_handed_to_the_host_with_its_placement() {
+    let packs = common::packs().flow(
+        "name: e\nmain: {scene: harnix, effort: max}\nstations:\n  - {id: own, executor: {kind: session, scene: harnix, effort: low}, skill: analyze, output: {type: object}, exit: [{kind: output}]}\n  - {id: shared, executor: {kind: session}, skill: analyze, output: {type: object}, exit: [{kind: output}]}",
+    );
+    let h = harness(packs);
+    let o = h.eng.create(CreateIn { flow: "e".into(), subject: "s".into(), ..Default::default() }, me()).await.unwrap();
+    let placed = o.work.iter().find_map(|w| match w {
+        WorkItem::Task { placement, .. } => placement.clone(),
+        _ => None,
+    });
+    assert_eq!(placed.and_then(|p| p.effort).as_deref(), Some("low"));
+    let rec = h.eng.record(o.value["run"].as_str().unwrap()).await.unwrap();
+    assert_eq!(h.eng.main_placement(&rec).0.effort.as_deref(), Some("max"));
 }

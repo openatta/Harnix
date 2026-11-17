@@ -61,7 +61,7 @@ async function until(run: string, ok: (v: View) => boolean, describe: string): P
 }
 
 const station = (v: View, id: string) => v.record.stations[id];
-const main = (v: View) => v.record.session_keys?.["@main"] as string | undefined;
+const main = (v: View) => v.record.session_keys?.["@main"]?.id as string | undefined;
 const ref = (session: string) => {
   const [instance, session_id] = session.split("/");
   return { instance, session_id };

@@ -38,9 +38,10 @@ pub struct StartParams {
     pub trigger: Option<StartTrigger>,
     /// A space the run's main session is shown in besides the flow's own — the one the
     /// interface that starts a task lists the project's sessions in — to be looked at and talked
-    /// to there (`harnix.session.expose`). Absent: shown nowhere else.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub show_in_space: Option<String>,
+    /// to there (`harnix.session.expose`). Absent: shown nowhere else. `show_in_space`, its
+    /// earlier name, is read too.
+    #[serde(default, alias = "show_in_space", skip_serializing_if = "Option::is_none")]
+    pub shown_in: Option<String>,
     /// The conversation it was started from (`/flow` in a conversation): a card linking to the
     /// run is written there (an entry `task_started`), and the conversation stays what it was.
     /// Absent: written nowhere.

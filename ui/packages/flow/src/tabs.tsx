@@ -601,7 +601,7 @@ export function RunDetail({ state, run, station }: { state: FlowSpaceState; run:
   const t = useT();
   const view = useRunView(state.module, run);
   // A run just started has its main session a moment later: the middle goes to it then.
-  const main = view?.record.session_keys?.[MAIN_SESSION_KEY] ?? null;
+  const main = view?.record.session_keys?.[MAIN_SESSION_KEY]?.id ?? null;
   useEffect(() => {
     if (main && state.get().run === run) void state.centre();
   }, [state, run, main]);

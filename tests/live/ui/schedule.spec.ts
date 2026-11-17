@@ -139,7 +139,7 @@ test("a task schedule from a project's overview starts a task: a row of the proj
   const run = ((await call(page, "schedule.history", { id: made.id })).receipts[0].target.run) as string;
   expect(run).toMatch(/^example-review-/);
   const record = (await call(page, "flow.get", { run })).record;
-  expect(record).toMatchObject({ project_root: path, show_in_space: "sessions", trigger: { kind: "schedule", schedule: made.id } });
+  expect(record).toMatchObject({ project_root: path, shown_in: "sessions", trigger: { kind: "schedule", schedule: made.id } });
 
   // The task is a row of the project, with the schedule's clock and its next time.
   const item = row.locator(`[data-testid="project-item"][data-item="${run}"]`);
@@ -154,7 +154,7 @@ test("a task schedule from a project's overview starts a task: a row of the proj
   // The record read on delivery may predate the main session; it is read again until it names one.
   let main: string | undefined;
   await expect
-    .poll(async () => (main = ((await call(page, "flow.get", { run })).record.session_keys ?? {})["@main"]?.split("/")[1]), { timeout: 15_000 })
+    .poll(async () => (main = ((await call(page, "flow.get", { run })).record.session_keys ?? {})["@main"]?.id?.split("/")[1]), { timeout: 15_000 })
     .toBeTruthy();
   await page.evaluate(() => (window as any).harnix.app.open(null));
   await scheduled.getByTestId("schedule-history-toggle").click();

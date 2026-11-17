@@ -46,7 +46,7 @@ pub(crate) fn task_work(
     };
     let session = session_key
         .as_ref()
-        .and_then(|k| rec.session_keys.get(k).cloned());
+        .and_then(|k| rec.session_keys.get(k).map(|b| b.id.clone()));
     let st = rec.def.station(sid);
     // What the task works under, fixed now (xops-04 §3).
     let permissions: Vec<super::parts::Granted> = match (&spec.executor, st) {
@@ -70,6 +70,7 @@ pub(crate) fn task_work(
             scene,
             model,
             provider,
+            effort,
             instance,
             template,
             params,
@@ -79,6 +80,7 @@ pub(crate) fn task_work(
             Some(Placement {
                 model: model.clone(),
                 provider: provider.clone(),
+                effort: effort.clone(),
                 instance: instance.clone(),
                 template: template.clone(),
                 params: resolve_params(params, &ctx),
@@ -179,6 +181,7 @@ pub(crate) fn main_placement(
         Placement {
             model: m.model,
             provider: m.provider,
+            effort: m.effort,
             instance: m.instance,
             template: m.template,
             params: resolve_params(&m.params, ctx),

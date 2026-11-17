@@ -346,7 +346,7 @@ pub(crate) fn new_record(
         seq: 0,
         created_at: now,
         trigger: Trigger::manual(by.clone()),
-        show_in_space: None,
+        shown_in: None,
         created_by: by,
         finished_at: None,
         parent,
@@ -1288,7 +1288,7 @@ impl<'a> M<'a> {
 
     /// The sessions shared by key (`per_run`, `{key}`) outlive their tasks: closed with the run.
     fn close_keyed_sessions(&mut self) {
-        let sessions: BTreeSet<String> = self.rec.session_keys.values().cloned().collect();
+        let sessions: BTreeSet<String> = self.rec.session_keys.values().map(|b| b.id.clone()).collect();
         for session in sessions {
             self.fx.work.push(WorkItem::CloseSession { session });
         }

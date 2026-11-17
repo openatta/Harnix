@@ -3,7 +3,7 @@
  *
  * - `/flow <flow> [subject]` in a conversation of a project — a `command` the composer offers and
  *   hands what was typed to (`submit`): another task of the conversation's project, started there
- *   with its main session shown in the conversation's space (`show_in_space`), and a card in the
+ *   with its main session shown in the conversation's space (`shown_in`), and a card in the
  *   conversation linking to it (`from_session`: the module writes the entry `task_started` there).
  *   The conversation itself stays what it was. With a subject and nothing else to ask for, the
  *   task starts at once; otherwise the new-task dialog opens on that flow, the subject filled in.
@@ -183,7 +183,7 @@ export function registerSlashFlow(r: Registry, host: HostApi, module: string, ru
       flow,
       subject,
       project_root: root,
-      show_in_space: conv.space ?? undefined,
+      shown_in: conv.space ?? undefined,
       from_session: from,
     });
     return true;
