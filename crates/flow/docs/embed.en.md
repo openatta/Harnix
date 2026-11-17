@@ -33,8 +33,9 @@ crates/flow/
                        the process directory, trust, the flow's tools
   src/author.rs        the authoring tools (feature `runner`): writing flows, working runs in a conversation
   src/conformance.rs   what every SessionHost must do, checked against a live one
-  packs/examples/      an example pack (example-review): a host that copies the library can load,
-                       validate and run it; Harnix builds it into its app
+  packs/examples/      an example pack (example-review): a host that copies the library loads,
+                       validates and runs it with `MemPacks::examples()` (the library
+                       `include_str!`s it); Harnix builds it into its app
   docs/guide.*.md      the flow guide (it is GUIDE_EN, GUIDE_ZH)
   docs/embed.*.md      this document
   tests/               the kernel's tests; runner.rs (the runner end to end over ScriptedHost);
@@ -422,7 +423,8 @@ The library's first version: the kernel, stores, packs and dry runs move out of 
 - **`BoundSession { id, opened_with }`** (new, at the root): what `RunRecord::session_keys` maps a
   key to, in place of the bare session id; `attach_session` and `attach_main` take `opened_with`.
 - **`effort`** on a session executor, `MainSession` and `Placement`; `EFFORTS` (new, at the root).
-- The example pack (`packs/examples`) and the golden runs (`tests/golden.rs`).
+- The example pack (`packs/examples`) and the golden runs (`tests/golden.rs`); **`MemPacks::examples()`**
+  (new): the example pack as the library carries it, every file of the directory in it.
 
 Migration: a host that used the kernel from `harnix-ext-flow` keeps `harnix_ext_flow::X` (it
 re-exports the whole library); one that depends on the library directly writes `harnix_flow::X`.

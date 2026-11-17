@@ -262,6 +262,7 @@ const BUILDERS: &[(&str, &str)] = &[
     ("Hooked::check_commits", "fncheck_commits(mutself,check:implFn(&ChangeSet)->Result<(),StoreError>+Send+Sync+'static,)->Self"),
     ("Hooked::inner", "fninner(&self)->&S"),
     ("MemPacks::new", "fnnew()->Self"),
+    ("MemPacks::examples", "fnexamples()->Self"),
     ("MemPacks::flow", "fnflow(self,yaml:&str)->Self"),
     ("MemPacks::skill", "fnskill(self,name:&str,body:&str)->Self"),
     ("MemPacks::part", "fnpart(self,kind:PartKind,name:&str,text:&str)->Self"),

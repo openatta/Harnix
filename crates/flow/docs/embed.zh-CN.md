@@ -28,7 +28,8 @@ crates/flow/
     …                  派发、会话任务、轮、主会话、门禁、钩子、worktree、git、过程目录、信任、流程自己的工具
   src/author.rs        编写工具（feature `runner`）：在对话里编写流程、操作运行
   src/conformance.rs   每个 SessionHost 都要做到的事，对着真宿主查
-  packs/examples/      一个示例流程包（example-review）：拷走库的宿主能加载、校验、跑它；Harnix 把它编进应用
+  packs/examples/      一个示例流程包（example-review）：拷走库的宿主用 `MemPacks::examples()` 加载、校验、跑它（内容由库自己
+                       `include_str!`）；Harnix 把它编进应用
   docs/guide.*.md      流程指南（GUIDE_EN、GUIDE_ZH 就是它）
   docs/embed.*.md      本文
   tests/               内核的测试；runner.rs（派工器对着 ScriptedHost 从头跑到尾）；conformance.rs；surface.rs、deps.rs
@@ -322,7 +323,8 @@ cargo run -p harnix-flow --example flowctl -- show <state-dir> <run>
 - **`BoundSession { id, opened_with }`**（新，在根上）：`RunRecord::session_keys` 里键对应的不再是光秃秃的会话 id；
   `attach_session`、`attach_main` 多收 `opened_with`。
 - **`effort`**：会话执行者、`MainSession`、`Placement` 上；`EFFORTS`（新，在根上）。
-- 示例流程包（`packs/examples`）和金样运行（`tests/golden.rs`）。
+- 示例流程包（`packs/examples`）和金样运行（`tests/golden.rs`）；**`MemPacks::examples()`**（新）：库自己带上的示例包，目录里的
+  每个文件都在里面。
 
 迁移：从 `harnix-ext-flow` 用过来的宿主，`harnix_ext_flow::X` 仍然可用（它转出了整个库）；直接依赖本库的写 `harnix_flow::X`。
 这些改动之前写下的运行状态不再读：`show_in_space` 和光秃秃的会话 id 没有了，没有 `FORMAT` 的存储目录会被拒——清掉，或自己迁。

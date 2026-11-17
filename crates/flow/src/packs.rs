@@ -83,6 +83,18 @@ impl MemPacks {
         Self::default()
     }
 
+    /// The example pack the library carries (`packs/examples`), built in: the flow
+    /// `example-review` (the run's main Agent reviews the subject, a person approves), the skill
+    /// `review`, the rule `review-honest` and the policy `read-only`. Whatever is in that directory
+    /// is here (`every_file_of_the_example_pack_is_in_it`).
+    pub fn examples() -> Self {
+        Self::new()
+            .flow(include_str!("../packs/examples/flows/example-review.yaml"))
+            .skill("review", include_str!("../packs/examples/skills/review/SKILL.md"))
+            .rule("review-honest", include_str!("../packs/examples/rules/review-honest.md"))
+            .policy(include_str!("../packs/examples/policies/read-only.yaml"))
+    }
+
     /// Add (or replace) a definition. Its name is read from the text; a text that does not
     /// parse is kept under its `name:` line, if any, and never offered as a flow.
     pub fn flow(self, yaml: &str) -> Self {
@@ -950,6 +962,53 @@ impl Packs for ProjectPacks {
                 }
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod example_tests {
+    use super::*;
+
+    /// Every file under `packs/examples` is a flow or a part of `MemPacks::examples`, with the same
+    /// text, and it holds nothing else: a file added or moved there is not silently left out.
+    #[test]
+    fn every_file_of_the_example_pack_is_in_it() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("packs/examples");
+        let packs = MemPacks::examples();
+        let mut on_disk: Vec<String> = vec![];
+        let mut stack = vec![root.clone()];
+        while let Some(dir) = stack.pop() {
+            for e in std::fs::read_dir(&dir).unwrap() {
+                let path = e.unwrap().path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else {
+                    on_disk.push(path.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/"));
+                }
+            }
+        }
+        on_disk.sort();
+        let mut held: Vec<(String, String)> = packs
+            .flows()
+            .into_iter()
+            .map(|n| (format!("flows/{n}.yaml"), packs.flow_text(&n).unwrap()))
+            .collect();
+        for kind in PartKind::ALL {
+            for n in Packs::parts(&packs, kind) {
+                held.push((format!("{}/{}", kind.dir(), kind.file(&n)), Packs::part(&packs, kind, &n).unwrap().0));
+            }
+        }
+        held.sort();
+        let names: Vec<&str> = held.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(names, on_disk, "MemPacks::examples holds exactly the files of packs/examples");
+        for (path, text) in &held {
+            assert_eq!(&std::fs::read_to_string(root.join(path)).unwrap(), text, "{path}");
+        }
+        assert!(crate::kernel::validate::validate_yaml(
+            &packs.flow_text("example-review").unwrap(),
+            &MemPacks::examples().main_scene("flow-harnix") as &dyn Packs
+        )
+        .is_empty());
     }
 }
 
