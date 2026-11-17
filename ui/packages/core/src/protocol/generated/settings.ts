@@ -23,7 +23,17 @@ status_read: boolean,
 /**
  * The file a change wrote; only on a change's answer.
  */
-written?: string, };
+written?: string, 
+/**
+ * Whether this (project, scene)'s servers have been connected. `false`: none is started until
+ * its first session, and each status says only what the settings make of it (`not_started`,
+ * `disabled`, `untrusted`, `denied`). Absent when the engine was not asked.
+ */
+loaded?: boolean, 
+/**
+ * The (project, scene) the statuses are of.
+ */
+scene?: string, project_root?: string, };
 
 /**
  * The settings.json of each tier.

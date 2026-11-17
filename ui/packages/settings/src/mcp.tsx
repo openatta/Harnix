@@ -1,10 +1,12 @@
 /**
  * Settings · MCP servers: every server of the tiers there are for the open (project, scene), with
- * what the engine says of it; added and edited in place, switched off and on, reconnected, removed
- * after asking, and signed in to.
+ * what the engine says of it for that pair; added and edited in place, switched off and on,
+ * reconnected, removed after asking, and signed in to.
  *
  * All through the `settings` extension (`settings.mcp.*`), which holds `engine.mcp` for the page:
- * a device has no capability of its own. A value given for an environment variable or a header is
+ * a device has no capability of its own. The engine writes the tier chosen and says what each
+ * server is doing; a pair whose servers have not connected yet says only what its settings make of
+ * them, and connects them at its first session. A value given for an environment variable or a header is
  * written and never read back — the page gets `***` and its last four characters, and an edit that
  * leaves it says `keep`.
  *
@@ -34,6 +36,8 @@ export function mcpState(server: McpServer): { key: string; tone: Tone } {
   if (status.auth.state === "failed") return { key: "signInFailed", tone: "err" };
   if (status.state === "auth_required" || status.auth.state === "required") return { key: "auth_required", tone: "warn" };
   if (status.state === "connected") return { key: status.auth.state === "authorized" ? "authorized" : "connected", tone: "ok" };
+  if (status.state === "disabled") return { key: "off", tone: undefined };
+  if (status.state === "not_started") return { key: "not_started", tone: undefined };
   if (status.state === "connecting" || status.state === "disconnected") return { key: status.state, tone: "warn" };
   return { key: status.state, tone: "err" };
 }
@@ -57,8 +61,17 @@ export function Mcp({ host, request }: { host: HostApi; request: McpRequest }) {
         const paths = data.paths ?? {};
         const listed = data.servers ?? [];
         const tiers = (["global", "scene", "project"] as const).filter((id) => paths[id]);
+        const live = data.loaded !== false;
         return (
           <div className="providers" data-testid="mcp-servers">
+            <div className="hint" data-testid="mcp-pair" data-loaded={data.loaded === undefined ? "" : String(data.loaded)}>
+              {[
+                data.project_root ? t("settings.mcpPair", { scene: data.scene ?? "", project: data.project_root }) : t("settings.mcpPairNoProject", { scene: data.scene ?? "" }),
+                live ? null : t("settings.mcpNotLoaded"),
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </div>
             {!listed.length ? <div className="hint">{t("settings.mcpNone")}</div> : null}
             {listed.map((server) =>
               editing !== null && editing !== "new" && editing.tier === server.tier && editing.name === server.name ? (
@@ -69,6 +82,7 @@ export function Mcp({ host, request }: { host: HostApi; request: McpRequest }) {
                   host={host}
                   request={request}
                   server={server}
+                  live={live}
                   tierName={tierName}
                   onEdit={() => setEditing({ tier: server.tier, name: server.name })}
                   onChanged={reload}
@@ -96,6 +110,7 @@ function McpCard({
   host,
   request,
   server,
+  live,
   tierName,
   onEdit,
   onChanged,
@@ -104,6 +119,8 @@ function McpCard({
   host: HostApi;
   request: McpRequest;
   server: McpServer;
+  /** The pair's servers are connected: one can be connected again. */
+  live: boolean;
   tierName: (id: string) => string;
   onEdit: () => void;
   onChanged: () => void;
@@ -161,7 +178,7 @@ function McpCard({
             </button>
           )
         ) : null}
-        {server.enabled ? (
+        {server.enabled && live && !server.overridden_by ? (
           <button type="button" className="btn sm ghost" data-testid="mcp-reconnect" onClick={() => void act("settings.mcp.reconnect")}>
             {t("settings.mcpReconnect")}
           </button>
@@ -169,11 +186,9 @@ function McpCard({
         <button type="button" className="btn sm ghost" data-testid="mcp-toggle" onClick={() => void act("settings.mcp.enable", { enabled: !server.enabled })}>
           {server.enabled ? t("settings.mcpDisable") : t("settings.mcpEnable")}
         </button>
-        {server.enabled ? (
-          <button type="button" className="btn sm ghost" data-testid="mcp-edit" onClick={onEdit}>
-            {t("common.edit")}
-          </button>
-        ) : null}
+        <button type="button" className="btn sm ghost" data-testid="mcp-edit" onClick={onEdit}>
+          {t("common.edit")}
+        </button>
         <button type="button" className="btn sm ghost" data-testid="mcp-remove" onClick={() => void remove()}>
           {t("common.remove")}
         </button>

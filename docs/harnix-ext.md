@@ -982,7 +982,7 @@ pub trait Extension: Send + Sync + 'static {
 | `engine.config.read` / `engine.config.write` | 读 / 写引擎设置与 provider；后者含 `engine.config.reload`、`harnix.instances.inheritProviders`、宿主服务 `SettingsTiers`（§17.8） | ✔ | | settings、packages（写，可选） |
 | `engine.plugins` | Agix 插件的装、卸、启停、重读；往实例里放 skill | ✔ | | plugins、packages |
 | `engine.export` | `engine.session.export`、`harnix.session.import` | ✔ | | harnix-app |
-| `engine.mcp` | 引擎的 MCP 服务器与登录：`engine.mcp.addServer`、`updateServer`（只写项目层）、`auth.start / complete / cancel / logout` | ✔ | | settings（可选） |
+| `engine.mcp` | 引擎的 MCP 服务器与登录：`engine.mcp.addServer`、`updateServer`、`removeServer`、`setEnabled`（写 `tier` 指的那一层）、`reconnect`、`auth.start / complete / cancel / logout` | ✔ | | settings（可选） |
 | `recordings.read` · `transcripts.read` | 录像与用量的读者 · 转录的读者；都经引擎的协议读（`session.calls`、`call`、`callBlob`、`search`），每台实例各有一套，实例连不上读者返回 `Unavailable` | ✔ | | observability · harnix-app |
 | `process.observe` | 版本、运行时长、内存、线程、已连接的客户端；各扩展的日志 | ✔ | | system |
 | `devices.manage` | 配对码、列设备、撤销设备 | ✔ | | devices |
@@ -1448,7 +1448,9 @@ r.register("settings.section", {
 `additive: true` 的字段各层并联生效（`permission_rules`）：表单改的是所选那层自己的行；
 `risk: {values?, message}` 让这些值先确认。引擎设置的字段由后端 `settings` 扩展的字段表声明，`settings.describe` 发给界面
 （模型名的 `suggestions`、路由的 `routes` 按这一对 (项目, 场景) 已配置的 provider 填），
-`settings.write {tier, changes, revision?}` 整份校验、按版本号拒绝过期的写入（`CONFLICT`），路由到没配置的 provider 也拒绝。
+`settings.write {tier, changes, revision?, dry_run?}` 整份校验，经引擎的 `engine.config.set` 写进那一层（引擎拿那一层的目录锁、按它的加载器逐键检查，
+全有或全无；拒掉的键在 `data.errors` 里逐个标出），按那一层的版本号拒绝过期的写入（`CONFLICT`），路由到没配置的 provider 也拒绝；
+那一层被别的进程握着（引擎的 `-32026`）、项目目录不在（`-32010`）时设置页直说。
 provider 的 `api_key` 到界面只有 `***` 加末 4 位。
 
 扩展定义的点（第一方）：`system.console.tab`、`system.inspector.tab`、`system.metrics.link`（[系统 space](system-space.md) §2、§11），`harnix-app.project.items`、`harnix-app.project.panels`、
@@ -1667,29 +1669,29 @@ r.register("shortcut", {
 ### 22.9 MCP 服务器：`settings.mcp.*`
 
 后端 `settings` 扩展替设备管引擎的 MCP 服务器。设备自己没有能力；扩展持 `engine.mcp`（可选，标准装配授予），
-直接调 `engine.mcp.addServer / updateServer / auth.*` 的设备照旧被拒。答的形状由 `harnix_ext_settings::wire` 生成，
+直接调 `engine.mcp.addServer / updateServer / removeServer / setEnabled / reconnect / auth.*` 的设备照旧被拒。答的形状由 `harnix_ext_settings::wire` 生成，
 在 `@harnix/core` 里（`McpList`、`McpServer`、`McpAuthStarted`、`McpAuthDone`、`McpContext`……）。
 
 | 方法 | 参数 | 做什么 |
 |---|---|---|
-| `settings.mcp.list` | `{scene?, project_root?}` | 这一对 (项目, 场景) 有的每一层（全局、场景、项目）的服务器，连停用的；带引擎说的状态（`engine.mcp.status`，只报引擎自己那一对的） |
+| `settings.mcp.list` | `{scene?, project_root?}` | 这一对 (项目, 场景) 有的每一层（全局、场景、项目）的服务器，连停用的；带引擎说的这一对的状态（`engine.mcp.status {scene, project_root}`），`loaded` 说这一对连过没有（没连过的不会因此启动，状态是 `not_started` 等），`scene`、`project_root` 说是哪一对 |
 | `settings.mcp.add` / `.update` | `{tier, name, config, scene?, project_root?}` | 加一个 / 改一个已有的。`config`：`{transport: stdio \| http \| sse, command?, args?, env?, url?, headers?}`；`env`、`headers` 的每个值是 `{var}`（引擎的环境变量）、`{secret}`（新给的值）或 `{keep: true}`（保留已写的）之一 |
-| `settings.mcp.remove` | `{tier, name, …}` | 从这一层删掉，连同它的值 |
-| `settings.mcp.enable` | `{tier, name, enabled, …}` | 停用：两半都挪出这一层的文件，存进扩展自己的数据（`mcp-aside.json`，0600），引擎不再读到；启用：原样放回 |
-| `settings.mcp.reconnect` | `{tier, name, …}` | 让引擎重读这一对的设置，它的服务器都重连 |
+| `settings.mcp.remove` | `{tier, name, …}` | 从这一层删掉，连同它的值与开关（`engine.mcp.removeServer`） |
+| `settings.mcp.enable` | `{tier, name, enabled, …}` | 在这一层写它的开关 `mcp_enabled.<name>`（`engine.mcp.setEnabled`）：关着的留在文件里，引擎不启动它，状态是 `disabled`；未受信项目只能关 |
+| `settings.mcp.reconnect` | `{name, …}` | 引擎按这一对现在的设置重连这一个服务器，别的不动（`engine.mcp.reconnect`）；这一对还没连过时引擎拒绝 |
 | `settings.mcp.authorize` | `{name, origin?, scopes?, …}` | 发起 OAuth 登录（`engine.mcp.auth.start`），答 `{flow_id, authorize_url, redirect, callback?, expires_in}` |
 | `settings.mcp.authComplete` | `{callback_url}` | 把浏览器回到的地址交给引擎（`engine.mcp.auth.complete`）；同一次登录第二次交，答第一次的结果 |
 | `settings.mcp.authCancel` / `.logout` | `{flow_id}` / `{name, …}` | 放弃一次登录 / 退出登录（引擎能吊销就吊销令牌） |
 | `settings.mcp.context` | `{instance?, session_id, space?}`，按会话判 | 会话下一次调模型时带的 MCP 部分，见下；要 `engine.inspect`（可选，标准装配授予） |
 
-**写在哪一层**：项目层经引擎写（`engine.mcp.addServer / updateServer`）：引擎拒绝没受信的项目（`-32022`）、按它的 MCP 策略拒绝
-（`-32020`），写了就连。全局层与场景层引擎没有写的方法，由扩展照引擎的写法写文件：`env`、`headers` 进那一层的 `settings.local.json`
-（0600，不提交），其余进 `settings.json`，都在那一层目录的锁下读改写，写完让引擎 `engine.config.reload`。删、停用、启用引擎都没有方法，同样写文件。
+**写在哪一层**：哪一层都经引擎写，`tier` 是 `global`、`scene` 或 `project`：引擎在那一层目录的锁下写，`env`、`headers` 进那一层的
+`settings.local.json`（0600，不提交），其余进 `settings.json`；写完只对这一个服务器对账。项目层另有引擎的两条：拒绝没受信的项目（`-32022`）、
+按它的 MCP 策略拒绝（`-32020`）。一层的服务器经 `engine.config.get {tier, include_secrets}` 读，值留在扩展里，给页面的照下面遮住。
 
 **校验**：名字是字母、数字、`-`、`_`，字母或数字开头，至多 64 个字符，不含 `__`（工具名是 `mcp__<名字>__<工具>`）；stdio 要命令，
 http、sse 要 `http(s)` 的 URL，两边的键不混用；环境变量名是 `[A-Za-z_][A-Za-z0-9_]*`，请求头名是 token、值里不能有换行。
 `{var: NAME}` 写成 `${NAME}`；`{secret}` 里的 `$` 写成 `$$`，引擎不展开它。项目层的服务器读不到引擎的环境，所以那里 `{var}` 被拒。
-加一个已有的名字、改一个没有的、改一个停用着的，都拒绝（`INVALID_PARAMS`，写明哪一项）。
+加一个已有的名字、改一个没有的，都拒绝（`INVALID_PARAMS`，写明哪一项）。
 
 **读回来**：值只到 `{kind: "env", var}` 或 `{kind: "secret", masked}`（`***` 加末 4 位，短于 12 个字符的只有 `***`）；`oauth` 块只有
 `grant`、`client_id`、`issuer`、`scopes`。两层有同名的，低的那条带 `overridden_by`，状态只给引擎在用的那条。要 `private_key_jwt` 的带

@@ -24,7 +24,6 @@ use harnix_ext::{caps, codes, Access, Call, Extension, ExtensionContext, Manifes
 use harnix_host_api::SettingsTiers;
 use serde_json::{json, Map, Value};
 
-mod dir_lock;
 mod fields;
 mod mcp;
 mod providers;
@@ -506,51 +505,6 @@ fn dig<'a>(document: &'a Value, key: &str) -> Option<&'a Value> {
         cursor = cursor.get(segment)?;
     }
     Some(cursor)
-}
-
-/// A tier's settings.json, or an empty document when the file is not there.
-///
-/// Only *not there* is empty. Every caller writes the document back, so a
-/// read that failed for any other reason — permissions, a disk error —
-/// taken as empty would have been written back as a tier holding the one key
-/// just set, its providers and credentials gone.
-pub(crate) fn read_document(path: &std::path::Path) -> Result<Value, RpcError> {
-    match std::fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| {
-            RpcError::new(
-                codes::INTERNAL_ERROR,
-                format!("{} is not valid JSON: {e}", path.display()),
-            )
-        }),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(json!({})),
-        Err(e) => Err(RpcError::new(
-            codes::INTERNAL_ERROR,
-            format!("could not read {}: {e}", path.display()),
-        )),
-    }
-}
-
-/// The directory lock of the tier a settings file is in, the one Agix's writers take.
-pub(crate) fn lock_tier(path: &std::path::Path) -> Result<dir_lock::DirLock, RpcError> {
-    let dir = path.parent().unwrap_or(std::path::Path::new("."));
-    dir_lock::DirLock::acquire(dir).map_err(io_error)
-}
-
-/// Replace a tier's settings.json atomically.
-pub(crate) fn write_document(path: &std::path::Path, document: &Value) -> Result<(), RpcError> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(io_error)?;
-    }
-    let temp = path.with_extension("json.tmp");
-    let body = serde_json::to_vec_pretty(document)
-        .map_err(|e| RpcError::new(codes::INTERNAL_ERROR, e.to_string()))?;
-    std::fs::write(&temp, &body)
-        .and_then(|()| std::fs::rename(&temp, path))
-        .map_err(io_error)
-}
-
-fn io_error(e: std::io::Error) -> RpcError {
-    RpcError::new(codes::INTERNAL_ERROR, format!("could not write: {e}"))
 }
 
 #[cfg(test)]
