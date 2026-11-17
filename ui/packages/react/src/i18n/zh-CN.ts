@@ -337,7 +337,7 @@ const zhCN: Record<string, string> = {
   "settings.field.model.thinking_mode": "思考",
   "settings.field.model.max_output_tokens": "回复被截断时的最大输出",
   "settings.field.model.fallback_model": "回退模型",
-  "settings.hint.model.effort": "模型为一次回复下多少功夫；不设由端点决定。对所有会话生效：引擎不按会话设推理强度",
+  "settings.hint.model.effort": "模型为一次回复下多少功夫；不设由端点决定。新会话的缺省；一个对话可以在输入框的模型菜单里设自己的",
   "settings.hint.model.thinking_mode": "auto：照模型自己的缺省。OpenAI 兼容的端点还要在模型服务里选思考开关",
   "settings.hint.model.max_output_tokens": "回复到上限被截断时，至多用这么多重试；不设：按模型公布的上限",
   "settings.hint.model.fallback_model": "模型持续过载时改用它；不设：不回退",

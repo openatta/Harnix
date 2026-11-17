@@ -339,7 +339,7 @@ const en: Record<string, string> = {
   "settings.field.model.thinking_mode": "Thinking",
   "settings.field.model.max_output_tokens": "Most output tokens when a reply is cut off",
   "settings.field.model.fallback_model": "Fallback model",
-  "settings.hint.model.effort": "How much work the model puts into a reply; unset leaves it to the endpoint. Applies to every session: the engine takes no effort per session",
+  "settings.hint.model.effort": "How much work the model puts into a reply; unset leaves it to the endpoint. The default for a new session; a conversation can set its own from the model menu under the input",
   "settings.hint.model.thinking_mode": "auto: the model's own default. An OpenAI-compatible endpoint also needs its provider's thinking switch",
   "settings.hint.model.max_output_tokens": "A reply cut off at its limit is retried with up to this many; unset: the model's documented limit",
   "settings.hint.model.fallback_model": "Used while the model stays overloaded; unset: no fallback",
