@@ -930,6 +930,17 @@
   white-space: nowrap;
 }
 
+/* On the home page: the project a task runs in, after it. */
+.hx-flow-task-project {
+  flex: none;
+  max-width: 30%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--label-tertiary);
+  font-size: 11px;
+}
+
 .hx-flow-tasks-panel > .btn {
   align-self: flex-start;
   margin-top: 4px;
