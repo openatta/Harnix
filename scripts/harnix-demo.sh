@@ -12,7 +12,7 @@
 # than it (`pnpm --filter @harnix/shell build`, then `cargo build --release -p harnix-cli`).
 #
 # The first `start` in a fresh directory brings in demo data (xops-03 §7, xops-04 §8): the pack of
-# `scripts/demo/` (flows, skills, rules, policies, gates, hooks) into the flow module's writable
+# `scripts/demo/` (flows, skills, rules, policies, gates, hooks) into the flow extension's writable
 # packs; a few runs in different states — finished, waiting for a confirmation, paused, cancelled,
 # waiting for an external hand-in — made by the real kernel (`crates/flow/examples/demo_seed.rs`);
 # and conversations in each flow's conversation, the general one and each run's main session,
@@ -74,8 +74,9 @@ build() {
   cargo build --release -p harnix-cli
 }
 
-# The flow module's data directory in the demo's state.
-FLOW_DATA="$DIR/state/modules/flow"
+# The flow extension's data directory in the demo's state (<state>/ext/<id>/data): its writable
+# packs, its runs and their workspaces.
+FLOW_DATA="$DIR/state/ext/flow/data"
 
 seed() {
   [ -f "$DIR/.seeded" ] && return 0
