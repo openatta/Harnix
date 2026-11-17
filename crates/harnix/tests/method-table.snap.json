@@ -2516,6 +2516,32 @@
         "scope": "session"
       },
       "kind": "method",
+      "name": "observability.context",
+      "owner": "ext:observability"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "observability.tasks.output",
+      "owner": "ext:observability"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
       "name": "observability.trace",
       "owner": "ext:observability"
     },
@@ -3151,253 +3177,6 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.clear",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.compact",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.context",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "system.extensions.log",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.goal",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.goal.set",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.goal.update",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "system.instances.create",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "system.instances.restart",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "system.instances.stop",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "system.instances.templates",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.messages.drop",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.messages.edit",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.model",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "system.process",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.rename",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.tasks.message",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.tasks.output",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.tasks.stop",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
         "scope": "open"
       },
       "kind": "route",
@@ -3671,21 +3450,6 @@
       "kind": "topic",
       "name": "schedule.list",
       "owner": "ext:schedule"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "topic",
-      "name": "system.process",
-      "owner": "ext:system"
     }
   ]
 }

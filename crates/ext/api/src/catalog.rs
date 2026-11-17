@@ -75,7 +75,7 @@ pub struct Point {
 ///
 /// The number is part of the design (concept §5.6): one more is an argument to
 /// be made, not a commit to be pushed. The ninth, `session.action`, was argued:
-/// three things the shell drew for one extension (open in the system space, view
+/// three things the shell drew for one extension (inspect a session elsewhere, view
 /// a tool call there, archive and export) were one kind of thing with nowhere to go. The tenth,
 /// `sidebar.tab`, was argued too: the right column is a docking surface per session, and the
 /// pages opened in it (a file preview, the usage, a flow's progress, an output stream) are one
@@ -207,30 +207,6 @@ impl ExtensionPoint {
 /// catalog shows every point a UI package can fill; each owner declares its own from this list.
 pub const EXTENSION_POINTS: &[ExtensionPoint] = &[
     ExtensionPoint {
-        owner: "system",
-        id: "system.console.tab",
-        kind: PointKind::Register,
-        what: "系统 space 控制台的一个页签（`{id, title(), render(), order?, about?()}`）",
-        when: "系统 space 的控制台画出时",
-        frequency: Frequency::PerInteraction,
-    },
-    ExtensionPoint {
-        owner: "system",
-        id: "system.inspector.tab",
-        kind: PointKind::Render,
-        what: "系统 space 右栏里选中会话的一页（`{id, title(target), match(target), render(target), tools?}`）",
-        when: "右栏的选中项变化时",
-        frequency: Frequency::PerInteraction,
-    },
-    ExtensionPoint {
-        owner: "system",
-        id: "system.metrics.link",
-        kind: PointKind::Register,
-        what: "系统 space 指标条上一格数字去哪（`{id, metric, title(), open()}`）：`metric: \"waiting\"` 的「等你处理」打开待我处理",
-        when: "指标条画出时、点那一格时",
-        frequency: Frequency::PerInteraction,
-    },
-    ExtensionPoint {
         owner: "harnix-app",
         id: "harnix-app.project.items",
         kind: PointKind::Register,
@@ -282,8 +258,8 @@ pub const EXTENSION_POINTS: &[ExtensionPoint] = &[
         owner: "observability",
         id: "observability.usage.section",
         kind: PointKind::Render,
-        what: "系统 space「用量」页签里的一个区块（`{id, title(), order?, render(context)}`，`context` 是 `{since, days}`）：流程按流程的用量",
-        when: "「用量」页签画出时",
+        what: "用量汇总里的一个区块（`{id, title(), order?, render(context)}`，`context` 是 `{since, days}`）：流程按流程的用量",
+        when: "用量汇总画出时",
         frequency: Frequency::PerInteraction,
     },
 ];
@@ -345,8 +321,8 @@ mod tests {
             assert!(p.id.starts_with(&format!("{}.", p.owner)), "{} is not under {}", p.id, p.owner);
             assert!(point(p.id).is_none(), "{} is one of the shell's", p.id);
         }
-        assert_eq!(points_of("system").count(), 3);
         assert_eq!(points_of("harnix-app").count(), 4);
+        assert_eq!(points_of("observability").count(), 1);
         assert_eq!(points_of("flow").count(), 2);
     }
 

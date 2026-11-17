@@ -28,7 +28,6 @@ members = [
     "crates/ext/plugins",
     "crates/ext/schedule",
     "crates/ext/settings",
-    "crates/ext/system",
     "crates/harnix",
     "crates/host-api",
     "crates/hub",
@@ -107,7 +106,6 @@ harnix-ext-packages = { path = "crates/ext/packages" }
 harnix-ext-plugins = { path = "crates/ext/plugins" }
 harnix-ext-schedule = { path = "crates/ext/schedule" }
 harnix-ext-settings = { path = "crates/ext/settings" }
-harnix-ext-system  = { path = "crates/ext/system" }
 harnix-host-api  = { path = "crates/host-api" }
 harnix-hub       = { path = "crates/hub" }
 harnix-kernel    = { path = "crates/kernel" }

@@ -84,9 +84,8 @@ impl AuditSink for TimelineAudit {
 /// Allows worth a timeline entry: the ones that change what this process is
 /// or what it may reach.
 fn is_consequential(method: &str) -> bool {
-    // The system space acts on sessions that are not its own: every act is worth going back for.
-    (method.starts_with("system.") && method != "system.process")
-        || method.starts_with("observability.")
+    // A read of a session's inside — its recording, its context, a task's output — is worth going back for.
+    method.starts_with("observability.")
         || matches!(
             method,
             "plugins.install"

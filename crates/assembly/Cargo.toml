@@ -40,7 +40,6 @@ libc        = { workspace = true }
 [dev-dependencies]
 tempfile    = { workspace = true }
 # The first-party extensions, linked or not: what not linking one changes (`tests/grants.rs`).
-harnix-ext-system = { workspace = true }
 harnix-ext-harnix-app    = { workspace = true }
 harnix-ext-flow          = { workspace = true }
 harnix-ext-settings      = { workspace = true }

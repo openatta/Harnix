@@ -679,7 +679,6 @@ fn every_harnix_dependency_resolves() {
         "ext/plugins",
         "ext/schedule",
         "ext/settings",
-        "ext/system",
         "harnix",
         "host-api",
         "hub",
@@ -764,7 +763,6 @@ mod rules {
         /// The first-party extensions: `harnix-ext-<id>`, each a crate of its own.
         pub const FIRST_PARTY_PREFIX: &str = "harnix-ext-";
         pub const FIRST_PARTY: &[&str] = &[
-            "harnix-ext-system",
             "harnix-ext-harnix-app",
             "harnix-ext-settings",
             "harnix-ext-plugins",
@@ -778,7 +776,6 @@ mod rules {
             CONTRACT, KERNEL, AUTHZ, ROUTER, TRANSPORT, HUB, INSTANCE, ENGINE_API, ENGINE_LINK, ENGINE, SUPERVISE,
             ASSEMBLY, EXT, HOST_API, PACKAGES, CARRIER_SHARED, CARRIER_WASM, CARRIER_PROC, PROC, PACKAGE, WASM_PORT,
             WASM_HOST, WASM, CLIENT, FACADE, CLI, TESTAPP,
-            "harnix-ext-system",
             "harnix-ext-harnix-app",
             "harnix-ext-settings",
             "harnix-ext-plugins",
@@ -1371,7 +1368,7 @@ mod rules {
 
     /// The identifiers of the first-party extensions and their spaces.
     const FIRST_PARTY_IDS: &[&str] = &[
-        "system", "sessions", "projects", "flow", "harnix-app", "settings", "plugins", "packages", "devices",
+        "sessions", "projects", "flow", "harnix-app", "settings", "plugins", "packages", "devices",
         "observability", "schedule",
     ];
 

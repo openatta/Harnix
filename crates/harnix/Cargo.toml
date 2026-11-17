@@ -23,7 +23,6 @@ flow = ["first-party", "dep:harnix-ext-flow"]
 schedule = ["first-party", "dep:harnix-ext-schedule"]
 first-party = [
     "dep:harnix-ext-harnix-app",
-    "dep:harnix-ext-system",
     "dep:harnix-ext-observability",
     "dep:harnix-ext-settings",
     "dep:harnix-ext-plugins",
@@ -59,7 +58,6 @@ harnix-assembly       = { workspace = true }
 harnix-ext       = { workspace = true }
 # Harnix's own extensions (`first-party`).
 harnix-ext-harnix-app    = { workspace = true, optional = true }
-harnix-ext-system        = { workspace = true, optional = true }
 harnix-ext-flow          = { workspace = true, optional = true }
 harnix-ext-schedule      = { workspace = true, optional = true }
 harnix-ext-observability = { workspace = true, optional = true }

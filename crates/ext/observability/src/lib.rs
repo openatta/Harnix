@@ -1,16 +1,18 @@
-//! A session's model calls, read back out of the engine's recording.
+//! A session's model calls, read back out of the engine's recording, and its inside as the engine
+//! holds it now: the context its next call will carry, the output of its tasks.
 //!
 //! What the model was sent and what came back, call by call, summed per turn, what each Agent of
 //! a session has used, and the request envelope's changes. The engine writes every call to a
 //! recording; its reader (`harnix_ext::engine::readers`) reads it through the engine's protocol, and
 //! these methods answer with what it read. The conversation's trajectory view and the right column's
-//! usage tab read them for the open session, the system space's inspector for any session.
+//! usage tab read them for the open session. `context` and `tasks.output` ask the engine itself
+//! (`engine.inspect`): the right column's context tab and output tab read them.
 //!
 //! A session's rows are a device's for the sessions of the space it claims (`RowScope::Session`):
 //! before a recording is read, the session is asked of the engine as the caller, and the hub judges
 //! the claim as it does for every read of a session (system-space.md §10). `usage` names many
-//! sessions at once and stays an open row, as the system space's console reads it; so does
-//! `usage.daily`, the same figures per day and model for the console's usage summary.
+//! sessions at once and stays an open row, as the usage summary reads it; so does
+//! `usage.daily`, the same figures per day and model for the summary.
 
 use std::sync::Arc;
 
@@ -35,8 +37,8 @@ impl Extension for Observability {
     fn manifest(&self) -> Manifest {
         Manifest::new("observability", env!("CARGO_PKG_VERSION"))
             .title("Observability")
-            .disclosure("读本机的模型调用录像：每次调用的请求与应答、每轮的汇总、会话的用量、请求信封的变化")
-            .requires([caps::RECORDINGS_READ])
+            .disclosure("读本机的模型调用录像：每次调用的请求与应答、每轮的汇总、会话的用量、请求信封的变化；读会话下一次调用的上下文、任务的输出")
+            .requires([caps::RECORDINGS_READ, caps::ENGINE_INSPECT])
     }
 
     fn register(&self, r: &mut Registrar<'_, ()>) {
@@ -81,6 +83,22 @@ impl Extension for Observability {
             .raw(|call, params| async move {
                 let (reader, session) = recording_of(&call, &params).await?;
                 answer(reader.envelopes(&session).await)
+            });
+        r.method("context")
+            .access(session())
+            .describe("what a session's next model call will carry, per block, its token counts estimated, with what the provider counted for the last call beside it")
+            .raw(|call, params| async move { inspect_context(&call, &params).await });
+        r.method("tasks.output")
+            .access(session())
+            .describe("the output of one of a session's background tasks: the whole, its tail, or from a byte on")
+            .raw(|call, params| async move {
+                let mut target = session_target(&params)?;
+                for key in ["task_id", "tail_bytes", "from_byte"] {
+                    if let Some(value) = params.get(key) {
+                        target[key] = value.clone();
+                    }
+                }
+                call.call("engine.session.taskOutput", target).await
             });
         // Its UI package defines the usage summary's sections, for others to add theirs.
         for point in catalog::points_of("observability") {
@@ -199,6 +217,26 @@ fn session_target(params: &Value) -> Rpc<Value> {
     Ok(target)
 }
 
+/// `context {instance?, session_id, space?}`: the engine's `engine.session.inspectContext` — what the
+/// next call will carry, per block, its token counts estimated — with `measured`: what the provider
+/// counted for the last call that was made (`engine.session.get`'s `context`), absent before the
+/// first one. The interface sizes the bar by the measured figure and only divides it by the
+/// estimates, so an estimate never passes for a count.
+async fn inspect_context(call: &Call, params: &Value) -> Rpc<Value> {
+    let target = session_target(params)?;
+    let mut context = call.call("engine.session.inspectContext", target.clone()).await?;
+    let measured = call
+        .call("engine.session.get", target)
+        .await
+        .ok()
+        .and_then(|info| info.get("context").cloned())
+        .filter(|c| c.get("tokens").and_then(Value::as_u64).is_some_and(|n| n > 0));
+    if let (Some(measured), Some(obj)) = (measured, context.as_object_mut()) {
+        obj.insert("measured".into(), measured);
+    }
+    Ok(context)
+}
+
 /// The reader and the session of `{instance?, session_id, space?}`, once the engine has answered
 /// for the session as the caller: a session the caller may not see is refused before its recording
 /// is touched, by the hub's own words.
@@ -244,7 +282,7 @@ mod tests {
                 .access()
                 .clone()
         };
-        for name in ["observability.trace", "observability.trace.call", "observability.turns", "observability.calls"] {
+        for name in ["observability.trace", "observability.trace.call", "observability.turns", "observability.calls", "observability.context", "observability.tasks.output"] {
             let row = access(name);
             assert!(row.opens_devices(), "{name} is a device's");
             assert!(!row.opens_every_extension(), "{name} is not an extension's");
