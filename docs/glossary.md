@@ -46,6 +46,8 @@
 |---|---|---|
 | **实例** | `instance` | 一台 Agix 引擎（一个会话池）。**隔离单位**：数据根、设置、provider、MCP、Agix 插件、场景都是它自己的 |
 | **`main` 实例** | `main` | profile 的 `[engine]` 建的缺省实例，内核拥有，谁都不能停 |
+| **引擎根** / **数据根** | `data_root`；`main` 的是 `<状态目录>/engine`（`--engine-dir`） | 一台实例的引擎读写的目录：设置分层、transcript、记忆、技能、录像。`main` 的在 Harnix 自己的状态目录里，别的引擎客户端的目录（`~/.agix`）不读 |
+| **项目数据目录** | `.harnix`（`harnix::engine::PROJECT_DIR`） | 项目里属于工具的那一个目录：引擎的项目层（设置、agents、hooks、规则、记忆、它的 worktree）与 Harnix 写的（流程的 `runs/`、项目的 `flows/`）同在一处。引擎启动时带 `project_dir = ".harnix"`、`product_name = "Harnix"`；`.agix` 不读 |
 | **实例载体** | `InstanceCarrier` | 一台实例怎么跑：**进程内**（经 `agix::embed` 起在本进程里，经内存双工连）、**spawn**（Harnix 起子进程并看护）、**attach**（连一台只给这个 Harnix 用的 daemon）、**收养**（扩展进程里的引擎） |
 | **实例登记表** | `harnix-instance` | 建、确保、停、重启实例，模板、账本、拥有者都在这里；中枢只经 `InstanceBook` 问它 |
 | **模板** | `InstanceTemplate` | 建实例的规格：实例载体、场景、数据根规则、允许填的参数、能不能由界面用。扩展与界面都只能按模板建实例 |
@@ -217,6 +219,11 @@
 
 | 术语 | 代码 | 意思 |
 |---|---|---|
+| **流程库** | crate `harnix-flow`（`crates/flow`），`FLOW_API_VERSION` | 流程本身：定义、运行记录、内核、派工器、存储、流程包、试运行。不链 Harnix 也不链 Agix，别的宿主可以整个拷走；见它的嵌入指南 `crates/flow/docs/embed.zh-CN.md` |
+| **派工器** | runner，`harnix_flow::runner::Runner` | 流程库里把内核交出的工作项做掉的那一层：开会话、发消息、判权限询问、跑门禁、投钩子、开收 worktree。只经 `SessionHost` 认识会话 |
+| **宿主**（流程库的） | `SessionHost`；Harnix 的是 `HarnixSessionHost`（`harnix-ext-flow`） | 把会话交给派工器的那一方：开（同一个键再开是同一个会话）、看帧、发、打断、答权限。Harnix 的经中枢；测试与 `flowctl` 用按脚本答话的 `ScriptedHost`，每个宿主都要过一致性测试 `harnix_flow::conformance` |
+| **项目布局** | `ProjectLayout {dir, worktrees_root, branch_prefix, agent_dirs}` | 宿主告诉流程库它在项目里写到哪：项目数据目录的名字（Harnix `.harnix`，库只用里面的 `flows/`、`runs/`）、worktree 的根（Harnix：流程扩展的数据目录下 `worktrees/`）、分支前缀（Harnix `harnix/flow`）、数据目录里任务的会话能当作自己的写的子目录（Harnix：`scratchpad`、`memory`、`worktrees`）。库里没有缺省 |
+| **格式号** | `format`；`DEFINITION_FORMAT`、`RUN_FORMAT`，存储目录的 `FORMAT` 文件 | 定义与件、运行记录各自的格式，缺省 1；比库新的整份拒读，不读半份。没有 `FORMAT` 却有运行的存储目录也拒 |
 | **流程 space** | space `flow`（场景 `flow-author`），`registerFlowSpace` | 流程自己的 space，入口在左栏底部（`place: "bottom"`）：左栏是通用会话、流程与它们的运行，中区是选中项的对话，右栏是流程、运行、参考。见 [Harnix app](harnix-app.md) §11 |
 | **流程** | `FlowDef` | 站组成的有向无环图，一份 YAML，随流程包分发 |
 | **运行** | `RunRecord`，`run` | 一条流程的一次执行，处理一个对象（`subject`）。不叫「实例」：实例只指 Agix 实例 |
@@ -227,6 +234,7 @@
 | **工作项** | `TaskRec`，`tasks` | 流程里一站的执行单位：一站 0..N 个，每个交一份结构化输出。界面与文档里说「工作项」，代码、协议、事件名（`task.asking`）里仍是 task |
 | **执行者** | `Executor` | 做一个工作项的那一方：`session`（会话）· `agent`（主会话下的子 Agent，xops-03）· `program`（应用代码）· `external`（人或外部 Agent 来认领）· `subflow`（子运行） |
 | **主会话** / **主 Agent** | `RunRecord::main_session`，会话键 `@main` | 每个运行一个，运行建好就开（xops-03）：没写 `scene` 的会话站、子 Agent 站都在它里面一轮一轮地做；落点与模型写在流程级 `main:`。写了 `scene` 的会话站是**独立会话** |
+| **会话键** | `RunRecord.session_keys`：键 → `BoundSession {id, opened_with}` | 同一个键的工作项进同一个会话（`@main` 是主会话）；记下会话和开它时的设置（场景、模型、推理强度、落点），开法不一样的工作项不进那个会话 |
 | **子 Agent 站** | `kind: agent` | 主 Agent 用 Agix 的 `Agent` 工具把工作项交给子 Agent（`agent_type`、`model` 可选），拿到结果用 `flow_submit` 交；`description` 是工作项的标签 `flow:<run>/<station>/<task>` |
 | **运行状态** | `Phase` | 读者看到的：`running` · `waiting`（`reason`：approval / confirm / held / unmet / failed / external / children / work）· `pausing` · `paused` · `finished` · `cancelled`。由 `RunStatus` 与「此刻有没有活在手上」推出 |
 | **暂停** | `pause` / `resume`，`RunRecord.paused` | 手上的活跑完、照常记下，不进下一站、不派新工作项；恢复后接着走。状态仍是 `active` |
@@ -246,7 +254,7 @@
 | **租约** | lease | 认领一个工作项的期限与 token；过期可再认领，旧 token 交不进来 |
 | **流程包** | pack，`PartKind` | 流程定义 + 件（skill、规则、策略、门禁、钩子），由应用实现的 `Packs` 给 |
 | **协议层** | — | `flow` 扩展在站的 skill 正文前注入的一段：交什么、怎么交、受哪些权限与门禁，再接这一站的规则 |
-| **落点** | placement，`Placement` | 站的会话建在哪：space、实例或模板实例（`instance` / `template` + `params`），用哪个模型（`model` / `provider`）（xops-02） |
+| **落点** | placement，`Placement` | 站的会话建在哪：space、实例或模板实例（`instance` / `template` + `params`），用哪个模型（`model` / `provider`）、多大推理强度（`effort`）（xops-02） |
 | **交付方式** | `Delivery` | 会话怎么交输出：结构化输出（`structured_output`，缺省：契约作为会话的 `output_schema`，模型调 `StructuredOutput`）或 `flow_submit`（`flow-*` 包装 scene） |
 | **受限工具** | `guarded_tools` | 没有权限说话时由执行语义定的工具（缺省引擎的 shell、文件编辑、notebook、解释器）：`auto` 在项目里放行，`strict` 拒绝；流程会话对它们都 `ask`，由 `flow` 扩展判 |
 | **来源** | `Origin` | 流程包里一条流程从哪来：`builtin`（随应用）· `override`（可写层里覆盖内置的那份）· `user`（只在可写层）· `project`（项目自带，`<项目>/.harnix/flows/`，只对这个项目的任务生效，项目受信才读） |

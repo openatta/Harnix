@@ -371,13 +371,13 @@ The library's first version: the kernel, stores, packs and dry runs move out of 
   `Watch`, `Frame`, `TurnEnd`, `Decision`, `Note`, `HostError`, `ToolSpec`, `SessionId`;
   `HookTransport` and `Webhooks` (feature `webhooks`); `ScriptedHost` and `Turn`;
   `conformance::{Subject, Failure, run_all}`; `wire::defs_list`.
+- **`ProjectLayout`** (new, at the root): the project's data directory, the worktrees' root and
+  their branch prefix, given by the host — `Engine::with_layout`, `Engine::layout` (in place of the
+  fixed `kernel::refs::worktree_dir` and `worktree_branch`, both removed); `project_pack_dir(root,
+  &layout)` and `ProjectPacks::new(base, root, &layout, trusted)` take it. The `.gitignore` line is
+  `runs/` alone; worktrees are no longer in the project.
 - **`ProjectLayout::agent_dirs`** (`with_agent_dirs`, `agent_dirs_in`) and **`Call::agent_dirs`**:
   the directories of the data directory a task's session writes as its own.
-
-- **`ProjectLayout`** (new, at the root): the project's data directory, the worktrees' root and
-  their branch prefix, given by the host — `Engine::with_layout` (in place of `with_worktrees`),
-  `Engine::layout`; `project_pack_dir(root, &layout)` and `ProjectPacks::new(base, root, &layout,
-  trusted)` take it. The `.gitignore` line is `runs/` alone; worktrees are no longer in the project.
 - **`Call::reserved`**: directories inside the root that count as outside it when a call is judged.
 - **Formats written**: `format` on `FlowDef`, `PolicyDef`, `GateDef`, `HookDef` and `RunRecord`; the
   `FORMAT` file of a `FileStore`, which no longer reads a directory of runs without one.

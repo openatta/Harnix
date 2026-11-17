@@ -73,6 +73,7 @@ Anthropic 或兼容 OpenAI 的 API，其中一个是缺省——存在 `~/.harni
 - **流程**（`harnix-ext-flow`，可选）：一张站的图，带着一个对象走过由运行的主 Agent、子 Agent、应用代码或外部完成的工作；
   每次工具调用按流程的权限判，每一站按出口条件和门禁判，钩子把进度告诉别的系统。在项目里跑的流程是一个任务：
   从项目、项目里对话的 `/flow` 或定时起，在项目或它的 worktree 里干活。
+  流程本身是一个单独的库 `harnix-flow`，不链 Harnix 也不链 Agix：它只经一个 trait `SessionHost` 拿到会话，扩展是 Harnix 对它的实现。
 - **定时**（`harnix-ext-schedule`，可选）：到点往一个会话发一轮、新建一个会话、或起一个任务——由 Harnix 执行，按定时自己的时区。
 
 为什么是这个形状，一层一层讲：[概念与架构](concept_and_architecture.md)。
@@ -99,6 +100,8 @@ crates/carrier/*       扩展包的两个载体：wasm（模式 2）、proc（�
 crates/package、wasm-port、wasm-host、wasm、proc
                        扩展包：清单、签名与商店、端口、宿主核心、wasmtime（唯一链它的地方）、扩展进程
 crates/client          应用自己的工具链接的轻量客户端
+crates/flow            harnix-flow，流程库：定义、运行、内核与派工器，会话经 SessionHost；
+                       不链 Harnix 也不链 Agix，可以整个拷走
 crates/cli             `harnix` 二进制：全部第一方扩展，带流程与定时
 crates/testapp         给测试用的应用
 ui/packages/           @harnix/core（协议、客户端、会话状态）、@harnix/react（宿主 API、贡献注册表、i18n、tokens）、
@@ -185,6 +188,7 @@ off = ["flow"]                      # 链进来、但要关掉的扩展，连同
 | [Harnix app](harnix-app.md) | Harnix app：首页、会话 space 与项目 space，它们的 profile 开关，怎么做出来的；右栏的上下文与输出、流程 space、设置里的诊断，以及每一样从哪读 |
 | [贡献点](contribution_points.md) | 界面的贡献点，由代码生成 |
 | [测试](testing.md) | LIVE 测试框架：检查的分层、运行器与拓扑、录像、覆盖表、给应用用的 testkit |
+| [流程库的嵌入指南](../crates/flow/docs/embed.zh-CN.md) | 把流程库接进别的宿主：它要什么、`SessionHost`、写在哪、版本与格式、怎么拷走 |
 | [术语](glossary.md) | 用词，一个词一个意思 |
 
 在 Harnix 上做应用的项目提的需求记在 [GitHub issue](https://github.com/openatta/Harnix/issues) 里，每个项目一个标签

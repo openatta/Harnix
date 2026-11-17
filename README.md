@@ -96,6 +96,8 @@ conversations, on the first free port from 4080 — nothing to set; delete the d
   judged against the flow's permissions, each station judged by its exit conditions and gates, hooks
   telling other systems about the progress. Run in a project, a flow is a task: started from the project,
   by `/flow` in one of its conversations or on a schedule, working in the project or a worktree of it.
+  The flows themselves are a library of their own, `harnix-flow`, that links nothing of Harnix or Agix:
+  it reaches sessions through one trait, `SessionHost`, and the extension is Harnix's implementation of it.
 - **Schedules** (`harnix-ext-schedule`, optional): at set times, a turn in a conversation, a new
   conversation, or a task — run by Harnix, in the schedule's own time zone.
 
@@ -124,6 +126,8 @@ crates/package, wasm-port, wasm-host, wasm, proc
                        extension packages: manifest, signatures and store, the port, the host
                        core, wasmtime (the one place it is linked), the extension process
 crates/client          the light client an application's own tools link
+crates/flow            harnix-flow, the flow library: definitions, runs, the kernel and the runner,
+                       sessions through SessionHost; nothing of Harnix or Agix, copyable whole
 crates/cli             the `harnix` binary: every first-party extension, with flows and schedules
 crates/testapp         an application for the tests
 ui/packages/           @harnix/core (protocol, client, session state), @harnix/react (host API,
@@ -214,6 +218,7 @@ a project's own settings and data in its `.harnix/`.
 | [docs/harnix-app.md](docs/harnix-app.md) | The Harnix app: the home page, the sessions and projects spaces, their profile knobs, how they are built; the right column's context and output, the flow space, the settings' diagnostics, and where each reads from |
 | [docs/contribution_points.md](docs/contribution_points.md) | The interface's contribution points, generated from the code |
 | [docs/testing.md](docs/testing.md) | The LIVE test framework: the check layers, the runner and topologies, recordings, the coverage table, testkit for applications |
+| [crates/flow/docs/embed.en.md](crates/flow/docs/embed.en.md) | Embedding the flow library in another host: what it needs, `SessionHost`, where it writes, versions and formats, copying it |
 | [docs/glossary.md](docs/glossary.md) | The words, used one way |
 
 *The documents are written in Chinese.* Requests from applications built on Harnix are

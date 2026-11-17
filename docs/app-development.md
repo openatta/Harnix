@@ -237,7 +237,8 @@ Harnix 本身是**框架 + 第一方扩展**：Harnix app（首页、会话 spac
 |---|---|---|---|---|---|
 | 骨架 | `harnix-contract`、`harnix-kernel`、`harnix-authz`、`harnix-router`、`harnix-transport`、`harnix-hub`、`harnix-instance`、`harnix-engine-api`、`harnix-engine-link`、`harnix-engine`、`harnix-supervise`、`harnix-assembly` | 协议、内部接口、准入、路由表、传输、中枢、实例登记表、引擎词汇（扩展的一半 S1、骨架的一半 S3）、Agix 接缝、子进程看护、装配与扩展宿主 | ✔ | ✔ | ✔（产品侧） |
 | 扩展接口 | `harnix-ext`；门面 `harnix` | 扩展接口（S1）；`harnix::ext`、`harnix::engine`、`App`、`first_party`、`carriers` | ✔ | ✔ | ✔ |
-| 第一方扩展 | `harnix-ext-{system,harnix-app,settings,plugins,observability,devices,flow,schedule}` | 各一个原生扩展，只依赖 `harnix-ext`（`settings` 过渡期另依赖 `harnix-host-api`，见 harnix-ext.md §17.8） | ✔ | ✔ | ✔ |
+| 第一方扩展 | `harnix-ext-{harnix-app,settings,plugins,observability,devices,flow,schedule}` | 各一个原生扩展，只依赖 `harnix-ext`（`settings` 过渡期另依赖 `harnix-host-api`，见 harnix-ext.md §17.8；`flow` 另依赖流程库） | ✔ | ✔ | ✔ |
+| 流程库 | `harnix-flow` | 流程的定义、运行记录、内核、派工器、存储与流程包；会话只经 trait `SessionHost`。不依赖任何 Harnix crate，也不依赖 Agix，整个目录可以拷走（`crates/flow/tests/deps.rs`、`scripts/check-flow-copy.sh` 守着） | ✔ | ✔ | ✔ |
 | 宿主组件接口 | `harnix-host-api` | 运行期登记、拉起扩展进程、收养（S3，凭 `extensions.manage`） | | ✔ | ✔ |
 | 扩展包的管理 | `harnix-ext-packages` | 安装记录与同意、商店、升级与回滚、按名字选载体、把包登记成扩展 | | ✔ | ✔ |
 | 载体 | `harnix-carrier-wasm` · `harnix-carrier-proc` | 模式 2 的载体 · 模式 3 载体的产品侧（拉起、复核、扩展线的产品一端、`proc.<id>` 的收养） | | ✔ · | · ✔ |
@@ -249,7 +250,7 @@ Harnix 本身是**框架 + 第一方扩展**：Harnix app（首页、会话 spac
 | 扩展进程的入口 | `harnix-proc`（库） | `ext-proc` 子命令跑的那一份：宿主核心 + 虚拟机 + 线的客户端 + 它自己的 Agix；沙箱由产品在 exec 时套好 | | | ✔ |
 | 前端 | 外壳核心、第一方 UI 包、桥、`@harnix/ext-sdk`、`@harnix/ext-kit`、行内点 | | ✔ | ✔ | ✔（完全一样） |
 
-feature 的链：库 `harnix` 的缺省不带载体，应用自己选；`harnix-cli` 缺省开 `wasm`、`proc`、`flow`、`schedule`（两个载体都链，不写 `carrier` 取 `wasm`）。`flow` 链进 `harnix-ext-flow`，`schedule` 链进 `harnix-ext-schedule`。`wasm` 链进 `harnix-ext-packages` 与 `harnix-carrier-wasm`；
+feature 的链：库 `harnix` 的缺省不带载体，应用自己选；`harnix-cli` 缺省开 `wasm`、`proc`、`flow`、`schedule`（两个载体都链，不写 `carrier` 取 `wasm`）。`flow` 链进 `harnix-ext-flow` 与它的库 `harnix-flow`，`schedule` 链进 `harnix-ext-schedule`。`wasm` 链进 `harnix-ext-packages` 与 `harnix-carrier-wasm`；
 `proc` 链进 `harnix-ext-packages`、`harnix-carrier-proc` 与 `harnix-proc`，并登记子命令 `ext-proc`。两个都不开的构建里这些 crate 一个都不链，二进制里没有 wasmtime。
 
 - **编译器**：产品构建不带 Cranelift。`harnix-package` 的 `compile` 拉上 `harnix-wasm/compile`，只给打包工具 `harnix-pack` 和测试用。

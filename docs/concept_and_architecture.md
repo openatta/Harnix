@@ -737,7 +737,7 @@ fn main() -> anyhow::Result<()> {
 | `engine.config.read` / `engine.config.write` | 读 / 写引擎设置与 provider；后者含重读设置、交给继承 provider 的实例 | ✔ | | settings · settings |
 | `engine.plugins` | Agix 插件的装、卸、启停、重读 | ✔ | | plugins、packages |
 | `engine.export` | 导出、导入会话 | ✔ | | harnix-app |
-| `engine.mcp` | 给引擎加、改 MCP 服务器，登录远端的 | ✔ | | settings（可选） |
+| `engine.mcp` | 在引擎的任一层加、改、删、停用 MCP 服务器，重连它，登录远端的 | ✔ | | settings（可选） |
 | `recordings.read` · `transcripts.read` | 录像与用量的读者 · 转录的读者；都经引擎的协议读（`session.calls`、`call`、`callBlob`、`search`），每台实例各有一套，实例连不上读者返回 `Unavailable` | ✔ | | observability · harnix-app |
 | `process.observe` | 版本、运行时长、内存、线程、已连接的客户端；各扩展的日志 | ✔ | | observability（可选） |
 | `devices.manage` | 配对码、列设备、撤销设备 | ✔ | | devices |
@@ -906,9 +906,9 @@ Harnix 不定义它的包格式、不校验、不解包、不判定能力。第�
 清单是 Harnix 的，披露在装之前，人同意了才装，§4.5。）
 
 **装 Agix 插件是这个人自己的决定。** `plugins.*` 对设备开放：一个进程服务一个用户，设备就是这个人本人。真正的强制边界在引擎：能力门控、
-沙箱、它自己回的那份披露。`engine.mcp.addServer` 要 `engine.mcp`，设备直接调永远被拒：它配出来的是一个能起子进程的工具，没有 manifest、
-没有能力声明、没有任何披露。设备经设置页的 `settings` 扩展加、改：那里持这项能力，披露写明它替设备做这件事，一次一个服务器、
-一层一层地写，值不回显（[Harnix 扩展](harnix-ext.md) §22.9）。
+沙箱、它自己回的那份披露。`engine.mcp.addServer`（以及改、删、停用、重连）要 `engine.mcp`，设备直接调永远被拒：它配出来的是一个能起子进程的工具，没有 manifest、
+没有能力声明、没有任何披露。设备经设置页的 `settings` 扩展加、改、删、停用：那里持这项能力，披露写明它替设备做这件事，一次一个服务器、
+一层一层地经引擎写，值不回显（[Harnix 扩展](harnix-ext.md) §22.9）。
 
 **包方案不跟着载体走。** 引擎的载体今天是 QuickJS 脚本与编译进宿主的 Rust 插件，带 `[[wasm]]` 段的包拒装（WASM 在 Harnix，§2.2.2）。
 读 manifest、校验、解包、披露、启停不需要任何运行时。一个不带包方案的构建仍然合法，所以 `PLUGINS_DISABLED` **如实透传，不包装成
@@ -944,14 +944,20 @@ Harnix 自己的二进制 `harnix` 链了它。它被授予 `engine.inspect` 与
  内核（库 harnix-flow，纯）   站的有向无环图：进站、派工、租约、出站判定、返工、暂停；
           │                   只经宿主 trait 读写（RunStore、Packs、Authorizer、Tools）
           ▼ 工作项
- 扩展（harnix-ext-flow）      会话工作项交给会话（主会话 = 主 Agent；子 Agent；独立会话），
-                              程序交给应用，命令 / 宿主门禁去跑，钩子去投递；
-                              答流程会话的权限询问；flow.* 方法与主题
+ 派工器（库 harnix-flow 的 runner）  会话工作项交给会话（主会话 = 主 Agent；子 Agent；独立会话），
+          │                   答流程会话的权限询问，命令门禁去跑，钩子去投递，开、收 worktree；
+          │                   会话只经 trait SessionHost 拿到
+          ▼ 开、看、发、答
+ 宿主（harnix-ext-flow）      HarnixSessionHost：会话经中枢；程序与宿主门禁交给应用；
+                              flow.* 方法与主题、作者场景、实例模板、流程 space
 ```
 
 **分层**：流程的内核不建会话、不碰磁盘、不知道谁是用户——存储、授权、应用的程序与检查都由应用以 trait 交进来，
-所以同一个内核也跑在试运行的沙箱里（外面的一切模拟）。内核连同存储、流程包、试运行是一个单独的库 `harnix-flow`（`crates/flow`），
-不链 Harnix 也不链 Agix，别的宿主可以整个拷走（[嵌入指南](../crates/flow/docs/embed.zh-CN.md)）。扩展那一层把内核接到 Harnix：会话、原生工具（`flow_submit`、
+所以同一个内核也跑在试运行的沙箱里（外面的一切模拟）。派工器把内核交出的工作项做掉，它认识的会话只有 trait `SessionHost`
+（开、看帧、发消息、打断、答权限）。内核、派工器连同存储、流程包、试运行是一个单独的库 `harnix-flow`（`crates/flow`），
+不链 Harnix 也不链 Agix，别的宿主可以整个拷走，拿按脚本答话的 `ScriptedHost` 与一致性测试 `harnix_flow::conformance` 单独验证
+（[嵌入指南](../crates/flow/docs/embed.zh-CN.md)）。库写在项目里的东西放哪由宿主以 `ProjectLayout` 交进来，库里不写死目录名。
+扩展那一层是 Harnix 的宿主：用中枢实现 `SessionHost`、原生工具（`flow_submit`、
 `flow_state`、`flow_propose`，用 `Tool` 写）、作者场景 `flow-author`（用 `SceneLayer` 包在一个底版场景上）、实例模板、方法与主题、流程 space。
 
 **每个时间点只有一处能拦**：干活过程中是**权限**——流程会话对受限工具和权限提到的工具都 `ask`，`flow` 按这一轮所属
@@ -1325,7 +1331,7 @@ profile 的 `[brand]`：`name`（页面标题、左栏产品名）、`icon`（SV
 | 其余路径 | 是什么 |
 |---|---|
 | `~/Documents/`（`--data-dir` / `HARNIX_DATA_DIR`） | **只放项目**。选项目从这里开始，新建项目建在这里；里面没有隐藏目录 |
-| `<项目>/.harnix/` | 项目自己的数据与配置，**一律**放这里，不另开 `<项目>/.<产品>/`：引擎的项目层（设置、agents、hooks、rules、memory、它的 worktree）与 Harnix 写的（流程的 `runs/`、项目的 `flows/`）同在一处 |
+| `<项目>/.harnix/` | 项目自己的数据与配置，**一律**放这里，不另开 `<项目>/.<产品>/`：引擎的项目层（设置、agents、hooks、rules、memory、它的 worktree）与 Harnix 写的（流程的 `runs/`、项目的 `flows/`）同在一处。它是工具的，不是任务的：流程任务的会话写它算写项目之外，引擎沙箱让会话写的 `scratchpad/`、`memory/`、`worktrees/` 除外；流程往它的 `.gitignore` 里只加 `runs/` |
 
 为什么这样分：状态目录按产品 id 命名，同一台机器上装两个产品不会抢令牌和账本；每一处一个所有者，一个扩展停用或卸载时清掉的就是它自己那一处；
 Documents 是用户的，不该藏着程序的东西；项目里只有一个属于工具的目录，引擎与 Harnix 共用它（引擎启动时带 `project_dir = ".harnix"`、`product_name = "Harnix"`）。流程的 worktree 不在里面：引擎会清掉 `.harnix/worktrees/` 下它不认识的目录，所以它们在流程扩展的数据目录里。Harnix 只认这一种布局，不读、不迁移别的布局留下的文件。

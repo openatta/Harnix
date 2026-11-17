@@ -1237,6 +1237,7 @@ quote_api_key = { credential = "helm/quote-api" }
 | 　`run/` | spawn 的 daemon 的私有套接字目录（0700） |
 | 　`uploads/<pid>/` | 本进程的上传 |
 | 　`ext/<id>/data/` | 原生扩展 `<id>` 的 `data_dir()`（例如 `ext/harnix-app/data/state.json`：工作区、归档、偏好） |
+| 　`ext/flow/data/worktrees/<运行>/` | 流程 worktree 任务的 worktree（分支 `harnix/flow/<运行>`），在项目之外：引擎会清掉 `<项目>/.harnix/worktrees/` 下它不认识的目录（§23） |
 | 　`ext/<id>/install.json`、`ext/<id>/<version>/` | 扩展包的安装记录与**同意记录**（扩展进程看不见它）、解开并验过签的包（`packages` 拥有，见 [扩展包](harnix-ext-package.md)） |
 | 　`ext/<id>/run/{data,kv,engine,work,home,tmp}` | 扩展包的数据、kv、（模式 3）它自己 Agix 的根、它的会话的项目目录、`HOME`、`TMPDIR`（载体拥有） |
 | `~/Documents/` | 只放项目：选项目从这里开始，新建项目建在这里（`projects_dir`，`--data-dir` 能改）。Documents 里不放隐藏目录 |

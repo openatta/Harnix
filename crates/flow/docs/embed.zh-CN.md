@@ -285,11 +285,10 @@ cargo run -p harnix-flow --example flowctl -- show <state-dir> <run>
   `DEFAULT_GUARDED`、`withheld`、`worktree_info`、`EndError`、`redact_url`；trait **`SessionHost`** 和 `OpenSpec`、`Opened`、
   `SessionInfo`、`Watch`、`Frame`、`TurnEnd`、`Decision`、`Note`、`HostError`、`ToolSpec`、`SessionId`；`HookTransport` 与
   `Webhooks`（feature `webhooks`）；`ScriptedHost` 与 `Turn`；`conformance::{Subject, Failure, run_all}`；`wire::defs_list`。
+- **`ProjectLayout`**（新，在根上）：项目数据目录、worktree 的根和分支前缀，由宿主给——`Engine::with_layout`、`Engine::layout`
+  （代替写死的 `kernel::refs::worktree_dir`、`worktree_branch`，两个都删了）；`project_pack_dir(root, &layout)`、
+  `ProjectPacks::new(base, root, &layout, trusted)` 收它。`.gitignore` 只写 `runs/`；worktree 不再放在项目里。
 - **`ProjectLayout::agent_dirs`**（`with_agent_dirs`、`agent_dirs_in`）与 **`Call::agent_dirs`**：数据目录里会话当作自己的来写的子目录。
-
-- **`ProjectLayout`**（新，在根上）：项目数据目录、worktree 的根和分支前缀，由宿主给——`Engine::with_layout`（代替
-  `with_worktrees`）、`Engine::layout`；`project_pack_dir(root, &layout)`、`ProjectPacks::new(base, root, &layout, trusted)` 收它。
-  `.gitignore` 只写 `runs/`；worktree 不再放在项目里。
 - **`Call::reserved`**：判定调用时，根里面算作根外面的目录。
 - **格式写下来了**：`FlowDef`、`PolicyDef`、`GateDef`、`HookDef`、`RunRecord` 的 `format`；`FileStore` 的 `FORMAT` 文件，没有它的
   运行目录不再读。

@@ -610,19 +610,20 @@ Agent 循环内部的参数不做表单。
 
 「MCP」一节（`@harnix/settings`，后端 `settings` 扩展的 `settings.mcp.*`，[Harnix 扩展](harnix-ext.md) §22.9）列出这一对 (项目, 场景)
 每一层的服务器，连停用的。每张卡片：名字、连接方式、哪一层；状态（已连接、已登录、需要登录、登录失败、连接中、已断开、失败、被策略拒绝、
-项目未受信、已停用、未报告）和引擎给的原因；命令与参数或 URL；工具数。另一层有同名的，低的那条说「未生效」；要 `private_key_jwt` 的说这个构建没有它。
+项目未受信、已停用、第一个会话时连接、未报告）和引擎给的原因；命令与参数或 URL；工具数。另一层有同名的，低的那条说「未生效」；要 `private_key_jwt` 的说这个构建没有它。
 
 | 操作 | 说明 |
 |---|---|
 | 添加服务器 | 选层（全局、场景、当前项目）、名字、连接方式（stdio：命令、每行一个参数、环境变量；http / sse：URL、请求头）。环境变量和请求头的每一项是「值」（密码框）或「取自环境变量」；项目层只有「值」，它读不到引擎的环境 |
 | 编辑 | 名字和层不改；已写的值只显示末 4 位，缺省「保留」，改成「值」就换掉 |
-| 停用 / 启用 | 停用的服务器挪出这一层的文件，由扩展收着（连同它的值），引擎看不到；启用原样放回 |
-| 重连 | 引擎重读这一对的设置，它的服务器都重连 |
+| 停用 / 启用 | 在这一层写它的开关 `mcp_enabled.<名字>`（`engine.mcp.setEnabled`）：停用的留在文件里，引擎不启动它，状态是「已停用」；未受信的项目只能停用 |
+| 重连 | 引擎按这一对现在的设置重连这一个服务器，别的不动（`engine.mcp.reconnect`）；这一对还没连过时不能重连 |
 | 移除 | 先问一次，确认了才删，连同它的值 |
 | 登录 / 退出登录 | 远端（http、sse）的服务器有。登录开一个新窗口去授权页，回来落在 Harnix 自己的路由上，完成后窗口关掉、卡片刷新；页面不在 `https` 或本机地址上时，登录要在引擎那台机器的浏览器里完成 |
 
-项目层的服务器经引擎写：项目没受信时引擎拒绝，什么都不写（先在项目菜单里信任它）。全局层、场景层由扩展照引擎的写法写文件：值进那一层的
-`settings.local.json`（0600，不提交），其余进 `settings.json`。
+每一层都经引擎写（`engine.mcp.addServer / updateServer / removeServer / setEnabled {tier}`），扩展自己不写文件：引擎在那一层目录的锁下写，值进那一层的
+`settings.local.json`（0600，不提交），其余进 `settings.json`，写完只对这一个服务器对账。项目层的服务器在项目没受信时引擎拒绝，什么都不写（先在项目菜单里信任它）。
+状态是引擎对这一对 (项目, 场景) 说的（`engine.mcp.status {project_root, scene}`）；这一对还没有会话连过时，引擎不为列表启动它们，状态是「第一个会话时连接」。
 
 ## 8. 它是怎么用框架做的
 
@@ -657,7 +658,7 @@ Harnix app 是原生扩展最小的例子：一个后端扩展、一个界面包
 |---|---|
 | 时间（`timing.kind`） | `once {at}`（RFC 3339 带偏移，或时区里的墙钟 `YYYY-MM-DDTHH:MM[:SS]`）· `after {seconds}`（建好之后多久，一次）· `every {minutes}`（每 N 分钟，≥ 1，按经过的时间算）· `daily {time: "HH:MM"}` · `weekly {weekdays: [1..7], time}`（周一 1 … 周日 7）· `cron {expr}`（5 段，照 Vixie：`*`、数字、范围、列表、步长；不认名字和宏；日、周两段都写了时任一满足即可）。每月、工作日由界面拼成 `cron`、`weekly` |
 | 时区 | `time_zone` 是 IANA 名字，缺省是本机的；墙钟时间都按它算。夏令时跳过的那段钟点当天不到期，重复的那段只算第一次；`once` 落在跳过的那段里，顺延到跳过之后 |
-| 目标（`target.kind`） | `session {instance, session_id, prompt}`：已有会话发一轮，会话忙就排队（`OnBusy::Queue`）；上一次投的还在队列里时这一次并进去（回执 `skipped`、`merged`）。`new_session {mode, project_root?, scene?, instance?, provider?, model?, prompt}`：新会话，`new_once_then_reuse`（缺省，第一次新建、之后都发给它）或 `new_each`（每次新建），标题是「定时标题 · 计划时间」（时区里的 `YYYY-MM-DD HH:MM`）。`task {flow, subject, inputs?, project_root, title?, output_dir?, workspace?, show_in_space?}`：每次 `flow.start` 一个运行，`trigger` 是 `{kind: schedule, schedule, fire_at}`；`show_in_space` 原样交给 `flow.start`（建定时的界面传它列项目会话的 space，任务就在项目 space 里打开） |
+| 目标（`target.kind`） | `session {instance, session_id, prompt}`：已有会话发一轮，会话忙就排队（`OnBusy::Queue`）；上一次投的还在队列里时这一次并进去（回执 `skipped`、`merged`）。`new_session {mode, project_root?, scene?, instance?, provider?, model?, prompt}`：新会话，`new_once_then_reuse`（缺省，第一次新建、之后都发给它）或 `new_each`（每次新建），标题是「定时标题 · 计划时间」（时区里的 `YYYY-MM-DD HH:MM`）。`task {flow, subject, inputs?, project_root, title?, output_dir?, workspace?, show_in_space?}`：每次 `flow.start` 一个运行，`trigger` 是 `{kind: schedule, schedule, fire_at}`；`show_in_space` 原样交给 `flow.start`（它照认这个旧名，即运行的 `shown_in`；建定时的界面传它列项目会话的 space，任务就在项目 space 里打开） |
 | 错过（`missed`） | 晚了一分钟以上的算错过（Harnix 没在跑、机器睡着）：`catch_up_latest`（缺省）只补最近一次，`skip` 一次也不补、记一条 `skipped`、`missed` |
 | 并发（`concurrency`） | 只对任务：上一次的运行还在跑时 `skip`（缺省，记 `previous_run`）或 `parallel`（再起一个，配合 `workspace: worktree`）。会话目标按会话排队 |
 | 最小间隔 | 同一条定时两次投递至少隔 60 秒，「立即执行」也算；不到就记 `skipped`、`min_interval` |
