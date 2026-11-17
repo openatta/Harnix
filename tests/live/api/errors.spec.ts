@@ -19,7 +19,7 @@
 //      project". A client that cannot tell them apart reports the wrong bug.
 
 import { INVALID_PARAMS, METHOD_NOT_FOUND, REFUSED, type Scene } from "@harnix/core/protocol";
-import { assert, defineSuite, finish, inconclusive } from "@harnix/testkit";
+import { assert, connect, defineSuite, finish, inconclusive, launchFor, startHarnix } from "@harnix/testkit";
 
 /** Harnix's band is everything above the reserved one. */
 const isHostCode = (code: number) => code > -32000;
@@ -181,13 +181,22 @@ defineSuite("errors", { feature: "connection" }, {
         assert(/project/i.test(e.message), `says "${e.message}"`);
       },
 
-    "a scene that is not active is refused by name": async ({ client }) => {
-      const { scenes } = await client.call("engine.scene.list");
-      const inactive = scenes.find((s: Scene) => !s.active);
-      if (!inactive) inconclusive("every scene here is active");
-      const e = await client.refused("harnix.session.create", { scene: inactive.scene });
-      assert(e, `creating in inactive scene ${inactive.scene} succeeded`);
-      assert(e.message.includes(inactive.scene), `does not name the scene: "${e.message}"`);
+    "a scene that is not active is refused by name": async () => {
+      // The flow extension wraps every scene it is given and so activates them all; without it, the
+      // engine's other scenes are there and not active.
+      const backend = await startHarnix(launchFor("replay", { profile: '\n[extensions]\noff = ["flow"]\n' }));
+      try {
+        const client = await connect(backend);
+        const { scenes } = await client.call("engine.scene.list");
+        const inactive = scenes.find((s: Scene) => !s.active);
+        if (!inactive) inconclusive("every scene here is active");
+        const e = await client.refused("harnix.session.create", { scene: inactive.scene });
+        assert(e, `creating in inactive scene ${inactive.scene} succeeded`);
+        assert(e.message.includes(inactive.scene), `does not name the scene: "${e.message}"`);
+        client.close();
+      } finally {
+        await backend.dispose();
+      }
     },
 
     "an unknown scene and an inactive one are different answers": async ({ client }) => {
