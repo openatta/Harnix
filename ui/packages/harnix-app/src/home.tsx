@@ -7,10 +7,17 @@
  * keeps — how many things wait on a person, and the way to the whole list.
  *
  * A block is a column of the page, or the page's width (`wide`): a row of figures, a table.
+ *
+ * First comes what a new person needs before anything else, while any of it is unfinished: the
+ * "no model configured" note, and the first-run steps — the same `home.card` cards the new
+ * conversation's empty page draws, each its owner's (the model the settings', a project and the
+ * scene this package's). A step done or closed draws nothing; with nothing left the block is not
+ * drawn at all (`:empty`, as the shell does for the cards).
  */
 
-import { useSyncExternalStore, type ReactNode } from "react";
-import { Contributed, ago, t, useContributions, useT, type HostApi, type Registry } from "@harnix/react";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { modelConfigured, type Hello } from "@harnix/core";
+import { Contributed, ModelSetupNote, ago, t, useContributions, useT, type HostApi, type Registry } from "@harnix/react";
 
 import { InboxList, inboxDialog, type Inbox } from "./inbox.tsx";
 import { orderedPanels } from "./overview.tsx";
@@ -98,8 +105,61 @@ function PanelBody({ panel, context }: { panel: HomePanel; context: HomeContext 
 
 /** Register this package's blocks of the home page; the others' go between them by order. */
 export function registerHome(r: Registry, host: HostApi, store: AppStore, inbox: Inbox, owner: string): void {
+  r.register(HOME_PANELS, { id: SETUP_PANEL, order: 5, wide: true, title: () => t("home.setup.title"), render: () => <FirstRun r={r} host={host} /> }, owner);
   r.register(HOME_PANELS, { id: "harnix-app.inbox", order: 20, title: () => t("inbox.title"), render: () => <InboxList r={r} inbox={inbox} limit={ROWS_SHOWN} /> }, owner);
   r.register(HOME_PANELS, { id: "harnix-app.sessions", order: 30, title: () => t("home.sessions.title"), render: () => <RecentSessions host={host} store={store} /> }, owner);
+}
+
+/** The first-run block's id. */
+export const SETUP_PANEL = "harnix-app.setup";
+
+/** One `home.card`: a first-run step, or anything else the product puts in front of a new person. */
+type HomeCard = { id: string; owner: string; order?: number; title?(): string; render(): ReactNode };
+
+/**
+ * Whether a turn has a model to go to, as `harnix.hello` says: read when drawn, and again each time a
+ * dialog closes (the settings, where one is set up, are a dialog). Null until read.
+ */
+function useModelReady(host: HostApi): boolean | null {
+  const [ready, setReady] = useState<boolean | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const read = () =>
+      host
+        .call<Hello>("harnix.hello", {})
+        .then((hello) => {
+          if (alive && hello?.engine) setReady(modelConfigured(hello.engine));
+        })
+        .catch(() => undefined);
+    void read();
+    const off = host.modal.onChange((open) => {
+      if (!open) void read();
+    });
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [host]);
+  return ready;
+}
+
+/** The first-run block: the missing model said, then each `home.card` by order, one that throws costing only itself. */
+function FirstRun({ r, host }: { r: Registry; host: HostApi }) {
+  const ready = useModelReady(host);
+  const cards = [...useContributions<HomeCard>("home.card", r)].sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
+  return (
+    <div className="hx-home-setup" data-testid="home-setup">
+      {ready === false ? <ModelSetupNote onOpen={() => host.settings.open("models")} /> : null}
+      {cards.map((card) => (
+        <section key={`${card.owner}/${card.id}`} className="hx-home-card" data-card={card.id}>
+          {card.title ? <div className="dt">{card.title()}</div> : null}
+          <Contributed registry={r} point="home.card" contribution={card}>
+            {card.render()}
+          </Contributed>
+        </section>
+      ))}
+    </div>
+  );
 }
 
 /** The latest conversations of the session space, newest activity first; the archived left out. */

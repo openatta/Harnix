@@ -1421,6 +1421,7 @@ const zhCN: Record<string, string> = {
   "home.stats.tasks": "运行中的后台任务",
   "home.stats.waiting": "待我处理",
   "home.stats.noProcess": "这里读不到本进程的数字：{reason}",
+  "home.setup.title": "开始使用",
   "home.sessions.title": "最近会话",
   "home.sessions.none": "还没有会话。",
   "home.sessions.all": "全部会话",

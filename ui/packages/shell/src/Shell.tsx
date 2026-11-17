@@ -26,7 +26,7 @@ import {
 } from "react";
 import { errorText, type SessionReasoning } from "@harnix/core";
 import type { BlockOf, SessionController, SessionState } from "@harnix/core/state";
-import { CONVERSATION_VIEW, ChatComposer, ChatPanel, ContextRing, Contributed, listenForLayers, modalUp, ringValue, t, useLayer, useRegistry, useT, ComposerNote, askedTool, rowTitle, toolAsks, type Attached, type ChatIds, type ComposerApi, type MentionItem, type ModelOption, type ReasoningChange, type SpaceContribution, type SpaceSecondary, type ToolRowContribution, Glyph, useDisplay, explainError } from "@harnix/react";
+import { CONVERSATION_VIEW, ChatComposer, ChatPanel, ContextRing, Contributed, listenForLayers, modalUp, ringValue, t, useLayer, useRegistry, useT, ComposerNote, ModelSetupNote, askedTool, rowTitle, toolAsks, type Attached, type ChatIds, type ComposerApi, type MentionItem, type ModelOption, type ReasoningChange, type SpaceContribution, type SpaceSecondary, type ToolRowContribution, Glyph, useDisplay, explainError } from "@harnix/react";
 
 import { ask, detailsWidthOf, keyOf, later, secondaryWidthOf, type App, type OpenModal, type ShellState, type Widths } from "./app.ts";
 import { useBrand } from "./brand.ts";
@@ -476,7 +476,7 @@ function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app:
         disabled={connection !== "open" && connection !== "degraded"}
         placeholder={placeholder ?? t("composer.placeholder")}
         quickReplies={NO_REPLIES}
-        notice={ready ? undefined : <ModelSetupNote app={app} />}
+        notice={ready ? undefined : <ModelSetup app={app} />}
         hint={variant === "ask" ? undefined : t("composer.hint")}
         commands={commands}
         mention={mention}
@@ -600,17 +600,8 @@ function useModels(app: App): ModelOption[] {
 }
 
 /** Over the composer while no model is configured: what is missing, and the way to it. */
-function ModelSetupNote({ app }: { app: App }) {
-  const t = useT();
-  return (
-    <div className="hx-cmp-note hx-cmp-note-warn model-setup" data-testid="model-setup">
-      <Glyph name="key" className="glyph" />
-      <span className="text">{t("model.setupNeeded")}</span>
-      <button type="button" className="btn sm primary" data-testid="model-setup-open" onClick={() => openSettingsFor(app, "models")}>
-        {t("model.setupAction")}
-      </button>
-    </div>
-  );
+function ModelSetup({ app }: { app: App }) {
+  return <ModelSetupNote onOpen={() => openSettingsFor(app, "models")} />;
 }
 
 /** Upload a file for the next message; a failure is said, then rethrown so the composer drops it. */
@@ -958,7 +949,7 @@ function Conversation({ app, s, onController, hidden = false }: { app: App; s: S
   const notice =
     !ready || (spaceNotice != null && spaceNotice !== false) ? (
       <>
-        {ready ? null : <ModelSetupNote app={app} />}
+        {ready ? null : <ModelSetup app={app} />}
         {spaceNotice != null && spaceNotice !== false && space ? (
           <ComposerNote icon="shield" testId="space-notice">
             <Contributed registry={registry} point="space" contribution={space}>

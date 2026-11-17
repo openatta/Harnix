@@ -1423,6 +1423,7 @@ const en: Record<string, string> = {
   "home.stats.tasks": "Background tasks running",
   "home.stats.waiting": "Waiting on you",
   "home.stats.noProcess": "This process's figures cannot be read here: {reason}",
+  "home.setup.title": "Get started",
   "home.sessions.title": "Recent sessions",
   "home.sessions.none": "No sessions yet.",
   "home.sessions.all": "All sessions",
