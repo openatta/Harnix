@@ -4,7 +4,17 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { applySettled, emptySession, failureAction, failureClass, failureDetail, failureFacts, type SettleTexts } from "../src/state/index.ts";
+import {
+  applySettled,
+  emptySession,
+  failureAction,
+  failureClass,
+  failureDetail,
+  failureFacts,
+  serviceSaid,
+  SERVICE_SAID_MAX,
+  type SettleTexts,
+} from "../src/state/index.ts";
 
 const engine = (kind: string, message = "boom", extra: Record<string, unknown> = {}) => ({ code: -32002, message, data: { kind, ...extra } });
 
@@ -48,6 +58,30 @@ describe("failureClass", () => {
     expect(failureAction("auth")).toBe("settings.models");
     expect(failureAction("model_rejected")).toBe("settings.models");
     expect(failureAction("rate_limited")).toBeUndefined();
+  });
+});
+
+describe("serviceSaid", () => {
+  const said = (message: string, kind = "rate_limited") => serviceSaid(failureFacts(engine(kind, message)));
+
+  it("is what the service said after the engine's kind, its error.message when it is JSON", () => {
+    expect(said("rate_limited: Usage limit reached for this key, resets at 09:00 UTC")).toBe("Usage limit reached for this key, resets at 09:00 UTC");
+    expect(said('rate_limited (HTTP 429): {"error":{"message":"Rate limit reached for gpt-x","type":"requests"}}')).toBe("Rate limit reached for gpt-x");
+    expect(said('rate_limited (HTTP 429): {"error":{"message":"cut off')).toBe('{"error":{"message":"cut off');
+  });
+
+  it("is one line, without control characters, and at most so long", () => {
+    expect(said("rate_limited: a\n\tb\u0007  c")).toBe("a b c");
+    const long = said(`rate_limited: ${"x".repeat(500)}`)!;
+    expect(Array.from(long)).toHaveLength(SERVICE_SAID_MAX);
+    expect(long.endsWith("…")).toBe(true);
+  });
+
+  it("is nothing when the service said nothing, the message is not the engine's, or it is not a rate limit", () => {
+    expect(said("rate_limited")).toBeUndefined();
+    expect(said("rate_limited:   ")).toBeUndefined();
+    expect(said("something else entirely")).toBeUndefined();
+    expect(said("auth: invalid x-api-key", "auth")).toBeUndefined();
   });
 });
 

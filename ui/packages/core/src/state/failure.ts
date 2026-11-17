@@ -81,6 +81,34 @@ export function failureAction(cls: FailureClass): FailureAction | undefined {
   return cls === "no_model" || cls === "auth" || cls === "billing" || cls === "model_rejected" ? "settings.models" : undefined;
 }
 
+/** 服务自己的说明至多留这么多字，多的截掉、带省略号。 */
+export const SERVICE_SAID_MAX = 160;
+
+/**
+ * 限流时服务自己的说明（哪个额度、几点恢复）的摘要，给界面跟在归类的话后面；没有就是 `undefined`。
+ * 引擎把它接在 `<kind>` 或 `<kind> (HTTP n)` 加冒号后面；整段是 JSON 的（兼容 OpenAI 的服务）取 `error.message`。
+ * 压成一行、去掉控制字符，至多 `SERVICE_SAID_MAX` 字——是界面当文字画的，不当标记。
+ */
+export function serviceSaid(f: FailureFacts): string | undefined {
+  if (f.kind !== "rate_limited") return undefined;
+  const prefix = new RegExp(`^${f.kind}(?:\\s*\\(HTTP \\d+\\))?:\\s*`);
+  if (!prefix.test(f.raw)) return undefined;
+  let said = f.raw.replace(prefix, "");
+  if (said.startsWith("{")) {
+    try {
+      const body = JSON.parse(said) as { error?: { message?: unknown } | string; message?: unknown };
+      const inner = typeof body.error === "object" && body.error ? body.error.message : body.error ?? body.message;
+      if (typeof inner === "string") said = inner;
+    } catch {
+      // 被引擎截断了，或其实不是 JSON：照原文。
+    }
+  }
+  said = said.replace(/[\u0000-\u001f\u007f\s]+/g, " ").trim();
+  if (!said) return undefined;
+  const chars = Array.from(said);
+  return chars.length > SERVICE_SAID_MAX ? `${chars.slice(0, SERVICE_SAID_MAX - 1).join("").trimEnd()}…` : said;
+}
+
 /** 给提示用：原话，加上码（有就带）。 */
 export function failureDetail(f: FailureFacts): string {
   const tags = [f.code !== undefined ? String(f.code) : "", f.kind ?? ""].filter(Boolean).join(" ");

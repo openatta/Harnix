@@ -10,7 +10,7 @@
  * in the dictionaries, never pieces put together here.
  */
 
-import { failureClass, failureFacts, type FailureClass, type FailureFacts } from "@harnix/core/state";
+import { failureClass, failureFacts, serviceSaid, type FailureClass, type FailureFacts } from "@harnix/core/state";
 import { errorText } from "@harnix/core";
 import { FEEDBACK_CATEGORIES, type FeedbackCategory } from "@harnix/core/protocol";
 import { t, translate, type Locale } from "./i18n/index";
@@ -379,12 +379,7 @@ export function uiStrings(locale: Locale): HarnixUiStrings {
     sendFailed: (error) => s("sendFailed", { error }),
     queued: (index) => s("queued", { index }),
     turnFailed: (error) => s("turnFailed", { error }),
-    explainFailure: (cls, facts) =>
-      cls === "rate_limited" && facts.retryAfterMs
-        ? s("fail.rateLimitedWait", { seconds: Math.ceil(facts.retryAfterMs / 1000) })
-        : FAIL_KEYS[cls]
-          ? s(`fail.${FAIL_KEYS[cls]}`)
-          : undefined,
+    explainFailure: (cls, facts) => (FAIL_KEYS[cls] ? failureWords(cls, facts, locale) : undefined),
     openModels: s("openModels"),
     stopReason: (reason) => s("stopReason", { reason }),
     messageRefused: (reason, text) =>
@@ -461,11 +456,17 @@ export function uiStrings(locale: Locale): HarnixUiStrings {
 export const zhCN: HarnixUiStrings = uiStrings("zh-CN");
 export const en: HarnixUiStrings = uiStrings("en");
 
-/** The words for a failure class, in the interface's language (the rate limit's wait, when it said how long). */
-export function failureWords(cls: FailureClass, facts: FailureFacts): string {
-  return cls === "rate_limited" && facts.retryAfterMs
-    ? t("chat.fail.rateLimitedWait", { seconds: Math.ceil(facts.retryAfterMs / 1000) })
-    : t(`chat.fail.${FAIL_KEYS[cls]}`);
+/**
+ * The words for a failure class, in the interface's language, or `locale`'s: a rate limit says how
+ * long the service asked to wait when it said, and what it said about the limit, summed up.
+ */
+export function failureWords(cls: FailureClass, facts: FailureFacts, locale?: Locale): string {
+  const say = (key: string, vars?: Record<string, unknown>) => (locale ? translate(locale, `chat.${key}`, vars) : t(`chat.${key}`, vars));
+  if (cls !== "rate_limited") return say(`fail.${FAIL_KEYS[cls]}`);
+  const said = serviceSaid(facts);
+  const seconds = facts.retryAfterMs ? Math.ceil(facts.retryAfterMs / 1000) : undefined;
+  if (seconds !== undefined) return said ? say("fail.rateLimitedWaitSaid", { seconds, said }) : say("fail.rateLimitedWait", { seconds });
+  return said ? say("fail.rateLimitedSaid", { said }) : say("fail.rateLimited");
 }
 
 /**
