@@ -93,6 +93,7 @@ const EXPORTS: &[(&str, &str)] = &[
     ("dryrun", "mod"),
     ("kernel", "mod"),
     ("packs", "mod"),
+    ("runner", "mod"),
     ("store", "mod"),
     ("wire", "mod"),
     ("Mocks", "dryrun"),
