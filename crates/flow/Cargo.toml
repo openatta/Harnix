@@ -42,3 +42,6 @@ ts-rs       = { version = "12", default-features = false, features = ["serde-com
 tempfile = "3"
 # `#[tokio::test]`, and paused time.
 tokio    = { version = "1", features = ["rt", "macros", "test-util"] }
+# `tests/surface.rs` reads the public surface off the parsed source.
+syn      = { version = "2", features = ["full"] }
+quote    = "1"

@@ -167,7 +167,9 @@ run_rust()    {
   cargo test -p harnix-wasm-port --features socket || return 1
   cargo test -p harnix-wasm --features compile || return 1
   cargo test -p harnix-wasm-host --features compile || return 1
-  cargo test -p harnix-testapp --features proc --test ext_proc
+  cargo test -p harnix-testapp --features proc --test ext_proc || return 1
+  # The flow library copied into a workspace of its own, as another host takes it in.
+  scripts/check-flow-copy.sh
 }
 # `--no-deps` matters: without it `-D warnings` is applied to the Agix
 # submodule too, and this script goes red for lints in code this repository

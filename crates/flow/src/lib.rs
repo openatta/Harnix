@@ -29,6 +29,19 @@
 //! docs/guide.*.md     the flow guide: what a flow is and how one is written
 //! ```
 
+/// The library's Rust interface — the traits a host implements, what they hand it, the names
+/// offered here, how the stores and packs are built (`tests/surface.rs`). It goes up by one with
+/// a change that breaks a host; additions leave it.
+pub const FLOW_API_VERSION: u32 = 1;
+
+/// The format a flow definition and its parts are read in. Not yet written into a definition: a
+/// file without one is this format.
+pub const DEFINITION_FORMAT: u32 = 1;
+
+/// The format of the run records, their histories and the run ids a store keeps. Not yet written
+/// into a record or a store: one without it is this format.
+pub const RUN_FORMAT: u32 = 1;
+
 pub mod dryrun;
 pub mod kernel;
 pub mod packs;

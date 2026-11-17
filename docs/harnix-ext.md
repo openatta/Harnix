@@ -837,9 +837,10 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 | 协议 | `5` | `harnix_contract::PROTOCOL_VERSION` | 握手比对，不一致拒绝（`HANDSHAKE_REFUSED`）。5：名字规整（内核 `harnix.<区域>.<动词>`、引擎直通 `engine.*`、扩展在自己的 id 下），默认实例叫 `main`，新增错误码 `CANCELLED`、`DEADLINE_EXCEEDED`、`EXTENSION_UNAVAILABLE`。`harnix.event` 帧里的事件负载与 `engine.*` 的答是 Agix 的形状，不在加法承诺里，由 `hello.engine_protocol` 标明 |
 | 扩展包接口 | `2` | `harnix-ext.toml` 的 `[app] harnix_api`；`harnix_package::HARNIX_API` | 扩展包的契约（WIT world 与清单）有破坏性变化。见 [扩展包](harnix-ext-package.md) |
 | 扩展线 | `1` | `harnix_wasm_port::EXT_WIRE_VERSION` | 产品与它自己的扩展进程之间那条线（`harnix-ext-wire`）的帧或方法改了形状。两端是同一次构建，扩展进程的 `proc.hello` 报的数不等就被拒绝；应用不直接用它 |
+| 流程库 API | `1` | `harnix_flow::FLOW_API_VERSION` | 流程库 `harnix-flow`（§23）的 Rust 接口有破坏性变化：宿主实现的 trait、它们交出的类型、根上的名字、存储与流程包的构造（`crates/flow/tests/surface.rs` 守着）。只做加法时不升；定义与运行记录的格式另有自己的号（`DEFINITION_FORMAT`、`RUN_FORMAT`）。每一版的变化写在[嵌入指南](../crates/flow/docs/embed.zh-CN.md)的版本一节。不在 `--version` 里 |
 
 `<app> --version` 打印上面全部，加上引擎的版本。从 0.4.4 起线上协议与扩展接口只做加法；契约里露出的 Agix 类型除外。
-这张表的六个数由 `tests/crate-metadata.mjs` 对着代码里的常量查。
+这张表的七个数由 `tests/crate-metadata.mjs` 对着代码里的常量查。
 
 稳定的层次：S1（扩展接口：`harnix-ext`、`harnix-engine-api`、`harnix_contract::s1`，三者的**全部**公开项）与 S2（线上协议、扩展线、扩展包清单与 WIT、桥）
 是长期稳定的；S3（`harnix-kernel`、`harnix-engine-link`、`harnix-host-api`、各骨架 crate 的内部接口）随骨架变，扩展作者不该用。

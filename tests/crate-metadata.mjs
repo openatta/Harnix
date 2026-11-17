@@ -65,6 +65,7 @@ const constants = [
   ["协议", "crates/contract/src/handshake.rs", "PROTOCOL_VERSION"],
   ["扩展包接口", "crates/package/src/manifest.rs", "HARNIX_API"],
   ["扩展线", "crates/wasm-port/src/lib.rs", "EXT_WIRE_VERSION"],
+  ["流程库 API", "crates/flow/src/lib.rs", "FLOW_API_VERSION"],
 ];
 for (const [row, file, name] of constants) {
   const code = readFileSync(join(root, file), "utf8").match(new RegExp(`pub const ${name}: u32 = (\\d+);`))?.[1];
@@ -72,6 +73,32 @@ for (const [row, file, name] of constants) {
   if (!code) fail(`${file} no longer defines \`pub const ${name}: u32\``);
   else if (!cell) fail(`docs/harnix-ext.md has no \`| ${row} | \`…\` |\` row in its version table`);
   else if (cell !== code) fail(`docs/harnix-ext.md says ${row} ${cell}; ${name} is ${code} (${file})`);
+}
+// The flow library writes every dependency's version itself, so the directory can be copied into
+// another workspace (crates/flow/docs/embed.en.md). Where Harnix's workspace names the same crate,
+// the two say the same version: a bump on one side alone would build two copies of it here.
+const deps = (text, ...sections) => {
+  const out = new Map();
+  let inside = false;
+  for (const line of text.split("\n")) {
+    const header = line.match(/^\s*\[([^\]]+)\]\s*$/);
+    if (header) { inside = sections.includes(header[1].trim()); continue; }
+    if (!inside) continue;
+    const m = line.match(/^\s*([A-Za-z0-9_-]+)\s*=\s*(.+)$/);
+    if (!m) continue;
+    const value = m[2].trim();
+    const version = value.startsWith('"') ? value.match(/^"([^"]*)"/)?.[1] : value.match(/\bversion\s*=\s*"([^"]*)"/)?.[1];
+    out.set(m[1], version ?? null);
+  }
+  return out;
+};
+const flowManifest = readFileSync(join(root, "crates", "flow", "Cargo.toml"), "utf8");
+const workspaceDeps = deps(readFileSync(join(root, "Cargo.toml"), "utf8"), "workspace.dependencies");
+for (const [name, version] of deps(flowManifest, "dependencies", "dev-dependencies", "build-dependencies")) {
+  if (version === null) fail(`crates/flow/Cargo.toml: \`${name}\` states no version of its own`);
+  else if (workspaceDeps.has(name) && workspaceDeps.get(name) !== version) {
+    fail(`crates/flow/Cargo.toml: \`${name}\` is "${version}", the workspace's is "${workspaceDeps.get(name)}"`);
+  }
 }
 const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
 const pinned = git("ls-files", "-s", "agix").split(/\s+/)[1];
