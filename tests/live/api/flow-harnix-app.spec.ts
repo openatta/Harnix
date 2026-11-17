@@ -98,8 +98,6 @@ test("a task started with shown_in has its main session shown in that space, to 
   const { run: plain } = await api.call("flow.start", { flow: "example-review", subject: "again", project_root: path });
   expect((await api.call("flow.get", { run: plain })).record.shown_in).toBeUndefined();
   expect((await api.refused("flow.start", { flow: "example-review", subject: "x", project_root: path, shown_in: "not a space!" }))?.code).toBe(INVALID_PARAMS);
-  // Its earlier name, `show_in_space`, is still read: checked the same.
-  expect((await api.refused("flow.start", { flow: "example-review", subject: "x", project_root: path, show_in_space: "not a space!" }))?.code).toBe(INVALID_PARAMS);
   await api.call("flow.cancel", { run, reason: "done" }).catch(() => undefined);
   await api.call("flow.cancel", { run: plain, reason: "done" }).catch(() => undefined);
 });

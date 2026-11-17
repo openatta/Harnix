@@ -796,7 +796,7 @@ describe("the points it defines: a task row's badges, a flow's other ways to sta
     fireEvent.click(later);
     await settle();
     expect(close).toHaveBeenCalledWith(null);
-    expect(drafts).toEqual([{ flow: "example-review", inputs: { depth: 2, target: "src/" }, title: "Nightly", project_root: ROOT, show_in_space: "sessions" }]);
+    expect(drafts).toEqual([{ flow: "example-review", inputs: { depth: 2, target: "src/" }, title: "Nightly", project_root: ROOT, shown_in: "sessions" }]);
     expect(fake.calls.some(([m]) => m === "flow.start")).toBe(false);
   });
 

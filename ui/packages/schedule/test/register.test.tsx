@@ -152,7 +152,7 @@ describe("the registration", () => {
     const r = registered(fake);
     const action = r.list<{ label(): string; run(d: unknown): Promise<void> }>("flow.start.action")[0]!;
     expect(action.label()).toBe("Schedule this flow…");
-    await action.run({ flow: "example-review", subject: "the repo", title: "Nightly", project_root: ROOT, show_in_space: "sessions", workspace: "worktree" });
+    await action.run({ flow: "example-review", subject: "the repo", title: "Nightly", project_root: ROOT, shown_in: "sessions", workspace: "worktree" });
     const page = drawn(fake, fake.dialogs[0]!(() => undefined));
     await settle();
     expect(page.getByTestId("schedule-target").textContent).toBe("A task");

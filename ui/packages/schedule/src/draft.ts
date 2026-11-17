@@ -25,7 +25,7 @@ export interface TaskSeed {
   output_dir?: string;
   workspace?: string;
   project_root?: string;
-  show_in_space?: string;
+  shown_in?: string;
 }
 
 /** Where the editor was opened from, and so what it offers. */
@@ -43,7 +43,7 @@ export interface EditorContext {
   /** A flow to schedule, as the new-task dialog had it filled in. */
   task?: TaskSeed;
   /** The space a task's main session is shown in (the one the opener lists sessions of). */
-  showInSpace?: string;
+  shownIn?: string;
 }
 
 export interface Draft {
@@ -190,7 +190,7 @@ export function targetOf(draft: Draft, ctx: EditorContext, fields: InputField[] 
     title: draft.taskTitle.trim() || undefined,
     output_dir: draft.outputDir.trim() || undefined,
     workspace: draft.workspace || undefined,
-    show_in_space: (was?.kind === "task" ? was.show_in_space : undefined) ?? ctx.showInSpace ?? ctx.task?.show_in_space,
+    shown_in: (was?.kind === "task" ? was.shown_in : undefined) ?? ctx.shownIn ?? ctx.task?.shown_in,
   });
 }
 

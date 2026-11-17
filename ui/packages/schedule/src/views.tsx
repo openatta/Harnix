@@ -71,7 +71,7 @@ export function ProjectSchedules({ host, r, store, context }: { host: HostApi; r
         type="button"
         className="btn sm ghost"
         data-testid="schedule-new"
-        onClick={() => void scheduleEditor(host, r, { kinds: ["new_session", "task"], project: context.root, space: context.space, showInSpace: context.space })}
+        onClick={() => void scheduleEditor(host, r, { kinds: ["new_session", "task"], project: context.root, space: context.space, shownIn: context.space })}
       >
         {tt("schedule.new")}
       </button>

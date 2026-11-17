@@ -227,7 +227,7 @@ fn task(project: &str) -> Target {
         title: None,
         output_dir: None,
         workspace: Some("worktree".into()),
-        show_in_space: None,
+        shown_in: None,
     })
 }
 
