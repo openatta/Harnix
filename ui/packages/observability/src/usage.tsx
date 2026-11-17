@@ -56,21 +56,21 @@ export function SessionUsageView({ observed, session }: { observed: Observed; se
   const s = summarizeUsage(own, subs, data.turns);
   const pct = (x: number | null) => (x == null ? "—" : `${Math.round(x * 100)}%`);
   const cells: [string, string, string][] = [
-    ["turns", tr("system.stat.turns"), String(s.turns)],
-    ["calls", tr("system.stat.calls"), s.auxiliary ? `${s.calls} +${s.auxiliary}` : String(s.calls)],
-    ["total", tr("system.stat.total"), compact(s.total)],
-    ["hit", tr("system.stat.cacheHit"), pct(s.cacheHit)],
-    ["rate", tr("system.stat.rate"), s.rate == null ? "—" : `${s.rate.toFixed(1)}/s`],
-    ["ttft", tr("system.stat.ttft"), s.ttftMs == null ? "—" : millis(s.ttftMs)],
-    ["model", tr("system.stat.time"), millis(s.modelMs)],
-    ["tool", tr("system.stat.toolTime"), s.toolMs == null ? "—" : millis(s.toolMs)],
+    ["turns", tr("obs.stat.turns"), String(s.turns)],
+    ["calls", tr("obs.stat.calls"), s.auxiliary ? `${s.calls} +${s.auxiliary}` : String(s.calls)],
+    ["total", tr("obs.stat.total"), compact(s.total)],
+    ["hit", tr("obs.stat.cacheHit"), pct(s.cacheHit)],
+    ["rate", tr("obs.stat.rate"), s.rate == null ? "—" : `${s.rate.toFixed(1)}/s`],
+    ["ttft", tr("obs.stat.ttft"), s.ttftMs == null ? "—" : millis(s.ttftMs)],
+    ["model", tr("obs.stat.time"), millis(s.modelMs)],
+    ["tool", tr("obs.stat.toolTime"), s.toolMs == null ? "—" : millis(s.toolMs)],
     ["span", tr("usage.span"), s.spanMs == null ? "—" : millis(s.spanMs)],
   ];
   return (
     <div className="system-pane obs-usage" data-testid="usage-tab">
       {!own && !data.turns.length ? (
         <div className="note" data-testid="usage-none">
-          {tr("system.stat.noRecording")}
+          {tr("obs.stat.noRecording")}
         </div>
       ) : (
         <>
@@ -84,13 +84,13 @@ export function SessionUsageView({ observed, session }: { observed: Observed; se
           </div>
           {own ? (
             <div className="note" data-testid="usage-tokens">
-              {tr("system.tokenTip", { input: own.input_tokens, read: own.cache_read_tokens, write: own.cache_write_tokens, output: own.output_tokens })}
-              {s.errors ? ` · ${tr("system.stat.errors", { count: s.errors })}` : ""}
+              {tr("obs.tokenTip", { input: own.input_tokens, read: own.cache_read_tokens, write: own.cache_write_tokens, output: own.output_tokens })}
+              {s.errors ? ` · ${tr("obs.stat.errors", { count: s.errors })}` : ""}
             </div>
           ) : null}
           {s.agents.count ? (
             <div className="note" data-testid="usage-agents">
-              {tr("system.subTotals", { count: s.agents.count, tokens: compact(s.agents.total), time: millis(s.agents.modelMs) })}
+              {tr("obs.subTotals", { count: s.agents.count, tokens: compact(s.agents.total), time: millis(s.agents.modelMs) })}
             </div>
           ) : null}
           <RunNote run={data.usage?.run ?? null} testId="usage-run-note" />

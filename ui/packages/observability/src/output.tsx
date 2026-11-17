@@ -111,11 +111,11 @@ export function OutputTab({ observed }: { observed: Observed }) {
   const named = parseOutputAddress(tab.address);
   const session = named?.session ?? { instance: "", sessionId: "" };
   const listed = useTopic<{ tasks: TaskRow[] }>(host, "harnix.session.tasks", { instance: session.instance, session_id: session.sessionId });
-  if (!named) return <div className="note">{tr("system.output.none")}</div>;
+  if (!named) return <div className="note">{tr("obs.output.none")}</div>;
   const task = listed?.tasks.find((x) => x.task_id === named.taskId);
   if (task) labels.set(task.task_id, taskLabel(task));
-  if (!listed) return <div className="note">{tr("system.output.loading")}</div>;
-  if (!task) return <div className="note" data-testid="output-gone">{tr("system.output.gone")}</div>;
+  if (!listed) return <div className="note">{tr("obs.output.loading")}</div>;
+  if (!task) return <div className="note" data-testid="output-gone">{tr("obs.output.gone")}</div>;
   return (
     <div className="obs-output output-tab" data-testid="output-tab" data-task={task.task_id} data-status={task.status}>
       <div className="output-head">
@@ -124,7 +124,7 @@ export function OutputTab({ observed }: { observed: Observed }) {
           {taskLabel(task)}
         </span>
         <span className="when" data-testid="output-status">
-          {tr(`system.taskStatus.${task.status}`)}
+          {tr(`obs.taskStatus.${task.status}`)}
         </span>
       </div>
       {task.error ? <div className="hint err">{task.error}</div> : null}
@@ -180,7 +180,7 @@ export function TaskOutput({ observed, session, task }: { observed: Observed; se
     const add = (text: string, gap: number, final: boolean) =>
       setOut((now) => {
         if (!now) return { text, earlier: false, final };
-        const joined = now.text + (gap > 0 ? `\n${tr("system.outputDropped", { count: gap })}\n` : "") + text;
+        const joined = now.text + (gap > 0 ? `\n${tr("obs.outputDropped", { count: gap })}\n` : "") + text;
         return { text: joined.length > OUTPUT_KEPT ? joined.slice(-OUTPUT_KEPT) : joined, earlier: now.earlier || joined.length > OUTPUT_KEPT, final: final || now.final };
       });
     const read = async () => {
@@ -226,17 +226,17 @@ export function TaskOutput({ observed, session, task }: { observed: Observed; se
   return (
     <div className="task-output" data-testid="task-output" data-final={out.final ? "" : undefined}>
       <div className="label">
-        {tr("system.taskOutput")}
-        {out.earlier ? <span className="hint">{tr("system.outputTruncated")}</span> : null}
+        {tr("obs.taskOutput")}
+        {out.earlier ? <span className="hint">{tr("obs.outputTruncated")}</span> : null}
         {live ? (
           <label className="check end">
             <input type="checkbox" data-testid="task-follow" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
-            {tr("system.follow")}
+            {tr("obs.follow")}
           </label>
         ) : null}
       </div>
       <pre className="hx-pre scroll" ref={pre} data-testid="task-output-text" onScroll={scrolled}>
-        {stripAnsi(out.text) || tr("system.noOutput")}
+        {stripAnsi(out.text) || tr("obs.noOutput")}
       </pre>
     </div>
   );

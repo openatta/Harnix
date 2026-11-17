@@ -100,7 +100,7 @@ export function SessionContext({ observed, session, visible = true }: { observed
     <div className="obs-context" data-testid="context-tab">
       {context.state === "ok" ? (
         <>
-          <div className="note">{tr("system.contextNote")}</div>
+          <div className="note">{tr("obs.contextNote")}</div>
           <ContextReport context={context.value} />
         </>
       ) : context.state === "failed" ? (
@@ -201,7 +201,7 @@ export function SessionContext({ observed, session, visible = true }: { observed
                   {server.tools.map((tool) => (
                     <li key={tool.name}>
                       <span className="txt mono">{tool.name}</span>
-                      <span className="kd">{tr("system.tokens", { count: `~${tool.tokens}` })}</span>
+                      <span className="kd">{tr("obs.tokens", { count: `~${tool.tokens}` })}</span>
                     </li>
                   ))}
                 </ul>

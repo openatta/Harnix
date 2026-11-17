@@ -836,3 +836,90 @@
   margin-left: auto;
   color: var(--label-caption);
 }
+
+/* The extension log, in the settings' diagnostics: its filters above, then one line a row, the newest
+ * at the bottom, scrolling in its own box. Errors and warnings are coloured; the message wraps rather
+ * than widening the panel. */
+.obs-extlog .hint {
+  margin-bottom: 8px;
+  color: var(--label-tertiary);
+  font-size: 12px;
+}
+
+.obs-extlog .tools-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.obs-extlog .tools-row .end {
+  margin-left: auto;
+}
+
+.obs-extlog .note {
+  color: var(--label-caption);
+  font-size: 12px;
+}
+
+.obs-extlog .btn.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.obs-extlog .extlog-lines {
+  max-height: 50vh;
+  overflow: auto;
+  border: 1px solid var(--border-l1);
+  border-radius: 6px;
+  font-family: var(--font-code);
+  font-size: 12px;
+}
+
+.obs-extlog .extlog-lines:empty {
+  display: none;
+}
+
+.obs-extlog .extlog-line {
+  display: grid;
+  grid-template-columns: auto auto minmax(6em, max-content) auto 1fr;
+  gap: 8px;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border-l1);
+}
+
+.obs-extlog .extlog-line:last-child {
+  border-bottom: none;
+}
+
+.obs-extlog .extlog-line .at,
+.obs-extlog .extlog-line .origin {
+  color: var(--label-tertiary);
+  white-space: nowrap;
+}
+
+.obs-extlog .extlog-line .ext {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.obs-extlog .extlog-line .msg {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.obs-extlog .lv {
+  color: var(--label-secondary);
+  font-size: 10.5px;
+}
+
+.obs-extlog .lv-error {
+  color: var(--state-error);
+}
+
+.obs-extlog .lv-warn {
+  color: var(--state-warn);
+}
