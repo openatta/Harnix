@@ -166,14 +166,14 @@ test("a flow saved through the methods can be started; an override gives way to 
   await api.call("flow.delete", { name: "saved-one" });
 });
 
-/** How many sessions every space that holds them lists. */
-async function everySession(): Promise<number> {
+/** The sessions every space that holds them lists, by instance and id. */
+async function everySession(): Promise<{ instance: string; session_id: string }[]> {
   const { spaces } = await api.call("harnix.spaces.list");
-  let n = 0;
+  const all: { instance: string; session_id: string }[] = [];
   for (const space of spaces.filter((s: any) => !s.no_sessions)) {
-    n += (await api.call("harnix.sessions.list", { space: space.id })).sessions.length;
+    for (const s of (await api.call("harnix.sessions.list", { space: space.id })).sessions) all.push({ instance: s.instance ?? "main", session_id: s.session_id });
   }
-  return n;
+  return all;
 }
 
 test("a dry run opens no session, runs to a person, takes their part through the same methods, and finishes", TAGS, async () => {
@@ -213,7 +213,14 @@ test("a dry run opens no session, runs to a person, takes their part through the
   // Not a run of the module's, and nothing was opened for it.
   expect((await api.call("flow.list", {})).some((r: any) => r.id === run)).toBe(false);
   expect((await topic("dry_runs")).find((d: any) => d.id === run)).toMatchObject({ flow: "demo-review", status: "finished" });
-  expect(await everySession()).toBe(before);
+  // A session that appeared meanwhile is another run's: an earlier case's run opens its main
+  // session as it starts, and may have finished before the session was there.
+  const known = new Set(before.map((s) => `${s.instance}/${s.session_id}`));
+  for (const s of (await everySession()).filter((s) => !known.has(`${s.instance}/${s.session_id}`))) {
+    const of = (await api.call("flow.runOf", s)).run;
+    expect(of, `${s.instance}/${s.session_id}`).toEqual(expect.any(String));
+    expect(of).not.toBe(run);
+  }
 });
 
 test("a gate mocked to fail stops the dry run at its station", TAGS, async () => {
