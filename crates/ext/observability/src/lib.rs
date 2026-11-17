@@ -10,13 +10,14 @@
 //!
 //! A session's rows are a device's for the sessions of the space it claims (`RowScope::Session`):
 //! before a recording is read, the session is asked of the engine as the caller, and the hub judges
-//! the claim as it does for every read of a session (system-space.md §10). `usage` names many
+//! the claim as it does for every read of a session (concept §5.4). `usage` names many
 //! sessions at once and stays an open row, as the usage summary reads it; so does
 //! `usage.daily`, the same figures per day and model for the summary.
 //!
 //! And this process's figures (`process`, a method and a topic): its versions, uptime, memory,
 //! threads and who is connected, read from the host with `process.observe` where the product grants
-//! it — the home page's global statistics.
+//! it — the home page's global statistics; and each extension's log (`extensions.log`), the kernel's
+//! `harnix.extensions.log` read with the same grant — the settings' diagnostics.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -48,7 +49,7 @@ impl Extension for Observability {
     fn manifest(&self) -> Manifest {
         Manifest::new("observability", env!("CARGO_PKG_VERSION"))
             .title("Observability")
-            .disclosure("读本机的模型调用录像：每次调用的请求与应答、每轮的汇总、会话的用量、请求信封的变化；读会话下一次调用的上下文、任务的输出；读本进程的版本、内存、线程与连接")
+            .disclosure("读本机的模型调用录像：每次调用的请求与应答、每轮的汇总、会话的用量、请求信封的变化；读会话下一次调用的上下文、任务的输出；读本进程的版本、内存、线程与连接，读各扩展的日志")
             .requires([caps::RECORDINGS_READ, caps::ENGINE_INSPECT])
             // This process's figures (`process`). Without it they are refused, and nothing else changes.
             .optional([caps::PROCESS_OBSERVE])
@@ -118,11 +119,28 @@ impl Extension for Observability {
             .describe("this process's versions, uptime, memory, threads and who is connected")
             .raw(|call: Call, _| async move { Ok(call.ext().process()?.to_json()) });
         r.topic("process").computed(Some(PROCESS_EVERY), Process);
+        r.method("extensions.log")
+            .access(Access::device())
+            .describe("each extension's log, the newest lines: by extension, least level and after a line")
+            .raw(|call: Call, params| async move { call.call("harnix.extensions.log", log_params(&params)).await });
         // Its UI package defines the usage summary's sections, for others to add theirs.
         for point in catalog::points_of("observability") {
             r.ui().point(point.decl());
         }
     }
+}
+
+/// What a read of the extension log passes on: its filter, nothing else the caller sent. Lines can
+/// say more than a person meant a package to read: the kernel's route is for an extension granted
+/// to look into the process, and a device reads it here, through that grant.
+fn log_params(params: &Value) -> Value {
+    let mut out = json!({});
+    for key in ["extension", "level", "after", "limit"] {
+        if let Some(value) = params.get(key) {
+            out[key] = value.clone();
+        }
+    }
+    out
 }
 
 /// `observability.process`, the topic: the same value as the method.
@@ -296,7 +314,8 @@ mod tests {
     use harnix_ext::{ErasedExtension, ExtId};
 
     /// The rows about one session are a device's, narrowed to the sessions of the space it claims;
-    /// `usage`, which names many sessions, and `process`, about none, are a device's and open.
+    /// `usage`, which names many sessions, and `process` and `extensions.log`, about none, are a
+    /// device's and open.
     #[test]
     fn a_sessions_rows_are_a_devices_for_the_sessions_of_its_space() {
         let id = ExtId::native("observability").unwrap();
@@ -316,10 +335,18 @@ mod tests {
             assert!(!row.opens_every_extension(), "{name} is not an extension's");
             assert_eq!(row.scope(), RowScope::Session, "{name} is about one session");
         }
-        for name in ["observability.usage", "observability.usage.daily", "observability.process"] {
+        for name in ["observability.usage", "observability.usage.daily", "observability.process", "observability.extensions.log"] {
             assert!(access(name).opens_devices(), "{name} is a device's");
             assert_eq!(access(name).scope(), RowScope::Open, "{name} is about no one session");
         }
+    }
+
+    /// A read of the extension log passes on its filter and nothing else.
+    #[test]
+    fn a_log_read_passes_on_only_its_filter() {
+        let params = json!({"extension": "flow", "level": "warn", "after": 3, "limit": 10, "space": "acme", "session_id": "S"});
+        assert_eq!(log_params(&params), json!({"extension": "flow", "level": "warn", "after": 3, "limit": 10}));
+        assert_eq!(log_params(&json!({})), json!({}));
     }
 
     /// The window starts at midnight where the caller is, `days - 1` days before today there.

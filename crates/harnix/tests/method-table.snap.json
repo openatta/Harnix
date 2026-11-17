@@ -2529,6 +2529,19 @@
         "scope": "open"
       },
       "kind": "method",
+      "name": "observability.extensions.log",
+      "owner": "ext:observability"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
       "name": "observability.process",
       "owner": "ext:observability"
     },

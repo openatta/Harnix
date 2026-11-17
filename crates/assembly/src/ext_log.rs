@@ -1,5 +1,5 @@
 //! Each extension's log: what this process logged as one extension's, the newest lines kept in a
-//! ring bounded per extension and in all (`harnix.extensions.log`, which the system space reads).
+//! ring bounded per extension and in all (`harnix.extensions.log`, which a device reads through `observability.extensions.log`).
 //!
 //! A line is an extension's when the event names it — the `extension` field (the host's lines
 //! about it, and its process's stderr, `stream = "stderr"`), or `app` (a WebAssembly package's
