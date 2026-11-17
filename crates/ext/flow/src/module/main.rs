@@ -180,7 +180,7 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: bool, mut
     // `strict` a question about any other tool is the engine's own, and a person's to answer;
     // under `auto` the engine's own questions of a task's turn (a write it holds back on its own:
     // `.git`, outside the project) are answered by the same rules.
-    let (asked, judging) = match sh.engine() {
+    let (asked, judging, layout) = match sh.engine() {
         Ok(e) => match e.record(run).await {
             Ok(rec) => (
                 crate::kernel::parts::asked_tools(&rec.def, &rec.parts.policies, &sh.cfg.guarded),
@@ -188,7 +188,9 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: bool, mut
                     guard: rec.def.guard,
                     workspace: e.workspace_for(&rec).and_then(|p| p.to_str().map(String::from)),
                     root: None,
+                    reserved: vec![],
                 },
+                e.layout().cloned(),
             ),
             Err(_) => return,
         },
@@ -203,10 +205,13 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: bool, mut
             .and_then(|v| v.get("project_root").and_then(Value::as_str).map(String::from)),
         None => None,
     };
-    let judging = Judging {
-        root: root.or_else(|| judging.workspace.clone()),
-        ..judging
+    let root = root.or_else(|| judging.workspace.clone());
+    // The project's data directory there is the application's: outside what the task works in.
+    let reserved = match (&layout, &root) {
+        (Some(l), Some(r)) => l.reserved(r),
+        _ => vec![],
     };
+    let judging = Judging { root, reserved, ..judging };
     // Turn → the task it was started for: read when the turn's first frame comes, while that
     // task is in hand (by its settlement it has often handed in and been let go).
     let mut turns: std::collections::HashMap<String, Option<Binding>> =
@@ -416,6 +421,8 @@ pub(crate) struct Judging {
     pub guard: Guard,
     pub workspace: Option<String>,
     pub root: Option<String>,
+    /// The project's data directory in the root (`ProjectLayout::reserved`).
+    pub reserved: Vec<String>,
 }
 
 /// Whether the module answers a question of a task's turn: one about a tool the flow asks about;
@@ -448,6 +455,7 @@ pub(crate) fn verdict(sh: &Shared, b: &Binding, prompt: &Value, input: Option<&V
             paths: &paths,
             workspace: j.workspace.as_deref(),
             root: j.root.as_deref(),
+            reserved: &j.reserved,
         },
         &b.station,
     )
@@ -531,7 +539,7 @@ mod tests {
     #[test]
     fn under_auto_every_permission_question_of_a_task_is_answered_and_under_strict_only_the_asked_ones() {
         let asked = vec!["Write".to_string()];
-        let j = |guard| Judging { guard, workspace: None, root: None };
+        let j = |guard| Judging { guard, workspace: None, root: None, reserved: vec![] };
         let about = |tool: &str| json!({"kind": "prompt", "prompt_type": "permission", "tool_name": tool});
         assert!(answers(&j(Guard::Strict), &asked, &about("Write")));
         assert!(!answers(&j(Guard::Strict), &asked, &about("Read")), "the engine's own: a person's");

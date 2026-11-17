@@ -127,8 +127,8 @@ pub enum Origin {
     Override,
     /// Only in the writable layer.
     User,
-    /// The project's own, in `<project>/.harnix/flows/`: offered to runs in that project, over
-    /// every other layer, and read only while the project is trusted.
+    /// The project's own, in `<project>/<dir>/flows/` (`ProjectLayout`): offered to runs in that
+    /// project, over every other layer, and read only while the project is trusted.
     Project,
 }
 
@@ -219,7 +219,8 @@ pub trait Packs: Send + Sync {
     // ── a project's own packs ────────────────────────────────────────────────
 
     /// The packs a run in the project at `root` sees, when the project brings packs of its own
-    /// (`<project>/.harnix/flows/`): its layer over these. `None`: these, as everywhere else.
+    /// (`<project>/<dir>/flows/`, `ProjectLayout`): its layer over these. `None`: these, as
+    /// everywhere else.
     fn project(&self, _root: &str) -> Option<std::sync::Arc<dyn Packs>> {
         None
     }

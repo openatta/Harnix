@@ -16,7 +16,9 @@
 //! ```
 //!
 //! A worktree run's worktree is out of the project, in the module's data directory
-//! (`worktree.rs`): its output directory is in there; its process directory is not.
+//! (`worktree.rs`): its output directory is in there; its process directory is not. Where all of
+//! these are is the engine's `ProjectLayout` ([`super::layout`]): without one, nothing is
+//! projected.
 //!
 //! The process directory is a projection: the ledger in the module's data directory is what
 //! counts, and a projection that cannot be written is logged and leaves the run as it was. A run
@@ -32,21 +34,19 @@ use crate::kernel::output::{has_seq, render, OutputVars};
 use crate::kernel::refs::workspace_of;
 use crate::kernel::run::{RunRecord, TaskStatus, Workspace, WorktreeRec};
 use crate::kernel::host::Outcome;
+use crate::kernel::layout::ProjectLayout;
 use crate::kernel::run::Actor;
 use crate::kernel::FlowError;
 
-use harnix_ext::engine::PROJECT_DIR;
 use harnix_ext::{Entry, SessionRef};
 
 use super::shared::Shared;
 use crate::wire::StartedFrom;
 
-/// The lines `<project>/.harnix/.gitignore` holds: what the module writes there is not the project's.
-const IGNORED: &[&str] = &["runs/"];
-
-/// The project's own flows, in its `.harnix/`: the one thing of the module's there that is the
-/// project's to commit (`packs::project_pack_dir`).
-pub(crate) const FLOWS_DIR: &str = "flows";
+/// The line `<project>/.harnix/.gitignore` holds for the module: its process directories are not
+/// the project's. The project's own flows (`flows/`) are, to commit; the rest there is the
+/// engine's, which adds its own lines.
+const IGNORED: &str = "runs/";
 
 /// The highest `${seq}` looked for.
 const MAX_SEQ: u32 = 999;
@@ -231,8 +231,8 @@ pub(crate) async fn made(engine: &Engine, run: &str) {
             tracing::warn!(run, dir, error = %e, "the run's output directory not made");
         }
     }
-    if let Some(root) = &rec.project_root {
-        if let Err(e) = ensure_gitignore(Path::new(root)) {
+    if let (Some(root), Some(layout)) = (&rec.project_root, engine.layout()) {
+        if let Err(e) = ensure_gitignore(Path::new(root), layout) {
             tracing::warn!(run, root, error = %e, "the project's .harnix/.gitignore not written");
         }
     }
@@ -328,8 +328,8 @@ fn inside(real_base: &Path, dir: &Path) -> Result<(), String> {
 
 /// `<project>/.harnix/.gitignore` with `runs/`: written when there is none, the missing line added
 /// to one that is there.
-pub(crate) fn ensure_gitignore(project: &Path) -> std::io::Result<()> {
-    let dir = project.join(PROJECT_DIR);
+pub(crate) fn ensure_gitignore(project: &Path, layout: &ProjectLayout) -> std::io::Result<()> {
+    let dir = layout.data_dir(project);
     std::fs::create_dir_all(&dir)?;
     let file = dir.join(".gitignore");
     let had = match std::fs::read_to_string(&file) {
@@ -337,19 +337,15 @@ pub(crate) fn ensure_gitignore(project: &Path) -> std::io::Result<()> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(e) => return Err(e),
     };
-    let lines: Vec<&str> = had.lines().map(str::trim).collect();
-    let missing: Vec<&str> = IGNORED.iter().copied().filter(|l| !lines.contains(l)).collect();
-    if missing.is_empty() {
+    if had.lines().map(str::trim).any(|l| l == IGNORED) {
         return Ok(());
     }
     let mut text = had.clone();
     if !text.is_empty() && !text.ends_with('\n') {
         text.push('\n');
     }
-    for l in missing {
-        text.push_str(l);
-        text.push('\n');
-    }
+    text.push_str(IGNORED);
+    text.push('\n');
     std::fs::write(&file, text)
 }
 
@@ -360,7 +356,7 @@ pub(crate) fn process_dir(engine: &Engine, rec: &RunRecord) -> Option<PathBuf> {
         Some(root) => PathBuf::from(root),
         None => engine.workspace(&rec.id)?,
     };
-    Some(workspace_of(&base.join(PROJECT_DIR).join("runs"), &rec.id))
+    Some(workspace_of(&engine.layout()?.runs_dir(&base), &rec.id))
 }
 
 /// A station's directory in the process directory.
@@ -542,21 +538,27 @@ mod tests {
     #[test]
     fn the_gitignore_is_written_once_and_never_clobbered() {
         let p = tempfile::tempdir().unwrap();
-        ensure_gitignore(p.path()).unwrap();
+        let layout = super::super::layout(p.path());
+        ensure_gitignore(p.path(), &layout).unwrap();
         let file = p.path().join(".harnix/.gitignore");
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "runs/\n");
-        ensure_gitignore(p.path()).unwrap();
+        ensure_gitignore(p.path(), &layout).unwrap();
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "runs/\n");
         std::fs::write(&file, "# mine\nsettings.local.json").unwrap();
-        ensure_gitignore(p.path()).unwrap();
+        ensure_gitignore(p.path(), &layout).unwrap();
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "# mine\nsettings.local.json\nruns/\n");
     }
 
-    /// The project's own flows are where the packs read them: in its `.harnix/`, the engine's too.
+    /// The project's own flows are where the packs read them: in its `.harnix/`, the engine's too;
+    /// its worktrees are in the module's data directory, on branches of its own.
     #[test]
     fn the_projects_flows_are_in_the_directory_it_shares_with_the_engine() {
         let root = Path::new("/p");
-        assert_eq!(crate::packs::project_pack_dir(root), root.join(PROJECT_DIR).join(FLOWS_DIR));
+        let layout = super::super::layout(Path::new("/state/ext/flow/data"));
+        assert_eq!(crate::packs::project_pack_dir(root, &layout), Path::new("/p/.harnix/flows"));
+        assert_eq!(layout.dir, harnix_ext::engine::PROJECT_DIR);
+        assert_eq!(layout.worktree_dir("f-1"), Path::new("/state/ext/flow/data/worktrees/f-1"));
+        assert_eq!(layout.worktree_branch("f-1"), "harnix/flow/f-1");
     }
 
     #[tokio::test]
@@ -571,7 +573,8 @@ mod tests {
         );
         let engine = Engine::new(std::sync::Arc::new(MemStore::new()), std::sync::Arc::new(packs))
             .with_clock(std::sync::Arc::new(ManualClock::new(1_794_787_200_000)))
-            .with_workspaces(data.path().join("workspaces"));
+            .with_workspaces(data.path().join("workspaces"))
+            .with_layout(super::super::layout(data.path()));
         let root = project.path().to_string_lossy().into_owned();
         let by = Actor::device("d");
         let started = |output_dir: Option<&str>| CreateIn {
@@ -647,7 +650,8 @@ mod tests {
         let packs = MemPacks::new().flow("{name: solo, stations: [{id: a, exit: [{kind: confirm}]}]}");
         let engine = Engine::new(std::sync::Arc::new(MemStore::new()), std::sync::Arc::new(packs))
             .with_clock(std::sync::Arc::new(ManualClock::new(1_794_787_200_000)))
-            .with_workspaces(data.path().join("workspaces"));
+            .with_workspaces(data.path().join("workspaces"))
+            .with_layout(super::super::layout(data.path()));
         let input = CreateIn { flow: "solo".into(), subject: "s".into(), ..Default::default() };
         let run = start(&Shared::for_tests(), &engine, input, Actor::device("d")).await.unwrap().value["run"].as_str().unwrap().to_string();
         let rec = engine.record(&run).await.unwrap();

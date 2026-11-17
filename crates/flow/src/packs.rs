@@ -12,6 +12,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::kernel::def::FlowDef;
 use crate::kernel::host::{digest, Catalog, Origin, Packs, Withheld};
+use crate::kernel::layout::ProjectLayout;
 use crate::kernel::parts::PartKind;
 use crate::kernel::validate::is_part_name;
 
@@ -657,10 +658,11 @@ impl Packs for DirPacks {
 
 // ── a project's own packs ────────────────────────────────────────────────────
 
-/// Where a project keeps its own packs, committed with it: `<project>/.harnix/flows/`, the flows
-/// as `<name>.yaml` and the parts under `skills/`, `rules/`, `policies/`, `gates/`, `hooks/`.
-pub fn project_pack_dir(root: &Path) -> PathBuf {
-    root.join(".harnix").join("flows")
+/// Where a project keeps its own packs, committed with it: `<project>/<dir>/flows/` (Harnix:
+/// `.harnix`), the flows as `<name>.yaml` and the parts under `skills/`, `rules/`, `policies/`,
+/// `gates/`, `hooks/`.
+pub fn project_pack_dir(root: &Path, layout: &ProjectLayout) -> PathBuf {
+    layout.pack_dir(root)
 }
 
 /// A project root as trust is kept by it: its real path when it has one, else as written without
@@ -708,13 +710,14 @@ pub struct ProjectPacks {
     root: PathBuf,
     dir: PathBuf,
     trusted: bool,
+    layout: ProjectLayout,
 }
 
 impl ProjectPacks {
-    pub fn new(base: Arc<dyn Packs>, root: impl Into<PathBuf>, trusted: bool) -> Self {
+    pub fn new(base: Arc<dyn Packs>, root: impl Into<PathBuf>, layout: &ProjectLayout, trusted: bool) -> Self {
         let root = root.into();
-        let dir = project_pack_dir(&root);
-        Self { base, root, dir, trusted }
+        let dir = project_pack_dir(&root, layout);
+        Self { base, root, dir, trusted, layout: layout.clone() }
     }
 
     /// The directory the project's packs are read from and saved to.
@@ -807,17 +810,17 @@ impl ProjectPacks {
     }
 
     /// Write `path` (under the project's pack directory) whole, refusing a directory that
-    /// resolves elsewhere — a `.harnix` or a part directory that links out of the project.
+    /// resolves elsewhere — a data directory or a part directory that links out of the project.
     fn write(&self, path: &Path, text: &str) -> Result<(), String> {
         let parent = path.parent().ok_or("no directory")?;
         std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
         let root = std::fs::canonicalize(&self.root).map_err(|e| format!("{}: {e}", self.root.display()))?;
         let at = std::fs::canonicalize(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
-        if !at.starts_with(project_pack_dir(&root)) {
+        if !at.starts_with(project_pack_dir(&root, &self.layout)) {
             return Err(format!(
                 "{} is not inside {}: nothing is written outside the project's packs",
                 parent.display(),
-                project_pack_dir(&root).display()
+                project_pack_dir(&root, &self.layout).display()
             ));
         }
         write_atomic(path, text)
@@ -954,6 +957,11 @@ impl Packs for ProjectPacks {
 mod project_tests {
     use super::*;
 
+    /// A project's data directory as Harnix names it.
+    fn layout() -> ProjectLayout {
+        ProjectLayout::new(".harnix", "/state/worktrees", "harnix/flow")
+    }
+
     const BASE: &str = "name: shared\ntitle: Built in\nstations: [{id: a, exit: [{kind: confirm}]}]";
     const OWN: &str = "name: shared\ntitle: The project's\nstations: [{id: a, exit: [{kind: confirm}]}]";
     const MINE: &str = "name: mine\nstations: [{id: a, skill: look, exit: [{kind: confirm}]}]";
@@ -971,7 +979,7 @@ mod project_tests {
     /// A project with `shared` and `mine` of its own, a skill and a rule.
     fn project() -> tempfile::TempDir {
         let root = tempfile::tempdir().unwrap();
-        let dir = project_pack_dir(root.path());
+        let dir = project_pack_dir(root.path(), &layout());
         std::fs::create_dir_all(dir.join("skills/look")).unwrap();
         std::fs::create_dir_all(dir.join("rules")).unwrap();
         std::fs::write(dir.join("shared.yaml"), OWN).unwrap();
@@ -984,7 +992,7 @@ mod project_tests {
     #[test]
     fn a_trusted_projects_own_flows_and_parts_are_over_the_rest() {
         let root = project();
-        let p = ProjectPacks::new(base(), root.path(), true);
+        let p = ProjectPacks::new(base(), root.path(), &layout(), true);
         assert_eq!(p.flows(), ["mine", "plain", "shared"]);
         // The same name: the project's, and said so.
         assert_eq!(p.flow("shared").unwrap().0.title, "The project's");
@@ -1007,7 +1015,7 @@ mod project_tests {
     #[test]
     fn an_untrusted_projects_own_are_listed_unread_and_never_offered() {
         let root = project();
-        let p = ProjectPacks::new(base(), root.path(), false);
+        let p = ProjectPacks::new(base(), root.path(), &layout(), false);
         // Not offered, and the same name below is hidden: in the project the name is the project's.
         assert_eq!(p.flows(), ["plain"]);
         assert!(p.flow("shared").is_none() && p.flow("mine").is_none());
@@ -1025,17 +1033,17 @@ mod project_tests {
         let e = p.save_flow("name: new\nstations: [{id: a, exit: [{kind: confirm}]}]").unwrap_err();
         assert!(e.contains("not trusted"), "{e}");
         assert!(p.save_part(PartKind::Rule, "x", "# X").is_err());
-        assert!(!project_pack_dir(root.path()).join("new.yaml").exists());
+        assert!(!project_pack_dir(root.path(), &layout()).join("new.yaml").exists());
     }
 
     #[test]
     fn a_project_file_that_is_not_its_flow_is_reported_and_hides_the_name() {
         let root = project();
-        let dir = project_pack_dir(root.path());
+        let dir = project_pack_dir(root.path(), &layout());
         std::fs::write(dir.join("broken.yaml"), "name: [not a flow").unwrap();
         // A definition of another name than its file's.
         std::fs::write(dir.join("plain.yaml"), "name: other\nstations: [{id: a, exit: [{kind: confirm}]}]").unwrap();
-        let p = ProjectPacks::new(base(), root.path(), true);
+        let p = ProjectPacks::new(base(), root.path(), &layout(), true);
         assert_eq!(
             p.withheld_flows(),
             [("broken".to_string(), Withheld::Unreadable), ("plain".to_string(), Withheld::Unreadable)]
@@ -1047,11 +1055,11 @@ mod project_tests {
     #[test]
     fn saving_writes_in_the_projects_pack_directory_alone() {
         let root = tempfile::tempdir().unwrap();
-        let p = ProjectPacks::new(base(), root.path(), true);
+        let p = ProjectPacks::new(base(), root.path(), &layout(), true);
         p.save_flow("name: fresh\nstations: [{id: a, exit: [{kind: confirm}]}]").unwrap();
         p.save_part(PartKind::Skill, "probe", "Probe it.").unwrap();
         p.save_part(PartKind::Rule, "house", "# House").unwrap();
-        let dir = project_pack_dir(root.path());
+        let dir = project_pack_dir(root.path(), &layout());
         assert!(dir.join("fresh.yaml").is_file());
         assert!(dir.join("skills/probe/SKILL.md").is_file());
         assert!(dir.join("rules/house.md").is_file());
@@ -1074,8 +1082,8 @@ mod project_tests {
         let root = tempfile::tempdir().unwrap();
         let elsewhere = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(root.path().join(".harnix")).unwrap();
-        std::os::unix::fs::symlink(elsewhere.path(), project_pack_dir(root.path())).unwrap();
-        let p = ProjectPacks::new(base(), root.path(), true);
+        std::os::unix::fs::symlink(elsewhere.path(), project_pack_dir(root.path(), &layout())).unwrap();
+        let p = ProjectPacks::new(base(), root.path(), &layout(), true);
         let e = p.save_flow("name: fresh\nstations: [{id: a, exit: [{kind: confirm}]}]").unwrap_err();
         assert!(e.contains("not inside"), "{e}");
         assert!(std::fs::read_dir(elsewhere.path()).unwrap().next().is_none());

@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::def::{ExitCond, FlowDef};
+use super::layout::ProjectLayout;
 use super::parts::PartKind;
 use super::host::{
     AllowAll, Authorizer, Clock, GateResult, NoTools, Op, Outcome, Packs, Placement, RunStore,
@@ -144,7 +145,9 @@ pub struct Engine {
     pub(crate) main_scene: Option<String>,
     /// Where runs' workspaces are (`${workspace}` is `<root>/<run>`); none: `${workspace}` is null.
     pub(crate) workspaces: Option<std::path::PathBuf>,
-    pub(crate) worktrees: Option<std::path::PathBuf>,
+    /// Where the host keeps what the library writes for a project; none: no worktrees, no
+    /// process directories, no project packs.
+    pub(crate) layout: Option<ProjectLayout>,
 }
 
 /// Run `$body` in a fresh transaction `$t`, commit, and retry the whole thing on a conflict.
@@ -206,7 +209,7 @@ impl Engine {
             submit_scenes: Default::default(),
             main_scene: None,
             workspaces: None,
-            worktrees: None,
+            layout: None,
         }
     }
 
@@ -216,16 +219,21 @@ impl Engine {
         self
     }
 
-    /// Where runs' worktrees of their projects are: `<root>/<run>` (made safe), outside every
-    /// project.
-    pub fn with_worktrees(mut self, root: impl Into<std::path::PathBuf>) -> Self {
-        self.worktrees = Some(root.into());
+    /// Where the host keeps what the library writes for a project: its data directory's name,
+    /// where runs' worktrees go and their branches' prefix.
+    pub fn with_layout(mut self, layout: ProjectLayout) -> Self {
+        self.layout = Some(layout);
         self
+    }
+
+    /// The host's layout, if it gave one.
+    pub fn layout(&self) -> Option<&ProjectLayout> {
+        self.layout.as_ref()
     }
 
     /// Where a run's worktree goes, if the application makes them.
     pub fn worktree_dir(&self, run: &str) -> Option<std::path::PathBuf> {
-        self.worktrees.as_ref().map(|r| super::refs::worktree_dir(r, run))
+        self.layout.as_ref().map(|l| l.worktree_dir(run))
     }
 
     /// A run's scratch directory, if the application keeps them: where a run of no project works.

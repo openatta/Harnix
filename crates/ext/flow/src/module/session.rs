@@ -729,7 +729,7 @@ stations:
             std::sync::Arc::new(MemPacks::new().flow("{name: f, stations: [{id: a, exit: [{kind: confirm}]}]}")),
         )
         .with_workspaces(data.path().join("workspaces"))
-        .with_worktrees(data.path().join("worktrees"));
+        .with_layout(super::super::layout(data.path()));
         let root = project.path().to_string_lossy().into_owned();
         let started = |workspace: Option<Workspace>, project_root: Option<String>| CreateIn {
             flow: "f".into(),

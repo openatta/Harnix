@@ -1207,7 +1207,9 @@ mod tests {
             main_scene: None,
             command_gates: false,
             projects: Some(sh.projects.clone()),
+            layout: std::sync::OnceLock::new(),
         };
+        let _ = packs.layout.set(super::super::layout(std::path::Path::new("/state/ext/flow/data")));
         let _ = packs.inner.set(Arc::new(crate::MemPacks::new().skill("look", "Look.").writable()));
         let engine = crate::Engine::new(Arc::new(crate::MemStore::new()), Arc::new(packs));
         let _ = sh.engine.set(Arc::new(engine));
@@ -1227,17 +1229,20 @@ mod tests {
         let at = root.path().to_str().unwrap().to_string();
         let yaml = "name: fresh\nstations: [{id: a, executor: {kind: session, scene: flow-harnix}, skill: house, output: {type: object}, exit: [{kind: output}]}]";
         let parts = json!([{"kind": "skill", "name": "house", "text": "The house way."}]);
+        // The project's own flows, in its `.harnix/`. Tasks' tools are kept out of that directory
+        // (`judge_under`'s reserved); `flow_create` is the module's own tool, which nothing judges.
+        let dir = crate::project_pack_dir(root.path(), &super::super::layout(std::path::Path::new("/state/ext/flow/data")));
+        assert_eq!(dir, root.path().join(".harnix/flows"));
 
         // Not trusted: nothing is written in it.
         let out = call(&sh, TOOL_CREATE, "s1", json!({"yaml": yaml, "parts": parts, "project_root": at})).await;
         assert!(out.is_error() && out.content().contains("not trusted"), "{}", out.content());
-        assert!(!crate::project_pack_dir(root.path()).exists());
+        assert!(!dir.exists());
         assert!(sh.conversation_project("main", "s1").is_none(), "refused: the conversation is not moved");
 
         sh.projects.set(&at, true);
         let out = call(&sh, TOOL_CREATE, "s1", json!({"yaml": yaml, "parts": parts, "project_root": at})).await;
         assert!(!out.is_error() && out.content().contains("\"saved\": true"), "{}", out.content());
-        let dir = crate::project_pack_dir(root.path());
         assert!(dir.join("fresh.yaml").is_file() && dir.join("skills/house/SKILL.md").is_file());
         let engine = sh.engine().unwrap();
         assert!(engine.packs().flow("fresh").is_none() && engine.packs().skill("house").is_none(), "only the project has them");

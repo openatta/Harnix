@@ -254,6 +254,10 @@ pub struct Call<'a> {
     /// The session's project root: where a relative path in the call is taken from, and the one
     /// place a path may be written without a permission naming it (`None`: the session has none).
     pub root: Option<&'a str>,
+    /// Directories inside the root that count as outside it: the project's data directory
+    /// (`ProjectLayout::reserved`), the host's and not the task's. Only an `allow` whose own
+    /// `paths` point into one lets a call touch it.
+    pub reserved: &'a [String],
 }
 
 /// What becomes of a call.
@@ -280,10 +284,14 @@ pub fn judge(granted: &[Granted], guarded: &[String], call: &Call, station: &str
 /// normalised (`.`, `..`, `//` folded; a relative one taken from the session's root). And what
 /// would be allowed while touching a path outside the session's root is asked of a person under
 /// `strict` and refused under `auto` — unless an `allow` whose own `paths` cover it matched: that
-/// is the author saying so.
+/// is the author saying so. A path in one of the call's `reserved` directories is outside too,
+/// and an `allow` speaks for it only when one of its patterns points into that directory
+/// (`${workspace}/**` does not).
 pub fn judge_under(guard: Guard, granted: &[Granted], guarded: &[String], call: &Call, station: &str) -> Verdict {
     let paths = call_paths(call);
     let mut best: Option<(&Granted, bool)> = None;
+    // Every allow with paths of its own that matched: what speaks for a path outside.
+    let mut scoped_allows: Vec<&Permission> = vec![];
     for g in granted {
         let p = &g.permission;
         if !tool_matches(&p.tools, call.tool) {
@@ -293,13 +301,20 @@ pub fn judge_under(guard: Guard, granted: &[Granted], guarded: &[String], call: 
             Some(m) => m,
             None => p.effect != Effect::Allow,
         };
+        if hit && p.effect == Effect::Allow && !p.paths.is_empty() {
+            scoped_allows.push(p);
+        }
         if hit && best.is_none_or(|(b, _)| p.effect > b.permission.effect) {
             best = Some((g, !p.paths.is_empty()));
         }
     }
+    let reserved: Vec<String> = call.reserved.iter().map(|r| normalize(r, call.root)).collect();
+    let reserved_of = |path: &str| reserved.iter().find(|r| within(path, r));
     let outside: Vec<&String> = paths
         .iter()
-        .filter(|path| !call.root.is_some_and(|r| within(path, &normalize(r, None))))
+        .filter(|path| {
+            !call.root.is_some_and(|r| within(path, &normalize(r, None))) || reserved_of(path).is_some()
+        })
         .collect();
     let verdict = match best {
         Some((g, _)) => {
@@ -327,8 +342,44 @@ pub fn judge_under(guard: Guard, granted: &[Granted], guarded: &[String], call: 
             reason: String::new(),
         },
     };
+    // What an allow with paths of its own does not speak for: nothing outside the root, but a
+    // reserved directory unless one of its patterns points into it.
     let scoped_allow = matches!(best, Some((_, true)));
-    if verdict.effect == Effect::Allow && !scoped_allow && !outside.is_empty() {
+    let names = |r: &str| {
+        scoped_allows
+            .iter()
+            .flat_map(|p| &p.paths)
+            .any(|pat| within(&literal_dir(&normalize(pat, call.workspace)), r))
+    };
+    let outside: Vec<&String> = outside
+        .into_iter()
+        .filter(|path| match reserved_of(path) {
+            None => !scoped_allow,
+            Some(r) => !names(r),
+        })
+        .collect();
+    if verdict.effect == Effect::Allow && !outside.is_empty() {
+        if let Some(r) = outside.iter().find_map(|p| reserved_of(p)) {
+            let list: Vec<&str> = outside.iter().map(|p| p.as_str()).collect();
+            let why = format!(
+                "{} touches {}: {r} is the project's data directory, kept by the application, not a place a task works in",
+                call.tool,
+                list.join(", ")
+            );
+            return match guard {
+                Guard::Strict => Verdict {
+                    effect: Effect::Ask,
+                    reason: format!("{why}. A person decides (a permission whose paths point into it would allow it)"),
+                },
+                Guard::Auto => Verdict {
+                    effect: Effect::Deny,
+                    reason: format!(
+                        "station {station} of the flow does not allow this: {why}. Work in the project outside it; \
+                         only a permission whose paths point into it allows it"
+                    ),
+                },
+            };
+        }
         let list: Vec<&str> = outside.iter().map(|p| p.as_str()).collect();
         return match guard {
             Guard::Strict => Verdict {
@@ -405,6 +456,15 @@ pub fn normalize(path: &str, base: Option<&str>) -> String {
     } else {
         body
     }
+}
+
+/// The directory a path pattern names before its first wildcard: `/ws/.harnix/flows/**` →
+/// `/ws/.harnix/flows`, `/ws/**` → `/ws`.
+fn literal_dir(pattern: &str) -> String {
+    let cut = pattern.find(['*', '?', '[', '{']).unwrap_or(pattern.len());
+    let lit = &pattern[..cut];
+    let dir = if cut < pattern.len() { lit.rfind('/').map_or("", |i| &lit[..i]) } else { lit };
+    dir.trim_end_matches('/').to_string()
 }
 
 /// Whether `path` is `root` or under it (both normalised, absolute).
@@ -773,6 +833,7 @@ mod tests {
             paths: &[],
             workspace: Some("/ws/r-1"),
             root: Some("/ws/r-1"),
+            reserved: &[],
         }
     }
 
@@ -894,6 +955,46 @@ mod tests {
         // A session with no root: every path is outside it.
         let rootless = Call { root: None, ..call("Write", Some(&inside)) };
         assert_eq!(judge_under(Guard::Auto, &none, &g, &rootless, "s").effect, Effect::Deny);
+    }
+
+    #[test]
+    fn the_projects_data_directory_is_outside_the_project_unless_a_permission_points_into_it() {
+        let reserved = ["/ws/r-1/.harnix".to_string()];
+        let at = |path: &str| json!({"file_path": path});
+        let judged = |guard: Guard, g: &[Granted], input: &Value| {
+            judge_under(guard, g, &["Write".to_string()], &Call { reserved: &reserved, ..call("Write", Some(input)) }, "s")
+        };
+        // No permission: the project is the task's, its data directory is not.
+        assert_eq!(judged(Guard::Auto, &[], &at("/ws/r-1/src/a.rs")).effect, Effect::Allow);
+        let v = judged(Guard::Auto, &[], &at(".harnix/settings.json"));
+        assert_eq!(v.effect, Effect::Deny);
+        assert!(v.reason.contains("/ws/r-1/.harnix is the project's data directory"), "{}", v.reason);
+        let write = vec![perm("{effect: allow, tools: [Write]}")];
+        assert_eq!(judged(Guard::Strict, &write, &at("/ws/r-1/src/a.rs")).effect, Effect::Allow);
+        assert_eq!(judged(Guard::Strict, &write, &at("/ws/r-1/.harnix/settings.json")).effect, Effect::Ask);
+        // An allow over the whole workspace does not reach into it; one that points into it does,
+        // wherever it is in the list.
+        let wide = vec![perm("{effect: allow, tools: [Write], paths: ['${workspace}/**']}")];
+        let wide = resolve(&wide);
+        for guard in [Guard::Auto, Guard::Strict] {
+            assert_eq!(judged(guard, &wide, &at("/ws/r-1/src/a.rs")).effect, Effect::Allow);
+            assert_ne!(judged(guard, &wide, &at("/ws/r-1/.harnix/flows/f.yaml")).effect, Effect::Allow);
+        }
+        let named = resolve(&[
+            perm("{effect: allow, tools: [Write], paths: ['${workspace}/**']}"),
+            perm("{effect: allow, tools: [Write], paths: ['${workspace}/.harnix/flows/**']}"),
+        ]);
+        assert_eq!(judged(Guard::Auto, &named, &at("/ws/r-1/.harnix/flows/f.yaml")).effect, Effect::Allow);
+        assert_ne!(judged(Guard::Auto, &named, &at("/ws/r-1/.harnix/settings.json")).effect, Effect::Allow);
+        // Without reserved directories, as before.
+        assert_eq!(judge_under(Guard::Auto, &[], &[], &call("Write", Some(&at("/ws/r-1/.harnix/x"))), "s").effect, Effect::Allow);
+    }
+
+    /// Permissions with `${workspace}` put in, as a task's are.
+    fn resolve(g: &[Granted]) -> Vec<Granted> {
+        g.iter()
+            .map(|g| Granted { permission: resolve_permission(&g.permission, &json!({"workspace": "/ws/r-1"})), from: g.from.clone() })
+            .collect()
     }
 
     #[test]

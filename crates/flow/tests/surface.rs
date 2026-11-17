@@ -150,6 +150,7 @@ const EXPORTS: &[(&str, &str)] = &[
     ("Withheld", "kernel::host"),
     ("WorkItem", "kernel::host"),
     ("EVENT_KINDS", "kernel::host"),
+    ("ProjectLayout", "kernel::layout"),
     ("glob", "kernel::parts"),
     ("judge", "kernel::parts"),
     ("judge_under", "kernel::parts"),
@@ -261,12 +262,22 @@ const BUILDERS: &[(&str, &str)] = &[
     ("DirPacks::with_catalog", "fnwith_catalog(mutself,catalog:Catalog)->Self"),
     ("DirPacks::writable_dir", "fnwritable_dir(&self)->Option<&Path>"),
     ("DirPacks::flow_text", "fnflow_text(&self,name:&str)->Option<String>"),
-    ("ProjectPacks::new", "fnnew(base:Arc<dynPacks>,root:implInto<PathBuf>,trusted:bool)->Self"),
+    ("ProjectPacks::new", "fnnew(base:Arc<dynPacks>,root:implInto<PathBuf>,layout:&ProjectLayout,trusted:bool)->Self"),
     ("ProjectPacks::dir", "fndir(&self)->&Path"),
     ("ProjectPacks::trusted", "fntrusted(&self)->bool"),
     ("ProjectTrust::set", "fnset(&self,root:&str,trusted:bool)"),
     ("ProjectTrust::trusted", "fntrusted(&self,root:&str)->bool"),
     ("ProjectTrust::any_trusted", "fnany_trusted(&self)->bool"),
+    (
+        "ProjectLayout::new",
+        "fnnew(dir:implInto<String>,worktrees_root:implInto<PathBuf>,branch_prefix:implInto<String>)->Self",
+    ),
+    ("ProjectLayout::data_dir", "fndata_dir(&self,project:&Path)->PathBuf"),
+    ("ProjectLayout::pack_dir", "fnpack_dir(&self,project:&Path)->PathBuf"),
+    ("ProjectLayout::runs_dir", "fnruns_dir(&self,base:&Path)->PathBuf"),
+    ("ProjectLayout::worktree_dir", "fnworktree_dir(&self,run:&str)->PathBuf"),
+    ("ProjectLayout::worktree_branch", "fnworktree_branch(&self,run:&str)->String"),
+    ("ProjectLayout::reserved", "fnreserved(&self,root:&str)->Vec<String>"),
 ];
 
 /// The types whose inherent impls [`BUILDERS`] lists, and the file each is in.
@@ -278,6 +289,7 @@ const BUILT: &[(&str, &str)] = &[
     ("DirPacks", "src/packs.rs"),
     ("ProjectPacks", "src/packs.rs"),
     ("ProjectTrust", "src/packs.rs"),
+    ("ProjectLayout", "src/kernel/layout.rs"),
 ];
 
 const HOST: &str = "src/kernel/host.rs";

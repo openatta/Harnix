@@ -18,6 +18,7 @@
 //! kernel/output.rs    the output directory's template
 //! kernel/run.rs       the run record (snapshot + history) and its JSON Schema
 //! kernel/host.rs      what the host implements; events, work items, outcomes
+//! kernel/layout.rs    where the host keeps what the library writes for a project
 //! kernel/engine.rs    every operation: load → compute → commit against revs
 //! kernel/parts.rs     rules, policies and permissions, gates, hooks; judging a call
 //! kernel/protocol.rs  the protocol layer put before a session task's skill
@@ -62,6 +63,7 @@ pub use kernel::host::{
     GateResult, Gates, ManualClock, NoTools, Op, Origin, Outcome, Packs, Placement,
     Programs, RunStore, StoreError, SystemClock, Tools, Withheld, WorkItem, EVENT_KINDS,
 };
+pub use kernel::layout::ProjectLayout;
 pub use kernel::parts::{
     glob, judge, judge_under, part_schema, permissions_of, rules_of, Call, Effect, GateDef, GateKind, Granted,
     HookDef, HookKind, PartKind, Permission, Pinned, PolicyDef, Verdict,
