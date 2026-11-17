@@ -12,6 +12,9 @@
  * - The system space's 用量 tab (`system.console.tab`): every session's figures over the last 30
  *   days by project, day and model (`observability.usage.daily`), with the sections other packages
  *   add to `observability.usage.section`.
+ * - Two blocks of the home page (`harnix-app.home.panels`), where the product has the Harnix app:
+ *   the process at a glance (`observability.process`, the instances and their Agents, what waits),
+ *   and the same usage summary.
  *
  * Read through the host API alone: `observability.*` (the recording), `harnix.session.outline`,
  * `.skills`, `.hooks`, `engine.session.entries` (the feedback), `settings.mcp.context`,
@@ -21,6 +24,7 @@
 import { t, type HostApi, type HostSessionRef as SessionKey, type Registry } from "@harnix/react";
 
 import { ContextTab } from "./context.tsx";
+import { GlobalStats, HOME_PANELS, type HomeContext } from "./home.tsx";
 import { TRAJECTORY_VIEW, type Observed } from "./shared.tsx";
 import { Trajectory } from "./trajectory/Trajectory.tsx";
 import { UsageTab } from "./usage.tsx";
@@ -30,6 +34,7 @@ import "./observability.css";
 export { summarizeUsage, type UsageSummary } from "@harnix/core";
 export { USAGE_SECTION, type UsageSection, type UsageSectionContext } from "./summary.tsx";
 export { TRAJECTORY_VIEW };
+export { GlobalStats, agentActive, type ProcessFigures } from "./home.tsx";
 
 /** The backend extension this package is the interface of. */
 export const extension = "observability";
@@ -102,6 +107,20 @@ export function register(r: Registry, host: HostApi): void {
       ),
     },
     extension,
+  );
+  // The home page: the process at a glance first, the usage of the last days after the lists.
+  // Where there is no Harnix app there is no home page, and neither block.
+  r.register(
+    HOME_PANELS,
+    { id: "observability.stats", order: 10, wide: true, title: () => t("home.stats.title"), render: (context: HomeContext) => <GlobalStats host={host} context={context} /> },
+    extension,
+    { orElse: () => undefined },
+  );
+  r.register(
+    HOME_PANELS,
+    { id: "observability.summary", order: 60, wide: true, title: () => t("usageAll.title"), render: () => <UsageSummaryTab observed={observed} /> },
+    extension,
+    { orElse: () => undefined },
   );
   // The system space's console: what every session has used over the last days. Where there is no
   // system space there is no console, and no tab.
