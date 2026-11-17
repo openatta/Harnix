@@ -232,6 +232,8 @@ const en: Record<string, string> = {
   "settings.clearHint": "Remove this tier\u0027s value and fall back to the one below",
   "settings.written": "Written to {path} (applies to new sessions)",
   "settings.writeFailed": "Could not write: {error}",
+  "settings.error.locked": "Another program is holding the settings (an editor, or another Harnix?): nothing was written. Save again once it lets go",
+  "settings.error.projectNotFound": "The project's folder is not there any more: nothing was written. Open the project again, or write another tier",
   "settings.field.model.model_name": "Model",
   "settings.field.model.max_tokens": "Max tokens per turn",
   "settings.field.permission_mode": "Permission mode",

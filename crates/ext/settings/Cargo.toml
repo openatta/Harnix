@@ -12,8 +12,8 @@ name = "harnix_ext_settings"
 
 [dependencies]
 harnix-ext  = { workspace = true }
-# Where the engine's settings tiers are: a transitional host service, until the engine takes the
-# tiers' writes over its protocol (docs/harnix-ext.md §17.8). Providers already go through it.
+# Where the engine's settings tiers are, for the page to name each tier's file: the engine reads and
+# writes them over its protocol, and says no path until it has written one (docs/harnix-ext.md §17.8).
 harnix-host-api = { workspace = true }
 anyhow      = { workspace = true }
 async-trait = { workspace = true }

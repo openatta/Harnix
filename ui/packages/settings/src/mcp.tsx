@@ -19,6 +19,8 @@ import { useState } from "react";
 import { errorText, type McpAuthDone, type McpAuthStarted, type McpList, type McpServer, type McpValue } from "@harnix/core";
 import { Glyph, SettingsSection, SettingsValue, useSettingsReload, useT, type HostApi } from "@harnix/react";
 
+import { writeFailed } from "./errors.ts";
+
 /** Where a write goes: the open session's scene and project, else the engine's first active scene. */
 export type McpRequest = { scene?: string; project_root: string | null };
 
@@ -47,7 +49,7 @@ export function Mcp({ host, request }: { host: HostApi; request: McpRequest }) {
     setEditing(null);
     reload();
   };
-  const failed = (e: unknown) => host.shell.notice(t("settings.writeFailed", { error: errorText(e) }), "error");
+  const failed = (e: unknown) => host.shell.notice(writeFailed(e), "error");
   const tierName = (id: string) => t(`settings.tier.${id}`, { scene: request.scene });
   return (
     <SettingsSection title={t("settings.mcpServers")} load={() => host.call<McpList>("settings.mcp.list", request)}>
@@ -245,7 +247,7 @@ function McpForm({
       await host.call(server ? "settings.mcp.update" : "settings.mcp.add", { ...request, tier, name: id, config });
       onDone();
     } catch (e) {
-      host.shell.notice(t("settings.writeFailed", { error: errorText(e) }), "error");
+      host.shell.notice(writeFailed(e), "error");
       setSaving(false);
     }
   };

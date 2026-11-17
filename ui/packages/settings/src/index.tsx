@@ -19,6 +19,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { errorText, modelConfigured, type Hello } from "@harnix/core";
 import { FieldForm, Glyph, SettingsRow, SettingsSection, SettingsValue, SetupStep, onLocaleChoice, setupStepDismissed, t, useHello, useSetupStep, useSettingsReload, useT, type FieldDoc, type FieldStore, type HostApi, type Registry, type LocaleChoice, type SettingsNeed } from "@harnix/react";
 
+import { writeFailed } from "./errors.ts";
 import { Mcp } from "./mcp.tsx";
 
 export { givenOf, mcpState, signIn } from "./mcp.tsx";
@@ -62,7 +63,7 @@ function followLanguage(host: HostApi): void {
   unfollow = onLocaleChoice((choice: LocaleChoice) => {
     host
       .call("settings.write", { tier: "global", changes: { language: choice === "auto" ? null : choice } })
-      .catch((e: unknown) => host.shell.notice(t("settings.writeFailed", { error: errorText(e) }), "error"));
+      .catch((e: unknown) => host.shell.notice(writeFailed(e), "error"));
   });
 }
 
@@ -255,7 +256,7 @@ function EngineSettings({ host, section, title = "settings.engineDefaults", only
         host.shell.notice(t("settings.written", { path: data?.paths?.[selected] }));
         reload();
       }}
-      onFailed={(e) => host.shell.notice(t("settings.writeFailed", { error: errorText(e) }), "error")}
+      onFailed={(e) => host.shell.notice(writeFailed(e), "error")}
     />
   );
 }
@@ -510,7 +511,7 @@ function ProviderCard({
     host
       .call("settings.setProvider", { provider_id: id, ...params })
       .then(onChanged)
-      .catch((e: unknown) => host.shell.notice(t("settings.writeFailed", { error: errorText(e) }), "error"));
+      .catch((e: unknown) => host.shell.notice(writeFailed(e), "error"));
   const models = [provider.default_model, ...(provider.models ?? []).map(modelId)].filter((m, i, all): m is string => Boolean(m) && all.indexOf(m) === i);
   return (
     <div className={`provider-card${isDefault ? " default" : ""}`} data-provider={id} data-state={isDefault ? "default" : undefined}>
@@ -657,7 +658,7 @@ function ProviderForm({
       });
       onDone();
     } catch (e) {
-      host.shell.notice(t("settings.writeFailed", { error: errorText(e) }), "error");
+      host.shell.notice(writeFailed(e), "error");
       setSaving(false);
     }
   };

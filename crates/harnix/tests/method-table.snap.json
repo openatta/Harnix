@@ -110,6 +110,23 @@
         "hub_owned": false,
         "refused": null,
         "requires": [
+          "engine.config.read"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.config.listModels",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
           "engine.config.write"
         ],
         "scope": "open"
@@ -349,6 +366,57 @@
       },
       "kind": "method",
       "name": "engine.mcp.auth.start",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": "reconnecting an MCP server starts its subprocess again",
+        "requires": [
+          "engine.mcp"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.mcp.reconnect",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": "removing an MCP server changes which tools run subprocesses",
+        "requires": [
+          "engine.mcp"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.mcp.removeServer",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": "switching an MCP server on starts a tool that runs subprocesses",
+        "requires": [
+          "engine.mcp"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.mcp.setEnabled",
       "owner": "engine"
     },
     {

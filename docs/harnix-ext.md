@@ -1078,8 +1078,8 @@ pub trait Extension: Send + Sync + 'static {
 [扩展包](harnix-ext-package.md) 的接口清单里。S3 随骨架变，不在扩展接口的稳定承诺内。
 
 同一个 crate 里还有一个**过渡**服务 `SettingsTiers`（`cx.service::<SettingsTiers>()`，要 `engine.config.write`，句柄 `dyn SettingsFiles`：
-`global(instance)`、`scene(instance, scene)` 给出一台实例的引擎读的全局层与场景层 `settings.json` 在哪）。它是 Agix 设置目录的布局，只有第一方 `settings` 用——
-引擎接下全局层的写入（经协议）之后连它一起删；所以在 S3，不在 S1。
+`global(instance)`、`scene(instance, scene)` 给出一台实例的引擎读的全局层与场景层 `settings.json` 在哪）。它是 Agix 设置目录的布局，只有第一方 `settings` 用，
+只用来在设置页上标出各层的文件——读写都经引擎的协议（`engine.config.get`、`engine.config.set`、`engine.mcp.*`），协议能报出各层的路径之后连它一起删；所以在 S3，不在 S1。
 
 ### 17.9 日志：扩展日志
 

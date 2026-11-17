@@ -9,6 +9,15 @@
 // `AskAnswered` is the hub's own event in the stream: the first answer to an ask the engine took, and what it was.
 import type { AskAnswered, HubSessionRow } from "./generated/contract.ts";
 
+/* ── 引擎的错误码 ───────────────────────────────────────────────────── */
+
+/** 引擎：`project_root` 不存在或不是目录（daemon_rpc_protocol §9）。 */
+export const ENGINE_PROJECT_NOT_FOUND = -32010;
+/** 引擎：设置目录被别的进程握着，等满 10 秒仍没拿到锁，什么都没写；放手后重发。 */
+export const ENGINE_SETTINGS_LOCKED = -32026;
+/** 引擎：provider 的端点不列模型（`config.listModels`）。 */
+export const ENGINE_MODELS_UNSUPPORTED = -32027;
+
 /* ── 引擎的场景、会话 ─────────────────────────────────────────────────── */
 
 /** `engine.scene.list` 的一行（`hello.scenes`）。 */

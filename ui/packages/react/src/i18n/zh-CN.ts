@@ -230,6 +230,8 @@ const zhCN: Record<string, string> = {
   "settings.clearHint": "删掉这一层的值，交还给下层",
   "settings.written": "已写入 {path}（新会话生效）",
   "settings.writeFailed": "写入失败：{error}",
+  "settings.error.locked": "设置目录正被别的程序占着（编辑器，或另一个 Harnix？），这次什么都没写。等它放手后再保存一次",
+  "settings.error.projectNotFound": "项目的目录已经不在了，这次什么都没写。重新打开项目，或改写别的层",
   "settings.field.model.model_name": "模型",
   "settings.field.model.max_tokens": "单轮最大 tokens",
   "settings.field.permission_mode": "权限模式",
