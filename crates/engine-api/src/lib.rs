@@ -26,5 +26,10 @@ pub use provider::{HookDecision, ToolCallFacts, ToolHook, ToolProvider, ToolsCha
 pub use scene::{BaseKind, BuiltinArgs, Interaction, LayerParts, PromptText, SceneBase, SceneLayer};
 pub use template::{check_value, AttachTo, Contribute, EngineProfile, InstanceTemplate, TemplateCarrier};
 pub use tool::{Cancel, CancelGuard, Permission, Progress, Tool, ToolCx, ToolError, ToolOutput, ToolSpec};
+/// The directory a project keeps its Harnix data in, the engine's and Harnix's own:
+/// `<project>/.harnix/` holds the engine's project tier (settings, agents, hooks, rules, memory,
+/// its worktrees) beside what Harnix writes there (a flow's `runs/`, a project's `flows/`).
+pub const PROJECT_DIR: &str = ".harnix";
+
 /// A session's name and a call chain's link: the contract's words, in a tool call's context.
 pub use harnix_contract::s1::{ChainLink, SessionRef};

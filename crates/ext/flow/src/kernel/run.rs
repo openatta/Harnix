@@ -476,8 +476,9 @@ pub struct RunRecord {
     pub worktree: Option<WorktreeRec>,
 }
 
-/// A run's worktree of its project (`docs/glossary.md`, 项目任务): `<project>/.harnix/worktrees/<run>`
-/// on the branch `harnix/<run>`, made from the project's `HEAD` when the run started.
+/// A run's worktree of its project (`docs/glossary.md`, 项目任务): outside the project, in the
+/// application's state (`<worktrees>/<run>`), on the branch `harnix/flow/<run>`, made from the
+/// project's `HEAD` when the run started.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct WorktreeRec {
@@ -487,7 +488,7 @@ pub struct WorktreeRec {
     /// `<path>/<prefix>`.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub prefix: String,
-    /// Its branch: `harnix/<run>`.
+    /// Its branch: `harnix/flow/<run>`.
     pub branch: String,
     /// The commit it was made from.
     pub base: String,

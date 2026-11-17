@@ -10,6 +10,10 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use harnix_ext::engine::PROJECT_DIR;
+
+use super::project::FLOWS_DIR;
+
 /// What a project is to git: whether a worktree can be made of it, and where it stands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Repo {
@@ -178,13 +182,22 @@ pub(crate) fn has_branch(project: &Path, branch: &str) -> Result<bool, String> {
 }
 
 /// What the worktree at `dir` holds that is not committed, committed on its branch: every change,
-/// new files too, but `.agix/` (the engine's own, its delegates' worktrees among it). Answers the
-/// new commit, `None` when there was nothing to commit or no worktree any more.
+/// new files too, but what is in its `.harnix/` besides the project's flows (the engine's own, its
+/// delegates' worktrees among it). Answers the new commit, `None` when there was nothing to commit
+/// or no worktree any more.
 pub(crate) fn snapshot(dir: &Path, message: &str) -> Result<Option<String>, String> {
     if !dir.is_dir() {
         return Ok(None);
     }
-    run(dir, &["add", "-A", "--", ".", ":(exclude).agix"])?;
+    let mut args = vec!["add".to_string(), "-A".into(), "--".into(), ".".into()];
+    let own = dir.join(PROJECT_DIR);
+    for entry in std::fs::read_dir(&own).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name != FLOWS_DIR {
+            args.push(format!(":(exclude,literal){PROJECT_DIR}/{name}"));
+        }
+    }
+    run(dir, &args.iter().map(String::as_str).collect::<Vec<_>>())?;
     if holds(dir, &["diff", "--cached", "--quiet"])? {
         return Ok(None);
     }
@@ -205,7 +218,7 @@ pub(crate) fn remove_worktree(project: &Path, path: &Path) -> Result<(), String>
     if path.exists() {
         let p = path.to_string_lossy();
         if let Err(e) = run(project, &["worktree", "remove", "--force", "--force", &p]) {
-            // Not a worktree git knows any more: the directory is only ours, under `.harnix/worktrees`.
+            // Not a worktree git knows any more: the directory is only ours, under the module's `worktrees`.
             if !path.components().any(|c| c.as_os_str() == "worktrees") {
                 return Err(e);
             }
@@ -349,29 +362,36 @@ pub(crate) mod tests {
         }
         let r = repo();
         let p = r.path();
-        let wt = p.join(".harnix/worktrees/f-1");
+        let out = tempfile::tempdir().unwrap();
+        let wt = out.path().join("f-1");
         let head = probe(p).unwrap().head;
-        add_worktree(p, &wt, "harnix/f-1", &head).unwrap();
+        add_worktree(p, &wt, "harnix/flow/f-1", &head).unwrap();
         assert!(wt.join("a.txt").is_file());
-        assert_eq!(probe(&wt).unwrap().branch.as_deref(), Some("harnix/f-1"));
+        assert_eq!(probe(&wt).unwrap().branch.as_deref(), Some("harnix/flow/f-1"));
         // Nothing changed: nothing committed.
         assert_eq!(snapshot(&wt, "m").unwrap(), None);
         std::fs::write(wt.join("new.txt"), "new\n").unwrap();
-        std::fs::create_dir_all(wt.join(".agix/worktrees")).unwrap();
-        std::fs::write(wt.join(".agix/state"), "engine's\n").unwrap();
+        std::fs::create_dir_all(wt.join(".harnix/worktrees/x")).unwrap();
+        std::fs::write(wt.join(".harnix/settings.local.json"), "{}\n").unwrap();
+        std::fs::create_dir_all(wt.join(".harnix/flows")).unwrap();
+        std::fs::write(wt.join(".harnix/flows/f.yaml"), "name: f\n").unwrap();
         let c = snapshot(&wt, "the task's work").unwrap().unwrap();
-        assert_eq!(tip(p, "harnix/f-1").unwrap(), c);
-        let files = run(p, &["ls-tree", "-r", "--name-only", "harnix/f-1"]).unwrap();
-        assert_eq!(files.lines().collect::<Vec<_>>(), ["a.txt", "new.txt"], "the engine's own left out");
+        assert_eq!(tip(p, "harnix/flow/f-1").unwrap(), c);
+        let files = run(p, &["ls-tree", "-r", "--name-only", "harnix/flow/f-1"]).unwrap();
+        assert_eq!(
+            files.lines().collect::<Vec<_>>(),
+            [".harnix/flows/f.yaml", "a.txt", "new.txt"],
+            "the engine's own left out, the project's flows in"
+        );
         remove_worktree(p, &wt).unwrap();
         assert!(!wt.exists());
-        assert!(has_branch(p, "harnix/f-1").unwrap());
+        assert!(has_branch(p, "harnix/flow/f-1").unwrap());
         assert!(!p.join("new.txt").exists(), "the project's tree untouched");
         // A worktree already gone is fine.
         remove_worktree(p, &wt).unwrap();
-        delete_branch(p, "harnix/f-1", true).unwrap();
-        assert!(!has_branch(p, "harnix/f-1").unwrap());
-        delete_branch(p, "harnix/f-1", true).unwrap();
+        delete_branch(p, "harnix/flow/f-1", true).unwrap();
+        assert!(!has_branch(p, "harnix/flow/f-1").unwrap());
+        delete_branch(p, "harnix/flow/f-1", true).unwrap();
     }
 
     #[test]
@@ -383,24 +403,25 @@ pub(crate) mod tests {
         let p = r.path();
         let head = probe(p).unwrap().head;
         // Nothing done on it: up to date.
-        let wt = p.join(".harnix/worktrees/f-1");
-        add_worktree(p, &wt, "harnix/f-1", &head).unwrap();
-        let m = merge(p, "harnix/f-1", &scratch_for(&wt), "merge").unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let wt = out.path().join("f-1");
+        add_worktree(p, &wt, "harnix/flow/f-1", &head).unwrap();
+        let m = merge(p, "harnix/flow/f-1", &scratch_for(&wt), "merge").unwrap();
         assert_eq!((m.how, m.into.as_str(), m.commit.as_str()), ("up_to_date", "main", head.as_str()));
         // Ahead: a fast-forward brings the file.
         std::fs::write(wt.join("b.txt"), "b\n").unwrap();
         let c = snapshot(&wt, "b").unwrap().unwrap();
-        let m = merge(p, "harnix/f-1", &scratch_for(&wt), "merge").unwrap();
+        let m = merge(p, "harnix/flow/f-1", &scratch_for(&wt), "merge").unwrap();
         assert_eq!((m.how, m.commit.as_str()), ("fast_forward", c.as_str()));
         assert_eq!(std::fs::read_to_string(p.join("b.txt")).unwrap(), "b\n");
         // The project moved on meanwhile, elsewhere: a merge commit, both sides kept.
-        let wt2 = p.join(".harnix/worktrees/f-2");
-        add_worktree(p, &wt2, "harnix/f-2", &probe(p).unwrap().head).unwrap();
+        let wt2 = out.path().join("f-2");
+        add_worktree(p, &wt2, "harnix/flow/f-2", &probe(p).unwrap().head).unwrap();
         std::fs::write(wt2.join("c.txt"), "c\n").unwrap();
         snapshot(&wt2, "c").unwrap().unwrap();
         std::fs::write(p.join("d.txt"), "d\n").unwrap();
         commit_all(p, "d");
-        let m = merge(p, "harnix/f-2", &scratch_for(&wt2), "Merge harnix/f-2").unwrap();
+        let m = merge(p, "harnix/flow/f-2", &scratch_for(&wt2), "Merge harnix/flow/f-2").unwrap();
         assert_eq!(m.how, "merge");
         assert_eq!(run(p, &["rev-parse", "HEAD"]).unwrap(), m.commit);
         assert_eq!(run(p, &["log", "-1", "--format=%P"]).unwrap().split(' ').count(), 2);
@@ -416,28 +437,29 @@ pub(crate) mod tests {
         }
         let r = repo();
         let p = r.path();
-        let wt = p.join(".harnix/worktrees/f-1");
-        add_worktree(p, &wt, "harnix/f-1", &probe(p).unwrap().head).unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let wt = out.path().join("f-1");
+        add_worktree(p, &wt, "harnix/flow/f-1", &probe(p).unwrap().head).unwrap();
         std::fs::write(wt.join("a.txt"), "one\nTWO (task)\nthree\n").unwrap();
         snapshot(&wt, "task").unwrap().unwrap();
         std::fs::write(p.join("a.txt"), "one\nTWO (person)\nthree\n").unwrap();
         commit_all(p, "person");
         let before = run(p, &["rev-parse", "HEAD"]).unwrap();
-        let e = merge(p, "harnix/f-1", &scratch_for(&wt), "merge").unwrap_err();
+        let e = merge(p, "harnix/flow/f-1", &scratch_for(&wt), "merge").unwrap_err();
         assert_eq!(e, MergeFailed::Conflict(vec!["a.txt".into()]));
         assert_eq!(run(p, &["rev-parse", "HEAD"]).unwrap(), before);
-        assert_eq!(run(p, &["status", "--porcelain"]).unwrap(), "?? .harnix/", "no merge state, no conflict markers");
+        assert_eq!(run(p, &["status", "--porcelain"]).unwrap(), "", "no merge state, no conflict markers");
         assert_eq!(std::fs::read_to_string(p.join("a.txt")).unwrap(), "one\nTWO (person)\nthree\n");
         assert!(!p.join(".git/MERGE_HEAD").exists());
         assert!(!scratch_for(&wt).exists());
 
         // A fast-forward over a local change to the same file: refused, the change kept.
-        let wt2 = p.join(".harnix/worktrees/f-2");
-        add_worktree(p, &wt2, "harnix/f-2", &before).unwrap();
+        let wt2 = out.path().join("f-2");
+        add_worktree(p, &wt2, "harnix/flow/f-2", &before).unwrap();
         std::fs::write(wt2.join("a.txt"), "task\n").unwrap();
         snapshot(&wt2, "task").unwrap().unwrap();
         std::fs::write(p.join("a.txt"), "uncommitted\n").unwrap();
-        let e = merge(p, "harnix/f-2", &scratch_for(&wt2), "merge").unwrap_err();
+        let e = merge(p, "harnix/flow/f-2", &scratch_for(&wt2), "merge").unwrap_err();
         assert!(matches!(e, MergeFailed::Other(ref m) if m.contains("overwritten")), "{e}");
         assert_eq!(run(p, &["rev-parse", "HEAD"]).unwrap(), before);
         assert_eq!(std::fs::read_to_string(p.join("a.txt")).unwrap(), "uncommitted\n");

@@ -76,7 +76,7 @@ defineSuite("recordings", { feature: "sessions" }, {
     },
 
     "the recording directory is not reachable over HTTP": async ({ backend }) => {
-      for (const path of ["/recordings", "/.agix", "/recordings/index.json"]) {
+      for (const path of ["/recordings", "/.harnix", "/recordings/index.json"]) {
         const response = await fetch(`http://127.0.0.1:${backend.port}${path}`);
         const body = await response.text();
         // The static face answers unknown paths with the index — a route, not

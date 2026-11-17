@@ -114,7 +114,7 @@ pub(crate) fn tier_path(call: &Call, tier: &str, scene: Option<&str>, project_ro
             Some(scene) => Some(under_main(files.scene(MAIN_INSTANCE, scene))?),
             None => None,
         },
-        "project" => project_root.map(|p| PathBuf::from(p).join(".agix").join("settings.json")),
+        "project" => project_root.map(|p| PathBuf::from(p).join(harnix_ext::engine::PROJECT_DIR).join("settings.json")),
         _ => None,
     })
 }

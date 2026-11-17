@@ -19,7 +19,7 @@ use agix::embed::{EmbedConfig, EmbedError, Embedded};
 use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
 use harnix_engine_link::link::{EngineControl, EngineIdentity, InstanceCarrier, LinkStatus};
-use harnix_engine_api::EngineProfile;
+use harnix_engine_api::{EngineProfile, PROJECT_DIR};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -30,6 +30,10 @@ use crate::host::HostSide;
 /// What the engine answers a request a connection has no room for: an answer of the link's is
 /// sent again then.
 pub(crate) const TOO_MANY_IN_FLIGHT: i32 = agix::rpc::codes::TOO_MANY_IN_FLIGHT;
+
+/// The name the engine goes by: what the model is told it is, the `User-Agent` of its requests,
+/// its worktrees' branch prefix (`harnix/worktree-`).
+const PRODUCT_NAME: &str = "Harnix";
 
 /// What one direction of an in-process engine's stream holds before its writer waits for the
 /// reader: the pipe's, not a frame's, limit — a larger frame goes through in pieces.
@@ -91,6 +95,8 @@ impl EngineConfig {
     /// Agix's settings for it.
     fn embed(&self) -> EmbedConfig {
         let mut config = EmbedConfig::new(self.data_root.clone());
+        config.project_dir = PROJECT_DIR.into();
+        config.product_name = PRODUCT_NAME.into();
         config.cwd = self.cwd.clone();
         config.scene = self.scene.clone();
         config.scenes = Vec::new();
@@ -151,9 +157,11 @@ impl Engine {
             Err(e) => anyhow::bail!("{e}"),
         };
 
-        // What the engine does not report, read the way it reads it.
-        let cwd = config.cwd.clone().unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-        let paths = agix::pool::StaticDaemonPaths::with_project(config.data_root.join("scenes").join(&base), cwd)
+        // What the engine does not report, read the way it reads it: its global and scene tiers. A
+        // project's tier is that project's sessions', and the directory the process started in is
+        // no project of the person's; the data root stands in as the project, a directory that is
+        // never one.
+        let paths = agix::pool::StaticDaemonPaths::with_project(config.data_root.join("scenes").join(&base), config.data_root.clone())
             .with_global(config.data_root.clone());
         let loaded = agix::pool::load_daemon_config(&config.model, config.max_tokens, None, &base, &paths).settings;
         let settings = &loaded.values;
@@ -388,6 +396,21 @@ mod tests {
             assert!(has.contains(&json!(needed)), "{needed} in {has:?}");
         }
         assert_eq!(here.carrier(), InstanceCarrier::InProcess);
+        here.shutdown().await;
+    }
+
+    /// A project's tier is its `.harnix/settings.json`; an `.agix/` beside it is not read.
+    #[tokio::test]
+    async fn a_projects_tier_is_in_its_harnix_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("p");
+        for (sub, tokens) in [(PROJECT_DIR, 1234), (".agix", 4321)] {
+            std::fs::create_dir_all(project.join(sub)).unwrap();
+            std::fs::write(project.join(sub).join("settings.json"), json!({"model": {"max_tokens": tokens}}).to_string()).unwrap();
+        }
+        let here = started(&dir.path().join("root")).await;
+        let tier = here.link().ops().passthrough("config.get", json!({"scene": here.engine().scene, "tier": "project", "project_root": project})).await.unwrap();
+        assert_eq!(tier["settings"]["model"]["max_tokens"], 1234, "{tier}");
         here.shutdown().await;
     }
 

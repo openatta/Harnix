@@ -433,7 +433,7 @@ mod tests {
 
     #[test]
     fn the_statuses_a_change_answers_with_are_read_by_name() {
-        let answer = json!({"written_to": "/p/.agix/settings.json", "servers": [{"name": "fs", "transport": "stdio", "tool_count": 2, "state": "failed", "error": "no such command", "auth": {"state": "none"}}]});
+        let answer = json!({"written_to": "/p/.harnix/settings.json", "servers": [{"name": "fs", "transport": "stdio", "tool_count": 2, "state": "failed", "error": "no such command", "auth": {"state": "none"}}]});
         let read = statuses_in(&answer);
         assert_eq!(read["fs"].state, "failed");
         assert_eq!(read["fs"].error.as_deref(), Some("no such command"));

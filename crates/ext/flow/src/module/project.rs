@@ -3,17 +3,20 @@
 //!
 //! ```text
 //! <project>/flows/<flow>-<YYYYMMDD><NN>/   the output directory (the default template): the user's
-//! <project>/.harnix/
-//!   .gitignore                            runs/ and worktrees/, added on the first task
+//! <project>/.harnix/                      the project's, shared with the engine (its tier: settings,
+//!                                         agents, rules, memory, its own worktrees)
+//!   .gitignore                            runs/, added on the first task (the engine adds its own)
+//!   flows/                                the project's own flows, committed with it
 //!   runs/<run>/
 //!     task.json                           the run as it stands (its worktree's branch and end
 //!                                         too), rewritten after each change
 //!     flow.yaml                           the definition and the parts pinned when it started
 //!     stations/<station>/                 output.json (one task) or <task>.json each,
 //!                                         gate-<gate>.log, context.json (a command gate's)
-//!   worktrees/<run>/                      a worktree run's worktree (`worktree.rs`): its output
-//!                                         directory is in there; its process directory is not
 //! ```
+//!
+//! A worktree run's worktree is out of the project, in the module's data directory
+//! (`worktree.rs`): its output directory is in there; its process directory is not.
 //!
 //! The process directory is a projection: the ledger in the module's data directory is what
 //! counts, and a projection that cannot be written is logged and leaves the run as it was. A run
@@ -32,13 +35,18 @@ use crate::kernel::host::Outcome;
 use crate::kernel::run::Actor;
 use crate::kernel::FlowError;
 
+use harnix_ext::engine::PROJECT_DIR;
 use harnix_ext::{Entry, SessionRef};
 
 use super::shared::Shared;
 use crate::wire::StartedFrom;
 
 /// The lines `<project>/.harnix/.gitignore` holds: what the module writes there is not the project's.
-const IGNORED: &[&str] = &["runs/", "worktrees/"];
+const IGNORED: &[&str] = &["runs/"];
+
+/// The project's own flows, in its `.harnix/`: the one thing of the module's there that is the
+/// project's to commit (`packs::project_pack_dir`).
+pub(crate) const FLOWS_DIR: &str = "flows";
 
 /// The highest `${seq}` looked for.
 const MAX_SEQ: u32 = 999;
@@ -318,10 +326,10 @@ fn inside(real_base: &Path, dir: &Path) -> Result<(), String> {
     Err(format!("output_dir {} leads outside the project", dir.display()))
 }
 
-/// `<project>/.harnix/.gitignore` with `runs/` and `worktrees/`: written when there is none,
-/// the missing lines added to one that is there.
+/// `<project>/.harnix/.gitignore` with `runs/`: written when there is none, the missing line added
+/// to one that is there.
 pub(crate) fn ensure_gitignore(project: &Path) -> std::io::Result<()> {
-    let dir = project.join(".harnix");
+    let dir = project.join(PROJECT_DIR);
     std::fs::create_dir_all(&dir)?;
     let file = dir.join(".gitignore");
     let had = match std::fs::read_to_string(&file) {
@@ -352,7 +360,7 @@ pub(crate) fn process_dir(engine: &Engine, rec: &RunRecord) -> Option<PathBuf> {
         Some(root) => PathBuf::from(root),
         None => engine.workspace(&rec.id)?,
     };
-    Some(workspace_of(&base.join(".harnix").join("runs"), &rec.id))
+    Some(workspace_of(&base.join(PROJECT_DIR).join("runs"), &rec.id))
 }
 
 /// A station's directory in the process directory.
@@ -536,12 +544,19 @@ mod tests {
         let p = tempfile::tempdir().unwrap();
         ensure_gitignore(p.path()).unwrap();
         let file = p.path().join(".harnix/.gitignore");
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), "runs/\nworktrees/\n");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "runs/\n");
         ensure_gitignore(p.path()).unwrap();
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), "runs/\nworktrees/\n");
-        std::fs::write(&file, "# mine\nflows/\nruns/").unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "runs/\n");
+        std::fs::write(&file, "# mine\nsettings.local.json").unwrap();
         ensure_gitignore(p.path()).unwrap();
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), "# mine\nflows/\nruns/\nworktrees/\n");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "# mine\nsettings.local.json\nruns/\n");
+    }
+
+    /// The project's own flows are where the packs read them: in its `.harnix/`, the engine's too.
+    #[test]
+    fn the_projects_flows_are_in_the_directory_it_shares_with_the_engine() {
+        let root = Path::new("/p");
+        assert_eq!(crate::packs::project_pack_dir(root), root.join(PROJECT_DIR).join(FLOWS_DIR));
     }
 
     #[tokio::test]
@@ -572,7 +587,7 @@ mod tests {
         let out = project.path().join(format!("flows/two-{date}01"));
         assert_eq!(rec.output_dir.as_deref(), Some(out.to_str().unwrap()));
         assert!(out.is_dir());
-        assert_eq!(std::fs::read_to_string(project.path().join(".harnix/.gitignore")).unwrap(), "runs/\nworktrees/\n");
+        assert_eq!(std::fs::read_to_string(project.path().join(".harnix/.gitignore")).unwrap(), "runs/\n");
         // The card of the conversation it might have been started from names the task.
         let card = task_card(&rec);
         assert_eq!((card["run"].as_str(), card["flow"].as_str(), card["subject"].as_str()), (Some(run.as_str()), Some("two"), Some("s")));

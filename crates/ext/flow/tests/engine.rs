@@ -1277,9 +1277,9 @@ async fn a_child_run_works_where_its_parent_does() {
     // The worktree the host made for the run, under the id it allocated for it.
     let id = h.eng.alloc_id("parent", Some("/work/app")).await.unwrap();
     let worktree = WorktreeRec {
-        path: format!("/work/app/.harnix/worktrees/{id}"),
+        path: format!("/state/flow/worktrees/{id}"),
         prefix: "sub".into(),
-        branch: format!("harnix/{id}"),
+        branch: format!("harnix/flow/{id}"),
         base: "0123".into(),
         outcome: None,
     };
@@ -1304,7 +1304,7 @@ async fn a_child_run_works_where_its_parent_does() {
     assert_eq!(run, id);
     let rec = h.eng.record(&run).await.unwrap();
     assert_eq!(rec.worktree.as_ref(), Some(&worktree));
-    let at = Some(std::path::PathBuf::from(format!("/work/app/.harnix/worktrees/{id}/sub")));
+    let at = Some(std::path::PathBuf::from(format!("/state/flow/worktrees/{id}/sub")));
     assert_eq!(h.eng.workspace_for(&rec), at);
     let child = h.eng.record("child-1").await.unwrap();
     assert_eq!(child.parent.as_ref().unwrap().run, run);

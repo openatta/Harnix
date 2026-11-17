@@ -314,13 +314,13 @@ async fn a_call_works_where_the_engine_says_its_session_does() {
     let (_link, mut fake, _taken, _events) = ready(&provider(vec![])).await;
     let mut call = tool_call("c1", json!({"where": true}));
     call["agent_session_id"] = json!("sub");
-    call["cwd"] = json!("/p/.agix/worktrees/x");
+    call["cwd"] = json!("/p/.harnix/worktrees/x");
     call["depth"] = json!(2);
     fake.push("s1", call).await;
     let (id, _) = fake.expect(translate::SESSION_GET).await;
     fake.answer(id, json!({"project_root": "/p"})).await;
     let (_, answer) = fake.expect(translate::SESSION_RESPOND_TOOL_CALL).await;
-    assert_eq!(answer["result"]["content"], "/p/.agix/worktrees/x 2");
+    assert_eq!(answer["result"]["content"], "/p/.harnix/worktrees/x 2");
 
     // The project is known by now.
     fake.push("s1", tool_call("c2", json!({"where": true}))).await;

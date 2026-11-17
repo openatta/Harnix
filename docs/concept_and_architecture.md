@@ -1315,10 +1315,10 @@ profile 的 `[brand]`：`name`（页面标题、左栏产品名）、`icon`（SV
 |---|---|
 | `~/.agix/`（`--agix-dir` / `AGIX_CONFIG_HOME`） | `main` 实例的引擎根：设置分层、transcript、记忆、技能、录像 |
 | `~/Documents/`（`--data-dir` / `HARNIX_DATA_DIR`） | **只放项目**。选项目从这里开始，新建项目建在这里；里面没有隐藏目录 |
-| `<项目>/.agix/` | 项目自己的数据与配置，**一律**放这里，不开 `<项目>/.harnix/` 之类 |
+| `<项目>/.harnix/` | 项目自己的数据与配置，**一律**放这里，不另开 `<项目>/.<产品>/`：引擎的项目层（设置、agents、hooks、rules、memory、它的 worktree）与 Harnix 写的（流程的 `runs/`、项目的 `flows/`）同在一处 |
 
 为什么这样分：状态目录按产品 id 命名，同一台机器上装两个产品不会抢令牌和账本；每一处一个所有者，一个扩展停用或卸载时清掉的就是它自己那一处；
-Documents 是用户的，不该藏着程序的东西；项目里只有一个属于工具的目录，而它属于引擎。Harnix 只认这一种布局，不读、不迁移别的布局留下的文件。
+Documents 是用户的，不该藏着程序的东西；项目里只有一个属于工具的目录，引擎与 Harnix 共用它（引擎启动时带 `project_dir = ".harnix"`、`product_name = "Harnix"`）。流程的 worktree 不在里面：引擎会清掉 `.harnix/worktrees/` 下它不认识的目录，所以它们在流程扩展的数据目录里。Harnix 只认这一种布局，不读、不迁移别的布局留下的文件。
 
 ### 5.11 桌面：Tauri 只是外壳
 

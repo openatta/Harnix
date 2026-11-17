@@ -295,7 +295,9 @@ Harnix 只管什么时候迁、失败了怎么办，不管用什么迁。数据�
   `data_dir`）放 `~/.<product_id>`，不配 `[brand]` 就是 `~/.harnix`；`HARNIX_STATE_DIR` 能挪。
 - 项目根（选项目从这里开始、新项目建在这里）是 `cx.projects_dir()`：缺省 `~/Documents`，`--data-dir` / `HARNIX_DATA_DIR` 能改。
   Documents 里只放项目，不放隐藏目录。
-- 项目里，项目自己的数据与配置一律放 `<项目>/.agix/`（引擎在项目里用的目录），不另开 `<项目>/.<你的产品>/`。
+- 项目里，项目自己的数据与配置一律放 `<项目>/.harnix/`（`harnix::engine::PROJECT_DIR`：引擎的项目层也在这里），不另开 `<项目>/.<你的产品>/`。
+  引擎在里面占着设置、agents、hooks、rules、memory、`worktrees/`、`teams/` 等，扩展用自己的子目录（流程用 `runs/`、`flows/`）；
+  沙箱里的命令在这里只写得了引擎的 `scratchpad/`、`memory/`、`worktrees/`，扩展的子目录由扩展自己（宿主进程）写。
 
 ## 6. Agent 侧
 
@@ -333,8 +335,8 @@ fn register(&self, r: &mut Registrar<'_, ()>) {
   之后新建的会话有新的工具集，已有的会话保持原样。工具名要符合引擎的字母表（字母、数字、`_`、`-`），一个会话自己的工具至多 64 个。
 - **`ToolHook` 在权限检查之前就看到调用**；`ToolCallFacts` 带发起调用的会话（`session_id()`，子 Agent 的调用是它自己的 id）、`depth()`（人开的会话为 0，子 Agent 逐层加 1）与 `cwd()`。
 - **工具在哪干活**：`ToolCx::project()` 是会话的项目；`cwd()` 是发起调用的会话的工作目录——模型在 git worktree 里起的子 Agent 是那个 worktree
-  （`<项目>/.agix/worktrees/<名>`），读写文件要照它，否则同 `project()`。流程在 worktree 里跑的任务（`workspace: worktree`）不是这种：
-  它的会话本来就开在 `<项目>/.harnix/worktrees/<运行>` 里，`project()` 就是那个 worktree，扩展包的工具照 `project()` 读写也落在 worktree 里。`depth()` 与钩子的同义。
+  （`<项目>/.harnix/worktrees/<名>`），读写文件要照它，否则同 `project()`。流程在 worktree 里跑的任务（`workspace: worktree`）不是这种：
+  它的会话本来就开在那个运行的 worktree 里（在项目之外，流程扩展的数据目录下 `worktrees/<运行>`），`project()` 就是那个 worktree，扩展包的工具照 `project()` 读写也落在 worktree 里。`depth()` 与钩子的同义。
   `HookDecision::AddContext` 的文字在这次调用放行之后、模型的下一步之前，作为 system-reminder 交给模型。
 - **宿主工具的权限**由链路按 `Tool::permission` 代答：`Allow` 与 `Deny` 直接生效，`Ask` 时把工具自己的问句（`Permission::Ask(text)`）附在转给界面的询问上，界面显示它。
 - **场景层由中枢在建会话时展开**：会话建在层的基场景上，再按层补上 `prompt.append`、这个会话自己的宿主工具、`attended`、`auto_name` 与 `permission_rules`。
@@ -1236,7 +1238,7 @@ quote_api_key = { credential = "helm/quote-api" }
 | 　`ext/<id>/install.json`、`ext/<id>/<version>/` | 扩展包的安装记录与**同意记录**（扩展进程看不见它）、解开并验过签的包（`packages` 拥有，见 [扩展包](harnix-ext-package.md)） |
 | 　`ext/<id>/run/{data,kv,engine,work,home,tmp}` | 扩展包的数据、kv、（模式 3）它自己 Agix 的根、它的会话的项目目录、`HOME`、`TMPDIR`（载体拥有） |
 | `~/Documents/` | 只放项目：选项目从这里开始，新建项目建在这里（`projects_dir`，`--data-dir` 能改）。Documents 里不放隐藏目录 |
-| `<项目>/.agix/` | 项目自己的数据与配置**一律**放这里（引擎的项目层设置也在这），不开 `<项目>/.<产品>/` |
+| `<项目>/.harnix/` | 项目自己的数据与配置**一律**放这里（引擎的项目层也在这），不开 `<项目>/.<产品>/`（§5） |
 
 扩展的数据（`cx.data_dir()`）随产品 id 走；同一台机器上装 Helm 和 IPDrun 不会抢令牌和账本。
 
@@ -1772,7 +1774,7 @@ Harnix 自己的二进制注册了它（`crates/cli/src/main.rs`）。
 | `.space(id)` | 流程会话所在的 space，缺省 `flow` |
 | `.recording(…)` / `.main_recording(…)` / `.conversation_recording(…)` | 回放时工作项的会话、主会话、流程会话用哪份录像（只在 `--replay-dir` 下有意义） |
 
-运行在哪干活（引用 `${workspace}`）：带 `project_root` 的运行是项目任务，在项目里干活，`workspace: worktree` 的在 `<项目>/.harnix/worktrees/<运行>`；
+运行在哪干活（引用 `${workspace}`）：带 `project_root` 的运行是项目任务，在项目里干活，`workspace: worktree` 的在项目之外的 worktree（扩展数据目录下 `worktrees/<运行>`，分支 `harnix/flow/<运行>`）；
 交付物在它的输出目录（`${output_dir}`），过程在 `<项目>/.harnix/runs/<运行>/`（流程指南「执行与运行」一节）。不带项目的运行，主会话的 scene 需要项目时，
 扩展给它建工作目录（扩展数据目录下 `workspaces/<run>`），不往里写任何东西。`start` 的 `show_in_space` 让扩展把主会话展示到那个 space（`cx.sessions().expose`，可对话，§17.6）：项目 space 的「新任务」传它列会话的 space，
 任务就在项目 space 里打开；扩展不认识任何 space 的名字，展示失败只记日志，运行照跑。记录与 `flow.runs` 的行带 `show_in_space`。

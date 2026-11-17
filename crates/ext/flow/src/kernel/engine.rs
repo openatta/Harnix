@@ -144,6 +144,7 @@ pub struct Engine {
     pub(crate) main_scene: Option<String>,
     /// Where runs' workspaces are (`${workspace}` is `<root>/<run>`); none: `${workspace}` is null.
     pub(crate) workspaces: Option<std::path::PathBuf>,
+    pub(crate) worktrees: Option<std::path::PathBuf>,
 }
 
 /// Run `$body` in a fresh transaction `$t`, commit, and retry the whole thing on a conflict.
@@ -205,6 +206,7 @@ impl Engine {
             submit_scenes: Default::default(),
             main_scene: None,
             workspaces: None,
+            worktrees: None,
         }
     }
 
@@ -212,6 +214,18 @@ impl Engine {
     pub fn with_workspaces(mut self, root: impl Into<std::path::PathBuf>) -> Self {
         self.workspaces = Some(root.into());
         self
+    }
+
+    /// Where runs' worktrees of their projects are: `<root>/<run>` (made safe), outside every
+    /// project.
+    pub fn with_worktrees(mut self, root: impl Into<std::path::PathBuf>) -> Self {
+        self.worktrees = Some(root.into());
+        self
+    }
+
+    /// Where a run's worktree goes, if the application makes them.
+    pub fn worktree_dir(&self, run: &str) -> Option<std::path::PathBuf> {
+        self.worktrees.as_ref().map(|r| super::refs::worktree_dir(r, run))
     }
 
     /// A run's scratch directory, if the application keeps them: where a run of no project works.
@@ -222,15 +236,15 @@ impl Engine {
     }
 
     /// Where a run works (`${workspace}`): a task's project, or the project's place in its
-    /// worktree (`<project>/.harnix/worktrees/<run>`, the one the run records) — else its scratch
-    /// directory.
+    /// worktree (the one the run records, else where the application's worktrees go) — else its
+    /// scratch directory.
     pub fn workspace_for(&self, rec: &RunRecord) -> Option<std::path::PathBuf> {
         match (rec.workspace, &rec.project_root) {
             (Workspace::Project, Some(root)) => Some(std::path::PathBuf::from(root)),
-            (Workspace::Worktree, Some(root)) => Some(match &rec.worktree {
-                Some(w) => w.dir(),
-                None => super::refs::worktree_dir(root, &rec.id),
-            }),
+            (Workspace::Worktree, Some(_)) => match &rec.worktree {
+                Some(w) => Some(w.dir()),
+                None => self.worktree_dir(&rec.id),
+            },
             _ => self.workspace(&rec.id),
         }
     }

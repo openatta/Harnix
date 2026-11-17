@@ -28,16 +28,16 @@ pub fn workspace_of(root: &std::path::Path, run: &str) -> std::path::PathBuf {
     root.join(safe)
 }
 
-/// Where a run's worktree of `project_root` is: `<project>/.harnix/worktrees/<run>` (the run's id
-/// made safe as a name, as [`workspace_of`]).
-pub fn worktree_dir(project_root: &str, run: &str) -> std::path::PathBuf {
-    workspace_of(&std::path::Path::new(project_root).join(".harnix").join("worktrees"), run)
+/// Where a run's worktree is under the application's worktrees, outside every project:
+/// `<root>/<run>` (the run's id made safe as a name, as [`workspace_of`]).
+pub fn worktree_dir(root: &std::path::Path, run: &str) -> std::path::PathBuf {
+    workspace_of(root, run)
 }
 
-/// The branch a run's worktree is on: `harnix/<run>` (the run's id made safe as a name).
-pub fn worktree_branch(run: &str) -> String {
+/// The branch a run's worktree is on: `<prefix>/<run>` (the run's id made safe as a name).
+pub fn worktree_branch(prefix: &str, run: &str) -> String {
     let dir = workspace_of(std::path::Path::new(""), run);
-    format!("harnix/{}", dir.to_string_lossy())
+    format!("{prefix}/{}", dir.to_string_lossy())
 }
 
 /// A station's output as downstream sees it: a single task's output; `{task id: output}`

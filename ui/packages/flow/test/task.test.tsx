@@ -43,7 +43,7 @@ const DEFS: DefSummary[] = [
   { name: "broken", title: "Broken", digest: "b", origin: "user", valid: false, inputs: { type: "object", properties: {}, required: [] } },
 ];
 
-const WORKTREE: WorktreeRec = { path: `${ROOT}/.harnix/worktrees/example-review-1`, branch: "harnix/example-review-1", base: "0123abcd" };
+const WORKTREE: WorktreeRec = { path: "/state/flow/worktrees/example-review-1", branch: "harnix/flow/example-review-1", base: "0123abcd" };
 
 const summary = (over: Partial<RunSummary>): RunSummary => ({
   id: "example-review-1",
@@ -234,9 +234,9 @@ describe("the rows of a project", () => {
     );
     await settle();
     const branch = screen.getByTestId("task-branch");
-    expect(branch.textContent).toBe("harnix/example-review-1");
+    expect(branch.textContent).toBe("harnix/flow/example-review-1");
     expect(branch.dataset.outcome).toBe("merged");
-    expect(branch.title).toContain("harnix/example-review-1");
+    expect(branch.title).toContain("harnix/flow/example-review-1");
   });
 });
 
@@ -672,7 +672,7 @@ describe("a task in a worktree", () => {
       </HostProvider>,
     );
     await settle();
-    expect(page.getByTestId("flow-worktree-branch").textContent).toBe("harnix/example-review-1");
+    expect(page.getByTestId("flow-worktree-branch").textContent).toBe("harnix/flow/example-review-1");
     expect(page.queryByTestId("flow-worktree-actions")).toBeNull();
     expect(worktreeOpen(over(WORKTREE, "active"))).toBe(false);
     expect(worktreeOpen(over(WORKTREE))).toBe(true);
@@ -691,7 +691,7 @@ describe("a task in a worktree", () => {
     expect(page.getByTestId("flow-worktree-merge").textContent).toBe("Merge into main");
     fireEvent.click(page.getByTestId("flow-worktree-merge"));
     await settle();
-    expect(fake.confirms[0]![0]).toContain("harnix/example-review-1 into main");
+    expect(fake.confirms[0]![0]).toContain("harnix/flow/example-review-1 into main");
     expect(fake.calls.filter(([m]) => m === "flow.worktree.merge")).toEqual([["flow.worktree.merge", { run: "example-review-1" }]]);
     fireEvent.click(page.getByTestId("flow-worktree-keep"));
     await settle();
@@ -704,7 +704,7 @@ describe("a task in a worktree", () => {
   });
 
   it("the 流程 tab: nothing is done when the question is declined; a conflict is said; what was decided is shown", async () => {
-    const conflict = () => Promise.reject(Object.assign(new Error("merging harnix/example-review-1 into the project conflicts in a.txt"), { code: -31007 }));
+    const conflict = () => Promise.reject(Object.assign(new Error("merging harnix/flow/example-review-1 into the project conflicts in a.txt"), { code: -31007 }));
     const fake = fakeHost({ "flow.workspace_info": { git: true, branch: "main" }, "flow.worktree.merge": conflict }, false);
     const page = render(
       <HostProvider host={fake.host}>

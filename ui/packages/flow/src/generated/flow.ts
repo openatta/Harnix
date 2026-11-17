@@ -519,8 +519,9 @@ commit?: string | null,
 how?: "fast_forward" | "merge" | "up_to_date" | null, };
 
 /**
- * A run's worktree of its project (`docs/glossary.md`, 项目任务): `<project>/.harnix/worktrees/<run>`
- * on the branch `harnix/<run>`, made from the project's `HEAD` when the run started.
+ * A run's worktree of its project (`docs/glossary.md`, 项目任务): outside the project, in the
+ * application's state (`<worktrees>/<run>`), on the branch `harnix/flow/<run>`, made from the
+ * project's `HEAD` when the run started.
  */
 export type WorktreeRec = { 
 /**
@@ -533,7 +534,7 @@ path: string,
  */
 prefix?: string, 
 /**
- * Its branch: `harnix/<run>`.
+ * Its branch: `harnix/flow/<run>`.
  */
 branch: string, 
 /**

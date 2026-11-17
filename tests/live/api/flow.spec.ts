@@ -422,7 +422,7 @@ test("a task: a run in a project carries its root, workspace, output directory a
     await api.call("flow.cancel", { run: task, reason: "done" });
     await api.call("flow.cancel", { run: plain, reason: "done" });
   } finally {
-    // Retried: the engine may still be writing under the project (its `.agix/`) as it goes.
+    // Retried: the engine may still be writing under the project (its part of `.harnix/`) as it goes.
     rmSync(project, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

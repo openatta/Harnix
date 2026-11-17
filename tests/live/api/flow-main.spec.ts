@@ -134,7 +134,7 @@ test("a sub-agent station: the main Agent hands the task to a sub-agent of the m
   // The station names no agent type: the engine's plain sub-agent, with no definition written
   // into the run's directory (which may be a person's project).
   expect(info.project_root).toEqual(expect.any(String));
-  expect(existsSync(join(info.project_root, ".agix", "agents"))).toBe(false);
+  expect(existsSync(join(info.project_root, ".harnix", "agents"))).toBe(false);
   const { messages } = await api.call("engine.session.history", ref(session));
   expect(JSON.stringify(messages)).toContain("flow:demo-agent-1/check/check");
   const sessions = await api.call("flow.sessions", { run });

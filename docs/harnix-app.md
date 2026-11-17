@@ -121,7 +121,7 @@ Harnix 自己发布的二进制 `harnix`（`crates/cli`）链进全部第一方�
 
 ### 3.1 项目信任
 
-一个项目自己的设置（`<项目>/.agix/` 下的设置、agent 类型、hook 脚本，项目里的 skill）是仓库内容。引擎缺省**不信任**项目：
+一个项目自己的设置（`<项目>/.harnix/` 下的设置、agent 类型、hook 脚本，项目里的 skill）是仓库内容。引擎缺省**不信任**项目：
 没受信的项目只能收紧设置，它自己的 hook、MCP 服务器、比下面几层更宽的权限与沙箱、自己的 provider 与模型端点、遥测去向、
 更宽的插件、替换同名类型的 agent、带命令的 skill 都被扣下，不生效。信任是**项目根**的属性，引擎记在全局层的
 `settings.local.json`（`project_trust.trusted`）里，和场景无关。
@@ -261,8 +261,8 @@ r.register("harnix-app.project.items", {
 
 **在 worktree 里跑**：对话框先问 `flow.workspace_info {project_root}`：答 `{git: true, branch, prefix}` 时开关可用，起始状态照流程的 `workspace`；
 答 `{git: false, reason, detail}`（`reason` 是 `not_a_repository`、`bare`、`no_commit`、`no_git`）时开关不可用，下面写原因；流程本身要求 worktree 的，
-再提示「在这里启动会被拒绝」。开关动过才带 `workspace`（`worktree` 或 `project`），没动过由流程定。任务在 `<项目>/.harnix/worktrees/<运行>`、
-分支 `harnix/<运行>` 上跑（运行记录和 `flow.runs` 的行里有 `worktree: {path, prefix?, branch, base, outcome?}`），过程目录仍在项目自己的
+再提示「在这里启动会被拒绝」。开关动过才带 `workspace`（`worktree` 或 `project`），没动过由流程定。任务在项目之外的 worktree（流程扩展数据目录下的 `worktrees/<运行>`）、
+分支 `harnix/flow/<运行>` 上跑（运行记录和 `flow.runs` 的行里有 `worktree: {path, prefix?, branch, base, outcome?}`），过程目录仍在项目自己的
 `.harnix/runs/<运行>/`。运行结束后右栏「流程」页签的 worktree 一行给出三个操作：**合回**（`flow.worktree.merge {run}`，按钮写「合回 <当前分支>」，先确认）、
 **保留分支**（`flow.worktree.keep {run}`，缺省，不用确认）、**丢弃**（`flow.worktree.discard {run}`，确认、标成危险操作）；合回有冲突时答 `CONFLICT`，
 `data.files` 是冲突的文件，项目里什么都不变，页签照实写出来。做过的决定记在运行上（`worktree.outcome: {kind: merged|kept|discarded, at, by, into?, commit?, how?}`），

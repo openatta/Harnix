@@ -1,11 +1,15 @@
 //! A task in a worktree of its project (`workspace: worktree`, `docs/glossary.md` 项目任务):
 //!
 //! ```text
-//! <project>/.harnix/worktrees/<run>/   the worktree, on the branch harnix/<run> from HEAD at start:
-//!                                      the run's sessions, gates and output directory are here
-//! <project>/.harnix/runs/<run>/        its process directory stays in the project's own tree,
-//!                                      with every other run's
+//! <data>/worktrees/<run>/          the worktree, on the branch harnix/flow/<run> from HEAD at
+//!                                  start: the run's sessions, gates and output directory are here
+//! <project>/.harnix/runs/<run>/    its process directory stays in the project's own tree, with
+//!                                  every other run's
 //! ```
+//!
+//! The worktree is out of the project: `<project>/.harnix/worktrees/` is the engine's, which takes
+//! away what it does not know there, and its branches are `harnix/worktree-*`. `<data>` is the
+//! module's data directory, in the application's state.
 //!
 //! Once the run is over a person decides: merge the branch into the project's current branch
 //! (`flow.worktree.merge`), keep the branch (`flow.worktree.keep`), or discard both
@@ -22,13 +26,21 @@ use super::git::{self, MergeFailed, NoRepo};
 use super::rpc_error;
 use crate::kernel::engine::{worktree_may_end, Engine};
 use crate::kernel::host::Outcome;
-use crate::kernel::refs::{worktree_branch, worktree_dir};
+use crate::kernel::refs::worktree_branch;
 use crate::kernel::run::{Actor, RunRecord, WorktreeEnd, WorktreeOutcome, WorktreeRec};
 use crate::kernel::FlowError;
 
 /// One piece of the module's git work at a time: two ends of one worktree never race, nor a start
 /// and an end in one repository.
 static GIT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// What a run's worktree branch is named under: `harnix/flow/<run>`.
+pub(crate) const BRANCH_PREFIX: &str = "harnix/flow";
+
+/// Where the module's worktrees go: `<data>/worktrees/<run>`.
+pub(crate) fn root(data_dir: &Path) -> PathBuf {
+    data_dir.join("worktrees")
+}
 
 /// How many ids a start tries before giving up, when a worktree or branch of the name is there
 /// already (left from a ledger that is gone).
@@ -60,9 +72,9 @@ fn needs_git(no: &NoRepo) -> FlowError {
 }
 
 /// Make the worktree a run of `flow` in `root` will work in, from the project's `HEAD`, under an id
-/// allocated for it now: `<root>/.harnix/worktrees/<id>` on `harnix/<id>`. The project's
-/// `.harnix/.gitignore` is written first, so the worktree is not something the project's tree
-/// shows. Returns the id and the worktree.
+/// allocated for it now: `<data>/worktrees/<id>` on `harnix/flow/<id>`. The project's
+/// `.harnix/.gitignore` is written first, so the run's process directory is not something the
+/// project's tree shows. Returns the id and the worktree.
 pub(crate) async fn make(engine: &Engine, root: &str, flow: &str) -> crate::Result<(String, WorktreeRec)> {
     let project = PathBuf::from(root);
     let probed = {
@@ -75,8 +87,10 @@ pub(crate) async fn make(engine: &Engine, root: &str, flow: &str) -> crate::Resu
     }
     for _ in 0..TRIES {
         let id = engine.alloc_id(flow, Some(root)).await?;
-        let path = worktree_dir(root, &id);
-        let branch = worktree_branch(&id);
+        let path = engine
+            .worktree_dir(&id)
+            .ok_or_else(|| FlowError::Invalid("this application makes no worktrees".into()))?;
+        let branch = worktree_branch(BRANCH_PREFIX, &id);
         let (p, b, head, project) = (path.clone(), branch.clone(), repo.head.clone(), project.clone());
         let made = blocking(move || {
             if p.exists() || git::has_branch(&project, &b)? {
@@ -105,8 +119,8 @@ pub(crate) async fn make(engine: &Engine, root: &str, flow: &str) -> crate::Resu
         }
     }
     Err(FlowError::Invalid(format!(
-        "the run's worktree could not be made: {TRIES} names under {}/.harnix/worktrees were taken",
-        root
+        "the run's worktree could not be made: {TRIES} names under {} were taken",
+        engine.worktree_dir("").map(|d| d.display().to_string()).unwrap_or_default()
     )))
 }
 
@@ -227,6 +241,7 @@ mod tests {
         Engine::new(std::sync::Arc::new(MemStore::new()), std::sync::Arc::new(packs))
             .with_clock(std::sync::Arc::new(ManualClock::new(1_794_787_200_000)))
             .with_workspaces(data.join("workspaces"))
+            .with_worktrees(root(data))
     }
 
     fn by() -> Actor {
@@ -262,9 +277,10 @@ mod tests {
         let run = started(&e, "f", p, Some(Workspace::Worktree)).await.unwrap();
         let rec = e.record(&run).await.unwrap();
         let w = rec.worktree.clone().unwrap();
-        let wt = p.join(".harnix/worktrees").join(&run);
+        // Out of the project, apart from the engine's worktrees and their branches.
+        let wt = data.path().join("worktrees").join(&run);
         assert_eq!((rec.workspace, Path::new(&w.path)), (Workspace::Worktree, wt.as_path()));
-        assert_eq!(w.branch, format!("harnix/{run}"));
+        assert_eq!(w.branch, format!("harnix/flow/{run}"));
         assert_eq!(w.base, git_out(p, &["rev-parse", "HEAD"]));
         assert_eq!(git_out(&wt, &["symbolic-ref", "--short", "HEAD"]), w.branch);
         // Its sessions and gates work there; its deliverables go there.
@@ -298,11 +314,12 @@ mod tests {
         let rec = e.record(&run).await.unwrap();
         let w = rec.worktree.clone().unwrap();
         assert_eq!(w.prefix, "apps/one");
-        let at = sub.join(".harnix/worktrees").join(&run).join("apps/one");
+        let at = data.path().join("worktrees").join(&run).join("apps/one");
         assert_eq!(e.workspace_for(&rec), Some(at.clone()));
         assert!(at.is_dir());
         assert!(rec.output_dir.unwrap().starts_with(at.to_str().unwrap()));
         assert_eq!(git_out(r.path(), &["status", "--porcelain"]), "?? apps/");
+        assert!(!sub.join(".harnix/worktrees").exists());
     }
 
     #[tokio::test]
@@ -362,7 +379,7 @@ mod tests {
             ..Default::default()
         };
         assert!(super::super::project::start(&crate::module::shared::Shared::for_tests(), &e, input, by()).await.is_err());
-        assert_eq!(std::fs::read_dir(p.join(".harnix/worktrees")).unwrap().count(), 0);
+        assert_eq!(std::fs::read_dir(data.path().join("worktrees")).map(|d| d.count()).unwrap_or(0), 0);
         assert_eq!(git_out(p, &["branch", "--list", "harnix/*"]), "");
     }
 
@@ -445,7 +462,7 @@ mod tests {
         let data = tempfile::tempdir().unwrap();
         let e = engine(data.path());
         let (run, wt) = finished_with(&e, p, "kept.txt", "k\n").await;
-        let branch = format!("harnix/{run}");
+        let branch = format!("harnix/flow/{run}");
         end(&e, &run, WorktreeEnd::Kept, by()).await.unwrap();
         let outcome = e.record(&run).await.unwrap().worktree.unwrap().outcome.unwrap();
         assert_eq!(outcome.kind, WorktreeEnd::Kept);
@@ -461,7 +478,7 @@ mod tests {
         let (run, wt) = finished_with(&e, p, "gone.txt", "g\n").await;
         end(&e, &run, WorktreeEnd::Discarded, by()).await.unwrap();
         assert!(!wt.exists());
-        assert_eq!(git_out(p, &["branch", "--list", &format!("harnix/{run}")]), "");
+        assert_eq!(git_out(p, &["branch", "--list", &format!("harnix/flow/{run}")]), "");
         assert!(!p.join("gone.txt").exists());
         assert_eq!(e.record(&run).await.unwrap().worktree.unwrap().outcome.unwrap().kind, WorktreeEnd::Discarded);
     }

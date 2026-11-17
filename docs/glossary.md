@@ -217,7 +217,7 @@
 | **运行** | `RunRecord`，`run` | 一条流程的一次执行，处理一个对象（`subject`）。不叫「实例」：实例只指 Agix 实例 |
 | **项目任务** | `RunRecord.project_root`，`flow.start {project_root}` | 在一个项目里按指定流程执行的运行，界面上简称「**任务**」：带 `project_root`（已存在的绝对目录），`workspace` 是 `project`（缺省）或 `worktree`；`trigger` 记下是手动还是定时起的。从项目的「新任务」、项目里对话的 `/flow`、或定时起；主会话展示给发起它的 space，在项目 space 的中区打开。不带项目的运行在自己的 `scratch` 目录里干活。和流程里的**工作项**（`TaskRec`）、引擎的**后台任务**都不是一回事 |
 | **输出目录** | `output_dir`，`RunRecord.output_dir` | 一个运行的交付物放的地方，属于用户、不加 ignore：相对项目的路径模板（`${flow}`、`${date}`、`${seq}`、`${title}`、`${inputs.<k>}`），这次启动给的 > 流程写的 > 缺省 `flows/${flow}-${date}${seq}`；启动时解析、建好，必须落在项目（或 worktree）里。站的消息里告诉 Agent，skill、权限、门禁里写 `${output_dir}` |
-| **过程目录** | `<项目>/.harnix/runs/<运行>/` | 软件用的中间过程与状态：`task.json`、钉住的 `flow.yaml`、各站的输出与命令门禁的上下文和日志。`<项目>/.harnix/.gitignore` 把它（和 `worktrees/`）挡在版本库外。只是投影，权威的是数据目录里的账本 |
+| **过程目录** | `<项目>/.harnix/runs/<运行>/` | 软件用的中间过程与状态：`task.json`、钉住的 `flow.yaml`、各站的输出与命令门禁的上下文和日志。`<项目>/.harnix/.gitignore` 把它挡在版本库外（`.harnix/` 与引擎共用，引擎的条目由引擎自己加）。只是投影，权威的是数据目录里的账本 |
 | **站** | `Station` | 流程里的判定单位：出口条件、返工、确认、强制通过都按站算 |
 | **工作项** | `TaskRec`，`tasks` | 流程里一站的执行单位：一站 0..N 个，每个交一份结构化输出。界面与文档里说「工作项」，代码、协议、事件名（`task.asking`）里仍是 task |
 | **执行者** | `Executor` | 做一个工作项的那一方：`session`（会话）· `agent`（主会话下的子 Agent，xops-03）· `program`（应用代码）· `external`（人或外部 Agent 来认领）· `subflow`（子运行） |

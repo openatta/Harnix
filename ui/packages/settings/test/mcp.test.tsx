@@ -36,7 +36,7 @@ function mount(list: McpList, answers: Record<string, unknown> = {}, confirm = f
   return { calls, notices };
 }
 
-const paths = { global: "/g/settings.json", scene: null, project: "/p/.agix/settings.json" };
+const paths = { global: "/g/settings.json", scene: null, project: "/p/.harnix/settings.json" };
 
 describe("Settings · MCP", () => {
   it("says what each server is doing, and what it asks for that this build lacks", async () => {

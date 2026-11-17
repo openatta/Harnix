@@ -682,7 +682,8 @@ impl Extension for Flow {
             .with_lease_ms(self.sh.cfg.lease_ms)
             .with_guarded(self.sh.cfg.guarded.clone())
             .with_submit_scenes(self.sh.cfg.scenes.clone())
-            .with_workspaces(cx.data_dir().join("workspaces"));
+            .with_workspaces(cx.data_dir().join("workspaces"))
+            .with_worktrees(worktree::root(cx.data_dir()));
         if let Some(m) = &self.sh.cfg.main_scene {
             engine = engine.with_main_scene(m.clone());
         }

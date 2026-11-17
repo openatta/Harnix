@@ -96,7 +96,7 @@ impl Slot {
             // wherever the shell's go.
             .stdin(Stdio::piped());
         // A desktop launch starts in `/`, and the engine keeps per-directory
-        // state (`.agix/`) under the working directory it is given. Home is
+        // state (`.harnix/`) under the working directory it is given. Home is
         // where a person would expect that to land, wherever the shell was
         // started from.
         if let Some(home) = dirs::home_dir() {

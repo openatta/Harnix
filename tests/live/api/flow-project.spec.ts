@@ -52,7 +52,7 @@ async function cleanUp(root: string, id: string, runs: string[]) {
   for (const run of runs) await api.call("flow.cancel", { run, reason: "test over" }).catch(() => undefined);
   await api.call("harnix-app.projects.trust", { project_root: root, trusted: false }).catch(() => undefined);
   await api.call("harnix-app.workspaces.remove", { id }).catch(() => undefined);
-  // Retried: the engine may still be writing under the project (its `.agix/`) as it goes.
+  // Retried: the engine may still be writing under the project (its part of `.harnix/`) as it goes.
   rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }
 

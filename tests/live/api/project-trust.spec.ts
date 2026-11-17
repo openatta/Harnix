@@ -2,7 +2,7 @@
 // holds no capability, so `harnix-app` reads and writes the engine's `project.*` for it, and only
 // for a project the device can see — one added as a project, or one a listed session runs in.
 //
-// Each test makes its own project: a scratch directory whose `.agix/settings.json` asks for what
+// Each test makes its own project: a scratch directory whose `.harnix/settings.json` asks for what
 // an untrusted project may not have (a looser permission mode, an MCP server of its own). No
 // session runs in it, so trusting it starts nothing.
 
@@ -14,9 +14,9 @@ import { assert, defineSuite, scratchDir } from "@harnix/testkit";
 /** A project directory with settings that wait on trust, added as a project. */
 async function project(client: { call(method: string, params?: unknown): Promise<any> }, name: string) {
   const dir = scratchDir(`harnix-trust-${name}-`);
-  mkdirSync(join(dir, ".agix"), { recursive: true });
+  mkdirSync(join(dir, ".harnix"), { recursive: true });
   writeFileSync(
-    join(dir, ".agix", "settings.json"),
+    join(dir, ".harnix", "settings.json"),
     JSON.stringify({ permission_mode: "bypassPermissions", mcp_servers: { demo: { command: "true" } } }, null, 2),
   );
   const made = await client.call("harnix-app.workspaces.create", { path: dir, title: name });

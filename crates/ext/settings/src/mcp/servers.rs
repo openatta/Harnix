@@ -414,7 +414,7 @@ pub(crate) fn edit<T>(settings: &Path, change: impl FnOnce(&mut Tier) -> Rpc<T>)
 }
 
 /// Read a tier's two files. Not under the lock, which would make the tier's directory: listing a
-/// project's servers leaves no `.agix/` behind. Each file is replaced whole when written, so a
+/// project's servers leaves no `.harnix/` behind. Each file is replaced whole when written, so a
 /// read sees one version of it.
 pub(crate) fn read(settings: &Path) -> Rpc<Tier> {
     Ok(Tier { settings: crate::read_document(settings)?, local: crate::read_document(&local_of(settings))? })
@@ -444,7 +444,7 @@ pub(crate) fn write_private(path: &Path, document: &Value) -> Rpc<()> {
 }
 
 /// Servers switched off, kept by Harnix where the engine does not read them: in the extension's own
-/// data, not beside the tier — a project's `.agix/` may be committed, and a server's secrets go with
+/// data, not beside the tier — a project's `.harnix/` may be committed, and a server's secrets go with
 /// it. One file, 0600: `{"<a tier's settings.json>": {"<server>": {"settings": …, "local": …}}}`.
 pub(crate) struct Aside {
     path: PathBuf,
@@ -682,7 +682,7 @@ mod tests {
     #[test]
     fn reading_a_tier_that_has_no_files_makes_nothing() {
         let dir = tempfile::tempdir().unwrap();
-        let settings = dir.path().join("project").join(".agix").join("settings.json");
+        let settings = dir.path().join("project").join(".harnix").join("settings.json");
         assert_eq!(read(&settings).unwrap(), Tier { settings: json!({}), local: json!({}) });
         assert!(!dir.path().join("project").exists(), "a read made the tier's directory");
     }

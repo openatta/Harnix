@@ -1396,13 +1396,13 @@ mod tests {
         let frame = |event: Value| json!({"jsonrpc": "2.0", "method": SESSION_EVENT, "params": {"session_id": "s", "turn_id": "t", "event": event}});
         let Some(HostFrame::ToolCall(call)) = host_frame(&frame(json!({
             "kind": "host_tool_call", "call_id": "c", "tool_use_id": "u", "name": "n", "input": {"a": 1}, "agent_session_id": "sub",
-            "cwd": "/w/.agix/worktrees/x", "depth": 2,
+            "cwd": "/w/.harnix/worktrees/x", "depth": 2,
         }))) else {
             panic!()
         };
         assert_eq!((call.session.as_str(), call.call_id.as_str(), call.name.as_str()), ("s", "c", "n"));
         assert_eq!((call.input.clone(), call.agent_session.as_deref()), (json!({"a": 1}), Some("sub")));
-        assert_eq!((call.cwd.as_deref(), call.depth), (Some(std::path::Path::new("/w/.agix/worktrees/x")), Some(2)));
+        assert_eq!((call.cwd.as_deref(), call.depth), (Some(std::path::Path::new("/w/.harnix/worktrees/x")), Some(2)));
         assert!(matches!(
             host_frame(&frame(json!({"kind": "host_tool_call_resolved", "call_id": "c", "resolution": "withdrawn"}))),
             Some(HostFrame::ToolCallResolved { withdrawn: true, .. })

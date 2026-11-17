@@ -195,7 +195,7 @@ describe("@harnix/settings", () => {
   it("shows the advanced values with the tier that set them and the file to edit, and offers no control", async () => {
     const advanced = (key: string, effective: unknown, source: string | null) => ({ key, type: "json", section: "advanced", writable: [], effective, source, tiers: { global: source === "global" ? effective : null, scene: null, project: null } });
     const fields = [advanced("execution", { max_agent_depth: 3 }, "global"), advanced("hooks_config", { PreToolUse: 2 }, "project"), advanced("team", null, null), flag];
-    const host = hostOf((method) => (method === "settings.describe" ? { paths: { global: "/g/settings.json", project: "/p/.agix/settings.json" }, fields, revision: "r1" } : {}));
+    const host = hostOf((method) => (method === "settings.describe" ? { paths: { global: "/g/settings.json", project: "/p/.harnix/settings.json" }, fields, revision: "r1" } : {}));
     const r = new Registry();
     r.activate(extension, () => register(r, host));
     const section = r.at("settings.section").find((s) => s.id === "advanced")!;
@@ -209,7 +209,7 @@ describe("@harnix/settings", () => {
     expect(screen.queryByTestId("settings-telemetry_enabled")).toBeNull();
     expect(document.querySelector("[data-testid=advanced] input, [data-testid=advanced] select")).toBeNull();
     expect(screen.getByTestId("settings-file-global").textContent).toBe("/g/settings.json");
-    expect(screen.getByTestId("settings-file-project").textContent).toBe("/p/.agix/settings.json");
+    expect(screen.getByTestId("settings-file-project").textContent).toBe("/p/.harnix/settings.json");
     expect(screen.getByTestId("settings-file-copy-project")).toBeTruthy();
   });
 

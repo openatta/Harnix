@@ -81,7 +81,7 @@ test.describe("what a session sees, and each extension's log", () => {
   });
 
   test("the hooks a session runs: this process's own, and the project's held back while it is untrusted, never by what they run", TAGS, async () => {
-    const settings = join(api.project, ".agix");
+    const settings = join(api.project, ".harnix");
     mkdirSync(settings, { recursive: true });
     writeFileSync(
       join(settings, "settings.json"),

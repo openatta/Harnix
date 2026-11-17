@@ -728,7 +728,8 @@ stations:
             std::sync::Arc::new(MemStore::new()),
             std::sync::Arc::new(MemPacks::new().flow("{name: f, stations: [{id: a, exit: [{kind: confirm}]}]}")),
         )
-        .with_workspaces(data.path().join("workspaces"));
+        .with_workspaces(data.path().join("workspaces"))
+        .with_worktrees(data.path().join("worktrees"));
         let root = project.path().to_string_lossy().into_owned();
         let started = |workspace: Option<Workspace>, project_root: Option<String>| CreateIn {
             flow: "f".into(),
@@ -744,7 +745,7 @@ stations:
             // Whatever the scene: the main session, a station's own, a gate — all in the project,
             // or in its worktree.
             let at = match ws {
-                Some(Workspace::Worktree) => project.path().join(".harnix/worktrees").join(&run),
+                Some(Workspace::Worktree) => data.path().join("worktrees").join(&run),
                 _ => project.path().to_path_buf(),
             };
             for scene in ["flow-harnix", "flow-code"] {

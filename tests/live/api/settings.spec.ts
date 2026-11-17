@@ -266,7 +266,7 @@ defineSuite("settings", { feature: "settings" }, {
         config: { api_type: "openai_compatible", base_url: "https://example.invalid/v1", api_key: "sk-secret-value", default_model: "m-1", models: ["m-2"] },
       });
       assert(added.reloaded === true, "the engine was not asked to reload");
-      assert(/settings\.json$/.test(added.written) && !added.written.includes("/.agix/.agix"), `written to ${added.written}`);
+      assert(/settings\.json$/.test(added.written) && !added.written.includes("/.harnix/.harnix"), `written to ${added.written}`);
       // The engine writes it, and keeps the key out of settings.json, in the uncommitted file beside it.
       assert(/settings\.local\.json$/.test(added.secrets_written ?? ""), `the key went to ${added.secrets_written}`);
       const described = await client.call("settings.describe", {});
