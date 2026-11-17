@@ -80,6 +80,10 @@ export interface SidebarTabType {
   multiple?: boolean;
   /** Its body stays mounted, hidden, while another tab or another session is in front. */
   keepMounted?: boolean;
+  /** A standing tab: open in every session's strip, at its end, with no close — the context of the
+   *  session's next call, say. Opened by the shell when the session's surface is drawn; its `guide`
+   *  entries are not needed and not shown. */
+  pinned?: boolean;
   /** The body: reads `useTabInfo()` for which tab it is, its address, its navigation. */
   render(): ReactNode;
 }
@@ -189,10 +193,14 @@ export function claim<T extends SidebarTabType>(types: readonly T[], address: st
   return candidates(types, address)[0] ?? null;
 }
 
-/** The guide's entries, from every type in force that has some, by `order` then by type. */
+/** The guide's entries, from every type in force that has some, by `order` then by type; a
+ *  standing type (`pinned`) is in every strip already and offers none. */
 export function guideEntries<T extends SidebarTabType>(types: readonly T[]): (SidebarGuideEntry & { kind: string; type: T })[] {
   const out: (SidebarGuideEntry & { kind: string; type: T })[] = [];
-  for (const type of effectiveTypes(types)) for (const entry of type.guide ?? []) out.push({ ...entry, kind: type.kind, type });
+  for (const type of effectiveTypes(types)) {
+    if (type.pinned === true) continue;
+    for (const entry of type.guide ?? []) out.push({ ...entry, kind: type.kind, type });
+  }
   return out.sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
 }
 

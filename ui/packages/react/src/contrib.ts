@@ -14,7 +14,7 @@
  * | `command` | `trigger?`（`/` 或 `@`）、`complete(query, ctx?) → 候选[]`（候选可带 `run`） | 全部，按注册顺序拼起来；`/` 与 `@` 两个菜单各问各的 |
  * | `settings.section` | `id`、`label()`、`render()`，可选的 `covers`；或不给 `render`，给 `fields`（字段声明，见 `fields.tsx`）与可选的 `store` | 全部，按注册顺序；外壳要人去配模型时打开 `covers` 里有 `"models"` 的那一节；只给 `fields` 的按声明画表单，值缺省存在这个浏览器里 |
  * | `session.action` | `id`、`at`、`label(target)`、`match(target)`、`run(target)`，可选的 `disabled(target)` | 标题栏、会话菜单、工具行（按钮与参数）、人的消息的菜单（`message`）各问 `at` 里有它的，按注册顺序 |
- * | `sidebar.tab` | `id`、`kind`、`title(address?)`、`render()`，可选的 `patterns`、`priority`、`canOpen`、`guide`、`multiple`、`keepMounted`、`scope` | 右栏的页签类型（`sidebar.ts`）：资源地址按优先级档、模式长度、注册顺序认领；一个 `kind` 至多一份 extension 加一份 builtin，extension 生效 |
+ * | `sidebar.tab` | `id`、`kind`、`title(address?)`、`render()`，可选的 `patterns`、`priority`、`canOpen`、`guide`、`multiple`、`keepMounted`、`pinned`、`scope` | 右栏的页签类型（`sidebar.ts`）：资源地址按优先级档、模式长度、注册顺序认领；一个 `kind` 至多一份 extension 加一份 builtin，extension 生效 |
  * | `shortcut` | `id`、`title()`、`run(ctx)`，可选的 `keys`、`scope`、`enabled()` | 一条有快捷键的命令（`shortcuts.ts`）：设置里列出、可改键；一个键按下时焦点所在处的先于全局的，再按注册顺序；`id` 在全页唯一 |
  * | `conversation.view` | `id`、`title()`、`render(session)`，可选的 `match(session)`、`order` | 中间区里对话之外的一种视图：有会话打开、有注册方时顶上出现「对话 \| …」的切换，全部按 `order` 再按注册顺序；每个会话各记自己的选择 |
  *

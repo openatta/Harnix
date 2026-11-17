@@ -1583,6 +1583,7 @@ r.register("sidebar.tab", {
   guide: [{ id: "usage", title: () => "用量", description: () => "…", icon: "context", order: 20 }],  // 引导页上的入口卡
   multiple: false,                    // true：每次 openTab 都开一个新页签（终端、输出流）
   keepMounted: false,                 // true：正文在切页签、切会话、收起时保留（终端的回滚、树的展开）
+  pinned: false,                      // true：常驻——每个会话的页签栏末尾都有它、不可关、不进引导页（上下文页签）
   render: () => <UsageTab />,         // 正文，用 useTabInfo() 知道自己是哪一页
 }, owner);
 ```
@@ -1622,7 +1623,7 @@ r.register("sidebar.tab", {
 **存储**：浏览器本地 `harnix.sidebar.v1.<instance>/<session>`，读出时校验（版本、格里的页签都在、选中项在格里、计数器不回头），不合法就只清这一份；
 存不进去就只留在内存。`params`、`revision`、`signal`、关闭处理器不存。会话被删，它那一份随之删掉。
 
-本版的页签由各自的 UI 包注册：`@harnix/observability` 的上下文、用量，`@harnix/harnix-app` 的文件、预览、改动（[Harnix app](harnix-app.md) §6），`@harnix/flow` 的流程，`@harnix/system` 的输出（`kind: "output"`，`multiple` 且 `keepMounted`，地址 `harnix-resource://output/<实例>/<会话>/<任务>`，由 Bash、Monitor 工具行的 `session.action`「查看输出」打开）。
+本版的页签由各自的 UI 包注册：`@harnix/observability` 的上下文、用量，`@harnix/harnix-app` 的文件、预览、改动（[Harnix app](harnix-app.md) §6），`@harnix/flow` 的流程，`@harnix/observability` 的输出（`kind: "output"`，`multiple` 且 `keepMounted`，地址 `harnix-resource://output/<实例>/<会话>/<任务>`，由 Bash、Monitor 工具行的 `session.action`「查看输出」打开）；上下文页签 `pinned`，在每个会话的页签栏末尾常驻。
 外壳只有引导页。
 
 ### 22.8 快捷键：`shortcut`

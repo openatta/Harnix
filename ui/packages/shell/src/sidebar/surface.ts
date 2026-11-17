@@ -111,6 +111,8 @@ export interface OpenSpec {
   revealIfOpened?: boolean;
   /** The tab the new one takes the place of, which closes. */
   replaceTab?: string;
+  /** False: opened without coming to the front (a standing tab the shell adds), unless nothing is in front. */
+  focus?: boolean;
 }
 
 interface Live {
@@ -231,7 +233,8 @@ export class SurfaceStore {
       this.forget(session, replaced);
     }
     this.navigate(session, id, spec.params);
-    this.commit(session, { version: 1, layout: { ...s.layout, tabs: order, active: id }, tabs, nextId: s.nextId + 1 });
+    const active = spec.focus === false && s.layout.active !== null && order.includes(s.layout.active) ? s.layout.active : id;
+    this.commit(session, { version: 1, layout: { ...s.layout, tabs: order, active }, tabs, nextId: s.nextId + 1 });
     return id;
   }
 
