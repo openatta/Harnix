@@ -3,9 +3,9 @@
 #
 #   scripts/harnix-demo.sh start | stop | restart | status
 #
-# Everything it keeps — program state, the engine directory, projects, the log and the pid — is
-# under $HARNIX_DEMO_DIR (default ~/harnix-demo), so it never touches ~/.harnix or ~/.agix; delete
-# that directory to start over. The model comes from `.env` when there is one (it is read into the
+# Everything it keeps — program state, the engine directory, projects, the log, the pid and the
+# port — is under demo/ in this repository (ignored by git; $HARNIX_DEMO_DIR to put it elsewhere),
+# so it never touches ~/.harnix or ~/.agix; delete that directory to start over. The model comes from `.env` when there is one (it is read into the
 # environment, not written into any settings); without it, configure one on the page.
 #
 # `start` builds first when there is no binary, or when the interface or the Rust sources are newer
@@ -19,18 +19,42 @@
 # said once to the application under --replay-dir (`scripts/demo/conversations.json`). None has
 # work in hand, so nothing calls a model until you act. The Harnix app ships none of it.
 #
-#   HARNIX_DEMO_DIR    where it keeps everything (default ~/harnix-demo)
-#   HARNIX_DEMO_PORT   the port (default 4080)
+# Nothing needs setting. Two optional overrides:
+#   HARNIX_DEMO_DIR    where it keeps everything (default demo/ in this repository)
+#   HARNIX_DEMO_PORT   the port (default: the one this demo ran on last if it is free, else the
+#                      first free one from 4080)
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
-DIR="${HARNIX_DEMO_DIR:-$HOME/harnix-demo}"
-PORT="${HARNIX_DEMO_PORT:-4080}"
+DIR="${HARNIX_DEMO_DIR:-$root/demo}"
 BIN="$root/target/release/harnix"
 PIDFILE="$DIR/harnix.pid"
+PORTFILE="$DIR/harnix.port"
 LOG="$DIR/harnix.log"
+
+taken() {
+  lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+}
+
+# The port: the one asked for; else the one this demo last ran on, while it is free (a bookmark
+# keeps working); else the first free one from 4080, so a demo starts beside another Harnix.
+PORT="${HARNIX_DEMO_PORT:-$(cat "$PORTFILE" 2>/dev/null || echo 4080)}"
 URL="http://127.0.0.1:$PORT/"
+
+choose_port() {
+  if ! taken "$PORT"; then return 0; fi
+  if [ -n "${HARNIX_DEMO_PORT:-}" ]; then
+    echo "port $PORT is taken by another process" >&2
+    exit 1
+  fi
+  local p
+  for p in $(seq 4080 4179); do
+    if ! taken "$p"; then PORT="$p"; URL="http://127.0.0.1:$PORT/"; return 0; fi
+  done
+  echo "no free port from 4080 to 4179; set HARNIX_DEMO_PORT" >&2
+  exit 1
+}
 
 running() {
   [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null
@@ -103,13 +127,11 @@ start() {
     echo "already running (pid $(cat "$PIDFILE")) → $URL"
     return 0
   fi
-  if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
-    echo "port $PORT is taken by another process; set HARNIX_DEMO_PORT" >&2
-    exit 1
-  fi
+  choose_port
   if stale; then build; fi
 
   mkdir -p "$DIR/state" "$DIR/agix" "$DIR/projects"
+  echo "$PORT" >"$PORTFILE"
   seed
   if [ -f .env ]; then
     set -a; . ./.env; set +a

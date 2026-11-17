@@ -33,8 +33,8 @@ Anthropic 或兼容 OpenAI 的 API，其中一个是缺省——存在 `~/.agix/
 
 只是使用 `harnix` 程序、不做开发：见[用户指南](../user-guide/README.zh-CN.md)（也有 [English](../user-guide/README.md)）。
 
-想看带数据的样子：`scripts/harnix-demo.sh start`（还有 `stop`、`restart`、`status`）在单独的目录（`~/harnix-demo`）里
-跑 Harnix app，带示例流程、运行和会话；删掉这个目录就从头来。
+想看带数据的样子：`scripts/harnix-demo.sh start`（还有 `stop`、`restart`、`status`）在单独的目录（仓库里的 `demo/`，git 不收）里
+跑 Harnix app，带示例流程、运行和会话，端口用 4080 起第一个空着的，什么都不用设；删掉这个目录就从头来。
 
 ## 架构
 

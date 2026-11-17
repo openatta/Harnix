@@ -43,8 +43,8 @@ done or closed.
 Using the `harnix` program rather than building on it: the [user guide](user-guide/README.md) (also in [简体中文](user-guide/README.zh-CN.md)).
 
 To look around with data in it: `scripts/harnix-demo.sh start` (also `stop`, `restart`, `status`)
-runs the Harnix app in a directory of its own (`~/harnix-demo`) with demo flows, runs and
-conversations; delete the directory to start over.
+runs the Harnix app in a directory of its own (`demo/` here, ignored by git) with demo flows, runs and
+conversations, on the first free port from 4080 — nothing to set; delete the directory to start over.
 
 ## Architecture
 
