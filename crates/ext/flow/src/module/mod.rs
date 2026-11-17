@@ -82,6 +82,18 @@ use shared::{Config, ConversationRecordingFn, MainRecordingFn, RecordingFn, Shar
 /// The extension's id: methods and topics are `flow.*`, its templates `flow.<id>`.
 pub const MODULE_ID: &str = "flow";
 
+/// What a run's worktree branch is named under: `harnix/flow/<run>`, apart from the engine's own
+/// `harnix/worktree-*`.
+pub const BRANCH_PREFIX: &str = "harnix/flow";
+
+/// Where the module keeps what it writes for a project, from its data directory: the project's
+/// `.harnix/` (shared with the engine), runs' worktrees in `<data>/worktrees/<run>` on
+/// [`BRANCH_PREFIX`]`/<run>`. An extension is handed only its own directory, so the worktrees are
+/// there rather than beside the engine's state.
+pub(crate) fn layout(data_dir: &Path) -> crate::ProjectLayout {
+    crate::ProjectLayout::new(harnix_ext::engine::PROJECT_DIR, data_dir.join("worktrees"), BRANCH_PREFIX)
+}
+
 /// `spec`, with `set` applied when there is a value to set.
 pub(crate) fn spec_with<T>(
     spec: harnix_ext::SessionSpec,
@@ -455,6 +467,7 @@ impl FlowBuilder {
             main_scene: sh.cfg.main_scene.clone(),
             command_gates: sh.cfg.command_gates,
             projects: Some(sh.projects.clone()),
+            layout: OnceLock::new(),
         });
         let problems = crate::kernel::protocol::guard_problems(&self.guarded);
         let config_error = (!problems.is_empty()).then(|| {
@@ -494,6 +507,8 @@ struct CatalogPacks {
     command_gates: bool,
     /// Whose trust a project's own packs wait on; `None` for a project's view itself.
     projects: Option<Arc<crate::packs::ProjectTrust>>,
+    /// Where a project's own packs are, once the module has started.
+    layout: OnceLock<crate::ProjectLayout>,
 }
 
 impl CatalogPacks {
@@ -562,7 +577,7 @@ impl Packs for CatalogPacks {
     fn project(&self, root: &str) -> Option<Arc<dyn Packs>> {
         let trust = self.projects.as_ref()?;
         let base = self.inner.get()?.clone();
-        let view = crate::packs::ProjectPacks::new(base, root, trust.trusted(root));
+        let view = crate::packs::ProjectPacks::new(base, root, self.layout.get()?, trust.trusted(root));
         let inner = OnceLock::new();
         let _ = inner.set(Arc::new(view) as Arc<dyn Packs>);
         Some(Arc::new(CatalogPacks {
@@ -573,6 +588,7 @@ impl Packs for CatalogPacks {
             main_scene: self.main_scene.clone(),
             command_gates: self.command_gates,
             projects: None,
+            layout: OnceLock::new(),
         }))
     }
     fn withheld_flows(&self) -> Vec<(String, crate::Withheld)> {
@@ -677,13 +693,15 @@ impl Extension for Flow {
         if let Some(make) = lock(&self.lazy_packs).take() {
             let _ = self.packs.inner.set(make(cx.data_dir()));
         }
+        let layout = layout(cx.data_dir());
+        let _ = self.packs.layout.set(layout.clone());
         let packs: Arc<dyn Packs> = self.packs.clone();
         let mut engine = Engine::new(store, packs.clone())
             .with_lease_ms(self.sh.cfg.lease_ms)
             .with_guarded(self.sh.cfg.guarded.clone())
             .with_submit_scenes(self.sh.cfg.scenes.clone())
             .with_workspaces(cx.data_dir().join("workspaces"))
-            .with_worktrees(worktree::root(cx.data_dir()));
+            .with_layout(layout);
         if let Some(m) = &self.sh.cfg.main_scene {
             engine = engine.with_main_scene(m.clone());
         }
@@ -802,6 +820,7 @@ mod tests {
             main_scene: None,
             command_gates: false,
             projects: None,
+            layout: OnceLock::new(),
         };
         let _ = packs.inner.set(Arc::new(inner));
         packs
@@ -879,6 +898,7 @@ mod tests {
             main_scene: None,
             command_gates: false,
             projects: None,
+            layout: OnceLock::new(),
         };
         assert!(packs.flows().is_empty() && !packs.writable());
         let _ = packs.inner.set(Arc::new(MemPacks::new().writable()));

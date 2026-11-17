@@ -6,6 +6,11 @@
  */
 export type FlowDef = { 
 /**
+ * The definition format it is written in (`DEFINITION_FORMAT`); 1 when absent. A library
+ * that reads an older format refuses it whole.
+ */
+format?: number, 
+/**
  * `[a-z][a-z0-9-]*`; run ids are `<name>-<n>`.
  */
 name: string, title?: string, description?: string, 
@@ -69,7 +74,11 @@ export type MainSession = {
  * A wrapped `flow-*` scene (its tasks hand in with `flow_submit`); the module's main
  * scene when absent.
  */
-scene?: string | null, model?: string | null, provider?: string | null, instance?: string | null, template?: string | null, params?: { [key in string]: string }, space?: string | null, };
+scene?: string | null, model?: string | null, provider?: string | null, 
+/**
+ * How hard the model reasons ([`EFFORTS`]); the host's settings when absent.
+ */
+effort?: string | null, instance?: string | null, template?: string | null, params?: { [key in string]: string }, space?: string | null, };
 
 /**
  * A run parameter.
@@ -167,6 +176,10 @@ model?: string | null,
  * The provider of that model (`SessionSpec.provider`).
  */
 provider?: string | null, 
+/**
+ * How hard the model reasons ([`EFFORTS`]); the host's settings when absent.
+ */
+effort?: string | null, 
 /**
  * An instance that exists already, by name. Not with `template`.
  */
@@ -283,14 +296,22 @@ message?: string, };
 /**
  * A policy: a named set of permissions.
  */
-export type PolicyDef = { name: string, title?: string, description?: string, permissions: Array<Permission>, };
+export type PolicyDef = { 
+/**
+ * Its definition format (`DEFINITION_FORMAT`); 1 when absent.
+ */
+format?: number, name: string, title?: string, description?: string, permissions: Array<Permission>, };
 
 export type GateKind = "tool" | "command" | "host";
 
 /**
  * A gate: a named deterministic check a `gate` exit refers to.
  */
-export type GateDef = { name: string, title?: string, description?: string, kind: GateKind, 
+export type GateDef = { 
+/**
+ * Its definition format (`DEFINITION_FORMAT`); 1 when absent.
+ */
+format?: number, name: string, title?: string, description?: string, kind: GateKind, 
 /**
  * `tool`: the tool.
  */
@@ -326,7 +347,11 @@ export type HookKind = "webhook";
  * A hook: when an event of a run happens, tell something outside. No flow names a hook; one
  * put in the pack applies at once, and blocks nothing.
  */
-export type HookDef = { name: string, title?: string, description?: string, 
+export type HookDef = { 
+/**
+ * Its definition format (`DEFINITION_FORMAT`); 1 when absent.
+ */
+format?: number, name: string, title?: string, description?: string, 
 /**
  * Event kinds, or `prefix.*`; absent: every event.
  */
@@ -547,9 +572,29 @@ base: string,
 outcome?: WorktreeOutcome | null, };
 
 /**
+ * A session bound to a run's session key: the tasks of that key take their turns in it.
+ */
+export type BoundSession = { 
+/**
+ * The session, as the host names it (Harnix: `<instance>/<session id>`).
+ */
+id: string, 
+/**
+ * What the host opened it with — its scene, model, delivery…, as the host writes them: a
+ * later task of the key is not put in a session opened otherwise than it would open one.
+ * `null` when the host said nothing.
+ */
+opened_with?: Record<string, unknown> | null, };
+
+/**
  * One execution of a flow on one subject.
  */
-export type RunRecord = { id: string, flow: string, 
+export type RunRecord = { 
+/**
+ * The state format it is written in (`RUN_FORMAT`): a library that reads an older one
+ * refuses it.
+ */
+format: number, id: string, flow: string, 
 /**
  * Digest of the definition text the run was started from.
  */
@@ -572,9 +617,9 @@ rev: number,
 seq: number, created_at: number, created_by: Actor, finished_at?: number | null, parent?: ParentRef | null, stations: { [key in string]: StationRec }, 
 /**
  * Session key (`run` for `per_run`, the resolved key otherwise, `@main` for the main
- * session) → session id.
+ * session) → the session bound to it, and what it was opened with.
  */
-session_keys?: { [key in string]: string }, 
+session_keys?: { [key in string]: BoundSession }, 
 /**
  * Set while the run is paused (xops-03 §3): nothing new is entered or dispatched.
  */
@@ -602,10 +647,10 @@ output_dir?: string | null,
  */
 trigger: Trigger, 
 /**
- * A space the main session is shown in besides the flow's own (the start's
- * `show_in_space`): where the interface opens the task.
+ * Where else the main session is shown, as the host names the place (the start's
+ * `shown_in`; Harnix: a space besides the flow's own): where the interface opens the task.
  */
-show_in_space?: string | null, 
+shown_in?: string | null, 
 /**
  * Its worktree of the project, for a run that works in one (`workspace: worktree`): made at
  * start, and what became of it once the run was over. A child run holds its parent's.
@@ -658,9 +703,9 @@ dry?: boolean,
  */
 project_root?: string | null, workspace: Workspace, output_dir?: string | null, trigger: Trigger, 
 /**
- * Where its main session is shown besides the flow's space (`RunRecord::show_in_space`).
+ * Where else its main session is shown (`RunRecord::shown_in`).
  */
-show_in_space?: string | null, 
+shown_in?: string | null, 
 /**
  * Its worktree, branch and what became of them (`RunRecord::worktree`).
  */
@@ -766,9 +811,10 @@ trigger?: StartTrigger,
 /**
  * A space the run's main session is shown in besides the flow's own — the one the
  * interface that starts a task lists the project's sessions in — to be looked at and talked
- * to there (`harnix.session.expose`). Absent: shown nowhere else.
+ * to there (`harnix.session.expose`). Absent: shown nowhere else. `show_in_space`, its
+ * earlier name, is read too.
  */
-show_in_space?: string, 
+shown_in?: string, 
 /**
  * The conversation it was started from (`/flow` in a conversation): a card linking to the
  * run is written there (an entry `task_started`), and the conversation stays what it was.

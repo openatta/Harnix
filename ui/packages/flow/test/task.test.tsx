@@ -61,6 +61,7 @@ const summary = (over: Partial<RunSummary>): RunSummary => ({
 
 const view = (over: Partial<RunView["record"]> = {}, phase: RunView["phase"] = { state: "waiting", reason: "confirm" }): RunView => ({
   record: {
+    format: 1,
     id: "example-review-1",
     flow: "example-review",
     def_digest: "a",
@@ -76,7 +77,7 @@ const view = (over: Partial<RunView["record"]> = {}, phase: RunView["phase"] = {
     project_root: ROOT,
     output_dir: "flows/example-review-2026030201",
     trigger: { kind: "manual", by: { kind: "device", id: "d" } },
-    session_keys: { "@main": "main/main-1" },
+    session_keys: { "@main": { id: "main/main-1" } },
     stations: {
       review: { status: "passed", round: 1, rounds_total: 1, auto_reworks: 0, entered_at: 1, left_at: 2, tasks: [{ id: "review", status: "submitted", attempt: 1, output: { summary: "fine" } }], checks: [{ kind: "output", label: "output", round: 1, status: "pass", at: 2 }] },
       approve: { status: "working", round: 1, rounds_total: 1, auto_reworks: 0, entered_at: 2, tasks: [] },
@@ -389,8 +390,8 @@ describe("what waits on a person, and the overview's block", () => {
 });
 
 describe("opening a task", () => {
-  it("opens the main session where it is shown (show_in_space), in the space in front, and opens the tab; the flow space is left alone", async () => {
-    const fake = fakeHost({ "flow.get": view({ show_in_space: "sessions" }) });
+  it("opens the main session where it is shown (shown_in), in the space in front, and opens the tab; the flow space is left alone", async () => {
+    const fake = fakeHost({ "flow.get": view({ shown_in: "sessions" }) });
     const r = new Registry();
     r.register("space", { id: "projects", icon: "folder", title: () => "Projects" }, "harnix-app");
     const flows = registerFlowSpace(r, { host: fake.host });
@@ -421,7 +422,7 @@ describe("opening a task", () => {
   });
 
   it("the row's menu enters the flow space for any task, and the dialog starts a task shown in the space the projects space names", async () => {
-    const fake = fakeHost({ "flow.get": view({ show_in_space: "sessions" }), "flow.defs": DEFS, "flow.def": { def: DEF, yaml: "", digest: "a" }, "flow.start": { run: "example-review-2" } });
+    const fake = fakeHost({ "flow.get": view({ shown_in: "sessions" }), "flow.defs": DEFS, "flow.def": { def: DEF, yaml: "", digest: "a" }, "flow.start": { run: "example-review-2" } });
     const r = new Registry();
     r.activate("harnix-app", () => {
       r.definePoint(PROJECT_ITEMS, { kind: "register" });
@@ -448,13 +449,13 @@ describe("opening a task", () => {
     fireEvent.change(page.getByTestId("task-input-target").querySelector("input")!, { target: { value: "src/" } });
     fireEvent.click(page.getByTestId("task-start"));
     await settle();
-    expect(fake.calls.find(([m]) => m === "flow.start")?.[1]).toMatchObject({ project_root: ROOT, show_in_space: "sessions" });
+    expect(fake.calls.find(([m]) => m === "flow.start")?.[1]).toMatchObject({ project_root: ROOT, shown_in: "sessions" });
   });
 });
 
 describe("the 流程 tab", () => {
   it("draws the run the opener named; a run without params is the module's answer for the session", async () => {
-    const get = (p: unknown) => ((p as { run: string }).run === "example-review-1" ? view() : view({ id: "other", session_keys: { "@main": "main/main-9" } }));
+    const get = (p: unknown) => ((p as { run: string }).run === "example-review-1" ? view() : view({ id: "other", session_keys: { "@main": { id: "main/main-9" } } }));
     const fake = fakeHost({ "flow.get": get, "flow.runOf": (p: unknown) => ({ run: (p as { session_id: string }).session_id === "main-1" ? "example-review-1" : null }), "flow.sessions": { main: { instance: "main", session_id: "main-1" } } });
     const session = { instance: "main", sessionId: "main-1" };
     const page = render(
@@ -576,7 +577,7 @@ describe("the new-task dialog", () => {
     expect(start.disabled).toBe(false);
     fireEvent.click(start);
     await settle();
-    expect(fake.calls.find(([m]) => m === "flow.start")?.[1]).toEqual({ flow: "example-review", subject: "the repo", project_root: ROOT, inputs: { depth: 2, target: "src/" }, title: "Review src", show_in_space: "sessions" });
+    expect(fake.calls.find(([m]) => m === "flow.start")?.[1]).toEqual({ flow: "example-review", subject: "the repo", project_root: ROOT, inputs: { depth: 2, target: "src/" }, title: "Review src", shown_in: "sessions" });
     expect(close).toHaveBeenCalledWith(true);
     expect(started).toEqual([["example-review-2", "example-review"]]);
     // The flows a task of this project may run, the project's own among them.

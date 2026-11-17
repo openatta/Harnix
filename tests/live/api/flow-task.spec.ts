@@ -8,6 +8,9 @@
  * - `demo-outside` (`auto`) and `demo-outside-strict` (`strict`): the `outside` station's session
  *   writes `/tmp/harnix-flow-outside-probe.txt` under an unscoped `allow Write` — refused, saying
  *   why, under `auto`; held for a person under `strict`.
+ * - `demo-reserved` (`auto`): the `reserved` station's session writes `.harnix/notes.md` under an
+ *   `allow Write` over `${workspace}/**` — refused, saying why: the project's data directory is the
+ *   application's, outside what a task works in.
  *
  * - `demo-task` with `workspace: worktree`, in a project made a git repository: the same write lands
  *   in its worktree out of the project, on `harnix/flow/<run>`; merged, it is in the project;
@@ -16,7 +19,8 @@
  *
  * Session stations replay `flow-<station>`: `flow-write` calls `Write {file_path: notes.txt}` (a
  * relative path: the session's project) then `flow_submit {written: true}`; `flow-outside` calls
- * `Write` on the path above, then `flow_submit {tried: true}`.
+ * `Write` on the path above, then `flow_submit {tried: true}`; `flow-reserved` calls `Write {file_path:
+ * .harnix/notes.md}`, then `flow_submit {tried: true}`.
  */
 
 import { execFileSync } from "node:child_process";
@@ -126,10 +130,12 @@ test("a task's deliverables go in flows/<flow>-<date>01, its progress in .harnix
   expect(JSON.parse(readFileSync(join(dir, "stations", "write", "output.json"), "utf8"))).toEqual({ written: true });
   expect(JSON.parse(readFileSync(join(dir, "stations", "check", "context.json"), "utf8")).run).toBe(run);
   expect(readFileSync(join(dir, "stations", "check", "gate-task-check.log"), "utf8")).toContain("notes found");
-  // `runs/` is Harnix's line; the engine adds its own to the same file when it writes there.
+  // `runs/` is Harnix's one line; the engine adds its own to the same file when it writes there.
+  // The project's own flows (`flows/`) are committed, and worktrees are not in the project at all.
   const ignored = readFileSync(join(project, ".harnix", ".gitignore"), "utf8").split("\n");
   expect(ignored).toContain("runs/");
   expect(ignored).not.toContain("worktrees/");
+  expect(ignored).not.toContain("flows/");
   // Nothing else in the project: the engine's project tier is in the same `.harnix/`.
   expect(readdirSync(project).sort()).toEqual([".harnix", "flows", "notes.txt"]);
 });
@@ -158,6 +164,18 @@ test("under auto a write outside the project is refused, not asked, and the task
   expect(existsSync(PROBE)).toBe(false);
   const { messages } = await api.call("engine.session.history", ref(station(done, "outside").tasks[0].session));
   const refused = toolResults(messages).find((b: any) => JSON.stringify(b).includes("outside the task's project"));
+  expect(refused, JSON.stringify(toolResults(messages)).slice(0, 600)).toBeTruthy();
+  expect(refused.is_error).toBe(true);
+});
+
+test("a write into the project's .harnix is refused under auto, even under an allow over the whole workspace", TAGS, async () => {
+  const run = await start("demo-reserved");
+  const done = await until(run, (v) => v.record.status !== "active" || !!station(v, "reserved")?.tasks?.[0]?.asking, "the run finishes");
+  expect(station(done, "reserved").tasks[0].asking).toBeUndefined();
+  expect(done.record.status).toBe("finished");
+  expect(existsSync(join(project, ".harnix", "notes.md"))).toBe(false);
+  const { messages } = await api.call("engine.session.history", ref(station(done, "reserved").tasks[0].session));
+  const refused = toolResults(messages).find((b: any) => JSON.stringify(b).includes("the project's data directory"));
   expect(refused, JSON.stringify(toolResults(messages)).slice(0, 600)).toBeTruthy();
   expect(refused.is_error).toBe(true);
 });
@@ -197,9 +215,10 @@ test("a worktree task writes in its worktree, not the project's tree; merged, th
   const done = await until(run, (v) => v.record.status !== "active" || !!station(v, "write")?.tasks?.[0]?.asking, "the run finishes");
   expect(done.record.status).toBe("finished");
   const wt = done.record.worktree;
-  // Out of the project (the engine's own worktrees are in its `.harnix/worktrees/`), in Harnix's state.
+  // Out of the project (the engine's own worktrees are in its `.harnix/worktrees/`), in Harnix's state:
+  // the flow extension's data directory, on a branch apart from the engine's `harnix/worktree-*`.
   expect(wt).toMatchObject({ branch: `harnix/flow/${run}` });
-  expect(wt.path.endsWith(`/worktrees/${run}`)).toBe(true);
+  expect(wt.path.endsWith(`/ext/flow/data/worktrees/${run}`)).toBe(true);
   expect(wt.path.startsWith(`${project}/`)).toBe(false);
   expect(wt.outcome).toBeUndefined();
 

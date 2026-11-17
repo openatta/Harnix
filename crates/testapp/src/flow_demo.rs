@@ -17,6 +17,7 @@
 //! | `demo-asked` | xops-04: a main-session station whose policy asks a person before the write; a rule; a tool gate and a command gate |
 //! | `demo-task` | a task in a project (`guard: auto`): a session writes `notes.txt` into the project with no one asked, then a command gate finds it there |
 //! | `demo-outside` / `demo-outside-strict` | a write outside the project: refused under `auto`, asked of a person under `strict` |
+//! | `demo-reserved` | a write into the project's `.harnix/` under an `allow` over the whole workspace: refused, the directory is the application's |
 //!
 //! The pack also has (xops-04) the rule `review-rules`, the policy `ask-todo`, and the gates `lint`
 //! (the application's own check), `open-high` (a tool), `self-test` and `task-check` (commands:
@@ -30,7 +31,8 @@
 //! `flow-report`, `flow-propose`, `flow-write`, `flow-outside`): each calls `flow_submit` with a
 //! fixed output and ends its turn; `flow-propose` first calls `TodoWrite` — which this application
 //! guards as a write — and `flow_propose`; `flow-write` first writes `notes.txt` (relative: into the
-//! project), `flow-outside` first writes `/tmp/harnix-flow-outside-probe.txt`. A task with a
+//! project), `flow-outside` first writes `/tmp/harnix-flow-outside-probe.txt`, `flow-reserved`
+//! first writes `.harnix/notes.md` (relative: into the project's data directory). A task with a
 //! session key replays `flow-shared` instead: one turn per task,
 //! each handing in its own step. A run's main session replays `flow-main` (`demo-main`) or
 //! `flow-agent` (`demo-agent`).
@@ -222,6 +224,18 @@ stations:
     exit: [{kind: output}]
 "#;
 
+pub const DEMO_RESERVED: &str = r#"name: demo-reserved
+title: "Demo: a write into the project's data directory"
+permissions: [{effect: allow, tools: [Write], paths: ['${workspace}/**']}]
+stations:
+  - id: reserved
+    title: Try the data directory, then hand in
+    executor: {kind: session, scene: flow-harnix}
+    skill: write-reserved
+    output: {type: object, required: [tried], properties: {tried: {const: true}}}
+    exit: [{kind: output}]
+"#;
+
 pub const SKILL_WRITE_NOTES: &str = "---
 name: write-notes
 description: Write the task's notes into the project.
@@ -238,6 +252,15 @@ description: Try a write outside the project, then hand in.
 
 Use the Write tool once to create `/tmp/harnix-flow-outside-probe.txt` with the line `outside`.
 Whatever the answer, then hand in `{\"tried\": true}`.
+";
+
+pub const SKILL_WRITE_RESERVED: &str = "---
+name: write-reserved
+description: Try a write into the project's .harnix directory, then hand in.
+---
+
+Use the Write tool once to create `.harnix/notes.md` in the working directory with the line
+`reserved`. Whatever the answer, then hand in `{\"tried\": true}`.
 ";
 
 pub const GATE_TASK_CHECK: &str = "name: task-check
@@ -418,6 +441,7 @@ fn packs() -> MemPacks {
         .flow(DEMO_TASK)
         .flow(DEMO_OUTSIDE)
         .flow(DEMO_OUTSIDE_STRICT)
+        .flow(DEMO_RESERVED)
 }
 
 /// The skills, rules, policies and gates, and the catalog names they use.
@@ -426,6 +450,7 @@ fn parts(p: MemPacks) -> MemPacks {
         .skill("report", SKILL_REPORT)
         .skill("write-notes", SKILL_WRITE_NOTES)
         .skill("write-outside", SKILL_WRITE_OUTSIDE)
+        .skill("write-reserved", SKILL_WRITE_RESERVED)
         .rule("review-rules", RULE_REVIEW)
         .policy(POLICY_ASK_TODO)
         .gate_def(GATE_LINT)
@@ -506,6 +531,7 @@ mod tests {
             DEMO_TASK,
             DEMO_OUTSIDE,
             DEMO_OUTSIDE_STRICT,
+            DEMO_RESERVED,
         ] {
             let problems = validate_yaml(yaml, &packs as &dyn Packs);
             assert!(problems.is_empty(), "{problems:?}");

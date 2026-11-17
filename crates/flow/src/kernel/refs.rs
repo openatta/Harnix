@@ -28,18 +28,6 @@ pub fn workspace_of(root: &std::path::Path, run: &str) -> std::path::PathBuf {
     root.join(safe)
 }
 
-/// Where a run's worktree is under the application's worktrees, outside every project:
-/// `<root>/<run>` (the run's id made safe as a name, as [`workspace_of`]).
-pub fn worktree_dir(root: &std::path::Path, run: &str) -> std::path::PathBuf {
-    workspace_of(root, run)
-}
-
-/// The branch a run's worktree is on: `<prefix>/<run>` (the run's id made safe as a name).
-pub fn worktree_branch(prefix: &str, run: &str) -> String {
-    let dir = workspace_of(std::path::Path::new(""), run);
-    format!("{prefix}/{}", dir.to_string_lossy())
-}
-
 /// A station's output as downstream sees it: a single task's output; `{task id: output}`
 /// for static tasks; an array in item order for `foreach`; `null` for a checkpoint.
 pub fn station_output(def: &FlowDef, run: &RunRecord, station: &str) -> Value {

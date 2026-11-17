@@ -52,6 +52,7 @@ const INFO: DefInfo = {
 
 const DRY: RunView = {
   record: {
+    format: 1,
     id: "dry-example-review-1",
     flow: "example-review",
     def_digest: "aaaa1111",
@@ -192,7 +193,7 @@ describe("what is selected on the right is what the middle talks to", () => {
   it("a run: its main session; the tab in front decides; the reference tab is the general conversation", async () => {
     const fake = fakeHost({
       "flow.session": conversations,
-      "flow.get": { record: { id: "example-review-1", flow: "example-review", session_keys: { "@main": "main/main-1" } } },
+      "flow.get": { record: { id: "example-review-1", flow: "example-review", session_keys: { "@main": { id: "main/main-1" } } } },
     });
     const state = new FlowSpaceState();
     state.attach(fake.host);
@@ -452,7 +453,7 @@ const LIVE: RunView = {
     id: "example-review-1",
     subject: "repo",
     created_at: 1_000,
-    session_keys: { "@main": "main/main-1" },
+    session_keys: { "@main": { id: "main/main-1" } },
     stations: {
       review: { status: "passed", round: 1, rounds_total: 1, auto_reworks: 0, entered_at: 1_000, left_at: 4_000, tasks: [{ id: "review", status: "submitted", attempt: 1, started_at: 1_000, ended_at: 4_000, usage: usage(1500) }] },
       approve: { status: "working", round: 1, rounds_total: 1, auto_reworks: 0, entered_at: 4_000, tasks: [] },
@@ -908,7 +909,7 @@ describe("the space of its own, and its left column (FlowSidebar)", () => {
   });
 
   it("entered on a run: the runs tab opened, its main session in the middle; closing the panel keeps the run, the flow picked again shows the flow", async () => {
-    const { fake, flows, space } = elsewhere({ "flow.get": { record: { id: "r-1", flow: "example-review", session_keys: { "@main": "main/main-1" } } } });
+    const { fake, flows, space } = elsewhere({ "flow.get": { record: { id: "r-1", flow: "example-review", session_keys: { "@main": { id: "main/main-1" } } } } });
     await act(() => flows.state.enter("example-review", "r-1"));
     await settle();
     expect(fake.host.details.open).toHaveBeenCalledWith("flow.runs");
@@ -949,7 +950,7 @@ describe("the space of its own, and its left column (FlowSidebar)", () => {
   });
 
   it("the left column: the general conversation, every flow, the selected one's own runs under it; a pick brings the right column's list along; the way back only from elsewhere", async () => {
-    const { fake, flows, r } = elsewhere({ "flow.get": { record: { id: "example-review-1", flow: "example-review", session_keys: { "@main": "main/main-1" } } } });
+    const { fake, flows, r } = elsewhere({ "flow.get": { record: { id: "example-review-1", flow: "example-review", session_keys: { "@main": { id: "main/main-1" } } } } });
     fake.push("flow.defs", {}, DEFS);
     fake.push("flow.runs", {}, [
       { id: "example-review-1", flow: "example-review", subject: "repo", status: "active", created_at: 2 },

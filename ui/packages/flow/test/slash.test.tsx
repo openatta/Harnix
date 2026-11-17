@@ -122,7 +122,7 @@ describe("/flow", () => {
       flow: "says-ready",
       subject: "fix the login bug",
       project_root: ROOT,
-      show_in_space: "sessions",
+      shown_in: "sessions",
       from_session: { instance: "main", session_id: "c1", space: "sessions" },
     });
     expect(fake.dialogs).toHaveLength(0);
@@ -141,7 +141,7 @@ describe("/flow", () => {
     fireEvent.change(page.getByTestId("task-input-target").querySelector("input")!, { target: { value: "src/" } });
     fireEvent.click(page.getByTestId("task-start"));
     await settle();
-    expect(fake.calls.find(([m]) => m === "flow.start")?.[1]).toMatchObject({ flow: "needs-target", subject: "the api", project_root: ROOT, show_in_space: "sessions", from_session: { session_id: "c1", space: "sessions" } });
+    expect(fake.calls.find(([m]) => m === "flow.start")?.[1]).toMatchObject({ flow: "needs-target", subject: "the api", project_root: ROOT, shown_in: "sessions", from_session: { session_id: "c1", space: "sessions" } });
     // The conversation stays in front: the task is the card's to open.
     expect(fake.host.session.open).not.toHaveBeenCalled();
     cleanup();

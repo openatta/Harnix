@@ -21,9 +21,10 @@ crates/flow/
   src/packs.rs         MemPacks、DirPacks、ProjectPacks
   src/dryrun.rs        试运行：内核放在沙箱里，外面的一切都是假的
   src/wire.rs          库自己的行（DefRow）
+  packs/examples/      一个示例流程包（example-review）：拷走库的宿主能加载、校验、跑它；Harnix 把它编进应用
   docs/guide.*.md      流程指南（GUIDE_EN、GUIDE_ZH 就是它）
   docs/embed.*.md      本文
-  tests/               内核的测试，以及 surface.rs、deps.rs 两个守卫
+  tests/               内核的测试，surface.rs、deps.rs 两个守卫，以及 golden.rs 和它在 tests/golden/ 下的金样运行
   examples/demo_seed.rs  用真内核把几个演示流程跑到几种状态，写进一个 FileStore
 ```
 
@@ -66,7 +67,7 @@ Feature：只有 `ts`（缺省关）——给定义、运行记录这些类型�
 | `Clock` | 现在几点 | `SystemClock`、`FixedClock`、`ManualClock`（测试） |
 
 `Engine::new(store, packs)` 建引擎，`with_authorizer`、`with_tools`、`with_clock`、`with_lease_ms`、`with_retries`、
-`with_guarded`、`with_submit_scenes`、`with_main_scene`、`with_workspaces` 配它。每个操作（`create`、`submit`、`confirm`、
+`with_guarded`、`with_submit_scenes`、`with_main_scene`、`with_workspaces`、`with_layout` 配它。每个操作（`create`、`submit`、`confirm`、
 `tick`……）读、算、按 rev 提交，成功之后才交回一个 `Outcome { value, events, work, bookkeeping }`：
 
 - `events`：发生了什么（`EVENT_KINDS` 是全部的种类），宿主转给它的订阅者；
@@ -77,6 +78,34 @@ Feature：只有 `ts`（缺省关）——给定义、运行记录这些类型�
 这一版里，派发 `WorkItem::Task`（开会话、发 skill、收交付、按权限答审批）、跑 `command` 门禁、投递钩子都还是宿主的事；
 Harnix 的做法在 `crates/ext/flow/src/module/`。`Gates`、`Programs` 由宿主在执行工作项时自己调，不交给 `Engine`。
 
+### 它在项目里写在哪：`ProjectLayout`
+
+库没有自己的项目数据目录名，也不知道 worktree 放哪：由宿主给，`ProjectLayout { dir, worktrees_root, branch_prefix }`
+（`Engine::with_layout`；没有缺省值）。Harnix 给的是 `.harnix`、流程扩展数据目录下的 `worktrees`、`harnix/flow`。
+
+```text
+<项目>/<dir>/flows/          项目自己的流程包，随项目提交（ProjectPacks::new 收这个布局；项目受信才读）
+<项目>/<dir>/runs/<运行>/    运行的过程目录；`<dir>/.gitignore` 只加一行 `runs/`
+<worktrees_root>/<运行>/     运行的 worktree，在所有项目之外，分支 <branch_prefix>/<运行>
+```
+
+项目数据目录可以和别人共用——Harnix 的 `.harnix` 也是它的引擎放设置、记忆、引擎自己的 worktree 的地方——所以库在里面只用
+`flows/` 和 `runs/`，`.gitignore` 只加自己那一行，worktree 不放进去。
+
+判定一次调用（`judge_under`）时还要给出「在项目里、但算项目外」的目录（`Call::reserved`；`ProjectLayout::reserved(root)`
+给的就是项目数据目录）：任务的工具碰不得，除非有一条 `allow` 的 `paths` 指到它里面——写 `${workspace}/**` 的不算。宿主自己
+往那里写的东西（编写工具存的流程、过程目录）不经判定。
+
+### 会话是怎么开的
+
+会话工作项的 `WorkItem::Task` 带一个 `Placement`：模型、provider、`effort`（模型推理多用力，取值见 `EFFORTS`；不写随宿主的
+设置），以及会话放哪（`instance`、`template`、`params`、`space`——宿主自己解释的名字；不认识的宿主要拒开，不能悄悄忽略）。
+宿主照它开会话，再告诉内核开的时候用了什么：`attach_session(.., session_key, opened_with, ..)`、`attach_main(run, session,
+opened_with)`。运行把它记在键上（`BoundSession { id, opened_with }`）：同一个键后来的工作项先和它比对，一样才在那个会话里做。
+`opened_with` 是宿主自己的 JSON，内核只负责记着。
+
+`CreateIn::shown_in` 是宿主还把运行的主会话展示在哪——宿主起名的地方（Harnix：流程的 space 之外的一个 space）；内核把它记在运行上。
+
 试运行（`Sandbox::new(packs, config)`）只要流程包：真内核跑在内存里（`MemStore`），会话、程序、门禁、工具一个都不调，结果由调用方模拟（`Mocks`）或取契约的示例。
 
 ## 3. 版本与格式
@@ -85,15 +114,20 @@ Harnix 的做法在 `crates/ext/flow/src/module/`。`Gates`、`Programs` 由宿�
 |---|---|---|---|
 | `FLOW_API_VERSION` | `1` | `src/lib.rs` | 库的 Rust 接口有破坏性变化：宿主实现的 trait、它们交出的类型、根上的名字、存储与流程包的构造。`tests/surface.rs` 守着这几张表 |
 | `DEFINITION_FORMAT` | `1` | `src/lib.rs` | 流程定义与件的格式语义变了。只加带缺省的字段不升（定义拒收不认识的字段，旧库读到新字段会清楚地报错） |
-| `RUN_FORMAT` | `1` | `src/lib.rs` | 运行记录、历史、运行 id 的格式变了 |
+| `RUN_FORMAT` | `1` | `src/lib.rs` | 运行记录、历史、运行 id 的格式变了。`tests/golden.rs` 留着几个运行的记录与历史，跟着一起变 |
 
-两个格式号这一版只声明，还没写进定义或记录；没写的就是格式 1。
+写在哪：
+
+- 定义和每个件可以写 `format: N`（不写就是 1，1 也不写回去）。号大于 `DEFINITION_FORMAT` 的整份拒读——校验先说它要哪个格式，
+  不去报本库不认识的字段——`0` 或不是数字的不算格式；
+- 每条运行记录带 `format`。`FileStore` 在目录里写进第一个运行时一并写 `FORMAT` 文件（`1`）；`FORMAT` 大于 `RUN_FORMAT` 的目录、
+  有运行却没有 `FORMAT` 的目录（格式还没记下来时写的）每次调用都拒，并说明原因；格式更大的单条记录单独拒。不会只读一半。
 
 承诺：
 
 1. 公开面只做加法；加的东西在下面的版本一节记一条，同时加进 `tests/surface.rs` 的表。
 2. 删、改名、改签名才升 `FLOW_API_VERSION`，并在版本一节写清宿主要怎么改。
-3. 格式升号时写清哪些字段变了、宿主该怎么办；不提供自动迁移的代码（宿主清掉旧数据，或自己迁）。
+3. 同一个格式号里只加带缺省的字段；改名、删字段就升号。升号时写清哪些字段变了、宿主该怎么办，金样运行一起变；不提供自动迁移的代码（宿主清掉旧数据，或自己迁）。
 
 ## 4. 怎么拷走
 
@@ -112,7 +146,20 @@ Harnix 的做法在 `crates/ext/flow/src/module/`。`Gates`、`Programs` 由宿�
 
 ### `FLOW_API_VERSION = 1`
 
-库的第一版：内核、存储、流程包、试运行从 `harnix-ext-flow` 搬出来，接口与行为照旧；`DEFINITION_FORMAT = 1`、`RUN_FORMAT = 1`。
+库的第一版：内核、存储、流程包、试运行从 `harnix-ext-flow` 搬出来；`DEFINITION_FORMAT = 1`、`RUN_FORMAT = 1`。首次发布之前，
+这一版里还有：
 
-迁移：无。从 `harnix-ext-flow` 用过来的宿主，`harnix_ext_flow::X` 仍然可用（它转出了整个库）；直接依赖本库的写
-`harnix_flow::X`。
+- **`ProjectLayout`**（新，在根上）：项目数据目录、worktree 的根和分支前缀，由宿主给——`Engine::with_layout`（代替
+  `with_worktrees`）、`Engine::layout`；`project_pack_dir(root, &layout)`、`ProjectPacks::new(base, root, &layout, trusted)` 收它。
+  `.gitignore` 只写 `runs/`；worktree 不再放在项目里。
+- **`Call::reserved`**：判定调用时，根里面算作根外面的目录。
+- **格式写下来了**：`FlowDef`、`PolicyDef`、`GateDef`、`HookDef`、`RunRecord` 的 `format`；`FileStore` 的 `FORMAT` 文件，没有它的
+  运行目录不再读。
+- **`shown_in`** 代替 `show_in_space`（`CreateIn`、`RunRecord`、`RunSummary`）。
+- **`BoundSession { id, opened_with }`**（新，在根上）：`RunRecord::session_keys` 里键对应的不再是光秃秃的会话 id；
+  `attach_session`、`attach_main` 多收 `opened_with`。
+- **`effort`**：会话执行者、`MainSession`、`Placement` 上；`EFFORTS`（新，在根上）。
+- 示例流程包（`packs/examples`）和金样运行（`tests/golden.rs`）。
+
+迁移：从 `harnix-ext-flow` 用过来的宿主，`harnix_ext_flow::X` 仍然可用（它转出了整个库）；直接依赖本库的写 `harnix_flow::X`。
+这些改动之前写下的运行状态不再读：`show_in_space` 和光秃秃的会话 id 没有了，没有 `FORMAT` 的存储目录会被拒——清掉，或自己迁。

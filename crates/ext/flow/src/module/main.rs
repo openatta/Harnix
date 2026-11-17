@@ -17,11 +17,11 @@
 
 use std::sync::Arc;
 
-use harnix_ext::{Entry, Exposure, SessionRef, SessionSpec, TapEvent};
+use harnix_ext::{Exposure, SessionRef, SessionSpec, TapEvent};
 use serde_json::{json, Value};
 
 use super::dispatch::settle_quiet;
-use super::session::{place_at, SESSION_SETTINGS, TASK_PERMISSION_MODE};
+use super::session::{place_at, TASK_PERMISSION_MODE};
 use super::shared::{session_name, session_ref, Binding, Shared};
 use crate::kernel::def::MAIN_SESSION_KEY;
 use crate::kernel::def::Guard;
@@ -37,7 +37,7 @@ pub(crate) fn main_lock(run: &str) -> String {
 pub(crate) fn main_settings(scene: &str, p: &crate::Placement, instance: Option<&str>) -> Value {
     json!({
         "scene": scene, "delivery": crate::Delivery::FlowSubmit, "main": true,
-        "model": p.model, "provider": p.provider, "space": p.space, "template": p.template,
+        "model": p.model, "provider": p.provider, "effort": p.effort, "space": p.space, "template": p.template,
         "instance": instance.map(String::from).or_else(|| p.instance.clone()),
     })
 }
@@ -86,6 +86,7 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
     let spec = super::spec_with(spec, project_root, |s, v| s.project_root(v));
     let spec = super::spec_with(spec, placement.model.clone(), |s, v| s.model(&v));
     let spec = super::spec_with(spec, placement.provider.clone(), |s, v| s.provider(&v));
+    let spec = super::spec_with(spec, placement.effort.clone(), |s, v| s.effort(&v));
     let spec = super::spec_with(spec, recording, |s, v| s.recording(&v));
     let s = cx
         .sessions()
@@ -95,15 +96,11 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
     // A task started from where a project's sessions are listed is shown there too, to be talked
     // to: the session stays the flow's, in the flow's space. A space the application does not
     // have is the hub's to refuse; the run goes on, and the task opens from the flow's side.
-    if let Some(shown) = rec.show_in_space.as_deref().filter(|shown| *shown != space) {
+    if let Some(shown) = rec.shown_in.as_deref().filter(|shown| *shown != space) {
         if let Err(e) = cx.sessions().expose(&s, shown, Exposure::interactive()).await {
             tracing::warn!(run, space = shown, error = %e.message, "the main session is not shown in the space the start named");
         }
     }
-    let _ = cx
-        .sessions()
-        .append_entry(&s, Entry::new(SESSION_SETTINGS, wanted))
-        .await;
     let title = main_title(&rec);
     let _ = cx
         .call(
@@ -111,7 +108,7 @@ pub(crate) async fn open_or_make(sh: &Arc<Shared>, run: &str) -> Result<SessionR
             json!({"instance": s.instance, "session_id": s.session_id, "name": title}),
         )
         .await;
-    let attached = engine.attach_main(run, &session_name(&s)).await;
+    let attached = engine.attach_main(run, &session_name(&s), wanted).await;
     settle_quiet(sh, run, attached).await;
     Ok(s)
 }
@@ -180,7 +177,7 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: bool, mut
     // `strict` a question about any other tool is the engine's own, and a person's to answer;
     // under `auto` the engine's own questions of a task's turn (a write it holds back on its own:
     // `.git`, outside the project) are answered by the same rules.
-    let (asked, judging) = match sh.engine() {
+    let (asked, judging, layout) = match sh.engine() {
         Ok(e) => match e.record(run).await {
             Ok(rec) => (
                 crate::kernel::parts::asked_tools(&rec.def, &rec.parts.policies, &sh.cfg.guarded),
@@ -188,7 +185,9 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: bool, mut
                     guard: rec.def.guard,
                     workspace: e.workspace_for(&rec).and_then(|p| p.to_str().map(String::from)),
                     root: None,
+                    reserved: vec![],
                 },
+                e.layout().cloned(),
             ),
             Err(_) => return,
         },
@@ -203,10 +202,13 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: bool, mut
             .and_then(|v| v.get("project_root").and_then(Value::as_str).map(String::from)),
         None => None,
     };
-    let judging = Judging {
-        root: root.or_else(|| judging.workspace.clone()),
-        ..judging
+    let root = root.or_else(|| judging.workspace.clone());
+    // The project's data directory there is the application's: outside what the task works in.
+    let reserved = match (&layout, &root) {
+        (Some(l), Some(r)) => l.reserved(r),
+        _ => vec![],
     };
+    let judging = Judging { root, reserved, ..judging };
     // Turn → the task it was started for: read when the turn's first frame comes, while that
     // task is in hand (by its settlement it has often handed in and been let go).
     let mut turns: std::collections::HashMap<String, Option<Binding>> =
@@ -416,6 +418,8 @@ pub(crate) struct Judging {
     pub guard: Guard,
     pub workspace: Option<String>,
     pub root: Option<String>,
+    /// The project's data directory in the root (`ProjectLayout::reserved`).
+    pub reserved: Vec<String>,
 }
 
 /// Whether the module answers a question of a task's turn: one about a tool the flow asks about;
@@ -448,6 +452,7 @@ pub(crate) fn verdict(sh: &Shared, b: &Binding, prompt: &Value, input: Option<&V
             paths: &paths,
             workspace: j.workspace.as_deref(),
             root: j.root.as_deref(),
+            reserved: &j.reserved,
         },
         &b.station,
     )
@@ -531,7 +536,7 @@ mod tests {
     #[test]
     fn under_auto_every_permission_question_of_a_task_is_answered_and_under_strict_only_the_asked_ones() {
         let asked = vec!["Write".to_string()];
-        let j = |guard| Judging { guard, workspace: None, root: None };
+        let j = |guard| Judging { guard, workspace: None, root: None, reserved: vec![] };
         let about = |tool: &str| json!({"kind": "prompt", "prompt_type": "permission", "tool_name": tool});
         assert!(answers(&j(Guard::Strict), &asked, &about("Write")));
         assert!(!answers(&j(Guard::Strict), &asked, &about("Read")), "the engine's own: a person's");

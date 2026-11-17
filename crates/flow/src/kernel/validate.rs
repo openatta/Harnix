@@ -88,6 +88,10 @@ pub fn validate(def: &FlowDef, packs: &dyn Packs) -> Vec<Problem> {
         catalog: packs.catalog(),
         out: vec![],
     };
+    if let Some(why) = super::def::format_problem(u64::from(def.format), "flow") {
+        c.flow(why);
+        return c.out;
+    }
     if !is_name(&def.name, &[]) {
         c.flow(format!("name {:?} must match [a-z][a-z0-9-]*", def.name));
     } else if def.name.starts_with(DRY_PREFIX) {
@@ -164,6 +168,7 @@ struct SessionSettings {
     output: Option<Value>,
     model: Option<String>,
     provider: Option<String>,
+    effort: Option<String>,
     instance: Option<String>,
     template: Option<String>,
     params: BTreeMap<String, String>,
@@ -182,6 +187,9 @@ impl SessionSettings {
         }
         if self.model != o.model || self.provider != o.provider {
             d.push("model");
+        }
+        if self.effort != o.effort {
+            d.push("effort");
         }
         if self.instance != o.instance
             || self.template != o.template
@@ -210,6 +218,7 @@ fn shared_session_problems(c: &mut Ctx) {
                 scene,
                 model,
                 provider,
+                effort,
                 instance,
                 template,
                 params,
@@ -235,6 +244,7 @@ fn shared_session_problems(c: &mut Ctx) {
                 },
                 model: model.clone(),
                 provider: provider.clone(),
+                effort: effort.clone(),
                 instance: instance.clone(),
                 template: template.clone(),
                 params: params.clone(),
@@ -484,6 +494,7 @@ fn executor_problems(c: &mut Ctx, id: &str, t: &TaskSpec) {
             scene,
             model,
             provider,
+            effort,
             instance,
             template,
             params,
@@ -493,6 +504,7 @@ fn executor_problems(c: &mut Ctx, id: &str, t: &TaskSpec) {
             let placed = !scene.is_empty()
                 || model.is_some()
                 || provider.is_some()
+                || effort.is_some()
                 || instance.is_some()
                 || template.is_some()
                 || !params.is_empty()
@@ -526,11 +538,15 @@ fn executor_problems(c: &mut Ctx, id: &str, t: &TaskSpec) {
             session,
             model,
             provider,
+            effort,
             instance,
             template,
             params,
             space,
         } => {
+            if let Some(why) = effort_problem(effort.as_deref()) {
+                c.at(id, format!("session task {}: {why}", t.id));
+            }
             if scene.trim().is_empty() {
                 c.at(id, format!("session task {} needs a scene", t.id));
             } else if !c.catalog.scenes.contains(scene) {
@@ -657,6 +673,9 @@ fn main_problems(c: &mut Ctx) {
             c.flow(format!("main.{what} is empty"));
         }
     }
+    if let Some(why) = effort_problem(m.effort.as_deref()) {
+        c.flow(format!("main: {why}"));
+    }
     if m.instance.is_some() && m.template.is_some() {
         c.flow("main: name an instance or a template, not both");
     }
@@ -676,6 +695,12 @@ fn main_problems(c: &mut Ctx) {
     if let Some(s) = check(&c.catalog.spaces, &m.space) {
         c.flow(format!("main: space {s} is not in the catalog"));
     }
+}
+
+/// An `effort` that is not one of [`super::def::EFFORTS`], said.
+fn effort_problem(effort: Option<&str>) -> Option<String> {
+    let e = effort?;
+    (!super::def::EFFORTS.contains(&e)).then(|| format!("effort {e:?} is not one of {}", super::def::EFFORTS.join(", ")))
 }
 
 fn placement_problems(c: &mut Ctx, id: &str, task: &str, p: Placed) {
@@ -949,7 +974,7 @@ pub fn part_problems(kind: PartKind, name: &str, text: &str, packs: &dyn Packs) 
                 out.push("it is empty".to_string());
             }
         }
-        PartKind::Policy => match serde_yaml::from_str::<PolicyDef>(text) {
+        PartKind::Policy => match super::def::parse_part::<PolicyDef>(text, "policy") {
             Err(e) => out.push(format!("not a policy: {e}")),
             Ok(p) => {
                 named(&p.name, &mut out);
@@ -963,14 +988,14 @@ pub fn part_problems(kind: PartKind, name: &str, text: &str, packs: &dyn Packs) 
                 }
             }
         },
-        PartKind::Gate => match serde_yaml::from_str::<GateDef>(text) {
+        PartKind::Gate => match super::def::parse_part::<GateDef>(text, "gate") {
             Err(e) => out.push(format!("not a gate: {e}")),
             Ok(g) => {
                 named(&g.name, &mut out);
                 out.extend(gate_problems(&g, &packs.catalog()));
             }
         },
-        PartKind::Hook => match serde_yaml::from_str::<HookDef>(text) {
+        PartKind::Hook => match super::def::parse_part::<HookDef>(text, "hook") {
             Err(e) => out.push(format!("not a hook: {e}")),
             Ok(h) => {
                 named(&h.name, &mut out);

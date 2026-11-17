@@ -46,6 +46,7 @@ const DEF: FlowDef = {
 function view(stations: Record<string, StationRec>, status: "active" | "finished" = "active"): RunView {
   return {
     record: {
+      format: 1,
       id: "r1",
       flow: "demo-review",
       def_digest: "d",

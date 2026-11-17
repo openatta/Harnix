@@ -69,15 +69,15 @@ test("its example dry-runs to the approval and finishes once approved; a saved c
   expect(await api.call("flow.delete", { name: "example-review" })).toMatchObject({ origin: "builtin" });
 });
 
-test("a task started with show_in_space has its main session shown in that space, to be talked to, and flow.runOf finds the run from the session", TAGS, async () => {
+test("a task started with shown_in has its main session shown in that space, to be talked to, and flow.runOf finds the run from the session", TAGS, async () => {
   const { path } = await api.call("harnix-app.projects.create", { name: `shown-${Date.now()}` });
-  const { run } = await api.call("flow.start", { flow: "example-review", subject: "the repo", project_root: path, show_in_space: "sessions" });
-  expect((await api.call("flow.get", { run })).record.show_in_space).toBe("sessions");
-  expect((await api.call("flow.list", { project: path })).find((s: any) => s.id === run)).toMatchObject({ show_in_space: "sessions" });
+  const { run } = await api.call("flow.start", { flow: "example-review", subject: "the repo", project_root: path, shown_in: "sessions" });
+  expect((await api.call("flow.get", { run })).record.shown_in).toBe("sessions");
+  expect((await api.call("flow.list", { project: path })).find((s: any) => s.id === run)).toMatchObject({ shown_in: "sessions" });
   // The main session is opened a moment after the start.
   let main: string | undefined;
   for (let i = 0; i < 60 && !main; i++) {
-    main = (await api.call("flow.get", { run })).record.session_keys?.["@main"];
+    main = (await api.call("flow.get", { run })).record.session_keys?.["@main"]?.id;
     if (!main) await new Promise((r) => setTimeout(r, 500));
   }
   expect(main, "the main session is opened").toBeTruthy();
@@ -96,7 +96,9 @@ test("a task started with show_in_space has its main session shown in that space
   expect(await api.call("flow.runOf", { instance, session_id: "no-such-session" })).toEqual({ run: null });
   // A start that names no space shows the session nowhere else.
   const { run: plain } = await api.call("flow.start", { flow: "example-review", subject: "again", project_root: path });
-  expect((await api.call("flow.get", { run: plain })).record.show_in_space).toBeUndefined();
+  expect((await api.call("flow.get", { run: plain })).record.shown_in).toBeUndefined();
+  expect((await api.refused("flow.start", { flow: "example-review", subject: "x", project_root: path, shown_in: "not a space!" }))?.code).toBe(INVALID_PARAMS);
+  // Its earlier name, `show_in_space`, is still read: checked the same.
   expect((await api.refused("flow.start", { flow: "example-review", subject: "x", project_root: path, show_in_space: "not a space!" }))?.code).toBe(INVALID_PARAMS);
   await api.call("flow.cancel", { run, reason: "done" }).catch(() => undefined);
   await api.call("flow.cancel", { run: plain, reason: "done" }).catch(() => undefined);

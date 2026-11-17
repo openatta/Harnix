@@ -18,6 +18,7 @@
 //! kernel/output.rs    the output directory's template
 //! kernel/run.rs       the run record (snapshot + history) and its JSON Schema
 //! kernel/host.rs      what the host implements; events, work items, outcomes
+//! kernel/layout.rs    where the host keeps what the library writes for a project
 //! kernel/engine.rs    every operation: load → compute → commit against revs
 //! kernel/parts.rs     rules, policies and permissions, gates, hooks; judging a call
 //! kernel/protocol.rs  the protocol layer put before a session task's skill
@@ -34,12 +35,13 @@
 /// a change that breaks a host; additions leave it.
 pub const FLOW_API_VERSION: u32 = 1;
 
-/// The format a flow definition and its parts are read in. Not yet written into a definition: a
-/// file without one is this format.
+/// The format a flow definition and its parts are read in: their optional `format:` (1 when
+/// absent). One written in a later format is refused whole.
 pub const DEFINITION_FORMAT: u32 = 1;
 
-/// The format of the run records, their histories and the run ids a store keeps. Not yet written
-/// into a record or a store: one without it is this format.
+/// The format of the run records, their histories and the run ids a store keeps: each record's
+/// `format`, and the `FORMAT` file of a [`FileStore`]'s directory. A store or record of a later
+/// format is refused, not read in part.
 pub const RUN_FORMAT: u32 = 1;
 
 pub mod dryrun;
@@ -52,7 +54,7 @@ pub use dryrun::{Mocks, Sandbox};
 pub use kernel::def::{
     definition_schema, Assert, Executor, ExitCond, FlowDef, Guard, InputDef, MainSession,
     OnUnmet, Retry, SessionBinding, Station, TaskSpec, Work, DEFAULT_OUTPUT_DIR, DEFAULT_REWORK_LIMIT,
-    MAIN_SESSION_KEY, MAX_REWORK_LIMIT,
+    EFFORTS, MAIN_SESSION_KEY, MAX_REWORK_LIMIT,
 };
 pub use kernel::engine::{
     view, worktree_may_end, CreateIn, Engine, Prepared, DEFAULT_LEASE_MS, DEFAULT_RETRIES, MAX_LEASE_MS, MAX_SUBFLOW_DEPTH,
@@ -62,13 +64,14 @@ pub use kernel::host::{
     GateResult, Gates, ManualClock, NoTools, Op, Origin, Outcome, Packs, Placement,
     Programs, RunStore, StoreError, SystemClock, Tools, Withheld, WorkItem, EVENT_KINDS,
 };
+pub use kernel::layout::ProjectLayout;
 pub use kernel::parts::{
     glob, judge, judge_under, part_schema, permissions_of, rules_of, Call, Effect, GateDef, GateKind, Granted,
     HookDef, HookKind, PartKind, Permission, Pinned, PolicyDef, Verdict,
 };
 pub use kernel::protocol::{agent_tag, ask_rules, skill_body, STRUCTURED_OUTPUT_TOOL};
 pub use kernel::run::{
-    run_schema, Actor, CheckRec, CheckStatus, ConfirmRec, ForcedRec, History, Lease, ParentRef,
+    run_schema, Actor, BoundSession, CheckRec, CheckStatus, ConfirmRec, ForcedRec, History, Lease, ParentRef,
     AskRec, PauseRec, Phase, RunQuery, RunRecord, RunStatus, RunSummary, RunView, StationRec,
     StationStatus, TaskRec, TaskStatus, Trigger, Usage, Workspace, WorktreeEnd, WorktreeOutcome,
     WorktreeRec, AGENT_KIND, DEVICE_KIND, FLOW_KIND,

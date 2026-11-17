@@ -410,10 +410,28 @@ pub struct ParentRef {
     pub task: String,
 }
 
+/// A session bound to a run's session key: the tasks of that key take their turns in it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct BoundSession {
+    /// The session, as the host names it (Harnix: `<instance>/<session id>`).
+    pub id: String,
+    /// What the host opened it with — its scene, model, delivery…, as the host writes them: a
+    /// later task of the key is not put in a session opened otherwise than it would open one.
+    /// `null` when the host said nothing.
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown> | null"))]
+    pub opened_with: Value,
+}
+
 /// One execution of a flow on one subject.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct RunRecord {
+    /// The state format it is written in (`RUN_FORMAT`): a library that reads an older one
+    /// refuses it.
+    #[serde(default = "super::def::first_format")]
+    pub format: u32,
     pub id: String,
     pub flow: String,
     /// Digest of the definition text the run was started from.
@@ -443,9 +461,9 @@ pub struct RunRecord {
     pub parent: Option<ParentRef>,
     pub stations: BTreeMap<String, StationRec>,
     /// Session key (`run` for `per_run`, the resolved key otherwise, `@main` for the main
-    /// session) → session id.
+    /// session) → the session bound to it, and what it was opened with.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub session_keys: BTreeMap<String, String>,
+    pub session_keys: BTreeMap<String, BoundSession>,
     /// Set while the run is paused (xops-03 §3): nothing new is entered or dispatched.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paused: Option<PauseRec>,
@@ -466,10 +484,10 @@ pub struct RunRecord {
     /// How it came to be started.
     #[serde(default)]
     pub trigger: Trigger,
-    /// A space the main session is shown in besides the flow's own (the start's
-    /// `show_in_space`): where the interface opens the task.
+    /// Where else the main session is shown, as the host names the place (the start's
+    /// `shown_in`; Harnix: a space besides the flow's own): where the interface opens the task.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub show_in_space: Option<String>,
+    pub shown_in: Option<String>,
     /// Its worktree of the project, for a run that works in one (`workspace: worktree`): made at
     /// start, and what became of it once the run was over. A child run holds its parent's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -648,7 +666,7 @@ impl RunRecord {
     pub fn main_session(&self) -> Option<&str> {
         self.session_keys
             .get(super::def::MAIN_SESSION_KEY)
-            .map(String::as_str)
+            .map(|b| b.id.as_str())
     }
 
     /// Every task's usage and the main session's other turns.
@@ -809,7 +827,7 @@ impl RunRecord {
             workspace: self.workspace,
             output_dir: self.output_dir.clone(),
             trigger: self.trigger.clone(),
-            show_in_space: self.show_in_space.clone(),
+            shown_in: self.shown_in.clone(),
             worktree: self.worktree.clone(),
         }
     }
@@ -902,9 +920,9 @@ pub struct RunSummary {
     pub output_dir: Option<String>,
     #[serde(default)]
     pub trigger: Trigger,
-    /// Where its main session is shown besides the flow's space (`RunRecord::show_in_space`).
+    /// Where else its main session is shown (`RunRecord::shown_in`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub show_in_space: Option<String>,
+    pub shown_in: Option<String>,
     /// Its worktree, branch and what became of them (`RunRecord::worktree`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<WorktreeRec>,

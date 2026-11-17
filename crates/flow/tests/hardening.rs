@@ -321,6 +321,7 @@ async fn a_finished_or_cancelled_run_closes_its_shared_sessions() {
                 &token,
                 "main/shared-1",
                 Some("run"),
+                &serde_json::Value::Null,
                 Actor::flow("dispatch"),
             )
             .await
@@ -351,6 +352,7 @@ async fn an_expired_session_task_closes_its_own_session_before_it_is_dispatched_
             &token,
             "main/old",
             None,
+            &serde_json::Value::Null,
             Actor::flow("dispatch"),
         )
         .await

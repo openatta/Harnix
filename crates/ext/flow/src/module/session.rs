@@ -34,11 +34,6 @@ use crate::kernel::run::{RunRecord, StationStatus, TaskStatus};
 /// flow's answers to its questions still hold.
 pub const TASK_PERMISSION_MODE: &str = "acceptEdits";
 
-/// The entry a task's session is marked with when it is opened: what it was opened with
-/// (`settings_of`). A task that finds its session key bound to a session opened otherwise fails
-/// instead of working under another station's contract.
-pub const SESSION_SETTINGS: &str = "session_settings";
-
 /// What a session is opened with and keeps for good.
 pub(crate) fn settings_of(
     job_scene: &str,
@@ -54,7 +49,7 @@ pub(crate) fn settings_of(
             Delivery::StructuredOutput => output.cloned().unwrap_or(Value::Null),
             Delivery::FlowSubmit => Value::Null,
         },
-        "model": p.model, "provider": p.provider,
+        "model": p.model, "provider": p.provider, "effort": p.effort,
         "space": p.space, "template": p.template, "instance": instance.map(String::from).or_else(|| p.instance.clone()),
     })
 }
@@ -300,10 +295,11 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
         .get(&key.station)
         .and_then(|s| s.task(&key.task))
         .and_then(|t| t.session.clone());
-    let keyed = job
-        .session_key
-        .as_ref()
-        .and_then(|k| rec.session_keys.get(k).cloned());
+    // A key's session, and what it was opened with (`settings_of`): a task that finds its key
+    // bound to a session opened otherwise fails instead of working under another station's
+    // contract.
+    let bound = job.session_key.as_ref().and_then(|k| rec.session_keys.get(k).cloned());
+    let keyed = bound.as_ref().map(|b| b.id.clone());
     let mut opened: Option<(SessionRef, bool)> = None;
     for (name, is_own) in [(own.clone(), true), (keyed, false)] {
         let Some(name) = name else { continue };
@@ -331,8 +327,8 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
             // definition from before that rule, or keys that resolve alike by chance. The main
             // session keeps no station's settings.
             if !own && !job.main {
-                if let Some(opened_with) = recorded_settings(sh, &s).await {
-                    let d = settings_differ(&opened_with, &wanted);
+                if let Some(opened_with) = bound.as_ref().map(|b| &b.opened_with).filter(|v| !v.is_null()) {
+                    let d = settings_differ(opened_with, &wanted);
                     if !d.is_empty() {
                         let why = format!(
                             "the run's shared session {} was opened with other settings ({}) and \
@@ -384,16 +380,11 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
             let spec = super::spec_with(spec, project_root, |s, v| s.project_root(v));
             let spec = super::spec_with(spec, job.placement.model.clone(), |s, v| s.model(&v));
             let spec = super::spec_with(spec, job.placement.provider.clone(), |s, v| s.provider(&v));
+            let spec = super::spec_with(spec, job.placement.effort.clone(), |s, v| s.effort(&v));
             let spec = super::spec_with(spec, output_schema, |s, v| s.output_schema(v));
             let spec = super::spec_with(spec, job.recording.clone(), |s, v| s.recording(&v));
             match sessions.create(spec).await {
-                Ok(s) => {
-                    let entry = harnix_ext::Entry::new(SESSION_SETTINGS, wanted.clone());
-                    if let Err(e) = sessions.append_entry(&s, entry).await {
-                        tracing::warn!(error = %e, "a session's settings not recorded");
-                    }
-                    s
-                }
+                Ok(s) => s,
                 Err(e) => {
                     fail(sh, key, &job.token, &format!("no session: {}", e.message)).await;
                     return;
@@ -434,6 +425,7 @@ async fn with_session(sh: &Arc<Shared>, job: &SessionJob) {
             &job.token,
             &session_name(&session),
             job.session_key.as_deref(),
+            &wanted,
             dispatcher(),
         )
         .await;
@@ -550,17 +542,6 @@ async fn turn_running(sh: &Shared, session: &SessionRef) -> bool {
     .is_some_and(|s| s != "idle")
 }
 
-/// What a session task last opened its session with, from the session's own entry.
-async fn recorded_settings(sh: &Shared, s: &SessionRef) -> Option<Value> {
-    let cx = sh.cx.get()?;
-    let entries = cx.sessions().entries(s).await.ok()?;
-    entries
-        .into_iter()
-        .rev()
-        .find(|e| e.get("event").and_then(Value::as_str) == Some(SESSION_SETTINGS))
-        .and_then(|e| e.get("payload").cloned())
-}
-
 /// The protocol layer, the rules, then the skill (`${output_dir}` in it put in), from the packs
 /// of the run's project.
 fn task_message_of(job: &SessionJob, packs: &dyn crate::kernel::host::Packs, output_dir: Option<&str>) -> String {
@@ -645,6 +626,9 @@ mod tests {
         };
         let m = settings_of("harnix", Delivery::StructuredOutput, Some(&schema), &model, None);
         assert_eq!(settings_differ(&a, &m), ["model"]);
+        let effort = Placement { effort: Some("high".into()), ..Default::default() };
+        let e = settings_of("harnix", Delivery::StructuredOutput, Some(&schema), &effort, None);
+        assert_eq!(settings_differ(&a, &e), ["effort"]);
     }
 
     #[test]
@@ -729,7 +713,7 @@ stations:
             std::sync::Arc::new(MemPacks::new().flow("{name: f, stations: [{id: a, exit: [{kind: confirm}]}]}")),
         )
         .with_workspaces(data.path().join("workspaces"))
-        .with_worktrees(data.path().join("worktrees"));
+        .with_layout(super::super::layout(data.path()));
         let root = project.path().to_string_lossy().into_owned();
         let started = |workspace: Option<Workspace>, project_root: Option<String>| CreateIn {
             flow: "f".into(),

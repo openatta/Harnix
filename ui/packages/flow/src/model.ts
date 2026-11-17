@@ -495,7 +495,7 @@ export const MAIN_SESSION_KEY = "@main";
 
 /** A run's main session, as `host.session.open` takes it; null before it is opened. */
 export function mainSessionOf(record: Pick<RunRecord, "session_keys"> | null | undefined): { instance: string; sessionId: string } | null {
-  const name = record?.session_keys?.[MAIN_SESSION_KEY];
+  const name = record?.session_keys?.[MAIN_SESSION_KEY]?.id;
   return name ? sessionOf({ session: name } as TaskRec) : null;
 }
 

@@ -24,9 +24,12 @@ crates/flow/
   src/packs.rs         MemPacks, DirPacks, ProjectPacks
   src/dryrun.rs        dry runs: the kernel in a sandbox, everything outside it mocked
   src/wire.rs          the library's own rows (DefRow)
+  packs/examples/      an example pack (example-review): a host that copies the library can load,
+                       validate and run it; Harnix builds it into its app
   docs/guide.*.md      the flow guide (it is GUIDE_EN, GUIDE_ZH)
   docs/embed.*.md      this document
-  tests/               the kernel's tests, and the two guards surface.rs and deps.rs
+  tests/               the kernel's tests, the two guards surface.rs and deps.rs, and golden.rs
+                       with its golden runs in tests/golden/
   examples/demo_seed.rs  the real kernel drives a few demo flows into a few states, into a FileStore
 ```
 
@@ -72,8 +75,8 @@ runs: those are the traits in `kernel::host`, and the host hands them in.
 | `Clock` | what time it is | `SystemClock`, `FixedClock`, `ManualClock` (tests) |
 
 `Engine::new(store, packs)` builds the engine; `with_authorizer`, `with_tools`, `with_clock`,
-`with_lease_ms`, `with_retries`, `with_guarded`, `with_submit_scenes`, `with_main_scene` and
-`with_workspaces` configure it. Each operation (`create`, `submit`, `confirm`, `tick`…) loads,
+`with_lease_ms`, `with_retries`, `with_guarded`, `with_submit_scenes`, `with_main_scene`,
+`with_workspaces` and `with_layout` configure it. Each operation (`create`, `submit`, `confirm`, `tick`…) loads,
 computes and commits against revs, and only after the commit returns an
 `Outcome { value, events, work, bookkeeping }`:
 
@@ -90,6 +93,44 @@ hand-in, answering permission asks), running `command` gates and delivering hook
 host's; Harnix does it in `crates/ext/flow/src/module/`. The host calls `Gates` and `Programs`
 itself when it carries out a work item; they are not given to `Engine`.
 
+### Where it writes for a project: `ProjectLayout`
+
+The library has no name of its own for a project's data directory, and no place for worktrees: the
+host says, with `ProjectLayout { dir, worktrees_root, branch_prefix }` (`Engine::with_layout`;
+there is no default). Harnix gives `.harnix`, its flow extension's data directory's `worktrees`, and
+`harnix/flow`.
+
+```text
+<project>/<dir>/flows/        the project's own pack, committed with it (ProjectPacks::new takes the
+                              layout; read only while the project is trusted)
+<project>/<dir>/runs/<run>/   a run's process directory; `<dir>/.gitignore` gets the one line `runs/`
+<worktrees_root>/<run>/       a run's worktree, outside every project, on <branch_prefix>/<run>
+```
+
+The data directory may be shared with others — Harnix shares `.harnix` with its engine, which keeps
+its settings, memory and its own worktrees there — so the library uses `flows/` and `runs/` in it
+and nothing else, adds only its own line to the `.gitignore`, and keeps its worktrees out of it.
+
+Judging a call (`judge_under`) takes the directories that count as outside the project although
+they are in it (`Call::reserved`; `ProjectLayout::reserved(root)` gives the data directory): a
+task's tools may not touch them unless an `allow` whose own `paths` point into one says so —
+`${workspace}/**` does not. Whatever the host writes there itself (a flow saved by its authoring
+tool, the process directories) is not judged.
+
+### What a session is opened with
+
+A session task's `WorkItem::Task` carries a `Placement`: model, provider, `effort` (how hard the
+model reasons, one of `EFFORTS`; the host's settings when absent), and where the session goes
+(`instance`, `template`, `params`, `space` — names the host interprets; a host that does not
+know one refuses the session rather than ignore it). The host opens the session with them and tells
+the kernel what it opened it with: `attach_session(.., session_key, opened_with, ..)` and
+`attach_main(run, session, opened_with)`. The run keeps it on the key (`BoundSession { id,
+opened_with }`): a later task of the same key is checked against it before it works in that
+session. `opened_with` is the host's own JSON; the kernel only keeps it.
+
+`CreateIn::shown_in` is where else the host shows the run's main session — a place the host names
+(Harnix: a space besides the flow's); the kernel records it on the run.
+
 A dry run (`Sandbox::new(packs, config)`) needs only the flow pack: the real kernel runs in memory
 (`MemStore`), and no session, program, gate or tool is called — the caller mocks their results
 (`Mocks`), or the contract's examples stand in.
@@ -100,10 +141,17 @@ A dry run (`Sandbox::new(packs, config)`) needs only the flow pack: the real ker
 |---|---|---|---|
 | `FLOW_API_VERSION` | `1` | `src/lib.rs` | the library's Rust interface changes in a way that breaks a host: the traits a host implements, the types they hand over, the names at the root, how the stores and packs are built. `tests/surface.rs` keeps those tables |
 | `DEFINITION_FORMAT` | `1` | `src/lib.rs` | the meaning of the definition and part formats changes. Adding a field with a default does not raise it (definitions refuse unknown fields, so an older library reading a newer field says so clearly) |
-| `RUN_FORMAT` | `1` | `src/lib.rs` | the format of run records, histories and run ids changes |
+| `RUN_FORMAT` | `1` | `src/lib.rs` | the format of run records, histories and run ids changes. `tests/golden.rs` keeps the records and histories of a few runs, which move with it |
 
-The two format numbers are only declared in this version, not yet written into a definition or a
-record; one without a number is format 1.
+Where they are written:
+
+- a definition and each part may say `format: N` (absent: 1, and 1 is not written back). One whose
+  number is greater than `DEFINITION_FORMAT` is refused whole — validation says which format it
+  needs, before any field this library does not know — and `0` or a word is no format;
+- every run record says its `format`. A `FileStore` writes the file `FORMAT` (`1`) into its
+  directory with the first run, and refuses — every call, with why — a directory whose `FORMAT` is
+  greater than `RUN_FORMAT`, or one that holds runs and no `FORMAT` (written before formats were
+  kept); a record of a greater format is refused on its own. Nothing is read in part.
 
 The promise:
 
@@ -111,8 +159,10 @@ The promise:
    into the tables of `tests/surface.rs`.
 2. Only a removal, a rename or a changed signature raises `FLOW_API_VERSION`, and the version
    section then says what a host changes.
-3. A format number that goes up comes with which fields changed and what the host does about it;
-   no migration code is provided (a host clears the old data, or migrates it itself).
+3. Within one format number fields are only added, each with a default; a rename or a removal
+   raises it. A format number that goes up comes with which fields changed and what the host does
+   about it, and the golden runs change with it; no migration code is provided (a host clears the
+   old data, or migrates it itself).
 
 ## 4. Copying it
 
@@ -134,8 +184,23 @@ One section per `FLOW_API_VERSION`, newest first.
 
 ### `FLOW_API_VERSION = 1`
 
-The library's first version: the kernel, stores, packs and dry runs move out of `harnix-ext-flow`,
-with their interface and behaviour as they were; `DEFINITION_FORMAT = 1`, `RUN_FORMAT = 1`.
+The library's first version: the kernel, stores, packs and dry runs move out of `harnix-ext-flow`;
+`DEFINITION_FORMAT = 1`, `RUN_FORMAT = 1`. Within it, before it was first released:
 
-Migration: none. A host that used them from `harnix-ext-flow` keeps `harnix_ext_flow::X` (it
+- **`ProjectLayout`** (new, at the root): the project's data directory, the worktrees' root and
+  their branch prefix, given by the host — `Engine::with_layout` (in place of `with_worktrees`),
+  `Engine::layout`; `project_pack_dir(root, &layout)` and `ProjectPacks::new(base, root, &layout,
+  trusted)` take it. The `.gitignore` line is `runs/` alone; worktrees are no longer in the project.
+- **`Call::reserved`**: directories inside the root that count as outside it when a call is judged.
+- **Formats written**: `format` on `FlowDef`, `PolicyDef`, `GateDef`, `HookDef` and `RunRecord`; the
+  `FORMAT` file of a `FileStore`, which no longer reads a directory of runs without one.
+- **`shown_in`** in place of `show_in_space` (`CreateIn`, `RunRecord`, `RunSummary`).
+- **`BoundSession { id, opened_with }`** (new, at the root): what `RunRecord::session_keys` maps a
+  key to, in place of the bare session id; `attach_session` and `attach_main` take `opened_with`.
+- **`effort`** on a session executor, `MainSession` and `Placement`; `EFFORTS` (new, at the root).
+- The example pack (`packs/examples`) and the golden runs (`tests/golden.rs`).
+
+Migration: a host that used the kernel from `harnix-ext-flow` keeps `harnix_ext_flow::X` (it
 re-exports the whole library); one that depends on the library directly writes `harnix_flow::X`.
+Run state written before these changes is not read: `show_in_space` and the bare session ids are
+gone, and a store directory without `FORMAT` is refused — clear it, or migrate it by hand.

@@ -284,7 +284,8 @@ mod tests {
             let engine = Arc::new(
                 Engine::new(store, Arc::new(packs))
                     .with_clock(Arc::new(ManualClock::new(1_000_000)))
-                    .with_workspaces(ws.path()),
+                    .with_workspaces(ws.path())
+                    .with_layout(super::super::layout(ws.path())),
             );
             let mut sh = Shared::for_tests();
             configure(&mut sh);

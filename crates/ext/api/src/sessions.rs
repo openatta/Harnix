@@ -35,6 +35,7 @@ pub struct SessionSpec {
     project_root: Option<PathBuf>,
     provider: Option<String>,
     model: Option<String>,
+    effort: Option<String>,
     permission_mode: Option<String>,
     permission_rules: Option<Value>,
     output_schema: Option<Value>,
@@ -80,6 +81,13 @@ impl SessionSpec {
         self
     }
 
+    /// How hard the model reasons in this session (`low`, `medium`, `high`, `xhigh`, `max`): its
+    /// own, over the settings'. The settings' when absent.
+    pub fn effort(mut self, effort: &str) -> Self {
+        self.effort = Some(effort.to_string());
+        self
+    }
+
     pub fn permission_mode(mut self, mode: &str) -> Self {
         self.permission_mode = Some(mode.to_string());
         self
@@ -111,6 +119,7 @@ impl SessionSpec {
         };
         put("provider", self.provider.clone().map(Value::from));
         put("model", self.model.clone().map(Value::from));
+        put("effort", self.effort.clone().map(Value::from));
         put("permission_mode", self.permission_mode.clone().map(Value::from));
         put("permission_rules", self.permission_rules.clone());
         put("output_schema", self.output_schema.clone());
@@ -838,6 +847,8 @@ mod tests {
             spec.params(),
             json!({"space": "work", "scene": "code", "options": {"model": "m", "recorder": {"name": "r"}}})
         );
+        // Its own reasoning effort goes to the engine with the rest of its options.
+        assert_eq!(SessionSpec::new().effort("high").params(), json!({"options": {"effort": "high"}}));
     }
 
     #[tokio::test]

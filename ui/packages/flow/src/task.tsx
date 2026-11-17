@@ -16,7 +16,7 @@
  * Where the main session opens: it belongs to the flow's backend space, and a call claiming the
  * projects space's would be refused (concept §5.4, `SPACE_MISMATCH`) — so a task started from the
  * projects space asks the module to show the session in the space the projects space lists
- * (`flow.start`'s `show_in_space`, the context's `space`; the module exposes it, harnix-ext.md
+ * (`flow.start`'s `shown_in`, the context's `space`; the module exposes it, harnix-ext.md
  * §7.1), and the row opens it in the middle here, like any session of the project. A run that is
  * shown nowhere else (started from the console, or by a schedule) is entered the way the console
  * enters a run — the flow's interface space brought to the front on it (`FlowSpaceState.enter`),
@@ -280,7 +280,7 @@ export async function enterTask(host: HostApi, r: Registry, space: FlowSpace, ru
 }
 
 /**
- * Open a task where it is: a run whose main session is shown in a space (`show_in_space`, the
+ * Open a task where it is: a run whose main session is shown in a space (`shown_in`, the
  * module exposed it there) opens that session in the middle of the space in front — the projects
  * space, like any session of the project — with the 流程 tab in the right column; the shell takes
  * the session to a space that lists it when the front one does not. One shown nowhere else is
@@ -289,7 +289,7 @@ export async function enterTask(host: HostApi, r: Registry, space: FlowSpace, ru
 export async function openTask(host: HostApi, r: Registry, space: FlowSpace, run: string, flow: string): Promise<void> {
   let shown: string | null = null;
   try {
-    shown = (await host.call<RunView>(methodName(space.module, "get"), { run }))?.record?.show_in_space ?? null;
+    shown = (await host.call<RunView>(methodName(space.module, "get"), { run }))?.record?.shown_in ?? null;
   } catch {
     shown = null;
   }

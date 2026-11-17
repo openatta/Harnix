@@ -123,7 +123,9 @@ mod tests {
             main_scene: None,
             command_gates: false,
             projects: Some(trust),
+            layout: OnceLock::new(),
         };
+        let _ = packs.layout.set(super::super::layout(std::path::Path::new("/state/ext/flow/data")));
         let _ = packs.inner.set(Arc::new(MemPacks::new().flow(BASE).writable()));
         Engine::new(Arc::new(MemStore::new()), Arc::new(packs))
     }
@@ -141,7 +143,7 @@ mod tests {
     async fn a_task_runs_its_projects_own_flow_once_the_project_is_trusted() {
         let root = tempfile::tempdir().unwrap();
         let at = root.path().to_str().unwrap().to_string();
-        let dir = project_pack_dir(root.path());
+        let dir = project_pack_dir(root.path(), &super::super::layout(std::path::Path::new("/state/ext/flow/data")));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("shared.yaml"), OWN).unwrap();
         std::fs::write(dir.join("lacking.yaml"), LACKING).unwrap();
@@ -196,7 +198,7 @@ mod tests {
         assert!(eng.save_flow_in(packs.as_ref(), LACKING, me.clone()).await.is_err());
         let v = eng.save_flow_in(packs.as_ref(), yaml, me).await.unwrap();
         assert_eq!(v["origin"], "project");
-        assert!(project_pack_dir(root.path()).join("fresh.yaml").is_file());
+        assert!(project_pack_dir(root.path(), &super::super::layout(std::path::Path::new("/state/ext/flow/data"))).join("fresh.yaml").is_file());
         assert!(eng.packs().flow("fresh").is_none(), "the application's packs are untouched");
     }
 

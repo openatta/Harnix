@@ -9,7 +9,8 @@
 //!
 //! The worktree is out of the project: `<project>/.harnix/worktrees/` is the engine's, which takes
 //! away what it does not know there, and its branches are `harnix/worktree-*`. `<data>` is the
-//! module's data directory, in the application's state.
+//! module's data directory, in the application's state. Where they go is the engine's
+//! `ProjectLayout`, which the module gives it ([`super::layout`]).
 //!
 //! Once the run is over a person decides: merge the branch into the project's current branch
 //! (`flow.worktree.merge`), keep the branch (`flow.worktree.keep`), or discard both
@@ -26,21 +27,12 @@ use super::git::{self, MergeFailed, NoRepo};
 use super::rpc_error;
 use crate::kernel::engine::{worktree_may_end, Engine};
 use crate::kernel::host::Outcome;
-use crate::kernel::refs::worktree_branch;
 use crate::kernel::run::{Actor, RunRecord, WorktreeEnd, WorktreeOutcome, WorktreeRec};
 use crate::kernel::FlowError;
 
 /// One piece of the module's git work at a time: two ends of one worktree never race, nor a start
 /// and an end in one repository.
 static GIT: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// What a run's worktree branch is named under: `harnix/flow/<run>`.
-pub(crate) const BRANCH_PREFIX: &str = "harnix/flow";
-
-/// Where the module's worktrees go: `<data>/worktrees/<run>`.
-pub(crate) fn root(data_dir: &Path) -> PathBuf {
-    data_dir.join("worktrees")
-}
 
 /// How many ids a start tries before giving up, when a worktree or branch of the name is there
 /// already (left from a ledger that is gone).
@@ -82,15 +74,16 @@ pub(crate) async fn make(engine: &Engine, root: &str, flow: &str) -> crate::Resu
         blocking(move || git::probe(&project)).await.map_err(FlowError::Invalid)?
     };
     let repo = probed.map_err(|no| needs_git(&no))?;
-    if let Err(e) = super::project::ensure_gitignore(&project) {
+    let layout = engine
+        .layout()
+        .ok_or_else(|| FlowError::Invalid("this application makes no worktrees".into()))?;
+    if let Err(e) = super::project::ensure_gitignore(&project, layout) {
         tracing::warn!(root, error = %e, "the project's .harnix/.gitignore not written");
     }
     for _ in 0..TRIES {
         let id = engine.alloc_id(flow, Some(root)).await?;
-        let path = engine
-            .worktree_dir(&id)
-            .ok_or_else(|| FlowError::Invalid("this application makes no worktrees".into()))?;
-        let branch = worktree_branch(BRANCH_PREFIX, &id);
+        let path = layout.worktree_dir(&id);
+        let branch = layout.worktree_branch(&id);
         let (p, b, head, project) = (path.clone(), branch.clone(), repo.head.clone(), project.clone());
         let made = blocking(move || {
             if p.exists() || git::has_branch(&project, &b)? {
@@ -120,7 +113,7 @@ pub(crate) async fn make(engine: &Engine, root: &str, flow: &str) -> crate::Resu
     }
     Err(FlowError::Invalid(format!(
         "the run's worktree could not be made: {TRIES} names under {} were taken",
-        engine.worktree_dir("").map(|d| d.display().to_string()).unwrap_or_default()
+        layout.worktrees_root.display()
     )))
 }
 
@@ -157,7 +150,9 @@ pub(crate) async fn end(engine: &Engine, run: &str, how: WorktreeEnd, by: Actor)
     let message = work_message(&rec);
     let merge_message = format!("Merge {} (Harnix task {})", w.branch, rec.id);
     let (project, path, branch) = (PathBuf::from(&root), PathBuf::from(&w.path), w.branch.clone());
-    let done = blocking(move || carry_out(&project, &path, &branch, how, &message, &merge_message))
+    // The project's data directory in the worktree is the engine's, but for the project's flows.
+    let own = engine.layout().map(|l| l.dir.clone());
+    let done = blocking(move || carry_out(&project, &path, &branch, own.as_deref(), how, &message, &merge_message))
         .await
         .map_err(|e| RpcError::new(codes::INTERNAL_ERROR, e))?;
     let (into, commit, merged_how) = match done {
@@ -197,6 +192,7 @@ fn carry_out(
     project: &Path,
     path: &Path,
     branch: &str,
+    own: Option<&str>,
     how: WorktreeEnd,
     message: &str,
     merge_message: &str,
@@ -204,7 +200,7 @@ fn carry_out(
     let other = MergeFailed::Other;
     match how {
         WorktreeEnd::Kept => {
-            git::snapshot(path, message).map_err(other)?;
+            git::snapshot(path, own, message).map_err(other)?;
             git::remove_worktree(project, path).map_err(other)?;
             let tip = git::tip(project, branch).ok();
             Ok((None, tip, None))
@@ -215,7 +211,7 @@ fn carry_out(
             Ok((None, None, None))
         }
         WorktreeEnd::Merged => {
-            git::snapshot(path, message).map_err(other)?;
+            git::snapshot(path, own, message).map_err(other)?;
             let m = git::merge(project, branch, &git::scratch_for(path), merge_message)?;
             // Merged: the worktree and the branch have nothing left the project lacks.
             if let Err(e) = git::remove_worktree(project, path).and_then(|()| git::delete_branch(project, branch, false)) {
@@ -241,7 +237,7 @@ mod tests {
         Engine::new(std::sync::Arc::new(MemStore::new()), std::sync::Arc::new(packs))
             .with_clock(std::sync::Arc::new(ManualClock::new(1_794_787_200_000)))
             .with_workspaces(data.join("workspaces"))
-            .with_worktrees(root(data))
+            .with_layout(super::super::layout(data))
     }
 
     fn by() -> Actor {

@@ -566,3 +566,61 @@ fn a_stations_task_specs_are_its_work_whatever_its_shape() {
     assert_eq!(ids("each"), ["each"], "a foreach station's tasks share its one template");
     assert!(ids("check").is_empty(), "a checkpoint has none");
 }
+
+/// A definition and its parts may say their format; absent is 1. One for a newer library is
+/// refused as that, before any field it might have that this one does not know.
+#[test]
+fn a_definition_says_its_format_and_one_for_a_newer_library_is_refused_whole() {
+    let p = packs();
+    let flow = |head: &str| format!("{head}name: f\nstations: [{{id: a, exit: [{{kind: confirm}}]}}]");
+    assert!(validate_yaml(&flow(""), &p).is_empty());
+    assert!(validate_yaml(&flow("format: 1\n"), &p).is_empty());
+    let def = FlowDef::parse(&flow("format: 1\n")).unwrap();
+    assert_eq!(def.format, DEFINITION_FORMAT);
+    assert!(!serde_yaml::to_string(&def).unwrap().contains("format"), "the first format is not written");
+
+    let newer = validate_yaml(&format!("format: {}\nname: f\nwhatever_comes_next: true\nstations: []", DEFINITION_FORMAT + 1), &p);
+    assert_eq!(newer.len(), 1, "{newer:?}");
+    assert!(newer[0].message.contains("definition format 2") && newer[0].message.contains("needs a newer one"), "{}", newer[0].message);
+    for bad in ["format: 0\n", "format: one\n"] {
+        let problems = validate_yaml(&flow(bad), &p);
+        assert!(problems.iter().any(|x| x.message.contains("whole number from 1")), "{bad}: {problems:?}");
+    }
+    // One made otherwise is judged the same.
+    let mut made = def.clone();
+    made.format = DEFINITION_FORMAT + 1;
+    assert!(validate(&made, &p).iter().any(|x| x.message.contains("needs a newer one")));
+    // The schema says it.
+    assert_eq!(definition_schema()["properties"]["format"]["maximum"], serde_json::json!(DEFINITION_FORMAT));
+
+    // Parts the same.
+    let policy = |head: &str| format!("{head}name: ro\npermissions: [{{effect: deny, tools: [Bash]}}]");
+    assert!(part_problems(PartKind::Policy, "ro", &policy("format: 1\n"), &p).is_empty());
+    let refused = part_problems(PartKind::Policy, "ro", &policy("format: 2\nnew_field: x\n"), &p).join("; ");
+    assert!(refused.contains("policy is written in definition format 2"), "{refused}");
+    let gate = part_problems(PartKind::Gate, "lint", "format: 2\nname: lint\nkind: host", &p).join("; ");
+    assert!(gate.contains("definition format 2"), "{gate}");
+    let packs = MemPacks::new().policy(&policy("format: 2\n"));
+    assert!(Packs::policy(&packs, "ro").is_none(), "a pack does not read it either");
+}
+
+/// A session's reasoning effort: one of the efforts, on a station's own session or the flow's
+/// main one — not on a task in the main session, which takes the main one's. Tasks that share a
+/// session share it.
+#[test]
+fn a_session_may_say_how_hard_its_model_reasons() {
+    let p = packs();
+    let flow = |main: &str, exec: &str| {
+        format!("name: f\n{main}stations: [{{id: a, executor: {{kind: session{exec}}}, skill: analyze, output: {{type: object}}, exit: [{{kind: output}}]}}]")
+    };
+    assert!(validate_yaml(&flow("main: {effort: max}\n", ", scene: harnix, effort: high"), &p).is_empty());
+    let def = FlowDef::parse(&flow("main: {effort: max}\n", ", scene: harnix, effort: high")).unwrap();
+    assert_eq!(def.main.as_ref().unwrap().effort.as_deref(), Some("max"));
+    assert!(matches!(&def.stations[0].executor, Some(Executor::Session { effort: Some(e), .. }) if e == "high"));
+    let says = |yaml: String| validate_yaml(&yaml, &p).into_iter().map(|x| x.message).collect::<Vec<_>>().join("; ");
+    assert!(says(flow("main: {effort: huge}\n", "")).contains("main: effort \"huge\" is not one of low, medium, high, xhigh, max"));
+    assert!(says(flow("", ", scene: harnix, effort: Max")).contains("effort \"Max\" is not one of"));
+    assert!(says(flow("", ", effort: high")).contains("takes its scene, model and place from the flow's `main`"));
+    let shared = "name: f\nstations:\n  - {id: a, executor: {kind: session, scene: harnix, session: per_run, effort: low}, skill: analyze, output: {type: object}, exit: [{kind: output}]}\n  - {id: b, executor: {kind: session, scene: harnix, session: per_run, effort: high}, skill: analyze, output: {type: object}, exit: [{kind: output}]}";
+    assert!(says(shared.to_string()).contains("effort"), "{}", says(shared.to_string()));
+}

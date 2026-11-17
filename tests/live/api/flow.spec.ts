@@ -362,9 +362,11 @@ test("tasks sharing the run's session take turns in it, each handing in under it
   expect(second.output).toEqual({ step: 2 });
   expect(first.session).toBe(second.session);
   // The run's key, and the main session every run has (xops-03), apart from it.
-  expect(done.record.session_keys).toMatchObject({ run: first.session });
-  expect(done.record.session_keys["@main"]).toBeTruthy();
-  expect(done.record.session_keys["@main"]).not.toBe(first.session);
+  // Each bound with what it was opened with: the shared one with its station's scene.
+  expect(done.record.session_keys).toMatchObject({ run: { id: first.session, opened_with: { scene: expect.any(String) } } });
+  expect(done.record.session_keys["@main"].id).toBeTruthy();
+  expect(done.record.session_keys["@main"].id).not.toBe(first.session);
+  expect(done.record.session_keys["@main"].opened_with).toMatchObject({ main: true });
   // Every submission landed where it belonged: none was refused for the other's contract.
   const hist = await api.call("flow.history", { run });
   expect(hist.filter((h: any) => h.op === "submit").map((h: any) => h.station)).toEqual(["first", "second"]);

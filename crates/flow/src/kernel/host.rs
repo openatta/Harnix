@@ -127,8 +127,8 @@ pub enum Origin {
     Override,
     /// Only in the writable layer.
     User,
-    /// The project's own, in `<project>/.harnix/flows/`: offered to runs in that project, over
-    /// every other layer, and read only while the project is trusted.
+    /// The project's own, in `<project>/<dir>/flows/` (`ProjectLayout`): offered to runs in that
+    /// project, over every other layer, and read only while the project is trusted.
     Project,
 }
 
@@ -161,17 +161,17 @@ pub trait Packs: Send + Sync {
     /// A policy, parsed; `None` when there is none or it does not parse or is named otherwise.
     fn policy(&self, name: &str) -> Option<PolicyDef> {
         let (text, _) = self.part(PartKind::Policy, name)?;
-        serde_yaml::from_str::<PolicyDef>(&text).ok().filter(|p| p.name == name)
+        super::def::parse_part::<PolicyDef>(&text, "policy").ok().filter(|p| p.name == name)
     }
     /// A gate, parsed (as [`Packs::policy`]).
     fn gate(&self, name: &str) -> Option<GateDef> {
         let (text, _) = self.part(PartKind::Gate, name)?;
-        serde_yaml::from_str::<GateDef>(&text).ok().filter(|g| g.name == name)
+        super::def::parse_part::<GateDef>(&text, "gate").ok().filter(|g| g.name == name)
     }
     /// A hook, parsed (as [`Packs::policy`]).
     fn hook(&self, name: &str) -> Option<HookDef> {
         let (text, _) = self.part(PartKind::Hook, name)?;
-        serde_yaml::from_str::<HookDef>(&text).ok().filter(|h| h.name == name)
+        super::def::parse_part::<HookDef>(&text, "hook").ok().filter(|h| h.name == name)
     }
     /// Every hook that parses.
     fn hooks(&self) -> Vec<HookDef> {
@@ -219,7 +219,8 @@ pub trait Packs: Send + Sync {
     // ── a project's own packs ────────────────────────────────────────────────
 
     /// The packs a run in the project at `root` sees, when the project brings packs of its own
-    /// (`<project>/.harnix/flows/`): its layer over these. `None`: these, as everywhere else.
+    /// (`<project>/<dir>/flows/`, `ProjectLayout`): its layer over these. `None`: these, as
+    /// everywhere else.
     fn project(&self, _root: &str) -> Option<std::sync::Arc<dyn Packs>> {
         None
     }
@@ -581,6 +582,9 @@ pub struct Placement {
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
+    /// How hard the model reasons (`EFFORTS`); the host's settings when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instance: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

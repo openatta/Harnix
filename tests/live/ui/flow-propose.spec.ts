@@ -106,7 +106,7 @@ test("a task held on a person's answer says what it asked and why, until it is a
   await expect(asking).toContainText("the todo list is a person's call here");
 
   // Answered in the run's main session: the panel lets go of it.
-  const [, session_id] = String(held.session_keys["@main"]).split("/");
+  const [, session_id] = String(held.session_keys["@main"].id).split("/");
   await page.evaluate(async (sid) => {
     const { app } = (window as any).harnix;
     const attached = await app.call("harnix.session.attach", { session_id: sid });

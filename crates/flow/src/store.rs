@@ -176,8 +176,17 @@ static FILE_LOCK: Mutex<()> = Mutex::new(());
 
 const COUNTERS: &str = "ids.json";
 
+/// The file naming the run format the directory is in (`RUN_FORMAT`), written with the first run.
+const FORMAT_FILE: &str = "FORMAT";
+
 /// One directory: `<id>.json` per run (written to a temp file, then renamed),
-/// `<id>.history.jsonl` appended alongside, and `ids.json` holding the id counters.
+/// `<id>.history.jsonl` appended alongside, `ids.json` holding the id counters, and `FORMAT`
+/// the run format of them all.
+///
+/// A directory in a format this library does not read is refused whole, every call failing with
+/// why: one of a newer format (`FORMAT` greater than [`crate::RUN_FORMAT`]), or one that holds
+/// runs and no `FORMAT` — written before formats were kept. A record of a newer format is refused
+/// on its own.
 ///
 /// Atomicity is per process: revs are compared under a process-wide mutex. A commit that
 /// touches several runs writes them one after another; a crash in between can leave
@@ -194,6 +203,8 @@ struct Files {
     dir: PathBuf,
     /// id → summary, once read.
     index: Mutex<Option<BTreeMap<String, RunSummary>>>,
+    /// Set once the directory's format was found to be one this library reads.
+    format_read: std::sync::OnceLock<()>,
 }
 
 /// Run `f` off the async runtime's worker threads, when there is one.
@@ -217,6 +228,7 @@ impl FileStore {
             inner: std::sync::Arc::new(Files {
                 dir: dir.into(),
                 index: Mutex::new(None),
+                format_read: std::sync::OnceLock::new(),
             }),
         }
     }
@@ -235,15 +247,63 @@ impl Files {
         self.dir.join(format!("{id}.history.jsonl"))
     }
 
+    /// That the directory is in a run format this library reads; what is wrong, said.
+    fn format(&self) -> Result<(), StoreError> {
+        if self.format_read.get().is_some() {
+            return Ok(());
+        }
+        let path = self.dir.join(FORMAT_FILE);
+        let reads = crate::RUN_FORMAT;
+        match std::fs::read_to_string(&path) {
+            Ok(text) => match text.trim().parse::<u32>() {
+                Ok(n) if (1..=reads).contains(&n) => {
+                    let _ = self.format_read.set(());
+                    Ok(())
+                }
+                Ok(n) if n > reads => Err(other(format!(
+                    "the runs in {} are in state format {n}; this library reads format {reads}: it needs a newer one",
+                    self.dir.display()
+                ))),
+                _ => Err(other(format!("{}: {:?} is not a state format", path.display(), text.trim()))),
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let runs = match std::fs::read_dir(&self.dir) {
+                    Ok(entries) => entries
+                        .flatten()
+                        .any(|e| e.file_name().to_string_lossy().ends_with(".json")),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+                    Err(e) => return Err(other(e)),
+                };
+                if runs {
+                    return Err(other(format!(
+                        "the runs in {} were written before state formats were kept: this library does not read them (move the directory away)",
+                        self.dir.display()
+                    )));
+                }
+                Ok(())
+            }
+            Err(e) => Err(other(e)),
+        }
+    }
+
     fn read_record(&self, id: &str) -> Result<Option<RunRecord>, StoreError> {
         if !safe_id(id) {
             return Ok(None);
         }
-        match std::fs::read(self.record_path(id)) {
-            Ok(bytes) => serde_json::from_slice(&bytes).map(Some).map_err(other),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(other(e)),
+        self.format()?;
+        let rec: RunRecord = match std::fs::read(self.record_path(id)) {
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(other)?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(other(e)),
+        };
+        if rec.format > crate::RUN_FORMAT {
+            return Err(other(format!(
+                "run {id} is in state format {}; this library reads format {}: it needs a newer one",
+                rec.format,
+                crate::RUN_FORMAT
+            )));
         }
+        Ok(Some(rec))
     }
 
     /// Write to a temp file, flush it to disk, rename it over `path`: after a power cut the file
@@ -270,8 +330,16 @@ impl Files {
             .map_err(other)
     }
 
+    /// The directory, made with its `FORMAT` when new; refused when its format is not read here.
     fn ensure_dir(&self) -> Result<(), StoreError> {
-        std::fs::create_dir_all(&self.dir).map_err(other)
+        self.format()?;
+        std::fs::create_dir_all(&self.dir).map_err(other)?;
+        let path = self.dir.join(FORMAT_FILE);
+        if !path.exists() {
+            self.write_atomic(&path, format!("{}\n", crate::RUN_FORMAT).as_bytes())?;
+        }
+        let _ = self.format_read.set(());
+        Ok(())
     }
 
     fn lock_index(
@@ -284,6 +352,7 @@ impl Files {
 
     /// Every run's summary, from the directory.
     fn scan(&self) -> Result<BTreeMap<String, RunSummary>, StoreError> {
+        self.format()?;
         let entries = match std::fs::read_dir(&self.dir) {
             Ok(e) => e,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
@@ -397,6 +466,7 @@ impl Files {
         if !safe_id(run) {
             return Ok(vec![]);
         }
+        self.format()?;
         let text = match std::fs::read_to_string(self.history_path(run)) {
             Ok(t) => t,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
