@@ -484,6 +484,30 @@ describe("a model route", () => {
     await waitFor(() => expect(m.saved).toEqual([{ changes: { "task_models.title": "deepseek" }, revision: "r1" }]));
   });
 
+  it("offers the models the provider's endpoint serves beside the configured ones, and asks again on refresh", async () => {
+    const m = memory({ fields: [route("deepseek"), { key: "model.fallback_model", type: "text", effective: null, suggestions: ["a-1"] }], revision: "r1" });
+    const asked: [string | null, boolean | undefined][] = [];
+    const listModels = async (provider: string | null, fresh?: boolean) => {
+      asked.push([provider, fresh]);
+      if (provider === null) throw new Error("no default provider");
+      return ["deepseek-chat", "deepseek-v4"];
+    };
+    render(<FieldForm store={m.store} listModels={listModels} />);
+    const model = (await screen.findByTestId("settings-task_models.title-model")) as HTMLInputElement;
+    await waitFor(() => {
+      const offered = document.getElementById(model.getAttribute("list")!)!;
+      expect([...offered.querySelectorAll("option")].map((o) => o.getAttribute("value"))).toEqual(["deepseek-chat", "deepseek-reasoner", "deepseek-v4"]);
+    });
+    expect(asked).toContainEqual(["deepseek", false]);
+    // The text field asks for the default provider's; that failing leaves what is configured.
+    expect(asked).toContainEqual([null, false]);
+    await waitFor(() => expect(screen.getByTestId("settings-model.fallback_model-models").getAttribute("data-state")).toBe("failed"));
+    const text = screen.getByTestId("settings-model.fallback_model") as HTMLInputElement;
+    expect([...document.getElementById(text.getAttribute("list")!)!.querySelectorAll("option")].map((o) => o.getAttribute("value"))).toEqual(["a-1"]);
+    fireEvent.click(screen.getByTestId("settings-task_models.title-models"));
+    await waitFor(() => expect(asked).toContainEqual(["deepseek", true]));
+  });
+
   it("says so when no provider is configured", async () => {
     const m = memory({ fields: [{ ...route(null), routes: [] }] });
     render(<FieldForm store={m.store} />);

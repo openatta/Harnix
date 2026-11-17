@@ -152,6 +152,7 @@
       "schedule.runNow",
       "schedule.update",
       "settings.describe",
+      "settings.listModels",
       "settings.mcp.add",
       "settings.mcp.authCancel",
       "settings.mcp.authComplete",

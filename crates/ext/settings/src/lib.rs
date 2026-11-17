@@ -67,6 +67,10 @@ impl Extension for Settings {
             .access(Access::device())
             .describe("write several fields into one tier as one change, through the engine, checked whole and against a revision; `dry_run` only checks")
             .raw(|call, params| async move { write(&call, params).await });
+        r.method("listModels")
+            .access(Access::device())
+            .describe("the models a provider's endpoint serves {provider?}, asked with the provider's own credentials; the default provider's when none is named")
+            .raw(|call, params| async move { list_models(&call, params).await });
         r.method("setProvider")
             .access(Access::device())
             .describe("add, edit or remove a provider, credentials included, in the global tier")
@@ -177,7 +181,6 @@ async fn describe(call: &Call, params: Value) -> Rpc<Value> {
 
     // The providers of this (project, scene): what a model field offers, and a route may name.
     let providers = providers::redacted(call.call("engine.config.getProvider", locate(scene.as_deref(), project_root.as_deref())).await.unwrap_or(json!({})));
-    let providers = providers::with_unanswered(providers, effective.as_ref());
 
     let fields: Vec<Value> = FIELDS
         .iter()
@@ -496,6 +499,29 @@ fn check_routes(changes: &Map<String, Value>, providers: &Value) -> Rpc<()> {
 async fn set_provider(call: &Call, params: Value) -> Rpc<Value> {
     let scene = scene_of(call, &params)?;
     providers::set_provider(call, scene.as_deref(), &params).await
+}
+
+/// The models a provider's endpoint serves (`engine.config.listModels`): the engine asks it with
+/// the provider's credentials and base URL, and nothing about them comes back. With no provider
+/// named, the default one's — or the only one's.
+async fn list_models(call: &Call, params: Value) -> Rpc<Value> {
+    let scene = scene_of(call, &params)?;
+    let at = locate(scene.as_deref(), params.get("project_root").and_then(Value::as_str));
+    let provider = match params.get("provider").and_then(Value::as_str).filter(|p| !p.trim().is_empty()) {
+        Some(provider) => provider.to_string(),
+        None => {
+            let configured = call.call("engine.config.getProvider", at.clone()).await?;
+            providers::default_of(&configured).ok_or_else(|| RpcError::invalid_params("no provider named, and no default provider configured"))?
+        }
+    };
+    let mut request = at;
+    request["provider"] = json!(provider);
+    let listed = call.call("engine.config.listModels", request).await?;
+    Ok(json!({
+        "provider": provider,
+        "models": listed.get("models").cloned().unwrap_or(json!([])),
+        "truncated": listed.get("truncated").cloned().unwrap_or(json!(false)),
+    }))
 }
 
 /// Read a dotted path out of a settings document.

@@ -1447,11 +1447,13 @@ r.register("settings.section", {
 或 `{provider, model}`，引擎 `task_models` 条目的两种写法）、`json`（只显示，不写；`writable` 为空）；
 `additive: true` 的字段各层并联生效（`permission_rules`）：表单改的是所选那层自己的行；
 `risk: {values?, message}` 让这些值先确认。引擎设置的字段由后端 `settings` 扩展的字段表声明，`settings.describe` 发给界面
-（模型名的 `suggestions`、路由的 `routes` 按这一对 (项目, 场景) 已配置的 provider 填），
+（模型名的 `suggestions`、路由的 `routes` 按这一对 (项目, 场景) 已配置的 provider 填；`FieldForm` 的 `listModels` 另把 provider 的端点上有的模型并进候选，
+设置页给的是 `settings.listModels {provider?}`，即引擎的 `engine.config.listModels`，问不到就只有已配置的、照样能手填），
 `settings.write {tier, changes, revision?, dry_run?}` 整份校验，经引擎的 `engine.config.set` 写进那一层（引擎拿那一层的目录锁、按它的加载器逐键检查，
 全有或全无；拒掉的键在 `data.errors` 里逐个标出），按那一层的版本号拒绝过期的写入（`CONFLICT`），路由到没配置的 provider 也拒绝；
 那一层被别的进程握着（引擎的 `-32026`）、项目目录不在（`-32010`）时设置页直说。
-provider 的 `api_key` 到界面只有 `***` 加末 4 位。
+provider 的 `api_key` 到界面只有 `***` 加末 4 位；有没有能用的密钥照引擎的 `credential_present` 显示为「已检测到」或「缺失」。
+provider 的 `models` 每项是模型 id，或 `{id, max_output?, context_window?, …}`（引擎按它定这个模型每次调用的 `max_tokens` 上限与上下文窗口）。
 
 扩展定义的点（第一方）：`system.console.tab`、`system.inspector.tab`、`system.metrics.link`（[系统 space](system-space.md) §2、§11），`harnix-app.project.items`、`harnix-app.project.panels`、
 `harnix-app.session.badge`（[Harnix app](harnix-app.md) §3.2）、`harnix-app.inbox`（同上 §3.3），`flow.task.badge`、`flow.start.action`（同上 §3.2、§9.1；`@harnix/flow` 定义，

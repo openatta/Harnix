@@ -3079,6 +3079,19 @@
         "scope": "open"
       },
       "kind": "method",
+      "name": "settings.listModels",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
       "name": "settings.mcp.add",
       "owner": "ext:settings"
     },

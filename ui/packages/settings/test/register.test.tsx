@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import type { HarnixClient } from "@harnix/core";
 import { HarnixUiProvider, Registry, en, resetSetupSteps, setLocale, type HostApi } from "@harnix/react";
 
-import { MODEL_STEP, ModelStep, apiTypeOf, engineStore, extension, maskedKey, register } from "../src/index.tsx";
+import { MODEL_STEP, ModelStep, apiTypeOf, engineStore, extension, maskedKey, modelEntries, modelIds, modelRows, register } from "../src/index.tsx";
 
 afterEach(cleanup);
 
@@ -231,10 +231,14 @@ describe("@harnix/settings", () => {
   });
 
   /** The models section, over providers given here; `calls` is what it asked. */
-  function models(providers: Record<string, unknown>, calls: [string, Record<string, unknown>][] = []) {
+  function models(providers: Record<string, unknown>, calls: [string, Record<string, unknown>][] = [], served: unknown = { models: [] }) {
     const host = {
       call: async (method: string, params: Record<string, unknown>) => {
         calls.push([method, params]);
+        if (method === "settings.listModels") {
+          if (served instanceof Error) throw served;
+          return served;
+        }
         return method === "settings.describe" ? { paths: { global: "/g/settings.json" }, fields: [], providers: { providers, default_provider: Object.keys(providers)[0] } } : {};
       },
       session: { current: () => null, context: () => null },
@@ -263,6 +267,19 @@ describe("@harnix/settings", () => {
     expect(key("none").getAttribute("data-state")).toBe("missing");
   });
 
+  it("a provider's key is detected or missing as the engine says, with where it comes from", async () => {
+    const { container } = models({
+      stored: { api_type: "anthropic", api_key: "***wxyz", credential_present: true },
+      env: { api_type: "openai_compatible", api_key: null, api_key_env: "DEEPSEEK_API_KEY", base_url: "https://api.deepseek.com", credential_present: false },
+    });
+    await screen.findByTestId("providers");
+    const key = (id: string) => container.querySelector(`[data-provider="${id}"] [data-testid="provider-key"]`)!;
+    expect([key("stored").getAttribute("data-state"), key("stored").getAttribute("data-source"), key("stored").textContent]).toEqual(["present", "stored", "key detected"]);
+    expect(key("stored").getAttribute("title")).toContain("***wxyz");
+    expect([key("env").getAttribute("data-state"), key("env").textContent]).toEqual(["missing", "key missing"]);
+    expect(key("env").getAttribute("title")).toContain("DEEPSEEK_API_KEY");
+  });
+
   it("an OpenAI-compatible provider's thinking switch and its key's variable are written with it", async () => {
     const calls: [string, Record<string, unknown>][] = [];
     const { container } = models({ ds: { api_type: "openai_compatible", base_url: "https://api.deepseek.com", api_key: "***abcd", default_model: "deepseek-chat" } }, calls);
@@ -281,20 +298,51 @@ describe("@harnix/settings", () => {
     expect((params.config as Record<string, unknown>).api_key).toBeUndefined();
   });
 
-  it("a model written as an object shows as its id and is written back as it was", async () => {
+  it("a provider's models are rows with what the engine is told of each, and an object keeps what the page does not edit", async () => {
     const calls: [string, Record<string, unknown>][] = [];
-    const big = { id: "m-big", max_output: 8192 };
-    const { container } = models({ a: { api_type: "anthropic", api_key: "***abcd", default_model: "m", models: ["m", big] } }, calls);
+    const big = { id: "m-big", max_output: 8192, reasoning_levels: ["low", "high"] };
+    const { container } = models({ a: { api_type: "anthropic", api_key: "***abcd", default_model: "m", models: ["m", big] } }, calls, { models: [{ id: "m" }, { id: "m-served", display_name: "M" }] });
     await screen.findByTestId("providers");
     expect(container.querySelector('[data-provider="a"] .pc-meta')!.textContent).toContain("m · m-big");
     fireEvent.click(container.querySelector('[data-provider="a"] [data-testid="provider-edit"]')!);
     const form = await screen.findByTestId("provider-form");
-    expect((form.querySelector('[data-testid="provider-models"]') as HTMLInputElement).value).toBe("m, m-big");
-    fireEvent.change(form.querySelector('[data-testid="provider-models"]')!, { target: { value: "m-big, m-new" } });
+    const ids = () => [...form.querySelectorAll<HTMLInputElement>('[data-testid="provider-model-id"]')].map((i) => i.value);
+    expect(ids()).toEqual(["m", "m-big"]);
+    expect([...form.querySelectorAll<HTMLInputElement>('[data-testid="provider-model-max_output"]')].map((i) => i.value)).toEqual(["", "8192"]);
+    // The endpoint is asked which models it serves, for the provider being edited.
+    await waitFor(() => expect(calls.find(([m]) => m === "settings.listModels")?.[1]).toMatchObject({ provider: "a" }));
+    await waitFor(() => expect(form.querySelector("datalist")?.querySelectorAll("option").length).toBe(2));
+    // The first one given a context window, the second taken out, a new one added.
+    fireEvent.change(form.querySelectorAll('[data-testid="provider-model-context_window"]')[0]!, { target: { value: "128000" } });
+    fireEvent.change(form.querySelectorAll('[data-testid="provider-model-max_output"]')[1]!, { target: { value: "4096" } });
+    fireEvent.click(form.querySelector('[data-testid="provider-model-add"]')!);
+    fireEvent.change(form.querySelectorAll('[data-testid="provider-model-id"]')[2]!, { target: { value: "m-served" } });
     fireEvent.click(form.querySelector('[data-testid="provider-save"]')!);
     await waitFor(() => expect(calls.some(([m]) => m === "settings.setProvider")).toBe(true));
     const config = calls.find(([m]) => m === "settings.setProvider")![1].config as Record<string, unknown>;
-    expect(config.models).toEqual([big, "m-new"]);
+    expect(config.models).toEqual([{ id: "m", context_window: 128000 }, { id: "m-big", max_output: 4096, reasoning_levels: ["low", "high"] }, "m-served"]);
+  });
+
+  it("a provider's models are typed in when the endpoint cannot be asked", async () => {
+    const calls: [string, Record<string, unknown>][] = [];
+    const { container } = models({ a: { api_type: "anthropic", api_key: "***abcd", default_model: "m" } }, calls, Object.assign(new Error("the endpoint does not list models"), { code: -32027 }));
+    await screen.findByTestId("providers");
+    fireEvent.click(container.querySelector('[data-provider="a"] [data-testid="provider-edit"]')!);
+    const form = await screen.findByTestId("provider-form");
+    await waitFor(() => expect(form.querySelector('[data-testid="provider-models-fetch"]')!.getAttribute("data-state")).toBe("failed"));
+    expect(form.querySelector("datalist")).toBeNull();
+    fireEvent.click(form.querySelector('[data-testid="provider-models-fetch"]')!);
+    await waitFor(() => expect(calls.filter(([m]) => m === "settings.listModels").length).toBe(2));
+  });
+
+  it("the rows a provider's models are edited as round-trip", () => {
+    const rows = modelRows(["a", { id: "b", context_window: 1000, input_types: ["text"] }]);
+    expect(rows.map((r) => [r.id, r.context_window])).toEqual([["a", ""], ["b", "1000"]]);
+    expect(modelEntries(rows)).toEqual(["a", { id: "b", context_window: 1000, input_types: ["text"] }]);
+    // Blank, repeated and not a whole number: left out.
+    expect(modelEntries([...rows, { id: " ", max_output: "", context_window: "", rest: {} }, { id: "a", max_output: "x", context_window: "", rest: {} }])).toEqual(["a", { id: "b", context_window: 1000, input_types: ["text"] }]);
+    expect(modelEntries([{ id: "c", max_output: "1.5", context_window: "-3", rest: {} }])).toEqual(["c"]);
+    expect(modelIds({ models: [{ id: "x" }, { id: "x" }, { id: "" }, "y", 3] })).toEqual(["x", "y"]);
   });
 
   it("an Anthropic provider is not sent the OpenAI-compatible thinking fields", async () => {
