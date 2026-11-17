@@ -2513,6 +2513,19 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "observability.process",
+      "owner": "ext:observability"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
         "scope": "session"
       },
       "kind": "method",
@@ -3628,6 +3641,21 @@
       "kind": "topic",
       "name": "harnix.ui",
       "owner": "kernel:assembly"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "topic",
+      "name": "observability.process",
+      "owner": "ext:observability"
     },
     {
       "access": {

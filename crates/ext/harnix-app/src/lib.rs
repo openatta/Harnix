@@ -11,6 +11,10 @@
 //! where a session nobody placed belongs. The projects view lists the same sessions by project and
 //! needs no space of its own. A project's trust is the engine's; the projects space shows and
 //! changes it through this extension (`trust`).
+//!
+//! It declares the home space too: the page a person lands on, with the figures and lists other
+//! extensions put there (`harnix-app.home.panels`). It holds no conversation; it is declared so that
+//! what the page asks claiming it is answered for a space that exists, and lists nothing.
 
 mod export;
 mod files;
@@ -39,6 +43,9 @@ pub const ID: &str = "harnix-app";
 
 /// The session space: the conversations, and the projects they run in.
 pub const SESSIONS_SPACE: &str = "sessions";
+
+/// The home space: where the interface lands, an overview with no conversation of its own.
+pub const HOME_SPACE: &str = "home";
 
 /// `[ext.harnix-app]`: nothing to say yet, and a key that is not here is a mistake.
 #[derive(Debug, Default, Deserialize)]
@@ -77,6 +84,7 @@ impl Extension for HarnixApp {
 
     fn register(&self, r: &mut Registrar<'_, Config>) {
         r.space(SpaceDecl::new(SESSIONS_SPACE).default_space());
+        r.space(SpaceDecl::new(HOME_SPACE));
         let open = || Access::device();
         let session = || Access::device().scoped(RowScope::Session);
         r.method("workspaces.list").access(open()).raw(|c, _| with(c, |a, _| async move { a.workspaces_list().await }));
@@ -129,7 +137,8 @@ impl Extension for HarnixApp {
             .access(open())
             .describe("where this product's projects live")
             .raw(|c: Call, _| async move { Ok(json!({"projects_dir": c.ext().projects_dir()})) });
-        // Its UI package defines what else a project tree lists and what a project's overview shows, for others to fill.
+        // Its UI package defines what else a project tree lists, what a project's overview and the
+        // home page show, for others to fill.
         for point in catalog::points_of(ID) {
             r.ui().point(point.decl());
         }

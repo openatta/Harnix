@@ -184,6 +184,20 @@ const SECONDARY_MAX_KEY = "harnix.secondaryMax";
 /** Which view of the centre each session is shown in (`conversation.view`), by session key; the
  *  conversation when absent. */
 const VIEW_KEY = "harnix.view";
+/** In the tab's own storage: this tab has landed once, so a reload keeps the space in front. */
+const LANDED_KEY = "harnix.landed";
+
+/** Whether this tab is opened afresh rather than reloaded: true the first time it is asked in a tab,
+ *  and every time where the tab keeps no storage of its own. */
+function firstOpen(): boolean {
+  try {
+    if (sessionStorage.getItem(LANDED_KEY)) return false;
+    sessionStorage.setItem(LANDED_KEY, "1");
+  } catch {
+    // No storage of the tab's: each load is a first one.
+  }
+  return true;
+}
 
 /** The page's storage, if it has one that can be touched at all. */
 function storage(): Storage | null {
@@ -644,10 +658,16 @@ export class App {
     return chosen?.default_model || (typeof engine?.model === "string" ? engine.model : null);
   }
 
-  /** The stored front space, if this product still has it; else the first one it does have. */
+  /** A page opened afresh: the space that says it is where the page lands (`landing`). Else the
+   *  stored front space, if this product still has it; else the first one it does have. */
   private landOnASpace(): void {
     const spaces = [...this.registry.at("space")].sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
     if (!spaces.length) return;
+    const landing = spaces.find((c) => c.landing && !c.within && disabledOf(this.registry, c) === null);
+    if (landing && firstOpen()) {
+      if (landing.id !== this.state.space) this.set({ space: landing.id });
+      return;
+    }
     const here = spaces.find((c) => c.id === this.state.space);
     if (here && disabledOf(this.registry, here) === null) return;
     // Nothing kept, or gone: the product's own first space, as hello names it, if it can be entered.

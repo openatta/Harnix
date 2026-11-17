@@ -73,6 +73,7 @@ Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发
 | `system.metrics.link` | `system` | 注册 | 系统 space 指标条上一格数字去哪（`{id, metric, title(), open()}`）：`metric: "waiting"` 的「等你处理」打开待我处理 | 指标条画出时、点那一格时 | 每次交互(10⁰–10¹ 量级) |
 | `harnix-app.project.items` | `harnix-app` | 注册 | 项目树里会话之外的一种条目（`{id, title(), rows(root), subscribe(fn), render(row), open(row), menu?(row), create?, projectMenu?(context)}`）：流程的任务 | 项目 space 的树画出时、条目的 `subscribe` 说变了时 | 每次交互(10⁰–10¹ 量级) |
 | `harnix-app.project.panels` | `harnix-app` | 呈现 | 项目概况页的一个区块（`{id, title(), order?, render(context)}`） | 项目的概况页画出时 | 每次交互(10⁰–10¹ 量级) |
+| `harnix-app.home.panels` | `harnix-app` | 呈现 | 首页的一个区块（`{id, title(), order?, render(context)}`）：全局统计、用量、待我处理、最近会话、最近任务 | 首页画出时 | 每次交互(10⁰–10¹ 量级) |
 | `harnix-app.inbox` | `harnix-app` | 注册 | 待我处理的一个来源（`{id, items(), subscribe(fn), open(item)}`）：中枢的提问、流程的确认、hold、外部工作项 | 来源的 `subscribe` 说变了时、点一项时 | 每次交互(10⁰–10¹ 量级) |
 | `harnix-app.session.badge` | `harnix-app` | 呈现 | 左栏会话行上的一个标记（`{id, render(session)}`）：定时的时钟 | 会话行画出时 | 每次交互(10⁰–10¹ 量级) |
 | `flow.task.badge` | `flow` | 呈现 | 任务行上的一个标记（`{id, render(run)}`）：定时的下一次时间 | 任务行画出时 | 每次交互(10⁰–10¹ 量级) |

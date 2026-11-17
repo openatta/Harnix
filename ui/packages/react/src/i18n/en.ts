@@ -1535,5 +1535,23 @@ const en: Record<string, string> = {
   "usageAll.col.cacheWrite": "Cache write",
   "usageAll.col.total": "Tokens",
   "usageAll.col.modelMs": "Model time",
+  // ── the home page (the Harnix app's home space; its blocks are other packages') ──
+  "space.home": "Home",
+  "space.home.subtitle": "What runs here, what waits on you, what was done lately",
+  "home.none": "Nothing is put on the home page in this product.",
+  "home.stats.title": "At a glance",
+  "home.stats.uptime": "Uptime",
+  "home.stats.memory": "Memory (peak)",
+  "home.stats.threads": "Threads",
+  "home.stats.users": "Connected users",
+  "home.stats.instances": "Instances",
+  "home.stats.agents": "Agents (active/all)",
+  "home.stats.sessions": "Running sessions",
+  "home.stats.tasks": "Background tasks running",
+  "home.stats.waiting": "Waiting on you",
+  "home.stats.noProcess": "This process's figures cannot be read here: {reason}",
+  "home.sessions.title": "Recent sessions",
+  "home.sessions.none": "No sessions yet.",
+  "home.sessions.all": "All sessions",
 };
 export default en;

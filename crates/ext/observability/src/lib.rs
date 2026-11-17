@@ -11,11 +11,19 @@
 //! the claim as it does for every read of a session (system-space.md §10). `usage` names many
 //! sessions at once and stays an open row, as the system space's console reads it; so does
 //! `usage.daily`, the same figures per day and model for the console's usage summary.
+//!
+//! And this process's figures (`process`, a method and a topic): its versions, uptime, memory,
+//! threads and who is connected, read from the host with `process.observe` where the product grants
+//! it — the home page's global statistics.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use harnix_ext::engine::readers::{DayWindow, ReadError, Recordings};
-use harnix_ext::{catalog, caps, codes, Access, Call, Extension, Manifest, Registrar, Rpc, RpcError, RowScope, MAIN_INSTANCE};
+use harnix_ext::{
+    catalog, caps, codes, Access, Call, Extension, ExtensionContext, Manifest, Registrar, Rpc, RpcError, RowScope,
+    TopicCompute, MAIN_INSTANCE,
+};
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -24,6 +32,9 @@ const MAX_SESSIONS: usize = 200;
 /// The days `usage.daily` sums when not told, and the most it sums.
 const DEFAULT_DAYS: u64 = 30;
 const MAX_DAYS: u64 = 366;
+/// How often `observability.process` is computed again while watched: memory, threads and
+/// connections change without an event to say so.
+const PROCESS_EVERY: Duration = Duration::from_secs(5);
 
 #[derive(Default)]
 pub struct Observability;
@@ -35,8 +46,10 @@ impl Extension for Observability {
     fn manifest(&self) -> Manifest {
         Manifest::new("observability", env!("CARGO_PKG_VERSION"))
             .title("Observability")
-            .disclosure("读本机的模型调用录像：每次调用的请求与应答、每轮的汇总、会话的用量、请求信封的变化")
+            .disclosure("读本机的模型调用录像：每次调用的请求与应答、每轮的汇总、会话的用量、请求信封的变化；读本进程的版本、内存、线程与连接")
             .requires([caps::RECORDINGS_READ])
+            // This process's figures (`process`). Without it they are refused, and nothing else changes.
+            .optional([caps::PROCESS_OBSERVE])
     }
 
     fn register(&self, r: &mut Registrar<'_, ()>) {
@@ -82,10 +95,25 @@ impl Extension for Observability {
                 let (reader, session) = recording_of(&call, &params).await?;
                 answer(reader.envelopes(&session).await)
             });
+        r.method("process")
+            .access(Access::device())
+            .describe("this process's versions, uptime, memory, threads and who is connected")
+            .raw(|call: Call, _| async move { Ok(call.ext().process()?.to_json()) });
+        r.topic("process").computed(Some(PROCESS_EVERY), Process);
         // Its UI package defines the usage summary's sections, for others to add theirs.
         for point in catalog::points_of("observability") {
             r.ui().point(point.decl());
         }
+    }
+}
+
+/// `observability.process`, the topic: the same value as the method.
+struct Process;
+
+#[async_trait::async_trait]
+impl TopicCompute for Process {
+    async fn compute(&self, ext: &ExtensionContext, _params: &Value) -> Rpc<Value> {
+        Ok(ext.process()?.to_json())
     }
 }
 
@@ -230,7 +258,7 @@ mod tests {
     use harnix_ext::{ErasedExtension, ExtId};
 
     /// The rows about one session are a device's, narrowed to the sessions of the space it claims;
-    /// `usage`, which names many sessions, is a device's and open.
+    /// `usage`, which names many sessions, and `process`, about none, are a device's and open.
     #[test]
     fn a_sessions_rows_are_a_devices_for_the_sessions_of_its_space() {
         let id = ExtId::native("observability").unwrap();
@@ -250,9 +278,9 @@ mod tests {
             assert!(!row.opens_every_extension(), "{name} is not an extension's");
             assert_eq!(row.scope(), RowScope::Session, "{name} is about one session");
         }
-        for name in ["observability.usage", "observability.usage.daily"] {
+        for name in ["observability.usage", "observability.usage.daily", "observability.process"] {
             assert!(access(name).opens_devices(), "{name} is a device's");
-            assert_eq!(access(name).scope(), RowScope::Open, "{name} names many sessions");
+            assert_eq!(access(name).scope(), RowScope::Open, "{name} is about no one session");
         }
     }
 
