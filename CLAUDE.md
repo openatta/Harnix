@@ -41,9 +41,10 @@ crate 自己的 `Cargo.toml` 里，不从 workspace 继承（应用把这些 cra
 - `docs/` 只放架构与二开的文档：架构与理由在 `docs/concept_and_architecture.md`，用词照 `docs/glossary.md`，
   三种模式（模式 1 纯 Rust；模式 2 Rust + 进程内的扩展，缺省；模式 3 Rust + 每个扩展一个进程）的总览在 `docs/app-development.md`，
   原生扩展的指南与接口在 `docs/harnix-ext.md`，扩展包（模式 2 / 3）在 `docs/harnix-ext-package.md`，
-  Harnix app 在 `docs/harnix-app.md`，系统 space 在 `docs/system-space.md`，
+  Harnix app（首页、会话、项目，以及流程 space、右栏的上下文与输出、设置里的诊断）在 `docs/harnix-app.md`，
+  流程库 `harnix-flow` 的嵌入指南在 `crates/flow/docs/embed.*`（随 crate 一起拷走），
   贡献点 `docs/contribution_points.md`（表由代码生成），LIVE 测试框架 `docs/testing.md`。
-  `docs/harnix-ext.md` 的版本表写着当前版本，`scripts/set-version.sh` 连它一起改；表里的五个数 `tests/crate-metadata.mjs` 对着代码查。
+  `docs/harnix-ext.md` 的版本表写着当前版本，`scripts/set-version.sh` 连它一起改；表里的七个数 `tests/crate-metadata.mjs` 对着代码查。
   版本迁移写在 `docs/migrations/<x.y.z>.md`（要应用动手的版本各写一份，登记在 `docs/migrations/README.md` 的表里）：只在本地，
   已在 `.gitignore`，不提交。
   过程（计划、进度、设计记录）不进 `docs/`。下游项目的需求在 GitHub issue 里记（每个项目一个标签），
