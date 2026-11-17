@@ -276,8 +276,20 @@ html.resizing #frame {
   text-align: center;
 }
 
+/* Under the composer, at its width and centred on it: the cards a row holds share it, and a card
+ * left alone on its row takes the whole of it. Not the dashboard's grid — its empty tracks pushed
+ * the cards that are drawn to the left once a first-run step was done. */
 #main .home-cards {
-  margin-top: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  width: 100%;
+  max-width: var(--chat-width);
+  margin: 20px auto 0;
+}
+
+#main .home-cards > .home-card {
+  flex: 1 1 300px;
 }
 
 /* A card whose `render()` drew nothing (a first-run step already done) takes no place. */
