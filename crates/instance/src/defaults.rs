@@ -7,10 +7,9 @@
 //! deliberate off) is never overwritten, and it is visible and editable on the settings page like
 //! any other value. A tier the person later clears is written again at the next start.
 //!
-//! Only into a data root Harnix keeps under its state directory (`Factory::owned_roots`): the
-//! instances it spawns or builds from a template. `main`'s engine root is the person's own engine
-//! directory, shared with the engine's other clients, and an attached daemon's is its owner's;
-//! there the engine's own default stands until the person changes it on the settings page.
+//! Into every data root Harnix owns: `main`'s engine root (Harnix's own, under its state directory
+//! unless `--engine-dir` names another), and the instances it spawns or builds from a template.
+//! Not an attached daemon's, which is its owner's.
 
 use std::path::Path;
 

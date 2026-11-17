@@ -18,9 +18,9 @@ pub(crate) enum Command {
     ///
     /// What a `spawn` instance runs: this binary links Agix already, so the
     /// daemon is the same build and speaks the same protocol. Not for
-    /// starting by hand, though nothing stops it.
+    /// starting by hand, though nothing stops it. Boxed: it is far larger than the other.
     #[command(hide = true)]
-    Daemon(DaemonCommand),
+    Daemon(Box<DaemonCommand>),
 }
 
 #[derive(clap::Args, Debug)]
@@ -60,11 +60,19 @@ pub(crate) struct DaemonCommand {
     /// stop what a daemon that was killed left there before building the engine.
     #[arg(long)]
     pub reap: bool,
+    /// The directory the engine keeps in each project (the spawning product's; `.harnix` when not
+    /// given).
+    #[arg(long, default_value = harnix_contract::product::DEFAULT_PROJECT_DIR)]
+    pub project_dir: String,
+    /// The name the engine goes by (the spawning product's; `Harnix` when not given).
+    #[arg(long, default_value = harnix_contract::product::DEFAULT_PRODUCT_NAME)]
+    pub product_name: String,
 }
 
 impl DaemonCommand {
-    pub fn args(&self) -> harnix_instance::DaemonArgs {
-        harnix_instance::DaemonArgs {
+    pub fn args(&self) -> anyhow::Result<harnix_instance::DaemonArgs> {
+        let names = harnix_contract::ProductNames::new(&self.project_dir, &self.product_name).map_err(|e| anyhow::anyhow!("{e}"))?;
+        Ok(harnix_instance::DaemonArgs {
             data_root: self.data_root.clone(),
             socket: self.socket.clone(),
             engine: {
@@ -82,7 +90,8 @@ impl DaemonCommand {
             instance: self.instance.clone(),
             lock_wait: std::time::Duration::from_secs(self.lock_wait),
             reap: self.reap,
-        }
+            names,
+        })
     }
 }
 
@@ -166,10 +175,10 @@ pub(crate) struct Cli {
     #[arg(long)]
     pub tls_key: Option<PathBuf>,
 
-    /// The engine's directory: settings tiers, transcripts, memory, skills,
-    /// recordings. Defaults to `$AGIX_CONFIG_HOME`, else `~/.agix`.
+    /// The main instance's engine directory: settings tiers, transcripts,
+    /// memory, skills, recordings. Defaults to `engine/` in the state directory.
     #[arg(long)]
-    pub agix_dir: Option<PathBuf>,
+    pub engine_dir: Option<PathBuf>,
 
     /// The projects directory: where the picker starts and where a new project
     /// is created. Defaults to `$HARNIX_DATA_DIR`, else `~/Documents`. A
@@ -251,13 +260,15 @@ pub(crate) fn parse(app: &str, app_version: &str, args: Option<Vec<OsString>>) -
 }
 
 /// The profile, then the flags on top of it. With no profile named, the product's
-/// `default_engine` (`AppBuilder::default_engine`) is the `[engine]`, when it gave one.
+/// `default_engine` (`AppBuilder::default_engine`) is the `[engine]`, when it gave one. Whether the
+/// composer switches models is the profile's `[shell] model_switch` when written, the product's
+/// `model_switch` (`AppBuilder::model_switch`) when not — a profile named or not.
 ///
 /// A flag overriding a profile line is the ordinary case — try a different
 /// scene without editing a file. A flag is only applied when it was actually
 /// given, so an unmentioned flag does not quietly reset a profile line to its
 /// own default.
-pub(crate) fn resolve_profile(cli: &Cli, default_engine: Option<&EngineProfile>) -> anyhow::Result<Profile> {
+pub(crate) fn resolve_profile(cli: &Cli, default_engine: Option<&EngineProfile>, model_switch: bool) -> anyhow::Result<Profile> {
     let mut profile = match &cli.profile {
         Some(path) => Profile::load(path)?,
         None => {
@@ -268,6 +279,7 @@ pub(crate) fn resolve_profile(cli: &Cli, default_engine: Option<&EngineProfile>)
             profile
         }
     };
+    profile.shell.model_switch.get_or_insert(model_switch);
     if let Some(port) = cli.port {
         profile.transport.port = port;
     }
@@ -338,13 +350,13 @@ mod profile_tests {
     #[test]
     fn with_no_profile_named_the_products_engine_is_the_default_and_flags_go_on_top() {
         let engine = EngineProfile::new().scenes(["code"]);
-        let profile = resolve_profile(&cli(&["harnix"]), Some(&engine)).unwrap();
+        let profile = resolve_profile(&cli(&["harnix"]), Some(&engine), false).unwrap();
         assert_eq!(profile.instances.engine.scene, "harnix");
         assert_eq!(profile.instances.engine.scenes, ["code"]);
-        let profile = resolve_profile(&cli(&["harnix", "--scenes", "mini"]), Some(&engine)).unwrap();
+        let profile = resolve_profile(&cli(&["harnix", "--scenes", "mini"]), Some(&engine), false).unwrap();
         assert_eq!(profile.instances.engine.scenes, ["mini"]);
         // A product that gives none runs on the library's.
-        assert!(resolve_profile(&cli(&["harnix"]), None).unwrap().instances.engine.scenes.is_empty());
+        assert!(resolve_profile(&cli(&["harnix"]), None, false).unwrap().instances.engine.scenes.is_empty());
     }
 
     #[test]
@@ -354,8 +366,55 @@ mod profile_tests {
         let path = dir.join("p.toml");
         std::fs::write(&path, "[engine]\nscene = \"harnix\"\n").unwrap();
         let engine = EngineProfile::new().scenes(["code"]);
-        let profile = resolve_profile(&cli(&["harnix", "--profile", path.to_str().unwrap()]), Some(&engine)).unwrap();
+        let profile = resolve_profile(&cli(&["harnix", "--profile", path.to_str().unwrap()]), Some(&engine), false).unwrap();
         assert!(profile.instances.engine.scenes.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The product's model switch stands where the profile does not say, named or not; a line
+    /// written wins over it either way.
+    #[test]
+    fn the_model_switch_is_the_products_unless_written() {
+        assert!(resolve_profile(&cli(&["harnix"]), None, true).unwrap().shell.switches_model());
+        assert!(!resolve_profile(&cli(&["harnix"]), None, false).unwrap().shell.switches_model());
+        let dir = std::env::temp_dir().join(format!("harnix-switch-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let unwritten = dir.join("unwritten.toml");
+        std::fs::write(&unwritten, "[engine]\nscene = \"harnix\"\n").unwrap();
+        let off = dir.join("off.toml");
+        std::fs::write(&off, "[shell]\nmodel_switch = false\n").unwrap();
+        let on = dir.join("on.toml");
+        std::fs::write(&on, "[shell]\nmodel_switch = true\n").unwrap();
+        let named = |path: &std::path::Path, product: bool| {
+            resolve_profile(&cli(&["harnix", "--profile", path.to_str().unwrap()]), None, product).unwrap().shell.switches_model()
+        };
+        assert!(named(&unwritten, true));
+        assert!(!named(&unwritten, false));
+        assert!(!named(&off, true), "a product's default does not reopen what its profile closed");
+        assert!(named(&on, false));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn daemon(extra: &[&str]) -> anyhow::Result<harnix_instance::DaemonArgs> {
+        let args = ["harnix", "daemon", "--data-root", "/d", "--socket", "/s"].iter().chain(extra);
+        let cli = Cli::try_parse_from(args).unwrap();
+        let Some(Command::Daemon(daemon)) = cli.command else { panic!("not the daemon") };
+        daemon.args()
+    }
+
+    /// A spawned daemon goes by the names the product that spawned it gives, Harnix's when it
+    /// gives none, and refuses one the engine would.
+    #[test]
+    fn a_daemon_takes_the_products_names() {
+        let names = daemon(&[]).unwrap().names;
+        assert_eq!((names.project_dir(), names.product_name()), (".harnix", "Harnix"));
+        let names = daemon(&["--project-dir", ".acme", "--product-name", "Acme"]).unwrap().names;
+        assert_eq!((names.project_dir(), names.product_name()), (".acme", "Acme"));
+        assert!(daemon(&["--project-dir", ".git"]).unwrap_err().to_string().contains("project_dir"));
     }
 }

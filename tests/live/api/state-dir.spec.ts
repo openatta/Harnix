@@ -48,7 +48,7 @@ test("a second process on the same state directory is refused, naming the first"
     const second = spawn(binary("harnix-testapp"), [
       "--profile", join(first.scratch, "profile.toml"),
       "--port", String(await freePort()),
-      "--agix-dir", join(first.scratch, "agix"),
+      "--engine-dir", join(first.scratch, "engine"),
       "--data-dir", join(first.scratch, "projects"),
     ], {
       cwd: first.project,

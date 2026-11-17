@@ -1,12 +1,13 @@
 /**
- * The right column's context tab: what the session's next model call carries — the context's
- * parts and the system blocks' sources (the shared report, when the system space's `system.context`
- * is there to read), the skills and hooks in force (`harnix.session.skills`, `.hooks`), each MCP
- * server's tools and instructions (`settings.mcp.context`), and what the project's trust holds back
+ * The right column's context tab, standing at the end of every session's strip: what the session's
+ * next model call carries — the context's parts, the system blocks each with its source and size,
+ * the tools, the model (`observability.context`), the skills and hooks in force
+ * (`harnix.session.skills`, `.hooks`), each MCP server's tools and instructions
+ * (`settings.mcp.context`), and what the project's trust holds back
  * (`harnix-app.sessions.projectStatus`), with the way to trust the project.
  *
- * Each part is read on its own and fails on its own: a method this product does not have (the
- * system space not linked, no Harnix app) leaves its part out rather than the tab.
+ * Each part is read on its own and fails on its own: a method this product does not have (no
+ * settings, no Harnix app) leaves its part out rather than the tab.
  */
 
 import { useEffect, useState } from "react";
@@ -74,7 +75,7 @@ export function SessionContext({ observed, session, visible = true }: { observed
     ];
     return () => offs.forEach((off) => off());
   }, [host, session.sessionId]);
-  const context = usePart<ContextReportData>(() => host.call("system.context", params), key, again);
+  const context = usePart<ContextReportData>(() => host.call("observability.context", params), key, again);
   const skills = usePart<SessionSkills>(() => host.call("harnix.session.skills", params), key, again);
   const hooks = usePart<SessionHooks>(() => host.call("harnix.session.hooks", params), key, again);
   const mcp = usePart<McpContext>(() => host.call("settings.mcp.context", params), key, again);
@@ -96,10 +97,10 @@ export function SessionContext({ observed, session, visible = true }: { observed
   };
   if (!visible && context.state === "loading") return null;
   return (
-    <div className="system-pane obs-context" data-testid="context-tab">
+    <div className="obs-context" data-testid="context-tab">
       {context.state === "ok" ? (
         <>
-          <div className="note">{tr("system.contextNote")}</div>
+          <div className="note">{tr("obs.contextNote")}</div>
           <ContextReport context={context.value} />
         </>
       ) : context.state === "failed" ? (
@@ -136,8 +137,15 @@ export function SessionContext({ observed, session, visible = true }: { observed
           skills.value.skills.length ? (
             <ul className="obs-list">
               {skills.value.skills.map((skill) => (
-                <li key={`${skill.tier}/${skill.name}`} data-testid="context-skill" data-withheld={skill.withheld ? "true" : undefined} title={skill.description}>
-                  <span className="kd2">{tr(`context.tier.${skill.tier}`)}</span>
+                <li
+                  key={`${skill.tier}/${skill.user_tier ?? ""}/${skill.name}`}
+                  data-testid="context-skill"
+                  data-tier={skill.user_tier ?? skill.tier}
+                  data-withheld={skill.withheld ? "true" : undefined}
+                  title={[skill.description, skill.dir].filter(Boolean).join("\n")}
+                >
+                  {/* A user tier's skill says which: the instance's global skills or the scene's. */}
+                  <span className="kd2">{tr(`context.tier.${skill.user_tier ?? skill.tier}`)}</span>
                   <span className="txt">{skill.name}</span>
                   {skill.withheld ? <span className="kd warn">{tr("context.withheldTag")}</span> : null}
                 </li>
@@ -200,7 +208,7 @@ export function SessionContext({ observed, session, visible = true }: { observed
                   {server.tools.map((tool) => (
                     <li key={tool.name}>
                       <span className="txt mono">{tool.name}</span>
-                      <span className="kd">{tr("system.tokens", { count: `~${tool.tokens}` })}</span>
+                      <span className="kd">{tr("obs.tokens", { count: `~${tool.tokens}` })}</span>
                     </li>
                   ))}
                 </ul>

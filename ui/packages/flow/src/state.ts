@@ -1,11 +1,16 @@
 /**
  * What the flow space shows, shared by its parts, and the conversation in the middle (xops-03 §6):
- * **what is selected on the right is what the middle talks to.**
+ * **what is selected is what the middle talks to.**
  *
  * - The flows tab with a flow selected: that flow's own conversation (`session {flow}`, made by
  *   the module the first time). The runs tab with a run selected: the run's main session (its
- *   `@main` session key). Anything else — nothing selected, the reference tab: the general
- *   conversation (`session {}`), where flows are created and questions asked.
+ *   `@main` session key). The reference tab is read beside the conversation, not instead of it:
+ *   the middle stays as it is (with nothing of this space open, the selected flow's). Nothing
+ *   selected: the general conversation (`session {}`), where flows are created and questions asked.
+ * - A selection is made in the right column's lists or in the left column (`FlowSidebar`: the
+ *   flows, the selected flow's runs, the general conversation); a pick in the left column brings
+ *   the right column's list to the front with it (`openList`), and a run picked in the right
+ *   column's list selects its flow with it, so the left column opens on it.
  * - The middle is switched when the selection or the tab changes, and when this space comes to the
  *   front; an answer to an older switch is dropped.
  * - The `focus {instance, session_id}` topic is followed for the open session, for the line over
@@ -14,17 +19,16 @@
  *   under its own conversation clears the selection.
  *
  * What is selected is shown beside the conversation, in the shell's second side panel (xops-04 §7):
- * the flows tab's flow, or the runs tab's run (`detail()`). Closing that panel lets go of the
- * selection there and leaves the middle as it is (`closeDetail()`).
+ * the flows tab's flow, or the runs tab's run (`detail()`); with the reference in front, what it last
+ * showed. Closing that panel keeps the selection
+ * (the left column still says what the context is) and leaves the middle as it is, until the next
+ * pick or tab change (`closeDetail()`).
+ *
+ * A task is entered from the projects space (`enter` with `from`): the way back goes there
+ * (`leave`), until left.
  *
  * The wiring needs the host; it starts with `attach(host)` — `registerFlowSpace` does that when it
  * is given one, and every part of the space does it when it is drawn.
- *
- * Shown inside another space (`within`, `registerSystemFlows`): there is no right-column list to
- * follow. A flow's context is entered from the other space's page (`enter`) and left for it
- * (`leave`); in its left column the flow's conversation and its runs are picked, and the last pick
- * says what the middle and the panel beside it show, as the tab in front does otherwise. Coming to
- * the front by another way (a session opened there, the page loaded on it) keeps the session open.
  */
 
 import type { HostSessionRef as SessionRef, HostApi, Registry } from "@harnix/react";
@@ -63,13 +67,13 @@ export class FlowSpaceState {
   private switching = 0;
   /** This space was in front when last looked. */
   private front = false;
-  /** Shown inside another space: the panel beside the conversation was closed, until the next pick. */
+  /** The panel beside the conversation was closed, until the next pick or tab change. */
   private shut = false;
+  /** What the panel beside the conversation last showed for a list's tab: kept while the reference is read. */
+  private beside: FlowDetailOf | null = null;
   /** The general conversation is being opened: the focus of the session it replaces says nothing. */
   private opening = false;
   readonly tabs: StateTabs;
-  /** The space this one is shown inside, if it is (no right-column list then); null otherwise. */
-  readonly within: string | null;
   /** Where the other packages' contributions to this package's points are (a flow's other ways to start); null: none. */
   readonly registry: Registry | null;
   /** Where a task was entered from (the projects space): the way back goes there, until left. */
@@ -78,19 +82,15 @@ export class FlowSpaceState {
   /**
    * @param space the interface space this state belongs to: sessions of other spaces are not ours.
    * @param module the flow module's id (`<module>.*`).
-   * @param options `within`: the space this one is shown inside.
    */
   constructor(
     readonly space = "flow",
     readonly module = "flow",
     tabs?: StateTabs,
-    options: { within?: string; registry?: Registry } = {},
+    options: { registry?: Registry } = {},
   ) {
     this.tabs = tabs ?? { flows: `${space}.flows`, runs: `${space}.runs`, reference: `${space}.reference` };
-    this.within = options.within ?? null;
     this.registry = options.registry ?? null;
-    // Inside another space, what was picked last stands for the tab: the flow's conversation first.
-    if (this.within) this.tab = this.tabs.flows;
   }
 
   readonly subscribe = (fn: () => void): (() => void) => {
@@ -114,15 +114,12 @@ export class FlowSpaceState {
       this.follow();
     });
     this.front = host.spaces.current() === this.space;
-    if (this.within) {
-      this.follow();
-      return;
-    }
     this.tab = host.details?.tab?.() ?? null;
     host.details?.onTab?.((tab) => {
       if (tab === this.tab) return;
       this.tab = tab;
       // The panel beside the conversation follows the tab.
+      this.shut = false;
       this.changed();
       void this.centre();
     });
@@ -141,64 +138,57 @@ export class FlowSpaceState {
     const arrived = front && !this.front;
     this.front = front;
     if (!arrived) return;
-    if (this.within) {
-      // Not by `enter`: what is open stays; with nothing open, the selection's conversation.
-      this.changed();
-      if (!host.session.current()) void this.centre();
-      return;
-    }
     this.tab = host.details?.tab?.() ?? this.tab;
     this.changed();
     void this.centre();
   }
 
-  /** A flow chosen in the flows tab: shown, and its conversation opened in the middle. */
+  /** A flow chosen (null: none): shown, and its conversation opened in the middle. */
   selectFlow(flow: string | null): void {
     const same = this.value.flow === flow;
-    this.picked(this.tabs.flows);
+    this.shut = false;
     this.set({ flow, run: null, station: same ? this.value.station : null });
     void this.centre(this.tabs.flows);
   }
 
-  /** A run chosen in the runs tab: shown, and its main session opened in the middle. */
-  showRun(run: string | null): void {
-    this.picked(this.tabs.runs);
-    // The station stays picked: the same station of another run.
-    this.set({ ...this.value, run });
+  /**
+   * A run chosen (null: none): shown, and its main session opened in the middle. Given its flow, the
+   * flow is selected with it, so the left column opens on that flow with the run in it, whichever
+   * list it was picked from.
+   */
+  showRun(run: string | null, flow?: string | null): void {
+    this.shut = false;
+    const to = run && flow ? flow : this.value.flow;
+    // The station stays picked — the same station of another run — while the flow does.
+    this.set({ flow: to, run, station: to === this.value.flow ? this.value.station : null });
     void this.centre(this.tabs.runs);
   }
 
-  /** Inside another space a pick is the tab: what the middle and the panel follow. */
-  private picked(tab: string): void {
-    if (!this.within) return;
-    this.tab = tab;
-    this.shut = false;
-  }
-
   /**
-   * Into this space from the one it is shown inside: `flow`'s context (null: the general
-   * conversation's), `run` shown if given, brought to the front with the middle on it. `from`
-   * names another space it was entered from (a task opened in the projects space): `leave` goes
-   * back there.
+   * Into this space from another: `flow` (null: the general conversation), `run` shown if given,
+   * brought to the front with the right column on the list it is in and the middle on it. `from`
+   * names the space it was entered from (a task opened in the projects space): `leave` goes back
+   * there.
    */
   async enter(flow: string | null, run: string | null = null, options: { from?: { space: string; title: string } } = {}): Promise<void> {
     const host = this.host;
     if (!host) return;
     const same = this.value.flow === flow;
-    this.tab = run ? this.tabs.runs : this.tabs.flows;
+    const tab = run ? this.tabs.runs : this.tabs.flows;
+    this.tab = tab;
     this.shut = false;
     this.came = options.from ?? null;
     // Selected before the switch: whatever draws on arrival already reads it.
     this.set({ flow, run, station: same ? this.value.station : null });
     if (host.spaces.current() !== this.space) await host.spaces.switch(this.space);
     this.front = host.spaces.current() === this.space;
-    await this.centre();
+    this.openList(tab);
+    await this.centre(tab);
   }
 
-  /** Back to where it was entered from: the space it came from on a task, else the one it is shown
-   *  inside; nothing when neither. */
+  /** Back to where a task was entered from, once; nothing when it was not. */
   async leave(): Promise<void> {
-    const to = this.came?.space ?? this.within;
+    const to = this.came?.space ?? null;
     this.came = null;
     if (to && this.host) await this.host.spaces.switch(to);
   }
@@ -208,10 +198,9 @@ export class FlowSpaceState {
     return this.came;
   }
 
-  /** Bring a list to the front after showing something there: the right column's tab, where there
-   *  is one; inside another space the list is the left column's, always in view. */
+  /** Bring a list to the front after showing something there: the right column's tab. */
   openList(tab: string): void {
-    if (!this.within) this.host?.details?.open(tab);
+    this.host?.details?.open(tab);
   }
 
   pick(station: string | null): void {
@@ -221,7 +210,7 @@ export class FlowSpaceState {
   /** The right column's tab: the shell's, while this space is in front; else as last seen. */
   tabNow(): string | null {
     const host = this.host;
-    if (host && !this.within && host.spaces.current() === this.space) {
+    if (host && host.spaces.current() === this.space) {
       const now = host.details?.tab?.();
       if (typeof now === "string") this.tab = now;
     }
@@ -232,22 +221,23 @@ export class FlowSpaceState {
   detail(): FlowDetailOf | null {
     if (this.shut) return null;
     const tab = this.tabNow();
-    if (tab === this.tabs.flows && this.value.flow) return { kind: "flow", flow: this.value.flow };
-    if (tab === this.tabs.runs && this.value.run) return { kind: "run", run: this.value.run };
-    return null;
+    if (tab === this.tabs.reference) {
+      // Read beside what was shown: the panel stays on it, while it is still the selection.
+      const was = this.beside;
+      return was && (was.kind === "flow" ? was.flow === this.value.flow : was.run === this.value.run) ? was : null;
+    }
+    let now: FlowDetailOf | null = null;
+    if (tab === this.tabs.flows && this.value.flow) now = { kind: "flow", flow: this.value.flow };
+    else if (tab === this.tabs.runs && this.value.run) now = { kind: "run", run: this.value.run };
+    this.beside = now;
+    return now;
   }
 
-  /** The second side panel was closed: what it showed is no longer selected; the middle stays. */
+  /** The second side panel was closed: the selection stays (the left column still says what the
+   *  context is), only the panel goes, until the next pick or tab change; the middle stays. */
   closeDetail(): void {
-    if (this.within) {
-      // The left column still says what the context is: only the panel goes.
-      this.shut = true;
-      this.changed();
-      return;
-    }
-    const tab = this.tabNow();
-    if (tab === this.tabs.runs) this.set({ ...this.value, run: null });
-    else if (tab === this.tabs.flows) this.set({ flow: null, run: this.value.run, station: null });
+    this.shut = true;
+    this.changed();
   }
 
   /** The session of this space now open, if any. */
@@ -258,16 +248,12 @@ export class FlowSpaceState {
     return host.session.current();
   }
 
-  /** The general conversation, opened in the middle; null when it could not be. */
+  /** The general conversation, opened in the middle, nothing selected; null when it could not be. */
   async openGeneral(): Promise<SessionRef | null> {
     this.opening = true;
     try {
-      if (this.within && this.host) {
-        // The general conversation's context, entered if it is not in front.
-        this.picked(this.tabs.flows);
-        this.set({ flow: null, run: null, station: null });
-        if (this.host.spaces.current() !== this.space) await this.host.spaces.switch(this.space);
-      }
+      this.shut = false;
+      this.set({ flow: null, run: null, station: null });
       const generation = ++this.switching;
       const ref = await this.conversation(null);
       if (!ref || generation !== this.switching) return ref;
@@ -294,7 +280,12 @@ export class FlowSpaceState {
       ref = isDryRun(run) ? await this.conversation(await this.flowOfRun(run)) : await this.mainOf(run);
     } else if (tab === this.tabs.flows && flow) {
       ref = await this.conversation(flow);
-    } else if (tab === this.tabs.flows || tab === this.tabs.reference || tab === this.tabs.runs) {
+    } else if (tab === this.tabs.reference) {
+      // The reference is read beside the conversation, not instead of it: the middle stays on what
+      // it shows; with nothing of this space open, on the selected flow's (the general one).
+      if (before && this.session()) return before;
+      ref = await this.conversation(flow);
+    } else if (tab === this.tabs.flows || tab === this.tabs.runs) {
       ref = await this.conversation(null);
     }
     if (!ref || generation !== this.switching) return null;

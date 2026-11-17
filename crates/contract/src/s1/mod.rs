@@ -16,6 +16,7 @@ mod error;
 mod id;
 mod instance;
 mod meta;
+pub mod product;
 mod session;
 mod space;
 mod subject;

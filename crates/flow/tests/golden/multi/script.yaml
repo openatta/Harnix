@@ -1,0 +1,15 @@
+# A program lists the modules; one session task each (two at once), each in a session of its own;
+# then a program and someone outside close it.
+pack: pack
+catalog: {scenes: [harnix], steps: [collect, work]}
+flow: multi
+subject: the repo
+steps:
+  - submit: {station: collect, output: {modules: [core, ui]}}
+  - advance: {ms: 500}
+  - submit: {station: analyze, session: s1, opened_with: {scene: harnix}, output: {findings: []}}
+  - submit: {station: analyze, session: s2, opened_with: {scene: harnix}, output: {findings: [{text: a race}]}}
+  - advance: {ms: 500}
+  - submit: {station: report, task: summary, output: {count: 1}}
+  - submit: {station: report, task: sign, output: {signed: true}}
+status: finished

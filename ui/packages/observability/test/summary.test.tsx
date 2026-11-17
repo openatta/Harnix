@@ -1,11 +1,10 @@
 /**
- * The system space's 用量 tab: registered where the console is, nowhere else; the sessions active
- * in the window asked about in batches, by instance, with this device's offset; the figures summed
- * by project, model and day, a bar a day; an instance that cannot be read named; the sections other
- * packages add drawn below, one that throws losing only itself.
+ * The usage summary: the sessions active in the window asked about in batches, by instance, with
+ * this device's offset; the figures summed by project, model and day, a bar a day; an instance that
+ * cannot be read named; the sections other packages add drawn below, one that throws losing only
+ * itself.
  */
 
-import type { ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { localOffsetMinutes, windowDays } from "@harnix/core";
@@ -73,19 +72,12 @@ function answering(method: string, params: unknown): unknown {
   };
 }
 
-describe("where the tab is", () => {
-  it("a tab of the console where the system space defines it, and the point for sections either way", () => {
+describe("the point for sections", () => {
+  it("is defined by the package, for whoever draws the summary", () => {
     const alone = new Registry();
     alone.activate("observability", () => register(alone, scripted(() => ({})).host));
     alone.settle();
-    expect(alone.list("system.console.tab")).toEqual([]);
     expect(alone.definitions().map((d) => d.name)).toContain(USAGE_SECTION);
-
-    const withSystem = new Registry();
-    withSystem.activate("system", () => withSystem.definePoint("system.console.tab", { kind: "register" }));
-    withSystem.activate("observability", () => register(withSystem, scripted(() => ({})).host));
-    withSystem.settle();
-    expect(withSystem.list<{ id: string; order: number }>("system.console.tab").map((t) => [t.id, t.order])).toEqual([["observability.summary", 40]]);
   });
 });
 
@@ -118,12 +110,14 @@ describe("the tab", () => {
   function shown(topics: Record<string, unknown>, sections: { id: string; render: (c: { since: number; days: number }) => unknown }[] = []) {
     const s = hosted(topics, answering);
     const registry = new Registry();
-    registry.activate("system", () => registry.definePoint("system.console.tab", { kind: "register" }));
     registry.activate("observability", () => register(registry, s.host));
     for (const section of sections) registry.activate("flow", () => registry.register(USAGE_SECTION, { ...section, title: () => section.id }, "flow"));
     registry.settle();
-    const tab = registry.list<{ render: () => ReactNode }>("system.console.tab")[0]!;
-    const view = render(<RegistryProvider registry={registry}>{tab.render()}</RegistryProvider>);
+    const view = render(
+      <RegistryProvider registry={registry}>
+        <UsageSummaryTab observed={{ host: s.host, registry }} />
+      </RegistryProvider>,
+    );
     return { s, view };
   }
 

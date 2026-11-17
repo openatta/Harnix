@@ -17,15 +17,14 @@ use harnix_ext_harnix_app::HarnixApp;
 use harnix_ext_observability::Observability;
 use harnix_ext_plugins::Plugins;
 use harnix_ext_settings::Settings;
-use harnix_ext_system::System;
 use harnix_ext::SpaceDecl;
 use harnix_ext::Manifest;
 use harnix_router::{Row, TableError};
 use serde_json::{json, Value};
 
-/// What the system module does to another space's session, method by method: each the engine's,
-/// each needing `engine.inspect` or `engine.control`.
-const SYSTEM_SPACE_ACTS: &[&str] = &[
+/// What a debugger does to another space's session, method by method: each the engine's, each
+/// needing `engine.inspect` or `engine.control`.
+const DEBUGGER_ACTS: &[&str] = &[
     "engine.session.inspectContext",
     "engine.session.taskOutput",
     "engine.session.goal",
@@ -41,8 +40,8 @@ const SYSTEM_SPACE_ACTS: &[&str] = &[
     "engine.session.updateGoal",
 ];
 
-/// The system space's four capabilities.
-fn system_caps() -> [Capability; 4] {
+/// A debugger's four capabilities: the instances, a session's inside, acting on it, the process.
+fn debugger_caps() -> [Capability; 4] {
     [caps::INSTANCES_ADMIN, caps::ENGINE_INSPECT, caps::ENGINE_CONTROL, caps::PROCESS_OBSERVE]
 }
 
@@ -50,8 +49,8 @@ fn id(s: &str) -> ExtId {
     ExtId::native(s).or_else(|_| ExtId::package(s)).unwrap()
 }
 
-/// A debugger an application writes itself: the system space's powers, as optional
-/// capabilities, and a space of its own that reaches across spaces.
+/// A debugger an application writes itself: the powers to look into and act on any session, as
+/// optional capabilities, and a space of its own that reaches across spaces.
 struct Debugger;
 
 #[async_trait::async_trait]
@@ -59,7 +58,7 @@ impl Extension for Debugger {
     type Config = ();
 
     fn manifest(&self) -> harnix_ext::Manifest {
-        harnix_ext::Manifest::new("debugger", "0.0.1").optional(system_caps())
+        harnix_ext::Manifest::new("debugger", "0.0.1").optional(debugger_caps())
     }
 
     fn register(&self, r: &mut Registrar<'_, ()>) {
@@ -105,11 +104,8 @@ fn first_party(without: &str) -> Modules {
     if without != "harnix-app" {
         modules = modules.extension(HarnixApp, [caps::TRANSCRIPTS_READ, caps::ENGINE_EXPORT, caps::ENGINE_CONTROL]);
     }
-    if without != "system" {
-        modules = modules.extension(System, system_caps());
-    }
     if without != "observability" {
-        modules = modules.extension(Observability, [caps::RECORDINGS_READ]);
+        modules = modules.extension(Observability, [caps::RECORDINGS_READ, caps::ENGINE_INSPECT, caps::PROCESS_OBSERVE, caps::ENGINE_CONTROL]);
     }
     if without != "settings" {
         modules = modules.extension(Settings, [caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE, caps::ENGINE_MCP, caps::ENGINE_INSPECT]);
@@ -226,10 +222,11 @@ mod capabilities {
     #[test]
     fn the_built_ins_hold_what_they_require_and_nothing_else() {
         let r = registered(first_party("")).unwrap();
-        let system = r.extensions.iter().find(|m| m.id == "system").unwrap();
-        assert_eq!(system.granted, ["instances.admin", "engine.inspect", "engine.control", "process.observe"]);
+        let observability = r.extensions.iter().find(|m| m.id == "observability").unwrap();
+        assert_eq!(observability.granted, ["recordings.read", "engine.inspect", "process.observe", "engine.control"]);
         // What each requires, and what it lists as optional and Harnix grants it too: the Harnix
-        // app reads and changes a project's trust with `engine.control`; the settings page writes a
+        // app reads and changes a project's trust with `engine.control`, and the observability
+        // stops a session's task and changes its messages for a person with it; the settings page writes a
         // project's MCP servers and signs in to them with `engine.mcp`, and reads a session's MCP
         // context with `engine.inspect`.
         for status in &r.extensions {
@@ -238,6 +235,7 @@ mod capabilities {
         }
         let app = r.extensions.iter().find(|m| m.id == "harnix-app").unwrap();
         assert_eq!(app.optional, ["engine.control"]);
+        assert_eq!(observability.optional, ["process.observe", "engine.control"]);
         assert!(r.grants.holds(&id("settings"), &caps::ENGINE_CONFIG_WRITE));
         let settings = r.extensions.iter().find(|m| m.id == "settings").unwrap();
         assert_eq!(settings.optional, ["engine.mcp", "engine.inspect"]);
@@ -248,12 +246,12 @@ mod capabilities {
 mod debugger {
     use super::*;
 
-    /// Granted the system extension's capabilities, a debugger the application wrote does what the
-    /// system space does to another space's sessions: nothing about it is first-party.
+    /// Granted the capabilities, a debugger the application wrote looks into and acts on another
+    /// space's sessions: nothing about it is first-party.
     #[tokio::test]
-    async fn granted_the_system_extensions_capabilities_it_does_what_the_system_space_does() {
-        let r = registered(Modules::default().extension(Debugger, system_caps())).unwrap();
-        for method in SYSTEM_SPACE_ACTS {
+    async fn granted_the_capabilities_a_debugger_acts_on_any_sessions() {
+        let r = registered(Modules::default().extension(Debugger, debugger_caps())).unwrap();
+        for method in DEBUGGER_ACTS {
             let e = call(&r, Subject::extension(id("debugger")), method, json!({"session_id": "s"})).await.unwrap_err();
             assert_eq!(e.code, codes::INTERNAL_ERROR, "{method} was not let through: {e}");
         }
@@ -263,13 +261,13 @@ mod debugger {
     #[tokio::test]
     async fn ungranted_every_one_of_them_is_refused_and_says_what_is_missing() {
         let r = registered(Modules::default().extension(Debugger, [])).unwrap();
-        for method in SYSTEM_SPACE_ACTS {
+        for method in DEBUGGER_ACTS {
             let e = call(&r, Subject::extension(id("debugger")), method, json!({"session_id": "s"})).await.unwrap_err();
             let cap = r.router.table().row(method).and_then(|row| row.access().requirement().cloned()).unwrap();
             assert!(refused_for(&e, &cap), "{method}: {e:?}");
         }
         // Nor does a device reach any of them, whatever it claims.
-        for method in SYSTEM_SPACE_ACTS {
+        for method in DEBUGGER_ACTS {
             let e = call(&r, Subject::device("d"), method, json!({"space": "debugger"})).await.unwrap_err();
             assert_eq!(e.code, codes::REFUSED, "{method}");
         }
@@ -288,7 +286,7 @@ mod unlinked {
     /// Not linking an extension changes the kernel by nothing: what is missing is its own rows.
     #[test]
     fn without_an_extension_only_its_rows_differ() {
-        for ext in ["harnix-app", "system", "observability", "settings", "plugins", "devices", "flow"] {
+        for ext in ["harnix-app", "observability", "settings", "plugins", "devices", "flow"] {
             let all_rows = table(first_party(""));
             let rows = table(first_party(ext));
             let owner = format!("ext:{ext}");
@@ -349,7 +347,7 @@ mod scope {
         }
         // Listing and creating are about a space: not claiming one is refused.
         assert!(refused_outside(&call(&r, me(), "harnix.sessions.list", json!({})).await.unwrap_err()));
-        assert!(refused_outside(&call(&r, me(), "harnix.session.create", json!({"space": "system"})).await.unwrap_err()));
+        assert!(refused_outside(&call(&r, me(), "harnix.session.create", json!({"space": "flow"})).await.unwrap_err()));
         // Reading another session's inside is no package's: no capability opens it to one.
         let e = call(&r, me(), "engine.session.inspectContext", json!({"space": "acme.notes"})).await.unwrap_err();
         assert_eq!(e.code, codes::REFUSED);
@@ -518,13 +516,13 @@ mod privileged {
         DescriptorBuilder::new(id("acme.notes"), Manifest::new("acme.notes", "1.0.0"), trust).build()
     }
 
-    /// A first-party row a person reaches — the system space's, the settings' — is not one a
+    /// A first-party row a person reaches — a session's context, the settings' — is not one a
     /// package's consent may list: listing one refuses the package at registration, saying why,
     /// and what it may list of the hub's is still listed.
     #[tokio::test]
     async fn a_package_listing_a_first_party_power_is_refused_at_registration() {
         let r = registered(first_party("")).unwrap();
-        for name in ["system.compact", "system.instances.stop", "settings.setProvider", "plugins.install", "devices.revoke"] {
+        for name in ["observability.context", "observability.tasks.output", "settings.setProvider", "plugins.install", "devices.revoke"] {
             assert!(r.router.table().row(name).is_some(), "{name} is a row");
             let e = r.check_package(&package(&[name]), &[]).unwrap_err();
             assert_eq!(e.code, codes::REFUSED, "{name}");
@@ -533,8 +531,8 @@ mod privileged {
         r.check_package(&package(&["harnix.session.create", "topic:harnix.sessions.status"]), &[]).unwrap();
         // A device reaches the same row; the package as itself does not, listed or not.
         let me = Subject::extension(id("acme.notes"));
-        r.grants.set(id("acme.notes"), [], Trust::consent(["system.compact".to_string()], PackageCarrier::Wasm));
-        let e = call(&r, me, "system.compact", json!({"space": "acme.notes"})).await.unwrap_err();
+        r.grants.set(id("acme.notes"), [], Trust::consent(["observability.context".to_string()], PackageCarrier::Wasm));
+        let e = call(&r, me, "observability.context", json!({"space": "acme.notes"})).await.unwrap_err();
         assert_eq!(e.code, codes::REFUSED);
     }
     struct Nothing;

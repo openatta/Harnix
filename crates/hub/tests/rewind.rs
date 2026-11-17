@@ -30,13 +30,15 @@ struct FakeLink {
     status: watch::Sender<LinkStatus>,
     asked: Mutex<Vec<RewindParams>>,
     appended: Mutex<Vec<Entry>>,
+    /// The turns a rewind took out: no longer listed, as the engine lists them.
+    removed: Mutex<Vec<String>>,
 }
 
 impl FakeLink {
     fn new() -> Arc<Self> {
         let (tx, rx) = mpsc::channel(1024);
         let (status, _) = watch::channel(LinkStatus::Ready);
-        Arc::new(Self { events: Mutex::new(Some(rx)), tx, status, asked: Mutex::default(), appended: Mutex::default() })
+        Arc::new(Self { events: Mutex::new(Some(rx)), tx, status, asked: Mutex::default(), appended: Mutex::default(), removed: Mutex::default() })
     }
 }
 
@@ -121,7 +123,7 @@ impl EngineOps for FakeLink {
     async fn rename(&self, _: &str, _: &str) -> Answer<Value> {
         Ok(json!({}))
     }
-    async fn set_model(&self, _: &str, _: &str, _: Option<&str>) -> Answer<Value> {
+    async fn set_model(&self, _: &str, _: &harnix_contract::wire::ModelChoice) -> Answer<Value> {
         Ok(json!({}))
     }
     async fn set_prompt(&self, _: &str, _: Option<Option<String>>, _: Option<Option<String>>) -> Answer<Value> {
@@ -140,6 +142,7 @@ impl EngineOps for FakeLink {
     async fn rewind(&self, session: &str, ask: &RewindParams) -> Answer<RewindResult> {
         self.asked.lock().unwrap().push(ask.clone());
         if !ask.dry_run {
+            self.removed.lock().unwrap().extend(["t2".to_string(), "t3".to_string()]);
             let event = json!({"kind": "rewound", "seq": 2});
             let kind = SessionEventKind::Rewound { messages: 2 };
             let _ = self.tx.send(EngineEvent::Session { session: session.into(), turn_id: String::new(), kind, event }).await;
@@ -164,7 +167,8 @@ impl EngineOps for FakeLink {
         })
     }
     async fn live_turns(&self, _: &str) -> Answer<Vec<String>> {
-        Ok(vec!["t1".into(), "t2".into(), "t3".into()])
+        let removed = self.removed.lock().unwrap().clone();
+        Ok(["t1", "t2", "t3"].into_iter().filter(|t| !removed.iter().any(|r| r == t)).map(str::to_string).collect())
     }
 }
 
@@ -334,7 +338,7 @@ async fn a_rewind_voids_its_turns_changes_and_every_watcher_reads_the_session_ag
     let listed = rig.call(device(), "engine.session.entries", json!({"session_id": "s1", "space": "a"})).await.unwrap();
     let turns: Vec<&str> = listed["entries"].as_array().unwrap().iter().filter_map(|e| e["payload"]["turn_id"].as_str()).collect();
     assert_eq!(turns, ["t1"]);
-    // A turn it took out is no target again, though the engine still lists it; the one before is.
+    // A turn it took out is no target again; the one before is.
     let again = json!({"session_id": "s1", "space": "a", "to": {"before_turn": "t2"}, "dry_run": true});
     assert_eq!(rig.call(device(), "harnix.session.rewind", again).await.unwrap_err().code, codes::INVALID_PARAMS);
     let first = json!({"session_id": "s1", "space": "a", "to": {"before_turn": "t1"}, "dry_run": true});
@@ -386,4 +390,25 @@ async fn a_rewind_somebody_else_made_is_followed_up_too() {
     let frame = EngineEvent::Session { session: "s1".into(), turn_id: String::new(), kind: SessionEventKind::Rewound { messages: 2 }, event };
     rig.link.tx.send(frame).await.unwrap();
     until(&sink, "harnix.session_resync", 1).await;
+}
+
+/// A message changed in place — rewritten, or taken out of the context — is redrawn as a rewind's
+/// point is: the engine sends no frame for it, so the hub has every watcher read the session again,
+/// with nothing of the old drawing left to replay. Nothing else is: a read of the context is not a
+/// change.
+#[tokio::test]
+async fn a_message_changed_in_place_has_every_watcher_read_the_session_again() {
+    let rig = Rig::new().await;
+    let (sink, cx) = rig.watcher().await;
+    rig.call(device(), "engine.session.inspectContext", json!({"session_id": "s1"})).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(sink.frames("harnix.session_resync").is_empty(), "a read changes nothing");
+    rig.call(device(), "engine.session.editMessage", json!({"session_id": "s1", "at": 0, "text": "fix b", "total": 2})).await.unwrap();
+    until(&sink, "harnix.session_resync", 1).await;
+    rig.call(device(), "engine.session.dropMessages", json!({"session_id": "s1", "at": [0], "total": 2})).await.unwrap();
+    until(&sink, "harnix.session_resync", 2).await;
+    let resync = &sink.frames("harnix.session_resync")[0];
+    assert_eq!(resync["params"]["session_id"], "s1");
+    let attached = rig.call(cx, "harnix.session.attach", json!({"session_id": "s1", "space": "a"})).await.unwrap();
+    assert_eq!(attached["replay"], json!([]));
 }

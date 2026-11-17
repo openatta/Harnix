@@ -1,6 +1,6 @@
 /**
- * What the Harnix app's interface registers, through the host API alone: the two spaces over one
- * backend space, the grouping by time, archiving and export on the session menu for the sessions
+ * What the Harnix app's interface registers, through the host API alone: the home page, where the
+ * interface lands, and the two spaces over one backend space, the grouping by time, archiving and export on the session menu for the sessions
  * they apply to, the `@` files of the open session's project, and a new conversation in the
  * projects space running in the open project.
  */
@@ -46,16 +46,21 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 afterEach(() => localStorage.clear());
 
 describe("@harnix/harnix-app", () => {
-  it("is the harnix-app extension's interface: two spaces over the session space, and the grouping", async () => {
+  it("is the harnix-app extension's interface: the home page, two spaces over the session space, and the grouping", async () => {
     const r = new Registry();
     const host = fakeHost();
     r.activate(extension, () => register(r, host));
     const spaces = r.at("space");
     expect(spaces.map((s) => [s.id, s.sessions ?? s.id, s.order])).toEqual([
+      ["home", "home", 5],
       ["sessions", "sessions", 10],
       ["projects", "sessions", 20],
     ]);
-    expect(spaces.every((s) => s.owner === "harnix-app" && s.store !== undefined)).toBe(true);
+    expect(spaces.every((s) => s.owner === "harnix-app")).toBe(true);
+    // The home page lands, holds no conversation and is all overview; the other two follow the store.
+    const home = spaces.find((s) => s.id === "home")!;
+    expect([home.landing, home.center?.mode, home.conversation?.newSession]).toEqual([true, "hidden", false]);
+    expect(spaces.filter((s) => s.id !== "home").every((s) => s.store !== undefined)).toBe(true);
     expect(r.grouping()?.id).toBe("harnix-app.time");
     await settle();
     const groups = r.grouping()!.group(SESSIONS as never);

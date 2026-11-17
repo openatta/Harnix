@@ -13,7 +13,7 @@
 //! (`main`, the instance's scene). A module declares one to give it a default instance or scene.
 //!
 //! The same ledger records which sessions Harnix itself started — a module's or the kernel's,
-//! rather than a person's at a device — so the system space can mark them; and, for a session
+//! rather than a person's at a device — so an interface can mark them; and, for a session
 //! created in a scene layer, which layer, and the prompt text its caller added (`prompt.rs`).
 //!
 //! A call that claims a space (`params.space`) is checked against the record: a session of another
@@ -442,6 +442,11 @@ impl Spaces {
         self.decls.get(space).is_some_and(|d| d.cross_space)
     }
 
+    /// A space declared [`SpaceDecl::no_sessions`]: a page of its own, where no session goes.
+    pub(crate) fn holds_none(&self, space: &str) -> bool {
+        self.decls.get(space).is_some_and(|d| d.no_sessions)
+    }
+
     /// The instances a space's sessions can be on: its default, what its template built, and any
     /// instance one of its sessions is bound on.
     fn instances_of(&self, space: &str) -> BTreeSet<String> {
@@ -489,7 +494,7 @@ pub(crate) fn lent_from(row: &Value, space: &str) -> Option<String> {
 
 /// Whether a call claiming `space` (empty: none) may use the instance `slot`. One that is some
 /// spaces' — built for a space, or an extension's own engine — is used from those spaces and by a
-/// call reaching across spaces (the system space's); one that is no space's, as `main`, by any.
+/// call reaching across spaces (a `cross_space` space's); one that is no space's, as `main`, by any.
 /// The kernel uses any. An extension's own engine is third-party code's and held to more: besides
 /// its spaces, only the extension itself — or a page of it in a frame — uses it, and when it
 /// declared no space, nobody else does.
@@ -721,6 +726,9 @@ impl Hub {
             if !spaces.exists(&space) {
                 return Err(RpcError::new(codes::SPACE_MISMATCH, format!("there is no space `{space}` in this application")));
             }
+            if spaces.holds_none(&space) {
+                return Err(RpcError::new(codes::SPACE_MISMATCH, format!("the space `{space}` holds no sessions")));
+            }
             let decl = spaces.decls.get(&space).cloned();
             let built = spaces.ledger.instances.get(&space).cloned();
             let crosses = spaces.crosses(&space);
@@ -778,7 +786,7 @@ impl Hub {
             .to_string();
         {
             let spaces = lock(&self.spaces);
-            if spaces.crosses(&space) || !spaces.exists(&space) {
+            if spaces.crosses(&space) || !spaces.exists(&space) || spaces.holds_none(&space) {
                 return Err(RpcError::new(codes::SPACE_MISMATCH, format!("there is no space `{space}` to move a session to")));
             }
         }
@@ -803,7 +811,7 @@ impl Hub {
         Ok(moved)
     }
 
-    /// What the system space creates is its own.
+    /// Bind a session to `space`: where it belongs from now on.
     pub(crate) fn bind_space(&self, key: &SessionKey, space: &str) {
         self.home_of(&key.0);
         lock(&self.spaces).bind(key, space);
@@ -917,6 +925,7 @@ impl Hub {
                 scene: d.scene.clone(),
                 cross_space: d.cross_space,
                 default_space: d.default_space,
+                no_sessions: d.no_sessions,
             })
             .collect();
         wire::params(&SpacesList { spaces: list })

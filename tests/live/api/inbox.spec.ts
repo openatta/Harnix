@@ -1,8 +1,7 @@
 /**
  * `harnix.inbox` (harnix-ext.md §21.3, harnix-app.md §3.3): every ask a session is waiting on a
  * person for, with the session's space, name and project and the ask as the engine put it; the
- * same as a topic, pushed again when it is answered; within the space a call claims, unless that
- * one reaches across spaces. Replayed (`asks-permission`): the turn waits on one Bash permission.
+ * same as a topic, pushed again when it is answered; within the space a call claims. Replayed (`asks-permission`): the turn waits on one Bash permission.
  */
 
 import { type Backend, type TestClient, connect, expect, finish, launchFor, startHarnix, test } from "@harnix/testkit";
@@ -48,9 +47,8 @@ test("a waiting permission is in the inbox with its session, held to the space c
     expect(item.prompt.tool_name).toBe("Bash");
     expect(item.trust, "the product's own engine").toBeUndefined();
 
-    // Its own space sees it, the system space reaches across, another space does not.
+    // Its own space sees it, another space does not.
     expect(mine(await api.call("harnix.inbox", { space }), session_id)).toHaveLength(1);
-    expect(mine(await api.call("harnix.inbox", { space: "system" }), session_id)).toHaveLength(1);
     expect(mine(await api.call("harnix.inbox", { space: "flow" }), session_id)).toHaveLength(0);
 
     // Answered: it waits on nobody, and the topic says so.

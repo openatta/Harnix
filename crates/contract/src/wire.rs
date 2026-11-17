@@ -150,6 +150,9 @@ pub struct Brand {
     /// Where the icon is served, when the profile names one.
     pub icon: Option<String>,
     pub product_id: String,
+    /// The directory the engine and Harnix keep in each project: `.harnix`, or the product's
+    /// (`.<product_id>`, `[brand] project_dir`).
+    pub project_dir: String,
 }
 
 /// `[shell] narrow_details`: `beside` keeps three columns at ≤ 960px instead of maximizing an open
@@ -492,6 +495,9 @@ pub struct SpaceRow {
     /// The space a call that claims none is checked as.
     #[serde(rename = "default")]
     pub default_space: bool,
+    /// A page of its own: no session is created in it, and it lists none.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_sessions: bool,
 }
 
 /// `harnix.spaces.list`'s answer and the topic `harnix.spaces`'s value.
@@ -1022,6 +1028,71 @@ impl AskReply {
     }
 }
 
+/// `harnix.session.setModel`'s params: what a session's next model call is — its model and
+/// provider, and how hard it reasons. At least one of the four; a key left out is left as it is.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct SessionModelParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub instance: Option<String>,
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub space: Option<String>,
+    #[serde(flatten)]
+    #[cfg_attr(feature = "ts", ts(flatten))]
+    pub choice: ModelChoice,
+}
+
+/// What a session's next model call is: each key left out is left as it is.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct ModelChoice {
+    /// The model's name, checked against the provider's `models` when it lists any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub model: Option<String>,
+    /// A provider's id; named alone, its default model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub provider: Option<String>,
+    /// The session's own reasoning effort: `low`, `medium`, `high`, `xhigh` or `max`; `null` gives
+    /// it back to the settings' `model.effort`.
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "double_option")]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub effort: Option<Option<String>>,
+    /// The session's own thinking switch: `auto`, `off` or `on`; `null` gives it back to the
+    /// settings' `model.thinking_mode`.
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "double_option")]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub thinking_mode: Option<Option<String>>,
+}
+
+impl ModelChoice {
+    /// Whether it says anything to change.
+    pub fn is_empty(&self) -> bool {
+        self.model.is_none() && self.provider.is_none() && self.effort.is_none() && self.thinking_mode.is_none()
+    }
+}
+
+/// A key that may be absent (`None`), `null` (`Some(None)`) or a value: the three are three
+/// different answers to "change this?".
+mod double_option {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer, T: Serialize>(value: &Option<Option<T>>, serializer: S) -> Result<S::Ok, S::Error> {
+        match value {
+            Some(inner) => inner.serialize(serializer),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>, T: Deserialize<'de>>(deserializer: D) -> Result<Option<Option<T>>, D::Error> {
+        Option::<T>::deserialize(deserializer).map(Some)
+    }
+}
+
 /// `harnix.session.respond`'s params. Whoever answers first is the answer; a later one succeeds
 /// and changes nothing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1131,10 +1202,22 @@ pub enum SkillTier {
     Project,
     /// An engine plugin package's.
     Plugin,
-    /// The engine's user tiers: its global skills or its scene's — the engine does not say which.
+    /// The engine's user tiers: its global skills or its scene's ([`SkillRow::user_tier`] says
+    /// which).
     User,
     /// Built into the engine.
     Builtin,
+}
+
+/// Which of the engine's user tiers a skill of [`SkillTier::User`] was read from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum SkillUserTier {
+    /// The instance's global skills, in every scene.
+    Global,
+    /// The session's scene's own.
+    Scene,
 }
 
 /// One skill a session sees: `harnix.session.skills`'s row.
@@ -1145,10 +1228,14 @@ pub struct SkillRow {
     pub description: String,
     pub tier: SkillTier,
     /// The directory it was read from, when it can be said: a space tier's package directory, the
-    /// project's `.agents/skills`, a plugin package's root.
+    /// project's `.agents/skills`, a plugin package's root, the user tier's skills directory.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub dir: Option<String>,
+    /// The user tier it is of — global or the scene's — when the engine says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub user_tier: Option<SkillUserTier>,
     /// The extension package that brought it (the space tier).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
@@ -1346,7 +1433,7 @@ pub struct ExtensionLogCount {
     pub lines: usize,
 }
 
-/// `harnix.extensions.log` (and `system.extensions.log`): the lines kept, oldest first.
+/// `harnix.extensions.log` (and `observability.extensions.log`): the lines kept, oldest first.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ExtensionLog {
@@ -1369,6 +1456,19 @@ pub fn params<T: Serialize>(frame: &T) -> Value {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_session_model_change_tells_left_out_from_given_back() {
+        let read = |v: serde_json::Value| serde_json::from_value::<SessionModelParams>(v).unwrap();
+        let both = read(json!({"session_id": "s", "model": "m", "effort": "high", "thinking_mode": null, "space": "chat"}));
+        assert_eq!(both.choice, ModelChoice { model: Some("m".into()), provider: None, effort: Some(Some("high".into())), thinking_mode: Some(None) });
+        assert_eq!(both.space.as_deref(), Some("chat"));
+        // Written back as read: a key left out stays out, a `null` stays `null`.
+        assert_eq!(serde_json::to_value(&both).unwrap(), json!({"session_id": "s", "space": "chat", "model": "m", "effort": "high", "thinking_mode": null}));
+        let none = read(json!({"session_id": "s"}));
+        assert!(none.choice.is_empty());
+        assert!(serde_json::from_value::<SessionModelParams>(json!({"session_id": "s", "effort": 3})).is_err());
+    }
 
     #[test]
     fn what_is_absent_is_not_written() {
@@ -1506,12 +1606,13 @@ mod tests {
     #[test]
     fn the_space_rows_default_flag_is_named_as_the_wire_says() {
         let row = SpaceRow {
-            id: "system".into(),
+            id: "debug".into(),
             instance: "main".into(),
             built: None,
             scene: None,
             cross_space: true,
             default_space: true,
+            no_sessions: false,
         };
         assert_eq!(params(&row)["default"], json!(true));
     }

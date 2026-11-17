@@ -234,7 +234,12 @@ export type Brand = { name: string | null,
 /**
  * Where the icon is served, when the profile names one.
  */
-icon: string | null, product_id: string, };
+icon: string | null, product_id: string, 
+/**
+ * The directory the engine and Harnix keep in each project: `.harnix`, or the product's
+ * (`.<product_id>`, `[brand] project_dir`).
+ */
+project_dir: string, };
 
 /**
  * `[shell] narrow_details`: `beside` keeps three columns at ≤ 960px instead of maximizing an open
@@ -478,7 +483,11 @@ built: string | null, scene: string | null, cross_space: boolean,
 /**
  * The space a call that claims none is checked as.
  */
-default: boolean, };
+default: boolean, 
+/**
+ * A page of its own: no session is created in it, and it lists none.
+ */
+no_sessions?: boolean, };
 
 /**
  * `harnix.spaces.list`'s answer and the topic `harnix.spaces`'s value.
@@ -875,9 +884,61 @@ export type AskAnswered = { kind: AskAnsweredKind, prompt_id: string, prompt_typ
 extension?: string, };
 
 /**
+ * `harnix.session.setModel`'s params: what a session's next model call is — its model and
+ * provider, and how hard it reasons. At least one of the four; a key left out is left as it is.
+ */
+export type SessionModelParams = { instance?: string, session_id: string, space?: string, 
+/**
+ * The model's name, checked against the provider's `models` when it lists any.
+ */
+model?: string, 
+/**
+ * A provider's id; named alone, its default model.
+ */
+provider?: string, 
+/**
+ * The session's own reasoning effort: `low`, `medium`, `high`, `xhigh` or `max`; `null` gives
+ * it back to the settings' `model.effort`.
+ */
+effort?: string | null, 
+/**
+ * The session's own thinking switch: `auto`, `off` or `on`; `null` gives it back to the
+ * settings' `model.thinking_mode`.
+ */
+thinking_mode?: string | null, };
+
+/**
+ * What a session's next model call is: each key left out is left as it is.
+ */
+export type ModelChoice = { 
+/**
+ * The model's name, checked against the provider's `models` when it lists any.
+ */
+model?: string, 
+/**
+ * A provider's id; named alone, its default model.
+ */
+provider?: string, 
+/**
+ * The session's own reasoning effort: `low`, `medium`, `high`, `xhigh` or `max`; `null` gives
+ * it back to the settings' `model.effort`.
+ */
+effort?: string | null, 
+/**
+ * The session's own thinking switch: `auto`, `off` or `on`; `null` gives it back to the
+ * settings' `model.thinking_mode`.
+ */
+thinking_mode?: string | null, };
+
+/**
  * Where a skill a session sees comes from.
  */
 export type SkillTier = "space" | "project" | "plugin" | "user" | "builtin";
+
+/**
+ * Which of the engine's user tiers a skill of [`SkillTier::User`] was read from.
+ */
+export type SkillUserTier = "global" | "scene";
 
 /**
  * One skill a session sees: `harnix.session.skills`'s row.
@@ -885,9 +946,13 @@ export type SkillTier = "space" | "project" | "plugin" | "user" | "builtin";
 export type SkillRow = { name: string, description: string, tier: SkillTier, 
 /**
  * The directory it was read from, when it can be said: a space tier's package directory, the
- * project's `.agents/skills`, a plugin package's root.
+ * project's `.agents/skills`, a plugin package's root, the user tier's skills directory.
  */
 dir?: string, 
+/**
+ * The user tier it is of — global or the scene's — when the engine says.
+ */
+user_tier?: SkillUserTier, 
 /**
  * The extension package that brought it (the space tier).
  */
@@ -1038,7 +1103,7 @@ message: string, };
 export type ExtensionLogCount = { extension: string, lines: number, };
 
 /**
- * `harnix.extensions.log` (and `system.extensions.log`): the lines kept, oldest first.
+ * `harnix.extensions.log` (and `observability.extensions.log`): the lines kept, oldest first.
  */
 export type ExtensionLog = { lines: Array<ExtensionLogLine>, 
 /**

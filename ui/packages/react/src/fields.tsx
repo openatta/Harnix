@@ -13,9 +13,10 @@
  * may declare `fields` (and a `store`) instead of drawing itself.
  */
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { CONFLICT, errorText } from "@harnix/core";
 
+import { Glyph } from "./glyph";
 import { useT, type Translate } from "./i18n/index";
 import { SettingsRow, useSettingsVersion } from "./settings";
 
@@ -295,12 +296,69 @@ export interface FieldFormProps<D extends FieldDoc> {
   onSaved?: (changes: Record<string, unknown>, before: D | undefined) => void;
   /** After it refused one, other than for a revision that moved on (which the form handles). */
   onFailed?: (error: unknown) => void;
+  /** The models an endpoint serves, offered beside the configured ones by a field that offers
+   *  model names (`suggestions`) or routes. */
+  listModels?: ModelLister;
+}
+
+/**
+ * The models a provider's endpoint serves (`null`: the default provider's). `fresh` asks the
+ * endpoint again rather than what was asked before. A rejection leaves the configured names, and a
+ * name typed in is accepted all the same.
+ */
+export type ModelLister = (provider: string | null, fresh?: boolean) => Promise<string[]>;
+
+const Models = createContext<ModelLister | null>(null);
+
+/** What a control offers of a provider's endpoint: `provider` undefined is none to ask. */
+function useFetchedModels(provider: string | null | undefined): { names: string[]; failed: boolean; refresh: (() => void) | null } {
+  const lister = useContext(Models);
+  const [names, setNames] = useState<string[]>([]);
+  const [failed, setFailed] = useState(false);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    if (!lister || provider === undefined) return;
+    let alive = true;
+    lister(provider, asked > 0).then(
+      (fetched) => {
+        if (!alive) return;
+        setNames(fetched);
+        setFailed(false);
+      },
+      () => {
+        if (!alive) return;
+        setNames([]);
+        setFailed(true);
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [lister, provider, asked]);
+  return { names, failed, refresh: lister && provider !== undefined ? () => setAsked((n) => n + 1) : null };
+}
+
+/** The names configured, then the ones the endpoint serves, each once. */
+function joined(configured: readonly string[], fetched: readonly string[]): string[] {
+  return [...new Set([...configured, ...fetched])];
+}
+
+/** Ask the endpoint again; says when it could not be asked. */
+function RefreshModels({ testId, fetched }: { testId: string; fetched: ReturnType<typeof useFetchedModels> }) {
+  const t = useT();
+  if (!fetched.refresh) return null;
+  const why = fetched.failed ? t("settings.modelsFetchFailed") : t("settings.modelsRefresh");
+  return (
+    <button type="button" className="btn sm ghost" data-testid={`${testId}-models`} data-state={fetched.failed ? "failed" : "ok"} title={why} aria-label={why} onClick={fetched.refresh}>
+      <Glyph name="refresh" className="glyph" />
+    </button>
+  );
 }
 
 type Problem = { key: string; vars?: Record<string, unknown> } | { text: string };
 
 /** The rows for a store's fields, written through it. */
-export function FieldForm<D extends FieldDoc>({ store, section, tier, tierName, header, title, onSaved, onFailed }: FieldFormProps<D>) {
+export function FieldForm<D extends FieldDoc>({ store, section, tier, tierName, header, title, onSaved, onFailed, listModels }: FieldFormProps<D>) {
   const t = useT();
   const version = useSettingsVersion();
   // The store a caller made this render; read through a ref so a new one does not read again.
@@ -441,13 +499,17 @@ export function FieldForm<D extends FieldDoc>({ store, section, tier, tierName, 
         ))}
     </>
   );
-  return title !== undefined ? (
-    <>
-      <h3>{title}</h3>
-      <div>{body}</div>
-    </>
-  ) : (
-    body
+  return (
+    <Models.Provider value={listModels ?? null}>
+      {title !== undefined ? (
+        <>
+          <h3>{title}</h3>
+          <div>{body}</div>
+        </>
+      ) : (
+        body
+      )}
+    </Models.Provider>
   );
 }
 
@@ -635,7 +697,9 @@ function TextControl({ testId, field, value, disabled, commit }: { testId: strin
   const [text, setText] = useState(start);
   const list = useId();
   const number = field.type === "number";
-  const suggestions = number ? [] : (field.suggestions ?? []);
+  // A field that offers model names offers the default provider's endpoint's too.
+  const fetched = useFetchedModels(!number && field.suggestions !== undefined ? null : undefined);
+  const suggestions = number ? [] : joined(field.suggestions ?? [], fetched.names);
   return (
     <>
       <input
@@ -653,6 +717,7 @@ function TextControl({ testId, field, value, disabled, commit }: { testId: strin
         }}
       />
       {suggestions.length ? <Suggestions id={list} names={suggestions} /> : null}
+      {disabled ? null : <RefreshModels testId={testId} fetched={fetched} />}
     </>
   );
 }
@@ -678,6 +743,8 @@ function RouteControl({ testId, field, value, disabled, commit }: { testId: stri
   const { provider, model } = routeOf(value);
   const [text, setText] = useState(model ?? "");
   const known = routes.find((r) => r.provider === provider);
+  const fetched = useFetchedModels(provider ?? undefined);
+  const models = joined(known?.models ?? [], fetched.names);
   const ids = routes.map((r) => r.provider);
   // A provider the options lack (gone since, or written by hand), or none: shown as it is.
   const extra = provider === null ? [""] : ids.includes(provider) ? [] : [provider];
@@ -697,7 +764,7 @@ function RouteControl({ testId, field, value, disabled, commit }: { testId: stri
         disabled={disabled || provider === null}
         value={text}
         placeholder={known?.default_model ?? t("settings.routeDefaultModel")}
-        list={known?.models?.length ? list : undefined}
+        list={models.length ? list : undefined}
         onChange={(e) => setText(e.target.value)}
         onBlur={() => {
           const next = text.trim();
@@ -705,7 +772,8 @@ function RouteControl({ testId, field, value, disabled, commit }: { testId: stri
           commit(to(provider, next));
         }}
       />
-      {known?.models?.length ? <Suggestions id={list} names={known.models} /> : null}
+      {models.length ? <Suggestions id={list} names={models} /> : null}
+      {disabled ? null : <RefreshModels testId={testId} fetched={fetched} />}
     </span>
   );
 }

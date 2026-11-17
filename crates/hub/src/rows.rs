@@ -155,7 +155,7 @@ fn topic_scope(name: &str) -> RowScope {
 impl Hub {
     /// `harnix.session.setModel`: a session's model changed from where it is shown, within its
     /// own space. Only where the product says (`[shell] model_switch`); without it the model is
-    /// the settings' and the system space's.
+    /// the settings'.
     /// A person's choice, so a device's alone: an extension changes a model with
     /// `engine.session.setModel`, holding `engine.control`.
     pub fn model_switch_row(hub: &HubCell) -> HubRow {

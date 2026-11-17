@@ -1,5 +1,5 @@
 /**
- * The flows' section of the system space's 用量 tab (`observability.usage.section`): the runs
+ * The flows' section of the usage summary (`observability.usage.section`): the runs
  * started in the tab's window, summed per flow from the run records (`list`): how many, the tokens
  * their stations' turns spent, how long the finished ones took.
  */

@@ -25,7 +25,7 @@ export interface TaskSeed {
   output_dir?: string;
   workspace?: string;
   project_root?: string;
-  show_in_space?: string;
+  shown_in?: string;
 }
 
 /** Where the editor was opened from, and so what it offers. */
@@ -43,7 +43,7 @@ export interface EditorContext {
   /** A flow to schedule, as the new-task dialog had it filled in. */
   task?: TaskSeed;
   /** The space a task's main session is shown in (the one the opener lists sessions of). */
-  showInSpace?: string;
+  shownIn?: string;
 }
 
 export interface Draft {
@@ -190,7 +190,7 @@ export function targetOf(draft: Draft, ctx: EditorContext, fields: InputField[] 
     title: draft.taskTitle.trim() || undefined,
     output_dir: draft.outputDir.trim() || undefined,
     workspace: draft.workspace || undefined,
-    show_in_space: (was?.kind === "task" ? was.show_in_space : undefined) ?? ctx.showInSpace ?? ctx.task?.show_in_space,
+    shown_in: (was?.kind === "task" ? was.shown_in : undefined) ?? ctx.shownIn ?? ctx.task?.shown_in,
   });
 }
 
@@ -255,11 +255,12 @@ export function changedFields(before: Schedule, after: Schedule): string[] {
 /**
  * Keep this draft's changes over a newer revision: each field the draft changed from `before` (the
  * revision it was opened at) stays as typed; each it left alone takes `after`'s, so what the other
- * device changed there is not undone by saving.
+ * device changed there is not undone by saving. `opened` is when the draft was made: the defaults a
+ * draft fills from the clock are compared as they were then, not as a later day would fill them.
  */
-export function rebase(draft: Draft, ctx: EditorContext, before: Schedule, after: Schedule): Draft {
-  const was = initialDraft({ ...ctx, existing: before });
-  const now = initialDraft({ ...ctx, existing: after });
+export function rebase(draft: Draft, ctx: EditorContext, before: Schedule, after: Schedule, opened = Date.now()): Draft {
+  const was = initialDraft({ ...ctx, existing: before }, opened);
+  const now = initialDraft({ ...ctx, existing: after }, opened);
   const out = { ...now } as Record<keyof Draft, unknown>;
   for (const key of Object.keys(draft) as (keyof Draft)[]) {
     if (key === "inputs" || canonical(draft[key]) !== canonical(was[key])) out[key] = draft[key];

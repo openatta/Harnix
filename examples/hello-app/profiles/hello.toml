@@ -1,5 +1,7 @@
 # What the product is called and where its own state lives (~/.hello-app): the shell takes its
 # name and icon from here, its colours and words from the interface module (ui/src/index.tsx).
+# Its directory in each project is `.hello-app/` and the engine calls itself Hello: `project_dir`
+# and `product_name` would say otherwise.
 [brand]
 name = "Hello"
 icon = "brand.svg"

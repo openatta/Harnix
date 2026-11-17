@@ -1,0 +1,17 @@
+# The example pack the library carries (`packs/examples`): the run's main Agent reviews, a person
+# sends it back once, then approves.
+pack: /packs/examples
+catalog: {scenes: [flow-harnix], submit_scenes: [flow-harnix], main_scene: flow-harnix}
+flow: example-review
+subject: the repo
+steps:
+  - main: {session: s1, opened_with: {scene: flow-harnix, delivery: flow_submit, main: true}}
+  - advance: {ms: 1000}
+  - submit: {station: review, output: {summary: one thing, findings: [{severity: low, text: a typo in the README}]}}
+  - advance: {ms: 1000}
+  - confirm: {station: approve, pass: false, reason: look at the tests too}
+  - rework: {to: review, reason: look at the tests too}
+  - advance: {ms: 1000}
+  - submit: {station: review, output: {summary: two things, findings: [{severity: low, text: a typo in the README}, {severity: medium, text: no test for the parser}]}}
+  - confirm: {station: approve, pass: true}
+status: finished

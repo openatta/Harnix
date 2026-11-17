@@ -1,13 +1,13 @@
 /**
- * Headless sessions in the browser (concept §3.2, §5.5): sessions a module drives from the server
- * side are ordinary sessions, so the system space's tree shows them under their instance, and
- * opening one shows everything the module made it say.
+ * Headless sessions in the browser (concept §3.2): sessions a module drives from the server side
+ * are ordinary sessions. Placed nowhere else, they are the session space's (its backend space is
+ * the default one), so its list shows them, and opening one shows everything the module made it say.
  */
 
 import { type Backend, expect, test } from "@harnix/testkit";
 
 import { startTestApp } from "../api/testapp";
-import { open, reply } from "./page";
+import { open, reply, sessionRow, toSessions } from "./page";
 
 const TAGS = { tag: ["@feature:headless", "@layer:ui"] };
 
@@ -18,7 +18,7 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => { await backend?.dispose(); });
 
-test("a module's headless sessions are in the instance tree, and open like any other", TAGS, async ({ page }) => {
+test("a module's headless sessions are in the session space's list, and open like any other", TAGS, async ({ page }) => {
   await open(page, backend.url);
   const started: string[] = await page.evaluate(async (root) => {
     const { app } = (window as any).harnix;
@@ -32,11 +32,9 @@ test("a module's headless sessions are in the instance tree, and open like any o
   }, backend.project);
   expect(started).toHaveLength(2);
 
-  await page.locator('#side [data-space="system"]').click();
-  await page.locator('[data-testid="system-tree-instance"][data-instance="main"]').click();
-  const listed = (sid: string) => page.locator(`[data-testid="system-instance"] [data-testid="instance-session"][data-sid="${sid}"]`);
-  for (const sid of started) await expect(listed(sid)).toBeVisible({ timeout: 30_000 });
-  await listed(started[0]!).click();
-  await page.getByTestId("open-in-space").click();
+  await toSessions(page);
+  for (const sid of started) await expect(sessionRow(page, sid)).toBeVisible({ timeout: 30_000 });
+  await sessionRow(page, started[0]!).click();
+  await expect(sessionRow(page, started[0]!)).toHaveAttribute("data-state", "current");
   await expect(reply(page)).toContainText(/fixture ready/i, { timeout: 30_000 });
 });

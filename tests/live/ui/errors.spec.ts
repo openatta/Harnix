@@ -13,7 +13,7 @@ import type { Page } from "@playwright/test";
 import { type Backend, connect, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
 import { FAULTS, stubProvider, useStub, type Fault, type StubProvider } from "../api/stub-provider";
-import { open, say, settingsSection } from "./page";
+import { open, say, settingsSection, toSessions } from "./page";
 
 const TAGS = { tag: ["@feature:session-space", "@layer:ui"] };
 const MODELS = /模型与凭据|Models & credentials/;
@@ -35,12 +35,9 @@ test.afterAll(async () => {
   await failing?.dispose();
 });
 
-/** A session on the engine's own model (no recorder), open in the page. */
+/** A session on the engine's own model (no recorder), open in the session space. */
 async function plainSession(page: Page): Promise<void> {
-  await page.waitForFunction(() => {
-    const { app } = (window as any).harnix;
-    return app.snapshot.space !== "" && app.registry.at("space").some((c: { id: string }) => c.id === app.snapshot.space);
-  }, undefined, { timeout: 15_000 });
+  await toSessions(page);
   await page.evaluate(() => (window as any).harnix.app.create({ scene: "harnix" }));
 }
 
@@ -55,6 +52,8 @@ test("no model: a message is answered with where to add one, and the way there o
   await expect(note).toContainText(MODELS, { timeout: 60_000 });
   // Not a bare code or a stack.
   await expect(note).not.toContainText(/-32\d{3}|at .*\(.*:\d+:\d+\)/);
+  // The engine sent nothing without a key, and said so: its kind is in the tooltip.
+  await expect(note).toHaveAttribute("title", /no_credentials/);
   const action = page.getByTestId("conv-note-action");
   await expect(action).toBeVisible();
   await action.click();
@@ -74,8 +73,8 @@ test.describe("a provider that fails", () => {
   const CASES: [string, Fault, RegExp, string, boolean][] = [
     ["a key the service rejects", FAULTS.auth, /拒绝了密钥|rejected the key/, "invalid x-api-key", true],
     ["a model name it does not know", FAULTS.wrongModel, /模型名|model name/, "no-such-model", true],
-    // The engine keeps no body for a 429, only when to retry, so its own words are the kind.
-    ["a rate limit", FAULTS.rateLimited, /限流|rate limiting/, "rate_limited", false],
+    // The engine keeps the service's own words about a 429: summed up after the interface's.
+    ["a rate limit", FAULTS.rateLimited, /(限流|rate limiting).*rate limit exceeded/, "rate_limited: rate limit exceeded", false],
     ["a service that cannot be reached", FAULTS.drop, /连不上模型服务|Cannot reach the model service/, "", false],
   ];
   for (const [name, fault, words, raw, toSettings] of CASES) {

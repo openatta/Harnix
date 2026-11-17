@@ -24,9 +24,9 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react";
-import { errorText } from "@harnix/core";
+import { errorText, type SessionReasoning } from "@harnix/core";
 import type { BlockOf, SessionController, SessionState } from "@harnix/core/state";
-import { CONVERSATION_VIEW, ChatComposer, ChatPanel, ContextRing, Contributed, listenForLayers, modalUp, ringValue, t, useLayer, useRegistry, useT, ComposerNote, askedTool, rowTitle, toolAsks, type Attached, type ChatIds, type ComposerApi, type MentionItem, type ModelOption, type SpaceContribution, type SpaceSecondary, type ToolRowContribution, Glyph, useDisplay, explainError } from "@harnix/react";
+import { CONVERSATION_VIEW, ChatComposer, ChatPanel, ContextRing, Contributed, listenForLayers, modalUp, ringValue, t, useLayer, useRegistry, useT, ComposerNote, ModelSetupNote, askedTool, rowTitle, toolAsks, type Attached, type ChatIds, type ComposerApi, type MentionItem, type ModelOption, type ReasoningChange, type SpaceContribution, type SpaceSecondary, type ToolRowContribution, Glyph, useDisplay, explainError } from "@harnix/react";
 
 import { ask, detailsWidthOf, keyOf, later, secondaryWidthOf, type App, type OpenModal, type ShellState, type Widths } from "./app.ts";
 import { useBrand } from "./brand.ts";
@@ -433,6 +433,8 @@ function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app:
   const connection = useSyncExternalStore(app.subscribe, () => app.snapshot.connection);
   const space = useSyncExternalStore(app.subscribe, () => app.snapshot.space);
   const [picked, setPicked] = useState<ModelOption | null>(null);
+  // The new session's own reasoning, given when it is created (`options.effort`, `options.thinking_mode`).
+  const [reasoning, setReasoningPicked] = useState<SessionReasoning>({});
   const upload = useUpload(app);
   const bind = useBindComposer(app);
   const mention = useMemo(
@@ -445,7 +447,11 @@ function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app:
       return false;
     }
     try {
-      const key = await app.create({});
+      const options: Record<string, unknown> = {};
+      if (reasoning.effort_source === "session" && reasoning.effort) options.effort = reasoning.effort;
+      if (reasoning.thinking_mode_source === "session" && reasoning.thinking_mode) options.thinking_mode = reasoning.thinking_mode;
+      const key = await app.create(Object.keys(options).length ? { options } : {});
+      if (Object.keys(options).length) chosenReasoning.set(keyOf(key.instance, key.sessionId), reasoning);
       const target = { instance: key.instance, session_id: key.sessionId };
       if (picked && picked.id !== engineModel) {
         await setModel(app, target, picked);
@@ -470,7 +476,7 @@ function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app:
         disabled={connection !== "open" && connection !== "degraded"}
         placeholder={placeholder ?? t("composer.placeholder")}
         quickReplies={NO_REPLIES}
-        notice={ready ? undefined : <ModelSetupNote app={app} />}
+        notice={ready ? undefined : <ModelSetup app={app} />}
         hint={variant === "ask" ? undefined : t("composer.hint")}
         commands={commands}
         mention={mention}
@@ -482,6 +488,8 @@ function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app:
         modelUnset={!ready}
         models={models}
         onModel={switchable ? setPicked : undefined}
+        reasoning={switchable ? reasoning : null}
+        onReasoning={switchable ? (change) => setReasoningPicked(reasoningAfter(reasoning, change, {})) : undefined}
         draftKey={`new:${space}:${variant}`}
         bind={bind}
       />
@@ -514,27 +522,54 @@ function useBindComposer(app: App, session?: string): (api: ComposerApi | null) 
 
 /**
  * The method a session's model is changed by: `harnix.session.setModel` when the profile opens it
- * (`[shell] model_switch`), for a session of the front space; else the system space's
- * (`system.model`), so only when that space is kept. `engine.session.setModel` itself is no device's
- * to call. Null when neither is reachable: the menu shows the model and cannot change it.
+ * (`[shell] model_switch`), for a session of the front space. `engine.session.setModel` itself is
+ * no device's to call. Null when it is not reachable: the menu shows the model and cannot change it.
  */
 function setModelMethod(app: App): string | null {
-  const reachable = app.snapshot.reachable;
-  if (reachable.includes("harnix.session.setModel")) return "harnix.session.setModel";
-  if (reachable.includes("system.model")) return "system.model";
-  return null;
+  return app.snapshot.reachable.includes("harnix.session.setModel") ? "harnix.session.setModel" : null;
 }
 
 async function setModel(app: App, target: { instance: string; session_id: string }, option: ModelOption): Promise<void> {
   const method = setModelMethod(app);
   if (!method) return;
   const params = { ...target, ...modelParams(option) };
-  await app.call(method, method === "harnix.session.setModel" ? { ...params, space: app.claim() } : params);
+  await app.call(method, { ...params, space: app.claim() });
 }
 
 /** The model each session was switched to here, by session key: the session's own record does not
  *  say which model it runs on. */
 const chosenModels = new Map<string, string>();
+
+/** The reasoning each session was given here, by session key: what was attached says it as it was
+ *  then, and is not read again for a change made since. */
+const chosenReasoning = new Map<string, SessionReasoning>();
+
+/** A session's own reasoning effort or thinking switch changed, through the same method as its model. */
+async function setReasoning(app: App, target: { instance: string; session_id: string }, change: ReasoningChange): Promise<Record<string, unknown>> {
+  const method = setModelMethod(app);
+  if (!method) return {};
+  return (await app.call<Record<string, unknown>>(method, { ...target, ...change, space: app.claim() })) ?? {};
+}
+
+/**
+ * What a session reasons with after a change: each key changed is the session's own when the
+ * engine answered a value, and the settings' again when it answered `null` — the settings' value is
+ * known only if it was shown before.
+ */
+export function reasoningAfter(before: SessionReasoning | null, change: ReasoningChange, answer: Record<string, unknown>): SessionReasoning {
+  const next: SessionReasoning = { ...(before ?? {}) };
+  if ("effort" in change) {
+    const own = "effort" in answer ? answer.effort : change.effort;
+    if (typeof own === "string") Object.assign(next, { effort: own, effort_source: "session" });
+    else Object.assign(next, { effort: before?.effort_source === "settings" ? (before.effort ?? null) : null, effort_source: "settings" });
+  }
+  if ("thinking_mode" in change) {
+    const own = "thinking_mode" in answer ? answer.thinking_mode : change.thinking_mode;
+    if (own !== null && own !== undefined) Object.assign(next, { thinking_mode: own, thinking_mode_source: "session" });
+    else Object.assign(next, { thinking_mode: before?.thinking_mode_source === "settings" ? before.thinking_mode : null, thinking_mode_source: "settings" });
+  }
+  return next;
+}
 
 function modelParams(option: ModelOption): Record<string, string> {
   return option.provider ? { model: option.id, provider: option.provider } : { model: option.id };
@@ -565,17 +600,8 @@ function useModels(app: App): ModelOption[] {
 }
 
 /** Over the composer while no model is configured: what is missing, and the way to it. */
-function ModelSetupNote({ app }: { app: App }) {
-  const t = useT();
-  return (
-    <div className="hx-cmp-note hx-cmp-note-warn model-setup" data-testid="model-setup">
-      <Glyph name="key" className="glyph" />
-      <span className="text">{t("model.setupNeeded")}</span>
-      <button type="button" className="btn sm primary" data-testid="model-setup-open" onClick={() => openSettingsFor(app, "models")}>
-        {t("model.setupAction")}
-      </button>
-    </div>
-  );
+function ModelSetup({ app }: { app: App }) {
+  return <ModelSetupNote onOpen={() => openSettingsFor(app, "models")} />;
 }
 
 /** Upload a file for the next message; a failure is said, then rethrown so the composer drops it. */
@@ -835,6 +861,22 @@ function Conversation({ app, s, onController, hidden = false }: { app: App; s: S
     },
     [app, current.instance, current.sessionId, sessionKey],
   );
+  const [ownReasoning, setOwnReasoning] = useState(() => chosenReasoning.get(sessionKey) ?? null);
+  const reasoning = ownReasoning ?? sessionState?.session?.reasoning ?? null;
+  const onReasoning = useCallback(
+    async (change: ReasoningChange) => {
+      try {
+        const answer = await setReasoning(app, { instance: current.instance, session_id: current.sessionId }, change);
+        const next = reasoningAfter(reasoning, change, answer);
+        chosenReasoning.set(sessionKey, next);
+        setOwnReasoning(next);
+      } catch (e) {
+        app.notice(explainError(e), "error");
+        throw e;
+      }
+    },
+    [app, current.instance, current.sessionId, sessionKey, reasoning],
+  );
 
   const commands = useCommands(app);
   const asked = useRef(0);
@@ -907,7 +949,7 @@ function Conversation({ app, s, onController, hidden = false }: { app: App; s: S
   const notice =
     !ready || (spaceNotice != null && spaceNotice !== false) ? (
       <>
-        {ready ? null : <ModelSetupNote app={app} />}
+        {ready ? null : <ModelSetup app={app} />}
         {spaceNotice != null && spaceNotice !== false && space ? (
           <ComposerNote icon="shield" testId="space-notice">
             <Contributed registry={registry} point="space" contribution={space}>
@@ -974,6 +1016,8 @@ function Conversation({ app, s, onController, hidden = false }: { app: App; s: S
         modelUnset={!ready}
         models={models}
         onModel={switchable ? onModel : undefined}
+        reasoning={switchable ? reasoning : null}
+        onReasoning={switchable ? onReasoning : undefined}
         features={{ voice: false, contextRing: true, options: false }}
         renderers={{ flowBlocks, toolRows, userExtras }}
       />

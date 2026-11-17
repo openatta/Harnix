@@ -110,6 +110,23 @@
         "hub_owned": false,
         "refused": null,
         "requires": [
+          "engine.config.read"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.config.listModels",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
           "engine.config.write"
         ],
         "scope": "open"
@@ -349,6 +366,57 @@
       },
       "kind": "method",
       "name": "engine.mcp.auth.start",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": "reconnecting an MCP server starts its subprocess again",
+        "requires": [
+          "engine.mcp"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.mcp.reconnect",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": "removing an MCP server changes which tools run subprocesses",
+        "requires": [
+          "engine.mcp"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.mcp.removeServer",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": "switching an MCP server on starts a tool that runs subprocesses",
+        "requires": [
+          "engine.mcp"
+        ],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "engine.mcp.setEnabled",
       "owner": "engine"
     },
     {
@@ -2360,6 +2428,19 @@
     },
     {
       "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix.session.setModel",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
         "device": false,
         "extensions": [
           "*"
@@ -2504,6 +2585,97 @@
       },
       "kind": "method",
       "name": "observability.calls",
+      "owner": "ext:observability"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "observability.context",
+      "owner": "ext:observability"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "observability.extensions.log",
+      "owner": "ext:observability"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "observability.messages.drop",
+      "owner": "ext:observability"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "observability.messages.edit",
+      "owner": "ext:observability"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
+      "name": "observability.process",
+      "owner": "ext:observability"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "observability.tasks.output",
+      "owner": "ext:observability"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "observability.tasks.stop",
       "owner": "ext:observability"
     },
     {
@@ -2972,6 +3144,19 @@
         "scope": "open"
       },
       "kind": "method",
+      "name": "settings.listModels",
+      "owner": "ext:settings"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "method",
       "name": "settings.mcp.add",
       "owner": "ext:settings"
     },
@@ -3143,253 +3328,6 @@
       "kind": "method",
       "name": "settings.write",
       "owner": "ext:settings"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.clear",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.compact",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.context",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "system.extensions.log",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.goal",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.goal.set",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.goal.update",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "system.instances.create",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "system.instances.restart",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "system.instances.stop",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "system.instances.templates",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.messages.drop",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.messages.edit",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.model",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "method",
-      "name": "system.process",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.rename",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.tasks.message",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.tasks.output",
-      "owner": "ext:system"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "session"
-      },
-      "kind": "method",
-      "name": "system.tasks.stop",
-      "owner": "ext:system"
     },
     {
       "access": {
@@ -3632,6 +3570,21 @@
     {
       "access": {
         "device": true,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "open"
+      },
+      "kind": "topic",
+      "name": "observability.process",
+      "owner": "ext:observability"
+    },
+    {
+      "access": {
+        "device": true,
         "extensions": [],
         "hub_owned": false,
         "refused": null,
@@ -3671,21 +3624,6 @@
       "kind": "topic",
       "name": "schedule.list",
       "owner": "ext:schedule"
-    },
-    {
-      "access": {
-        "device": true,
-        "extensions": [
-          "*"
-        ],
-        "hub_owned": false,
-        "refused": null,
-        "requires": [],
-        "scope": "open"
-      },
-      "kind": "topic",
-      "name": "system.process",
-      "owner": "ext:system"
     }
   ]
 }

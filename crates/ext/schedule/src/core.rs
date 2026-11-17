@@ -3,11 +3,14 @@
 //! the same code runs against the hub (`host.rs`) and against a fake in tests, on a clock it is
 //! handed.
 //!
-//! Deliveries go one at a time. Each writes a pending receipt first and, for a new session, the
-//! session's id as soon as it exists, before the prompt is sent: a restart reuses that session
-//! and never opens another for the same time. A receipt still pending at start is one Harnix
-//! stopped in the middle of: it is failed, not tried again (no delivery is ever retried), so a
-//! time is delivered at most once. Times are moved on before they are delivered.
+//! Deliveries go one at a time. Each writes a pending receipt first; for a new session the
+//! session's id is decided before it is opened — derived from the schedule and the time — and is
+//! on that receipt before the session exists. A receipt still pending at start is one Harnix
+//! stopped in the middle of. One that was opening a new session is delivered again: opening the
+//! same id finds the session the first attempt made, and a session that already has been sent
+//! something is not sent the prompt again, so no time opens two sessions. Any other is failed,
+//! not tried again (whether its turn was sent or its run started is not known). Times are moved
+//! on before they are delivered.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -44,8 +47,16 @@ pub trait Host: Send + Sync {
     async fn send(&self, space: &str, session: &SessionKey, prompt: &str) -> Result<Option<String>, RpcError>;
     /// Whether `item` still waits in the session's queue.
     async fn still_queued(&self, space: &str, session: &SessionKey, item: &str, prompt: &str) -> bool;
-    /// Open a session in `space` as the target says.
-    async fn create_session(&self, space: &str, target: &NewSessionTarget) -> Result<SessionKey, RpcError>;
+    /// Open the session `session_id` (in the engine's form) in `space` as the target says — the
+    /// one that exists under that id already, when there is one, with `true`.
+    async fn create_session(
+        &self,
+        space: &str,
+        target: &NewSessionTarget,
+        session_id: &str,
+    ) -> Result<(SessionKey, bool), RpcError>;
+    /// Whether a session has been sent anything: a message in it, or a turn running.
+    async fn session_started(&self, space: &str, session: &SessionKey) -> Result<bool, RpcError>;
     async fn rename(&self, space: &str, session: &SessionKey, title: &str) -> Result<(), RpcError>;
     /// `flow.start`, said to be by this schedule at `fire_at`: the run's id.
     async fn start_task(&self, task: &TaskTarget, schedule: &str, fire_at: u64) -> Result<String, RpcError>;
@@ -80,6 +91,8 @@ pub struct Scheduler {
     wake: tokio::sync::Notify,
     /// The engines' jobs as last read: what the topic carries.
     model: Mutex<(Vec<ModelJob>, Vec<String>)>,
+    /// Deliveries to a new session found pending at start: done again on the first tick.
+    interrupted: Mutex<Vec<(String, Receipt)>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -161,10 +174,16 @@ impl Scheduler {
         let mut ledger = file.load();
         let at = now();
         let mut changed = false;
+        let mut interrupted = Vec::new();
         for kept in &mut ledger.schedules {
             let pending: Vec<Receipt> =
                 kept.history.iter().filter(|r| r.outcome == Outcome::Pending).cloned().collect();
             for mut r in pending {
+                let opening = r.target.as_ref().is_some_and(|t| t.created && t.session_id.is_some());
+                if opening && matches!(kept.schedule.target, Target::NewSession(_)) {
+                    interrupted.push((kept.schedule.id.clone(), r));
+                    continue;
+                }
                 r.outcome = Outcome::Failed;
                 r.reason = Some("interrupted: Harnix stopped while it was being delivered".into());
                 r.delivered_at.get_or_insert(at);
@@ -185,6 +204,7 @@ impl Scheduler {
             delivering: tokio::sync::Mutex::new(()),
             wake: tokio::sync::Notify::new(),
             model: Mutex::new((Vec::new(), Vec::new())),
+            interrupted: Mutex::new(interrupted),
         })
     }
 
@@ -490,6 +510,10 @@ impl Scheduler {
 
     /// Deliver what is due now, and say when the next thing is.
     pub async fn tick(&self) -> Option<u64> {
+        let interrupted = std::mem::take(&mut *lock(&self.interrupted));
+        for (id, receipt) in interrupted {
+            self.deliver_again(&id, receipt).await;
+        }
         let now = (self.now)();
         let mut due = Vec::new();
         let mut skipped = false;
@@ -674,7 +698,31 @@ impl Scheduler {
                 }
             };
         }
-        let key = self.host.create_session(&s.space, t).await?;
+        // The id first, on the pending receipt: from here on a restart opens this one, no other.
+        let session_id = new_session_id(&s.id, scheduled_at);
+        receipt.target = Some(DeliveredTo {
+            instance: t.instance.clone(),
+            session_id: Some(session_id.clone()),
+            created: true,
+            ..DeliveredTo::default()
+        });
+        self.record(id, receipt.clone(), |_| {}).await;
+        self.open_and_send(id, s, t, receipt, scheduled_at, &session_id).await
+    }
+
+    /// Open the new session `session_id` (the one there already, when an earlier attempt made it),
+    /// write it down, name it and send it the prompt — unless it has been sent something already.
+    async fn open_and_send(
+        &self,
+        id: &str,
+        s: &Schedule,
+        t: &NewSessionTarget,
+        receipt: &mut Receipt,
+        scheduled_at: u64,
+        session_id: &str,
+    ) -> Result<DeliveredTo, RpcError> {
+        let reuse = t.mode == NewMode::NewOnceThenReuse;
+        let (key, existed) = self.host.create_session(&s.space, t, session_id).await?;
         receipt.target = Some(sent_to(&key, None, true));
         let reserved = key.clone();
         self.record(id, receipt.clone(), move |kept| {
@@ -683,6 +731,9 @@ impl Scheduler {
             }
         })
         .await;
+        if existed && self.host.session_started(&s.space, &key).await? {
+            return Ok(sent_to(&key, None, true));
+        }
         let zone = timing::zone(&s.time_zone).unwrap_or(TimeZone::UTC);
         let title = format!("{} · {}", s.title, timing::local_minute(scheduled_at, &zone));
         if let Err(e) = self.host.rename(&s.space, &key, &title).await {
@@ -690,6 +741,31 @@ impl Scheduler {
         }
         let item = self.host.send(&s.space, &key, &t.prompt).await?;
         Ok(sent_to(&key, item, true))
+    }
+
+    /// A delivery to a new session that Harnix stopped in the middle of, done again: the session
+    /// its receipt names opened again, and the receipt finished.
+    async fn deliver_again(&self, id: &str, mut receipt: Receipt) {
+        let _one_at_a_time = self.delivering.lock().await;
+        let Ok(s) = self.kept(id).map(|k| k.schedule) else { return };
+        let session_id = receipt.target.as_ref().and_then(|t| t.session_id.clone()).unwrap_or_default();
+        let scheduled_at = receipt.scheduled_at;
+        let delivered = match &s.target {
+            Target::NewSession(t) => self.open_and_send(id, &s, t, &mut receipt, scheduled_at, &session_id).await,
+            _ => Err(RpcError::new(codes::INTERNAL_ERROR, "the schedule no longer opens a new session")),
+        };
+        receipt.delivered_at = Some((self.now)());
+        match delivered {
+            Ok(to) => {
+                receipt.outcome = Outcome::Delivered;
+                receipt.target = Some(to);
+            }
+            Err(e) => {
+                receipt.outcome = Outcome::Failed;
+                receipt.reason = Some(format!("interrupted, and not delivered again: {}", e.message));
+            }
+        }
+        self.record(id, receipt, |_| {}).await;
     }
 
     /// The schedules' ids, for tests.
@@ -707,6 +783,37 @@ fn conflict(s: &Schedule, revision: u64) -> Result<(), RpcError> {
         format!("schedule `{}` changed since revision {revision}: read it again", s.id),
         json!({"revision": s.revision}),
     ))
+}
+
+/// The id of the session a schedule opens for the time `scheduled_at`: a v5 UUID of the two,
+/// written as the engine writes its own ids (BASE58), so another attempt at the same time opens
+/// the same session.
+pub fn new_session_id(schedule: &str, scheduled_at: u64) -> String {
+    let ns = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_DNS, b"schedule.harnix");
+    base58(uuid::Uuid::new_v5(&ns, format!("{schedule}/{scheduled_at}").as_bytes()).as_bytes())
+}
+
+/// BASE58 (the Bitcoin alphabet), as the engine writes a UUID.
+fn base58(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    let zeros = bytes.iter().take_while(|b| **b == 0).count();
+    let mut digits: Vec<u8> = vec![];
+    for &b in &bytes[zeros..] {
+        let mut carry = b as u32;
+        for d in digits.iter_mut() {
+            carry += (*d as u32) << 8;
+            *d = (carry % 58) as u8;
+            carry /= 58;
+        }
+        while carry > 0 {
+            digits.push((carry % 58) as u8);
+            carry /= 58;
+        }
+    }
+    let mut out = String::with_capacity(zeros + digits.len());
+    out.extend(std::iter::repeat_n('1', zeros));
+    out.extend(digits.iter().rev().map(|&d| ALPHABET[d as usize] as char));
+    out
 }
 
 fn receipt_id() -> String {

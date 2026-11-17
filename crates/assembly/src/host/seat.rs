@@ -38,6 +38,7 @@ pub(crate) struct Seats {
     pub services: Arc<HostServicesRegistry>,
     pub listen: watch::Receiver<Option<Listening>>,
     pub projects_dir: PathBuf,
+    pub product: harnix_contract::ProductNames,
 }
 
 impl Seats {
@@ -47,6 +48,7 @@ impl Seats {
             config: config.clone(),
             data_dir: data_dir.to_path_buf(),
             projects_dir: self.projects_dir.clone(),
+            product: self.product.clone(),
             dispatch: self.dispatch.clone(),
             grants: self.grants.clone(),
             clients: self.clients.clone(),

@@ -495,7 +495,7 @@ export const MAIN_SESSION_KEY = "@main";
 
 /** A run's main session, as `host.session.open` takes it; null before it is opened. */
 export function mainSessionOf(record: Pick<RunRecord, "session_keys"> | null | undefined): { instance: string; sessionId: string } | null {
-  const name = record?.session_keys?.[MAIN_SESSION_KEY];
+  const name = record?.session_keys?.[MAIN_SESSION_KEY]?.id;
   return name ? sessionOf({ session: name } as TaskRec) : null;
 }
 
@@ -935,4 +935,9 @@ export function schemaRows(schema: unknown, maxDepth = 8): SchemaRow[] {
 
   walk(root, "", 0, true, new Set());
   return rows;
+}
+
+/** The directory the product keeps in each project, as the host says: `.harnix` when it does not. */
+export function projectDir(host: { projectDir?: string } | null | undefined): string {
+  return host?.projectDir || ".harnix";
 }

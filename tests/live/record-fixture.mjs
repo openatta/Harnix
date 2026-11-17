@@ -82,7 +82,7 @@ try {
 
   // Ended before copying: the engine writes the recording out as it stops.
   await backend.halt();
-  const recorded = join(backend.scratch, "agix", "recordings");
+  const recorded = join(backend.scratch, "engine", "recordings");
   const sessions = readdirSync(recorded);
   if (!sessions.includes(session_id)) throw new Error(`no recording for ${session_id} in ${sessions.join(", ")}`);
   const to = join(RECORDINGS, name);

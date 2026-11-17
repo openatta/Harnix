@@ -15,9 +15,9 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::{dispatch, publish};
-use super::rpc_error;
-use super::shared::Shared;
+use super::publish;
+use super::state::Shared;
+use super::{rpc_error, worktree_error};
 use crate::dryrun::{is_dry, StartIn as DryStartIn};
 use crate::kernel::def::definition_schema;
 use crate::kernel::engine::{CreateIn, Engine};
@@ -69,7 +69,7 @@ fn project_dir(root: Option<String>) -> Result<Option<String>, RpcError> {
     }
 }
 
-/// A start's `show_in_space`: a space id as the hub spells them, trimmed; whether the application
+/// A start's `shown_in`: a space id as the hub spells them, trimmed; whether the application
 /// has such a space the hub says when the main session is exposed, and a start that names none
 /// shows the session nowhere else.
 fn shown_in(space: Option<String>) -> Result<Option<String>, RpcError> {
@@ -78,7 +78,7 @@ fn shown_in(space: Option<String>) -> Result<Option<String>, RpcError> {
     };
     let well_formed = space.len() <= 64 && space.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
     if !well_formed {
-        return Err(RpcError::invalid_params(format!("show_in_space {space:?} is not a space id")));
+        return Err(RpcError::invalid_params(format!("shown_in {space:?} is not a space id")));
     }
     Ok(Some(space))
 }
@@ -336,7 +336,10 @@ async fn change(sh: &Arc<Shared>, run: Option<&str>, r: crate::Result<crate::Out
             sh.sandbox()?.absorb(run, o).await.map_err(rpc_error)?;
             publish::publish_dry(sh, Some(run)).await;
         }
-        _ => dispatch::apply(sh, run, o).await,
+        _ => match run {
+            Some(run) => sh.runner()?.apply_for(run, o).await,
+            None => sh.runner()?.apply(o).await,
+        },
     }
     Ok(value)
 }
@@ -426,6 +429,63 @@ pub(crate) async fn flow_session(
         .await;
     publish::publish_focus(sh, &s.instance, &s.session_id).await;
     Ok(s)
+}
+
+/// The entry a conversation a task was started from gets (`flow.start`'s `from_session`): the
+/// card linking to the task, drawn by the interface; the conversation does not become the task.
+pub(crate) const TASK_STARTED: &str = "task_started";
+
+/// What that card says: the run, its flow (and the flow's title), the run's title and subject,
+/// and its project.
+pub(crate) fn task_card(rec: &crate::RunRecord) -> Value {
+    json!({
+        "run": rec.id,
+        "flow": rec.flow,
+        "flow_title": rec.def.title,
+        "title": rec.title,
+        "subject": rec.subject,
+        "project_root": rec.project_root,
+    })
+}
+
+/// Write the card into the conversation `run` was started from, claiming the space it belongs
+/// to: the hub refuses a conversation of another space. The run is started either way; a card
+/// that cannot be written is logged.
+async fn link_from(sh: &Shared, engine: &Engine, from: &StartedFrom, run: &str) {
+    let Some(cx) = sh.cx.get() else { return };
+    let rec = match engine.record(run).await {
+        Ok(rec) => rec,
+        Err(e) => {
+            tracing::warn!(run, error = %e, "no card for a run whose record cannot be read");
+            return;
+        }
+    };
+    let instance = from.instance.as_deref().unwrap_or(harnix_ext::MAIN_INSTANCE);
+    let session = harnix_ext::SessionRef::new(instance, from.session_id.as_str());
+    let written = cx
+        .sessions()
+        .in_space(&from.space)
+        .append_entry(&session, harnix_ext::Entry::new(TASK_STARTED, task_card(&rec)))
+        .await;
+    if let Err(e) = written {
+        tracing::warn!(run, session = %from.session_id, space = %from.space, error = %e.message, "the conversation a task was started from has no card");
+    }
+}
+
+/// A run's sub-agents as the runner noted them, in the rows `flow.sessions` has always answered
+/// with: the session split into its instance and id.
+fn agent_rows(agents: Vec<Value>) -> Vec<Value> {
+    agents
+        .into_iter()
+        .map(|a| {
+            let r = super::session_ref(a.get("agent").and_then(Value::as_str).unwrap_or_default());
+            json!({
+                "agent_session_id": r.session_id, "instance": r.instance,
+                "agent_type": a.get("agent_type"), "tool_use_id": a.get("call"),
+                "description": a.get("description"), "flow": a.get("flow"), "status": a.get("status"),
+            })
+        })
+        .collect()
 }
 
 /// [`run_sessions`]' answer for one run.
@@ -561,7 +621,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         |sh, packs, _, p: Value| async move {
             let project = p.get("project").and_then(Value::as_str).filter(|r| !r.trim().is_empty());
             match project {
-                Some(root) => to_value(publish::defs_list(super::project_packs::packs_in(&sh, Some(root)).await?.as_ref())),
+                Some(root) => to_value(publish::defs_list(sh.packs_in(Some(root)).await?.as_ref())),
                 None => to_value(publish::defs_list(packs.as_ref())),
             }
         },
@@ -574,10 +634,10 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         "one flow: {name, project?} → {def, yaml, digest, origin, valid, problems, writable, skills: {name: body}, protocol: {station: text}}; project: as a task of that project reads it",
         |sh, packs, _, p: DefIn| async move {
             let packs = match p.project.as_deref() {
-                Some(root) if !root.trim().is_empty() => super::project_packs::packs_in(&sh, Some(root)).await?,
+                Some(root) if !root.trim().is_empty() => sh.packs_in(Some(root)).await?,
                 _ => packs,
             };
-            super::project_packs::withheld(packs.as_ref(), &p.name).map_err(rpc_error)?;
+            crate::runner::withheld(packs.as_ref(), &p.name).map_err(rpc_error)?;
             def_info(&*engine(&sh)?, packs.as_ref(), &p.name)
         },
     );
@@ -604,7 +664,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         "catalog",
         "the names definitions may use: {scenes, steps, checks, tools, command_gates, templates, instances, spaces, models, guarded, parts: {kind: [name]}, writable}",
         |_, packs, _, _: Value| async move {
-            let mut v = super::author::catalog_json(packs.as_ref());
+            let mut v = crate::author::catalog_json(packs.as_ref());
             v["writable"] = json!(packs.writable());
             Ok(v)
         },
@@ -699,7 +759,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         packs,
         "hooks",
         "the hooks of the pack, each with its last delivery: [{name, title, description, on, flows, kind, action, signed, last: {at, event, run, status, code?, error?, tries} | null}]",
-        |sh, packs, _, _: Value| async move { Ok(Value::Array(super::hooks::listing(&sh, &packs.hooks()))) },
+        |sh, _, _, _: Value| async move { Ok(Value::Array(sh.runner()?.hook_status())) },
     );
     method(
         m,
@@ -734,13 +794,13 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
                 None => {}
                 Some("") => sh.set_conversation_project(&p.instance, &p.session_id, None),
                 Some(root) => {
-                    let root = super::project_packs::project_root(root).map_err(RpcError::invalid_params)?;
+                    let root = super::state::project_root(root).map_err(RpcError::invalid_params)?;
                     sh.set_conversation_project(&p.instance, &p.session_id, Some(root));
                 }
             }
             let project = sh.conversation_project(&p.instance, &p.session_id);
             let packs = match &project {
-                Some(root) => super::project_packs::packs_in(&sh, Some(root)).await?,
+                Some(root) => sh.packs_in(Some(root)).await?,
                 None => packs,
             };
             let flow = p.flow.filter(|f| !f.is_empty());
@@ -796,14 +856,15 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
             let mut rec = engine(&sh)?.record(&p.run).await.map_err(rpc_error)?;
             // Every run has its main session; one that has none (made where the module was not
             // running) is given it now.
+            let rn = sh.runner()?;
             if rec.main_session().is_none() {
-                if let Err(why) = super::main::ensure_main(&sh, &p.run).await {
+                if let Err(why) = rn.ensure_main(&p.run).await {
                     tracing::warn!(run = p.run, why, "no main session");
                 }
                 rec = engine(&sh)?.record(&p.run).await.map_err(rpc_error)?;
             }
             let mut v = run_sessions(&cx, &rec).await?;
-            v["agents"] = json!(sh.agents(&p.run));
+            v["agents"] = json!(agent_rows(rn.agents_of(&p.run)));
             Ok(v)
         },
     );
@@ -817,7 +878,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
             let zh = p.lang.as_deref().is_some_and(|l| l.starts_with("zh"));
             Ok(json!({
                 "lang": if zh { "zh-CN" } else { "en" },
-                "text": if zh { super::author::GUIDE_ZH } else { super::author::GUIDE_EN },
+                "text": if zh { crate::GUIDE_ZH } else { crate::GUIDE_EN },
             }))
         },
     );
@@ -904,7 +965,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         packs,
         "start",
         devices_and_the_scheduler(),
-        "start a run: {flow, subject, inputs?, title?, project_root?, workspace?: project|worktree|scratch, output_dir?, trigger?: {kind: manual} | {kind: schedule, schedule, fire_at}, show_in_space?, from_session?: {instance?, session_id, space}} → {run}; with a project_root (an existing absolute directory) the run is a task of that project; output_dir (a template relative to the project, before the flow's and flows/${flow}-${date}${seq}) is made at start and must stay inside it; workspace (absent: the flow's, else project) worktree needs a git repository with a commit: the run works in <project>/.harnix/worktrees/<run> on the branch harnix/<run>, decided with worktree.merge|keep|discard once over; only the kernel and extensions start one on a schedule; show_in_space names a space the main session is also shown in, to be looked at and talked to there; from_session names the conversation it was started from, which gets a card linking to the run (an entry task_started; one that cannot be written is logged and the run goes on)",
+        "start a run: {flow, subject, inputs?, title?, project_root?, workspace?: project|worktree|scratch, output_dir?, trigger?: {kind: manual} | {kind: schedule, schedule, fire_at}, shown_in?, from_session?: {instance?, session_id, space}} → {run}; with a project_root (an existing absolute directory) the run is a task of that project; output_dir (a template relative to the project, before the flow's and flows/${flow}-${date}${seq}) is made at start and must stay inside it; workspace (absent: the flow's, else project) worktree needs a git repository with a commit: the run works in a worktree of its own out of the project, on the branch harnix/flow/<run>, decided with worktree.merge|keep|discard once over; only the kernel and extensions start one on a schedule; shown_in names a space the main session is also shown in, to be looked at and talked to there; from_session names the conversation it was started from, which gets a card linking to the run (an entry task_started; one that cannot be written is logged and the run goes on)",
         |sh, _, cx, p: StartParams| async move {
             let by = caller(&cx);
             let trigger = start_trigger(cx.device().is_some(), p.trigger, &by)?;
@@ -918,14 +979,14 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
                 workspace: p.workspace,
                 output_dir: p.output_dir,
                 trigger: Some(trigger),
-                show_in_space: shown_in(p.show_in_space)?,
+                shown_in: shown_in(p.shown_in)?,
             };
             let from = started_from(p.from_session)?;
             let engine = engine(&sh)?;
-            let r = super::project::start(&sh, &engine, input, by).await;
+            let r = sh.runner()?.start_run(input, by).await;
             let value = change(&sh, None, r).await?;
             if let (Some(from), Some(run)) = (&from, value.get("run").and_then(Value::as_str)) {
-                super::project::link_from(&sh, &engine, from, run).await;
+                link_from(&sh, &engine, from, run).await;
             }
             Ok(value)
         },
@@ -937,7 +998,8 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         "runOf",
         "the run whose main session this is: {instance?, session_id} → {run: id | null}",
         |sh, _, _, p: SessionIn| async move {
-            let run = super::main::run_of_main(&sh, &p.instance, &p.session_id).await;
+            let id = super::session_name(&harnix_ext::SessionRef::new(p.instance, p.session_id));
+            let run = sh.runner()?.run_of_session(&id).await;
             Ok(json!({"run": run}))
         },
     );
@@ -1130,7 +1192,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
             let Some(root) = project_dir(Some(p.project_root))? else {
                 return Err(RpcError::invalid_params("project_root is empty"));
             };
-            Ok(super::worktree::info(root.into()).await)
+            Ok(crate::runner::worktree_info(root.into()).await)
         },
     );
     for (name, end, describe) in [
@@ -1160,10 +1222,10 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
                     if in_sandbox(&sh, &p.run).await {
                         return Err(RpcError::invalid_params("a dry run has no worktree"));
                     }
-                    let engine = engine(&sh)?;
-                    let o = super::worktree::end(&engine, &p.run, end, device(&cx)).await?;
+                    let rn = sh.runner()?;
+                    let o = rn.end_worktree(&p.run, end, device(&cx)).await.map_err(worktree_error)?;
                     let value = o.value.clone();
-                    dispatch::apply(&sh, Some(&p.run), o).await;
+                    rn.apply_for(&p.run, o).await;
                     Ok(value)
                 }
             });
@@ -1282,7 +1344,7 @@ fn def_info(engine: &Engine, packs: &dyn Packs, name: &str) -> Answer {
         }
     }
     let problems = validate(&def, packs);
-    let used = super::author::parts_used(packs, &def);
+    let used = crate::author::parts_used(packs, &def);
     Ok(json!({
         "def": def, "yaml": yaml, "digest": digest, "origin": packs.origin(name),
         "valid": problems.is_empty(), "problems": problems, "writable": packs.writable(),
@@ -1423,17 +1485,20 @@ mod tests {
         assert_eq!(p.workspace, Some(crate::kernel::run::Workspace::Worktree));
         assert_eq!(p.trigger, Some(StartTrigger::Manual {}));
         assert_eq!(p.output_dir.as_deref(), Some("out/${date}"));
-        assert_eq!(p.show_in_space, None);
+        assert_eq!(p.shown_in, None);
         let bare: StartParams = serde_json::from_value(json!({"flow": "f", "subject": "s"})).unwrap();
         assert_eq!((bare.project_root, bare.workspace, bare.trigger), (None, None, None));
-        let shown: StartParams = serde_json::from_value(json!({"flow": "f", "subject": "s", "show_in_space": "sessions"})).unwrap();
-        assert_eq!(shown.show_in_space.as_deref(), Some("sessions"));
+        let shown: StartParams = serde_json::from_value(json!({"flow": "f", "subject": "s", "shown_in": "sessions"})).unwrap();
+        assert_eq!(shown.shown_in.as_deref(), Some("sessions"));
+        // Its earlier name is not read.
+        let earlier: StartParams = serde_json::from_value(json!({"flow": "f", "subject": "s", "show_in_space": "sessions"})).unwrap();
+        assert_eq!(earlier.shown_in, None);
     }
 
     /// The space a start shows the main session in is a space id, trimmed; none or blank is none;
     /// anything else is refused before a run is made.
     #[test]
-    fn a_start_s_show_in_space_is_a_space_id_or_nothing() {
+    fn a_start_s_shown_in_is_a_space_id_or_nothing() {
         assert_eq!(shown_in(Some(" sessions ".into())).unwrap().as_deref(), Some("sessions"));
         assert_eq!(shown_in(Some("my.space-1_x".into())).unwrap().as_deref(), Some("my.space-1_x"));
         assert_eq!(shown_in(None).unwrap(), None);

@@ -29,8 +29,8 @@ async function untrustedProject(page: Page, name: string) {
     const { app } = (window as any).harnix;
     return (await app.call("harnix-app.projects.create", { name })).path as string;
   }, `${name}-${Date.now()}`);
-  mkdirSync(join(path, ".agix"), { recursive: true });
-  writeFileSync(join(path, ".agix", "settings.json"), JSON.stringify({ permission_mode: "bypassPermissions", mcp_servers: { demo: { command: "true" } } }));
+  mkdirSync(join(path, ".harnix"), { recursive: true });
+  writeFileSync(join(path, ".harnix", "settings.json"), JSON.stringify({ permission_mode: "bypassPermissions", mcp_servers: { demo: { command: "true" } } }));
   await page.evaluate(() => (window as any).harnix.app.refreshSessions());
   await spaceEntry(page, "projects").click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", "projects");

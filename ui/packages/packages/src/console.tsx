@@ -1,9 +1,9 @@
 /**
- * The extension packages in the console of the process (`system.console.tab`, where a space
- * defines it): the ones this process hosts, and how each one's VM is doing — its backend up or
+ * The extension packages as they run (`PackagesTab`, a block of the settings' diagnostics): the ones
+ * this process hosts, and how each one's VM is doing — its backend up or
  * down, how often it was recycled or rebuilt, its faults, its memory and storage against their
  * limits, the calls into its methods and their errors, and the calls it made as itself that were
- * refused. What this page's frames of it do is the shell's, in its diagnostics.
+ * refused. What this page's frames of it do is the shell's, above it in the same section.
  *
  * Extension processes that start unsandboxed, or not at all for want of a sandbox, are said in red
  * above the table; a process's last lines of stderr are in its row opened.
@@ -30,12 +30,12 @@ export function PackagesTab({ host }: { host: HostApi }) {
   const [list, setList] = useState<PackagesList | undefined>(undefined);
   const [open, setOpen] = useState<string | null>(null);
   useEffect(() => host.subscribe("packages.list", {}, (value) => setList((value as PackagesList | null) ?? undefined)), [host]);
-  if (!list) return <div className="system-pane" data-testid="system-packages">{tr("system.packages.loading")}</div>;
+  if (!list) return <div className="packages-runtime" data-testid="packages-runtime">{tr("packages.runtime.loading")}</div>;
   if (!list.packages.length) {
     return (
-      <div className="system-pane" data-testid="system-packages">
+      <div className="packages-runtime" data-testid="packages-runtime">
         <SandboxAlert sandbox={list.runtime?.sandbox} />
-        <div className="muted" data-testid="system-packages-empty">{tr("system.packages.none")}</div>
+        <div className="muted" data-testid="packages-runtime-empty">{tr("packages.runtime.none")}</div>
       </div>
     );
   }
@@ -43,17 +43,17 @@ export function PackagesTab({ host }: { host: HostApi }) {
   // Five columns, each a word or two: what a package is and how it answers. Its VM's figures
   // (recycles, faults, memory, storage) are in the row opened, which has the room for them.
   return (
-    <div className="system-pane system-packages" data-testid="system-packages">
+    <div className="packages-runtime" data-testid="packages-runtime">
       <SandboxAlert sandbox={list.runtime?.sandbox} />
       <div className="table-wrap">
-        <table className="frames packages">
+        <table className="packages-table">
           <thead>
             <tr>
-              <th>{tr("system.packages.app")}</th>
-              <th>{tr("system.packages.state")}</th>
-              <th>{tr("system.packages.backend")}</th>
-              <th>{tr("system.packages.calls")}</th>
-              <th>{tr("system.packages.refused")}</th>
+              <th>{tr("packages.runtime.app")}</th>
+              <th>{tr("packages.runtime.state")}</th>
+              <th>{tr("packages.runtime.backend")}</th>
+              <th>{tr("packages.runtime.calls")}</th>
+              <th>{tr("packages.runtime.refused")}</th>
             </tr>
           </thead>
           <tbody data-rows="">
@@ -70,7 +70,7 @@ export function PackagesTab({ host }: { host: HostApi }) {
                 <Fragment key={row.id}>
                   <tr
                     className="package-row"
-                    data-testid="system-package"
+                    data-testid="packages-runtime-row"
                     data-package={row.id}
                     data-state={state}
                     data-sandbox={row.sandbox}
@@ -81,47 +81,47 @@ export function PackagesTab({ host }: { host: HostApi }) {
                     onKeyDown={rowKeys(flip, { open: shown, set: (to) => setOpen(to ? row.id : null) })}
                   >
                     <td className="package-name">
-                      <span className={`dot ${dot[state]}`} /> <span className="tt">{row.title ?? row.id}</span>
+                      <span className={`packages-dot ${dot[state]}`} /> <span className="tt">{row.title ?? row.id}</span>
                       {row.sandbox && row.sandbox !== "on" ? <span className="packages-sandbox-tag">{tr("packages.sandbox.tag")}</span> : null}
                       <div className="muted">{row.id} {row.version}</div>
                     </td>
-                    <td data-field="state">{tr(`system.packages.state.${state}`)}</td>
-                    <td data-field="backend">{backend ? tr(`system.packages.backend.${backend}`) : "—"}</td>
+                    <td data-field="state">{tr(`packages.runtime.state.${state}`)}</td>
+                    <td data-field="backend">{backend ? tr(`packages.runtime.backend.${backend}`) : "—"}</td>
                     <td data-field="calls">{rt?.calls ? `${rt.calls.calls} · ${rt.calls.errors}` : "—"}</td>
                     <td data-field="refused">{refused.length}</td>
                   </tr>
                   {shown ? (
-                    <tr className="package-detail" data-testid="system-package-detail" data-package={row.id}>
+                    <tr className="package-detail" data-testid="packages-runtime-detail" data-package={row.id}>
                       <td colSpan={5}>
                         {h ? (
-                          <dl className="facts" data-testid="system-package-vm">
-                            <div className="fact" data-field="recycles"><dt>{tr("system.packages.recycles")}</dt><dd>{`${h.recycles ?? 0} / ${h.rebuilds ?? 0}`}</dd></div>
-                            <div className="fact" data-field="faults"><dt>{tr("system.packages.faults")}</dt><dd>{`${h.faults ?? 0} · ${h.timeouts ?? 0}`}</dd></div>
-                            <div className="fact" data-field="memory"><dt>{tr("system.packages.memory")}</dt><dd>{`${megabytes(h.memory_bytes)} / ${megabytes(h.memory_limit_bytes)}`}</dd></div>
-                            <div className="fact" data-field="storage"><dt>{tr("system.packages.storage")}</dt><dd>{`${megabytes(h.storage_bytes)} / ${megabytes(h.storage_limit_bytes)}`}</dd></div>
+                          <dl className="facts" data-testid="packages-runtime-vm">
+                            <div className="fact" data-field="recycles"><dt>{tr("packages.runtime.recycles")}</dt><dd>{`${h.recycles ?? 0} / ${h.rebuilds ?? 0}`}</dd></div>
+                            <div className="fact" data-field="faults"><dt>{tr("packages.runtime.faults")}</dt><dd>{`${h.faults ?? 0} · ${h.timeouts ?? 0}`}</dd></div>
+                            <div className="fact" data-field="memory"><dt>{tr("packages.runtime.memory")}</dt><dd>{`${megabytes(h.memory_bytes)} / ${megabytes(h.memory_limit_bytes)}`}</dd></div>
+                            <div className="fact" data-field="storage"><dt>{tr("packages.runtime.storage")}</dt><dd>{`${megabytes(h.storage_bytes)} / ${megabytes(h.storage_limit_bytes)}`}</dd></div>
                           </dl>
                         ) : null}
-                        {rt?.reason ? <div role="alert" data-testid="system-package-reason">{rt.reason}</div> : null}
-                        {h?.last_error ? <div className="muted">{tr("system.packages.lastError", { error: h.last_error })}</div> : null}
-                        {rt?.methods?.length ? <div className="muted">{tr("system.packages.methods", { methods: rt.methods.join(", ") })}</div> : null}
-                        {rt?.topics?.length ? <div className="muted">{tr("system.packages.topics", { topics: rt.topics.join(", ") })}</div> : null}
+                        {rt?.reason ? <div role="alert" data-testid="packages-runtime-reason">{rt.reason}</div> : null}
+                        {h?.last_error ? <div className="muted">{tr("packages.runtime.lastError", { error: h.last_error })}</div> : null}
+                        {rt?.methods?.length ? <div className="muted">{tr("packages.runtime.methods", { methods: rt.methods.join(", ") })}</div> : null}
+                        {rt?.topics?.length ? <div className="muted">{tr("packages.runtime.topics", { topics: rt.topics.join(", ") })}</div> : null}
                         {stderr.length ? (
                           <>
-                            <div className="turnh">{tr("system.packages.stderr")}</div>
-                            <pre className="packages-stderr" data-testid="system-package-stderr">{stderr.join("\n")}</pre>
+                            <div className="packages-runtime-h">{tr("packages.runtime.stderr")}</div>
+                            <pre className="packages-stderr" data-testid="packages-runtime-stderr">{stderr.join("\n")}</pre>
                           </>
                         ) : null}
-                        <div className="turnh">{tr("system.packages.refusedCalls")}</div>
+                        <div className="packages-runtime-h">{tr("packages.runtime.refusedCalls")}</div>
                         {refused.length ? (
                           <ul>
                             {refused.map((r, i) => (
-                              <li key={i} data-testid="system-package-refusal">
+                              <li key={i} data-testid="packages-runtime-refusal">
                                 <code>{r.method}</code> — {r.reason}
                               </li>
                             ))}
                           </ul>
                         ) : (
-                          <div className="muted">{tr("system.packages.noRefusals")}</div>
+                          <div className="muted">{tr("packages.runtime.noRefusals")}</div>
                         )}
                       </td>
                     </tr>
@@ -133,7 +133,7 @@ export function PackagesTab({ host }: { host: HostApi }) {
         </table>
       </div>
       {list.unreadable?.length ? (
-        <div className="muted">{tr("system.packages.unreadable", { dirs: list.unreadable.map((u) => u.dir).join(", ") })}</div>
+        <div className="muted">{tr("packages.runtime.unreadable", { dirs: list.unreadable.map((u) => u.dir).join(", ") })}</div>
       ) : null}
     </div>
   );

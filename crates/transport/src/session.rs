@@ -302,7 +302,7 @@ impl Sessions {
             ended: watch::channel(None).0,
         });
         let client = hub.add_client(sink.clone()).await;
-        // What the system space lists as a connected user: the device, how it is connected, what
+        // What `observability.process` lists as a connected user: the device, how it is connected, what
         // it says it is, and since when.
         let device = match &subject {
             Subject::Device { id } => id.clone(),

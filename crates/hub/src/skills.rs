@@ -3,7 +3,7 @@
 //! A package's skills are a directory of its own (`<state>/ext/<id>/skills`); the engine reads it
 //! as a host skill directory the session lists (`options.skill_dirs`). The hub says which
 //! directories a session lists from the space it is in: a package that declared spaces is seen in
-//! those only, one that declared none in every space, and the system space sees all. A package
+//! those only, one that declared none in every space, and a `cross_space` space sees all. A package
 //! switched on or off, installed, updated or removed changes who sees what; the sessions in
 //! memory are told, and a session that was not in memory is told when it next is subscribed to.
 
@@ -41,7 +41,7 @@ impl Hub {
 
     /// The directories a session of `space` on `instance` lists: nothing for an engine that is
     /// not on this machine (an attached daemon may be anywhere), an extension's own engine only its own package's,
-    /// the system space all of them. Otherwise the packages that declared `space` come first, then
+    /// a `cross_space` space all of them. Otherwise the packages that declared `space` come first, then
     /// those that declared none: of two skills of one name the first listed is the one seen.
     pub(crate) fn skill_dirs_for(&self, instance: &str, space: &str) -> Vec<PathBuf> {
         let own = self.slot(instance).and_then(|slot| slot.extension).map(|id| id.as_str().to_string());

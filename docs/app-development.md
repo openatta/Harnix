@@ -6,14 +6,14 @@
 > Rust 写、编进二进制的是**原生扩展**，装上的 `.hxext` 是**扩展包**。Agix 的包叫 **Agix 插件**，它可以是扩展包的一部分。
 >
 > 这是总览。原生扩展怎么写在 [原生扩展](harnix-ext.md)；扩展包怎么写（模式 2 / 3 共用）在 [扩展包](harnix-ext-package.md)；
-> 为什么是这个形状在 [概念与架构](concept_and_architecture.md) §2.2、§4；Harnix 自带的 Harnix app 与系统 space 在 [Harnix app](harnix-app.md)、[系统 space](system-space.md)。
+> 为什么是这个形状在 [概念与架构](concept_and_architecture.md) §2.2、§4；Harnix 自带的 Harnix app（首页、会话、项目）、流程 space 与诊断在 [Harnix app](harnix-app.md)。
 
 ## 0. 一句话
 
 **每个应用都是 Rust 写的。** 模式 1 是一个纯 Rust 应用；模式 2 在它上面再让扩展包跑在产品进程里（**缺省**）；
 模式 3 让每个扩展包各跑在一个操作系统沙箱里的进程中，给安全要求高的场景（**选用，不是缺省**）。
 
-Harnix 本身是**框架 + 第一方扩展**：Harnix app（会话 space、项目 space）、系统 space、设置、Agix 插件、观测、设备、流程、定时，都是用框架的公开扩展接口写的原生扩展；
+Harnix 本身是**框架 + 第一方扩展**：Harnix app（首页、会话 space、项目 space）、设置、Agix 插件、观测、设备、流程、定时，都是用框架的公开扩展接口写的原生扩展；
 管扩展包的 `packages` 也是。Harnix 自己发布的二进制 `harnix` 是全部第一方扩展加 `packages` 与两个载体，profile 不写载体时跑的是模式 2——
 它本身就是一个模式 2 的应用。
 
@@ -110,6 +110,11 @@ Harnix 本身是**框架 + 第一方扩展**：Harnix app（会话 space、项�
   - 第一方扩展：`harnix::first_party::standard()` 整套，或挑几个；可选的两个另加：流程（`standard_with_flow(..)`，feature `flow`：流程、项目里的任务、项目自带的流程，[原生扩展](harnix-ext.md) §23）、
     定时（`.with(Schedules::new(), SCHEDULE_GRANTS)`，feature `schedule`：到点往会话发一轮、新建会话、起一个任务，[Harnix app](harnix-app.md) §9）；
   - 前端的 UI 包、品牌与 profile。
+- **品牌用自己的名字，连项目里的目录和引擎的自称一起。** profile 写了 `[brand] product_id` 的应用，状态在 `~/.<product_id>/`，
+  项目数据目录是 `<项目>/.<product_id>/`（引擎的项目层、流程的 `runs/` 与 `flows/` 都在这里），引擎自称 `[brand] name`
+  （模型看到的、请求的 User-Agent、worktree 的分支前缀）；`harnix` 自己仍是 `.harnix` 与 Harnix。两个名字都可以在 `[brand]` 里另写
+  （`project_dir`、`product_name`），不合引擎的规则就启动不了，报错说该写哪个键（[原生扩展](harnix-ext.md) §18）。扩展从
+  `cx.product()` 读这两个名字，不写死 `.harnix`。模式 3 的扩展进程自带的引擎这一版仍用 `.harnix` 与 Harnix。
 - **信任按出身，特权按授予。** 编进二进制的扩展都是可信的源码，但它能做的特权只是 `main.rs` 里写下的那几项能力；少授、多授、授了没定义的都拒绝启动。
   第一方扩展也一样，没有「内建」这种特权。
 - 要装扩展包时开 feature `wasm`（模式 2）或 `proc`（模式 3），链上 `packages` 并授予它 `extensions.manage`（`harnix::first_party::standard_with(packages())` 连同它的授予）；profile 的 `[ext.packages]` 照 [扩展包](harnix-ext-package.md) 配。
@@ -158,7 +163,7 @@ Harnix 本身是**框架 + 第一方扩展**：Harnix app（会话 space、项�
   - **它 space 里的会话**落在它自己的引擎 `proc.<id>` 上，但仍由产品的中枢持有：先订阅、给 `seq`、管队列；前端只和产品说话。
     中枢按「扩展的信任」防着这台引擎：不转发它的引擎事件（它的轮开始、结束由中枢照自己读到的另发 `harnix.host_event`，标 `trust: "extension"`）、
     限它的帧（令牌桶：每秒 200 帧、突发 2000 帧；结束一轮的帧不丢）、截断它报的标题与状态，到它的 `engine.config.*`、`engine.plugin.*` 谁都不能调。
-  - **谁够得着它的引擎**：点名 `proc.<id>` 的调用（建会话、挪会话、`engine.*` 直通）只对这个扩展自己（含它的 iframe）、它的 space、跨 space 的调用（系统 space）开放，
+  - **谁够得着它的引擎**：点名 `proc.<id>` 的调用（建会话、挪会话、`engine.*` 直通）只对这个扩展自己（含它的 iframe）、它的 space、跨 space 的调用（`cross_space()` 的 space）开放，
     别的一律 `SPACE_MISMATCH`，在唤醒它之前就判。它的引擎自己建的会话（子 Agent 的）随父会话的 space，没有父会话就是它的 space。
 - **旁路管理**（不在数据路径上）：
   - 安装、验签、披露与同意：与模式 2 同一份代码（`packages`）。
@@ -168,7 +173,7 @@ Harnix 本身是**框架 + 第一方扩展**：Harnix app（会话 space、项�
     进程沙箱开着时，同一份设置里关掉 Agix 自己的命令沙箱（§4）。
   - 秘密：只把同意过的 `env` 名字的值交给它。
   - 出口：`net` 在产品侧判，HTTP 请求经扩展线由产品代发。
-  - 系统 space 控制台的「扩展包」页签。
+  - 设置 → 诊断里的「扩展包运行状况」：状态、调用、被拒的、进程 stderr 的最后几行。
 - 产品不跑扩展包的代码，也不跑它的 Agent。
 
 ### 9.4 扩展进程、扩展线与失败
@@ -237,7 +242,8 @@ Harnix 本身是**框架 + 第一方扩展**：Harnix app（会话 space、项�
 |---|---|---|---|---|---|
 | 骨架 | `harnix-contract`、`harnix-kernel`、`harnix-authz`、`harnix-router`、`harnix-transport`、`harnix-hub`、`harnix-instance`、`harnix-engine-api`、`harnix-engine-link`、`harnix-engine`、`harnix-supervise`、`harnix-assembly` | 协议、内部接口、准入、路由表、传输、中枢、实例登记表、引擎词汇（扩展的一半 S1、骨架的一半 S3）、Agix 接缝、子进程看护、装配与扩展宿主 | ✔ | ✔ | ✔（产品侧） |
 | 扩展接口 | `harnix-ext`；门面 `harnix` | 扩展接口（S1）；`harnix::ext`、`harnix::engine`、`App`、`first_party`、`carriers` | ✔ | ✔ | ✔ |
-| 第一方扩展 | `harnix-ext-{system,harnix-app,settings,plugins,observability,devices,flow,schedule}` | 各一个原生扩展，只依赖 `harnix-ext`（`settings` 过渡期另依赖 `harnix-host-api`，见 harnix-ext.md §17.8） | ✔ | ✔ | ✔ |
+| 第一方扩展 | `harnix-ext-{harnix-app,settings,plugins,observability,devices,flow,schedule}` | 各一个原生扩展，只依赖 `harnix-ext`（`settings` 过渡期另依赖 `harnix-host-api`，见 harnix-ext.md §17.8；`flow` 另依赖流程库） | ✔ | ✔ | ✔ |
+| 流程库 | `harnix-flow` | 流程的定义、运行记录、内核、派工器、存储与流程包；会话只经 trait `SessionHost`。不依赖任何 Harnix crate，也不依赖 Agix，整个目录可以拷走（`crates/flow/tests/deps.rs`、`scripts/check-flow-copy.sh` 守着） | ✔ | ✔ | ✔ |
 | 宿主组件接口 | `harnix-host-api` | 运行期登记、拉起扩展进程、收养（S3，凭 `extensions.manage`） | | ✔ | ✔ |
 | 扩展包的管理 | `harnix-ext-packages` | 安装记录与同意、商店、升级与回滚、按名字选载体、把包登记成扩展 | | ✔ | ✔ |
 | 载体 | `harnix-carrier-wasm` · `harnix-carrier-proc` | 模式 2 的载体 · 模式 3 载体的产品侧（拉起、复核、扩展线的产品一端、`proc.<id>` 的收养） | | ✔ · | · ✔ |
@@ -249,7 +255,7 @@ Harnix 本身是**框架 + 第一方扩展**：Harnix app（会话 space、项�
 | 扩展进程的入口 | `harnix-proc`（库） | `ext-proc` 子命令跑的那一份：宿主核心 + 虚拟机 + 线的客户端 + 它自己的 Agix；沙箱由产品在 exec 时套好 | | | ✔ |
 | 前端 | 外壳核心、第一方 UI 包、桥、`@harnix/ext-sdk`、`@harnix/ext-kit`、行内点 | | ✔ | ✔ | ✔（完全一样） |
 
-feature 的链：库 `harnix` 的缺省不带载体，应用自己选；`harnix-cli` 缺省开 `wasm`、`proc`、`flow`、`schedule`（两个载体都链，不写 `carrier` 取 `wasm`）。`flow` 链进 `harnix-ext-flow`，`schedule` 链进 `harnix-ext-schedule`。`wasm` 链进 `harnix-ext-packages` 与 `harnix-carrier-wasm`；
+feature 的链：库 `harnix` 的缺省不带载体，应用自己选；`harnix-cli` 缺省开 `wasm`、`proc`、`flow`、`schedule`（两个载体都链，不写 `carrier` 取 `wasm`）。`flow` 链进 `harnix-ext-flow` 与它的库 `harnix-flow`，`schedule` 链进 `harnix-ext-schedule`。`wasm` 链进 `harnix-ext-packages` 与 `harnix-carrier-wasm`；
 `proc` 链进 `harnix-ext-packages`、`harnix-carrier-proc` 与 `harnix-proc`，并登记子命令 `ext-proc`。两个都不开的构建里这些 crate 一个都不链，二进制里没有 wasmtime。
 
 - **编译器**：产品构建不带 Cranelift。`harnix-package` 的 `compile` 拉上 `harnix-wasm/compile`，只给打包工具 `harnix-pack` 和测试用。

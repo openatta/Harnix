@@ -2,7 +2,7 @@
 //!
 //! The engine writes every model call a session makes to a recording, and every message to a
 //! transcript. A reader turns those into Harnix's own structures, which serialize to the shape of
-//! the system space's methods. Where a part is the engine's own (a system block's role, a tool's
+//! the observability extension's methods. Where a part is the engine's own (a system block's role, a tool's
 //! definition, a message, a call's usage) it is carried as JSON as the engine wrote it, and
 //! changes with the engine.
 //!

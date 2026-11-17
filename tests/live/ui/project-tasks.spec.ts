@@ -1,14 +1,15 @@
 /**
- * A task in a project (harnix-app.md §3.2, system-space.md §5), in a real browser against a real
+ * A task in a project (harnix-app.md §3.2, §11), in a real browser against a real
  * backend: a run started with `project_root` is a row of the project in the projects space, with
  * its flow, state and station; the project's "+" offers a new task, whose dialog needs a subject
- * and starts the run shown in the projects space (`show_in_space`); a task opened is its main
+ * and starts the run shown in the projects space (`shown_in`); a task opened is its main
  * session in the middle of the projects space with the 流程 tab in the right column; the row's
  * menu enters the flow's space instead, with the way back; `/flow` in a conversation of the
  * project starts a task beside it and leaves a card that opens it, and says a conversation of no
  * project has no task to start; the project's menu opens the flows' conversation working in the
- * project, once it is trusted; and the system console's flows page is as it was. No turn is run to a model: the run's main session is replayed from nothing and its
- * station is forced through by hand where it matters.
+ * project, once it is trusted; and the flow space's runs list opens a project's run as any other.
+ * No turn is run to a model: the run's main session is replayed from nothing and its station is
+ * forced through by hand where it matters.
  */
 
 import type { Page } from "@playwright/test";
@@ -50,7 +51,7 @@ const current = (page: Page) => page.evaluate(() => ((window as any).harnix.app.
 const mainOf = (page: Page, run: string) =>
   page.evaluate(async (r) => {
     const v = await (window as any).harnix.app.call("flow.get", { run: r });
-    return ((v.record.session_keys ?? {})["@main"] as string | undefined)?.split("/")[1] ?? null;
+    return ((v.record.session_keys ?? {})["@main"]?.id as string | undefined)?.split("/")[1] ?? null;
   }, run);
 const chip = (page: Page, kind: string) => page.locator(`#details [data-testid="sidebar-tab"][data-kind="${kind}"]`);
 
@@ -116,7 +117,7 @@ test("the project's + offers a new task: the dialog needs a subject, says the pr
   const record = await page.evaluate(async (r) => (await (window as any).harnix.app.call("flow.get", { run: r })).record, run);
   expect(record.project_root).toBe(path);
   expect(record.title).toBe("From the dialog");
-  expect(record.show_in_space).toBe("sessions");
+  expect(record.shown_in).toBe("sessions");
   await expect(row.locator(`[data-testid="project-item"][data-item="${run}"]`)).toHaveAttribute("data-state", "current");
   // The session is lent to the session space, and the session space's list does not show it as a conversation.
   const lent = await page.evaluate(async (sid) => (await (window as any).harnix.app.call("harnix.sessions.list", { space: "sessions" })).sessions.find((r: any) => r.session_id === sid), await mainOf(page, run));
@@ -131,7 +132,7 @@ test("a task's row opens it in the projects space too, where a person can talk t
   await open(page, backend.url);
   const { path, row } = await project(page, "tasks-open");
   const run = await page.evaluate(
-    async (root) => (await (window as any).harnix.app.call("flow.start", { flow: "example-review", subject: "again", project_root: root, show_in_space: "sessions" })).run as string,
+    async (root) => (await (window as any).harnix.app.call("flow.start", { flow: "example-review", subject: "again", project_root: root, shown_in: "sessions" })).run as string,
     path,
   );
   const item = row.locator(`[data-testid="project-item"][data-item="${run}"]`);
@@ -158,7 +159,7 @@ test("the row's menu opens a task in the flows: the flow's space in front on the
   await open(page, backend.url);
   const { path, row } = await project(page, "tasks-enter");
   const run = await page.evaluate(
-    async (root) => (await (window as any).harnix.app.call("flow.start", { flow: "example-review", subject: "shown", project_root: root, show_in_space: "sessions" })).run as string,
+    async (root) => (await (window as any).harnix.app.call("flow.start", { flow: "example-review", subject: "shown", project_root: root, shown_in: "sessions" })).run as string,
     path,
   );
   const item = row.locator(`[data-testid="project-item"][data-item="${run}"]`);
@@ -213,7 +214,7 @@ test("/flow in a conversation of the project: the project's flows offered; with 
   const record = await page.evaluate(async (r) => (await (window as any).harnix.app.call("flow.get", { run: r })).record, run);
   expect(record.project_root).toBe(path);
   expect(record.subject).toBe("the login code");
-  expect(record.show_in_space).toBe("sessions");
+  expect(record.shown_in).toBe("sessions");
   // No turn in the conversation: the words went to the task.
   const said = await page.evaluate(async (sid) => (await (window as any).harnix.app.call("engine.session.history", { instance: "main", session_id: sid, space: "sessions" })).messages?.length ?? 0, conversation);
   expect(said).toBe(0);
@@ -283,16 +284,17 @@ test("为这个项目建流程: trust first, then the flows' general conversatio
   expect(errors).toEqual([]);
 });
 
-test("the system console's flows page is as it was: a run opened there has its details beside the conversation", TAGS, async ({ page }) => {
+test("the flow space's runs list opens a project's run as any other: its details beside the conversation, no way back", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, backend.url);
   const { path } = await project(page, "tasks-console");
   const run = await page.evaluate(async (root) => (await (window as any).harnix.app.call("flow.start", { flow: "example-review", subject: "console", project_root: root })).run as string, path);
   await toFlows(page);
-  await expect(page.getByTestId("flow-def-example-review")).toBeVisible();
+  await expect(page.locator('#details [data-testid="flow-def-example-review"]')).toBeVisible();
   await openRun(page, run);
   await expect(page.locator('#secondary [data-testid="flow-run-detail"]')).toHaveAttribute("data-run", run);
   await expect(page.locator("#secondary").getByTestId("flow-run-phase")).toBeVisible();
-  await expect(page.getByTestId("flow-back")).toHaveAttribute("data-to", "system");
+  // Entered from its own space, not from the project: nothing to go back to.
+  await expect(page.getByTestId("flow-back")).toHaveCount(0);
   expect(errors).toEqual([]);
 });

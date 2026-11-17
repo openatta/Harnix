@@ -65,10 +65,10 @@ export async function openSessionAt(host: HostApi, r: Registry, ref: { instance:
 /** A run's main session and the space it is shown in, from `flow.get`; tried a few times while a run just started has none yet. */
 async function mainOfRun(host: HostApi, run: string, tries = 10, every = 500): Promise<{ instance: string; session_id: string; shown: string | null } | null> {
   for (let i = 0; i < tries; i++) {
-    const view = await host.call<{ record?: { session_keys?: Record<string, string>; show_in_space?: string | null } }>("flow.get", { run });
-    const key = view?.record?.session_keys?.["@main"];
+    const view = await host.call<{ record?: { session_keys?: Record<string, { id: string }>; shown_in?: string | null } }>("flow.get", { run });
+    const key = view?.record?.session_keys?.["@main"]?.id;
     const at = key ? key.indexOf("/") : -1;
-    if (key && at > 0) return { instance: key.slice(0, at), session_id: key.slice(at + 1), shown: view?.record?.show_in_space ?? null };
+    if (key && at > 0) return { instance: key.slice(0, at), session_id: key.slice(at + 1), shown: view?.record?.shown_in ?? null };
     await new Promise((resolve) => setTimeout(resolve, every));
   }
   return null;

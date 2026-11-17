@@ -1,21 +1,39 @@
-//! A session's model calls, read back out of the engine's recording.
+//! A session's model calls, read back out of the engine's recording, and its inside as the engine
+//! holds it now: the context its next call will carry, the output of its tasks.
 //!
 //! What the model was sent and what came back, call by call, summed per turn, what each Agent of
 //! a session has used, and the request envelope's changes. The engine writes every call to a
 //! recording; its reader (`harnix_ext::engine::readers`) reads it through the engine's protocol, and
 //! these methods answer with what it read. The conversation's trajectory view and the right column's
-//! usage tab read them for the open session, the system space's inspector for any session.
+//! usage tab read them for the open session. `context` and `tasks.output` ask the engine itself
+//! (`engine.inspect`): the right column's context tab and output tab read them.
+//!
+//! And a person's few changes to a session's inside, where the product grants `engine.control`:
+//! stopping a background task (`tasks.stop`, the output tab's), rewriting one of their messages or
+//! taking messages out of the context (`messages.edit`, `messages.drop`, the message menu's). Each
+//! is the engine's own operation, asked as this extension once the engine has answered for the
+//! session as the caller; the messages only while the history still has the `total` the person
+//! saw. Without the grant they are refused, and nothing else changes.
 //!
 //! A session's rows are a device's for the sessions of the space it claims (`RowScope::Session`):
 //! before a recording is read, the session is asked of the engine as the caller, and the hub judges
-//! the claim as it does for every read of a session (system-space.md §10). `usage` names many
-//! sessions at once and stays an open row, as the system space's console reads it; so does
-//! `usage.daily`, the same figures per day and model for the console's usage summary.
+//! the claim as it does for every read of a session (concept §5.4). `usage` names many
+//! sessions at once and stays an open row, as the usage summary reads it; so does
+//! `usage.daily`, the same figures per day and model for the summary.
+//!
+//! And this process's figures (`process`, a method and a topic): its versions, uptime, memory,
+//! threads and who is connected, read from the host with `process.observe` where the product grants
+//! it — the home page's global statistics; and each extension's log (`extensions.log`), the kernel's
+//! `harnix.extensions.log` read with the same grant — the settings' diagnostics.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use harnix_ext::engine::readers::{DayWindow, ReadError, Recordings};
-use harnix_ext::{catalog, caps, codes, Access, Call, Extension, Manifest, Registrar, Rpc, RpcError, RowScope, MAIN_INSTANCE};
+use harnix_ext::{
+    catalog, caps, codes, Access, Call, Extension, ExtensionContext, Manifest, Registrar, Rpc, RpcError, RowScope,
+    TopicCompute, MAIN_INSTANCE,
+};
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -24,6 +42,32 @@ const MAX_SESSIONS: usize = 200;
 /// The days `usage.daily` sums when not told, and the most it sums.
 const DEFAULT_DAYS: u64 = 30;
 const MAX_DAYS: u64 = 366;
+/// How often `observability.process` is computed again while watched: memory, threads and
+/// connections change without an event to say so.
+const PROCESS_EVERY: Duration = Duration::from_secs(5);
+
+/// A person's changes to a session's inside: the method, the engine's operation it asks, the
+/// parameters it passes on besides the session, and what it does.
+const CHANGES: &[(&str, &str, &[&str], &str)] = &[
+    (
+        "tasks.stop",
+        "engine.session.stopTask",
+        &["task_id"],
+        "stop one of a session's background tasks: a command with its process group, a sub-agent at its next checkpoint; `{stopped}`, false when it was over",
+    ),
+    (
+        "messages.edit",
+        "engine.session.editMessage",
+        &["at", "text", "total"],
+        "rewrite a message a person wrote in a session (text alone), by its place in the history, if the history still has `total` messages; `{edited}`",
+    ),
+    (
+        "messages.drop",
+        "engine.session.dropMessages",
+        &["at", "total"],
+        "take messages a person wrote, or tool results, out of a session's context from here on, by their places, if the history still has `total` messages; `{dropped}`",
+    ),
+];
 
 #[derive(Default)]
 pub struct Observability;
@@ -35,8 +79,12 @@ impl Extension for Observability {
     fn manifest(&self) -> Manifest {
         Manifest::new("observability", env!("CARGO_PKG_VERSION"))
             .title("Observability")
-            .disclosure("读本机的模型调用录像：每次调用的请求与应答、每轮的汇总、会话的用量、请求信封的变化")
-            .requires([caps::RECORDINGS_READ])
+            .disclosure("读本机的模型调用录像：每次调用的请求与应答、每轮的汇总、会话的用量、请求信封的变化；读会话下一次调用的上下文、任务的输出；替人停止会话的后台任务、改写或从上下文去掉人说的话；读本进程的版本、内存、线程与连接，读各扩展的日志")
+            .requires([caps::RECORDINGS_READ, caps::ENGINE_INSPECT])
+            // This process's figures (`process`), and a person's changes to a session's inside
+            // (`tasks.stop`, `messages.*`). Without either, what needs it is refused, and nothing
+            // else changes.
+            .optional([caps::PROCESS_OBSERVE, caps::ENGINE_CONTROL])
     }
 
     fn register(&self, r: &mut Registrar<'_, ()>) {
@@ -82,10 +130,68 @@ impl Extension for Observability {
                 let (reader, session) = recording_of(&call, &params).await?;
                 answer(reader.envelopes(&session).await)
             });
+        r.method("context")
+            .access(session())
+            .describe("what a session's next model call will carry, per block, its token counts estimated, with what the provider counted for the last call beside it")
+            .raw(|call, params| async move { inspect_context(&call, &params).await });
+        r.method("tasks.output")
+            .access(session())
+            .describe("the output of one of a session's background tasks: the whole, its tail, or from a byte on")
+            .raw(|call, params| async move {
+                let mut target = session_target(&params)?;
+                // The engine's `taskOutput` knows nothing of spaces: the session is asked as the
+                // caller first, so one the caller may not see is refused by the hub's own words.
+                call.call("engine.session.get", target.clone()).await?;
+                for key in ["task_id", "tail_bytes", "from_byte"] {
+                    if let Some(value) = params.get(key) {
+                        target[key] = value.clone();
+                    }
+                }
+                call.call("engine.session.taskOutput", target).await
+            });
+        // A person's changes to a session's inside: each the engine's own, passed only what it names.
+        for &(name, method, keys, describe) in CHANGES {
+            r.method(name)
+                .access(session())
+                .describe(describe)
+                .raw(move |call, params| async move { change(&call, &params, method, keys).await });
+        }
+        r.method("process")
+            .access(Access::device())
+            .describe("this process's versions, uptime, memory, threads and who is connected")
+            .raw(|call: Call, _| async move { Ok(call.ext().process()?.to_json()) });
+        r.topic("process").computed(Some(PROCESS_EVERY), Process);
+        r.method("extensions.log")
+            .access(Access::device())
+            .describe("each extension's log, the newest lines: by extension, least level and after a line")
+            .raw(|call: Call, params| async move { call.call("harnix.extensions.log", log_params(&params)).await });
         // Its UI package defines the usage summary's sections, for others to add theirs.
         for point in catalog::points_of("observability") {
             r.ui().point(point.decl());
         }
+    }
+}
+
+/// What a read of the extension log passes on: its filter, nothing else the caller sent. Lines can
+/// say more than a person meant a package to read: the kernel's route is for an extension granted
+/// to look into the process, and a device reads it here, through that grant.
+fn log_params(params: &Value) -> Value {
+    let mut out = json!({});
+    for key in ["extension", "level", "after", "limit"] {
+        if let Some(value) = params.get(key) {
+            out[key] = value.clone();
+        }
+    }
+    out
+}
+
+/// `observability.process`, the topic: the same value as the method.
+struct Process;
+
+#[async_trait::async_trait]
+impl TopicCompute for Process {
+    async fn compute(&self, ext: &ExtensionContext, _params: &Value) -> Rpc<Value> {
+        Ok(ext.process()?.to_json())
     }
 }
 
@@ -199,6 +305,53 @@ fn session_target(params: &Value) -> Rpc<Value> {
     Ok(target)
 }
 
+/// One of [`CHANGES`]: the session asked of the engine as the caller first — the engine's
+/// operation knows nothing of spaces, so one the caller may not see is refused by the hub's own
+/// words — then the operation, passed the session and `keys` alone. A message is changed only
+/// against the history its person saw: `total` is required, and the engine refuses it when the
+/// history has changed since.
+async fn change(call: &Call, params: &Value, method: &str, keys: &[&str]) -> Rpc<Value> {
+    let target = session_target(params)?;
+    let ask = change_params(&target, params, keys)?;
+    call.call("engine.session.get", target).await?;
+    call.call(method, ask).await
+}
+
+/// What a change passes on: the session, and the keys it names from what the caller sent.
+fn change_params(target: &Value, params: &Value, keys: &[&str]) -> Rpc<Value> {
+    if keys.contains(&"total") && !params.get("total").is_some_and(Value::is_u64) {
+        return Err(RpcError::invalid_params("`total` is how many messages the history had when the message was seen"));
+    }
+    let mut out = target.clone();
+    for key in keys {
+        if let Some(value) = params.get(*key) {
+            out[*key] = value.clone();
+        }
+    }
+    Ok(out)
+}
+
+/// `context {instance?, session_id, space?}`: the engine's `engine.session.inspectContext` — what the
+/// next call will carry, per block, its token counts estimated — with `measured`: what the provider
+/// counted for the last call that was made (`engine.session.get`'s `context`, read before the
+/// context), absent before the first one. The interface sizes the bar by the measured figure and only divides it by the
+/// estimates, so an estimate never passes for a count.
+async fn inspect_context(call: &Call, params: &Value) -> Rpc<Value> {
+    let target = session_target(params)?;
+    // Asked as the caller before anything else: the engine's `inspectContext` knows nothing of
+    // spaces, so a session the caller may not see is refused here, by the hub.
+    let info = call.call("engine.session.get", target.clone()).await?;
+    let mut context = call.call("engine.session.inspectContext", target).await?;
+    let measured = info
+        .get("context")
+        .cloned()
+        .filter(|c| c.get("tokens").and_then(Value::as_u64).is_some_and(|n| n > 0));
+    if let (Some(measured), Some(obj)) = (measured, context.as_object_mut()) {
+        obj.insert("measured".into(), measured);
+    }
+    Ok(context)
+}
+
 /// The reader and the session of `{instance?, session_id, space?}`, once the engine has answered
 /// for the session as the caller: a session the caller may not see is refused before its recording
 /// is touched, by the hub's own words.
@@ -229,8 +382,10 @@ mod tests {
     use super::*;
     use harnix_ext::{ErasedExtension, ExtId};
 
-    /// The rows about one session are a device's, narrowed to the sessions of the space it claims;
-    /// `usage`, which names many sessions, is a device's and open.
+    /// The rows about one session — reads and changes alike — are a device's, narrowed to the
+    /// sessions of the space it claims;
+    /// `usage`, which names many sessions, and `process` and `extensions.log`, about none, are a
+    /// device's and open.
     #[test]
     fn a_sessions_rows_are_a_devices_for_the_sessions_of_its_space() {
         let id = ExtId::native("observability").unwrap();
@@ -244,16 +399,56 @@ mod tests {
                 .access()
                 .clone()
         };
-        for name in ["observability.trace", "observability.trace.call", "observability.turns", "observability.calls"] {
+        for name in [
+            "observability.trace",
+            "observability.trace.call",
+            "observability.turns",
+            "observability.calls",
+            "observability.context",
+            "observability.tasks.output",
+            "observability.tasks.stop",
+            "observability.messages.edit",
+            "observability.messages.drop",
+        ] {
             let row = access(name);
             assert!(row.opens_devices(), "{name} is a device's");
             assert!(!row.opens_every_extension(), "{name} is not an extension's");
             assert_eq!(row.scope(), RowScope::Session, "{name} is about one session");
         }
-        for name in ["observability.usage", "observability.usage.daily"] {
+        for name in ["observability.usage", "observability.usage.daily", "observability.process", "observability.extensions.log"] {
             assert!(access(name).opens_devices(), "{name} is a device's");
-            assert_eq!(access(name).scope(), RowScope::Open, "{name} names many sessions");
+            assert_eq!(access(name).scope(), RowScope::Open, "{name} is about no one session");
         }
+    }
+
+    /// A change passes on the session and what it names, nothing else the caller sent; a message is
+    /// changed only against the count of messages its person saw.
+    #[test]
+    fn a_change_passes_on_only_what_it_names() {
+        let sent = json!({"session_id": "S1", "instance": "side", "space": "acme", "task_id": "T", "at": 3, "text": "x", "total": 8, "extra": 1});
+        let target = session_target(&sent).unwrap();
+        assert_eq!(
+            change_params(&target, &sent, &["task_id"]).unwrap(),
+            json!({"session_id": "S1", "instance": "side", "space": "acme", "task_id": "T"})
+        );
+        assert_eq!(
+            change_params(&target, &sent, &["at", "text", "total"]).unwrap(),
+            json!({"session_id": "S1", "instance": "side", "space": "acme", "at": 3, "text": "x", "total": 8})
+        );
+        for without in [json!({"session_id": "S1", "at": [3]}), json!({"session_id": "S1", "at": [3], "total": "8"})] {
+            let target = session_target(&without).unwrap();
+            assert!(change_params(&target, &without, &["at", "total"]).is_err(), "{without}");
+        }
+        let names: Vec<&str> = CHANGES.iter().map(|(n, ..)| *n).collect();
+        assert_eq!(names, ["tasks.stop", "messages.edit", "messages.drop"]);
+    }
+
+    /// A read of the extension log passes on its filter and nothing else.
+    #[test]
+    fn a_log_read_passes_on_only_its_filter() {
+        let params = json!({"extension": "flow", "level": "warn", "after": 3, "limit": 10, "space": "acme", "session_id": "S"});
+        assert_eq!(log_params(&params), json!({"extension": "flow", "level": "warn", "after": 3, "limit": 10}));
+        assert_eq!(log_params(&json!({})), json!({}));
     }
 
     /// The window starts at midnight where the caller is, `days - 1` days before today there.

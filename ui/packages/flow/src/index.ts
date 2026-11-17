@@ -2,10 +2,9 @@
  * @harnix/flow — the flow module's interface (xops-01 §7, xops-02 §7, xops-03 §6).
  *
  * Only `@harnix/react`. The components work wherever `useHost()` does; `registerFlowSpace()` puts
- * them together as one space, `registerSystemFlows()` inside another space's console instead.
- * `register` is what the shell activates while the backend's `flow` extension is enabled: a tab of
- * `system.console.tab` where that point is defined, else the flow space of its own. The wire
- * shapes are in `types.ts`, in one place.
+ * them together as one space. `register` is what the shell activates while the backend's `flow`
+ * extension is enabled: the flow space, at the bottom of the left column. The wire shapes are in
+ * `types.ts`, in one place.
  */
 
 import "./flow.css";
@@ -118,13 +117,13 @@ export { FlowReference, type FlowReferenceProps } from "./FlowReference";
 export { ProposalCard, type ProposalCardProps } from "./ProposalCard";
 export { FlowToolRow, ToolTargetLine } from "./ToolTarget";
 export { extension, register } from "./register";
-export { registerFlowSpace, registerSystemFlows, type FlowSpace, type FlowSpaceOptions, type SystemFlowsOptions, type SystemFlowsView } from "./space";
-export { FlowContext, SystemFlows } from "./context";
+export { registerFlowSpace, type FlowSpace, type FlowSpaceOptions } from "./space";
+export { FlowSidebar } from "./sidebar";
 export { FlowSpaceState, type FlowDetailOf, type FlowSelection, type StateTabs } from "./state";
 export { revealInGuide } from "./tabs";
 export { DryControls, EmptyConversation, FlowDetail, FlowSecondary, FlowsTab, FocusNotice, GuideView, PhaseBadge, ReferenceTab, RunDetail, RunsTab, useSelection, type FlowTabs } from "./tabs";
 export { OutputDirLine, RunHead, RunPanel, RunSessionsList, RunStations, WorktreeLine, currentStation, outputDirOf, taskStep, worktreeOf, worktreeOpen, type RunPanelProps } from "./RunPanel";
-export { PROJECT_ITEMS, ProjectTasks, TASK_KIND, TASK_TAB_KIND, TaskRow, activityOf as taskActivityOf, awaitMain, enterTask, openTask, registerTaskItems, taskRows, type ItemContext, type ItemRow } from "./task";
+export { PROJECT_ITEMS, ProjectTasks, TASK_KIND, TASK_TAB_KIND, TaskRow, activityOf as taskActivityOf, awaitMain, enterTask, openTask, recentTaskRows, registerTaskItems, taskRows, type ItemContext, type ItemRow } from "./task";
 export { collectInputs, defOptions, defaultOutputDir, fieldsOf, initialText, newTaskDialog, noWorktreeText, workspaceParam, type FieldKind, type NewTaskOptions, type SchemaField } from "./NewTask";
 export { TaskTab, runOf } from "./TaskTab";
 export { SLASH_FLOW, TASK_STARTED, TaskLinkCard, asksForInput, authorForProject, authorMenuItem, conversationOf, flowArgs, registerSlashFlow, registerTaskCard, slashCandidates, taskCardOf, trustedForAuthoring, type Conversation, type ProjectMenuContext, type TaskCard } from "./slash";

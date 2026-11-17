@@ -3,34 +3,58 @@
 #
 #   scripts/harnix-demo.sh start | stop | restart | status
 #
-# Everything it keeps — program state, the engine directory, projects, the log and the pid — is
-# under $HARNIX_DEMO_DIR (default ~/harnix-demo), so it never touches ~/.harnix or ~/.agix; delete
-# that directory to start over. The model comes from `.env` when there is one (it is read into the
+# Everything it keeps — program state (the engine directory, state/engine, in it), projects, the
+# log, the pid and the port — is under demo/ in this repository (ignored by git; $HARNIX_DEMO_DIR
+# to put it elsewhere), so it never touches ~/.harnix; delete that directory to start over. The model comes from `.env` when there is one (it is read into the
 # environment, not written into any settings); without it, configure one on the page.
 #
 # `start` builds first when there is no binary, or when the interface or the Rust sources are newer
 # than it (`pnpm --filter @harnix/shell build`, then `cargo build --release -p harnix-cli`).
 #
 # The first `start` in a fresh directory brings in demo data (xops-03 §7, xops-04 §8): the pack of
-# `scripts/demo/` (flows, skills, rules, policies, gates, hooks) into the flow module's writable
+# `scripts/demo/` (flows, skills, rules, policies, gates, hooks) into the flow extension's writable
 # packs; a few runs in different states — finished, waiting for a confirmation, paused, cancelled,
-# waiting for an external hand-in — made by the real kernel (`crates/ext/flow/examples/demo_seed.rs`);
+# waiting for an external hand-in — made by the real kernel (`crates/flow/examples/demo_seed.rs`);
 # and conversations in each flow's conversation, the general one and each run's main session,
 # said once to the application under --replay-dir (`scripts/demo/conversations.json`). None has
 # work in hand, so nothing calls a model until you act. The Harnix app ships none of it.
 #
-#   HARNIX_DEMO_DIR    where it keeps everything (default ~/harnix-demo)
-#   HARNIX_DEMO_PORT   the port (default 4080)
+# Nothing needs setting. Two optional overrides:
+#   HARNIX_DEMO_DIR    where it keeps everything (default demo/ in this repository)
+#   HARNIX_DEMO_PORT   the port (default: the one this demo ran on last if it is free, else the
+#                      first free one from 4080)
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
-DIR="${HARNIX_DEMO_DIR:-$HOME/harnix-demo}"
-PORT="${HARNIX_DEMO_PORT:-4080}"
+DIR="${HARNIX_DEMO_DIR:-$root/demo}"
 BIN="$root/target/release/harnix"
 PIDFILE="$DIR/harnix.pid"
+PORTFILE="$DIR/harnix.port"
 LOG="$DIR/harnix.log"
+
+taken() {
+  lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+}
+
+# The port: the one asked for; else the one this demo last ran on, while it is free (a bookmark
+# keeps working); else the first free one from 4080, so a demo starts beside another Harnix.
+PORT="${HARNIX_DEMO_PORT:-$(cat "$PORTFILE" 2>/dev/null || echo 4080)}"
 URL="http://127.0.0.1:$PORT/"
+
+choose_port() {
+  if ! taken "$PORT"; then return 0; fi
+  if [ -n "${HARNIX_DEMO_PORT:-}" ]; then
+    echo "port $PORT is taken by another process" >&2
+    exit 1
+  fi
+  local p
+  for p in $(seq 4080 4179); do
+    if ! taken "$p"; then PORT="$p"; URL="http://127.0.0.1:$PORT/"; return 0; fi
+  done
+  echo "no free port from 4080 to 4179; set HARNIX_DEMO_PORT" >&2
+  exit 1
+}
 
 running() {
   [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null
@@ -50,8 +74,9 @@ build() {
   cargo build --release -p harnix-cli
 }
 
-# The flow module's data directory in the demo's state.
-FLOW_DATA="$DIR/state/modules/flow"
+# The flow extension's data directory in the demo's state (<state>/ext/<id>/data): its writable
+# packs, its runs and their workspaces.
+FLOW_DATA="$DIR/state/ext/flow/data"
 
 seed() {
   [ -f "$DIR/.seeded" ] && return 0
@@ -61,7 +86,7 @@ seed() {
   for kind in flows skills rules policies gates hooks; do
     [ -d "scripts/demo/$kind" ] && mkdir -p "$FLOW_DATA/packs/$kind" && cp -R "scripts/demo/$kind/." "$FLOW_DATA/packs/$kind/"
   done
-  cargo run --quiet --release -p harnix-ext-flow --example demo_seed -- scripts/demo "$FLOW_DATA/runs"
+  cargo run --quiet --release -p harnix-flow --example demo_seed -- scripts/demo "$FLOW_DATA/runs"
   talk
   touch "$DIR/.seeded"
 }
@@ -77,7 +102,6 @@ talk() {
   # process does, and should see the demo's files, not this repository.
   (cd "$DIR" && HARNIX_STATE_DIR="$DIR/state" exec "$BIN" \
     --port "$PORT" \
-    --agix-dir "$DIR/agix" \
     --data-dir "$DIR/projects" \
     --replay-dir "$DIR/recordings") \
     >"$DIR/seed.log" 2>&1 &
@@ -103,20 +127,17 @@ start() {
     echo "already running (pid $(cat "$PIDFILE")) → $URL"
     return 0
   fi
-  if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
-    echo "port $PORT is taken by another process; set HARNIX_DEMO_PORT" >&2
-    exit 1
-  fi
+  choose_port
   if stale; then build; fi
 
-  mkdir -p "$DIR/state" "$DIR/agix" "$DIR/projects"
+  mkdir -p "$DIR/state" "$DIR/projects"
+  echo "$PORT" >"$PORTFILE"
   seed
   if [ -f .env ]; then
     set -a; . ./.env; set +a
   fi
   (cd "$DIR" && HARNIX_STATE_DIR="$DIR/state" exec nohup "$BIN" \
     --port "$PORT" \
-    --agix-dir "$DIR/agix" \
     --data-dir "$DIR/projects") \
     >"$LOG" 2>&1 &
   echo $! >"$PIDFILE"

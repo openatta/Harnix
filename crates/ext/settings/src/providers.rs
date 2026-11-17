@@ -16,7 +16,10 @@
 //!   only when told, so it is told.
 //! - **A key is never read back**: the engine answers `api_key` as `***` and its last four
 //!   characters; what goes on to the page is redacted again here ([`redacted`]), so a key the
-//!   engine let through whole would still not reach it.
+//!   engine let through whole would still not reach it. Whether the engine has a key for a provider
+//!   at all, from what is stored or the variable named, it says itself (`credential_present`).
+//! - **A model is an id, or an object**: `{id, max_output?, context_window?, …}`, which the engine
+//!   applies to that model's calls; the page edits the two numbers and keeps the rest.
 
 use std::collections::BTreeSet;
 
@@ -78,6 +81,10 @@ pub(crate) fn engine_config(config: &Value) -> Rpc<Value> {
             (false, "thinking_toggle") if !value.as_str().is_some_and(|s| THINKING_TOGGLES.contains(&s)) => {
                 return Err(RpcError::invalid_params(format!("config.thinking_toggle: one of {}", THINKING_TOGGLES.join(", "))));
             }
+            (false, "models") => {
+                check_models(value)?;
+                value.clone()
+            }
             (false, _) => value.clone(),
         };
         out.insert(key.clone(), value);
@@ -98,27 +105,44 @@ pub(crate) fn redacted(mut answer: Value) -> Value {
     answer
 }
 
-/// The provider keys `engine.config.getProvider` does not answer, and none of them a secret.
-const UNANSWERED_KEYS: &[&str] = &["api_key_env", "thinking_toggle", "reasoning_passback"];
-
-/// `engine.config.getProvider`'s answer with each provider's [`UNANSWERED_KEYS`] taken from the
-/// engine's effective settings (`engine.config.get`, the same merge), so the page reads back what
-/// it wrote. A key the effective settings do not give is left out.
-pub(crate) fn with_unanswered(mut answer: Value, effective: Option<&Value>) -> Value {
-    let Some(configured) = effective.and_then(|settings| settings.get("providers")).and_then(Value::as_object) else {
-        return answer;
+/// What a provider's `models` may be: each entry a model's id, or an object with its id and, when
+/// given, a whole number of tokens for `max_output` and `context_window`; other keys of an object
+/// are the engine's to read.
+fn check_models(models: &Value) -> Rpc<()> {
+    let wrong = |i: usize, why: &str| RpcError::invalid_params(format!("config.models[{i}]: {why}"));
+    let Some(entries) = models.as_array() else {
+        return Err(RpcError::invalid_params("config.models: a list of models"));
     };
-    if let Some(providers) = answer.get_mut("providers").and_then(Value::as_object_mut) {
-        for (id, provider) in providers.iter_mut() {
-            let (Some(view), Some(config)) = (provider.as_object_mut(), configured.get(id)) else { continue };
-            for key in UNANSWERED_KEYS {
-                if let Some(value) = config.get(*key).filter(|v| !v.is_null()) {
-                    view.entry(*key).or_insert_with(|| value.clone());
+    for (i, entry) in entries.iter().enumerate() {
+        match entry {
+            Value::String(id) if !id.trim().is_empty() => {}
+            Value::Object(model) => {
+                if !model.get("id").and_then(Value::as_str).is_some_and(|id| !id.trim().is_empty()) {
+                    return Err(wrong(i, "an object names its model's `id`"));
+                }
+                for key in ["max_output", "context_window"] {
+                    if model.get(key).is_some_and(|n| !n.is_null() && !n.as_u64().is_some_and(|n| n > 0)) {
+                        return Err(wrong(i, &format!("`{key}` is a whole number of tokens")));
+                    }
                 }
             }
+            _ => return Err(wrong(i, "a model's id, or an object with its `id`")),
         }
     }
-    answer
+    Ok(())
+}
+
+/// The provider a call names none of goes to, by `engine.config.getProvider`'s answer: the default
+/// one, else the only one.
+pub(crate) fn default_of(configured: &Value) -> Option<String> {
+    if let Some(id) = configured.get("default_provider").and_then(Value::as_str) {
+        return Some(id.to_string());
+    }
+    let providers = configured.get("providers").and_then(Value::as_object)?;
+    match providers.keys().collect::<Vec<_>>().as_slice() {
+        [only] => Some((*only).clone()),
+        _ => None,
+    }
 }
 
 /// The `default_provider` to send with this change, if any: the one asked for, which must be
@@ -367,20 +391,28 @@ mod tests {
     }
 
     #[test]
-    fn what_the_engine_s_provider_view_leaves_out_is_read_from_its_effective_settings() {
-        let answer = json!({"providers": {"a": {"api_key": "***wxyz", "default_model": "m"}, "b": {"api_key": null}}});
-        let effective = json!({"providers": {
-            "a": {"api_key": "***wxyz", "api_key_env": "A_KEY", "thinking_toggle": "deepseek", "reasoning_passback": true},
-            "b": {"api_key_env": null, "thinking_toggle": null, "reasoning_passback": false},
-        }});
-        let answer = with_unanswered(answer, Some(&effective));
-        let a = &answer["providers"]["a"];
-        assert_eq!((&a["api_key_env"], &a["thinking_toggle"], &a["reasoning_passback"]), (&json!("A_KEY"), &json!("deepseek"), &json!(true)));
-        assert_eq!(a["api_key"], json!("***wxyz"));
-        assert_eq!(answer["providers"]["b"], json!({"api_key": null, "reasoning_passback": false}));
-        // The effective settings could not be read: the answer is as the engine gave it.
-        let alone = with_unanswered(json!({"providers": {"a": {}}}), None);
-        assert_eq!(alone, json!({"providers": {"a": {}}}));
+    fn a_model_is_an_id_or_an_object_with_its_id_and_its_limits() {
+        let models = json!(["a", {"id": "b", "max_output": 8192, "context_window": 128000, "reasoning_levels": ["low"]}, {"id": "c", "max_output": null}]);
+        assert_eq!(engine_config(&json!({"models": models.clone()})).unwrap(), json!({"models": models}));
+        for (bad, why) in [
+            (json!([" "]), "an object with its `id`"),
+            (json!([{"max_output": 1}]), "names its model's `id`"),
+            (json!([{"id": "b", "max_output": 0}]), "`max_output` is a whole number"),
+            (json!([{"id": "b", "context_window": "big"}]), "`context_window` is a whole number"),
+            (json!([3]), "an object with its `id`"),
+            (json!("a, b"), "a list of models"),
+        ] {
+            let e = engine_config(&json!({"models": bad})).unwrap_err();
+            assert!(e.message.contains(why), "{}", e.message);
+        }
+    }
+
+    #[test]
+    fn a_call_naming_no_provider_goes_to_the_default_or_the_only_one() {
+        assert_eq!(default_of(&json!({"providers": {"a": {}, "b": {}}, "default_provider": "b"})).as_deref(), Some("b"));
+        assert_eq!(default_of(&json!({"providers": {"a": {}}, "default_provider": null})).as_deref(), Some("a"));
+        assert_eq!(default_of(&json!({"providers": {"a": {}, "b": {}}})), None);
+        assert_eq!(default_of(&json!({})), None);
     }
 
     #[test]

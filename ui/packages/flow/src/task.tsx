@@ -10,12 +10,13 @@
  * The project's waiting tasks are also a source of the Harnix app's 待我处理 (`harnix-app.inbox`):
  * a run waiting on a confirm, a hold or an external task, opened as a task is; and the project's
  * overview has a block of its tasks (`harnix-app.project.panels`): how many run, wait and are over,
- * the latest, and "新任务".
+ * the latest, and "新任务". The home page has the same block over every project
+ * (`harnix-app.home.panels`): the latest tasks wherever they run, each with its project.
  *
  * Where the main session opens: it belongs to the flow's backend space, and a call claiming the
  * projects space's would be refused (concept §5.4, `SPACE_MISMATCH`) — so a task started from the
  * projects space asks the module to show the session in the space the projects space lists
- * (`flow.start`'s `show_in_space`, the context's `space`; the module exposes it, harnix-ext.md
+ * (`flow.start`'s `shown_in`, the context's `space`; the module exposes it, harnix-ext.md
  * §7.1), and the row opens it in the middle here, like any session of the project. A run that is
  * shown nowhere else (started from the console, or by a schedule) is entered the way the console
  * enters a run — the flow's interface space brought to the front on it (`FlowSpaceState.enter`),
@@ -38,6 +39,8 @@ import type { RunSummary, RunView } from "./types";
 export const PROJECT_ITEMS = "harnix-app.project.items";
 /** The projects space's point for a block of a project's overview. */
 export const PROJECT_PANELS = "harnix-app.project.panels";
+/** The Harnix app's point for a block of the home page. */
+export const HOME_PANELS = "harnix-app.home.panels";
 /** The Harnix app's point for a source of what waits on a person. */
 export const INBOX = "harnix-app.inbox";
 /** Why a run waits that is a person's to act on: a confirm, a hold, an external task to claim. */
@@ -105,11 +108,11 @@ export function waitingItems(runs: RunSummary[]): WaitingItem[] {
   });
 }
 
-/** How many of a project's tasks run, wait and are over. */
-export function taskCounts(runs: RunSummary[], root: string): { running: number; waiting: number; finished: number } {
+/** How many of a project's tasks run, wait and are over; of every project's when `root` is null. */
+export function taskCounts(runs: RunSummary[], root: string | null): { running: number; waiting: number; finished: number } {
   const counts = { running: 0, waiting: 0, finished: 0 };
   for (const r of runs) {
-    if (!sameRoot(r.project_root, root) || r.dry || isDryRun(r.id)) continue;
+    if ((root !== null && !sameRoot(r.project_root, root)) || r.dry || isDryRun(r.id)) continue;
     const state = phaseOf(r).state;
     if (state === "waiting") counts.waiting += 1;
     else if (state === "finished" || state === "cancelled") counts.finished += 1;
@@ -124,6 +127,15 @@ export function taskRows(runs: RunSummary[], root: string, sessions: ReadonlyMap
     .filter((r) => sameRoot(r.project_root, root) && !r.dry && !isDryRun(r.id))
     .map((r) => ({ id: r.id, title: r.title || r.subject || r.id, at: activityOf(r), running: runLive(r), session: sessions.get(r.id) ?? null, data: r }))
     .sort((a, b) => (b.at ?? -1) - (a.at ?? -1) || b.id.localeCompare(a.id));
+}
+
+/** The latest tasks of every project, newest activity first; dry runs left out. */
+export function recentTaskRows(runs: RunSummary[], limit = 8): ItemRow[] {
+  return runs
+    .filter((r) => !r.dry && !isDryRun(r.id))
+    .map((r) => ({ id: r.id, title: r.title || r.subject || r.id, at: activityOf(r), running: runLive(r), data: r }))
+    .sort((a, b) => (b.at ?? -1) - (a.at ?? -1) || b.id.localeCompare(a.id))
+    .slice(0, limit);
 }
 
 /**
@@ -268,7 +280,7 @@ export async function enterTask(host: HostApi, r: Registry, space: FlowSpace, ru
 }
 
 /**
- * Open a task where it is: a run whose main session is shown in a space (`show_in_space`, the
+ * Open a task where it is: a run whose main session is shown in a space (`shown_in`, the
  * module exposed it there) opens that session in the middle of the space in front — the projects
  * space, like any session of the project — with the 流程 tab in the right column; the shell takes
  * the session to a space that lists it when the front one does not. One shown nowhere else is
@@ -277,7 +289,7 @@ export async function enterTask(host: HostApi, r: Registry, space: FlowSpace, ru
 export async function openTask(host: HostApi, r: Registry, space: FlowSpace, run: string, flow: string): Promise<void> {
   let shown: string | null = null;
   try {
-    shown = (await host.call<RunView>(methodName(space.module, "get"), { run }))?.record?.show_in_space ?? null;
+    shown = (await host.call<RunView>(methodName(space.module, "get"), { run }))?.record?.shown_in ?? null;
   } catch {
     shown = null;
   }
@@ -396,6 +408,27 @@ export function registerTaskItems(r: Registry, host: HostApi, module: string, sp
     owner,
     { orElse: () => undefined },
   );
+  // The latest tasks of every project on the home page, beside the recent sessions.
+  r.register(
+    HOME_PANELS,
+    {
+      id: "flow.tasks",
+      order: 40,
+      title: () => t("flowui.home.tasks"),
+      render: () => (
+        <RecentTasks
+          tasks={tasks}
+          module={module}
+          open={async (run) => {
+            const view = space();
+            if (view) await openTask(host, r, view, run.id, run.flow);
+          }}
+        />
+      ),
+    },
+    owner,
+    { orElse: () => undefined },
+  );
   return tasks;
 }
 
@@ -429,6 +462,39 @@ export function TasksPanel({ tasks, module, root, open, create }: { tasks: Proje
       <button type="button" className="btn sm ghost" data-testid="overview-task-new" onClick={() => void create()}>
         {t("flowui.task.new")}
       </button>
+    </div>
+  );
+}
+
+function basename(path: string): string {
+  return path.replace(/\/+$/, "").split("/").pop() || path;
+}
+
+/** Every project's tasks on the home page: how many run, wait and are over; the latest few, each opening, with its project. */
+export function RecentTasks({ tasks, module, open }: { tasks: ProjectTasks; module: string; open(run: RunSummary): void | Promise<void> }) {
+  const t = useT();
+  const runs = useRuns(tasks);
+  const rows = recentTaskRows(runs);
+  const counts = taskCounts(runs, null);
+  if (!rows.length) return <div className="hx-flow-tasks-none" data-testid="home-tasks">{t("flowui.home.none")}</div>;
+  return (
+    <div className="hx-flow-tasks-panel" data-testid="home-tasks">
+      <div className="hx-flow-tasks-counts" data-testid="home-tasks-counts" data-running={counts.running} data-waiting={counts.waiting} data-finished={counts.finished}>
+        {t("flowui.panel.counts", counts)}
+      </div>
+      {rows.map((row) => {
+        const run = row.data as RunSummary;
+        return (
+          <button type="button" key={row.id} className="hx-flow-tasks-row" data-testid="home-task" data-run={row.id} onClick={() => void open(run)}>
+            <TaskRow run={run} module={module} tasks={tasks} />
+            {run.project_root ? (
+              <span className="hx-flow-task-project" title={run.project_root}>
+                {basename(run.project_root)}
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
     </div>
   );
 }

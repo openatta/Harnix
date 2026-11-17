@@ -1,7 +1,7 @@
 /**
- * Where the flows go: a tab of `system.console.tab` when that point is defined — a flow clicked
- * there a space shown inside the console's space — and the flow space of its own when nobody
- * defines it. Decided by the point, not by which packages run.
+ * What the flow package registers: the flow space of its own, at the bottom of the left column,
+ * with its three right-column tabs and its own left column; and the usage summary's section where
+ * that point is defined.
  */
 
 import { describe, expect, it } from "vitest";
@@ -26,25 +26,13 @@ describe("the flow package", () => {
     expect(extension).toBe("flow");
   });
 
-  it("with a console defined: its tab, and the flow space inside the console's space", () => {
-    const r = new Registry();
-    r.activate("system", () => r.definePoint("system.console.tab", { kind: "register" }));
-    r.activate("flow", () => register(r, host));
-    r.settle();
-    expect(r.list<{ id: string; about(): string }>("system.console.tab").map((c) => [c.id, c.owner])).toEqual([["flow.flows", "flow"]]);
-    const flow = r.at("space").find((c) => c.id === "flow");
-    expect(flow?.within).toBe("system");
-    expect((flow?.details?.tabs as { id: string }[]).map((x) => x.id)).toEqual(["flow.reference"]);
-    expect(r.refusals()).toEqual([]);
-  });
-
-  it("with nobody defining it: the flow space of its own, and nothing left in the diagnostics", () => {
+  it("the flow space of its own: at the bottom, its three tabs, its left column, and nothing in the diagnostics", () => {
     const r = new Registry();
     r.activate("flow", () => register(r, host));
-    expect(r.at("space").some((c) => c.id === "flow")).toBe(false);
     r.settle();
     const flow = r.at("space").find((c) => c.id === "flow");
-    expect(flow?.within).toBeUndefined();
+    expect(flow).toMatchObject({ place: "bottom", order: 90, center: { mode: "chat" } });
+    expect(typeof flow?.sidebar?.render).toBe("function");
     expect((flow?.details?.tabs as { id: string }[]).map((x) => x.id)).toEqual(["flow.flows", "flow.runs", "flow.reference"]);
     expect(r.refusals()).toEqual([]);
   });

@@ -47,6 +47,8 @@ export function failureFacts(e: unknown): FailureFacts {
 }
 
 const KINDS: Record<string, FailureClass> = {
+  // 引擎拿不到这个 provider 的密钥，什么也没发出去。
+  no_credentials: "no_model",
   auth: "auth",
   billing: "billing",
   model_rejected: "model_rejected",
@@ -59,7 +61,7 @@ const KINDS: Record<string, FailureClass> = {
   engine_unreachable: "engine_down",
 };
 
-/** 没有配模型服务或密钥时引擎的原话（`missing api_key`），归 `no_model`，不论它标的是哪一种。 */
+/** 没有配模型服务或密钥时引擎的原话（`missing api_key`），归 `no_model`，不论它标的是哪一种；引擎自己标的是 `no_credentials`。 */
 const NO_MODEL = /missing api_key|no api[ _-]?key|no provider|no model|not configured/i;
 
 /** 账户没钱时服务的原话（Anthropic 答 400 `credit balance is too low`，引擎归成 `model_rejected`）：归 `billing`。 */
@@ -77,6 +79,35 @@ export function failureClass(f: FailureFacts): FailureClass | undefined {
 
 export function failureAction(cls: FailureClass): FailureAction | undefined {
   return cls === "no_model" || cls === "auth" || cls === "billing" || cls === "model_rejected" ? "settings.models" : undefined;
+}
+
+/** 服务自己的说明至多留这么多字，多的截掉、带省略号。 */
+export const SERVICE_SAID_MAX = 160;
+
+/**
+ * 限流时服务自己的说明（哪个额度、几点恢复）的摘要，给界面跟在归类的话后面；没有就是 `undefined`。
+ * 引擎把它接在 `<kind>` 或 `<kind> (HTTP n)` 加冒号后面（可能不止一层）；整段是 JSON 的（兼容 OpenAI 的服务）取 `error.message`。
+ * 压成一行、去掉控制字符，至多 `SERVICE_SAID_MAX` 字——是界面当文字画的，不当标记。
+ */
+export function serviceSaid(f: FailureFacts): string | undefined {
+  if (f.kind !== "rate_limited") return undefined;
+  // 引擎给的消息里这个前缀会叠两层（`rate_limited: rate_limited: …`），有几层去几层。
+  const prefix = new RegExp(`^(?:${f.kind}(?:\\s*\\(HTTP \\d+\\))?:\\s*)+`);
+  if (!prefix.test(f.raw)) return undefined;
+  let said = f.raw.replace(prefix, "");
+  if (said.startsWith("{")) {
+    try {
+      const body = JSON.parse(said) as { error?: { message?: unknown } | string; message?: unknown };
+      const inner = typeof body.error === "object" && body.error ? body.error.message : body.error ?? body.message;
+      if (typeof inner === "string") said = inner;
+    } catch {
+      // 被引擎截断了，或其实不是 JSON：照原文。
+    }
+  }
+  said = said.replace(/[\u0000-\u001f\u007f\s]+/g, " ").trim();
+  if (!said) return undefined;
+  const chars = Array.from(said);
+  return chars.length > SERVICE_SAID_MAX ? `${chars.slice(0, SERVICE_SAID_MAX - 1).join("").trimEnd()}…` : said;
 }
 
 /** 给提示用：原话，加上码（有就带）。 */

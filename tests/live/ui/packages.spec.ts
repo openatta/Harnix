@@ -4,15 +4,15 @@
  * new conversation — in an isolated frame, its in-page module listed as not running (only a
  * trusted publisher's runs in the page) — and the page reports nothing. Its space draws the
  * backend's board, in a frame too: it calls the backend's methods and draws what its topics push,
- * through the shell's bridge (`packages-frames.spec.ts` has the rest of the frames). The system
- * space's Apps tab shows its VM. Disabled, the card is gone after a reload.
+ * through the shell's bridge (`packages-frames.spec.ts` has the rest of the frames). The settings'
+ * diagnostics show its VM (harnix-app.md §12.1). Disabled, the card is gone after a reload.
  */
 
 import type { Page } from "@playwright/test";
 import { type Backend, connect, expect, test } from "@harnix/testkit";
 
 import { SHOWCASE_ID, showcasePackage, startApps } from "../api/packages-host";
-import { open, watchConsole } from "./page";
+import { diagnosticsBlock, open, toSessions, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:packages", "@layer:ui"] };
 
@@ -40,6 +40,8 @@ test("an application's card is drawn in its frame, signed with its id; its modul
     if (/Content Security Policy|Refused to/i.test(m.text())) violations.push(m.text());
   });
   await open(page, backend.url);
+  // The cards are the new conversation's page, the session space's.
+  await toSessions(page);
   await expect
     .poll(() => page.evaluate(() => (window as any).harnix.app.registry.at("home.card").map((c: any) => c.owner)), { timeout: 15_000 })
     .toContain(SHOWCASE_ID);
@@ -91,7 +93,7 @@ test("its space: the board calls the backend, and draws what the backend's topic
   expect(errors).toEqual([]);
 });
 
-test("the system space's Apps tab shows the application's VM, its calls and its refusals", TAGS, async ({ page }) => {
+test("the diagnostics' packages block shows the application's VM, its calls and its refusals", TAGS, async ({ page }) => {
   const api = await connect(backend);
   try {
     // Something refused to show.
@@ -100,27 +102,24 @@ test("the system space's Apps tab shows the application's VM, its calls and its 
     api.close();
   }
   await open(page, backend.url);
-  await page.locator('#side [data-space="system"]:not(#space-column)').click();
-  await expect(page.getByTestId("system-console")).toBeVisible();
-  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="packages"]').click();
-  const row = page.locator(`[data-testid="system-package"][data-package="${SHOWCASE_ID}"]`);
+  const block = await diagnosticsBlock(page, "packages.runtime");
+  const row = block.locator(`[data-testid="packages-runtime-row"][data-package="${SHOWCASE_ID}"]`);
   await expect(row).toHaveAttribute("data-state", "running", { timeout: 15_000 });
   await expect(row.locator('[data-field="backend"]')).toHaveText(/Up|运行中/);
   await expect(row.locator('[data-field="refused"]')).toHaveText("1", { timeout: 10_000 });
   await expect(row.locator('[data-field="calls"]')).not.toHaveText("—");
   await row.click();
-  const detail = page.locator(`[data-testid="system-package-detail"][data-package="${SHOWCASE_ID}"]`);
-  await expect(detail.getByTestId("system-package-refusal")).toContainText("packages.uninstall");
+  const detail = block.locator(`[data-testid="packages-runtime-detail"][data-package="${SHOWCASE_ID}"]`);
+  await expect(detail.getByTestId("packages-runtime-refusal")).toContainText("packages.uninstall");
   await expect(detail).toContainText(`${SHOWCASE_ID}.notes.add`);
 });
 
-test("the Apps tab in Chinese: a header never breaks a word, the table fits its column, the VM's figures in the row opened", TAGS, async ({ page }) => {
+test("the packages block in Chinese: a header never breaks a word, the table fits its box, the VM's figures in the row opened", TAGS, async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("harnix.locale", "zh-CN"));
   await open(page, backend.url);
-  await page.locator('#side [data-space="system"]:not(#space-column)').click();
-  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="packages"]').click();
-  const table = page.locator('[data-testid="system-packages"] table');
-  const row = page.locator(`[data-testid="system-package"][data-package="${SHOWCASE_ID}"]`);
+  const block = await diagnosticsBlock(page, "packages.runtime");
+  const table = block.locator('[data-testid="packages-runtime"] table');
+  const row = block.locator(`[data-testid="packages-runtime-row"][data-package="${SHOWCASE_ID}"]`);
   await expect(row).toBeVisible({ timeout: 15_000 });
   // One line each: "状态" is not drawn as 状 over 态. Counted as the lines its text is laid out on.
   const lines = (el: Element) => {
@@ -135,7 +134,7 @@ test("the Apps tab in Chinese: a header never breaks a word, the table fits its 
   // Opened by the keyboard: its recycles, faults, memory and storage.
   await row.focus();
   await page.keyboard.press("Enter");
-  const vm = page.locator(`[data-testid="system-package-detail"][data-package="${SHOWCASE_ID}"]`).getByTestId("system-package-vm");
+  const vm = block.locator(`[data-testid="packages-runtime-detail"][data-package="${SHOWCASE_ID}"]`).getByTestId("packages-runtime-vm");
   await expect(vm.locator('[data-field="memory"]')).toContainText("MB");
   await expect(vm.locator('[data-field="storage"]')).toContainText("MB");
   await expect(row).toHaveAttribute("aria-expanded", "true");
@@ -149,12 +148,12 @@ test("disabled, its card is gone from the page", TAGS, async ({ page }) => {
     api.close();
   }
   await open(page, backend.url);
+  await toSessions(page);
   await expect(page.locator("#hero")).toBeVisible();
   const owners = await page.evaluate(() => (window as any).harnix.app.registry.at("home.card").map((c: any) => c.owner));
   expect(owners).not.toContain(SHOWCASE_ID);
   await expect(page.locator(`[data-testid="surface-frame"][data-package="${SHOWCASE_ID}"]`)).toHaveCount(0);
-  // And the Apps tab says it is off.
-  await page.locator('#side [data-space="system"]:not(#space-column)').click();
-  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="packages"]').click();
-  await expect(page.locator(`[data-testid="system-package"][data-package="${SHOWCASE_ID}"]`)).toHaveAttribute("data-state", "stopped", { timeout: 15_000 });
+  // And the diagnostics say it is off.
+  const block = await diagnosticsBlock(page, "packages.runtime");
+  await expect(block.locator(`[data-testid="packages-runtime-row"][data-package="${SHOWCASE_ID}"]`)).toHaveAttribute("data-state", "stopped", { timeout: 15_000 });
 });

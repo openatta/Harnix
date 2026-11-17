@@ -6,7 +6,7 @@
 
 import { dropSessions, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-import { connected, flowReference, modKey, newSession, open, openFlow, openSettings, reply, say, sessionRow, settingsSection, toFlows, watchConsole } from "./page";
+import { connected, flowReference, modKey, newSession, open, openFlow, openSettings, reply, say, sessionRow, settingsSection, toFlows, toRuns, toSessions, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:session-space", "@layer:ui"] };
 const SETTINGS = { tag: ["@feature:settings", "@layer:ui"] };
@@ -25,6 +25,9 @@ test.afterEach(async ({ api }) => {
 test("the page loads, connects, and lays out its columns", CONNECTION, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, URL);
+  // Landed on the home page; the session space's columns, with its new conversation's page.
+  await expect(page.getByTestId("home")).toBeVisible();
+  await toSessions(page);
   expect((await page.locator("#side").boundingBox())!.width).toBeGreaterThan(120);
   expect((await page.locator("#main").boundingBox())!.width).toBeGreaterThan(320);
   expect((await page.locator("#details").boundingBox())?.width ?? 0).toBeLessThan(2);
@@ -123,6 +126,7 @@ test("the settings panel opens, every section draws, and the panel keeps one siz
 
 test("the language switches everything at once, and comes back", SETTINGS, async ({ page }) => {
   await open(page, URL);
+  await toSessions(page);
   await openSettings(page);
   const language = page.getByTestId("settings-language");
   await language.selectOption("en");
@@ -146,6 +150,7 @@ test("the sidebar collapses to a rail and back", TAGS, async ({ page }) => {
 
 test("a new conversation starts empty, and its first message makes it and lists it", TAGS, async ({ page }) => {
   await open(page, URL);
+  await toSessions(page);
   await page.locator("#new").click();
   await expect(page.locator("#main")).toHaveAttribute("data-state", "empty");
   await page.getByTestId("conv-input").fill("Say exactly: fixture ready");
@@ -218,6 +223,7 @@ test("the right column is a tab strip with no title bar: it maximizes over the c
   // a slow moment cannot catch one part way and compare the restored width against that.
   await page.emulateMedia({ reducedMotion: "reduce" });
   await open(page, URL);
+  await toSessions(page);
   await page.getByTestId("details-toggle").click();
   const details = page.locator("#details");
   await expect(details.locator('[role="tab"]').first()).toBeVisible();
@@ -237,6 +243,7 @@ test("the right column is a tab strip with no title bar: it maximizes over the c
 test("narrower than 960 the right column opens over the centre, its buttons reachable, and closes back to it", SHELL, async ({ page }) => {
   await page.setViewportSize({ width: 800, height: 700 });
   await open(page, URL);
+  await toSessions(page);
   await page.getByTestId("details-toggle").click();
   const details = page.locator("#details");
   // A drawer from the right edge, over the conversation, which stays where it was.
@@ -297,61 +304,58 @@ test("the avatar is the settings: its ring says the connection, its menu opens s
 });
 
 test("with every extension that has a space switched off, the frame is the chrome alone and says so", SHELL, async ({ page }) => {
-  const bare = await startHarnix(launchFor("replay", { profile: "\n[extensions]\noff = [\"harnix-app\", \"system\", \"flow\"]\n" }));
+  const bare = await startHarnix(launchFor("replay", { profile: "\n[extensions]\noff = [\"harnix-app\", \"flow\"]\n" }));
   try {
     await open(page, bare.url);
     await expect(page.getByTestId("no-spaces")).toBeVisible();
     await expect(page.getByTestId("space-list")).toHaveCount(0);
-    await expect(page.locator('#side [data-space="system"]')).toHaveCount(0);
+    await expect(page.locator('#side [data-space="home"], #side [data-space="flow"]')).toHaveCount(0);
     await expect(page.getByTestId("avatar")).toBeVisible();
   } finally {
     await bare.dispose();
   }
 });
 
-test("at a phone's width nothing scrolls sideways: a conversation, the system space, a flow in it", TAGS, async ({ page }) => {
+test("at a phone's width nothing scrolls sideways: the home page, a conversation, the flow space, a flow in it", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page, URL);
   const sideways = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  await expect(page.getByTestId("home")).toBeVisible();
+  await expect.poll(sideways, { message: "the home page" }).toBeLessThanOrEqual(0);
   await newSession(page, "says-markdown");
   await say(page, "Say exactly: fixture ready");
   await expect(page.locator('[data-testid="conv-group"] table')).toBeVisible({ timeout: 30_000 });
   expect(await sideways(), "the conversation").toBeLessThanOrEqual(0);
   await expect(page.getByTestId("conv-input")).toBeInViewport();
-  for (const space of ["system", "flow"]) {
-    await page.evaluate((id) => (window as any).harnix.app.switchSpace(id), space);
-    await expect(page.locator("#main")).toHaveAttribute("data-space", space);
-    // Polled: the columns animate into place when a space opens its right column.
-    await expect.poll(sideways, { message: `the ${space} space` }).toBeLessThanOrEqual(0);
-  }
+  await page.evaluate(() => (window as any).harnix.app.switchSpace("flow"));
+  await expect(page.locator("#main")).toHaveAttribute("data-space", "flow");
+  // Polled: the columns animate into place when a space opens its right column.
+  await expect.poll(sideways, { message: "the flow space" }).toBeLessThanOrEqual(0);
   // A flow entered, its details beside the conversation.
-  await page.evaluate(() => (window as any).harnix.app.switchSpace("system"));
-  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="flow.flows"]').click();
-  await expect.poll(sideways, { message: "the Flows tab" }).toBeLessThanOrEqual(0);
-  await page.getByTestId("flow-def-example-review").click();
+  await page.locator('#details [role="tab"][data-tab="flow.flows"]').click();
+  await expect.poll(sideways, { message: "the flows tab" }).toBeLessThanOrEqual(0);
+  await page.locator('#details [data-testid="flow-def-example-review"]').click();
   await expect(page.getByTestId("flow-context")).toHaveAttribute("data-flow", "example-review");
   await expect.poll(sideways, { message: "a flow" }).toBeLessThanOrEqual(0);
   expect(errors).toEqual([]);
 });
 
-test("in Chinese the system space has no string left untranslated or showing its key", SETTINGS, async ({ page }) => {
+test("in Chinese the home page has no string left untranslated or showing its key", SETTINGS, async ({ page }) => {
   await open(page, URL);
   await openSettings(page);
   await page.getByTestId("settings-language").selectOption("zh-CN");
   await page.keyboard.press("Escape");
-  await page.locator('#side [data-space="system"]').click();
-  await expect(page.getByTestId("system-console")).toBeVisible();
-  // The system space's strings are `system.*`; one drawn as its key has no translation. Method
-  // names (`system.context`) are not keys: a dot before is not a key's start.
-  const leaked = () => page.evaluate(() => document.body.innerText.match(/(?<![\w.])system\.[a-z][\w.]*[a-z]\b/g) ?? []);
-  for (const tab of ["active", "all"]) {
-    const button = page.locator(`[data-testid="system-console"] [role="tab"][data-tab="${tab}"]`);
-    await expect(button, `the ${tab} tab's title`).toHaveText(/[一-鿿]/);
-    await button.click();
-    expect(await leaked(), `the ${tab} tab`).toEqual([]);
+  await expect(page.getByTestId("home")).toBeVisible();
+  // The blocks' strings are their packages' (`home.*`, `inbox.*`, `usageAll.*`, `obs.*`,
+  // `flowui.*`, `schedule.*`); one drawn as its key has no translation. A dot before is not a key's start.
+  const leaked = () => page.evaluate(() => document.body.innerText.match(/(?<![\w.])(home|greet|inbox|usageAll|obs|process|flowui|schedule)\.[a-z][\w.]*[a-z]\b/g) ?? []);
+  await expect(page.locator('[data-testid="home-block"][data-block="observability.summary"] [data-testid="usage-summary"]')).toBeVisible({ timeout: 15_000 });
+  expect(await leaked(), "the home page").toEqual([]);
+  for (const block of ["observability.stats", "harnix-app.inbox", "harnix-app.sessions", "flow.tasks", "schedule.all", "observability.summary"]) {
+    await expect(page.locator(`[data-testid="home-block"][data-block="${block}"] h3`), `${block}'s title`).toHaveText(/[一-鿿]/);
   }
-  await expect(page.locator('[data-testid="system-strip"] [data-kpi="threads"] .l')).toHaveText(/[一-鿿]/);
+  await expect(page.locator('[data-testid="home-stats"] [data-kpi="threads"] .l')).toHaveText(/[一-鿿]/);
   await openSettings(page);
   await page.getByTestId("settings-language").selectOption("auto");
   await page.keyboard.press("Escape");
@@ -363,17 +367,19 @@ test("in Chinese the flows have no string left untranslated or showing its key",
   await page.getByTestId("settings-language").selectOption("zh-CN");
   await page.keyboard.press("Escape");
   await toFlows(page);
-  await expect(page.locator('[data-testid="system-console"] [role="tab"][data-tab="flow.flows"]')).toHaveText("流程");
+  await expect(page.locator('[data-testid="space-entry"][data-space="flow"]')).toHaveAttribute("title", /流程/);
+  await expect(page.locator('#details [role="tab"][data-tab="flow.flows"]')).toHaveText("流程");
   const leaked = () =>
     page.evaluate(() => {
       const text = document.body.innerText;
       // The flow interface's strings are `flowui.*`; a key that is drawn is one without a translation.
       return text.match(/\bflowui\.[a-z][\w.]*[a-z]\b/g) ?? [];
     });
-  expect(await leaked(), "the Flows tab").toEqual([]);
+  expect(await leaked(), "the flows tab").toEqual([]);
+  await toRuns(page);
+  expect(await leaked(), "the runs tab").toEqual([]);
   await openFlow(page, "example-review");
   expect(await leaked(), "a flow's context and details").toEqual([]);
-  await expect(page.getByTestId("flow-back")).toHaveText(/[一-鿿]/);
   await expect(page.locator('#secondary [data-testid="flow-detail"]')).toContainText(/[一-鿿]/);
   await flowReference(page);
   await expect(page.locator('#details [role="tab"][data-tab="flow.reference"]')).toHaveText(/[一-鿿]/);
@@ -381,7 +387,8 @@ test("in Chinese the flows have no string left untranslated or showing its key",
   // The general conversation's context.
   await toFlows(page);
   await page.getByTestId("flow-add").click();
-  await expect(page.getByTestId("flow-context-title")).toHaveText("通用会话");
+  await expect(page.getByTestId("flow-context-conversation")).toHaveAttribute("aria-current", "true");
+  await expect(page.getByTestId("flow-context-conversation")).toHaveText("通用会话");
   expect(await leaked(), "the general conversation").toEqual([]);
   await openSettings(page);
   await page.getByTestId("settings-language").selectOption("auto");

@@ -8,14 +8,19 @@
  * - `demo-outside` (`auto`) and `demo-outside-strict` (`strict`): the `outside` station's session
  *   writes `/tmp/harnix-flow-outside-probe.txt` under an unscoped `allow Write` — refused, saying
  *   why, under `auto`; held for a person under `strict`.
+ * - `demo-reserved` (`auto`): the `reserved` station's session writes `.harnix/notes.md` under an
+ *   `allow Write` over `${workspace}/**` — refused, saying why: the project's data directory is the
+ *   application's, outside what a task works in.
  *
  * - `demo-task` with `workspace: worktree`, in a project made a git repository: the same write lands
- *   in `.harnix/worktrees/<run>`, on `harnix/<run>`; merged, it is in the project; discarded, gone;
+ *   in its worktree out of the project, on `harnix/flow/<run>`; merged, it is in the project;
+ *   discarded, gone;
  *   kept, on the branch. A project that is no git repository cannot start one.
  *
  * Session stations replay `flow-<station>`: `flow-write` calls `Write {file_path: notes.txt}` (a
  * relative path: the session's project) then `flow_submit {written: true}`; `flow-outside` calls
- * `Write` on the path above, then `flow_submit {tried: true}`.
+ * `Write` on the path above, then `flow_submit {tried: true}`; `flow-reserved` calls `Write {file_path:
+ * .harnix/notes.md}`, then `flow_submit {tried: true}`.
  */
 
 import { execFileSync } from "node:child_process";
@@ -50,7 +55,7 @@ test.beforeEach(async () => {
 });
 test.afterEach(() => {
   api?.close();
-  // Retried: the engine may still be writing under the project (its `.agix/`) as it goes.
+  // Retried: the engine may still be writing under the project (its part of `.harnix/`) as it goes.
   rmSync(project, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
@@ -125,17 +130,26 @@ test("a task's deliverables go in flows/<flow>-<date>01, its progress in .harnix
   expect(JSON.parse(readFileSync(join(dir, "stations", "write", "output.json"), "utf8"))).toEqual({ written: true });
   expect(JSON.parse(readFileSync(join(dir, "stations", "check", "context.json"), "utf8")).run).toBe(run);
   expect(readFileSync(join(dir, "stations", "check", "gate-task-check.log"), "utf8")).toContain("notes found");
-  expect(readFileSync(join(project, ".harnix", ".gitignore"), "utf8")).toBe("runs/\nworktrees/\n");
-  // Nothing else of Harnix's in the project (the engine keeps its own `.agix/` there).
-  expect(readdirSync(project).filter((n) => n !== ".agix").sort()).toEqual([".harnix", "flows", "notes.txt"]);
+  // `runs/` is Harnix's one line; the engine adds its own to the same file when it writes there.
+  // The project's own flows (`flows/`) are committed, and worktrees are not in the project at all.
+  const ignored = readFileSync(join(project, ".harnix", ".gitignore"), "utf8").split("\n");
+  expect(ignored).toContain("runs/");
+  // The engine's are what is this machine's and this user's; its worktrees are not here at all.
+  expect(ignored).toEqual(expect.arrayContaining(["settings.local.json", "memory/", "scratchpad/"]));
+  expect(ignored).not.toContain("worktrees/");
+  expect(ignored).not.toContain("flows/");
+  // Nothing else in the project: the engine's project tier is in the same `.harnix/`.
+  expect(readdirSync(project).sort()).toEqual([".harnix", "flows", "notes.txt"]);
 });
 
 test("a task's output directory: the start's own over the flow's, never outside the project, and an existing .gitignore is added to", TAGS, async () => {
   mkdirSync(join(project, ".harnix"));
-  writeFileSync(join(project, ".harnix", ".gitignore"), "# mine\nruns/");
+  writeFileSync(join(project, ".harnix", ".gitignore"), "# mine");
   const run = await start("demo-task", { output_dir: "out/${flow}-${title}", title: "a/b" });
   expect((await api.call("flow.get", { run })).record.output_dir).toBe(join(project, "out", "demo-task-a-b"));
-  expect(readFileSync(join(project, ".harnix", ".gitignore"), "utf8")).toBe("# mine\nruns/\nworktrees/\n");
+  const lines = readFileSync(join(project, ".harnix", ".gitignore"), "utf8").split("\n");
+  expect(lines[0]).toBe("# mine");
+  expect(lines).toContain("runs/");
   await api.call("flow.cancel", { run, reason: "seen" });
   for (const output_dir of ["../elsewhere", "/tmp/elsewhere", "out/${run}"]) {
     const e = await api.refused("flow.start", { flow: "demo-task", subject: "repo", project_root: project, output_dir });
@@ -152,6 +166,18 @@ test("under auto a write outside the project is refused, not asked, and the task
   expect(existsSync(PROBE)).toBe(false);
   const { messages } = await api.call("engine.session.history", ref(station(done, "outside").tasks[0].session));
   const refused = toolResults(messages).find((b: any) => JSON.stringify(b).includes("outside the task's project"));
+  expect(refused, JSON.stringify(toolResults(messages)).slice(0, 600)).toBeTruthy();
+  expect(refused.is_error).toBe(true);
+});
+
+test("a write into the project's .harnix is refused under auto, even under an allow over the whole workspace", TAGS, async () => {
+  const run = await start("demo-reserved");
+  const done = await until(run, (v) => v.record.status !== "active" || !!station(v, "reserved")?.tasks?.[0]?.asking, "the run finishes");
+  expect(station(done, "reserved").tasks[0].asking).toBeUndefined();
+  expect(done.record.status).toBe("finished");
+  expect(existsSync(join(project, ".harnix", "notes.md"))).toBe(false);
+  const { messages } = await api.call("engine.session.history", ref(station(done, "reserved").tasks[0].session));
+  const refused = toolResults(messages).find((b: any) => JSON.stringify(b).includes("the project's data directory"));
   expect(refused, JSON.stringify(toolResults(messages)).slice(0, 600)).toBeTruthy();
   expect(refused.is_error).toBe(true);
 });
@@ -191,27 +217,31 @@ test("a worktree task writes in its worktree, not the project's tree; merged, th
   const done = await until(run, (v) => v.record.status !== "active" || !!station(v, "write")?.tasks?.[0]?.asking, "the run finishes");
   expect(done.record.status).toBe("finished");
   const wt = done.record.worktree;
-  expect(wt).toMatchObject({ path: join(project, ".harnix", "worktrees", run), branch: `harnix/${run}` });
+  // Out of the project (the engine's own worktrees are in the repository's `.wkts/`), in Harnix's state:
+  // the flow extension's data directory, on a branch apart from the engine's `harnix/worktree-*`.
+  expect(wt).toMatchObject({ branch: `harnix/flow/${run}` });
+  expect(wt.path.endsWith(`/ext/flow/data/worktrees/${run}`)).toBe(true);
+  expect(wt.path.startsWith(`${project}/`)).toBe(false);
   expect(wt.outcome).toBeUndefined();
 
   // The write landed in the worktree; the project's own tree has none of it, and shows nothing new.
   expect(readFileSync(join(wt.path, "notes.txt"), "utf8")).toContain("harnix-task-notes");
   expect(existsSync(join(project, "notes.txt"))).toBe(false);
   expect(done.record.output_dir.startsWith(`${wt.path}/flows/demo-task-`)).toBe(true);
-  expect(gitIn(project, "status", "--porcelain", "--", ".", ":(exclude).agix")).toBe("?? .harnix/");
+  expect(gitIn(project, "status", "--porcelain")).toBe("?? .harnix/");
   // The session and the gate worked there; the progress is in the project's process directory.
   const info = await api.call("engine.session.get", ref(station(done, "write").tasks[0].session));
   expect(realpathSync(info.project_root)).toBe(wt.path);
   expect(station(done, "check").checks.find((c: any) => c.kind === "gate")).toMatchObject({ status: "pass" });
   expect(JSON.parse(readFileSync(join(project, ".harnix", "runs", run, "task.json"), "utf8")).status).toBe("finished");
   // A row of the project's tasks says the branch.
-  expect((await api.call("flow.list", { project })).find((s: any) => s.id === run).worktree.branch).toBe(`harnix/${run}`);
+  expect((await api.call("flow.list", { project })).find((s: any) => s.id === run).worktree.branch).toBe(`harnix/flow/${run}`);
 
   const merged = await api.call("flow.worktree.merge", { run });
   expect(merged.worktree.outcome).toMatchObject({ kind: "merged", into: "main", how: "fast_forward" });
   expect(readFileSync(join(project, "notes.txt"), "utf8")).toContain("harnix-task-notes");
   expect(existsSync(wt.path)).toBe(false);
-  expect(gitIn(project, "branch", "--list", "harnix/*")).toBe("");
+  expect(gitIn(project, "branch", "--list", "harnix/flow/*")).toBe("");
   // Decided once.
   expect((await api.refused("flow.worktree.discard", { run }))?.code).toBe(INVALID);
 });
@@ -230,13 +260,13 @@ test("a worktree task discarded leaves nothing; kept, its branch holds the work;
   const discarded = await api.call("flow.worktree.discard", { run });
   expect(discarded.worktree.outcome.kind).toBe("discarded");
   expect(existsSync(done.record.worktree.path)).toBe(false);
-  expect(gitIn(project, "branch", "--list", `harnix/${run}`)).toBe("");
+  expect(gitIn(project, "branch", "--list", `harnix/flow/${run}`)).toBe("");
   expect(existsSync(join(project, "notes.txt"))).toBe(false);
 
   const kept = await start("demo-task", { workspace: "worktree" });
   const over = await until(kept, (v) => v.record.status !== "active", "the run finishes");
   expect((await api.call("flow.worktree.keep", { run: kept })).worktree.outcome.kind).toBe("kept");
   expect(existsSync(over.record.worktree.path)).toBe(false);
-  expect(gitIn(project, "show", `harnix/${kept}:notes.txt`)).toContain("harnix-task-notes");
+  expect(gitIn(project, "show", `harnix/flow/${kept}:notes.txt`)).toContain("harnix-task-notes");
   expect(existsSync(join(project, "notes.txt"))).toBe(false);
 });

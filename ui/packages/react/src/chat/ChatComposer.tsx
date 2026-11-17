@@ -23,8 +23,10 @@
 
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useStrings } from "../context";
+import type { HarnixUiStrings } from "../strings";
 import { MenuBox } from "../menu";
 import type { SessionState } from "@harnix/core/state";
+import type { SessionReasoning } from "@harnix/core";
 import { readDraft, writeDraft } from "./drafts";
 import { compactTokens } from "./format";
 import { Icon } from "./icons";
@@ -122,6 +124,16 @@ export interface ModelOption {
   detail?: string;
 }
 
+/** 改推理强度或思考开关：给了的键才改，`null` = 回到设置的值。 */
+export interface ReasoningChange {
+  effort?: string | null;
+  thinking_mode?: string | null;
+}
+
+/** 推理强度与思考开关可选的值（引擎的 `model.effort`、`model.thinking_mode`）。 */
+export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+export const THINKING_MODES = ["auto", "off", "on"] as const;
+
 /** 从外面够得着的输入框。 */
 export interface ComposerApi {
   /** 在光标处插入文字（没有焦点时接在末尾），并把焦点给输入框。 */
@@ -164,6 +176,10 @@ export interface ChatComposerProps {
   models?: readonly ModelOption[];
   /** 换模型；给了菜单才可选（列表里的，或输入的名字）。reject ⇒ 没换（调用方自己报错） */
   onModel?: (model: ModelOption) => Promise<void> | void;
+  /** 这个会话的推理强度与思考开关，在模型菜单里显示 */
+  reasoning?: SessionReasoning | null;
+  /** 改它们；给了才可选。reject ⇒ 没改（调用方自己报错） */
+  onReasoning?: (change: ReasoningChange) => Promise<void> | void;
   /** 底栏右侧、模型前面的额外控件 */
   tools?: ReactNode;
   /** 草稿的键：同一个键的输入框共用未发送的内容（卸载再挂上仍在，见 drafts.ts）；不给 ⇒ 不保留 */
@@ -387,6 +403,15 @@ export function ChatComposer(props: ChatComposerProps) {
         setPop(null);
         setCustomModel("");
       })
+      .catch(() => undefined)
+      .finally(() => setSwitching(false));
+  };
+
+  const chooseReasoning = (change: ReasoningChange) => {
+    const set = props.onReasoning;
+    if (!set || switching) return;
+    setSwitching(true);
+    Promise.resolve(set(change))
       .catch(() => undefined)
       .finally(() => setSwitching(false));
   };
@@ -673,6 +698,7 @@ export function ChatComposer(props: ChatComposerProps) {
                 />
               </form>
             ) : null}
+            {props.reasoning || props.onReasoning ? <ReasoningRows strings={strings} reasoning={props.reasoning ?? null} disabled={!props.onReasoning || switching} choose={chooseReasoning} /> : null}
             <div className="hx-pop-f">{props.onModel ? strings.modelFootSwitch : strings.modelFoot}</div>
           </MenuBox>
         ) : pop === "ctx" && ring ? (
@@ -832,6 +858,45 @@ export function ChatComposer(props: ChatComposerProps) {
       </div>
       {props.hint ? <div className="hx-cmp-hint">{props.hint}</div> : null}
     </div>
+  );
+}
+
+/** 思考开关的值读成一个词：`{on_budget}` 是开着的。 */
+function thinkingWord(mode: unknown): string | null {
+  if (typeof mode === "string") return mode;
+  return mode && typeof mode === "object" ? "on" : null;
+}
+
+/**
+ * 模型菜单底下的两排：推理强度、思考开关。「随设置」是会话没有自己的值（带上设置的值），其余是会话自己的；
+ * 选中的那个标亮。
+ */
+function ReasoningRows({ strings, reasoning, disabled, choose }: { strings: HarnixUiStrings; reasoning: SessionReasoning | null; disabled: boolean; choose: (change: ReasoningChange) => void }) {
+  const own = (source: string | undefined, value: string | null) => (source === "session" ? value : null);
+  const effort = own(reasoning?.effort_source, reasoning?.effort ?? null);
+  const settingsEffort = reasoning?.effort_source === "session" ? undefined : (reasoning?.effort ?? null);
+  const thinking = own(reasoning?.thinking_mode_source, thinkingWord(reasoning?.thinking_mode));
+  const settingsThinking = reasoning?.thinking_mode_source === "session" ? undefined : thinkingWord(reasoning?.thinking_mode);
+  const row = (key: "effort" | "thinking_mode", label: string, options: readonly string[], current: string | null, settings: string | null | undefined, word: (v: string) => string) => (
+    <div className="hx-pop-seg" role="group" aria-label={label} data-testid={`conv-${key}`} data-current={current ?? ""}>
+      <span className="hx-pop-seg-l">{label}</span>
+      <span className="hx-pop-seg-o">
+        <button type="button" data-menu-field aria-pressed={current === null} className={current === null ? "on" : ""} disabled={disabled} data-testid={`conv-${key}-default`} onClick={() => current !== null && choose({ [key]: null })}>
+          {strings.followSettings(settings ? word(settings) : null)}
+        </button>
+        {options.map((option) => (
+          <button type="button" data-menu-field key={option} aria-pressed={current === option} className={current === option ? "on" : ""} disabled={disabled} data-testid={`conv-${key}-${option}`} onClick={() => current !== option && choose({ [key]: option })}>
+            {word(option)}
+          </button>
+        ))}
+      </span>
+    </div>
+  );
+  return (
+    <>
+      {row("effort", strings.effort, EFFORTS, effort, settingsEffort, strings.effortLevel)}
+      {row("thinking_mode", strings.thinkingMode, THINKING_MODES, thinking, settingsThinking, strings.thinkingLevel)}
+    </>
   );
 }
 

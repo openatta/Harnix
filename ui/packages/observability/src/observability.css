@@ -1,5 +1,5 @@
-/* The trajectory (in the centre, and compact in the system space's inspector), its time overview and
- * inspector, and the right column's context and usage tabs. Colours only from tokens. */
+/* The trajectory (in the centre), its time overview and inspector, and the right column's context,
+ * usage and output tabs. Colours only from tokens. */
 
 /* ── the trajectory ────────────────────────────────────────────────────── */
 
@@ -601,7 +601,7 @@
   color: var(--label-caption);
 }
 
-/* The system space's 用量 tab: what every session used over the last days. */
+/* The usage summary: what every session used over the last days. */
 .obs-summary {
   display: flex;
   flex-direction: column;
@@ -665,4 +665,270 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* ── the output tab ────────────────────────────────────────────────────── */
+
+.obs-output .output-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 0;
+  font-size: 12.5px;
+}
+
+.obs-output .output-head .what {
+  flex: 1;
+  min-width: 0;
+}
+
+.obs-output .output-head .when {
+  flex: none;
+  color: var(--label-caption);
+  font-family: var(--font-code);
+  font-size: 11px;
+}
+
+.obs-output .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--label-caption);
+}
+
+.obs-output .dot.running {
+  background: var(--accent);
+}
+
+.obs-output .dot.failed {
+  background: var(--state-error);
+}
+
+.obs-output .dot.done {
+  background: var(--state-success);
+}
+
+.obs-output .hint {
+  color: var(--label-secondary);
+  font-size: 12px;
+}
+
+.obs-output .hint.err {
+  color: var(--state-error);
+}
+
+.obs-output .task-output .label {
+  display: flex;
+  gap: 8px;
+  margin: 6px 0 2px;
+  color: var(--label-secondary);
+  font-size: 12px;
+}
+
+.obs-output .task-output .check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.obs-output .task-output .check.end {
+  margin-left: auto;
+}
+
+.obs-output .task-output pre {
+  overflow: auto;
+  height: calc(100vh - 220px);
+}
+
+/* The home page's 全局统计: the process, its instances and Agents, and what waits, as a row of figures. */
+.obs-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 8px;
+}
+
+.obs-kpi {
+  position: relative;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--border-l1);
+  border-radius: 10px;
+  background: var(--bg-base);
+}
+
+.obs-kpi .v {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--label-primary);
+  font-family: var(--font-serif);
+  font-size: 18px;
+}
+
+.obs-kpi .l {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--label-tertiary);
+  font-size: 12px;
+}
+
+/* A count that opens the list it counts. */
+.obs-kpi.link {
+  display: block;
+  width: 100%;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.obs-kpi.link .l {
+  text-decoration: underline dotted;
+}
+
+.obs-kpi.link:hover {
+  border-color: var(--accent-line);
+  background: var(--interactive-hover);
+}
+
+.obs-kpi.link.hot .v {
+  color: var(--accent);
+}
+
+.obs-kpi-tip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  min-width: 300px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-l1);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+}
+
+.obs-kpi.has-tip:hover .obs-kpi-tip {
+  display: block;
+}
+
+.obs-kpi-tip .row {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+  border-top: 1px solid var(--border-l1);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.obs-kpi-tip .row:first-child {
+  border-top: 0;
+}
+
+.obs-kpi-tip .dev {
+  font-weight: 500;
+}
+
+.obs-kpi-tip .since {
+  margin-left: auto;
+  color: var(--label-caption);
+}
+
+/* The extension log, in the settings' diagnostics: its filters above, then one line a row, the newest
+ * at the bottom, scrolling in its own box. Errors and warnings are coloured; the message wraps rather
+ * than widening the panel. */
+.obs-extlog .hint {
+  margin-bottom: 8px;
+  color: var(--label-tertiary);
+  font-size: 12px;
+}
+
+.obs-extlog .tools-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.obs-extlog .tools-row .end {
+  margin-left: auto;
+}
+
+.obs-extlog .note {
+  color: var(--label-caption);
+  font-size: 12px;
+}
+
+.obs-extlog .btn.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.obs-extlog .extlog-lines {
+  max-height: 50vh;
+  overflow: auto;
+  border: 1px solid var(--border-l1);
+  border-radius: 6px;
+  font-family: var(--font-code);
+  font-size: 12px;
+}
+
+.obs-extlog .extlog-lines:empty {
+  display: none;
+}
+
+.obs-extlog .extlog-line {
+  display: grid;
+  grid-template-columns: auto auto minmax(6em, max-content) auto 1fr;
+  gap: 8px;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border-l1);
+}
+
+.obs-extlog .extlog-line:last-child {
+  border-bottom: none;
+}
+
+.obs-extlog .extlog-line .at,
+.obs-extlog .extlog-line .origin {
+  color: var(--label-tertiary);
+  white-space: nowrap;
+}
+
+.obs-extlog .extlog-line .ext {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.obs-extlog .extlog-line .msg {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.obs-extlog .lv {
+  color: var(--label-secondary);
+  font-size: 10.5px;
+}
+
+.obs-extlog .lv-error {
+  color: var(--state-error);
+}
+
+.obs-extlog .lv-warn {
+  color: var(--state-warn);
+}
+
+/* A person's message, rewritten from its menu: the whole width, the conversation's own type. */
+.obs-message-text {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.5;
 }

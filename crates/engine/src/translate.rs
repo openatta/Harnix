@@ -10,8 +10,8 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use harnix_contract::wire::{RemovedTurn, RewindParams, RewindResult, RewindScope, RewindTo, RewoundConversation, RewoundFiles};
-use harnix_contract::wire::{HookRow, HookSource, SessionHooks, SessionSkills, ShadowedSkill, SkillDirRow, SkillRow, SkillTier};
+use harnix_contract::wire::{ModelChoice, RemovedTurn, RewindParams, RewindResult, RewindScope, RewindTo, RewoundConversation, RewoundFiles};
+use harnix_contract::wire::{HookRow, HookSource, SessionHooks, SessionSkills, ShadowedSkill, SkillDirRow, SkillRow, SkillTier, SkillUserTier};
 use harnix_contract::RpcError;
 use harnix_engine_link::events::{Completion, DaemonEventKind, EngineEvent, FileWrite, Fragment, Joins, Prompt, SessionEventKind, Waiting};
 use harnix_engine_link::ops::{codes, Answer, EngineOps, Entry, HistoryPage, Message, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
@@ -274,12 +274,8 @@ impl EngineOps for AgixOps {
         self.call(SESSION_RENAME, json!({"session_id": session, "name": title})).await
     }
 
-    async fn set_model(&self, session: &str, model: &str, provider: Option<&str>) -> Answer<Value> {
-        let mut params = json!({"session_id": session, "model": model});
-        if let Some(provider) = provider {
-            params["provider"] = json!(provider);
-        }
-        self.call(SESSION_SET_MODEL, params).await
+    async fn set_model(&self, session: &str, choice: &ModelChoice) -> Answer<Value> {
+        self.call(SESSION_SET_MODEL, set_model_params(session, choice)).await
     }
 
     async fn set_prompt(&self, session: &str, append: Option<Option<String>>, override_text: Option<Option<String>>) -> Answer<Value> {
@@ -435,6 +431,7 @@ fn skills_of(session: &Value, commands: Option<&Value>, status: Option<&Value>, 
             description: command.get("description").and_then(Value::as_str).unwrap_or_default().to_string(),
             tier,
             dir: None,
+            user_tier: None,
             package: None,
             plugin: None,
             withheld: false,
@@ -451,7 +448,17 @@ fn skills_of(session: &Value, commands: Option<&Value>, status: Option<&Value>, 
                     row.dir = plugin.get("root").and_then(Value::as_str).map(str::to_string);
                 }
             }
-            SkillTier::User | SkillTier::Builtin => {}
+            SkillTier::User => {
+                row.user_tier = match command.get("tier").and_then(Value::as_str) {
+                    Some("global") => Some(SkillUserTier::Global),
+                    Some("scene") => Some(SkillUserTier::Scene),
+                    _ => None,
+                };
+                // The engine names the skill's own folder; the row names the tier's directory.
+                let own = command.get("dir").and_then(Value::as_str).map(std::path::Path::new);
+                row.dir = own.and_then(std::path::Path::parent).map(|d| d.display().to_string());
+            }
+            SkillTier::Builtin => {}
         }
         skills.push(row);
     }
@@ -630,6 +637,25 @@ fn set_up(mut params: Value, setup: &SessionSetup) -> Value {
 
 /// `harnix.session.respond`'s answer as the engine takes it: a question's `decline` gives a
 /// reason (the model reads "has not answered: <reason>"), an MCP server's gives none.
+/// `session.setModel`'s params: the session, and each key the choice says — `null` for effort or
+/// thinking gives the session's own back to the settings'.
+fn set_model_params(session: &str, choice: &ModelChoice) -> Value {
+    let mut params = json!({"session_id": session});
+    if let Some(model) = &choice.model {
+        params["model"] = json!(model);
+    }
+    if let Some(provider) = &choice.provider {
+        params["provider"] = json!(provider);
+    }
+    if let Some(effort) = &choice.effort {
+        params["effort"] = json!(effort);
+    }
+    if let Some(thinking) = &choice.thinking_mode {
+        params["thinking_mode"] = json!(thinking);
+    }
+    params
+}
+
 fn respond_params(mut params: Value) -> Value {
     let kind = params.get("prompt_type").and_then(Value::as_str).map(str::to_string);
     if let Some(Value::Object(answer)) = params.get_mut("answer") {
@@ -1231,6 +1257,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_model_choice_names_only_what_it_changes() {
+        let choice = ModelChoice { model: Some("m".into()), effort: Some(Some("high".into())), thinking_mode: Some(None), ..Default::default() };
+        assert_eq!(set_model_params("s", &choice), json!({"session_id": "s", "model": "m", "effort": "high", "thinking_mode": null}));
+        let provider = ModelChoice { provider: Some("p".into()), ..Default::default() };
+        assert_eq!(set_model_params("s", &provider), json!({"session_id": "s", "provider": "p"}));
+    }
+
+    #[test]
     fn a_frame_says_which_session_moved_and_whether_a_turn_began_or_ended() {
         let daemon = |kind: &str, session: Option<&str>| json!({"method": DAEMON_EVENT, "params": {"kind": kind, "session_id": session}});
         let session = |kind: &str| json!({"method": SESSION_EVENT, "params": {"session_id": "s", "event": {"kind": kind}}});
@@ -1396,13 +1430,13 @@ mod tests {
         let frame = |event: Value| json!({"jsonrpc": "2.0", "method": SESSION_EVENT, "params": {"session_id": "s", "turn_id": "t", "event": event}});
         let Some(HostFrame::ToolCall(call)) = host_frame(&frame(json!({
             "kind": "host_tool_call", "call_id": "c", "tool_use_id": "u", "name": "n", "input": {"a": 1}, "agent_session_id": "sub",
-            "cwd": "/w/.agix/worktrees/x", "depth": 2,
+            "cwd": "/w/.harnix/worktrees/x", "depth": 2,
         }))) else {
             panic!()
         };
         assert_eq!((call.session.as_str(), call.call_id.as_str(), call.name.as_str()), ("s", "c", "n"));
         assert_eq!((call.input.clone(), call.agent_session.as_deref()), (json!({"a": 1}), Some("sub")));
-        assert_eq!((call.cwd.as_deref(), call.depth), (Some(std::path::Path::new("/w/.agix/worktrees/x")), Some(2)));
+        assert_eq!((call.cwd.as_deref(), call.depth), (Some(std::path::Path::new("/w/.harnix/worktrees/x")), Some(2)));
         assert!(matches!(
             host_frame(&frame(json!({"kind": "host_tool_call_resolved", "call_id": "c", "resolution": "withdrawn"}))),
             Some(HostFrame::ToolCallResolved { withdrawn: true, .. })
@@ -1676,7 +1710,8 @@ mod seen_tests {
             {"name": "deploy", "description": "ship it", "kind": "prompt", "source": "project"},
             {"name": "lint", "description": "", "kind": "prompt", "source": "project"},
             {"name": "board", "description": "", "kind": "prompt", "source": "plugin"},
-            {"name": "mine", "description": "", "kind": "prompt", "source": "user"},
+            {"name": "mine", "description": "", "kind": "prompt", "source": "user", "tier": "global", "dir": "/e/skills/mine"},
+            {"name": "ours", "description": "", "kind": "prompt", "source": "user", "tier": "scene", "dir": "/e/scenes/code/skills/ours"},
             {"name": "clear", "description": "", "kind": "local", "source": "builtin"},
             {"name": "srv:ask", "description": "", "kind": "mcp-prompt", "source": "mcp"},
         ]});
@@ -1691,13 +1726,16 @@ mod seen_tests {
         let names: Vec<(&str, SkillTier)> = out.skills.iter().map(|s| (s.name.as_str(), s.tier)).collect();
         assert_eq!(
             names,
-            [("tour", SkillTier::Space), ("deploy", SkillTier::Project), ("lint", SkillTier::Project), ("board", SkillTier::Plugin), ("mine", SkillTier::User)]
+            [("tour", SkillTier::Space), ("deploy", SkillTier::Project), ("lint", SkillTier::Project), ("board", SkillTier::Plugin), ("mine", SkillTier::User), ("ours", SkillTier::User)]
         );
         assert_eq!((out.skills[0].dir.as_deref(), out.skills[0].package.as_deref()), (Some("/state/ext/acme.notes/skills"), None));
         assert_eq!(out.skills[1].dir.as_deref(), Some("/p/.agents/skills"));
         assert!(out.skills[1].withheld, "a project skill the engine holds back until trust");
         assert!(!out.skills[2].withheld);
         assert_eq!((out.skills[3].plugin.as_deref(), out.skills[3].dir.as_deref()), (Some("boards"), Some("/plug/boards")));
+        let user: Vec<(Option<SkillUserTier>, Option<&str>)> = out.skills[4..].iter().map(|s| (s.user_tier, s.dir.as_deref())).collect();
+        assert_eq!(user, [(Some(SkillUserTier::Global), Some("/e/skills")), (Some(SkillUserTier::Scene), Some("/e/scenes/code/skills"))]);
+        assert_eq!(out.skills[0].user_tier, None, "only a user tier's skill says which");
         assert_eq!(out.dirs[0].shadowed, vec![ShadowedSkill { skill: "x".into(), by: "user".into() }]);
     }
 

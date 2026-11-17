@@ -1,14 +1,14 @@
 /**
- * What a session's next model call carries, drawn once for two places: the system space's context
- * tab and the conversation's right column (`@harnix/observability`'s context tab). The bar is as
- * long as the provider's own count of the last call, against the window; the estimates only divide
- * it, and an estimate is never shown as if it were a count (`~`).
+ * What a session's next model call carries, drawn in the right column's context tab
+ * (`@harnix/observability`'s). The bar is as long as the provider's own count of the last call,
+ * against the window; the estimates only divide it, and an estimate is never shown as if it were a
+ * count (`~`).
  */
 
 import { Disclosure } from "./blocks";
 import { useT } from "../i18n/index";
 
-/** `system.context`'s answer (the engine's `inspectContext`, with `measured` beside it). */
+/** `observability.context`'s answer (the engine's `inspectContext`, with `measured` beside it). */
 export interface ContextReportData {
   model?: string;
   provider?: string;
@@ -66,36 +66,36 @@ export function ContextReport({ context, blocks = true }: { context: ContextRepo
         className="hx-ctx-stack stack"
         data-testid="context-stack"
         data-measured={measured ?? undefined}
-        title={measured != null ? tr("system.tokens", { count: measured }) : tr("system.tokens", { count: about(estimated) })}
+        title={measured != null ? tr("obs.tokens", { count: measured }) : tr("obs.tokens", { count: about(estimated) })}
       >
         <i className="sys" style={{ width: pct(systemTokens) }} />
         <i className="tools" style={{ width: pct(toolTokens) }} />
         <i className="msgs" style={{ width: pct(messageTokens) }} />
       </div>
       <div className="hx-ctx-legend legend2">
-        <span className="sys">{tr("system.legend.system", { count: about(systemTokens) })}</span>
-        <span className="tools">{tr("system.legend.tools", { count: about(toolTokens) })}</span>
-        <span className="msgs">{tr("system.legend.messages", { count: about(messageTokens) })}</span>
+        <span className="sys">{tr("obs.legend.system", { count: about(systemTokens) })}</span>
+        <span className="tools">{tr("obs.legend.tools", { count: about(toolTokens) })}</span>
+        <span className="msgs">{tr("obs.legend.messages", { count: about(messageTokens) })}</span>
       </div>
       <FactList
         rows={[
-          [tr("system.fact.model"), context.model ?? ""],
+          [tr("obs.fact.model"), context.model ?? ""],
           [
-            tr("system.fact.measured"),
+            tr("obs.fact.measured"),
             measured != null
               ? context.measured?.window
-                ? tr("system.tokensOf", { count: measured, of: context.measured.window })
-                : tr("system.tokens", { count: measured })
-              : tr("system.notMeasured"),
+                ? tr("obs.tokensOf", { count: measured, of: context.measured.window })
+                : tr("obs.tokens", { count: measured })
+              : tr("obs.notMeasured"),
           ],
-          [tr("system.fact.estimated"), tr("system.tokens", { count: about(context.total_tokens ?? estimated) })],
-          [tr("system.fact.threshold"), threshold ? tr("system.tokens", { count: threshold }) : ""],
-          [tr("system.fact.messages"), tr("system.messagesTokens", { count: context.messages?.count ?? 0, tokens: about(context.messages?.tokens ?? 0) })],
+          [tr("obs.fact.estimated"), tr("obs.tokens", { count: about(context.total_tokens ?? estimated) })],
+          [tr("obs.fact.threshold"), threshold ? tr("obs.tokens", { count: threshold }) : ""],
+          [tr("obs.fact.messages"), tr("obs.messagesTokens", { count: context.messages?.count ?? 0, tokens: about(context.messages?.tokens ?? 0) })],
         ]}
       />
       {blocks ? (
         <>
-          <div className="label">{tr("system.blocks", { count: context.system?.length ?? 0 })}</div>
+          <div className="label">{tr("obs.blocks", { count: context.system?.length ?? 0 })}</div>
           {(context.system ?? []).map((block, i) => (
             <Disclosure
               key={i}
@@ -107,12 +107,12 @@ export function ContextReport({ context, blocks = true }: { context: ContextRepo
                   <span className="hx-tool-arg">{originLabel(block.origin)}</span>
                 </>
               }
-              tail={tr("system.tokens", { count: about(block.tokens) })}
+              tail={tr("obs.tokens", { count: about(block.tokens) })}
             >
               <pre className="hx-pre">{block.text}</pre>
             </Disclosure>
           ))}
-          <div className="label">{tr("system.toolsCount", { count: context.tools?.length ?? 0 })}</div>
+          <div className="label">{tr("obs.toolsCount", { count: context.tools?.length ?? 0 })}</div>
           <div className="note">{(context.tools ?? []).map((tool) => tool.name).join(", ") || tr("request.noTools")}</div>
         </>
       ) : null}

@@ -1,23 +1,18 @@
 //! The settings plane: read the three tiers, write fields into one tier.
 //!
-//! Agix exposes `engine.config.get` (read, per tier, redacted) and `engine.config.reload`, but no
-//! write for settings other than providers — the supported way to change one is to edit the tier's
-//! `settings.json`, which is exactly what `engine.config.reload` exists for and what the engine's
-//! watcher already watches. So this writes the file and asks the engine to re-read it.
-//!
-//! Three rules make that safe to expose to a browser:
+//! Both through the engine: `engine.config.get` reads a tier (redacted, with its revision), and
+//! `engine.config.set` writes keys into one — under the tier's directory lock, checked by the
+//! engine's own loader, all or nothing, with the engine re-reading what it wrote. What stays here is
+//! what the settings page promises beyond that:
 //!
 //! - **A whitelist, not a passthrough.** Only the fields in the table ([`fields::FIELDS`]) can be
 //!   written, each with a declared type that the value is checked against, and only into the
 //!   tiers the field allows.
-//! - **Read, modify, write the whole file.** Hand edits are preserved because the file is
-//!   re-read immediately before each change, under the tier's directory lock (the one the engine
-//!   takes), and replaced atomically.
-//! - **A revision.** `describe` says one for the tiers it read; a write that names it is refused
-//!   with `CONFLICT` when a tier's file changed since, so a page does not write over what it never
-//!   saw.
+//! - **A revision.** `describe` says one for the tiers it read; a write that names it hands the
+//!   engine the written tier's as `if_revision`, and is refused with `CONFLICT` when that tier
+//!   changed since, so a page does not write over what it never saw.
 //!
-//! Providers are the engine's to write: `engine.config.setProvider` takes the global tier and a
+//! Providers are the engine's to write too: `engine.config.setProvider` takes the global tier and a
 //! `dry_run`, and puts the key in the `settings.local.json` beside it ([`providers`]).
 //!
 //! MCP servers are the page's too ([`mcp`]): added, changed, removed, switched off and signed in to,
@@ -29,7 +24,6 @@ use harnix_ext::{caps, codes, Access, Call, Extension, ExtensionContext, Manifes
 use harnix_host_api::SettingsTiers;
 use serde_json::{json, Map, Value};
 
-mod dir_lock;
 mod fields;
 mod mcp;
 mod providers;
@@ -67,12 +61,16 @@ impl Extension for Settings {
             .raw(|call, params| async move { describe(&call, params).await });
         r.method("set")
             .access(Access::device())
-            .describe("write one whitelisted field into one tier, then make the engine re-read")
+            .describe("write one whitelisted field into one tier, through the engine")
             .raw(|call, params| async move { set(&call, params).await });
         r.method("write")
             .access(Access::device())
-            .describe("write several fields into one tier as one change, checked whole and against a revision")
+            .describe("write several fields into one tier as one change, through the engine, checked whole and against a revision; `dry_run` only checks")
             .raw(|call, params| async move { write(&call, params).await });
+        r.method("listModels")
+            .access(Access::device())
+            .describe("the models a provider's endpoint serves {provider?}, asked with the provider's own credentials; the default provider's when none is named")
+            .raw(|call, params| async move { list_models(&call, params).await });
         r.method("setProvider")
             .access(Access::device())
             .describe("add, edit or remove a provider, credentials included, in the global tier")
@@ -114,7 +112,7 @@ pub(crate) fn tier_path(call: &Call, tier: &str, scene: Option<&str>, project_ro
             Some(scene) => Some(under_main(files.scene(MAIN_INSTANCE, scene))?),
             None => None,
         },
-        "project" => project_root.map(|p| PathBuf::from(p).join(".agix").join("settings.json")),
+        "project" => project_root.map(|p| call.ext().product().data_dir_of(Path::new(p)).join("settings.json")),
         _ => None,
     })
 }
@@ -138,27 +136,27 @@ fn tier_paths(call: &Call, scene: Option<&str>, project_root: Option<&str>) -> R
 async fn describe(call: &Call, params: Value) -> Rpc<Value> {
     let scene = scene_of(call, &params)?;
     let project_root = params.get("project_root").and_then(Value::as_str).map(str::to_string);
-    // Taken before the tiers are read: a file that changes while they are is a newer revision than
-    // the one said, and a write naming this one is refused rather than let through.
     let paths = tier_paths(call, scene.as_deref(), project_root.as_deref())?;
-    let revision = revision_of(&paths);
 
     let mut raw = Map::new();
+    let mut revisions = Map::new();
     let mut problems: Vec<Value> = Vec::new();
     for tier in TIERS {
-        let mut request = json!({"tier": tier});
-        if let Some(scene) = &scene {
-            request["scene"] = json!(scene);
-        }
-        if let Some(root) = &project_root {
-            request["project_root"] = json!(root);
-        }
+        let mut request = locate(scene.as_deref(), project_root.as_deref());
+        request["tier"] = json!(tier);
         // A tier that genuinely has no file answers `null`; a call that *failed* is a different
         // thing and is reported rather than flattened into the same answer. The two used to be
         // indistinguishable, which is how a page of nulls looked like an empty configuration
         // instead of a broken request.
         let settings = match call.call("engine.config.get", request).await {
-            Ok(value) => value.get("settings").cloned().unwrap_or(Value::Null),
+            Ok(value) => {
+                // Each tier's settings and its revision come in the one answer: what a write
+                // compares against is what was shown.
+                if let Some(revision) = value.get("revision").filter(|r| r.is_string()) {
+                    revisions.insert((*tier).to_string(), revision.clone());
+                }
+                value.get("settings").cloned().unwrap_or(Value::Null)
+            }
             Err(e) => {
                 tracing::warn!(tier, error = %e.message, "settings tier could not be read");
                 problems.push(json!({"tier": tier, "error": e.message}));
@@ -168,13 +166,8 @@ async fn describe(call: &Call, params: Value) -> Rpc<Value> {
         raw.insert((*tier).to_string(), settings);
     }
 
-    let mut effective_request = json!({"tier": "effective"});
-    if let Some(scene) = &scene {
-        effective_request["scene"] = json!(scene);
-    }
-    if let Some(root) = &project_root {
-        effective_request["project_root"] = json!(root);
-    }
+    let mut effective_request = locate(scene.as_deref(), project_root.as_deref());
+    effective_request["tier"] = json!("effective");
     // What the engine runs with: its layers merged, and what an untrusted project may not loosen
     // already taken off. Re-read for this (project, scene) by `set` before it is asked.
     let effective = match call.call("engine.config.get", effective_request).await {
@@ -188,7 +181,6 @@ async fn describe(call: &Call, params: Value) -> Rpc<Value> {
 
     // The providers of this (project, scene): what a model field offers, and a route may name.
     let providers = providers::redacted(call.call("engine.config.getProvider", locate(scene.as_deref(), project_root.as_deref())).await.unwrap_or(json!({})));
-    let providers = providers::with_unanswered(providers, effective.as_ref());
 
     let fields: Vec<Value> = FIELDS
         .iter()
@@ -218,8 +210,8 @@ async fn describe(call: &Call, params: Value) -> Rpc<Value> {
     Ok(json!({
         "fields": fields,
         "scene": scene,
-        // What `write` compares against: the three tiers' files as they were when this was read.
-        "revision": revision,
+        // What `write` compares against: each tier's revision, as the engine said it with the values.
+        "revision": revision_token(&revisions),
         // Empty in the ordinary case. Not empty means a tier could not be read, and the page can
         // say so instead of showing its nulls as if they were the configuration.
         "problems": problems,
@@ -319,7 +311,7 @@ fn field_view(field: &fields::Field, mut per_tier: Map<String, Value>, engine: O
     Value::Object(view)
 }
 
-/// Write one whitelisted field into one tier, then make the engine re-read.
+/// Write one whitelisted field into one tier.
 ///
 /// A `null` value removes the key, which is how a tier gives a setting back to the tier below it.
 async fn set(call: &Call, params: Value) -> Rpc<Value> {
@@ -332,7 +324,8 @@ async fn set(call: &Call, params: Value) -> Rpc<Value> {
 
 /// Write several fields into one tier as one change: every value is checked first, and nothing is
 /// written unless all of them are accepted. With `revision` (what `describe` said), refused with
-/// `CONFLICT` when a tier's file changed since.
+/// `CONFLICT` when the tier written changed since. With `dry_run`, the engine checks the change and
+/// writes nothing: what it would refuse is in the answer's `rejected`.
 async fn write(call: &Call, params: Value) -> Rpc<Value> {
     let Some(changes) = params.get("changes").and_then(Value::as_object).cloned() else {
         return Err(RpcError::invalid_params("missing changes: an object of key → value"));
@@ -354,28 +347,101 @@ async fn apply(call: &Call, params: Value, changes: Map<String, Value>, revision
         let providers = call.call("engine.config.getProvider", locate(scene.as_deref(), project_root)).await?;
         check_routes(&changes, &providers)?;
     }
-    let Some(path) = tier_path(call, &tier, scene.as_deref(), project_root)? else {
+    if (tier == "scene" && scene.is_none()) || (tier == "project" && project_root.is_none()) {
         return Err(RpcError::new(codes::INVALID_PARAMS, format!("no `{tier}` tier for this session")));
+    }
+    let dry_run = params.get("dry_run").and_then(Value::as_bool).unwrap_or(false);
+    let mut request = locate(scene.as_deref(), project_root);
+    request["tier"] = json!(tier);
+    request["changes"] = Value::Object(changes);
+    if dry_run {
+        request["dry_run"] = json!(true);
+    }
+    if let Some(token) = &revision {
+        match tier_revision(token, &tier) {
+            Ok(Some(expected)) => request["if_revision"] = json!(expected),
+            // The page did not read this tier: there is nothing it could have written over.
+            Ok(None) => {}
+            Err(()) => return Err(conflict(call, scene.as_deref(), project_root).await),
+        }
+    }
+    let written = match call.call("engine.config.set", request).await {
+        Ok(written) => written,
+        Err(e) if e.code == SETTINGS_CONFLICT => return Err(conflict(call, scene.as_deref(), project_root).await),
+        Err(e) => return Err(refused_by_key(e)),
     };
-    let paths = tier_paths(call, scene.as_deref(), project_root)?;
-    write_fields(&path, &changes, revision.as_deref(), &paths)?;
 
-    // Re-read the pair `describe` asks about next: the engine keeps its settings per (project,
-    // scene), and a reload names the one it drops.
-    let mut reload = json!({});
-    if let Some(scene) = &scene {
-        reload["scene"] = json!(scene);
-    }
-    if let Some(root) = project_root {
-        reload["project_root"] = json!(root);
-    }
-    let reloaded = call.call("engine.config.reload", reload).await.is_ok();
     let mut described = describe(call, params.clone()).await?;
     if let Some(object) = described.as_object_mut() {
-        object.insert("written".into(), json!(path.display().to_string()));
-        object.insert("reloaded".into(), json!(reloaded));
+        object.insert("written".into(), written.get("written_to").cloned().unwrap_or(Value::Null));
+        // The engine re-reads what it wrote as part of the write.
+        object.insert("reloaded".into(), json!(!dry_run));
+        if dry_run {
+            object.insert("dry_run".into(), json!(true));
+            object.insert("rejected".into(), written.get("rejected").cloned().unwrap_or(json!([])));
+        }
+        if let Some(overridden) = written.get("overridden").filter(|o| o.as_array().is_some_and(|a| !a.is_empty())) {
+            object.insert("overridden".into(), overridden.clone());
+        }
     }
     Ok(described)
+}
+
+/// The engine's code for a write whose `if_revision` is not the tier's any more (daemon protocol §9).
+const SETTINGS_CONFLICT: i32 = -32028;
+
+/// `CONFLICT`, with the revision to write against now: every tier read again.
+async fn conflict(call: &Call, scene: Option<&str>, project_root: Option<&str>) -> RpcError {
+    let mut revisions = Map::new();
+    for tier in TIERS {
+        let mut request = locate(scene, project_root);
+        request["tier"] = json!(tier);
+        if let Some(revision) = call.call("engine.config.get", request).await.ok().and_then(|v| v.get("revision").cloned()).filter(Value::is_string) {
+            revisions.insert((*tier).to_string(), revision);
+        }
+    }
+    RpcError::with_data(
+        codes::CONFLICT,
+        "the settings changed since they were read: read them again",
+        json!({"revision": revision_token(&revisions)}),
+    )
+}
+
+/// The engine's refusal of keys (`data.rejected`: `{key, kind, reason}` each) as the page marks
+/// refused values (`data.errors`: `{key, message}` each), the rest of it as it was; any other error
+/// as it came.
+fn refused_by_key(mut e: RpcError) -> RpcError {
+    let errors: Option<Vec<Value>> = e.data.as_ref().and_then(|d| d.get("rejected")).and_then(Value::as_array).map(|rejected| {
+        rejected
+            .iter()
+            .map(|r| {
+                let key = r.get("key").and_then(Value::as_str).unwrap_or_default();
+                let reason = r.get("reason").and_then(Value::as_str).or_else(|| r.get("kind").and_then(Value::as_str)).unwrap_or("refused");
+                json!({"key": key, "message": format!("`{key}`: {reason}")})
+            })
+            .collect()
+    });
+    if let (Some(errors), Some(Value::Object(data))) = (errors, e.data.as_mut()) {
+        data.insert("errors".into(), json!(errors));
+    }
+    e
+}
+
+/// The revision `describe` says: each tier's, as the engine gave it, in one token the page hands
+/// back unread.
+fn revision_token(revisions: &Map<String, Value>) -> String {
+    Value::Object(revisions.clone()).to_string()
+}
+
+/// The written tier's revision in a token `describe` said; `Ok(None)` when it read no revision for
+/// that tier, `Err` when the token is not one it says.
+fn tier_revision(token: &str, tier: &str) -> Result<Option<String>, ()> {
+    let revisions: Map<String, Value> = serde_json::from_str(token).map_err(|_| ())?;
+    match revisions.get(tier) {
+        None => Ok(None),
+        Some(Value::String(revision)) => Ok(Some(revision.clone())),
+        Some(_) => Err(()),
+    }
 }
 
 /// Every change checked against the table, all of them at once: refused with each one that is
@@ -428,58 +494,34 @@ fn check_routes(changes: &Map<String, Value>, providers: &Value) -> Rpc<()> {
     Err(RpcError::with_data(codes::INVALID_PARAMS, message, json!({"errors": data})))
 }
 
-/// The tiers' files as one token: what a write compares against what `describe` said. A file that
-/// is not there counts as such, so creating one is a change too.
-fn revision_of(paths: &[Option<PathBuf>]) -> String {
-    // FNV-1a: stable across runs and builds, unlike the standard library's hasher, and enough to
-    // tell one version of a small file from another.
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    let mut eat = |bytes: &[u8]| {
-        for b in bytes {
-            hash ^= u64::from(*b);
-            hash = hash.wrapping_mul(0x0100_0000_01b3);
-        }
-    };
-    for path in paths {
-        match path.as_deref().map(std::fs::read) {
-            Some(Ok(bytes)) => {
-                eat(b"file:");
-                eat(&bytes);
-            }
-            Some(Err(_)) => eat(b"none"),
-            None => eat(b"no tier"),
-        }
-        eat(b"\0");
-    }
-    format!("{hash:016x}")
-}
-
-/// Write `changes` into the settings.json at `path`, keeping everything else in it, under the
-/// tier's directory lock; with `revision`, only when the tiers (`paths`) are still as it says.
-fn write_fields(path: &Path, changes: &Map<String, Value>, revision: Option<&str>, paths: &[Option<PathBuf>]) -> Rpc<()> {
-    let _held = lock_tier(path)?;
-    if let Some(expected) = revision {
-        let now = revision_of(paths);
-        if now != expected {
-            return Err(RpcError::with_data(
-                codes::CONFLICT,
-                "the settings changed since they were read: read them again",
-                json!({"revision": now}),
-            ));
-        }
-    }
-    let mut document = read_document(path)?;
-    for (key, value) in changes {
-        set_path(&mut document, key, value.clone());
-    }
-    write_document(path, &document)
-}
-
 /// Add, edit or remove a provider — credentials included — in the global tier, through the
 /// engine.
 async fn set_provider(call: &Call, params: Value) -> Rpc<Value> {
     let scene = scene_of(call, &params)?;
     providers::set_provider(call, scene.as_deref(), &params).await
+}
+
+/// The models a provider's endpoint serves (`engine.config.listModels`): the engine asks it with
+/// the provider's credentials and base URL, and nothing about them comes back. With no provider
+/// named, the default one's — or the only one's.
+async fn list_models(call: &Call, params: Value) -> Rpc<Value> {
+    let scene = scene_of(call, &params)?;
+    let at = locate(scene.as_deref(), params.get("project_root").and_then(Value::as_str));
+    let provider = match params.get("provider").and_then(Value::as_str).filter(|p| !p.trim().is_empty()) {
+        Some(provider) => provider.to_string(),
+        None => {
+            let configured = call.call("engine.config.getProvider", at.clone()).await?;
+            providers::default_of(&configured).ok_or_else(|| RpcError::invalid_params("no provider named, and no default provider configured"))?
+        }
+    };
+    let mut request = at;
+    request["provider"] = json!(provider);
+    let listed = call.call("engine.config.listModels", request).await?;
+    Ok(json!({
+        "provider": provider,
+        "models": listed.get("models").cloned().unwrap_or(json!([])),
+        "truncated": listed.get("truncated").cloned().unwrap_or(json!(false)),
+    }))
 }
 
 /// Read a dotted path out of a settings document.
@@ -491,103 +533,9 @@ fn dig<'a>(document: &'a Value, key: &str) -> Option<&'a Value> {
     Some(cursor)
 }
 
-/// Write a dotted path into a settings document, creating objects on the way
-/// and removing the key when the value is null.
-fn set_path(document: &mut Value, key: &str, value: Value) {
-    let segments: Vec<&str> = key.split('.').collect();
-    if !document.is_object() {
-        *document = json!({});
-    }
-    let mut cursor = document;
-    for segment in &segments[..segments.len() - 1] {
-        if !cursor.get(*segment).map(Value::is_object).unwrap_or(false) {
-            cursor[*segment] = json!({});
-        }
-        cursor = cursor.get_mut(*segment).expect("just inserted");
-    }
-    let last = segments[segments.len() - 1];
-    match value {
-        Value::Null => {
-            if let Some(object) = cursor.as_object_mut() {
-                object.remove(last);
-            }
-        }
-        value => cursor[last] = value,
-    }
-}
-
-/// Set one key in a tier's settings.json, keeping everything else in it.
-#[cfg(test)]
-fn set_in_file(path: &Path, key: &str, value: Value) -> Result<(), RpcError> {
-    let mut changes = Map::new();
-    changes.insert(key.to_string(), value);
-    write_fields(path, &changes, None, &[])
-}
-
-/// A tier's settings.json, or an empty document when the file is not there.
-///
-/// Only *not there* is empty. Every caller writes the document back, so a
-/// read that failed for any other reason — permissions, a disk error —
-/// taken as empty would have been written back as a tier holding the one key
-/// just set, its providers and credentials gone.
-pub(crate) fn read_document(path: &std::path::Path) -> Result<Value, RpcError> {
-    match std::fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| {
-            RpcError::new(
-                codes::INTERNAL_ERROR,
-                format!("{} is not valid JSON: {e}", path.display()),
-            )
-        }),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(json!({})),
-        Err(e) => Err(RpcError::new(
-            codes::INTERNAL_ERROR,
-            format!("could not read {}: {e}", path.display()),
-        )),
-    }
-}
-
-/// The directory lock of the tier a settings file is in, the one Agix's writers take.
-pub(crate) fn lock_tier(path: &std::path::Path) -> Result<dir_lock::DirLock, RpcError> {
-    let dir = path.parent().unwrap_or(std::path::Path::new("."));
-    dir_lock::DirLock::acquire(dir).map_err(io_error)
-}
-
-/// Replace a tier's settings.json atomically.
-pub(crate) fn write_document(path: &std::path::Path, document: &Value) -> Result<(), RpcError> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(io_error)?;
-    }
-    let temp = path.with_extension("json.tmp");
-    let body = serde_json::to_vec_pretty(document)
-        .map_err(|e| RpcError::new(codes::INTERNAL_ERROR, e.to_string()))?;
-    std::fs::write(&temp, &body)
-        .and_then(|()| std::fs::rename(&temp, path))
-        .map_err(io_error)
-}
-
-fn io_error(e: std::io::Error) -> RpcError {
-    RpcError::new(codes::INTERNAL_ERROR, format!("could not write: {e}"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_nested_write_creates_its_parents_and_keeps_siblings() {
-        let mut document = json!({"model": {"max_tokens": 2000}, "memory_enabled": true});
-        set_path(&mut document, "model.model_name", json!("deepseek-v4"));
-        assert_eq!(document["model"]["model_name"], json!("deepseek-v4"));
-        assert_eq!(document["model"]["max_tokens"], json!(2000));
-        assert_eq!(document["memory_enabled"], json!(true));
-    }
-
-    #[test]
-    fn null_gives_the_setting_back_to_the_tier_below() {
-        let mut document = json!({"permission_mode": "plan"});
-        set_path(&mut document, "permission_mode", Value::Null);
-        assert!(document.get("permission_mode").is_none());
-    }
 
     #[test]
     fn a_field_is_the_engines_value_and_says_when_the_project_tier_was_not_taken() {
@@ -613,55 +561,6 @@ mod tests {
         assert_eq!((&blind["effective"], &blind["withheld"]), (&json!("b"), &json!(false)));
     }
 
-    /// A writer waits for whoever holds the tier's directory, the engine included.
-    #[test]
-    fn a_write_waits_while_the_tier_s_directory_is_held() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("settings.json");
-        let held = dir_lock::DirLock::acquire(dir.path()).unwrap();
-        let writer = {
-            let path = path.clone();
-            std::thread::spawn(move || set_in_file(&path, "model.max_tokens", json!(4000)).unwrap())
-        };
-        std::thread::sleep(std::time::Duration::from_millis(200));
-        assert!(!path.exists(), "written while another writer held the tier");
-        drop(held);
-        writer.join().unwrap();
-        assert_eq!(read_document(&path).unwrap(), json!({"model": {"max_tokens": 4000}}));
-    }
-
-    /// A tier that cannot be read is an error, and the file is left as it
-    /// was — not replaced by a document holding only the key being set.
-    #[test]
-    fn an_unreadable_tier_is_not_overwritten() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("settings.json");
-        let original = r#"{"providers":{"a":{"api_type":"anthropic","api_key":"k"}}}"#;
-        std::fs::write(&path, original).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
-            // Root reads it anyway; then there is nothing to show here.
-            if std::fs::read(&path).is_err() {
-                assert!(set_in_file(&path, "model.max_tokens", json!(4000)).is_err());
-                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
-                assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
-            } else {
-                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
-            }
-        }
-        // A read that fails for another reason than "not there" — here, a directory where the
-        // file should be — is an error too, wherever this runs.
-        let not_a_file = dir.path().join("scene");
-        std::fs::create_dir(&not_a_file).unwrap();
-        assert!(read_document(&not_a_file).is_err());
-        // And a file that is not there is an empty tier, written with the one key.
-        let fresh = dir.path().join("fresh.json");
-        set_in_file(&fresh, "model.max_tokens", json!(4000)).unwrap();
-        assert_eq!(read_document(&fresh).unwrap(), json!({"model": {"max_tokens": 4000}}));
-    }
-
     #[test]
     fn every_change_that_is_not_accepted_is_named_and_none_is_written() {
         let mut changes = Map::new();
@@ -681,30 +580,35 @@ mod tests {
     }
 
     #[test]
-    fn a_write_against_a_revision_that_moved_on_is_a_conflict() {
-        let dir = tempfile::tempdir().unwrap();
-        let global = dir.path().join("global").join("settings.json");
-        let project = dir.path().join("project").join("settings.json");
-        let paths = vec![Some(global.clone()), None, Some(project.clone())];
-        let read = revision_of(&paths);
-        assert_eq!(read, revision_of(&paths), "the same files are the same revision");
+    fn a_write_names_the_revision_of_the_tier_it_writes() {
+        let mut revisions = Map::new();
+        revisions.insert("global".into(), json!("r1:9f2c"));
+        revisions.insert("project".into(), json!("r1:0a1b"));
+        let token = revision_token(&revisions);
+        assert_eq!(tier_revision(&token, "global"), Ok(Some("r1:9f2c".into())));
+        assert_eq!(tier_revision(&token, "project"), Ok(Some("r1:0a1b".into())));
+        // A tier that was not read: nothing to compare against.
+        assert_eq!(tier_revision(&token, "scene"), Ok(None));
+        // Not a token `describe` says: the page reads the settings again.
+        assert!(tier_revision("0123456789abcdef", "global").is_err());
+        assert!(tier_revision(r#"{"global": 3}"#, "global").is_err());
+    }
 
-        // Someone else writes the project tier after the page read the settings.
-        std::fs::create_dir_all(project.parent().unwrap()).unwrap();
-        std::fs::write(&project, r#"{"permission_mode":"plan"}"#).unwrap();
-        let mut changes = Map::new();
-        changes.insert("model.max_tokens".into(), json!(4000));
-        changes.insert("memory_enabled".into(), json!(false));
-        let e = write_fields(&global, &changes, Some(&read), &paths).unwrap_err();
-        assert_eq!(e.code, codes::CONFLICT);
-        assert!(!global.exists(), "written over a revision that moved on");
-
-        // Read again, written as one.
-        let again = e.data.unwrap()["revision"].as_str().unwrap().to_string();
-        assert_eq!(again, revision_of(&paths));
-        write_fields(&global, &changes, Some(&again), &paths).unwrap();
-        assert_eq!(read_document(&global).unwrap(), json!({"model": {"max_tokens": 4000}, "memory_enabled": false}));
-        assert_ne!(revision_of(&paths), again, "a write is a new revision");
+    #[test]
+    fn what_the_engine_refused_is_named_by_key_and_the_rest_kept() {
+        let refused = RpcError::with_data(
+            codes::INVALID_PARAMS,
+            "1 key rejected",
+            json!({"rejected": [{"key": "permission_mode", "kind": "invalid_value", "reason": "`yolo` is not a mode"}, {"key": "x", "kind": "unknown_key"}]}),
+        );
+        let e = refused_by_key(refused);
+        assert_eq!(e.code, codes::INVALID_PARAMS);
+        let data = e.data.unwrap();
+        assert_eq!(data["errors"], json!([{"key": "permission_mode", "message": "`permission_mode`: `yolo` is not a mode"}, {"key": "x", "message": "`x`: unknown_key"}]));
+        assert_eq!(data["rejected"].as_array().unwrap().len(), 2);
+        // Any other refusal goes on as it came: a locked tier, a project that is not there.
+        let locked = refused_by_key(RpcError::new(-32026, "the settings directory /x is locked by another process; nothing was written"));
+        assert_eq!((locked.code, locked.data.is_none()), (-32026, true));
     }
 
     #[test]

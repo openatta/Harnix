@@ -19,7 +19,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "agents"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -45,7 +45,7 @@ dependencies = [
 
 [[package]]
 name = "agix"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "assembly",
  "base",
@@ -179,7 +179,7 @@ dependencies = [
 
 [[package]]
 name = "assembly"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "agents",
  "anyhow",
@@ -357,7 +357,7 @@ dependencies = [
 
 [[package]]
 name = "base"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -636,7 +636,7 @@ dependencies = [
 
 [[package]]
 name = "compaction"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "async-trait",
  "base",
@@ -1419,7 +1419,7 @@ dependencies = [
  "harnix-ext-plugins",
  "harnix-ext-schedule",
  "harnix-ext-settings",
- "harnix-ext-system",
+ "harnix-flow",
  "harnix-package",
  "harnix-proc",
  "serde",
@@ -1447,7 +1447,6 @@ dependencies = [
  "harnix-ext-observability",
  "harnix-ext-plugins",
  "harnix-ext-settings",
- "harnix-ext-system",
  "harnix-host-api",
  "harnix-hub",
  "harnix-instance",
@@ -1645,10 +1644,9 @@ dependencies = [
  "async-trait",
  "futures",
  "harnix-ext",
- "jsonschema",
+ "harnix-flow",
  "libc",
  "reqwest 0.12.28",
- "schemars",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -1743,7 +1741,6 @@ dependencies = [
  "harnix-ext",
  "harnix-host-api",
  "http",
- "libc",
  "serde",
  "serde_json",
  "tokio",
@@ -1753,12 +1750,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "harnix-ext-system"
+name = "harnix-flow"
 version = "0.4.5-2026111601"
 dependencies = [
  "async-trait",
- "harnix-ext",
+ "futures",
+ "jsonschema",
+ "libc",
+ "quote",
+ "reqwest 0.12.28",
+ "schemars",
+ "serde",
  "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "syn 2.0.119",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "ts-rs",
+ "uuid",
 ]
 
 [[package]]
@@ -2020,7 +2032,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "history"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "async-trait",
  "base",
@@ -2037,7 +2049,7 @@ dependencies = [
 
 [[package]]
 name = "hooks"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "async-trait",
  "base",
@@ -2736,7 +2748,7 @@ checksum = "4facc753ae494aeb6e3c22f839b158aebd4f9270f55cd3c79906c45476c47ab4"
 
 [[package]]
 name = "mcp"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2783,7 +2795,7 @@ dependencies = [
 
 [[package]]
 name = "memory"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "async-trait",
  "base",
@@ -2848,7 +2860,7 @@ dependencies = [
 
 [[package]]
 name = "model"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -3071,7 +3083,7 @@ checksum = "1a80800c0488c3a21695ea981a54918fbb37abf04f4d0720c453632255e2ff0e"
 
 [[package]]
 name = "packages"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "base",
  "hex",
@@ -3122,7 +3134,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "permissions"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "async-trait",
  "base",
@@ -3199,7 +3211,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "platform"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "async-trait",
  "base",
@@ -3299,7 +3311,7 @@ dependencies = [
 
 [[package]]
 name = "prompt-files"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "base",
  "tokio",
@@ -3308,7 +3320,7 @@ dependencies = [
 
 [[package]]
 name = "ptc"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "async-trait",
  "base",
@@ -3781,7 +3793,7 @@ dependencies = [
 
 [[package]]
 name = "runtime"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "async-trait",
  "base",
@@ -3962,7 +3974,7 @@ dependencies = [
 
 [[package]]
 name = "scene"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "base",
  "serde",
@@ -4012,7 +4024,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "script-host"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "async-trait",
  "base",
@@ -4158,7 +4170,7 @@ dependencies = [
 
 [[package]]
 name = "session"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "base",
  "history",
@@ -4170,7 +4182,7 @@ dependencies = [
 
 [[package]]
 name = "session-state"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "base",
  "serde_json",
@@ -4180,7 +4192,7 @@ dependencies = [
 
 [[package]]
 name = "settings"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "base",
  "globset",
@@ -4202,6 +4214,12 @@ dependencies = [
  "cpufeatures 0.2.17",
  "digest 0.10.7",
 ]
+
+[[package]]
+name = "sha1_smol"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
 
 [[package]]
 name = "sha2"
@@ -4292,7 +4310,7 @@ checksum = "8ee5873ec9cce0195efcb7a4e9507a04cd49aec9c83d0389df45b1ef7ba2e649"
 
 [[package]]
 name = "skills"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "async-trait",
  "base",
@@ -4470,7 +4488,7 @@ checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
 
 [[package]]
 name = "team"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4489,7 +4507,7 @@ dependencies = [
 
 [[package]]
 name = "telemetry"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "async-trait",
  "base",
@@ -4771,7 +4789,7 @@ checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 
 [[package]]
 name = "tools"
-version = "0.3.16-2026111505"
+version = "0.3.18-2026111701"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5050,6 +5068,7 @@ dependencies = [
  "getrandom 0.4.3",
  "js-sys",
  "serde_core",
+ "sha1_smol",
  "wasm-bindgen",
 ]
 

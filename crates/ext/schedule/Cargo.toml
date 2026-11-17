@@ -25,7 +25,8 @@ serde_json  = { workspace = true }
 tokio       = { workspace = true }
 # What the store and the runner skip, said rather than swallowed.
 tracing     = { workspace = true }
-uuid        = { workspace = true }
+# v5: a new session's id derived from its schedule and time.
+uuid        = { workspace = true, features = ["v5"] }
 # Wall-clock times in an IANA zone, across daylight-saving changes: read from the system's tz
 # database (bundled on Windows only), no further dependency on Unix.
 jiff        = "0.2"

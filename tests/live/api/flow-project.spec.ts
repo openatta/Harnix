@@ -1,5 +1,5 @@
 /**
- * A project's own flows (crates/ext/flow/docs/guide.en.md, "A project's own flows";
+ * A project's own flows (crates/flow/docs/guide.en.md, "A project's own flows";
  * docs/harnix-app.md §3.1): `<project>/.harnix/flows/`, committed with the project, offered to its
  * tasks over every other layer, and read only while the project is trusted.
  *
@@ -52,7 +52,7 @@ async function cleanUp(root: string, id: string, runs: string[]) {
   for (const run of runs) await api.call("flow.cancel", { run, reason: "test over" }).catch(() => undefined);
   await api.call("harnix-app.projects.trust", { project_root: root, trusted: false }).catch(() => undefined);
   await api.call("harnix-app.workspaces.remove", { id }).catch(() => undefined);
-  // Retried: the engine may still be writing under the project (its `.agix/`) as it goes.
+  // Retried: the engine may still be writing under the project (its part of `.harnix/`) as it goes.
   rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }
 

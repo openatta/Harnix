@@ -147,14 +147,14 @@ pub fn table(behind: &Behind) -> RouteTable {
         Row::method("harnix.diagnostics", Access::device().with_extensions(), answer(|d, _| d.report())),
         // Each extension's log: what this process logged as one extension's. Lines can say more
         // than a person meant a package to read, so it is for an extension granted to look into
-        // the process; a device reads it through the system space.
+        // the process; a device reads it through `observability.extensions.log`.
         Row::method(
             "harnix.extensions.log",
             Access::capability(harnix_contract::s1::caps::PROCESS_OBSERVE),
             Arc::new(crate::ext_log::Read(crate::ext_log::LOG.clone())),
         ),
-        // The decisions the router recorded, newest first: what the system space shows as its
-        // audit, and what a test reads instead of transcript files.
+        // The decisions the router recorded, newest first: the audit as a debugger shows it, and
+        // what a test reads instead of transcript files.
         Row::method(
             "harnix.audit",
             Access::device().with_extensions(),

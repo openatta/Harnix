@@ -4,8 +4,8 @@
 
 **[Agix](https://github.com/openatta/agix) 应用的公共底座。** 在 Harnix 上做的应用是一个 Rust 二进制：Agent 引擎、
 Web 服务、应用自己的原生扩展和界面编译在一起。这类产品需要、又不值得各自去造的东西由 Harnix 提供——由服务端持有的会话、
-引擎实例、授权、传输、外壳与 space、系统视图、可选的流程引擎，以及跑在 WebAssembly 沙箱里的扩展包的宿主——它自己保持薄，
-产品是应用自己的。Harnix 本身就是这个框架加上第一方扩展：Harnix app（会话 space 与项目 space）、系统 space 都在其中。
+引擎实例、授权、传输、外壳与 space、每次调用带了什么的视图、可选的流程引擎，以及跑在 WebAssembly 沙箱里的扩展包的宿主——它自己保持薄，
+产品是应用自己的。Harnix 本身就是这个框架加上第一方扩展：Harnix app（首页、会话 space 与项目 space）、流程 space 都在其中。
 
 ![Harnix](images/harnix.png)
 
@@ -22,19 +22,19 @@ cargo build --release
 ./target/release/harnix                              # → http://127.0.0.1:4080/
 ```
 
-需要 Rust 1.88 以上、Node 和 pnpm。`--recurse-submodules` 不能少：Agix 在 `agix/`。跑起来的是 Harnix app 与系统 space：
-会话、项目，以及带着流程的系统，还有扩展包的宿主（模式 2，进程内）。
+需要 Rust 1.88 以上、Node 和 pnpm。`--recurse-submodules` 不能少：Agix 在 `agix/`。跑起来的是 Harnix app 与流程 space：
+落地的首页、会话、项目、左栏底部的流程，还有扩展包的宿主（模式 2，进程内）。
 
 不需要任何环境变量。没配模型也能启动，页面会提示：**配置模型**（或头像 → **设置 → 模型与凭据**）添加 provider——
-Anthropic 或兼容 OpenAI 的 API，其中一个是缺省——存在 `~/.agix/settings.json`，不会出现在浏览器或日志里。
+Anthropic 或兼容 OpenAI 的 API，其中一个是缺省——存在 `~/.harnix/engine/settings.json`，不会出现在浏览器或日志里。
 `ANTHROPIC_AUTH_TOKEN`（可加 `ANTHROPIC_BASE_URL`）也行。
 新对话的空页用三张卡带着走完第一次：模型、一个项目，以及会话从什么开始——`harnix` 场景和缺省的权限模式，
 旁边推荐 `code`（在项目里写代码的 Agent）。每一张做完或关掉就不再出现。
 
 只是使用 `harnix` 程序、不做开发：见[用户指南](../user-guide/README.zh-CN.md)（也有 [English](../user-guide/README.md)）。
 
-想看带数据的样子：`scripts/harnix-demo.sh start`（还有 `stop`、`restart`、`status`）在单独的目录（`~/harnix-demo`）里
-跑 Harnix app，带示例流程、运行和会话；删掉这个目录就从头来。
+想看带数据的样子：`scripts/harnix-demo.sh start`（还有 `stop`、`restart`、`status`）在单独的目录（仓库里的 `demo/`，git 不收）里
+跑 Harnix app，带示例流程、运行和会话，端口用 4080 起第一个空着的，什么都不用设；删掉这个目录就从头来。
 
 ## 架构
 
@@ -49,7 +49,7 @@ Anthropic 或兼容 OpenAI 的 API，其中一个是缺省——存在 `~/.agix/
  │ hub         服务端持有会话：订阅、按 seq 补发缓冲、轮次归属、排队、引导、打断、
  │             无头会话的 tap、主题
  │ extensions  原生：编进来的 Rust，能力在产品加它的地方授予——Harnix 自己的
- │             （system、harnix-app、settings……）与产品的
+ │             （harnix-app、observability、settings……）与产品的
  │             扩展包：装上的 .hxext，WebAssembly 在本进程里（模式 2，缺省）或每个
  │             扩展一个沙箱里的进程（模式 3）；按同意准入
  │ instances   一条链路后面的多个 Agix 引擎：进程内、spawn 的 daemon、attach 的、收养的；
@@ -67,12 +67,13 @@ Anthropic 或兼容 OpenAI 的 API，其中一个是缺省——存在 `~/.agix/
   它要的每一项能力都写在清单里，得到的是人同意的那些。模式 2（缺省）里它跑在产品进程里；模式 3 里每个包一个自己的进程，
   带着自己的 Agix，关在操作系统沙箱里，Harnix 只路由。两种都登记成同一种扩展、进同一张路由表。
 - **界面按 space 分三栏**：space 自己的左栏、中区（缺省是对话，旁边可以开二级栏）、右栏——打开的会话自己的停靠面，
-  任何包都能往里注册页签（文件、改动、输出、流程进度），和 space 自己的页签并排。
-  Harnix 自带的 space——Harnix app 的两个与系统 space——都是例子，产品自己决定留哪些。
+  任何包都能往里注册页签（文件、改动、输出、流程进度，末尾常驻下一次调用的上下文），和 space 自己的页签并排。
+  Harnix 自带的 space——Harnix app 的三个与流程 space——都是例子，产品自己决定留哪些。
 - **对话里的卡片**：扩展往会话日志里写条目——刷新、回放、分叉都在，模型看不见。
 - **流程**（`harnix-ext-flow`，可选）：一张站的图，带着一个对象走过由运行的主 Agent、子 Agent、应用代码或外部完成的工作；
   每次工具调用按流程的权限判，每一站按出口条件和门禁判，钩子把进度告诉别的系统。在项目里跑的流程是一个任务：
   从项目、项目里对话的 `/flow` 或定时起，在项目或它的 worktree 里干活。
+  流程本身是一个单独的库 `harnix-flow`，不链 Harnix 也不链 Agix：它只经一个 trait `SessionHost` 拿到会话，扩展是 Harnix 对它的实现。
 - **定时**（`harnix-ext-schedule`，可选）：到点往一个会话发一轮、新建一个会话、或起一个任务——由 Harnix 执行，按定时自己的时区。
 
 为什么是这个形状，一层一层讲：[概念与架构](concept_and_architecture.md)。
@@ -93,16 +94,18 @@ crates/engine          唯一用 Agix 的 crate
 crates/supervise       子进程：fork + exec、沙箱、收割
 crates/ext/api         harnix-ext，扩展接口（S1）
 crates/host-api        宿主组件的接口（S3）：载体、拉起进程、收养
-crates/ext/<id>        Harnix 自己的扩展：system、harnix-app、settings、plugins、
+crates/ext/<id>        Harnix 自己的扩展：harnix-app、settings、plugins、
                        observability、devices、flow 与 schedule（可选）、packages
 crates/carrier/*       扩展包的两个载体：wasm（模式 2）、proc（模式 3），以及它们共用的部分
 crates/package、wasm-port、wasm-host、wasm、proc
                        扩展包：清单、签名与商店、端口、宿主核心、wasmtime（唯一链它的地方）、扩展进程
 crates/client          应用自己的工具链接的轻量客户端
+crates/flow            harnix-flow，流程库：定义、运行、内核与派工器，会话经 SessionHost；
+                       不链 Harnix 也不链 Agix，可以整个拷走
 crates/cli             `harnix` 二进制：全部第一方扩展，带流程与定时
 crates/testapp         给测试用的应用
 ui/packages/           @harnix/core（协议、客户端、会话状态）、@harnix/react（宿主 API、贡献注册表、i18n、tokens）、
-                       @harnix/shell（外壳核心）、每个第一方扩展一个 UI 包（@harnix/system、harnix-app……）、
+                       @harnix/shell（外壳核心）、每个第一方扩展一个 UI 包（@harnix/harnix-app、flow……）、
                        @harnix/testkit，@harnix/ext-sdk 与 @harnix/ext-kit（扩展包在 iframe 里的页面用）
 templates/             app（新应用）、desktop（Tauri 壳）
 examples/hello-app     照应用的方式做的一个应用
@@ -143,7 +146,7 @@ fn main() -> anyhow::Result<()> {
 | 后端行为 | 一个原生扩展（`harnix::ext::Extension`）：方法、主题、路由、原生工具、scene、模板 | [原生扩展](harnix-ext.md) |
 | 自己的界面 | 一个 space 和贡献（`spaces/*/ui`，构建进外壳） | [贡献点](contribution_points.md) |
 | 自己的样子 | `[brand]`、主题 tokens、语言包 | [原生扩展](harnix-ext.md) |
-| 让 Agent 按流程干活 | 流程：站、skill、规则、策略、门禁、钩子 | 系统 space 里流程的参考页、`crates/ext/flow/docs/guide.*.md` |
+| 让 Agent 按流程干活 | 流程：站、skill、规则、策略、门禁、钩子 | 流程 space 的「参考」页、`crates/flow/docs/guide.*.md` |
 | 桌面应用 | `templates/desktop`（Tauri 2，本地或连远程） | `templates/desktop/README.md` |
 | 让别人往产品里装东西 | 扩展包：一个签了名的 `.hxext`，WebAssembly 后端、Agix 插件、隔离的界面——在你的进程里（模式 2）或各一个进程（模式 3） | [扩展包](harnix-ext-package.md) |
 | 对着真二进制的测试 | `@harnix/testkit`：回放模型调用，接口与浏览器测试 | [测试](testing.md) |
@@ -157,7 +160,7 @@ icon = "brand.svg"
 product_id = "hello-app"            # 状态在 ~/.hello-app
 
 [extensions]
-off = ["system"]                    # 链进来、但要关掉的扩展，连同它们的行
+off = ["flow"]                      # 链进来、但要关掉的扩展，连同它们的行
 
 [ext.greeter]                       # 每个扩展自己的一节
 ```
@@ -166,26 +169,26 @@ off = ["system"]                    # 链进来、但要关掉的扩展，连同
 |---|---|
 | `--profile` | 上面那份 profile；每一节都有所有者，都拒绝它不认识的键 |
 | `--port` / `--host` | `4080` / `127.0.0.1`；绑非回环地址要 TLS 和已配对的设备 |
-| `--agix-dir` | 引擎的目录：`$AGIX_CONFIG_HOME`，再是 `~/.agix` |
+| `--engine-dir` | 引擎的目录：缺省是程序状态目录下的 `engine/` |
 | `--data-dir` | 项目在哪：`$HARNIX_DATA_DIR`，再是 `~/Documents` |
 | `--ui-dir` / `--headless` | 从某个目录提供界面 / 不提供界面 |
 | `--launch-link` | 令牌不进页面：浏览器从一次性链接进来 |
 
-程序自己的状态在 `~/.<product_id>/`（缺省 `~/.harnix`，`HARNIX_STATE_DIR` 可以挪走）；引擎的在 `~/.agix/`；项目在
-`~/Documents/`，里面不藏任何东西。
+程序自己的状态在 `~/.<product_id>/`（缺省 `~/.harnix`，`HARNIX_STATE_DIR` 可以挪走），引擎的目录在它里面（`engine/`）；项目在
+`~/Documents/`，里面不藏任何东西；项目自己的设置与数据在它的 `.harnix/` 里。
 
 ## 文档
 
 | 文档 | 讲什么 |
 |---|---|
-| [概念与架构](concept_and_architecture.md) | Harnix 是什么——框架、Harnix app、系统 space——由哪些部分组成、每条边界为什么在那儿 |
+| [概念与架构](concept_and_architecture.md) | Harnix 是什么——框架与第一方扩展——由哪些部分组成、每条边界为什么在那儿 |
 | [应用开发](app-development.md) | 总览：三种模式（模式 1 纯 Rust；模式 2 Rust + 进程内的扩展，缺省；模式 3 Rust + 每个扩展一个进程，给高安全场景），它们的资源、安全、目标市场，怎么选，代码怎么分层 |
 | [原生扩展](harnix-ext.md) | 用 Rust 在上面做应用：指南，以及每个类型、方法、profile 键、开关、目录、主题 |
 | [扩展包](harnix-ext-package.md) | 写一个扩展包（模式 2 / 3）：包、清单、WIT、界面、信任、商店、工具、两种载体，以及它的接口 |
-| [Harnix app](harnix-app.md) | Harnix app：会话 space 与项目 space，它们的 profile 开关，怎么做出来的 |
-| [系统 space](system-space.md) | 系统 space：Agent、流程、扩展、诊断、检查器，以及每一样从哪读 |
+| [Harnix app](harnix-app.md) | Harnix app：首页、会话 space 与项目 space，它们的 profile 开关，怎么做出来的；右栏的上下文与输出、流程 space、设置里的诊断，以及每一样从哪读 |
 | [贡献点](contribution_points.md) | 界面的贡献点，由代码生成 |
 | [测试](testing.md) | LIVE 测试框架：检查的分层、运行器与拓扑、录像、覆盖表、给应用用的 testkit |
+| [流程库的嵌入指南](../crates/flow/docs/embed.zh-CN.md) | 把流程库接进别的宿主：它要什么、`SessionHost`、写在哪、版本与格式、怎么拷走 |
 | [术语](glossary.md) | 用词，一个词一个意思 |
 
 在 Harnix 上做应用的项目提的需求记在 [GitHub issue](https://github.com/openatta/Harnix/issues) 里，每个项目一个标签

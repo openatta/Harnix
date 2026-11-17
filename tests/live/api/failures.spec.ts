@@ -12,7 +12,7 @@
  * before it gives up, so those turns take their time: the timeouts here are long on purpose.
  */
 
-import { failureAction, failureClass, failureFacts, type FailureClass } from "@harnix/core/state";
+import { failureAction, failureClass, failureFacts, serviceSaid, type FailureClass } from "@harnix/core/state";
 import { type Backend, type TestClient, connect, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
 import { FAULTS, dropStub, stubProvider, useStub, type Fault, type StubProvider } from "./stub-provider";
@@ -61,11 +61,11 @@ function classOf(error: unknown): FailureClass | undefined {
 
 test("no provider and no key: a message fails as a classed failure that sends to the model settings, not as a bare code", TAGS, async () => {
   const error = await failureOfATurn();
-  // The engine still builds its default client with no key and lets the turn reach the service,
-  // which refuses it as `auth`; an engine that refuses first says `missing api_key`. Either way the
-  // person is sent to the model settings.
+  // The engine sends nothing without a key: the turn ends as `no_credentials`, which is "no model",
+  // and the person is sent to the model settings.
+  expect(failureFacts(error).kind, JSON.stringify(error)).toBe("no_credentials");
   const cls = classOf(error);
-  expect(["no_model", "auth"], JSON.stringify(error)).toContain(cls);
+  expect(cls, JSON.stringify(error)).toBe("no_model");
   expect(failureAction(cls!)).toBe("settings.models");
   // The engine's own words stay, for whoever supports it.
   expect(failureFacts(error).raw).not.toBe("");
@@ -90,12 +90,14 @@ for (const [name, fault, expected] of [
   });
 }
 
-test("a rate limit arrives as rate_limited, with how long the service asked to wait when the engine says", TAGS, async () => {
+test("a rate limit arrives as rate_limited, with how long the service asked to wait when the engine says, and what the service said", TAGS, async () => {
   stub.fail(FAULTS.rateLimited);
   await useStub(api, stub);
   try {
     const error = await failureOfATurn();
     expect(classOf(error), JSON.stringify(error)).toBe("rate_limited");
+    // The service's own words about the limit come with it, for the interface to sum up.
+    expect(serviceSaid(failureFacts(error)), JSON.stringify(error)).toBe(FAULTS.rateLimited.message);
     // `retry_after_ms` is what the interface turns into "wait N s"; absent, it says "a moment".
     const wait = failureFacts(error).retryAfterMs;
     if (wait !== undefined) expect(wait).toBeGreaterThan(0);

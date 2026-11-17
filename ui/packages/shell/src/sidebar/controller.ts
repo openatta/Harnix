@@ -8,7 +8,7 @@
  * open: `openTab(kind)` selects it in the strip, as `host.details.open(kind)` would.
  */
 
-import { sidebarClaim, sidebarGuideEntries, sidebarTypeOfKind, t, type SidebarOpenOptions, type SidebarResourceOptions, type SidebarTabType } from "@harnix/react";
+import { sidebarClaim, sidebarGuideEntries, sidebarTypeOfKind, sidebarTypes, t, type SidebarOpenOptions, type SidebarResourceOptions, type SidebarTabType } from "@harnix/react";
 
 import type { App, SessionKey } from "../app.ts";
 
@@ -18,6 +18,15 @@ export const GUIDE_KIND = "guide";
 /** The types in force for a kind are read from the registry at each call: an extension may have come or gone. */
 function types(app: App): (SidebarTabType & { owner: string })[] {
   return app.registry.at("sidebar.tab");
+}
+
+/** The kinds whose type stands in every session's strip (`pinned`), among `all`. */
+export function pinnedKinds(all: (SidebarTabType & { owner: string })[]): Set<string> {
+  return new Set(
+    sidebarTypes(all)
+      .filter((type) => type.pinned === true && type.scope !== "space")
+      .map((type) => type.kind),
+  );
 }
 
 /** A type's title for an address; one that throws costs it the title, not the tab. */
@@ -78,10 +87,12 @@ export function openTab(app: App, kind: string, options: SidebarOpenOptions = {}
   return openType(app, type, null, options, session);
 }
 
-/** `host.sidebar.close`: nothing for a tab that is not there, or whose close handler keeps it. */
+/** `host.sidebar.close`: nothing for a tab that is not there, whose close handler keeps it, or that stands (`pinned`). */
 export function closeTab(app: App, tabId: string, session?: SessionKey): boolean {
   const target = session ?? app.snapshot.current;
   if (!target) return false;
+  const tab = app.sidebar.tab(target, tabId);
+  if (tab && pinnedKinds(types(app)).has(tab.kind)) return false;
   return app.sidebar.close(target, tabId);
 }
 
@@ -93,13 +104,15 @@ export function activeTab(app: App): { id: string; kind: string; address: string
 }
 
 /**
- * The default page of a surface that has nothing in it yet: with exactly one guide entry among the
- * types in force, that entry's page; otherwise the guide itself, when a guide type is registered.
- * Nothing when there is no session, or the surface already has a tab.
+ * The default page of a surface that has nothing of its own in it yet (the standing tabs aside):
+ * with exactly one guide entry among the types in force, that entry's page; otherwise the guide
+ * itself, when a guide type is registered. Nothing when there is no session, or the surface
+ * already has a tab of its own.
  */
 export function seedSurface(app: App, session: SessionKey): void {
-  if (app.sidebar.tabs(session).length) return;
   const all = types(app);
+  const standing = pinnedKinds(all);
+  if (app.sidebar.tabs(session).some((tab) => !standing.has(tab.kind))) return;
   const entries = sidebarGuideEntries(all);
   const kind = entries.length === 1 ? entries[0]!.kind : sidebarTypeOfKind(all, GUIDE_KIND) ? GUIDE_KIND : null;
   if (!kind) return;

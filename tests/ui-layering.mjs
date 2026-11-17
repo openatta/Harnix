@@ -16,9 +16,9 @@ import { fileURLToPath } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const packages = join(root, "ui", "packages");
 
-// The first-party UI packages: a space or a part of the system space, each its own package.
-const FIRST_PARTY = ["flow", "system", "harnix-app", "settings", "plugins", "devices", "packages", "observability", "schedule"];
-const SPACE_IDS = ["system", "sessions", "projects", "flow", "harnix-app"];
+// The first-party UI packages: a space or a part of one, each its own package.
+const FIRST_PARTY = ["flow", "harnix-app", "settings", "plugins", "devices", "packages", "observability", "schedule"];
+const SPACE_IDS = ["sessions", "projects", "flow", "harnix-app"];
 const PRIVATE = ["__client", "__chain", "app.client", "onNotify", "FRAME_HUB"];
 const ALLOWED_IMPORTS = ["react", "react-dom", "react/jsx-runtime", "@harnix/react", "@harnix/core"];
 

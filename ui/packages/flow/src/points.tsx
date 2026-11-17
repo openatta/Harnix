@@ -36,8 +36,8 @@ export interface StartDraft {
   workspace?: "worktree" | "project";
   /** The project, when the dialog is a project's. */
   project_root?: string;
-  /** The space a task's main session would be shown in (`flow.start`'s `show_in_space`). */
-  show_in_space?: string;
+  /** The space a task's main session would be shown in (`flow.start`'s `shown_in`). */
+  shown_in?: string;
 }
 
 /** Another way to start a flow (`flow.start.action`). */

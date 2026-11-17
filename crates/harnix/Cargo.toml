@@ -23,7 +23,6 @@ flow = ["first-party", "dep:harnix-ext-flow"]
 schedule = ["first-party", "dep:harnix-ext-schedule"]
 first-party = [
     "dep:harnix-ext-harnix-app",
-    "dep:harnix-ext-system",
     "dep:harnix-ext-observability",
     "dep:harnix-ext-settings",
     "dep:harnix-ext-plugins",
@@ -50,7 +49,7 @@ axum = ["harnix-ext/axum", "dep:axum"]
 # serialize onto the wire — the kernel's (`harnix_contract::wire`), the readers', the packages', the
 # flows', the settings' MCP methods', the schedules'. It reaches every crate whose types are
 # declared there, so it is only ever a test's feature.
-ts = ["dep:ts-rs", "harnix-ext/ts", "harnix-ext-packages/ts", "harnix-ext-flow/ts", "harnix-ext-settings/ts", "harnix-ext-schedule/ts"]
+ts = ["dep:ts-rs", "harnix-ext/ts", "harnix-ext-packages/ts", "dep:harnix-flow", "harnix-flow/ts", "harnix-ext-flow/ts", "harnix-ext-settings/ts", "harnix-ext-schedule/ts"]
 
 [dependencies]
 harnix-assembly       = { workspace = true }
@@ -59,8 +58,9 @@ harnix-assembly       = { workspace = true }
 harnix-ext       = { workspace = true }
 # Harnix's own extensions (`first-party`).
 harnix-ext-harnix-app    = { workspace = true, optional = true }
-harnix-ext-system        = { workspace = true, optional = true }
 harnix-ext-flow          = { workspace = true, optional = true }
+# The flow library, whose definitions and run records `ts` declares; nothing else names it here.
+harnix-flow              = { workspace = true, optional = true }
 harnix-ext-schedule      = { workspace = true, optional = true }
 harnix-ext-observability = { workspace = true, optional = true }
 harnix-ext-settings      = { workspace = true, optional = true }

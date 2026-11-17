@@ -64,7 +64,7 @@ test("the module says what it offers: flows, a definition with its parts, the ca
   const defs = await api.call("flow.defs");
   expect(defs.map((d: any) => d.name).sort()).toEqual([
     "demo-agent", "demo-asked", "demo-bypassed", "demo-guarded", "demo-linear", "demo-main", "demo-misplaced", "demo-outside",
-    "demo-outside-strict", "demo-placed", "demo-propose", "demo-review", "demo-shared", "demo-task",
+    "demo-outside-strict", "demo-placed", "demo-propose", "demo-reserved", "demo-review", "demo-shared", "demo-task",
   ]);
   // Where each comes from and whether it is valid (xops-02 §3): all built in here.
   expect(defs.every((d: any) => d.origin === "builtin" && d.valid === true)).toBe(true);
@@ -94,7 +94,7 @@ test("the module says what it offers: flows, a definition with its parts, the ca
   expect(catalog.steps).toEqual(["collect", "self-check"]);
   expect(catalog).toMatchObject({ checks: ["lint"], tools: ["open_high"], command_gates: true });
   expect(catalog.parts).toMatchObject({
-    skill: ["analyze", "report", "write-notes", "write-outside"], rule: ["review-rules"], policy: ["ask-todo"],
+    skill: ["analyze", "report", "write-notes", "write-outside", "write-reserved"], rule: ["review-rules"], policy: ["ask-todo"],
     gate: ["lint", "open-high", "self-test", "task-check"], hook: [],
   });
   const def = await api.call("flow.schema", { of: "definition" });
@@ -362,9 +362,11 @@ test("tasks sharing the run's session take turns in it, each handing in under it
   expect(second.output).toEqual({ step: 2 });
   expect(first.session).toBe(second.session);
   // The run's key, and the main session every run has (xops-03), apart from it.
-  expect(done.record.session_keys).toMatchObject({ run: first.session });
-  expect(done.record.session_keys["@main"]).toBeTruthy();
-  expect(done.record.session_keys["@main"]).not.toBe(first.session);
+  // Each bound with what it was opened with: the shared one with its station's scene.
+  expect(done.record.session_keys).toMatchObject({ run: { id: first.session, opened_with: { scene: expect.any(String) } } });
+  expect(done.record.session_keys["@main"].id).toBeTruthy();
+  expect(done.record.session_keys["@main"].id).not.toBe(first.session);
+  expect(done.record.session_keys["@main"].opened_with).toMatchObject({ main: true });
   // Every submission landed where it belonged: none was refused for the other's contract.
   const hist = await api.call("flow.history", { run });
   expect(hist.filter((h: any) => h.op === "submit").map((h: any) => h.station)).toEqual(["first", "second"]);
@@ -389,7 +391,12 @@ test("a task: a run in a project carries its root, workspace, output directory a
     // The template resolved and made at start, inside the project: the first of the day is `01`.
     expect(rec.output_dir).toMatch(new RegExp(`^${project}/flows/demo-review-\\d{8}01$`));
     expect(existsSync(rec.output_dir)).toBe(true);
-    expect(readFileSync(join(project, ".harnix", ".gitignore"), "utf8")).toBe("runs/\nworktrees/\n");
+    // `runs/` is Harnix's one line (the engine adds its own local directories to the same file when
+    // its session there starts): the worktrees are out of the project, in the application's state.
+    const ignored = readFileSync(join(project, ".harnix", ".gitignore"), "utf8").split("\n");
+    expect(ignored).toContain("runs/");
+    expect(ignored).not.toContain("worktrees/");
+    expect(ignored).not.toContain("flows/");
     expect(rec.trigger).toMatchObject({ kind: "manual", by: { kind: "device" } });
     const other = (await api.call("flow.get", { run: plain })).record;
     expect(other.project_root).toBeUndefined();
@@ -422,7 +429,7 @@ test("a task: a run in a project carries its root, workspace, output directory a
     await api.call("flow.cancel", { run: task, reason: "done" });
     await api.call("flow.cancel", { run: plain, reason: "done" });
   } finally {
-    // Retried: the engine may still be writing under the project (its `.agix/`) as it goes.
+    // Retried: the engine may still be writing under the project (its part of `.harnix/`) as it goes.
     rmSync(project, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

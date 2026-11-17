@@ -1,1 +1,0 @@
-{"role":"assistant","content":[{"type":"tool_use","id":"call_00_ET_nPsBIsSomP3Wjo6rfjie3164","name":"ext__example_showcase__slow","input":{"ms":300,"steps":3}}]}

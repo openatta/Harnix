@@ -24,6 +24,7 @@ pub use handshake::{
     Handshake, Limits, Topology, CONTRIB_API_VERSION, MAX_FRAME_BYTES, MAX_IN_FLIGHT,
     MAX_UPLOAD_BYTES, PROTOCOL_VERSION,
 };
+pub use s1::product::{self, ProductNames};
 pub use s1::{codes, ChainLink, DefaultInstance, ExtId, RpcError, SessionRef, SpaceDecl, Subject};
 pub use skills::SkillSource;
 

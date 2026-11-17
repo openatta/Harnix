@@ -63,7 +63,7 @@ test("a call a policy asks about waits for a person, the run waits for approval,
   expect(summary.phase).toMatchObject({ state: "waiting", reason: "approval", stations: ["edit"] });
 
   // The person answers in the main session.
-  const session = held.record.session_keys["@main"] as string;
+  const session = held.record.session_keys["@main"].id as string;
   const [instance, session_id] = session.split("/");
   const attached = await api.call("harnix.session.attach", { session_id });
   const ask = attached.pending_prompts.find((p: any) => p.tool_name === "TodoWrite");

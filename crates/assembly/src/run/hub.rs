@@ -171,10 +171,12 @@ fn shell(profile: &Profile, roots: &Roots, has_icon: bool) -> HelloShell {
             name: profile.brand.name.clone(),
             icon: has_icon.then(|| harnix_transport::BRAND_ICON_PATH.to_string()),
             product_id: profile.brand.product_id.clone().unwrap_or_else(|| "harnix".to_string()),
+            // Checked as the profile was read.
+            project_dir: profile.brand.names().map(|n| n.project_dir().to_string()).unwrap_or_else(|_| harnix_contract::product::DEFAULT_PROJECT_DIR.into()),
         },
         runtime_modules: profile.ui.runtime_modules,
         new_session: profile.shell.new_session,
-        model_switch: profile.shell.model_switch,
+        model_switch: profile.shell.switches_model(),
         narrow_details: profile.shell.narrow_details,
         state_dir: roots.state.display().to_string(),
         projects_dir: roots.projects.display().to_string(),
@@ -213,6 +215,7 @@ mod tests {
         assert_eq!(shell(&profile, &roots, false).brand.icon, None);
         assert_eq!(shell(&profile, &roots, true).brand.icon.as_deref(), Some(harnix_transport::BRAND_ICON_PATH));
         assert_eq!(shell(&profile, &roots, false).brand.product_id, "harnix");
+        assert_eq!(shell(&profile, &roots, false).brand.project_dir, ".harnix");
         assert_eq!(shell(&profile, &roots, false).state_dir, "/s");
     }
 }

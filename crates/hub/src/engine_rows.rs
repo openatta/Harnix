@@ -27,6 +27,12 @@ enum After {
     Goal,
     /// What the session list shows changed, and the engine sends no event for it.
     Relisted,
+    /// The session's task list changed at once — a task stopped is `stopped` before its work has
+    /// wound down, and the frame saying it is over may come seconds later: its watchers are told now.
+    Tasks,
+    /// What the conversation said is changed in place, and the engine sends no event for it: its
+    /// watchers read it again, as after a rewind, and the session list is told.
+    Redrawn,
     /// The answer is one session: held to what a session can say, from an extension's engine.
     OneSession,
     /// The answer lists sessions: each held so, from an extension's engine.
@@ -66,8 +72,9 @@ const DEVICE: &[(&str, RowScope, After, bool)] = &[
 const SETTINGS: &[Capability] = &[caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE, caps::ENGINE_PLUGINS, caps::ENGINE_MCP];
 
 /// What no device calls directly, open to the kernel and an extension holding the capability:
-/// looking into a session and changing its context (a device reaches those through the system
-/// space's own methods, which say what they are doing), reading settings, managing packages.
+/// looking into a session and changing its context (a device reaches those through an extension's
+/// own methods, which say what they are doing — `observability.*`), reading settings, managing
+/// packages.
 /// Reaching Agix's own `engine.plugin.install` and friends is not opened to devices, because changing
 /// what is installed changes what this host serves, and going around the host would leave a
 /// disabled package's interface module still being served with nothing to notice it.
@@ -76,10 +83,10 @@ const BY_CAPABILITY: &[(&str, Capability, After)] = &[
     ("engine.session.taskOutput", caps::ENGINE_INSPECT, After::Nothing),
     ("engine.session.inspectContext", caps::ENGINE_INSPECT, After::Nothing),
     ("engine.session.goal", caps::ENGINE_INSPECT, After::Goal),
-    ("engine.session.stopTask", caps::ENGINE_CONTROL, After::Nothing),
+    ("engine.session.stopTask", caps::ENGINE_CONTROL, After::Tasks),
     ("engine.session.messageTask", caps::ENGINE_CONTROL, After::Nothing),
-    ("engine.session.dropMessages", caps::ENGINE_CONTROL, After::Relisted),
-    ("engine.session.editMessage", caps::ENGINE_CONTROL, After::Relisted),
+    ("engine.session.dropMessages", caps::ENGINE_CONTROL, After::Redrawn),
+    ("engine.session.editMessage", caps::ENGINE_CONTROL, After::Redrawn),
     ("engine.session.compact", caps::ENGINE_CONTROL, After::Relisted),
     ("engine.session.clear", caps::ENGINE_CONTROL, After::Relisted),
     ("engine.session.rename", caps::ENGINE_CONTROL, After::Relisted),
@@ -89,6 +96,9 @@ const BY_CAPABILITY: &[(&str, Capability, After)] = &[
     ("engine.session.export", caps::ENGINE_EXPORT, After::Nothing),
     ("engine.config.get", caps::ENGINE_CONFIG_READ, After::Nothing),
     ("engine.config.getProvider", caps::ENGINE_CONFIG_READ, After::Nothing),
+    // A provider's endpoint asked which models it serves, with the credentials it has: nothing is
+    // written, and nothing leaves but to where the provider already sends its model calls.
+    ("engine.config.listModels", caps::ENGINE_CONFIG_READ, After::Nothing),
     ("engine.config.reload", caps::ENGINE_CONFIG_WRITE, After::Nothing),
     ("engine.plugin.install", caps::ENGINE_PLUGINS, After::Nothing),
     ("engine.plugin.uninstall", caps::ENGINE_PLUGINS, After::Nothing),
@@ -99,7 +109,7 @@ const BY_CAPABILITY: &[(&str, Capability, After)] = &[
 
 /// The engine's context requests: it takes one at a time for a session and refuses another that
 /// comes while one is under way (`SESSION_BUSY`, reason `context_operation`). Two readers of a
-/// session's context — the right column's context tab reads it twice, the system space once more —
+/// session's context — the right column's context tab and the composer's gauge, say —
 /// are not a conflict, so the hub sends them one after the other rather than let one be refused.
 /// A turn still refuses them while it runs: that is the engine's to say.
 const CONTEXT_REQUESTS: &[&str] = &["engine.session.inspectContext", "engine.session.dropMessages", "engine.session.editMessage"];
@@ -137,7 +147,8 @@ const ENGINE_SCHEDULE: &[(&str, Capability)] = &[
 /// `engine.mcp.addServer` stays refused, and the difference is the point: it configures a
 /// subprocess-spawning tool with no manifest, no capability declaration and no disclosure at all.
 /// A device adds one through the `settings` extension, which holds `engine.mcp` and says what it
-/// does; the same goes for changing one and for signing in to one.
+/// does; the same goes for changing, removing, switching and reconnecting one, and for signing in
+/// to one.
 pub const ENGINE_REFUSALS: &[(&str, &str, Option<Capability>)] = &[
     (
         "engine.config.setProvider",
@@ -162,6 +173,21 @@ pub const ENGINE_REFUSALS: &[(&str, &str, Option<Capability>)] = &[
     (
         "engine.mcp.updateServer",
         "changing an MCP server is equivalent to installing a tool that runs subprocesses",
+        Some(caps::ENGINE_MCP),
+    ),
+    (
+        "engine.mcp.removeServer",
+        "removing an MCP server changes which tools run subprocesses",
+        Some(caps::ENGINE_MCP),
+    ),
+    (
+        "engine.mcp.setEnabled",
+        "switching an MCP server on starts a tool that runs subprocesses",
+        Some(caps::ENGINE_MCP),
+    ),
+    (
+        "engine.mcp.reconnect",
+        "reconnecting an MCP server starts its subprocess again",
         Some(caps::ENGINE_MCP),
     ),
     ("engine.mcp.auth.start", MCP_SIGN_IN, Some(caps::ENGINE_MCP)),
@@ -244,7 +270,7 @@ pub(crate) fn rows(hub: &HubCell) -> Vec<HubRow> {
             handler: Some(answer(hub, "harnix.session.import", false, |h, cx, p| async move { h.import(&cx, p).await })),
         },
         // A session's own prompt text, behind its scene layer's: changed as its context is, by
-        // whoever holds `engine.control` (a device through the system space).
+        // whoever holds `engine.control`.
         HubRow::Method {
             name: "harnix.session.setPrompt",
             owner: Owner::Kernel(harnix_kernel::KernelPart::Hub),
@@ -317,7 +343,7 @@ impl Hub {
             ));
         }
         let session = params.get("session_id").and_then(Value::as_str).map(str::to_string);
-        // An instance that is some spaces' is theirs and the system space's, whatever the row —
+        // An instance that is some spaces' is theirs and a `cross_space` space's, whatever the row —
         // one open to any space included: before anything reaches it, or wakes it. A session
         // exposed to the claimed space is reached on its instance as from its own space: the
         // space check (before this) already held the call to what the exposure allows.
@@ -381,6 +407,15 @@ impl Hub {
                 }
             }
             After::Relisted => self.refresh("harnix.instances.sessions", json!({"instance": instance})),
+            After::Tasks => {
+                if let Some(session) = session {
+                    self.refresh("harnix.session.tasks", json!({"instance": instance, "session_id": session}));
+                }
+            }
+            After::Redrawn => match session {
+                Some(session) => self.redraw_rewound(&(instance.clone(), session), None).await,
+                None => self.refresh("harnix.instances.sessions", json!({"instance": instance})),
+            },
         }
         Ok(answer)
     }

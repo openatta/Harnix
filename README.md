@@ -6,10 +6,10 @@ English | [简体中文](docs/README.zh-CN.md)
 Harnix is one Rust binary: the Agent engine, the web server, the application's own native extensions
 and its interface, compiled together. Harnix supplies what such a product needs and cannot sensibly
 build alone — sessions held by the server, engine instances, authorization, transport, the shell and
-its spaces, a system view, an optional flow engine, and a host for extension packages that run
-sandboxed in WebAssembly — and stays thin, so the product is the application's. Harnix itself is that
-framework plus first-party extensions: the Harnix app (the sessions and projects spaces) and the
-system space among them.
+its spaces, a view of what each call carries, an optional flow engine, and a host for extension
+packages that run sandboxed in WebAssembly — and stays thin, so the product is the application's.
+Harnix itself is that framework plus first-party extensions: the Harnix app (the home page, the
+sessions and projects spaces) and the flow space among them.
 
 ![Harnix](docs/images/harnix.png)
 
@@ -28,12 +28,12 @@ cargo build --release
 ```
 
 Rust 1.88 or newer, Node with pnpm. `--recurse-submodules` matters: Agix lives at `agix/`. What runs
-is the Harnix app and the system space: sessions, projects, and the system with the flows in it, and the
-host for extension packages (mode 2, in-process).
+is the Harnix app and the flow space: the home page it lands on, sessions, projects, the flows at the
+bottom of the left column, and the host for extension packages (mode 2, in-process).
 
 No environment variable is required. With no model configured it still starts and says so:
 **Set up a model** (or the avatar → **Settings → Models & credentials**) adds providers — Anthropic or
-OpenAI-compatible APIs, one of them the default — kept in `~/.agix/settings.json`, never shown to the
+OpenAI-compatible APIs, one of them the default — kept in `~/.harnix/engine/settings.json`, never shown to the
 browser or the logs. `ANTHROPIC_AUTH_TOKEN` (plus an optional `ANTHROPIC_BASE_URL`) works too.
 The empty page of a new conversation walks through the first run in three cards — the model, a
 project to work in, and what a conversation starts with: the `harnix` scene and the default
@@ -43,8 +43,8 @@ done or closed.
 Using the `harnix` program rather than building on it: the [user guide](user-guide/README.md) (also in [简体中文](user-guide/README.zh-CN.md)).
 
 To look around with data in it: `scripts/harnix-demo.sh start` (also `stop`, `restart`, `status`)
-runs the Harnix app in a directory of its own (`~/harnix-demo`) with demo flows, runs and
-conversations; delete the directory to start over.
+runs the Harnix app in a directory of its own (`demo/` here, ignored by git) with demo flows, runs and
+conversations, on the first free port from 4080 — nothing to set; delete the directory to start over.
 
 ## Architecture
 
@@ -60,7 +60,7 @@ conversations; delete the directory to start over.
  │ hub         sessions held by the server: subscription, buffered replay by seq,
  │             turn ownership, queue, steer, interrupt, headless taps, topics
  │ extensions  native: Rust linked in, capabilities granted where the product adds them —
- │             Harnix's own (system, harnix-app, settings, …) and the product's
+ │             Harnix's own (harnix-app, observability, settings, …) and the product's
  │             packages: installed .hxext, WebAssembly in this process (mode 2, the default)
  │             or one process per extension, sandboxed (mode 3); admitted by consent
  │ instances   Agix engines behind one link: in process, spawned daemons, attached, adopted;
@@ -87,8 +87,8 @@ conversations; delete the directory to start over.
 - **The interface is three columns per space**: a space's own left column, a centre that is the
   conversation unless it says otherwise (with an optional second side panel beside it), and a right
   column that is the open conversation's own dock — tabs any package registers (files, changes,
-  output, a flow's progress) beside the space's own. Harnix's spaces — the Harnix app's two and the system space — are examples a
-  product keeps or drops.
+  output, a flow's progress, and the context of the next call, always at the end) beside the space's own.
+  Harnix's spaces — the Harnix app's three and the flow space — are examples a product keeps or drops.
 - **Cards in the conversation**: an extension writes entries into a session's log — they
   survive a refresh, a replay and a fork, and the model never sees them.
 - **Flows** (`harnix-ext-flow`, optional): a graph of stations that moves one subject through work done
@@ -96,6 +96,8 @@ conversations; delete the directory to start over.
   judged against the flow's permissions, each station judged by its exit conditions and gates, hooks
   telling other systems about the progress. Run in a project, a flow is a task: started from the project,
   by `/flow` in one of its conversations or on a schedule, working in the project or a worktree of it.
+  The flows themselves are a library of their own, `harnix-flow`, that links nothing of Harnix or Agix:
+  it reaches sessions through one trait, `SessionHost`, and the extension is Harnix's implementation of it.
 - **Schedules** (`harnix-ext-schedule`, optional): at set times, a turn in a conversation, a new
   conversation, or a task — run by Harnix, in the schedule's own time zone.
 
@@ -117,18 +119,20 @@ crates/engine          the one crate that uses Agix
 crates/supervise       child processes: fork + exec, sandbox, reaping
 crates/ext/api         harnix-ext, the extension interface (S1)
 crates/host-api        the host-component interface (S3): carriers, spawning, adopting
-crates/ext/<id>        Harnix's own extensions: system, harnix-app, settings, plugins,
+crates/ext/<id>        Harnix's own extensions: harnix-app, settings, plugins,
                        observability, devices, flow and schedule (optional), packages
 crates/carrier/*       the two package carriers: wasm (mode 2), proc (mode 3), and what they share
 crates/package, wasm-port, wasm-host, wasm, proc
                        extension packages: manifest, signatures and store, the port, the host
                        core, wasmtime (the one place it is linked), the extension process
 crates/client          the light client an application's own tools link
+crates/flow            harnix-flow, the flow library: definitions, runs, the kernel and the runner,
+                       sessions through SessionHost; nothing of Harnix or Agix, copyable whole
 crates/cli             the `harnix` binary: every first-party extension, with flows and schedules
 crates/testapp         an application for the tests
 ui/packages/           @harnix/core (protocol, client, session state), @harnix/react (host API,
                        contribution registry, i18n, tokens), @harnix/shell (the shell core),
-                       one UI package per first-party extension (@harnix/system, harnix-app, …),
+                       one UI package per first-party extension (@harnix/harnix-app, flow, …),
                        @harnix/testkit, @harnix/ext-sdk and @harnix/ext-kit (a package's page in
                        its frame)
 templates/             app (a new application), desktop (the Tauri shell)
@@ -171,7 +175,7 @@ What you write, and where it goes:
 | Backend behaviour | a native extension (`harnix::ext::Extension`): methods, topics, routes, native tools, scenes, templates | [extensions](docs/harnix-ext.md) |
 | An interface of your own | a space and contributions (`spaces/*/ui`, built into the shell) | [contribution points](docs/contribution_points.md) |
 | Your look | `[brand]`, theme tokens, language packs | [extensions](docs/harnix-ext.md) |
-| Agents that follow a process | flows: stations, skills, rules, policies, gates, hooks | the guide in the system space's flows, `crates/ext/flow/docs/guide.*.md` |
+| Agents that follow a process | flows: stations, skills, rules, policies, gates, hooks | the flow space's Reference tab, `crates/flow/docs/guide.*.md` |
 | A desktop app | `templates/desktop` (Tauri 2, local or remote) | `templates/desktop/README.md` |
 | Let others add to your product | an extension package: a signed `.hxext` with a WebAssembly backend, an Agix plugin, an isolated interface — in your process (mode 2) or in one of its own (mode 3) | [extension packages](docs/harnix-ext-package.md) |
 | Tests against the real binary | `@harnix/testkit`: replayed model calls, API and browser suites | [testing](docs/testing.md) |
@@ -185,7 +189,7 @@ icon = "brand.svg"
 product_id = "hello-app"            # state in ~/.hello-app
 
 [extensions]
-off = ["system"]                    # linked-in extensions to switch off, with their rows
+off = ["flow"]                      # linked-in extensions to switch off, with their rows
 
 [ext.greeter]                       # each extension's own section
 ```
@@ -194,26 +198,27 @@ off = ["system"]                    # linked-in extensions to switch off, with t
 |---|---|
 | `--profile` | the profile above; every section has an owner and refuses keys it does not know |
 | `--port` / `--host` | `4080` / `127.0.0.1`; a non-loopback bind needs TLS and paired devices |
-| `--agix-dir` | the engine's directory: `$AGIX_CONFIG_HOME`, then `~/.agix` |
+| `--engine-dir` | the engine's directory: `engine/` in the program's state, by default |
 | `--data-dir` | where projects are: `$HARNIX_DATA_DIR`, then `~/Documents` |
 | `--ui-dir` / `--headless` | serve the interface from a directory / serve none |
 | `--launch-link` | keep the token out of the page: browsers come in through one-time links |
 
 The program's own state is in `~/.<product_id>/` (`~/.harnix` by default, `HARNIX_STATE_DIR` moves
-it); the engine's in `~/.agix/`; projects in `~/Documents/`, with nothing hidden in it.
+it), the engine's directory in it (`engine/`); projects in `~/Documents/`, with nothing hidden in it;
+a project's own settings and data in its `.harnix/`.
 
 ## Documentation
 
 | Document | For |
 |---|---|
-| [docs/concept_and_architecture.md](docs/concept_and_architecture.md) | What Harnix is — framework, Harnix app, system space — its parts, and why each boundary is where it is |
+| [docs/concept_and_architecture.md](docs/concept_and_architecture.md) | What Harnix is — the framework and its first-party extensions — its parts, and why each boundary is where it is |
 | [docs/app-development.md](docs/app-development.md) | The overview: the three modes (1 pure Rust; 2 Rust plus in-process extensions, the default; 3 Rust plus a process per extension, for high-security scenes), their resources, security and markets, how to choose, how the code is layered |
 | [docs/harnix-ext.md](docs/harnix-ext.md) | Native extensions, building an application in Rust: the guide, then every type, method, profile key, flag, directory and topic |
 | [docs/harnix-ext-package.md](docs/harnix-ext-package.md) | Writing an extension package (modes 2 and 3): package, manifest, WIT, interface, trust, store, tools, the two carriers; then its interfaces |
-| [docs/harnix-app.md](docs/harnix-app.md) | The Harnix app: the sessions and projects spaces, their profile knobs, how they are built |
-| [docs/system-space.md](docs/system-space.md) | The system space: agents, flows, extensions, diagnostics, the inspector, and where each reads from |
+| [docs/harnix-app.md](docs/harnix-app.md) | The Harnix app: the home page, the sessions and projects spaces, their profile knobs, how they are built; the right column's context and output, the flow space, the settings' diagnostics, and where each reads from |
 | [docs/contribution_points.md](docs/contribution_points.md) | The interface's contribution points, generated from the code |
 | [docs/testing.md](docs/testing.md) | The LIVE test framework: the check layers, the runner and topologies, recordings, the coverage table, testkit for applications |
+| [crates/flow/docs/embed.en.md](crates/flow/docs/embed.en.md) | Embedding the flow library in another host: what it needs, `SessionHost`, where it writes, versions and formats, copying it |
 | [docs/glossary.md](docs/glossary.md) | The words, used one way |
 
 *The documents are written in Chinese.* Requests from applications built on Harnix are

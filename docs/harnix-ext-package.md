@@ -411,7 +411,7 @@ export!(Ext);
   `engine.plugin.install` 装进 `[agent] install_into` 列出的每台实例，随包启停（`engine.plugin.enable` / `disable`），卸载时撤掉。
   所以包的安装方（`packages`）要持 `engine.plugins`。
 - **skill**：`agent/skills/<名字>/` 不进实例，而是装、升级时拷到 `<状态目录>/ext/<包 id>/skills/`，由中枢按会话列给引擎
-  （会话选项 `skill_dirs`）。声明了 `[[space]]` 的包，skill 只在自己的 space 里；没声明的，每个 space 都有；系统 space 看全部。
+  （会话选项 `skill_dirs`）。声明了 `[[space]]` 的包，skill 只在自己的 space 里；没声明的，每个 space 都有；`cross_space()` 的 space 看全部。
   `[agent] install_into` 只管 agent 包，不管 skill。attach 的实例不给目录（外面的 daemon 不一定在这台机器上）。包停用、卸载后，
   内存里的会话立刻不再列它，冷会话在下次被打开时对上；会话 `move` 到别的 space 时目录跟着换。这个目录归 `packages` 写，升级时在目录里逐项
   替换而不换目录本身（引擎监视的是这个目录）；模式 3 的沙箱放行它的读。引擎拒绝的位置（项目里、可写目录里）会被略去，会话照建。
@@ -610,7 +610,7 @@ ext.onEnv((env) => (document.documentElement.dataset.theme = env.theme));
 - **卸载**：`packages.uninstall {id}`：停下，撤掉安装放进去的一切（Agix 插件、skill、界面），删掉它的目录，连同数据。
 - **清数据**：`packages.clearData {id}`：只删它存的东西（`run/` 下的数据目录与 kv）；在跑的先停、清完再起（`init` 从空开始）。
 - **从文件装**：`packages.installFile {path}`：签了的验签后装；未签名的只在 `[ext.packages] dev = true` 时装。
-- **界面**：设置 → 扩展包（`@harnix/packages`：装、升、卸、启停、同意、数据大小与清空；披露是一个模态框），系统 space 控制台的「扩展包」页签（只看，[系统 space](system-space.md)）。
+- **界面**：设置 → 扩展包（`@harnix/packages`：装、升、卸、启停、同意、数据大小与清空；披露是一个模态框），设置 → 诊断里的「扩展包运行状况」（只看，[Harnix app](harnix-app.md) §12.1）。
   模式 3 的行带「无沙箱」标记（沙箱没套上时），`off` 与 `unavailable` 标红并带原因。
 - 产品可以换自己的商店（`[ext.packages] store`）与受信发布者，也可以不开商店，只用开发模式的 `installFile`。
 
@@ -941,7 +941,7 @@ greeting = "hi"
 
 | 东西 | 名字 |
 |---|---|
-| 包 id、扩展 id | `<发布者>.<名字>`，例如 `acme.notes`；第一段是保留字（`harnix`、`engine`、`ext`、`topic`、`route`、`proc`、`ctl`、`agix`）、第一方扩展的 id（`system`、`harnix-app`、`settings`、`plugins`、`observability`、`devices`、`flow`、`schedule`、`packages`）或产品链进的原生扩展 id，装的时候就拒 |
+| 包 id、扩展 id | `<发布者>.<名字>`，例如 `acme.notes`；第一段是保留字（`harnix`、`engine`、`ext`、`topic`、`route`、`proc`、`ctl`、`agix`）、第一方扩展的 id（`harnix-app`、`settings`、`plugins`、`observability`、`devices`、`flow`、`schedule`、`packages`）或产品链进的原生扩展 id，装的时候就拒 |
 | 方法、主题 | `<id>.<名字>`，例如 `acme.notes.notes.list`；名字的所有者是已登记的、整段前缀匹配的最长 id：原生与包跨类重叠一律拒，原生优先，包标 `failed: namespace_taken` |
 | 后端 space、界面 space | `<id>` 或 `<id>.<名字>` |
 | 会话里的工具（进程内与 spawn 的 daemon 里一样） | `ext__<id 的 . 换成 _>__<工具>`，例如 `ext__acme_notes__search` |

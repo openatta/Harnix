@@ -75,7 +75,7 @@ mod tests {
     use super::*;
 
     fn skill(name: &str, tier: SkillTier, dir: Option<&str>) -> SkillRow {
-        SkillRow { name: name.into(), description: String::new(), tier, dir: dir.map(str::to_string), package: None, plugin: None, withheld: false }
+        SkillRow { name: name.into(), description: String::new(), tier, dir: dir.map(str::to_string), user_tier: None, package: None, plugin: None, withheld: false }
     }
 
     #[test]

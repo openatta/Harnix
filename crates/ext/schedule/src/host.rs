@@ -70,8 +70,13 @@ impl Host for Hub {
         self.cx.call("harnix.session.queue.edit", params).await.is_ok()
     }
 
-    async fn create_session(&self, space: &str, t: &NewSessionTarget) -> Result<SessionKey, RpcError> {
-        let mut spec = SessionSpec::new();
+    async fn create_session(
+        &self,
+        space: &str,
+        t: &NewSessionTarget,
+        session_id: &str,
+    ) -> Result<(SessionKey, bool), RpcError> {
+        let mut spec = SessionSpec::new().session_id(session_id);
         if let Some(root) = &t.project_root {
             spec = spec.project_root(root);
         }
@@ -87,8 +92,14 @@ impl Host for Hub {
         if let Some(model) = &t.model {
             spec = spec.model(model);
         }
-        let s = self.cx.sessions().in_space(space).create(spec).await?;
-        Ok(SessionKey { instance: s.instance, session_id: s.session_id })
+        let made = self.cx.sessions().in_space(space).open_or_create(spec).await?;
+        Ok((SessionKey { instance: made.session.instance, session_id: made.session.session_id }, made.existed))
+    }
+
+    async fn session_started(&self, space: &str, session: &SessionKey) -> Result<bool, RpcError> {
+        let got = self.cx.call("engine.session.get", named(space, session)).await?;
+        let messages = got.get("message_count").and_then(Value::as_u64).unwrap_or(0);
+        Ok(messages > 0 || field(&got, "turn_state").is_some_and(|s| s != "idle"))
     }
 
     async fn rename(&self, space: &str, session: &SessionKey, title: &str) -> Result<(), RpcError> {
@@ -107,7 +118,7 @@ impl Host for Hub {
         if !t.inputs.is_null() {
             params["inputs"] = t.inputs.clone();
         }
-        for (k, v) in [("title", &t.title), ("output_dir", &t.output_dir), ("workspace", &t.workspace), ("show_in_space", &t.show_in_space)] {
+        for (k, v) in [("title", &t.title), ("output_dir", &t.output_dir), ("workspace", &t.workspace), ("shown_in", &t.shown_in)] {
             if let Some(v) = v {
                 params[k] = json!(v);
             }

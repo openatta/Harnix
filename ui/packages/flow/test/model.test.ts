@@ -189,7 +189,7 @@ describe("wire helpers", () => {
   it("reads the kernel's shapes: the pinned definition, open stations, check status, digests", () => {
     const def = { name: "f", stations: [] };
     const by = { kind: "device", id: "x" };
-    const record = { id: "r", flow: "f", def_digest: "d", subject: "s", inputs: {}, status: "active" as const, rev: 1, seq: 0, created_at: 1, created_by: by, stations: {}, workspace: "scratch" as const, trigger: { kind: "manual" as const, by } };
+    const record = { format: 1, id: "r", flow: "f", def_digest: "d", subject: "s", inputs: {}, status: "active" as const, rev: 1, seq: 0, created_at: 1, created_by: by, stations: {}, workspace: "scratch" as const, trigger: { kind: "manual" as const, by } };
     expect(defOf({ record: { ...record, def } })).toBe(def);
     const summary = { id: "r", flow: "f", subject: "s", status: "active" as const, rev: 1, created_at: 1, workspace: "scratch" as const, trigger: { kind: "manual" as const, by } };
     expect(openOf({ ...summary, open: ["a"] })).toEqual(["a"]);
@@ -360,7 +360,7 @@ describe("what a run is doing and what it spent (xops-03)", () => {
   });
 
   it("finds the main session under @main", () => {
-    expect(mainSessionOf({ session_keys: { "@main": "box/m1", run: "main/x" } })).toEqual({ instance: "box", sessionId: "m1" });
+    expect(mainSessionOf({ session_keys: { "@main": { id: "box/m1" }, run: { id: "main/x" } } })).toEqual({ instance: "box", sessionId: "m1" });
     expect(mainSessionOf({ session_keys: {} })).toBe(null);
   });
 

@@ -10,15 +10,15 @@
  * A flow's station boundaries come from the outline's marks; the feedback given on a turn marks the
  * turn's last call.
  *
- * Drawn in the centre as a `conversation.view`, and in the system space's inspector (`compact`:
- * the inspector takes the list's place while a call is open; `inSystem`: a way into the session).
+ * Drawn in the centre as a `conversation.view`; `compact` has the inspector take the list's place
+ * while a call is open, for a narrow column.
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { FEEDBACK_NS, parseFeedback, type Feedback, type OutlineTurn, type SessionEntry, type TurnSummary } from "@harnix/core";
 import { Glyph, clip, compact, rowKeys, useT, type HostSessionRef as SessionKey } from "@harnix/react";
 
-import { Failure, RunNote, openTrajectory, seconds, sessionParams, usageText, type Observed, type Run, type TraceCall } from "../shared.tsx";
+import { Failure, RunNote, seconds, sessionParams, usageText, type Observed, type Run, type TraceCall } from "../shared.tsx";
 import { CallDetail } from "./Inspector.tsx";
 import {
   UNFOLDED,
@@ -51,7 +51,7 @@ type Level = "turns" | "calls" | "agents";
 /** The context column on a turn's row: how much it grew since the turn before, or the running total. */
 type ContextMode = "delta" | "total";
 
-export function Trajectory({ observed, session, tool, compact: compactMode = false, inSystem = false }: { observed: Observed; session: SessionKey; tool?: string; compact?: boolean; inSystem?: boolean }) {
+export function Trajectory({ observed, session, tool, compact: compactMode = false }: { observed: Observed; session: SessionKey; tool?: string; compact?: boolean }) {
   const tr = useT();
   const host = observed.host;
   const [calls, setCalls] = useState<TraceCall[] | null>(null);
@@ -166,12 +166,12 @@ export function Trajectory({ observed, session, tool, compact: compactMode = fal
             <div className="tools-row">
               {(["all", "failed", "tools"] as Filter[]).map((f) => (
                 <button type="button" key={f} className={`btn sm outline${narrowing.filter === f ? " on" : ""}`} data-filter={f} aria-pressed={narrowing.filter === f} onClick={() => setNarrowing({ ...narrowing, filter: f })}>
-                  {tr(`system.filter.${f}`)}
+                  {tr(`obs.filter.${f}`)}
                 </button>
               ))}
               {firstFailure ? (
                 <button type="button" className="btn sm outline" data-testid="jump-to-failure" onClick={() => jump(firstFailure.index)}>
-                  {tr("system.jumpToFailure")}
+                  {tr("obs.jumpToFailure")}
                 </button>
               ) : null}
               <span className="sp" />
@@ -188,19 +188,14 @@ export function Trajectory({ observed, session, tool, compact: compactMode = fal
                   {tr(`trajectory.fold.${level}`)}
                 </button>
               ))}
-              {inSystem ? (
-                <button type="button" className="btn sm outline" data-testid="traj-open-session" onClick={() => void openTrajectory(host, session)}>
-                  {tr("trajectory.openInSession")}
-                </button>
-              ) : null}
             </div>
             <div className="tools-row">
-              <input className="search" type="search" data-testid="calls-search" placeholder={tr("system.searchCalls")} value={narrowing.query} onChange={(e) => setNarrowing({ ...narrowing, query: e.target.value })} />
+              <input className="search" type="search" data-testid="calls-search" placeholder={tr("obs.searchCalls")} value={narrowing.query} onChange={(e) => setNarrowing({ ...narrowing, query: e.target.value })} />
               {turns.length ? (
-                <span className="seg" role="group" aria-label={tr("system.turns.context")}>
+                <span className="seg" role="group" aria-label={tr("obs.turns.context")}>
                   {(["delta", "total"] as const).map((m) => (
                     <button type="button" key={m} className={`btn sm outline${contextMode === m ? " on" : ""}`} data-testid={`turns-${m}`} aria-pressed={contextMode === m} onClick={() => setContextMode(m)}>
-                      {tr(`system.turns.${m}`)}
+                      {tr(`obs.turns.${m}`)}
                     </button>
                   ))}
                 </span>
@@ -215,7 +210,7 @@ export function Trajectory({ observed, session, tool, compact: compactMode = fal
           <div className="traj-body">
             {!all.length && !groups.length ? (
               <div className="empty" data-testid="traj-empty">
-                {tr("system.noCalls")}
+                {tr("obs.noCalls")}
               </div>
             ) : (
               <Rows
@@ -308,7 +303,7 @@ function Rows({
       ) : null}
       {!rows.length ? (
         <div className="note" data-testid="calls-none">
-          {tr("system.noMatchingCalls")}
+          {tr("obs.noMatchingCalls")}
         </div>
       ) : null}
       <div style={{ height: win.above }} />
@@ -368,7 +363,7 @@ function TrajectoryRow({
           onKeyDown={rowKeys(() => onFold("turns", g.key), { open, set: () => onFold("turns", g.key) })}
         >
           <Glyph name="chevronRight" className={`glyph chev${open ? " open" : ""}`} />
-          <b>{g.between ? tr("trajectory.between") : tr("system.turn", { turn: g.ordinal })}</b>
+          <b>{g.between ? tr("trajectory.between") : tr("obs.turn", { turn: g.ordinal })}</b>
           {g.marks.map((mark, i) => (
             <span key={i} className="kd mark" data-testid="turn-mark" data-kind={mark.kind} title={mark.kind}>
               {mark.label}
@@ -381,10 +376,10 @@ function TrajectoryRow({
             {g.agents.length ? ` · ${tr("trajectory.turnAgents", { count: g.agents.length })}` : ""}
             {sum ? (
               <>
-                {` · ${tr("system.turns.ttft")} ${seconds(sum.ttft_ms)} · ${tr("system.turns.model")} ${seconds(sum.model_ms)} · ${tr("system.turns.tools")} ${seconds(sum.tool_ms)} · ${compact(sum.input_tokens)} / ${compact(sum.output_tokens)} · `}
+                {` · ${tr("obs.turns.ttft")} ${seconds(sum.ttft_ms)} · ${tr("obs.turns.model")} ${seconds(sum.model_ms)} · ${tr("obs.turns.tools")} ${seconds(sum.tool_ms)} · ${compact(sum.input_tokens)} / ${compact(sum.output_tokens)} · `}
                 <span data-testid="turn-cache">{pctOf(sum.cache_hit)}</span>
                 {sum.tokens_per_s != null ? ` · ${sum.tokens_per_s} tok/s` : ""}
-                {` · ${contextMode === "delta" ? tr("system.turns.contextDelta") : tr("system.turns.context")} `}
+                {` · ${contextMode === "delta" ? tr("obs.turns.contextDelta") : tr("obs.turns.context")} `}
                 <span data-testid="turn-context">{contextMode === "delta" ? signed(sum.context_delta) : sum.context_tokens != null ? compact(sum.context_tokens) : "—"}</span>
               </>
             ) : (
@@ -472,7 +467,7 @@ function TrajectoryRow({
             ) : (
               <span className="chev-btn none" />
             )}
-            <span className="kd2 k-model">{row.agent ? tr("trajectory.kind.agentCall") : tr("system.step.model")}</span>
+            <span className="kd2 k-model">{row.agent ? tr("trajectory.kind.agentCall") : tr("obs.step.model")}</span>
             <b>#{c.step + 1}</b>
             {row.feedback ? (
               <span className={`kd fb ${row.feedback.rating}`} data-testid="traj-feedback" data-rating={row.feedback.rating ?? undefined} title={[row.feedback.category, row.feedback.note].filter(Boolean).join(" · ")}>
@@ -481,12 +476,12 @@ function TrajectoryRow({
             ) : null}
             <span className="r">
               {c.model} · {usageText(c.usage)} · {seconds(c.duration_ms)}
-              {c.timing?.ttft_ms != null ? <span data-testid="call-ttft"> · {tr("system.ttft", { ms: c.timing.ttft_ms })}</span> : null}
-              {c.timing?.tokens_per_s != null ? ` · ${tr("system.rate", { rate: c.timing.tokens_per_s })}` : ""} · {c.stop_reason ?? c.status}
+              {c.timing?.ttft_ms != null ? <span data-testid="call-ttft"> · {tr("obs.ttft", { ms: c.timing.ttft_ms })}</span> : null}
+              {c.timing?.tokens_per_s != null ? ` · ${tr("obs.rate", { rate: c.timing.tokens_per_s })}` : ""} · {c.stop_reason ?? c.status}
             </span>
           </div>
           <div className="l2">
-            <span className="in">{tr("system.callIn", { blocks: c.input.system.length, tools: c.input.tools, messages: c.input.messages })}</span>
+            <span className="in">{tr("obs.callIn", { blocks: c.input.system.length, tools: c.input.tools, messages: c.input.messages })}</span>
             <span className="arrow">→</span>
             <span className="out">{callOut(c, tr)}</span>
           </div>
@@ -506,11 +501,11 @@ function TrajectoryRow({
           style={indent}
           onClick={() => onSelect(row.call.index)}
         >
-          <span className="kd2 k-tool">{tr("system.step.tool")}</span>
+          <span className="kd2 k-tool">{tr("obs.step.tool")}</span>
           <b>{t.name}</b>
           <span className="r" title={t.input_preview ?? undefined}>
-            {t.input_preview ?? tr("system.toolDetailHint")}
-            {t.result_is_error ? ` · ${tr("system.error")}` : ""}
+            {t.input_preview ?? tr("obs.toolDetailHint")}
+            {t.result_is_error ? ` · ${tr("obs.error")}` : ""}
           </span>
         </button>
       );
@@ -519,9 +514,9 @@ function TrajectoryRow({
 }
 
 function callOut(call: TraceCall, tr: (k: string, v?: Record<string, unknown>) => string): string {
-  if (call.status === "error") return `${tr("system.error")}: ${call.error?.message || call.error?.kind || ""}`;
+  if (call.status === "error") return `${tr("obs.error")}: ${call.error?.message || call.error?.kind || ""}`;
   if (call.output.text_preview) return call.output.text_preview;
   const tools = call.tools.map((tool) => `tool_use: ${tool.name}`).join(", ");
-  const text = call.output.chars ? tr("system.callOutChars", { chars: call.output.chars }) : "";
+  const text = call.output.chars ? tr("obs.callOutChars", { chars: call.output.chars }) : "";
   return [text, tools].filter(Boolean).join(" · ") || "—";
 }

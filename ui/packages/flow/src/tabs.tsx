@@ -368,7 +368,7 @@ export function FlowDetail({ state, tabs, flow, summary, station }: TabProps & {
           onStarted={(run) => {
             setStarting(false);
             if (run) {
-              state.showRun(run);
+              state.showRun(run, flow);
               state.openList(tabs.runs);
             }
           }}
@@ -455,7 +455,7 @@ function useDryStart(state: FlowSpaceState, tabs: FlowTabs) {
       const id = runIdOf(await nest.call(methodName(state.module, "dry_run.start"), { flow }));
       if (id) {
         state.openList(tabs.runs);
-        state.showRun(id);
+        state.showRun(id, flow);
       }
     } catch (e) {
       setError(errorText(e));
@@ -573,7 +573,7 @@ export function RunsTab({ state, onPick }: ListProps) {
                 data-phase={r.phase.state}
                 data-dry={r.dry ? "true" : undefined}
                 aria-current={sel.run === r.id ? "true" : undefined}
-                onClick={() => (onPick ? onPick(r.id, r.flow) : state.showRun(sel.run === r.id ? null : r.id))}
+                onClick={() => (onPick ? onPick(r.id, r.flow) : state.showRun(sel.run === r.id ? null : r.id, r.flow))}
               >
                 <span className="hx-flow-row-title">
                   <PhaseBadge phase={r.phase} />
@@ -601,7 +601,7 @@ export function RunDetail({ state, run, station }: { state: FlowSpaceState; run:
   const t = useT();
   const view = useRunView(state.module, run);
   // A run just started has its main session a moment later: the middle goes to it then.
-  const main = view?.record.session_keys?.[MAIN_SESSION_KEY] ?? null;
+  const main = view?.record.session_keys?.[MAIN_SESSION_KEY]?.id ?? null;
   useEffect(() => {
     if (main && state.get().run === run) void state.centre();
   }, [state, run, main]);

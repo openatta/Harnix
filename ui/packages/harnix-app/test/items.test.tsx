@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { HostProvider, Registry, type HostApi, type MenuItem } from "@harnix/react";
 
-import { INBOX, PROJECT_ITEMS, PROJECT_PANELS, SESSION_BADGE, extension, interleave, register, type ProjectItemKind, type ProjectItemRow, type SessionBadge } from "../src/index.tsx";
+import { HOME_PANELS, INBOX, PROJECT_ITEMS, PROJECT_PANELS, SESSION_BADGE, extension, interleave, register, type ProjectItemKind, type ProjectItemRow, type SessionBadge } from "../src/index.tsx";
 
 afterEach(() => {
   cleanup();
@@ -87,7 +87,7 @@ async function drawn(host: HostApi, kind?: ProjectItemKind) {
 }
 
 describe("the projects space's points", () => {
-  it("defines the item kinds, the overview panels, the session rows' badges and the inbox's sources for others to fill", () => {
+  it("defines the item kinds, the overview panels, the session rows' badges, the inbox's sources and the home page's blocks for others to fill", () => {
     const r = new Registry();
     const host = fakeHost();
     r.activate(extension, () => register(r, host));
@@ -96,6 +96,7 @@ describe("the projects space's points", () => {
       [PROJECT_PANELS, "harnix-app", "render"],
       [SESSION_BADGE, "harnix-app", "render"],
       [INBOX, "harnix-app", "register"],
+      [HOME_PANELS, "harnix-app", "render"],
     ]);
     expect(r.refusals()).toEqual([]);
   });

@@ -112,7 +112,7 @@ describe("the editor", () => {
   it("a task in the project it was opened from: flows of the project, its inputs, shown where the opener lists sessions", async () => {
     const defs = [{ name: "example-review", title: "Example: review", valid: true, inputs: { type: "object", properties: { target: { type: "string" } }, required: ["target"] } }];
     const fake = fakeHost((method) => (method === "flow.defs" ? defs : method === "schedule.create" ? schedule() : {}));
-    const { page } = await editor(fake, { kinds: ["new_session", "task"], project: ROOT, space: "sessions", showInSpace: "sessions" });
+    const { page } = await editor(fake, { kinds: ["new_session", "task"], project: ROOT, space: "sessions", shownIn: "sessions" });
     expect(page.getByTestId("schedule-project-fixed").textContent).toBe(ROOT);
     fireEvent.click(page.getByTestId("schedule-target-task"));
     await settle();
@@ -131,7 +131,7 @@ describe("the editor", () => {
     expect(fake.calls.find(([m]) => m === "schedule.create")?.[1]).toMatchObject({
       space: "sessions",
       concurrency: "parallel",
-      target: { kind: "task", flow: "example-review", subject: "the repo", inputs: { target: "src/" }, project_root: ROOT, show_in_space: "sessions" },
+      target: { kind: "task", flow: "example-review", subject: "the repo", inputs: { target: "src/" }, project_root: ROOT, shown_in: "sessions" },
     });
   });
 

@@ -1,0 +1,23 @@
+# The demo's external hand-in → approval: someone outside claims and hands in a link, a command
+# gate checks it is https (a failed check sends the station back), a manager sends it back once,
+# then approves.
+pack: /tests/golden/packs/demo
+catalog: {scenes: [flow-harnix], submit_scenes: [flow-harnix], main_scene: flow-harnix, command_gates: true}
+flow: demo-handoff
+subject: the vendor's materials
+steps:
+  - main: {session: s1, opened_with: {scene: flow-harnix, delivery: flow_submit, main: true}}
+  - advance: {ms: 1000}
+  - submit: {station: prepare, output: {link: "http://example.com/pack.zip"}}
+  - gate: {station: prepare, gate: link-reachable, pass: false, detail: the link is not https}
+  - rework: {to: prepare, reason: the link is not https}
+  - advance: {ms: 1000}
+  - submit: {station: prepare, output: {link: "https://example.com/pack.zip"}}
+  - gate: {station: prepare, gate: link-reachable, pass: true}
+  - confirm: {station: approve, pass: false, reason: the wrong version}
+  - rework: {to: prepare, reason: the wrong version}
+  - advance: {ms: 1000}
+  - submit: {station: prepare, output: {link: "https://example.com/pack-v2.zip"}}
+  - gate: {station: prepare, gate: link-reachable, pass: true}
+  - confirm: {station: approve, pass: true}
+status: finished

@@ -1,33 +1,29 @@
 /**
- * `registerFlowSpace()`: the flow module's components put together as one space (xops-02 §7). The
- * shell registers it itself when the backend has the flow module; an application that builds its
- * own shell may call it too.
+ * `registerFlowSpace()`: the flow module's components put together as one space (xops-02 §7), the
+ * place flows are managed — listed at the bottom of the left column, as it is about the
+ * application's toolchain and not one of its surfaces. The shell registers it itself when the
+ * backend has the flow module; an application that builds its own shell may call it too.
  *
- *   left    the space's conversations (the shell's own list)
- *   centre  the conversation of what is selected on the right (xops-03 §6): a flow's own
- *           (`flow-author`, whose tools write and run it), a run's main session, or the general
- *           one; the line over the composer names its flow                (`composerNotice`)
- *   right   flows · runs · reference: the lists, shown, never edited here    (`tabs`)
+ *   left    the flows, the selected one's runs and its own conversation, the general
+ *           conversation; the way back while a task was entered from elsewhere    (`FlowSidebar`)
+ *   centre  the conversation of what is selected (xops-03 §6): a flow's own (`flow-author`, whose
+ *           tools write and run it), a run's main session, or the general one; the line over the
+ *           composer names its flow                                          (`composerNotice`)
+ *   right   flows · runs · reference: the lists, filtered and sorted, never edited here  (`tabs`)
  *   beside  the selected flow's or run's details, between the centre and the right column
- *           (`secondary`, xops-04 §7); closing it lets go of the selection there
+ *           (`secondary`, xops-04 §7); closing it keeps the selection and only hides the panel
  *
  * An empty conversation says what it is for (`emptyConversation`).
- *
- * `registerSystemFlows()` puts the same parts inside another space — the system space — instead:
- * the flows listed on its page, and the left column a flow's context once one is clicked there
- * (`context.tsx`). The shell does that when it has the system space.
  *
  * See `FlowSpaceState`. Also the `flow.block` that draws a session's proposal, and the `flowui`
  * strings.
  */
 
-import type { ReactNode } from "react";
 import { t as translate, type HostSessionRef, type HostApi, type Registry, type SpaceContribution } from "@harnix/react";
-
-import { FlowContext, SystemFlows } from "./context";
 
 import { actorLabel, proposalHandledOf, proposalOf, type BlockShape } from "./model";
 import { ProposalCard } from "./ProposalCard";
+import { FlowSidebar } from "./sidebar";
 import { FlowSpaceState } from "./state";
 import { registerFlowStrings, STRINGS_OWNER } from "./strings";
 import { EmptyConversation, FlowSecondary, FlowsTab, FocusNotice, ReferenceTab, RunsTab, type FlowTabs } from "./tabs";
@@ -73,6 +69,7 @@ export function registerFlowSpace(registry: Registry, options: FlowSpaceOptions 
     "space",
     {
       ...parts,
+      sidebar: { render: () => <FlowSidebar state={state} /> },
       details: {
         ...parts.details,
         initial: "open",
@@ -89,59 +86,15 @@ export function registerFlowSpace(registry: Registry, options: FlowSpaceOptions 
   return { state, space, module, tabs };
 }
 
-export interface SystemFlowsOptions extends FlowSpaceOptions {
-  /** The space the flows are shown inside; "system" by default. */
-  within?: string;
-}
-
-export interface SystemFlowsView extends FlowSpace {
-  /** The space they are shown inside. */
-  within: string;
-  /** What that space's page draws for them: the flows and the runs, a click going into one. */
-  render(): ReactNode;
-}
-
-/**
- * The flows inside another space — the system space by default — rather than a space of their own.
- * Registered: a space with the id `space` (the backend space of the `flow-author` conversations,
- * so they are claimed as before) shown inside `within` (`SpaceContribution.within`, not listed); the
- * host space's page draws `render()` and a click there enters the flow. Its left column is the
- * flow's context with the way back; the middle and the panel beside it as in the flow space; the
- * reference is the right column's one tab.
- */
-export function registerSystemFlows(registry: Registry, options: SystemFlowsOptions = {}): SystemFlowsView {
-  const space = options.space ?? "flow";
-  const module = options.module ?? "flow";
-  const within = options.within ?? "system";
-  const owner = options.owner ?? STRINGS_OWNER;
-  const tabs: FlowTabs = { flows: `${space}.flows`, runs: `${space}.runs`, reference: `${space}.reference` };
-  const state = new FlowSpaceState(space, module, tabs, { within, registry });
-  if (options.host) state.attach(options.host);
-
-  registerFlowStrings(registry);
-
-  const parts = conversationParts(state, tabs, options);
-  registry.register(
-    "space",
-    {
-      ...parts,
-      within,
-      details: { ...parts.details, initial: "closed", tabs: [{ id: tabs.reference, title: () => translate("flowui.tab.reference"), render: () => <ReferenceTab state={state} /> }] },
-      sidebar: { render: () => <FlowContext state={state} /> },
-    },
-    owner,
-  );
-  registerBlocks(registry, space, module, owner);
-  return { state, space, module, tabs, within, render: () => <SystemFlows state={state} tabs={tabs} /> };
-}
-
-/** What the space is wherever it is shown: a conversation, the line over its composer, what an empty
- *  one is for, and the selection's details beside it. */
+/** What the space is: a conversation, the line over its composer, what an empty one is for, and the
+ *  selection's details beside it. */
 function conversationParts(state: FlowSpaceState, tabs: FlowTabs, options: FlowSpaceOptions): SpaceContribution {
   return {
     id: state.space,
     icon: options.icon ?? "fork",
-    order: options.order ?? 60,
+    order: options.order ?? 90,
+    // The toolchain, not one of the product's surfaces: at the bottom of the left column.
+    place: "bottom",
     ...(options.group !== undefined ? { group: options.group } : {}),
     title: () => options.title ?? translate("flowui.space"),
     conversation: {

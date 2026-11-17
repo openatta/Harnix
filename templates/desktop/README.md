@@ -67,7 +67,7 @@ HARNIX_DESKTOP_PROGRAM=/path/to/myapp ./target/debug/harnix-desktop --smoke
 
 壳以 `--host 127.0.0.1 --port <端口> --launch-link` 加上配置里的 `--profile` 与 `args` 启动应用。
 端口不配时每次挑一个空闲的，两个副本不会撞。子进程的工作目录是用户主目录（从桌面启动时壳自己在 `/`，
-而引擎会在工作目录下记 `.agix/`），所以 `args` 里的相对路径相对于主目录；`program`、`profile` 在交给
+而引擎会在工作目录下记项目数据目录 `.harnix/`，带品牌的应用是 `.<product_id>/`），所以 `args` 里的相对路径相对于主目录；`program`、`profile` 在交给
 子进程前已经换成绝对路径。
 
 **窗口怎么被准入。** 子进程开着 `--launch-link`，页面里不带令牌。壳从应用的状态目录读 `token` 文件

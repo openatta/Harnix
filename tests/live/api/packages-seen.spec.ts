@@ -4,8 +4,9 @@
  * space tier, from its package's directory (`harnix.session.skills`); the hooks a session's turns
  * run are its event hook among this process's own, and a hook the project configures, said by its
  * kind and matcher only and held back while the project is untrusted (`harnix.session.hooks`);
- * its backend's own log is in its extension log (`system.extensions.log`), which a device reads
- * through the system space alone.
+ * a skill of the engine's own user tiers says which — global or the scene's;
+ * its backend's own log is in its extension log, which a device reads through
+ * `observability.extensions.log` alone (harnix-app.md §12).
  *
  * On both carriers: the process carrier's package logs to its process's stderr, read as its lines.
  */
@@ -13,7 +14,7 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { REFUSED, SPACE_MISMATCH } from "@harnix/core/protocol";
+import { INVALID_PARAMS, REFUSED, SPACE_MISMATCH } from "@harnix/core/protocol";
 import { type Backend, type TestClient, carrier, connect, expect, sleep, test, topology } from "@harnix/testkit";
 
 import { SHOWCASE_ID, showcasePackage, startApps } from "./packages-host";
@@ -70,6 +71,35 @@ test.describe("what a session sees, and each extension's log", () => {
     expect(seen.dirs.find((d: any) => d.package === SHOWCASE_ID)?.skills).toContain("showcase-tour");
   });
 
+  test("a skill of the engine's user tiers says which: the global skills or the scene's, and the directory it was read from", TAGS, async () => {
+    const engine = join(backend.scratch, "engine");
+    const skill = (dir: string, name: string) => {
+      mkdirSync(join(dir, name), { recursive: true });
+      writeFileSync(join(dir, name, "SKILL.md"), `---\nname: ${name}\ndescription: a skill of a user tier\n---\nSay ${name}.\n`);
+    };
+    // The scene a new session of the main instance runs in, from one made to ask.
+    const probe = await api.call("harnix.session.create", { instance: "main", project_root: api.project });
+    const { scene } = await api.call("engine.session.get", { instance: "main", session_id: probe.session_id });
+    const global = join(engine, "skills");
+    const own = join(engine, "scenes", scene, "skills");
+    skill(global, "hx-global-skill");
+    skill(own, "hx-scene-skill");
+    try {
+      const created = await api.call("harnix.session.create", { instance: "main", project_root: api.project });
+      const s = { instance: "main", session_id: created.session_id };
+      await api.call("harnix.session.attach", s);
+      const seen = await api.call("harnix.session.skills", s);
+      const text = JSON.stringify(seen.skills);
+      expect(seen.skills.find((k: any) => k.name === "hx-global-skill"), text).toMatchObject({ tier: "user", user_tier: "global", dir: global });
+      expect(seen.skills.find((k: any) => k.name === "hx-scene-skill"), text).toMatchObject({ tier: "user", user_tier: "scene", dir: own });
+      // A skill of another tier names no user tier.
+      expect(seen.skills.every((k: any) => k.tier === "user" || k.user_tier === undefined), text).toBe(true);
+    } finally {
+      rmSync(join(global, "hx-global-skill"), { recursive: true, force: true });
+      rmSync(join(own, "hx-scene-skill"), { recursive: true, force: true });
+    }
+  });
+
   test("a session of another space does not, and a claim that is not the session's is refused", TAGS, async () => {
     const created = await api.call("harnix.session.create", { instance: "main", project_root: api.project });
     const s = { instance: "main", session_id: created.session_id };
@@ -81,7 +111,7 @@ test.describe("what a session sees, and each extension's log", () => {
   });
 
   test("the hooks a session runs: this process's own, and the project's held back while it is untrusted, never by what they run", TAGS, async () => {
-    const settings = join(api.project, ".agix");
+    const settings = join(api.project, ".harnix");
     mkdirSync(settings, { recursive: true });
     writeFileSync(
       join(settings, "settings.json"),
@@ -116,12 +146,12 @@ test.describe("what a session sees, and each extension's log", () => {
     }
   });
 
-  test("its backend's own log is its extension's, read through the system space", TAGS, async () => {
+  test("its backend's own log is its extension's, read through observability: by extension, level, line and count", TAGS, async () => {
     // The backend says it started; waking it is enough.
     await api.call(`${SHOWCASE_ID}.state`);
     let lines: any[] = [];
     for (let i = 0; i < 40; i++) {
-      const log = await api.call("system.extensions.log", { extension: SHOWCASE_ID });
+      const log = await api.call("observability.extensions.log", { extension: SHOWCASE_ID });
       lines = log.lines;
       if (lines.some((l) => l.message.includes("the showcase's backend started"))) break;
       await sleep(250);
@@ -130,12 +160,17 @@ test.describe("what a session sees, and each extension's log", () => {
     expect(started, JSON.stringify(lines.slice(-10))).toMatchObject({ extension: SHOWCASE_ID, level: "info", origin: ON_PROCESS ? "process" : "package" });
     // Every line asked for is its; asked for errors only, the info line is not there.
     expect(lines.every((l) => l.extension === SHOWCASE_ID)).toBe(true);
-    const errors = await api.call("system.extensions.log", { extension: SHOWCASE_ID, level: "error" });
+    const errors = await api.call("observability.extensions.log", { extension: SHOWCASE_ID, level: "error" });
     expect(errors.lines.map((l: any) => l.message)).not.toContain(started.message);
     // From the newest line on, nothing older comes back.
-    const after = await api.call("system.extensions.log", { after: started.seq });
+    const after = await api.call("observability.extensions.log", { after: started.seq });
     expect(after.lines.every((l: any) => l.seq > started.seq)).toBe(true);
     expect(after.extensions.map((c: any) => c.extension)).toContain(SHOWCASE_ID);
+    // As many as asked for, the newest; a level that is none is the kernel's to refuse, passed on.
+    const one = await api.call("observability.extensions.log", { extension: SHOWCASE_ID, limit: 1 });
+    expect(one.lines).toHaveLength(1);
+    expect(one.lines[0].seq).toBeGreaterThanOrEqual(lines.at(-1).seq);
+    expect((await api.refused("observability.extensions.log", { level: "loud" }))?.code).toBe(INVALID_PARAMS);
     // The kernel's row is for an extension granted to look into the process, not a device.
     expect((await api.refused("harnix.extensions.log", {}))?.code).toBe(REFUSED);
   });

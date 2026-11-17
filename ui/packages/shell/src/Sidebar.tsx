@@ -6,7 +6,7 @@
  *
  * The avatar is the settings: its ring says how this page is connected, hovering says to what,
  * and a click opens the menu. A space that says `place: "bottom"` — about the process or the
- * product as a whole rather than one of its surfaces, the system space say — is entered from the
+ * product as a whole rather than one of its surfaces, the flow space say — is entered from the
  * bottom, above the avatar. One shown inside another (`within`) is not listed: the other's entry
  * is lit while it is in front.
  */

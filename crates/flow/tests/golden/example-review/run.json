@@ -1,0 +1,221 @@
+{
+  "created_at": 1794787200000,
+  "created_by": {
+    "id": "golden",
+    "kind": "device"
+  },
+  "def": {
+    "description": "The run's main Agent reviews the subject and lists what it finds; a person approves, or sends it back. Built into the Harnix app: save a changed copy and it overrides this one.",
+    "name": "example-review",
+    "stations": [
+      {
+        "executor": {
+          "kind": "session"
+        },
+        "exit": [
+          {
+            "kind": "output"
+          }
+        ],
+        "id": "review",
+        "output": {
+          "properties": {
+            "findings": {
+              "items": {
+                "properties": {
+                  "severity": {
+                    "enum": [
+                      "high",
+                      "medium",
+                      "low"
+                    ]
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "severity",
+                  "text"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "summary",
+            "findings"
+          ],
+          "type": "object"
+        },
+        "policies": [
+          "read-only"
+        ],
+        "rules": [
+          "review-honest"
+        ],
+        "skill": "review",
+        "title": "Review"
+      },
+      {
+        "exit": [
+          {
+            "kind": "confirm"
+          }
+        ],
+        "id": "approve",
+        "rework_to": [
+          "review"
+        ],
+        "title": "Approve"
+      }
+    ],
+    "title": "Example: review and approve"
+  },
+  "def_digest": "b16f0ebefefe1b29d301b8013d6339a795860a0578662b70f4d91c5543a2a7d6",
+  "finished_at": 1794787203000,
+  "flow": "example-review",
+  "format": 1,
+  "id": "example-review-1",
+  "inputs": {},
+  "parts": {
+    "policies": {
+      "read-only": {
+        "description": "A review changes nothing in the subject it reviews.",
+        "name": "read-only",
+        "permissions": [
+          {
+            "effect": "deny",
+            "message": "this station reviews; it changes nothing — put what should change in a finding",
+            "tools": [
+              "Write",
+              "Edit",
+              "NotebookEdit"
+            ]
+          }
+        ],
+        "title": "Look, do not touch"
+      }
+    }
+  },
+  "rev": 7,
+  "seq": 18,
+  "session_keys": {
+    "@main": {
+      "id": "s1",
+      "opened_with": {
+        "delivery": "flow_submit",
+        "main": true,
+        "scene": "flow-harnix"
+      }
+    }
+  },
+  "stations": {
+    "approve": {
+      "auto_reworks": 0,
+      "checks": [
+        {
+          "at": 1794787203000,
+          "cond": 0,
+          "kind": "confirm",
+          "label": "confirm",
+          "round": 2,
+          "status": "pass"
+        }
+      ],
+      "confirms": [
+        {
+          "at": 1794787202000,
+          "by": {
+            "id": "golden",
+            "kind": "device"
+          },
+          "pass": false,
+          "reason": "look at the tests too",
+          "round": 1
+        },
+        {
+          "at": 1794787203000,
+          "by": {
+            "id": "golden",
+            "kind": "device"
+          },
+          "pass": true,
+          "round": 2
+        }
+      ],
+      "entered_at": 1794787203000,
+      "left_at": 1794787203000,
+      "round": 2,
+      "rounds_total": 2,
+      "status": "passed"
+    },
+    "review": {
+      "auto_reworks": 0,
+      "checks": [
+        {
+          "at": 1794787203000,
+          "cond": 0,
+          "kind": "output",
+          "label": "output",
+          "round": 2,
+          "status": "pass"
+        }
+      ],
+      "entered_at": 1794787202000,
+      "left_at": 1794787203000,
+      "round": 2,
+      "rounds_total": 2,
+      "rule_digest": {
+        "review-honest": "b3f4542b7560740653a6ac54a511a9938d984bed8e7481379b6fd9f2b93bc101"
+      },
+      "skill_digest": {
+        "review": "534dd6449314835e1b86cadf8faec1dba158b667562090e2e0cff3361e0a5e6a"
+      },
+      "status": "passed",
+      "tasks": [
+        {
+          "attempt": 1,
+          "ended_at": 1794787203000,
+          "id": "review",
+          "lease": {
+            "by": {
+              "id": "dispatch",
+              "kind": "flow"
+            },
+            "until": 1794787802000
+          },
+          "output": {
+            "findings": [
+              {
+                "severity": "low",
+                "text": "a typo in the README"
+              },
+              {
+                "severity": "medium",
+                "text": "no test for the parser"
+              }
+            ],
+            "summary": "two things"
+          },
+          "started_at": 1794787202000,
+          "status": "submitted"
+        }
+      ]
+    }
+  },
+  "status": "finished",
+  "subject": "the repo",
+  "trigger": {
+    "by": {
+      "id": "golden",
+      "kind": "device"
+    },
+    "kind": "manual"
+  },
+  "workspace": "scratch"
+}

@@ -1,0 +1,260 @@
+{
+  "created_at": 1794787200000,
+  "created_by": {
+    "id": "golden",
+    "kind": "device"
+  },
+  "def": {
+    "name": "multi",
+    "stations": [
+      {
+        "executor": {
+          "kind": "program",
+          "step": "collect"
+        },
+        "exit": [
+          {
+            "kind": "output"
+          }
+        ],
+        "id": "collect",
+        "output": {
+          "required": [
+            "modules"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "executor": {
+          "kind": "session",
+          "scene": "harnix"
+        },
+        "exit": [
+          {
+            "kind": "output"
+          }
+        ],
+        "foreach": "${stations.collect.output.modules}",
+        "id": "analyze",
+        "max_parallel": 2,
+        "output": {
+          "required": [
+            "findings"
+          ],
+          "type": "object"
+        },
+        "skill": "analyze"
+      },
+      {
+        "exit": [
+          {
+            "kind": "output"
+          }
+        ],
+        "id": "report",
+        "output": {
+          "type": "object"
+        },
+        "rework_to": [
+          "analyze"
+        ],
+        "tasks": [
+          {
+            "executor": {
+              "kind": "program",
+              "step": "work"
+            },
+            "id": "summary"
+          },
+          {
+            "executor": {
+              "kind": "external",
+              "who": "reviewer"
+            },
+            "id": "sign"
+          }
+        ]
+      }
+    ]
+  },
+  "def_digest": "75212a96f514f5e8b95ebcbd74e40d3119f74c70c138725464f90b28d624e675",
+  "finished_at": 1794787201000,
+  "flow": "multi",
+  "format": 1,
+  "id": "multi-1",
+  "inputs": {},
+  "rev": 9,
+  "seq": 20,
+  "stations": {
+    "analyze": {
+      "auto_reworks": 0,
+      "checks": [
+        {
+          "at": 1794787200500,
+          "cond": 0,
+          "kind": "output",
+          "label": "output",
+          "round": 1,
+          "status": "pass"
+        }
+      ],
+      "entered_at": 1794787200000,
+      "left_at": 1794787200500,
+      "round": 1,
+      "rounds_total": 1,
+      "skill_digest": {
+        "analyze": "0f9c05379d10abb4abdc012dd3de3d11a6ef51e6970c5de5f273ca5a60a327b0"
+      },
+      "status": "passed",
+      "tasks": [
+        {
+          "attempt": 1,
+          "ended_at": 1794787200500,
+          "id": "core",
+          "item": "core",
+          "lease": {
+            "by": {
+              "id": "dispatch",
+              "kind": "flow"
+            },
+            "until": 1794787800000
+          },
+          "output": {
+            "findings": []
+          },
+          "session": "s1",
+          "started_at": 1794787200000,
+          "status": "submitted"
+        },
+        {
+          "attempt": 1,
+          "ended_at": 1794787200500,
+          "id": "ui",
+          "item": "ui",
+          "lease": {
+            "by": {
+              "id": "dispatch",
+              "kind": "flow"
+            },
+            "until": 1794787800000
+          },
+          "output": {
+            "findings": [
+              {
+                "text": "a race"
+              }
+            ]
+          },
+          "session": "s2",
+          "started_at": 1794787200000,
+          "status": "submitted"
+        }
+      ]
+    },
+    "collect": {
+      "auto_reworks": 0,
+      "checks": [
+        {
+          "at": 1794787200000,
+          "cond": 0,
+          "kind": "output",
+          "label": "output",
+          "round": 1,
+          "status": "pass"
+        }
+      ],
+      "entered_at": 1794787200000,
+      "left_at": 1794787200000,
+      "round": 1,
+      "rounds_total": 1,
+      "status": "passed",
+      "tasks": [
+        {
+          "attempt": 1,
+          "ended_at": 1794787200000,
+          "id": "collect",
+          "lease": {
+            "by": {
+              "id": "dispatch",
+              "kind": "flow"
+            },
+            "until": 1794787800000
+          },
+          "output": {
+            "modules": [
+              "core",
+              "ui"
+            ]
+          },
+          "started_at": 1794787200000,
+          "status": "submitted"
+        }
+      ]
+    },
+    "report": {
+      "auto_reworks": 0,
+      "checks": [
+        {
+          "at": 1794787201000,
+          "cond": 0,
+          "kind": "output",
+          "label": "output",
+          "round": 1,
+          "status": "pass"
+        }
+      ],
+      "entered_at": 1794787200500,
+      "left_at": 1794787201000,
+      "round": 1,
+      "rounds_total": 1,
+      "status": "passed",
+      "tasks": [
+        {
+          "attempt": 1,
+          "ended_at": 1794787201000,
+          "id": "summary",
+          "lease": {
+            "by": {
+              "id": "dispatch",
+              "kind": "flow"
+            },
+            "until": 1794787800500
+          },
+          "output": {
+            "count": 1
+          },
+          "started_at": 1794787200500,
+          "status": "submitted"
+        },
+        {
+          "attempt": 1,
+          "ended_at": 1794787201000,
+          "id": "sign",
+          "lease": {
+            "by": {
+              "id": "golden",
+              "kind": "device"
+            },
+            "until": 1794787261000
+          },
+          "output": {
+            "signed": true
+          },
+          "started_at": 1794787201000,
+          "status": "submitted"
+        }
+      ]
+    }
+  },
+  "status": "finished",
+  "subject": "the repo",
+  "trigger": {
+    "by": {
+      "id": "golden",
+      "kind": "device"
+    },
+    "kind": "manual"
+  },
+  "workspace": "scratch"
+}

@@ -51,6 +51,8 @@ pub(super) struct Parts {
     pub state_root: PathBuf,
     /// Where projects live (`--data-dir`).
     pub projects_root: PathBuf,
+    /// The directory the engine and Harnix keep in each project, and the name the engine goes by.
+    pub product: harnix_contract::ProductNames,
     /// Whether anything may register extensions while the process runs.
     pub dynamic: bool,
     /// `[ui] runtime_modules`: whether packages' interfaces reach the page.
@@ -111,6 +113,7 @@ pub(super) fn admit(
         services: services.clone(),
         listen: listening,
         projects_dir: parts.projects_root.clone(),
+        product: parts.product.clone(),
     });
     if parts.dynamic {
         // Every linked extension's id was registered in the table, enabled or not: one registered
@@ -153,7 +156,7 @@ pub(super) fn admit(
 fn audit(hub: &Arc<Hub>) -> Arc<Audit> {
     let audit = Arc::new(Audit::default());
     {
-        // The system space reaching across spaces: allowed, and on the record (concept §5.4). And
+        // A `cross_space` space reaching across spaces: allowed, and on the record (concept §5.4). And
         // an extension's engine sending more than it may: dropped, and on the record too.
         let audit = audit.clone();
         hub.set_audit(Arc::new(move |subject, method, session, owner| {
@@ -161,11 +164,11 @@ fn audit(hub: &Arc<Hub>) -> Arc<Audit> {
                 audit.record(subject, method, harnix_authz::Decision::Refuse("flooding"), Some("an extension's engine sent more than it may; dropped"), None);
                 return;
             }
-            tracing::info!(subject = %subject.label(), method, session, owner, "the system space acted on another space's session");
+            tracing::info!(subject = %subject.label(), method, session, owner, "a call reaching across spaces acted on another space's session");
             // The durable sink files an entry in the session's own transcript, which is the
             // `main` instance's store; a session elsewhere is kept in the ring only.
             let filed = session.strip_prefix("main/").map(str::to_string);
-            audit.record(subject, method, harnix_authz::Decision::Allow, Some("cross-space, from the system space"), filed);
+            audit.record(subject, method, harnix_authz::Decision::Allow, Some("cross-space"), filed);
         }));
     }
     // Decisions worth going back for land in the session timeline, as engine

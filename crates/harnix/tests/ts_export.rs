@@ -170,8 +170,10 @@ fn contract(cfg: &Config) -> Generated {
         Rating, FeedbackCategory, Feedback, FeedbackFiled, FeedbackNotice,
         // Answering a session's asks.
         AskKind, AskReply, RespondParams, AskAnsweredKind, AskAnswered,
+        // `harnix.session.setModel`.
+        SessionModelParams, ModelChoice,
         // What a session sees: its skills and hooks.
-        SkillTier, SkillRow, ShadowedSkill, SkillDirRow, SessionSkills, HookSource, HookRow, SessionHooks,
+        SkillTier, SkillUserTier, SkillRow, ShadowedSkill, SkillDirRow, SessionSkills, HookSource, HookRow, SessionHooks,
         // Each extension's log.
         ExtensionLogOrigin, ExtensionLogLine, ExtensionLogCount, ExtensionLog,
     ]);
@@ -219,13 +221,15 @@ fn packages(cfg: &Config) -> Generated {
     }
 }
 
-/// `harnix-ext-flow`: the definitions and run records `flow.*` answers with and its topics carry,
-/// and the module's own rows and params. Only `@harnix/flow` reads them.
+/// `harnix-flow` and `harnix-ext-flow`: the library's definitions, run records and rows that
+/// `flow.*` answers with and its topics carry, and the module's own params. Only `@harnix/flow`
+/// reads them.
 fn flow(cfg: &Config) -> Generated {
-    use harnix_ext_flow::dryrun::{DryRunSummary, Progress, Stepped};
-    use harnix_ext_flow::kernel::run::RunQuery;
-    use harnix_ext_flow::wire::{DefRow, StartParams, StartTrigger, StartedFrom};
-    use harnix_ext_flow::*;
+    use harnix_ext_flow::wire::{StartParams, StartTrigger, StartedFrom};
+    use harnix_flow::dryrun::{DryRunSummary, Progress, Stepped};
+    use harnix_flow::kernel::run::RunQuery;
+    use harnix_flow::wire::DefRow;
+    use harnix_flow::*;
     Generated {
         path: "flow/src/generated/flow.ts",
         text: joined(
@@ -239,7 +243,7 @@ fn flow(cfg: &Config) -> Generated {
                 // The run record, its summary and view, its history.
                 Actor, RunStatus, StationStatus, TaskStatus, Lease, AskRec, Usage, TaskRec, PauseRec, CheckStatus,
                 CheckRec, ConfirmRec, ForcedRec, StationRec, ParentRef, Workspace, Trigger, WorktreeEnd, WorktreeOutcome,
-                WorktreeRec, RunRecord, Phase,
+                WorktreeRec, BoundSession, RunRecord, Phase,
                 History, RunSummary, RunQuery, RunView,
                 // The module's rows and params.
                 Origin, Withheld, Delivery, Problem, DefRow, StartParams, StartTrigger, StartedFrom, DryRunSummary, Stepped, Progress,
@@ -266,7 +270,7 @@ fn settings(cfg: &Config) -> Generated {
 
 /// `harnix-ext-schedule`: the schedules `schedule.*` answer with and the topic `schedule.list`
 /// carries, and their params. In `@harnix/core`: the session menu, the project's overview and the
-/// system space all show them.
+/// home page all show them.
 fn schedule(cfg: &Config) -> Generated {
     use harnix_ext_schedule::wire::*;
     Generated {

@@ -6,6 +6,7 @@
  * space entered on it; the tab), and the tab drawing the run.
  */
 
+import type { ReactNode } from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HostProvider, Registry, TabInfoProvider, setLocale, type HostApi, type HostSessionRef, type TabInfo } from "@harnix/react";
@@ -13,9 +14,9 @@ import { HostProvider, Registry, TabInfoProvider, setLocale, type HostApi, type 
 import { collectInputs, defOptions, defaultOutputDir, fieldsOf, initialText, newTaskDialog, noWorktreeText, workspaceParam } from "../src/NewTask";
 import { register } from "../src/register";
 import { WorktreeLine, currentStation, taskStep, worktreeOpen } from "../src/RunPanel";
-import { registerSystemFlows } from "../src/space";
+import { registerFlowSpace } from "../src/space";
 import { registerFlowStrings } from "../src/strings";
-import { INBOX, PROJECT_ITEMS, PROJECT_PANELS, ProjectTasks, TASK_KIND, TASK_TAB_KIND, TaskRow, TasksPanel, enterTask, openTask, taskCounts, taskRows, waitingItems } from "../src/task";
+import { HOME_PANELS, INBOX, PROJECT_ITEMS, PROJECT_PANELS, ProjectTasks, TASK_KIND, TASK_TAB_KIND, TaskRow, TasksPanel, enterTask, openTask, recentTaskRows, taskCounts, taskRows, waitingItems } from "../src/task";
 import { START_ACTION, TASK_BADGE, type StartAction, type StartDraft, type TaskBadge } from "../src/points";
 import { TaskTab } from "../src/TaskTab";
 import type { DefSummary, FlowDef, RunSummary, RunView, WorktreeRec } from "../src/types";
@@ -42,7 +43,7 @@ const DEFS: DefSummary[] = [
   { name: "broken", title: "Broken", digest: "b", origin: "user", valid: false, inputs: { type: "object", properties: {}, required: [] } },
 ];
 
-const WORKTREE: WorktreeRec = { path: `${ROOT}/.harnix/worktrees/example-review-1`, branch: "harnix/example-review-1", base: "0123abcd" };
+const WORKTREE: WorktreeRec = { path: "/state/flow/worktrees/example-review-1", branch: "harnix/flow/example-review-1", base: "0123abcd" };
 
 const summary = (over: Partial<RunSummary>): RunSummary => ({
   id: "example-review-1",
@@ -60,6 +61,7 @@ const summary = (over: Partial<RunSummary>): RunSummary => ({
 
 const view = (over: Partial<RunView["record"]> = {}, phase: RunView["phase"] = { state: "waiting", reason: "confirm" }): RunView => ({
   record: {
+    format: 1,
     id: "example-review-1",
     flow: "example-review",
     def_digest: "a",
@@ -75,7 +77,7 @@ const view = (over: Partial<RunView["record"]> = {}, phase: RunView["phase"] = {
     project_root: ROOT,
     output_dir: "flows/example-review-2026030201",
     trigger: { kind: "manual", by: { kind: "device", id: "d" } },
-    session_keys: { "@main": "main/main-1" },
+    session_keys: { "@main": { id: "main/main-1" } },
     stations: {
       review: { status: "passed", round: 1, rounds_total: 1, auto_reworks: 0, entered_at: 1, left_at: 2, tasks: [{ id: "review", status: "submitted", attempt: 1, output: { summary: "fine" } }], checks: [{ kind: "output", label: "output", round: 1, status: "pass", at: 2 }] },
       approve: { status: "working", round: 1, rounds_total: 1, auto_reworks: 0, entered_at: 2, tasks: [] },
@@ -233,9 +235,9 @@ describe("the rows of a project", () => {
     );
     await settle();
     const branch = screen.getByTestId("task-branch");
-    expect(branch.textContent).toBe("harnix/example-review-1");
+    expect(branch.textContent).toBe("harnix/flow/example-review-1");
     expect(branch.dataset.outcome).toBe("merged");
-    expect(branch.title).toContain("harnix/example-review-1");
+    expect(branch.title).toContain("harnix/flow/example-review-1");
   });
 });
 
@@ -254,7 +256,6 @@ describe("where a run is", () => {
 describe("the registration", () => {
   const defined = (fake: ReturnType<typeof fakeHost>) => {
     const r = new Registry();
-    r.activate("system", () => r.definePoint("system.console.tab", { kind: "register" }));
     r.activate("harnix-app", () => r.definePoint(PROJECT_ITEMS, { kind: "register" }));
     r.activate("flow", () => register(r, fake.host));
     r.settle();
@@ -307,12 +308,24 @@ describe("what waits on a person, and the overview's block", () => {
       summary({ id: "e", phase: { state: "running" }, project_root: "/work/beta" }),
     ];
     expect(taskCounts(runs, ROOT)).toEqual({ running: 1, waiting: 1, finished: 2 });
+    // Every project's, for the home page.
+    expect(taskCounts(runs, null)).toEqual({ running: 2, waiting: 1, finished: 2 });
+  });
+
+  it("the latest tasks of every project: dry runs left out, newest activity first, at most the limit", () => {
+    const runs = [
+      summary({ id: "example-review-1", created_at: 10 }),
+      summary({ id: "example-review-2", created_at: 20, project_root: "/work/beta" }),
+      summary({ id: "dry-example-review-1", created_at: 40, dry: true }),
+      summary({ id: "example-review-3", created_at: 30, project_root: null }),
+    ];
+    expect(recentTaskRows(runs).map((r) => r.id)).toEqual(["example-review-3", "example-review-2", "example-review-1"]);
+    expect(recentTaskRows(runs, 1).map((r) => r.id)).toEqual(["example-review-3"]);
   });
 
   it("registers its source and its block where the Harnix app defines them; the source opens the task", async () => {
     const fake = fakeHost({ "flow.get": view(), "flow.session": { instance: "main", session_id: "general" } });
     const r = new Registry();
-    r.activate("system", () => r.definePoint("system.console.tab", { kind: "register" }));
     r.activate("harnix-app", () => {
       r.definePoint(PROJECT_ITEMS, { kind: "register" });
       r.definePoint(PROJECT_PANELS, { kind: "render" });
@@ -333,6 +346,25 @@ describe("what waits on a person, and the overview's block", () => {
     const panel = r.list<{ id: string; order: number; title(): string }>(PROJECT_PANELS)[0]!;
     expect([panel.id, panel.order, panel.title()]).toEqual(["flow.tasks", 30, "Tasks"]);
     expect(r.refusals()).toEqual([]);
+  });
+
+  it("puts the latest tasks on the home page where the Harnix app defines it, each with its project", async () => {
+    const fake = fakeHost({ "flow.defs": DEFS, "flow.get": view() });
+    const r = new Registry();
+    r.activate("harnix-app", () => r.definePoint(HOME_PANELS, { kind: "render" }));
+    r.activate("flow", () => register(r, fake.host));
+    r.settle();
+    const block = r.list<{ id: string; order: number; title(): string; render(): ReactNode }>(HOME_PANELS)[0]!;
+    expect([block.id, block.order, block.title()]).toEqual(["flow.tasks", 40, "Recent tasks"]);
+    const page = render(<HostProvider host={fake.host}>{block.render()}</HostProvider>);
+    expect(page.getByTestId("home-tasks").textContent).toBe("No tasks yet.");
+    act(() => fake.push("flow.runs", {}, { runs: [summary({ phase: { state: "running" } }), summary({ id: "other", created_at: 1, project_root: "/work/beta" })] }));
+    await settle();
+    expect(page.getAllByTestId("home-task").map((el) => el.dataset.run)).toEqual(["example-review-1", "other"]);
+    expect(page.getAllByTestId("home-task")[1]!.textContent).toContain("beta");
+    fireEvent.click(page.getAllByTestId("home-task")[0]!);
+    await settle();
+    expect(fake.opened.at(-1)).toEqual({ instance: "main", sessionId: "main-1" });
   });
 
   it("the block: the counts, the latest tasks each opening, and 新任务", async () => {
@@ -358,11 +390,11 @@ describe("what waits on a person, and the overview's block", () => {
 });
 
 describe("opening a task", () => {
-  it("opens the main session where it is shown (show_in_space), in the space in front, and opens the tab; the flow space is left alone", async () => {
-    const fake = fakeHost({ "flow.get": view({ show_in_space: "sessions" }) });
+  it("opens the main session where it is shown (shown_in), in the space in front, and opens the tab; the flow space is left alone", async () => {
+    const fake = fakeHost({ "flow.get": view({ shown_in: "sessions" }) });
     const r = new Registry();
     r.register("space", { id: "projects", icon: "folder", title: () => "Projects" }, "harnix-app");
-    const flows = registerSystemFlows(r, { host: fake.host });
+    const flows = registerFlowSpace(r, { host: fake.host });
     await openTask(fake.host, r, flows, "example-review-1", "example-review");
     expect(fake.host.spaces.switch).not.toHaveBeenCalled();
     expect(fake.opened.at(-1)).toEqual({ instance: "main", sessionId: "main-1" });
@@ -375,7 +407,7 @@ describe("opening a task", () => {
     const fake = fakeHost({ "flow.get": view(), "flow.session": { instance: "main", session_id: "general" } });
     const r = new Registry();
     r.register("space", { id: "projects", icon: "folder", title: () => "Projects" }, "harnix-app");
-    const flows = registerSystemFlows(r, { host: fake.host });
+    const flows = registerFlowSpace(r, { host: fake.host });
     await openTask(fake.host, r, flows, "example-review-1", "example-review");
     expect(fake.host.spaces.switch).toHaveBeenCalledWith("flow");
     expect(fake.opened.at(-1)).toEqual({ instance: "main", sessionId: "main-1" });
@@ -390,7 +422,7 @@ describe("opening a task", () => {
   });
 
   it("the row's menu enters the flow space for any task, and the dialog starts a task shown in the space the projects space names", async () => {
-    const fake = fakeHost({ "flow.get": view({ show_in_space: "sessions" }), "flow.defs": DEFS, "flow.def": { def: DEF, yaml: "", digest: "a" }, "flow.start": { run: "example-review-2" } });
+    const fake = fakeHost({ "flow.get": view({ shown_in: "sessions" }), "flow.defs": DEFS, "flow.def": { def: DEF, yaml: "", digest: "a" }, "flow.start": { run: "example-review-2" } });
     const r = new Registry();
     r.activate("harnix-app", () => {
       r.definePoint(PROJECT_ITEMS, { kind: "register" });
@@ -405,7 +437,7 @@ describe("opening a task", () => {
     expect(fake.host.spaces.switch).toHaveBeenCalledWith("flow");
     expect(fake.tabs.at(-1)).toEqual([TASK_TAB_KIND, { params: { run: "example-review-1" } }]);
     // The same the plain way, as `enterTask`.
-    const flows = registerSystemFlows(new Registry(), { host: fake.host });
+    const flows = registerFlowSpace(new Registry(), { host: fake.host });
     await enterTask(fake.host, r, flows, "example-review-1", "example-review");
     expect(flows.state.get()).toMatchObject({ run: "example-review-1" });
 
@@ -417,13 +449,13 @@ describe("opening a task", () => {
     fireEvent.change(page.getByTestId("task-input-target").querySelector("input")!, { target: { value: "src/" } });
     fireEvent.click(page.getByTestId("task-start"));
     await settle();
-    expect(fake.calls.find(([m]) => m === "flow.start")?.[1]).toMatchObject({ project_root: ROOT, show_in_space: "sessions" });
+    expect(fake.calls.find(([m]) => m === "flow.start")?.[1]).toMatchObject({ project_root: ROOT, shown_in: "sessions" });
   });
 });
 
 describe("the 流程 tab", () => {
   it("draws the run the opener named; a run without params is the module's answer for the session", async () => {
-    const get = (p: unknown) => ((p as { run: string }).run === "example-review-1" ? view() : view({ id: "other", session_keys: { "@main": "main/main-9" } }));
+    const get = (p: unknown) => ((p as { run: string }).run === "example-review-1" ? view() : view({ id: "other", session_keys: { "@main": { id: "main/main-9" } } }));
     const fake = fakeHost({ "flow.get": get, "flow.runOf": (p: unknown) => ({ run: (p as { session_id: string }).session_id === "main-1" ? "example-review-1" : null }), "flow.sessions": { main: { instance: "main", session_id: "main-1" } } });
     const session = { instance: "main", sessionId: "main-1" };
     const page = render(
@@ -545,7 +577,7 @@ describe("the new-task dialog", () => {
     expect(start.disabled).toBe(false);
     fireEvent.click(start);
     await settle();
-    expect(fake.calls.find(([m]) => m === "flow.start")?.[1]).toEqual({ flow: "example-review", subject: "the repo", project_root: ROOT, inputs: { depth: 2, target: "src/" }, title: "Review src", show_in_space: "sessions" });
+    expect(fake.calls.find(([m]) => m === "flow.start")?.[1]).toEqual({ flow: "example-review", subject: "the repo", project_root: ROOT, inputs: { depth: 2, target: "src/" }, title: "Review src", shown_in: "sessions" });
     expect(close).toHaveBeenCalledWith(true);
     expect(started).toEqual([["example-review-2", "example-review"]]);
     // The flows a task of this project may run, the project's own among them.
@@ -641,7 +673,7 @@ describe("a task in a worktree", () => {
       </HostProvider>,
     );
     await settle();
-    expect(page.getByTestId("flow-worktree-branch").textContent).toBe("harnix/example-review-1");
+    expect(page.getByTestId("flow-worktree-branch").textContent).toBe("harnix/flow/example-review-1");
     expect(page.queryByTestId("flow-worktree-actions")).toBeNull();
     expect(worktreeOpen(over(WORKTREE, "active"))).toBe(false);
     expect(worktreeOpen(over(WORKTREE))).toBe(true);
@@ -660,7 +692,7 @@ describe("a task in a worktree", () => {
     expect(page.getByTestId("flow-worktree-merge").textContent).toBe("Merge into main");
     fireEvent.click(page.getByTestId("flow-worktree-merge"));
     await settle();
-    expect(fake.confirms[0]![0]).toContain("harnix/example-review-1 into main");
+    expect(fake.confirms[0]![0]).toContain("harnix/flow/example-review-1 into main");
     expect(fake.calls.filter(([m]) => m === "flow.worktree.merge")).toEqual([["flow.worktree.merge", { run: "example-review-1" }]]);
     fireEvent.click(page.getByTestId("flow-worktree-keep"));
     await settle();
@@ -673,7 +705,7 @@ describe("a task in a worktree", () => {
   });
 
   it("the 流程 tab: nothing is done when the question is declined; a conflict is said; what was decided is shown", async () => {
-    const conflict = () => Promise.reject(Object.assign(new Error("merging harnix/example-review-1 into the project conflicts in a.txt"), { code: -31007 }));
+    const conflict = () => Promise.reject(Object.assign(new Error("merging harnix/flow/example-review-1 into the project conflicts in a.txt"), { code: -31007 }));
     const fake = fakeHost({ "flow.workspace_info": { git: true, branch: "main" }, "flow.worktree.merge": conflict }, false);
     const page = render(
       <HostProvider host={fake.host}>
@@ -764,7 +796,7 @@ describe("the points it defines: a task row's badges, a flow's other ways to sta
     fireEvent.click(later);
     await settle();
     expect(close).toHaveBeenCalledWith(null);
-    expect(drafts).toEqual([{ flow: "example-review", inputs: { depth: 2, target: "src/" }, title: "Nightly", project_root: ROOT, show_in_space: "sessions" }]);
+    expect(drafts).toEqual([{ flow: "example-review", inputs: { depth: 2, target: "src/" }, title: "Nightly", project_root: ROOT, shown_in: "sessions" }]);
     expect(fake.calls.some(([m]) => m === "flow.start")).toBe(false);
   });
 

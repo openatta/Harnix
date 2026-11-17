@@ -50,14 +50,8 @@ impl Hub {
         }
         let outcome = async {
             if let RewindTo::BeforeTurn(turn) = &ask.to {
-                let mut live = linked.ops().live_turns(&key.1).await?;
-                // The engine still lists a turn a rewind took out when it wrote files: its file
-                // records outlive its conversation. The marks filed here say it is gone.
-                let marks = json!({"session_id": key.1, "namespaces": [crate::changes::NS]});
-                if let Ok(filed) = linked.ops().passthrough("engine.session.entries", marks).await {
-                    let gone = crate::changes::rewound_turns(&filed);
-                    live.retain(|t| !gone.contains(t));
-                }
+                // The engine lists no turn a rewind of the conversation took out.
+                let live = linked.ops().live_turns(&key.1).await?;
                 ask.to = before(&live, turn)?;
             }
             let done = linked.ops().rewind(&key.1, &ask).await?;
@@ -106,7 +100,8 @@ impl Hub {
         self.redraw_rewound(key, done.conversation.as_ref().map(|c| c.messages_after)).await;
     }
 
-    /// What the hub drew past a rewind's point is gone: the buffer is emptied, and the session's
+    /// What the hub drew past a rewind's point is gone — or a message it drew was changed in place
+    /// (`engine.session.editMessage`, `dropMessages`): the buffer is emptied, and the session's
     /// watchers attach again and read the history the engine answers now.
     pub(crate) async fn redraw_rewound(self: &Arc<Self>, key: &SessionKey, messages: Option<u64>) {
         let watchers = {

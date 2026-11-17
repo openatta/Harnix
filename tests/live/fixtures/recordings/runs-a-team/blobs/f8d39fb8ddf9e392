@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"text","text":"I'll check the TeamCreate tool's schema first."},{"type":"tool_use","id":"call_00_ET_1bCbYoLckaIkOEEu8FyV0317","name":"ToolSearch","input":{"query":"select:TeamCreate"}}]}

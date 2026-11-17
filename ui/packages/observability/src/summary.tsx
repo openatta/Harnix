@@ -1,5 +1,5 @@
 /**
- * The system space's 用量 tab (`system.console.tab`): what every session of every instance has used
+ * The usage summary (`UsageSummaryTab`, for whoever has a page for it): what every session of every instance has used
  * over the last days — totals, a bar a day, and tables by project, by day and by model — summed from
  * the recordings (`observability.usage.daily`), and below them the sections other packages add to
  * the point this package defines, `observability.usage.section` (the flows, by flow).
@@ -203,7 +203,7 @@ function figureColumns<R extends UsageRow>(tr: ReturnType<typeof useT>, sessions
       numeric: true,
       value: (r) => r.calls,
       render: (r) => (r.auxiliary ? `${r.calls} +${r.auxiliary}` : String(r.calls)),
-      title: (r) => (r.errors ? tr("system.stat.errors", { count: r.errors }) : undefined),
+      title: (r) => (r.errors ? tr("obs.stat.errors", { count: r.errors }) : undefined),
     },
     n("input", tr("usageAll.col.input")),
     n("output", tr("usageAll.col.output")),

@@ -10,14 +10,18 @@
  * navigated to, what it may do. A body of a `keepMounted` type that has been in front stays on the
  * page, hidden, while another tab or another session is — so a terminal's scrollback or a tree's
  * expansion is not lost to a glance elsewhere.
+ *
+ * A `pinned` type stands in every session's strip: opened into the surface the first time the
+ * session's column is drawn, without taking the front, drawn after the other tabs and without a
+ * close (the context of the next call is always one glance away).
  */
 
 import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
-import { Contributed, Glyph, TabInfoProvider, sidebarTypeOfKind, useRegistry, useRoving, useT, type SidebarTabType, type TabInfo } from "@harnix/react";
+import { Contributed, Glyph, TabInfoProvider, sidebarTypeOfKind, sidebarTypes, useRegistry, useRoving, useT, type SidebarTabType, type TabInfo } from "@harnix/react";
 
 import { keyOf, orderTabs, safeTabs, type App, type SessionKey, type ShellState, type StripTab } from "../app.ts";
 import { spacesOf } from "../Sidebar.tsx";
-import { GUIDE_KIND, closeTab, openResource, openTab, seedSurface, titleOf } from "./controller.ts";
+import { GUIDE_KIND, closeTab, openResource, openTab, pinnedKinds, seedSurface, titleOf } from "./controller.ts";
 import type { SidebarTab } from "./surface.ts";
 
 type Type = SidebarTabType & { owner: string };
@@ -35,16 +39,31 @@ export function Details({ app, s, resizer }: { app: App; s: ShellState; resizer:
   const open = app.detailsOpen(s);
   const current = s.current;
   const types = registry.at("sidebar.tab");
-  const sessionTabs = current ? app.sidebar.tabs(current) : [];
+  const standing = pinnedKinds(types);
+  // The standing tabs after the others, each where it was otherwise.
+  const sessionTabs = current ? [...app.sidebar.tabs(current)].sort((a, b) => Number(standing.has(a.kind)) - Number(standing.has(b.kind))) : [];
   const shown = app.stripShown(s);
   const shownId = shown.side === "space" ? shown.id : shown.tab.id;
   const spaceShown = shown.side === "space" ? tabs.find((x) => x.id === shown.id) : undefined;
-  // A session whose surface has nothing yet, in a space whose side has nothing either: the default
-  // page (the guide, or the one page there is to open) opens once the column is open.
-  const empty = !tabs.length && !item;
+  // Every standing type has its tab in the open session's surface, opened without taking the front.
+  const standingKey = [...standing].sort().join(",");
   useEffect(() => {
-    if (open && current && empty && !sessionTabs.length) seedSurface(app, current);
-  }, [app, open, current, empty, sessionTabs.length]);
+    if (!current) return;
+    for (const type of sidebarTypes(types)) {
+      if (type.pinned !== true || type.scope === "space" || app.sidebar.tabs(current).some((tab) => tab.kind === type.kind)) continue;
+      app.sidebar.open(current, { kind: type.kind, address: null, title: titleOf(app, type, null), focus: false });
+    }
+    // The types are read again when the registry changes (`useRegistry`), which `standingKey` stands for.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [app, current, standingKey]);
+  // A session whose surface has nothing of its own yet (the standing tabs aside), in a space whose
+  // side has nothing either: the default page (the guide, or the one page there is to open) opens
+  // once the column is open.
+  const empty = !tabs.length && !item;
+  const own = sessionTabs.filter((tab) => !standing.has(tab.kind)).length;
+  useEffect(() => {
+    if (open && current && empty && !own) seedSurface(app, current);
+  }, [app, open, current, empty, own]);
   const guideOpen = sessionTabs.some((x) => x.kind === GUIDE_KIND);
   const canGuide = current !== null && sidebarTypeOfKind(types, GUIDE_KIND) !== null;
   // One Tab stop for the strip; the arrows go along it.
@@ -98,8 +117,9 @@ export function Details({ app, s, resizer }: { app: App; s: ShellState; resizer:
           {sessionTabs.map((tab) => {
             const title = chipTitle(tab);
             const on = shown.side === "session" && shown.tab.id === tab.id;
+            const pinned = standing.has(tab.kind);
             return (
-              <div key={tab.id} className={`chip${on ? " on" : ""}`} data-testid="sidebar-tab" data-tab={tab.id} data-kind={tab.kind} data-state={on ? "current" : "open"}>
+              <div key={tab.id} className={`chip${on ? " on" : ""}${pinned ? " pinned" : ""}`} data-testid="sidebar-tab" data-tab={tab.id} data-kind={tab.kind} data-state={on ? "current" : "open"} data-pinned={pinned ? "true" : undefined}>
                 <button
                   type="button"
                   role="tab"
@@ -111,14 +131,16 @@ export function Details({ app, s, resizer }: { app: App; s: ShellState; resizer:
                   className={on ? "on" : ""}
                   onClick={() => app.focusSessionTab(tab.id)}
                   onAuxClick={(e) => {
-                    if (e.button === 1) close(tab);
+                    if (e.button === 1 && !pinned) close(tab);
                   }}
                 >
                   {title}
                 </button>
-                <button type="button" className="tab-close" data-testid="sidebar-tab-close" title={t("sidebar.closeTab", { title })} aria-label={t("sidebar.closeTab", { title })} onClick={() => close(tab)}>
-                  <Glyph name="close" className="glyph" />
-                </button>
+                {pinned ? null : (
+                  <button type="button" className="tab-close" data-testid="sidebar-tab-close" title={t("sidebar.closeTab", { title })} aria-label={t("sidebar.closeTab", { title })} onClick={() => close(tab)}>
+                    <Glyph name="close" className="glyph" />
+                  </button>
+                )}
               </div>
             );
           })}

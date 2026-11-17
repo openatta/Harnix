@@ -65,6 +65,10 @@ pub struct SpaceDecl {
     /// recorded space belongs. At most one in a process.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub default_space: bool,
+    /// A page of its own, an overview with no conversation: no session is created, imported or
+    /// moved into it, and it lists none.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_sessions: bool,
 }
 
 impl SpaceDecl {
@@ -75,6 +79,7 @@ impl SpaceDecl {
             scene: None,
             cross_space: false,
             default_space: false,
+            no_sessions: false,
         }
     }
 
@@ -97,6 +102,12 @@ impl SpaceDecl {
     /// See [`SpaceDecl::default_space`](#structfield.default_space).
     pub fn default_space(mut self) -> Self {
         self.default_space = true;
+        self
+    }
+
+    /// See [`SpaceDecl::no_sessions`](#structfield.no_sessions).
+    pub fn no_sessions(mut self) -> Self {
+        self.no_sessions = true;
         self
     }
 }

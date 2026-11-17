@@ -64,8 +64,8 @@ request and publishes `{job, url, status, body}`, or `{job, url, error}`, on `fe
 
 What the backend does as itself is admitted against its `calls`: `harnix.session.create`, `harnix.session.send`, and
 the topic `harnix.sessions.status`. Anything else — `overreach` tries `packages.uninstall` — is
-refused, on the record (`harnix.audit`, subject `module:example.showcase`), and listed in the
-system space's Extensions tab with the package's VM health.
+refused, on the record (`harnix.audit`, subject `module:example.showcase`), and listed in
+Settings → Diagnostics, "Packages as they run", with the package's VM health.
 
 ## Resident, or idle
 
@@ -80,8 +80,8 @@ idle_secs = 600   # the default; 60 at the least
 ```
 
 and its backend is stopped (its `stop` runs) once it has held no subscription, no timer and no call
-— a method, a tool call or its hook — for `idle_secs`. The system space's Extensions tab and
-`packages.list` say `hibernating`, which is neither a fault nor a recycle. The next method call
+— a method, a tool call or its hook — for `idle_secs`. Settings → Diagnostics ("Packages as they run")
+and `packages.list` say `hibernating`, which is neither a fault nor a recycle. The next method call
 starts it again: `init` runs, what it kept in its key-value store is there (the board), and what it
 held in memory is not (the counter). Two calls at once start one instance. Its tools run in an
 instance of their own either way, so a tool call wakes nothing unless it calls the backend, as
@@ -107,7 +107,7 @@ origin, no storage, no cookies, the page's token out of reach) and served under 
 | Pin it / Compose… | `example.showcase.notes.add`; Compose opens its `compose` modal (`openModal`), which answers the note |
 | a note | its second panel (`secondary.open`), with the note as params |
 | Count one more / Start the heartbeat | `counter.bump`, `timer.start`; the `heartbeat` topic, here and in the right column's tab |
-| Reach too far | `packages.list`, which its `[interface] hub` does not list: refused, and listed in the system space's Extensions tab and in Diagnostics |
+| Reach too far | `packages.list`, which its `[interface] hub` does not list: refused, and listed in Settings → Diagnostics, "Packages as they run" |
 | Clear the board | the shell's own confirmation (`confirm`), then `notes.clear` |
 | Say hello | a notice under the showcase's name (`notify`) |
 | Crash | the page goes away; the shell's frame says so and offers a reload. Three in a row set it aside |

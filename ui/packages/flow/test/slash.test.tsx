@@ -122,7 +122,7 @@ describe("/flow", () => {
       flow: "says-ready",
       subject: "fix the login bug",
       project_root: ROOT,
-      show_in_space: "sessions",
+      shown_in: "sessions",
       from_session: { instance: "main", session_id: "c1", space: "sessions" },
     });
     expect(fake.dialogs).toHaveLength(0);
@@ -141,7 +141,7 @@ describe("/flow", () => {
     fireEvent.change(page.getByTestId("task-input-target").querySelector("input")!, { target: { value: "src/" } });
     fireEvent.click(page.getByTestId("task-start"));
     await settle();
-    expect(fake.calls.find(([m]) => m === "flow.start")?.[1]).toMatchObject({ flow: "needs-target", subject: "the api", project_root: ROOT, show_in_space: "sessions", from_session: { session_id: "c1", space: "sessions" } });
+    expect(fake.calls.find(([m]) => m === "flow.start")?.[1]).toMatchObject({ flow: "needs-target", subject: "the api", project_root: ROOT, shown_in: "sessions", from_session: { session_id: "c1", space: "sessions" } });
     // The conversation stays in front: the task is the card's to open.
     expect(fake.host.session.open).not.toHaveBeenCalled();
     cleanup();
@@ -236,6 +236,11 @@ describe("为这个项目建流程", () => {
     expect(await trustedForAuthoring(fake.host, { root: ROOT, trust: { status: async () => "untrusted", ask } })).toBe(true);
     expect(fake.host.dialogs.confirm).toHaveBeenCalledWith(expect.stringContaining(`${ROOT}/.harnix/flows/`), expect.anything());
     expect(ask).toHaveBeenCalledTimes(1);
+    // A branded product's projects keep its own directory, and the question names it.
+    const branded = fakeHost();
+    Object.assign(branded.host, { projectDir: ".acme" });
+    await trustedForAuthoring(branded.host, { root: ROOT, trust: { status: async () => "untrusted", ask: vi.fn(async () => true) } });
+    expect(branded.host.dialogs.confirm).toHaveBeenCalledWith(expect.stringContaining(`${ROOT}/.acme/flows/`), expect.anything());
     vi.mocked(fake.host.dialogs.confirm).mockResolvedValueOnce(false);
     const view = space({ instance: "main", sessionId: "general" });
     await authorForProject(fake.host, new Registry(), view, { root: ROOT, trust: { status: async () => "untrusted", ask } });

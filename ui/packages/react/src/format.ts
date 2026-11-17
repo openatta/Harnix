@@ -1,6 +1,6 @@
 /**
  * How the interface writes times, sizes and counts: one place, so a figure reads the same in the
- * sidebar, the settings and the system space, whichever package draws it.
+ * sidebar, the settings and the right column, whichever package draws it.
  */
 
 import { currentLocale } from "./i18n/index";

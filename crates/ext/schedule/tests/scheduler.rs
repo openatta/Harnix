@@ -1,7 +1,8 @@
 //! The scheduler on a clock the test moves, against fake sessions and a fake flow extension: what
 //! is due is delivered once, late times follow the schedule's missed policy, deliveries keep a
 //! minute apart, a task whose last run still goes is skipped, a queued turn takes the next one in,
-//! a new session is written down before its prompt goes and reused after a restart, edits name
+//! a new session is written down before its prompt goes and reused after a restart, one Harnix
+//! stopped while opening is opened again under the same id rather than a second time, edits name
 //! their revision, and every time leaves a receipt.
 
 use std::path::PathBuf;
@@ -10,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use harnix_ext::{codes, RpcError};
-use harnix_ext_schedule::core::{Clock, Host, Scheduler, MIN_INTERVAL_MS};
+use harnix_ext_schedule::core::{new_session_id, Clock, Host, Scheduler, MIN_INTERVAL_MS};
 use harnix_ext_schedule::wire::*;
 use serde_json::{json, Value};
 
@@ -27,7 +28,13 @@ struct Fake {
     still_queued: AtomicBool,
     run_active: AtomicBool,
     fail_send: AtomicBool,
+    /// New sessions opened.
     sessions: AtomicU64,
+    /// The sessions there are, by id, and whether each has been sent anything.
+    made: Mutex<Vec<(String, bool)>>,
+    /// `create_session` fails, as Harnix stopping right after the engine made the session would
+    /// leave it: the session there, the scheduler not told.
+    drop_create: AtomicBool,
     runs: AtomicU64,
     /// Where the ledger is, to read what was written when a prompt is sent.
     file: Mutex<Option<PathBuf>>,
@@ -69,16 +76,39 @@ impl Host for Fake {
         if self.fail_send.load(Ordering::SeqCst) {
             return Err(RpcError::new(-32000, "session not found"));
         }
+        if let Some(made) = self.made.lock().unwrap().iter_mut().find(|(id, _)| *id == s.session_id) {
+            made.1 = true;
+        }
         Ok(self.queued_as.lock().unwrap().clone())
     }
     async fn still_queued(&self, _: &str, _: &SessionKey, item: &str, _: &str) -> bool {
         self.log(format!("queued? {item}"));
         self.still_queued.load(Ordering::SeqCst)
     }
-    async fn create_session(&self, space: &str, t: &NewSessionTarget) -> Result<SessionKey, RpcError> {
-        let n = self.sessions.fetch_add(1, Ordering::SeqCst) + 1;
+    async fn create_session(
+        &self,
+        space: &str,
+        t: &NewSessionTarget,
+        session_id: &str,
+    ) -> Result<(SessionKey, bool), RpcError> {
         self.log(format!("create {space} {} {}", t.project_root.as_deref().unwrap_or("-"), t.model.as_deref().unwrap_or("-")));
-        Ok(SessionKey { instance: "main".into(), session_id: format!("new-{n}") })
+        let existed = {
+            let mut made = self.made.lock().unwrap();
+            let existed = made.iter().any(|(id, _)| id == session_id);
+            if !existed {
+                made.push((session_id.to_string(), false));
+                self.sessions.fetch_add(1, Ordering::SeqCst);
+            }
+            existed
+        };
+        if self.drop_create.load(Ordering::SeqCst) {
+            return Err(RpcError::new(codes::INSTANCE_UNAVAILABLE, "the connection went"));
+        }
+        Ok((SessionKey { instance: "main".into(), session_id: session_id.to_string() }, existed))
+    }
+    async fn session_started(&self, _: &str, s: &SessionKey) -> Result<bool, RpcError> {
+        self.log(format!("started? {}", s.session_id));
+        Ok(self.made.lock().unwrap().iter().any(|(id, sent)| *id == s.session_id && *sent))
     }
     async fn rename(&self, _: &str, s: &SessionKey, title: &str) -> Result<(), RpcError> {
         self.log(format!("rename {} {title}", s.session_id));
@@ -197,7 +227,7 @@ fn task(project: &str) -> Target {
         title: None,
         output_dir: None,
         workspace: Some("worktree".into()),
-        show_in_space: None,
+        shown_in: None,
     })
 }
 
@@ -428,16 +458,17 @@ async fn a_new_session_is_written_down_before_its_prompt_and_reused_after_a_rest
     r.at(T0 + 10 * MIN);
     r.s.tick().await;
     let calls = r.fake.calls();
+    let new1 = new_session_id(&s.id, T0 + 10 * MIN);
     assert_eq!(calls[0], format!("create sessions {} m1", r.project));
-    assert_eq!(calls[1], "rename new-1 Standup · 2026-06-01 00:10");
-    assert_eq!(calls[2], "send sessions main/new-1 check the build");
+    assert_eq!(calls[1], format!("rename {new1} Standup · 2026-06-01 00:10"));
+    assert_eq!(calls[2], format!("send sessions main/{new1} check the build"));
     // When the prompt went, the session was already in the file: kept on the schedule, and on
     // the pending receipt.
     let seen = r.fake.seen_at_send.lock().unwrap()[0].clone();
     let kept = &seen["schedules"][0];
-    assert_eq!(kept["schedule"]["target"]["session"]["session_id"], "new-1");
+    assert_eq!(kept["schedule"]["target"]["session"]["session_id"], json!(new1));
     assert_eq!(kept["history"][0]["outcome"], "pending");
-    assert_eq!(kept["history"][0]["target"]["session_id"], "new-1");
+    assert_eq!(kept["history"][0]["target"]["session_id"], json!(new1));
     let first = &r.history(&s.id)[0];
     assert!(first.target.as_ref().unwrap().created);
 
@@ -445,7 +476,7 @@ async fn a_new_session_is_written_down_before_its_prompt_and_reused_after_a_rest
     r.at(T0 + 20 * MIN);
     r.s.tick().await;
     assert_eq!(r.fake.sessions.load(Ordering::SeqCst), 1, "{:?}", r.fake.calls());
-    assert_eq!(r.fake.sent().last().unwrap(), "send sessions main/new-1 check the build");
+    assert_eq!(r.fake.sent().last().unwrap(), &format!("send sessions main/{new1} check the build"));
 
     // Gone: that time fails, and the next opens another.
     r.fake.fail_send.store(true, Ordering::SeqCst);
@@ -465,6 +496,52 @@ async fn a_new_session_is_written_down_before_its_prompt_and_reused_after_a_rest
     }
     assert_eq!(r.fake.sessions.load(Ordering::SeqCst), 4);
     assert!(matches!(r.s.get(&id(&each)).unwrap().target, Target::NewSession(NewSessionTarget { session: None, .. })));
+}
+
+#[tokio::test]
+async fn a_new_session_harnix_stopped_while_opening_is_opened_again_not_twice() {
+    let mut r = Rig::new();
+    let s = r.create(Timing::Every { minutes: 10, from: None }, new_session(&r.project, NewMode::NewEach)).await;
+    let due = T0 + 10 * MIN;
+    let sid = new_session_id(&s.id, due);
+    // The engine made the session, and the answer never came back: Harnix stopped there.
+    r.fake.drop_create.store(true, Ordering::SeqCst);
+    r.at(due);
+    r.s.tick().await;
+    assert_eq!(r.fake.sessions.load(Ordering::SeqCst), 1);
+    // The id is the schedule's and the time's, in the engine's form, and was on the receipt
+    // before the session was asked for.
+    assert_eq!(sid, new_session_id(&s.id, due));
+    assert_ne!(sid, new_session_id(&s.id, due + 10 * MIN));
+    assert!((21..=22).contains(&sid.len()) && sid.chars().all(|c| c.is_ascii_alphanumeric()), "{sid}");
+    assert_eq!(r.history(&s.id)[0].target.as_ref().unwrap().session_id.as_deref(), Some(sid.as_str()));
+    let path = r.dir.path().join("schedules.json");
+    // Harnix stopped there: the receipt still pending.
+    let mut ledger: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let pending = json!({"id": "dlv-x", "scheduled_at": due, "outcome": "pending", "target": {"session_id": sid, "created": true}});
+    ledger["schedules"][0]["history"] = json!([pending]);
+    std::fs::write(&path, ledger.to_string()).unwrap();
+    r.fake.drop_create.store(false, Ordering::SeqCst);
+
+    r.restart();
+    assert_eq!(r.history(&s.id)[0].outcome, Outcome::Pending);
+    r.at(due + MIN);
+    r.s.tick().await;
+    assert_eq!(r.fake.sessions.load(Ordering::SeqCst), 1, "{:?}", r.fake.calls());
+    assert_eq!(r.fake.sent(), vec![format!("send sessions main/{sid} check the build")]);
+    let h = r.history(&s.id);
+    assert_eq!((h.len(), h[0].outcome, h[0].scheduled_at), (1, Outcome::Delivered, due));
+    assert_eq!(h[0].target.as_ref().unwrap().session_id.as_deref(), Some(sid.as_str()));
+
+    // Stopped again after the prompt went: opened again, found sent, and not sent twice.
+    let mut ledger: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    ledger["schedules"][0]["history"] = json!([pending]);
+    std::fs::write(&path, ledger.to_string()).unwrap();
+    r.restart();
+    r.s.tick().await;
+    assert_eq!(r.fake.sessions.load(Ordering::SeqCst), 1);
+    assert_eq!(r.fake.sent().len(), 1, "{:?}", r.fake.calls());
+    assert_eq!(r.history(&s.id)[0].outcome, Outcome::Delivered);
 }
 
 #[tokio::test]

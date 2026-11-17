@@ -11,7 +11,7 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use harnix_contract::wire::{RewindParams, RewindResult};
+use harnix_contract::wire::{ModelChoice, RewindParams, RewindResult};
 use harnix_contract::wire::{SessionHooks, SessionSkills};
 use harnix_contract::RpcError;
 use serde_json::{json, Value};
@@ -91,8 +91,9 @@ pub trait EngineOps: Send + Sync {
     /// Give the session a title: the engine's name for it, the one every client lists.
     async fn rename(&self, session: &str, title: &str) -> Answer<Value>;
 
-    /// Change the model the session's next turn calls, and its provider when named.
-    async fn set_model(&self, session: &str, model: &str, provider: Option<&str>) -> Answer<Value>;
+    /// Change what the session's next model call is: its model, its provider when named, and its
+    /// own reasoning effort and thinking switch; a key the choice leaves out is left as it is.
+    async fn set_model(&self, session: &str, choice: &ModelChoice) -> Answer<Value>;
 
     /// The session's own system-prompt text: `append` at the end of the prompt, `override` in place
     /// of all of it. For each, `None` leaves it as it is, `Some(None)` clears it (back to the

@@ -19,9 +19,7 @@ const en: Record<string, string> = {
   "flowui.tab.flows": "Flows",
   "flowui.tab.runs": "Runs",
   "flowui.tab.reference": "Reference",
-  // Inside the system space: the console's tab, and a flow's context in the left column.
-  "flowui.about.flows": "The flows this application defines, and their runs. A flow or a run opened here becomes a space of its own inside this one, with its details on the right.",
-  "flowui.context.back": "Back to the system",
+  // The left column: the way back while a task was entered from another space.
   "flowui.context.backTo": "Back to {space}",
   // A task: a run in a project (the projects space's tree, its "+" menu, the right column's tab).
   "flowui.task.kind": "Tasks",
@@ -37,7 +35,7 @@ const en: Record<string, string> = {
   "flowui.slash.open": "Open the task",
   "flowui.forProject.menu": "Create a flow for this project",
   "flowui.forProject.title": "Create a flow for this project",
-  "flowui.forProject.trustFirst": "A flow for this project is saved in it ({path}/.harnix/flows/), and a project's own flows are read only once it is trusted. Trust the project first?",
+  "flowui.forProject.trustFirst": "A flow for this project is saved in it ({path}/{dir}/flows/), and a project's own flows are read only once it is trusted. Trust the project first?",
   "flowui.forProject.trust": "Trust…",
   "flowui.forProject.noLayer": "This directory has no project settings of its own, so it cannot be trusted: flows cannot be saved in it.",
   "flowui.forProject.prompt": "Create a flow for the project at {path} (saved in the project): ",
@@ -46,6 +44,8 @@ const en: Record<string, string> = {
   "flowui.inbox.external": "External work item",
   "flowui.panel.counts": "{running} running · {waiting} waiting · {finished} finished",
   "flowui.panel.none": "No tasks in this project yet.",
+  "flowui.home.tasks": "Recent tasks",
+  "flowui.home.none": "No tasks yet.",
   "flowui.task.tab": "Flow",
   "flowui.task.step": "station {k}/{n}",
   "flowui.task.scheduled": "started by a schedule",
@@ -58,7 +58,7 @@ const en: Record<string, string> = {
   "flowui.task.outputDir": "Output directory",
   "flowui.task.outputDirHint": "Relative to the project; empty: {dir} (the module decides the day's number).",
   "flowui.task.worktree": "Run in a worktree",
-  "flowui.task.worktreeHint": "The task works on a branch of its own (harnix/<run>, in .harnix/worktrees/<run>); once it is over, merge it, keep the branch or discard it.",
+  "flowui.task.worktreeHint": "The task works on a branch of its own (harnix/flow/<run>, in a worktree out of the project); once it is over, merge it, keep the branch or discard it.",
   "flowui.task.worktreeNo.not_a_repository": "Needs a git repository: this project is not one.",
   "flowui.task.worktreeNo.bare": "Needs a git repository with a working tree: this one is bare.",
   "flowui.task.worktreeNo.no_commit": "Needs a git repository with a commit: this one has none yet.",
@@ -204,7 +204,7 @@ const en: Record<string, string> = {
   "flowui.run.skillDigest": "Skill digest",
   "flowui.run.unmet": "Still unmet",
   "flowui.run.unmetHint": "The exit conditions did not pass: the reason for each is below. Send the work back, or let it through by hand with a reason.",
-  "flowui.run.gateLog": "A command gate's whole output is in the run's directory: .harnix/runs/{run}/stations/{station}/gate-*.log",
+  "flowui.run.gateLog": "A command gate's whole output is in the run's directory: {dir}/runs/{run}/stations/{station}/gate-*.log",
   "flowui.run.forced": "Forced through",
   "flowui.run.forcedBy": "by {by} at {at}",
   "flowui.run.tasks": "Work items ({n})",
@@ -441,7 +441,7 @@ const en: Record<string, string> = {
   "flowui.guide.group.4": "4 · Interfaces to the outside",
   "flowui.guide.group.5": "5 · Writing and trying",
   // The guide's term each element of the framework picture is about: its row's first cell, bold
-  // (crates/ext/flow/docs/guide.*.md), so a click finds the row. A run waiting, said whole per reason.
+  // (crates/flow/docs/guide.*.md), so a click finds the row. A run waiting, said whole per reason.
   "flowui.fw.pack.term": "The pack and its parts",
   "flowui.fw.authoring.term": "Flow conversation / general conversation",
   "flowui.fw.flow.term": "Flow",
@@ -491,9 +491,7 @@ const zhCN: Record<string, string> = {
   "flowui.tab.flows": "流程",
   "flowui.tab.runs": "运行",
   "flowui.tab.reference": "参考",
-  // 在系统 space 里：控制台的页签，左栏是一条流程的上下文。
-  "flowui.about.flows": "这个应用定义的流程和它们的运行。在这里打开一个流程或一次运行，它就成为系统 space 里的一个 space，详情在右栏。",
-  "flowui.context.back": "返回系统",
+  // 左栏：从别的 space 进来一个任务时，回去的路。
   "flowui.context.backTo": "返回{space}",
   // 任务：项目里的一次运行（项目树、项目的「＋」菜单、右栏的页签）。
   "flowui.task.kind": "任务",
@@ -508,7 +506,7 @@ const zhCN: Record<string, string> = {
   "flowui.slash.open": "打开任务",
   "flowui.forProject.menu": "为这个项目建流程",
   "flowui.forProject.title": "为这个项目建流程",
-  "flowui.forProject.trustFirst": "这个项目的流程存在项目里（{path}/.harnix/flows/），项目受信之后才会读。先信任这个项目？",
+  "flowui.forProject.trustFirst": "这个项目的流程存在项目里（{path}/{dir}/flows/），项目受信之后才会读。先信任这个项目？",
   "flowui.forProject.trust": "信任…",
   "flowui.forProject.noLayer": "这个目录没有自己的项目设置，不能信任，流程存不进去。",
   "flowui.forProject.prompt": "为项目 {path} 建一个流程（存在项目里）：",
@@ -517,6 +515,8 @@ const zhCN: Record<string, string> = {
   "flowui.inbox.external": "外部工作项",
   "flowui.panel.counts": "运行中 {running} · 等待 {waiting} · 已结束 {finished}",
   "flowui.panel.none": "这个项目还没有任务。",
+  "flowui.home.tasks": "最近任务",
+  "flowui.home.none": "还没有任务。",
   "flowui.task.tab": "流程",
   "flowui.task.step": "第 {k}/{n} 站",
   "flowui.task.scheduled": "由定时启动",
@@ -529,7 +529,7 @@ const zhCN: Record<string, string> = {
   "flowui.task.outputDir": "输出目录",
   "flowui.task.outputDirHint": "相对项目；留空时是 {dir}（当天的序号由扩展最终确定）。",
   "flowui.task.worktree": "在 worktree 里跑",
-  "flowui.task.worktreeHint": "任务在自己的分支上干活（harnix/<运行>，目录在 .harnix/worktrees/<运行>）；结束后可以合回、保留分支或丢弃。",
+  "flowui.task.worktreeHint": "任务在自己的分支上干活（harnix/flow/<运行>，worktree 在项目之外）；结束后可以合回、保留分支或丢弃。",
   "flowui.task.worktreeNo.not_a_repository": "worktree 需要 git 仓库：这个项目不是。",
   "flowui.task.worktreeNo.bare": "worktree 需要带工作区的 git 仓库：这是个裸仓库。",
   "flowui.task.worktreeNo.no_commit": "worktree 需要至少有一个提交的 git 仓库：这个仓库还没有提交。",
@@ -675,7 +675,7 @@ const zhCN: Record<string, string> = {
   "flowui.run.skillDigest": "Skill 摘要",
   "flowui.run.unmet": "尚未满足",
   "flowui.run.unmetHint": "出口条件没过，每一项的原因在下面。可以退回重做，或由人写明理由放行。",
-  "flowui.run.gateLog": "命令门禁的完整输出在运行目录里：.harnix/runs/{run}/stations/{station}/gate-*.log",
+  "flowui.run.gateLog": "命令门禁的完整输出在运行目录里：{dir}/runs/{run}/stations/{station}/gate-*.log",
   "flowui.run.forced": "强制通过",
   "flowui.run.forcedBy": "{by} 于 {at}",
   "flowui.run.tasks": "工作项（{n}）",
@@ -912,7 +912,7 @@ const zhCN: Record<string, string> = {
   "flowui.guide.group.4": "四 · 对外接口",
   "flowui.guide.group.5": "五 · 编写与试用",
   // The guide's term each element of the framework picture is about: its row's first cell, bold
-  // (crates/ext/flow/docs/guide.*.md), so a click finds the row. A run waiting, said whole per reason.
+  // (crates/flow/docs/guide.*.md), so a click finds the row. A run waiting, said whole per reason.
   "flowui.fw.pack.term": "流程包与件",
   "flowui.fw.authoring.term": "流程会话 / 通用会话",
   "flowui.fw.flow.term": "流程",

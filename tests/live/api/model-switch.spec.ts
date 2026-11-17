@@ -1,13 +1,14 @@
 /**
- * Changing a session's model without the system space (ipdrun-12).
+ * Changing a session's model from where it is shown (ipdrun-12).
  *
- * A product that drops the system space drops `system.model` with it. `[shell] model_switch
- * = true` opens `harnix.session.setModel` instead — scoped to the space the caller claims, never
- * across — and without the line nothing is added.
+ * `[shell] model_switch = true` opens `harnix.session.setModel` — scoped to the space the caller
+ * claims, never across — and without the line the product's own default stands: off for an
+ * application that says nothing (the test application), so the model is the settings'; on for the
+ * `harnix` binary, where `model_switch = false` closes it again.
  */
 
-import { SPACE_MISMATCH } from "@harnix/core/protocol";
-import { type Backend, connect, expect, test } from "@harnix/testkit";
+import { INVALID_PARAMS, SPACE_MISMATCH } from "@harnix/core/protocol";
+import { type Backend, connect, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
 import { startTestApp } from "./testapp";
 
@@ -17,7 +18,7 @@ test.describe.configure({ mode: "serial" });
 
 let backend: Backend;
 test.beforeAll(async () => {
-  backend = await startTestApp({ profile: "\n[shell]\nmodel_switch = true\n[extensions]\noff = [\"system\"]\n" });
+  backend = await startTestApp({ profile: "\n[shell]\nmodel_switch = true\n" });
 });
 test.afterAll(async () => {
   await backend?.dispose();
@@ -28,7 +29,6 @@ test("with model_switch, a space changes its own session's model", TAGS, async (
   try {
     const { methods } = await api.call("harnix.reachable");
     expect(methods).toContain("harnix.session.setModel");
-    expect(methods).not.toContain("system.model");
 
     const created = await api.call("harnix.session.create", { space: "fleet" });
     const session = { instance: created.instance, session_id: created.session_id };
@@ -42,6 +42,28 @@ test("with model_switch, a space changes its own session's model", TAGS, async (
   }
 });
 
+test("a space changes its own session's effort and thinking, and gives them back to the settings", TAGS, async () => {
+  const api = await connect(backend);
+  try {
+    const created = await api.call("harnix.session.create", { space: "fleet", options: { effort: "low" } });
+    const session = { instance: created.instance, session_id: created.session_id, space: "fleet" };
+    // Given when it was made: the session's own.
+    const made = await api.call("engine.session.get", session).catch(() => null);
+    if (made?.reasoning) expect(made.reasoning).toMatchObject({ effort: "low", effort_source: "session" });
+    // Changed alone: the model is left as it is.
+    const changed = await api.call("harnix.session.setModel", { ...session, effort: "max", thinking_mode: "off" });
+    expect(changed).toMatchObject({ session_id: session.session_id, effort: "max", thinking_mode: "off" });
+    // `null` gives one back.
+    const back = await api.call("harnix.session.setModel", { ...session, effort: null });
+    expect(back).toMatchObject({ effort: null, thinking_mode: "off" });
+    // Nothing to change is refused, and so is an effort the engine does not know.
+    expect((await api.refused("harnix.session.setModel", session))?.code).toBe(INVALID_PARAMS);
+    expect((await api.refused("harnix.session.setModel", { ...session, effort: "extreme" }))?.code).toBe(INVALID_PARAMS);
+  } finally {
+    api.close();
+  }
+});
+
 test("claiming one space for another space's session is refused", TAGS, async () => {
   const api = await connect(backend);
   try {
@@ -49,23 +71,43 @@ test("claiming one space for another space's session is refused", TAGS, async ()
     const session = { instance: created.instance, session_id: created.session_id };
     const error = await api.refused("harnix.session.setModel", { ...session, space: "sessions", model: "x" });
     expect(error?.code).toBe(SPACE_MISMATCH);
-    // And it is not the way across spaces.
-    const across = await api.refused("harnix.session.setModel", { ...session, space: "system", model: "x" });
-    expect(across?.code).toBe(SPACE_MISMATCH);
   } finally {
     api.close();
   }
 });
 
 test("without the line, nothing is added", TAGS, async () => {
-  const plain = await startTestApp({ profile: "\n[extensions]\noff = [\"system\"]\n" });
+  const plain = await startTestApp();
   try {
     const api = await connect(plain);
     const { methods } = await api.call("harnix.reachable");
     expect(methods).not.toContain("harnix.session.setModel");
-    expect(methods).not.toContain("system.model");
     api.close();
   } finally {
     await plain.dispose();
   }
 });
+
+test("the harnix binary switches models without the line, and the line written false closes it", TAGS, async () => {
+  for (const [profile, offered] of [["", true], ["\n[shell]\nmodel_switch = false\n", false]] as const) {
+    const harnix = await startHarnix(launchFor("replay", { profile }));
+    try {
+      const api = await connect(harnix);
+      const { methods } = await api.call("harnix.reachable");
+      expect(methods.includes("harnix.session.setModel"), profile || "no line").toBe(offered);
+      const hello = await api.call("harnix.hello", {});
+      expect(hello.shell.model_switch).toBe(offered);
+      if (offered) {
+        const created = await api.call("harnix.session.create", { space: "sessions" });
+        const session = { instance: created.instance, session_id: created.session_id, space: "sessions" };
+        expect(await api.call("harnix.session.setModel", { ...session, model: "switched-model" })).toMatchObject({ model: "switched-model" });
+        // Its own space only, here too.
+        expect((await api.refused("harnix.session.setModel", { ...session, space: "flow", model: "x" }))?.code).toBe(SPACE_MISMATCH);
+      }
+      api.close();
+    } finally {
+      await harnix.dispose();
+    }
+  }
+});
+

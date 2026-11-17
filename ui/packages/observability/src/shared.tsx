@@ -1,7 +1,7 @@
 /**
  * What the trajectory and the tabs share: the recording's shapes, which space a call about a session
- * claims, how a call's usage and a message's text are written, how a failure is said, and the ways
- * from a call back to the conversation and from the system space into the session.
+ * claims, how a call's usage and a message's text are written, how a failure is said, and the way
+ * from a call back to the conversation.
  */
 
 import { errorText, type CallSummary, type RecordingRun, type TurnSummary } from "@harnix/core";
@@ -25,7 +25,7 @@ export type Run = RecordingRun;
 /** One `observability.trace` row: a model call, what went in and what came out (its tool calls' inputs and results are in the call's detail). */
 export type TraceCall = CallSummary;
 
-/** Where a call about a session claims it is: the backend space the front space lists (the system space reaches across). */
+/** Where a call about a session claims it is: the backend space the front space lists. */
 export function claimFor(r: Registry, host: HostApi): string {
   const front = host.spaces.current();
   return r.at("space").find((c) => c.id === front)?.sessions ?? front;
@@ -44,8 +44,8 @@ export function RunNote({ run, testId = "run-note" }: { run?: Run | null; testId
   const since = Number.isNaN(at.getTime()) ? run.created_at : at.toLocaleString();
   return (
     <div className="note" data-testid={testId} data-earlier={run.earlier_run ? "true" : undefined}>
-      {tr("system.runSince", { at: since })}
-      {run.earlier_run ? ` ${tr("system.earlierRunGone")}` : ""}
+      {tr("obs.runSince", { at: since })}
+      {run.earlier_run ? ` ${tr("obs.earlierRunGone")}` : ""}
     </div>
   );
 }
@@ -76,16 +76,16 @@ export function messageText(content: unknown): string {
     .join(" ");
 }
 
-/** The codes these pages have words for (the system space's words: they are drawn inside it too). */
+/** The codes these pages have words for. */
 const SAID: Record<number, string> = {
-  [-31000]: "system.error.refused",
-  [-31002]: "system.error.noInstance",
-  [-31003]: "system.error.space",
-  [-31004]: "system.error.unavailable",
-  [-31005]: "system.error.tooMany",
-  [-32000]: "system.error.noSession",
-  [-32015]: "system.error.busy",
-  [-32601]: "system.error.noMethod",
+  [-31000]: "obs.error.refused",
+  [-31002]: "obs.error.noInstance",
+  [-31003]: "obs.error.space",
+  [-31004]: "obs.error.unavailable",
+  [-31005]: "obs.error.tooMany",
+  [-32000]: "obs.error.noSession",
+  [-32015]: "obs.error.busy",
+  [-32601]: "obs.error.noMethod",
 };
 
 function codeOf(e: unknown): number | undefined {
@@ -118,11 +118,3 @@ export async function locateInConversation(host: HostApi, session: SessionKey, t
   }
 }
 
-/** Into the session's trajectory: the session opened where it belongs (the space it is in brought to the front), shown as its trajectory. */
-export async function openTrajectory(host: HostApi, session: SessionKey): Promise<void> {
-  try {
-    await host.session.open(session, { switchSpace: true, view: TRAJECTORY_VIEW });
-  } catch (e) {
-    host.shell.notice(explainError(e), "error");
-  }
-}

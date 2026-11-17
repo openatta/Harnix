@@ -39,7 +39,7 @@ const BOUND: Duration = Duration::from_secs(30);
 static PANICKED: AtomicBool = AtomicBool::new(false);
 
 /// Once per run: watch for panics, and work in a directory of the test's own — an engine keeps
-/// its project data (`.agix/`) in the working directory.
+/// its project data (`.harnix/`) in the working directory.
 fn once() {
     static ONCE: OnceLock<()> = OnceLock::new();
     ONCE.get_or_init(|| {

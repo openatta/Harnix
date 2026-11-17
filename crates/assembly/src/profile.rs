@@ -110,6 +110,9 @@ impl Profile {
                 anyhow::bail!("[brand] product_id `{id}`: lowercase letters, digits and `-`, starting with a letter");
             }
         }
+        // Before anything is built: a name the engine would refuse stops the start here, saying
+        // which key gave it.
+        self.brand.names()?;
         Ok(())
     }
 }
@@ -153,10 +156,11 @@ pub(crate) struct TransportProfile {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct ShellProfile {
-    /// Whether the composer may change a session's model without the system space:
-    /// `harnix.session.setModel`, scoped to the space the caller claims (ipdrun-12). Off unless
-    /// written, so a product that left model choice to the settings page keeps it there.
-    pub model_switch: bool,
+    /// Whether the composer may change a session's model:
+    /// `harnix.session.setModel`, scoped to the space the caller claims (ipdrun-12). Unwritten, the
+    /// product's own default (`AppBuilder::model_switch`), which is off unless the product turns it
+    /// on: a product that left model choice to the settings page keeps it there.
+    pub model_switch: Option<bool>,
     /// Whether the shell draws its "New session" button and takes ⌘K to start one (ipdrun-46).
     /// On unless written: `false` hides both in every space; a space's own `newSession` still
     /// applies on top. Only the interface; the hub still takes `harnix.session.create`.
@@ -167,13 +171,21 @@ pub(crate) struct ShellProfile {
     pub narrow_details: NarrowDetails,
 }
 
+impl ShellProfile {
+    /// `[shell] model_switch` as it stands: written, or the product's default once the profile is
+    /// resolved; off when neither said.
+    pub fn switches_model(&self) -> bool {
+        self.model_switch.unwrap_or(false)
+    }
+}
+
 /// `[shell] narrow_details` (ipdrun-50): the wire's enum, read from the profile as it is told at hello.
 pub(crate) use harnix_contract::wire::NarrowDetails;
 
 impl Default for ShellProfile {
     fn default() -> Self {
         Self {
-            model_switch: false,
+            model_switch: None,
             new_session: true,
             narrow_details: NarrowDetails::Over,
         }
@@ -188,8 +200,43 @@ pub(crate) struct BrandProfile {
     /// An SVG file, relative to the profile, shown beside the name.
     pub icon: Option<PathBuf>,
     /// Names the product's own directory, `~/.<product_id>`: lowercase letters, digits and `-`,
-    /// starting with a letter. `harnix` when absent.
+    /// starting with a letter. `harnix` when absent. Also its directory in each project,
+    /// `.<product_id>`, unless `project_dir` says otherwise.
     pub product_id: Option<String>,
+    /// The directory the engine and Harnix keep in each project, in place of `.<product_id>`
+    /// (`.harnix` with no product id): `.` then `[a-z0-9._-]`, no other tool's (`.git`, `.claude`…).
+    pub project_dir: Option<String>,
+    /// The name the engine goes by — what the model is told it is, the `User-Agent` of its
+    /// requests, its worktrees' branches — in place of `name` (`Harnix` with neither): an ASCII
+    /// letter, then up to 31 ASCII letters, digits, `-` or `_`. Needed when `name` is not one.
+    pub product_name: Option<String>,
+}
+
+impl BrandProfile {
+    /// The directory the engine keeps in each project and the name it goes by: what this brand
+    /// says, else `.<product_id>` and `name` (`product_id` when there is no name), else Harnix's
+    /// own. A name the engine would refuse is an error naming the key it came from.
+    pub fn names(&self) -> anyhow::Result<harnix_contract::ProductNames> {
+        use harnix_contract::product::{check_product_name, check_project_dir, DEFAULT_PRODUCT_NAME, DEFAULT_PROJECT_DIR};
+        let (dir, dir_key) = match (&self.project_dir, &self.product_id) {
+            (Some(dir), _) => (dir.clone(), "project_dir"),
+            (None, Some(id)) => (format!(".{id}"), "product_id"),
+            (None, None) => (DEFAULT_PROJECT_DIR.to_string(), "project_dir"),
+        };
+        if let Err(why) = check_project_dir(&dir) {
+            anyhow::bail!("[brand] {dir_key}: `{dir}` cannot be the directory the engine keeps in each project: {why}; set [brand] project_dir to one that can");
+        }
+        let (name, name_key) = match (&self.product_name, &self.name, &self.product_id) {
+            (Some(name), _, _) => (name.as_str(), "product_name"),
+            (None, Some(name), _) => (name.as_str(), "name"),
+            (None, None, Some(id)) => (id.as_str(), "product_id"),
+            (None, None, None) => (DEFAULT_PRODUCT_NAME, "product_name"),
+        };
+        if let Err(why) = check_product_name(name) {
+            anyhow::bail!("[brand] {name_key}: `{name}` cannot be the name the engine goes by: {why}; set [brand] product_name to one that can (the page keeps `name`)");
+        }
+        harnix_contract::ProductNames::new(&dir, name).map_err(|e| anyhow::anyhow!("[brand] {e}"))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -262,10 +309,13 @@ mod tests {
     fn the_shell_draws_and_switches_as_written() {
         let profile = Profile::parse("").unwrap();
         assert!(profile.ui.runtime_modules);
-        assert!(!profile.shell.model_switch);
+        assert_eq!(profile.shell.model_switch, None, "unwritten: the product's default");
+        assert!(!profile.shell.switches_model());
         assert!(profile.shell.new_session);
         let profile = Profile::parse("[shell]\nmodel_switch = true\n").unwrap();
-        assert!(profile.shell.model_switch);
+        assert!(profile.shell.switches_model());
+        let profile = Profile::parse("[shell]\nmodel_switch = false\n").unwrap();
+        assert_eq!(profile.shell.model_switch, Some(false));
         // Which spaces there are is which extensions are: `[extensions] off`, not the shell's.
         assert!(Profile::parse("[shell]\nspaces = [\"sessions\"]\n").is_err());
     }
@@ -276,6 +326,31 @@ mod tests {
         assert_eq!(shell("").narrow_details, NarrowDetails::Over);
         assert_eq!(shell("[shell]\nnarrow_details = \"beside\"\n").narrow_details, NarrowDetails::Beside);
         assert!(Profile::parse("[shell]\nnarrow_details = \"under\"\n").is_err());
+    }
+
+    /// No brand, Harnix's names; a product id names the project directory too, the brand's name
+    /// the engine; either can be said outright, and a name the engine would refuse stops the start
+    /// naming the key it came from.
+    #[test]
+    fn a_brand_names_the_engines_project_directory_and_the_engine() {
+        let names = |text: &str| Profile::parse(text).map(|p| p.brand.names().unwrap());
+        let n = names("").unwrap();
+        assert_eq!((n.project_dir(), n.product_name()), (".harnix", "Harnix"));
+        let n = names("[brand]\nname = \"Helm\"\nproduct_id = \"helm\"\n").unwrap();
+        assert_eq!((n.project_dir(), n.product_name()), (".helm", "Helm"));
+        let n = names("[brand]\nproduct_id = \"hello-app\"\n").unwrap();
+        assert_eq!((n.project_dir(), n.product_name()), (".hello-app", "hello-app"));
+        let n = names("[brand]\nname = \"Acme Desk\"\nproduct_id = \"acme\"\nproduct_name = \"AcmeDesk\"\nproject_dir = \".acme-desk\"\n").unwrap();
+        assert_eq!((n.project_dir(), n.product_name()), (".acme-desk", "AcmeDesk"));
+
+        let err = names("[brand]\nname = \"Acme Desk\"\nproduct_id = \"acme\"\n").unwrap_err().to_string();
+        assert!(err.contains("[brand] name") && err.contains("product_name"), "{err}");
+        let err = names("[brand]\nproduct_id = \"github\"\n").unwrap_err().to_string();
+        assert!(err.contains("[brand] product_id") && err.contains("another tool") && err.contains("project_dir"), "{err}");
+        let err = names("[brand]\nproject_dir = \"acme\"\n").unwrap_err().to_string();
+        assert!(err.contains("[brand] project_dir") && err.contains("start with `.`"), "{err}");
+        let err = names("[brand]\nproduct_name = \"1acme\"\n").unwrap_err().to_string();
+        assert!(err.contains("[brand] product_name"), "{err}");
     }
 
     #[test]

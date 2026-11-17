@@ -58,10 +58,10 @@ free_port() {
 }
 
 CRATES=(-p harnix -p harnix-cli -p harnix-assembly -p harnix-instance -p harnix-engine -p harnix-engine-api -p harnix-engine-link -p harnix-authz -p harnix-kernel -p harnix-router
-        -p harnix-client -p harnix-contract -p harnix-ext-flow -p harnix-hub -p harnix-transport
+        -p harnix-client -p harnix-contract -p harnix-flow -p harnix-ext-flow -p harnix-hub -p harnix-transport
         -p harnix-testapp -p harnix-wasm -p harnix-package -p harnix-wasm-port -p harnix-wasm-host
         -p harnix-carrier-shared -p harnix-carrier-wasm -p harnix-carrier-proc -p harnix-ext-packages -p harnix-supervise -p harnix-proc -p harnix-ext -p harnix-host-api
-        -p harnix-ext-system -p harnix-ext-harnix-app -p harnix-ext-settings -p harnix-ext-plugins
+        -p harnix-ext-harnix-app -p harnix-ext-settings -p harnix-ext-plugins
         -p harnix-ext-observability -p harnix-ext-devices -p harnix-ext-schedule)
 
 # `harnix` runs packages in its default build, on both carriers (`wasm` and `proc`). The author's
@@ -167,7 +167,9 @@ run_rust()    {
   cargo test -p harnix-wasm-port --features socket || return 1
   cargo test -p harnix-wasm --features compile || return 1
   cargo test -p harnix-wasm-host --features compile || return 1
-  cargo test -p harnix-testapp --features proc --test ext_proc
+  cargo test -p harnix-testapp --features proc --test ext_proc || return 1
+  # The flow library copied into a workspace of its own, as another host takes it in.
+  scripts/check-flow-copy.sh
 }
 # `--no-deps` matters: without it `-D warnings` is applied to the Agix
 # submodule too, and this script goes red for lints in code this repository
@@ -264,7 +266,7 @@ port = $PORT_UI
 EOF
   set -a; . ./.env; set +a
   HARNIX_STATE_DIR="$scratch/state" target/release/harnix --profile "$scratch/profile.toml" --scenes harnix \
-    --ui-dir ui/dist --agix-dir "$scratch/atta" --data-dir "$scratch/projects" \
+    --ui-dir ui/dist --engine-dir "$scratch/engine" --data-dir "$scratch/projects" \
     > "$scratch/backend.log" 2>&1 &
   backend_pid=$!
   for _ in $(seq 200); do
@@ -299,7 +301,7 @@ EOF
   set -a; . ./.env; set +a
   HARNIX_STATE_DIR="$scratch/remote-state" target/release/harnix --profile "$scratch/remote.toml" \
     --tls-cert "$scratch/cert.pem" --tls-key "$scratch/key.pem" \
-    --ui-dir ui/dist --agix-dir "$scratch/remote-atta" --data-dir "$scratch/remote-projects" \
+    --ui-dir ui/dist --engine-dir "$scratch/remote-engine" --data-dir "$scratch/remote-projects" \
     > "$scratch/remote.log" 2>&1 &
   backend_pid=$!
   for _ in $(seq 200); do

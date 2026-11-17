@@ -1,0 +1,17 @@
+name: multi
+stations:
+  - {id: collect, executor: {kind: program, step: collect}, output: {type: object, required: [modules]}, exit: [{kind: output}]}
+  - id: analyze
+    foreach: ${stations.collect.output.modules}
+    max_parallel: 2
+    executor: {kind: session, scene: harnix}
+    skill: analyze
+    output: {type: object, required: [findings]}
+    exit: [{kind: output}]
+  - id: report
+    tasks:
+      - {id: summary, executor: {kind: program, step: work}}
+      - {id: sign, executor: {kind: external, who: reviewer}}
+    output: {type: object}
+    exit: [{kind: output}]
+    rework_to: [analyze]

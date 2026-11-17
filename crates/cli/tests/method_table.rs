@@ -15,12 +15,12 @@ fn snapshot_path() -> PathBuf {
 }
 
 /// What this binary assembles in its default build: Harnix's extensions, the flow module, the
-/// schedules and `packages`, each granted what `main` grants it.
+/// schedules and `packages`, each granted what `main` grants it, and the composer's model switch.
 fn the_harnix_app() -> harnix::AppBuilder {
     let set = harnix::first_party::standard_with_flow(harnix_ext_flow::Flow::builder().build())
         .with(harnix::first_party::Schedules::new(), harnix::first_party::SCHEDULE_GRANTS)
         .with(harnix::first_party::packages(), harnix::first_party::PACKAGES_GRANTS);
-    harnix::App::builder().extensions(set)
+    harnix::App::builder().extensions(set).model_switch(true)
 }
 
 #[test]

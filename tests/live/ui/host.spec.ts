@@ -60,17 +60,17 @@ test("spaces.switch brings another space to the front, drawn, before it settles"
 test("session.open with switchSpace opens a session in the space the hub has it in", SHELL, async ({ page }) => {
   await open(page, URL);
   const mine = await newSession(page, "says-ready");
-  // A session of the system space, made the way that space makes them.
+  // A session of the flow space, made the way that space makes them (a flow-author conversation).
   const other = await page.evaluate(async () => {
     const { app } = (window as any).harnix;
-    const created = await app.call("harnix.session.create", { space: "system", scene: "harnix", options: { recorder: { name: "says-ready" } } });
+    const created = await app.call("harnix.session.create", { space: "flow", options: { recorder: { name: "says-ready" } } });
     return { instance: created.instance ?? "main", sessionId: created.session_id as string };
   });
   // Without the option, nothing changes: the front space's own session is opened there.
   await page.evaluate((ref) => (window as any).harnix.host.session.open(ref), { instance: "main", sessionId: mine });
   await expect(page.locator("#main")).toHaveAttribute("data-space", "sessions");
   await page.evaluate((ref) => (window as any).harnix.host.session.open(ref, { switchSpace: true }), other);
-  await expect(page.locator("#main")).toHaveAttribute("data-space", "system");
+  await expect(page.locator("#main")).toHaveAttribute("data-space", "flow");
   const state = await page.evaluate(() => {
     const { app } = (window as any).harnix;
     return { current: app.snapshot.current, sessions: app.snapshot.currentBySpace.sessions };
@@ -387,22 +387,17 @@ test("composer.steer: a space that asks for it has a deliver-now switch, and a m
   await expect(page.locator('[data-testid="conv-message"]', { hasText: "and this now" }).getByTestId("conv-steered")).toBeVisible();
 });
 
-test("model_switch: without the system space the composer changes the model through harnix.session.setModel", SHELL, async ({ page }) => {
-  const backend = await startHarnix(launchFor("replay", { profile: "[shell]\nmodel_switch = true\n[extensions]\noff = [\"system\", \"flow\"]\n" }));
-  try {
-    await open(page, backend.url);
-    const reachable = await page.evaluate(() => (window as any).harnix.app.snapshot.reachable as string[]);
-    expect(reachable).toContain("harnix.session.setModel");
-    expect(reachable).not.toContain("system.model");
-    await newSession(page, "says-ready");
-    await page.getByTestId("conv-model").click();
-    await page.getByTestId("conv-model-custom").fill("claude-switched-model");
-    await page.getByTestId("conv-model-custom").press("Enter");
-    await expect(page.getByTestId("conv-model")).toContainText("claude-switched-model");
-  } finally {
-    await backend.dispose();
-  }
-  const without = await startHarnix(launchFor("replay", { profile: "[extensions]\noff = [\"system\", \"flow\"]\n" }));
+test("model_switch: the composer changes the model through harnix.session.setModel; the harnix binary's profile closes it with the line false", SHELL, async ({ page }) => {
+  // The `harnix` binary opens it with nothing written: the worker's shared backend has it.
+  await open(page, URL);
+  const reachable = await page.evaluate(() => (window as any).harnix.app.snapshot.reachable as string[]);
+  expect(reachable).toContain("harnix.session.setModel");
+  await newSession(page, "says-ready");
+  await page.getByTestId("conv-model").click();
+  await page.getByTestId("conv-model-custom").fill("claude-switched-model");
+  await page.getByTestId("conv-model-custom").press("Enter");
+  await expect(page.getByTestId("conv-model")).toContainText("claude-switched-model");
+  const without = await startHarnix(launchFor("replay", { profile: "[shell]\nmodel_switch = false\n[extensions]\noff = [\"flow\"]\n" }));
   try {
     await open(page, without.url);
     await newSession(page, "says-ready");

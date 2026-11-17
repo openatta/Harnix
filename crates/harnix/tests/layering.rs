@@ -254,14 +254,14 @@ fn the_instance_layer_does_not_know_the_client_protocol_exists() {
 
 /// The flow extension (xops-01) is an optional extension an application adds, written against
 /// the extension interface like every first-party one: that interface (and the engine's words it
-/// re-exports) and third-party crates. Never a layer below it, never Agix, and never the doors
-/// the host uses to seat an extension.
+/// re-exports), the flow library, and third-party crates. Never a layer below it, never Agix,
+/// and never the doors the host uses to seat an extension.
 #[test]
 fn the_flow_extension_uses_only_the_extension_interface() {
     for name in dependencies("ext/flow") {
         if name.starts_with("harnix") {
             assert!(
-                name == "harnix-ext",
+                name == "harnix-ext" || name == "harnix-flow",
                 "`flow` depends on `{name}`; an extension reaches the process only through its context"
             );
         }
@@ -272,7 +272,7 @@ fn the_flow_extension_uses_only_the_extension_interface() {
         );
     }
     let mut offenders = Vec::new();
-    let mut stack = vec![workspace_root().join("crates/ext/flow/src")];
+    let mut stack = vec![workspace_root().join("crates/ext/flow/src"), workspace_root().join("crates/flow/src")];
     while let Some(dir) = stack.pop() {
         for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
             let path = entry.path();
@@ -289,6 +289,17 @@ fn the_flow_extension_uses_only_the_extension_interface() {
         }
     }
     assert!(offenders.is_empty(), "{}", offenders.join("\n"));
+}
+
+/// The flow library is taken in whole by other hosts than Harnix (crates/flow/docs/embed.en.md), so
+/// it names nothing of Harnix and nothing of Agix, in any section; its own `tests/deps.rs` says the
+/// same of its whole dependency closure.
+#[test]
+fn the_flow_library_links_nothing_of_harnix_or_agix() {
+    for name in dependencies("flow") {
+        assert!(!name.starts_with("harnix"), "the flow library depends on `{name}`; it links nothing of Harnix");
+        assert!(!AGIX.contains(&name.as_str()), "the flow library depends on Agix's `{name}`");
+    }
 }
 
 /// The Harnix app adds the flow extension (xops-02 §6), and an application that depends on the
@@ -644,12 +655,12 @@ fn a_plugin_applications_agent_package_is_read_for_its_name_and_version_only() {
 /// section a line happened to sit under.
 #[test]
 fn dependencies_are_read_as_cargo_reads_them() {
-    let flow = declared("ext/flow");
-    let ext = flow.iter().find(|d| d.name == "harnix-ext").expect("flow names harnix-ext");
-    assert!(ext.optional && ext.kind.is_none(), "an optional normal dependency");
-    assert!(flow.iter().any(|d| d.name == "tempfile" && d.kind.as_deref() == Some("dev")));
-    assert!(normal_dependencies("ext/flow").get("harnix-ext") == Some(&true));
-    assert!(!normal_dependencies("ext/flow").contains_key("tempfile"), "a dev-dependency is not normal");
+    let facade = declared("harnix");
+    let flow = facade.iter().find(|d| d.name == "harnix-ext-flow").expect("the facade names harnix-ext-flow");
+    assert!(flow.optional && flow.kind.is_none(), "an optional normal dependency");
+    assert!(facade.iter().any(|d| d.name == "harnix-contract" && d.kind.as_deref() == Some("dev")));
+    assert!(normal_dependencies("harnix").get("harnix-ext-flow") == Some(&true));
+    assert!(!normal_dependencies("harnix").contains_key("harnix-contract"), "a dev-dependency is not normal");
 }
 
 /// Every crate that depends on a Harnix crate depends on one that exists, and
@@ -674,12 +685,12 @@ fn every_harnix_dependency_resolves() {
         "ext/devices",
         "ext/flow",
         "ext/harnix-app",
+        "flow",
         "ext/observability",
         "ext/packages",
         "ext/plugins",
         "ext/schedule",
         "ext/settings",
-        "ext/system",
         "harnix",
         "host-api",
         "hub",
@@ -761,10 +772,11 @@ mod rules {
         pub const FACADE: &str = "harnix";
         pub const CLI: &str = "harnix-cli";
         pub const TESTAPP: &str = "harnix-testapp";
+        /// The flow library: a leaf of its own, taken in by the flow extension.
+        pub const FLOW: &str = "harnix-flow";
         /// The first-party extensions: `harnix-ext-<id>`, each a crate of its own.
         pub const FIRST_PARTY_PREFIX: &str = "harnix-ext-";
         pub const FIRST_PARTY: &[&str] = &[
-            "harnix-ext-system",
             "harnix-ext-harnix-app",
             "harnix-ext-settings",
             "harnix-ext-plugins",
@@ -777,8 +789,7 @@ mod rules {
         pub const ALL: &[&str] = &[
             CONTRACT, KERNEL, AUTHZ, ROUTER, TRANSPORT, HUB, INSTANCE, ENGINE_API, ENGINE_LINK, ENGINE, SUPERVISE,
             ASSEMBLY, EXT, HOST_API, PACKAGES, CARRIER_SHARED, CARRIER_WASM, CARRIER_PROC, PROC, PACKAGE, WASM_PORT,
-            WASM_HOST, WASM, CLIENT, FACADE, CLI, TESTAPP,
-            "harnix-ext-system",
+            WASM_HOST, WASM, CLIENT, FACADE, CLI, TESTAPP, FLOW,
             "harnix-ext-harnix-app",
             "harnix-ext-settings",
             "harnix-ext-plugins",
@@ -1156,7 +1167,12 @@ mod rules {
             // The settings extension writes the engine's settings tiers, whose place the host says
             // through a transitional service of the host API (docs/harnix-ext.md §17.8); every other
             // first-party extension is written against the extension interface alone.
-            let allowed: &[&str] = if name == "harnix-ext-settings" { &[EXT, HOST_API] } else { &[EXT] };
+            // The flow extension is Harnix's host of the flow library, which it re-exports.
+            let allowed: &[&str] = match name.as_str() {
+                "harnix-ext-settings" => &[EXT, HOST_API],
+                "harnix-ext-flow" => &[EXT, FLOW],
+                _ => &[EXT],
+            };
             depends(&name, allowed, &agix_and(&[]), &["axum"]);
         }
     }
@@ -1246,7 +1262,9 @@ mod rules {
             if !is_harnix(&dep) {
                 continue;
             }
-            let may_be_optional = dep.starts_with(FIRST_PARTY_PREFIX) || dep.starts_with("harnix-carrier-") || dep == PROC;
+            // The flow library only for `ts`, which declares its types.
+            let may_be_optional =
+                dep.starts_with(FIRST_PARTY_PREFIX) || dep.starts_with("harnix-carrier-") || dep == PROC || dep == FLOW;
             assert!(may_be_optional, "`{FACADE}` depends on `{dep}`; of Harnix it names {always:?} and optional extras");
             assert!(optional, "`{FACADE}` depends on `{dep}`, and only optionally");
         }
@@ -1257,6 +1275,15 @@ mod rules {
             );
         }
         let _ = package(ASSEMBLY);
+    }
+
+    #[test]
+    fn l26_the_flow_library_is_a_leaf() {
+        // It names nothing of Harnix; of Harnix, the flow extension takes it in, and the facade
+        // only to declare its types (`ts`).
+        depends(FLOW, &[], &agix_and(&[]), &[]);
+        only_used_by(FLOW, &["harnix-ext-flow", FACADE], &[FACADE]);
+        assert!(member_names().iter().any(|n| n == FLOW), "`{FLOW}` does not exist (yet)");
     }
 
     #[test]
@@ -1371,7 +1398,7 @@ mod rules {
 
     /// The identifiers of the first-party extensions and their spaces.
     const FIRST_PARTY_IDS: &[&str] = &[
-        "system", "sessions", "projects", "flow", "harnix-app", "settings", "plugins", "packages", "devices",
+        "sessions", "projects", "flow", "harnix-app", "settings", "plugins", "packages", "devices",
         "observability", "schedule",
     ];
 
@@ -1555,7 +1582,7 @@ mod rules {
 
     fn host_components_and_first_party() -> Vec<String> {
         let mut scope = first_party_members();
-        scope.extend([PACKAGES, CARRIER_SHARED, CARRIER_WASM, CARRIER_PROC].iter().map(|s| s.to_string()));
+        scope.extend([PACKAGES, CARRIER_SHARED, CARRIER_WASM, CARRIER_PROC, FLOW].iter().map(|s| s.to_string()));
         scope
     }
 

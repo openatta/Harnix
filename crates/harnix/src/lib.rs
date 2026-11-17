@@ -63,7 +63,6 @@ pub mod first_party {
     pub use harnix_ext_observability::Observability;
     pub use harnix_ext_plugins::Plugins;
     pub use harnix_ext_settings::Settings;
-    pub use harnix_ext_system::System;
 
     #[cfg(feature = "flow")]
     pub use harnix_ext_flow::Flow;
@@ -117,11 +116,10 @@ pub mod first_party {
     pub fn standard() -> ExtensionSet {
         ExtensionSet::new()
             .with(HarnixApp, [caps::TRANSCRIPTS_READ, caps::ENGINE_EXPORT, caps::ENGINE_CONTROL])
-            .with(
-                System,
-                [caps::INSTANCES_ADMIN, caps::ENGINE_INSPECT, caps::ENGINE_CONTROL, caps::PROCESS_OBSERVE],
-            )
-            .with(Observability, [caps::RECORDINGS_READ])
+            // The recordings, a session's inside read through the engine (its context and its
+            // tasks' output) and changed for a person (a task stopped, a message rewritten or
+            // taken out), and this process's figures.
+            .with(Observability, [caps::RECORDINGS_READ, caps::ENGINE_INSPECT, caps::PROCESS_OBSERVE, caps::ENGINE_CONTROL])
             .with(Settings, [caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE, caps::ENGINE_MCP, caps::ENGINE_INSPECT])
             .with(Plugins::default(), [caps::ENGINE_PLUGINS])
             .with(Devices, [caps::DEVICES_MANAGE])

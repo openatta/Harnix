@@ -1,0 +1,148 @@
+/* The home page: a greeting, then the blocks other packages put there, in columns; a wide block takes
+ * the page's width. Colours only from tokens. */
+
+.hx-home {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 4px 24px 32px;
+  font-size: 13px;
+}
+
+.hx-home-head {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 4px 0 16px;
+}
+
+.hx-home-head h2 {
+  margin: 0;
+  color: var(--label-primary);
+  font-family: var(--font-serif);
+  font-size: 28px;
+  font-weight: 500;
+}
+
+.hx-home-head .date {
+  color: var(--label-caption);
+  font-size: 13px;
+}
+
+.hx-home-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.hx-home-block {
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border-l2);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.hx-home-block.wide {
+  grid-column: 1 / -1;
+}
+
+.hx-home-block h3 {
+  margin: 0 0 8px;
+  color: var(--label-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.hx-home-none,
+.hx-home-rows .empty {
+  color: var(--label-caption);
+  font-size: 12px;
+}
+
+.hx-home-rows {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.hx-home-rows > .btn {
+  align-self: flex-start;
+  margin-top: 6px;
+}
+
+.hx-home-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--label-primary);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.hx-home-row:hover {
+  background: var(--interactive-hover);
+}
+
+.hx-home-row .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hx-home-row .tag {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--label-tertiary);
+  font-size: 11px;
+}
+
+.hx-home-row .meta {
+  flex: none;
+  color: var(--label-caption);
+  font-size: 11px;
+}
+
+.hx-home-row .live {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* The first-run block: the missing model, then the steps side by side. A step done or closed draws
+ * nothing and takes no place; with nothing left, neither does the block. */
+.hx-home-setup {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  gap: 10px;
+}
+
+.hx-home-setup > .model-setup {
+  grid-column: 1 / -1;
+}
+
+.hx-home-setup > .hx-home-card {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-l2);
+  border-radius: var(--radius-card);
+}
+
+.hx-home-setup > .hx-home-card:empty,
+.hx-home-block:has(> .hx-home-setup):not(:has(> .hx-home-setup > :not(:empty))) {
+  display: none;
+}

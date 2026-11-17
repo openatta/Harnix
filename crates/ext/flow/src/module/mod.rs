@@ -1,30 +1,22 @@
-//! The Harnix module: the kernel wired to sessions, the application's code, native tools,
-//! methods and topics (xops-01 §6).
+//! The Harnix extension: the flow library's runner wired to Harnix's sessions, the application's
+//! code, native tools, methods and topics.
 //!
 //! ```text
-//! mod.rs       Flow, its builder, FlowHandle; the Module impl (spaces, engine, events, start)
-//! shared.rs    what the module, its tools and its dispatcher share
-//! dispatch.rs  carrying out an Outcome: events, programs, and every work item handed on
-//! publish.rs   the topics: `run`, `runs`, `defs`, `focus`, `dry_runs`
-//! project.rs   a run's output directory and process directory in its project
-//! worktree.rs  a run in a worktree of its project: made at start, merged, kept or discarded after
-//! git.rs       the git command line worktree.rs works through
-//! session.rs   a session task: placing, opening and binding its session
-//! turns.rs     a session task's turns: sending, judging, correcting, nudging, interrupting
-//! gate.rs      a gate's work item; `command` gates
-//! tools.rs     the scene wrappers: flow-* (flow_state, flow_submit, flow_propose)
-//! author.rs    flow-author: writing flows in conversation (xops-02 §4)
+//! mod.rs       Flow, its builder, FlowHandle; the Extension impl (spaces, engine, start, stop)
+//! state.rs     what the extension's methods, scenes, topics and host share
+//! host.rs      HarnixSessionHost: the runner's sessions, through the hub
+//! scenes.rs    the scene wrappers: flow-* (flow_state, flow_submit, flow_propose)
+//! author.rs    flow-author: the library's authoring tools in a scene, a conversation's focus
 //! methods.rs   flow.* — the device methods
-//! project_packs.rs  a project's own packs: whether the project is trusted, as the engine says
+//! publish.rs   the topics: `run`, `runs`, `defs`, `focus`, `dry_runs`
 //! ```
 //!
-//! What a task may do is judged by the module call by call: a flow session `ask`s about every
-//! guarded tool and every tool a permission names, and the module answers from the permissions
-//! of the task the turn works on (xops-04 §3). A station's output contract is the session's
-//! `output_schema` when it hands in by structured output: the same on `main`, an in-process
-//! template's instance or a spawned daemon (xops-02 §2).
+//! What runs a run is the library's `Runner` (`harnix_flow::runner`): it opens sessions where a
+//! station places them, judges each tool call of a task against its permissions, takes the hand-in,
+//! runs gates, posts hooks, projects the run into its project. This extension gives it Harnix's
+//! sessions (`host.rs`), the application's packs, programs and gates, and tells Harnix what changed.
 //!
-//! An application registers it like any module:
+//! An application registers it like any extension:
 //!
 //! ```no_run
 //! # use std::sync::Arc;
@@ -34,28 +26,19 @@
 //!     .packs(MemPacks::new().flow("name: demo\nstations: [{id: a, exit: [{kind: confirm}]}]"))
 //!     .scene(SceneBase::builtin("harnix"))   // offered to definitions as `flow-harnix`
 //!     .build();
-//! let handle = flow.handle();  // the kernel from Rust, once the module has started
+//! let handle = flow.handle();  // the kernel from Rust, once the extension has started
 //! # let _ = (flow, handle);
 //! ```
 
 mod author;
-mod dispatch;
-mod gate;
-mod git;
-mod hooks;
-mod main;
+mod host;
 mod methods;
-mod project;
-mod project_packs;
 mod publish;
-mod session;
-mod shared;
-mod tools;
-mod turns;
-mod worktree;
+mod scenes;
+mod state;
 
 use std::path::Path;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 use harnix_ext::engine::{InstanceTemplate, SceneBase, SceneLayer};
 use harnix_ext::{caps, catalog, Extension, ExtensionContext, Manifest, Registrar, SpaceDecl};
@@ -64,23 +47,49 @@ use tokio::sync::broadcast;
 
 use crate::dryrun::{Sandbox, SandboxConfig};
 use crate::kernel::engine::{Engine, DEFAULT_LEASE_MS};
-use crate::kernel::host::{
-    Authorizer, Catalog, Event, Gates, Origin, Outcome, Packs, Programs, RunStore, Tools,
-    WorkItem,
-};
+use crate::kernel::host::{Authorizer, Event, Gates, Outcome, Packs, Programs, RunStore, Tools, WorkItem};
 use crate::kernel::FlowError;
-use crate::packs::MemPacks;
+use crate::runner::{CatalogPacks, EndError, MainRecordingFn, RecordingFn, Runner, RunnerConfig};
 use crate::store::FileStore;
 
 pub use crate::kernel::protocol::matches_any;
+pub use crate::runner::DEFAULT_GUARDED;
 pub use author::{AUTHOR_PROMPT, AUTHOR_SCENE, AUTHOR_TOOLS, NO_FOCUS};
-pub use shared::{session_name, session_ref};
-pub use tools::{TOOL_PROPOSE, TOOL_STATE, TOOL_SUBMIT};
+pub use scenes::{TOOL_PROPOSE, TOOL_STATE, TOOL_SUBMIT};
+pub use state::{session_name, session_ref};
 
-use shared::{Config, ConversationRecordingFn, MainRecordingFn, RecordingFn, Shared};
+use state::{Config, ConversationRecordingFn, Shared};
 
 /// The extension's id: methods and topics are `flow.*`, its templates `flow.<id>`.
 pub const MODULE_ID: &str = "flow";
+
+/// What a run's worktree branch is named under in Harnix: `harnix/flow/<run>`, apart from the
+/// engine's own `harnix/worktree-*`. A branded product's is `<its lowercase name>/flow`.
+pub const BRANCH_PREFIX: &str = "harnix/flow";
+
+/// The directories of a project's data directory (`.harnix/`) the engine's sandbox lets a session
+/// write: a task's own there, where the rest of the directory is the application's.
+pub const AGENT_DIRS: &[&str] = &["scratchpad", "memory"];
+
+/// The prefix of the HTTP headers a webhook delivery carries: `X-Harnix-Event`, `-Delivery`,
+/// `-Timestamp`, `-Signature`.
+pub const HOOK_HEADERS: &str = "X-Harnix";
+
+/// Where the extension keeps what it writes for a project, from the product's names and its data
+/// directory: the project's data directory (`.harnix/`, a branded product's `.<product_id>/`,
+/// shared with the engine), runs' worktrees in `<data>/worktrees/<run>` on `<product>/flow/<run>`
+/// ([`BRANCH_PREFIX`] in Harnix). An extension is handed only its own directory, so the worktrees
+/// are there rather than beside the engine's state.
+pub(crate) fn project_layout(names: &harnix_ext::engine::ProductNames, data_dir: &Path) -> crate::ProjectLayout {
+    crate::ProjectLayout::new(names.project_dir(), data_dir.join("worktrees"), format!("{}/flow", names.product_id()))
+        .with_agent_dirs(AGENT_DIRS.iter().copied())
+}
+
+/// Harnix's own layout, with no brand: what the tests take.
+#[cfg(test)]
+pub(crate) fn layout(data_dir: &Path) -> crate::ProjectLayout {
+    project_layout(&Default::default(), data_dir)
+}
 
 /// `spec`, with `set` applied when there is a value to set.
 pub(crate) fn spec_with<T>(
@@ -99,32 +108,56 @@ pub(crate) fn spec_with<T>(
 pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
-/// The instance the flow space's sessions run on, and where a station's session goes when it
-/// names no instance or template and stays in the flow's space. `Module::engine` contributes to
-/// it alone, so the wrapped scenes and `flow-author` exist only there.
-pub const FLOW_INSTANCE: &str = "main";
 
-/// The engine's tools that change something outside the conversation: the shell, the file
-/// editors, the notebook editor, the interpreters.
-pub const DEFAULT_GUARDED: &[&str] = &[
-    "Bash",
-    "PowerShell",
-    "REPL",
-    "Write",
-    "Edit",
-    "NotebookEdit",
-];
+/// The instance the flow space's sessions run on, and where a station's session goes when it
+/// names no instance or template and stays in the flow's space. `Extension::register` contributes
+/// to it alone, so the wrapped scenes and `flow-author` exist only there.
+pub const FLOW_INSTANCE: &str = "main";
 
 type MakeStore = Box<dyn FnOnce(&Path) -> Arc<dyn RunStore> + Send>;
 type MakePacks = Box<dyn FnOnce(&Path) -> Arc<dyn Packs> + Send>;
 
-/// Where runs are stored: given, or made from the module's data directory at start.
+/// Where runs are stored: given, or made from the extension's data directory at start.
 enum StoreSpec {
     Ready(Arc<dyn RunStore>),
     Lazy(MakeStore),
 }
 
-/// The flow module. Build it with [`Flow::builder`], register it with the application.
+/// What the runner is built with at start, kept from the builder until then.
+struct RunnerParts {
+    programs: Option<Arc<dyn Programs>>,
+    gates: Option<Arc<dyn Gates>>,
+    command_gates: bool,
+    guarded: Vec<String>,
+    recording: Option<RecordingFn>,
+    main_recording: Option<MainRecordingFn>,
+    lease_ms: u64,
+    tick_ms: u64,
+}
+
+impl RunnerParts {
+    fn config(&self, sh: &Shared) -> RunnerConfig {
+        RunnerConfig {
+            profiles: sh.cfg.scenes.clone(),
+            submit_profiles: sh.cfg.scenes.iter().cloned().collect(),
+            main_profile: sh.cfg.main_scene.clone(),
+            project_profiles: sh.cfg.project_scenes.clone(),
+            guarded: self.guarded.clone(),
+            command_gates: self.command_gates,
+            lease_ms: self.lease_ms,
+            tick_ms: self.tick_ms,
+            hook_headers: HOOK_HEADERS.into(),
+            recording: self.recording.clone(),
+            main_recording: self.main_recording.clone(),
+            programs: self.programs.clone(),
+            gates: self.gates.clone(),
+            hook_transport: None,
+            trust: sh.projects.clone(),
+        }
+    }
+}
+
+/// The flow extension. Build it with [`Flow::builder`], register it with the application.
 pub struct Flow {
     sh: Arc<Shared>,
     store: Mutex<Option<StoreSpec>>,
@@ -135,7 +168,10 @@ pub struct Flow {
     scenes: Vec<SceneLayer>,
     author: SceneLayer,
     templates: Vec<InstanceTemplate>,
-    /// Why the module must not start: a guarded-tool pattern no permission rule can say.
+    runner: Mutex<Option<RunnerParts>>,
+    /// Every kernel event, for [`FlowHandle::subscribe`] before and after the runner starts.
+    events: broadcast::Sender<Event>,
+    /// Why the extension must not start: a guarded-tool pattern no permission rule can say.
     config_error: Option<String>,
 }
 
@@ -146,9 +182,7 @@ impl Flow {
 
     /// The kernel from Rust, for the application.
     pub fn handle(&self) -> FlowHandle {
-        FlowHandle {
-            sh: self.sh.clone(),
-        }
+        FlowHandle { sh: self.sh.clone(), events: self.events.clone() }
     }
 }
 
@@ -206,7 +240,7 @@ impl Default for FlowBuilder {
 
 /// The engine's own scenes, the ones a flow offers when the application gives none: `harnix` (the
 /// main scene), `code` and `mini`, each with whether its sessions need a project (`code`'s do).
-/// Attended, as the wrapper is: the module answers a flow session's asks in place of a person, so
+/// Attended, as the wrapper is: the runner answers a flow session's asks in place of a person, so
 /// they must reach the host. A flow session lists no questions to put, so it has no
 /// `AskUserQuestion`.
 pub fn builtin_scenes() -> Vec<(SceneBase, bool)> {
@@ -218,21 +252,19 @@ pub fn builtin_scenes() -> Vec<(SceneBase, bool)> {
 }
 
 impl FlowBuilder {
-    /// Where runs live. Without one, a [`FileStore`] in the module's data directory (`runs/`).
+    /// Where runs live. Without one, a [`FileStore`] in the extension's data directory (`runs/`).
     pub fn store(mut self, store: impl RunStore + 'static) -> Self {
         self.store = Some(StoreSpec::Ready(Arc::new(store)));
         self
     }
 
-    /// A store made at start from the module's data directory, which is not known before.
+    /// A store made at start from the extension's data directory, which is not known before.
     pub fn store_with<S, F>(mut self, make: F) -> Self
     where
         S: RunStore + 'static,
         F: FnOnce(&Path) -> S + Send + 'static,
     {
-        self.store = Some(StoreSpec::Lazy(Box::new(move |dir: &Path| {
-            Arc::new(make(dir)) as Arc<dyn RunStore>
-        })));
+        self.store = Some(StoreSpec::Lazy(Box::new(move |dir: &Path| Arc::new(make(dir)) as Arc<dyn RunStore>)));
         self
     }
 
@@ -247,22 +279,20 @@ impl FlowBuilder {
         self
     }
 
-    /// Packs made at start from the module's data directory — a writable layer there, say:
+    /// Packs made at start from the extension's data directory — a writable layer there, say:
     /// `DirPacks::writable(dir.join("packs")).with_builtin(…)`.
     pub fn packs_with<P, F>(mut self, make: F) -> Self
     where
         P: Packs + 'static,
         F: FnOnce(&Path) -> P + Send + 'static,
     {
-        self.lazy_packs = Some(Box::new(move |dir: &Path| {
-            Arc::new(make(dir)) as Arc<dyn Packs>
-        }));
+        self.lazy_packs = Some(Box::new(move |dir: &Path| Arc::new(make(dir)) as Arc<dyn Packs>));
         self
     }
 
     /// A scene stations may run sessions in. It is offered as `flow-<id>`: the same scene
     /// with the flow's native tools added (its sessions hand in with `flow_submit`). Repeatable.
-    /// Given none, the module offers the engine's own ones ([`builtin_scenes`]): `flow-harnix`,
+    /// Given none, the extension offers the engine's own ones ([`builtin_scenes`]): `flow-harnix`,
     /// `flow-code` and `flow-mini`, with `flow-harnix` the main scene.
     pub fn scene(mut self, base: SceneBase) -> Self {
         self.scenes.push((base, None));
@@ -283,8 +313,8 @@ impl FlowBuilder {
         self
     }
 
-    /// A template of the module's own, which stations may name as `flow.<id>` (the hub lets a
-    /// module build only from its own templates and the profile's). Repeatable.
+    /// A template of the extension's own, which stations may name as `flow.<id>` (the hub lets an
+    /// extension build only from its own templates and the profile's). Repeatable.
     pub fn template(mut self, template: InstanceTemplate) -> Self {
         self.templates.push(template);
         self
@@ -314,8 +344,8 @@ impl FlowBuilder {
         self
     }
 
-    /// Let `command` gates run (xops-04 §4): a gate of the pack then runs a command on this
-    /// host, in the run's workspace by default. Off unless turned on.
+    /// Let `command` gates run: a gate of the pack then runs a command on this host, in the run's
+    /// workspace by default. Off unless turned on.
     pub fn command_gates(mut self, on: bool) -> Self {
         self.command_gates = on;
         self
@@ -333,7 +363,7 @@ impl FlowBuilder {
     }
 
     /// The tools refused to a flow task unless one of its permissions allows them: a flow
-    /// session asks about each, the module answers, and the protocol layer names them. Only
+    /// session asks about each, the runner answers, and the protocol layer names them. Only
     /// these are refused by default — an application whose sessions reach other writing tools
     /// (its own MCP tools, plugin tools) lists them here, by name or as a namespace group
     /// `ns__*`. By default the engine's own: [`DEFAULT_GUARDED`].
@@ -348,30 +378,21 @@ impl FlowBuilder {
 
     /// The recording a session task's session replays (tests and demos): ignored unless the
     /// process runs in replay.
-    pub fn recording(
-        mut self,
-        f: impl Fn(&WorkItem) -> Option<String> + Send + Sync + 'static,
-    ) -> Self {
+    pub fn recording(mut self, f: impl Fn(&WorkItem) -> Option<String> + Send + Sync + 'static) -> Self {
         self.recording = Some(Arc::new(f));
         self
     }
 
     /// The recording a run's main session replays (tests and demos): ignored unless the process
     /// runs in replay. Every task in the main session takes its turns in that one recording.
-    pub fn main_recording(
-        mut self,
-        f: impl Fn(&crate::RunRecord) -> Option<String> + Send + Sync + 'static,
-    ) -> Self {
+    pub fn main_recording(mut self, f: impl Fn(&crate::RunRecord) -> Option<String> + Send + Sync + 'static) -> Self {
         self.main_recording = Some(Arc::new(f));
         self
     }
 
     /// The recording a flow's conversation replays (the flow's name; `""` for the general
     /// conversation) — tests and demos: ignored unless the process runs in replay.
-    pub fn conversation_recording(
-        mut self,
-        f: impl Fn(&str) -> Option<String> + Send + Sync + 'static,
-    ) -> Self {
+    pub fn conversation_recording(mut self, f: impl Fn(&str) -> Option<String> + Send + Sync + 'static) -> Self {
         self.conversation_recording = Some(Arc::new(f));
         self
     }
@@ -384,7 +405,7 @@ impl FlowBuilder {
         self
     }
 
-    /// The lease the dispatcher holds on the tasks it carries out (it renews it while working).
+    /// The lease the runner holds on the tasks it carries out (it renews it while working).
     pub fn lease_ms(mut self, ms: u64) -> Self {
         self.lease_ms = ms.max(1000);
         self
@@ -400,72 +421,54 @@ impl FlowBuilder {
         if self.scenes.is_empty() {
             self.scenes = builtin_scenes().into_iter().map(|(base, project)| (base, Some(project))).collect();
         }
-        let (tx, _) = broadcast::channel(1024);
-        let own_templates: Vec<String> = self
-            .templates
-            .iter()
-            .map(|t| format!("{MODULE_ID}.{}", t.id))
-            .collect();
-        let sh = Arc::new(Shared::new(
-            Config {
-                space: self.space.clone(),
-                instance: FLOW_INSTANCE.to_string(),
-                scenes: self
-                    .scenes
-                    .iter()
-                    .map(|(s, _)| tools::wrapped_id(s.id()))
-                    .collect(),
-                programs: self.programs.clone(),
-                gates: self.gates.clone(),
-                command_gates: self.command_gates,
-                guarded: self.guarded.clone(),
-                recording: self.recording.clone(),
-                main_recording: self.main_recording.clone(),
-                conversation_recording: self.conversation_recording.clone(),
-                main_scene: self
-                    .main_scene
-                    .clone()
-                    .or_else(|| self.scenes.first().map(|(s, _)| s.id().to_string()))
-                    .map(|id| tools::wrapped_id(&id)),
-                project_scenes: self
-                    .scenes
-                    .iter()
-                    .filter(|(_, project)| *project == Some(true))
-                    .map(|(s, _)| tools::wrapped_id(s.id()))
-                    .collect(),
-                lease_ms: self.lease_ms,
-                tick_ms: self.tick_ms,
-                ensure_ms: self.ensure_ms,
-            },
-            tx,
-        ));
-        let tools = tools::FlowTools::new(sh.clone());
+        let (events, _) = broadcast::channel(1024);
+        let own_templates: Vec<String> = self.templates.iter().map(|t| format!("{MODULE_ID}.{}", t.id)).collect();
+        let sh = Arc::new(Shared::new(Config {
+            space: self.space.clone(),
+            instance: FLOW_INSTANCE.to_string(),
+            scenes: self.scenes.iter().map(|(s, _)| scenes::wrapped_id(s.id())).collect(),
+            conversation_recording: self.conversation_recording.clone(),
+            main_scene: self
+                .main_scene
+                .clone()
+                .or_else(|| self.scenes.first().map(|(s, _)| s.id().to_string()))
+                .map(|id| scenes::wrapped_id(&id)),
+            project_scenes: self
+                .scenes
+                .iter()
+                .filter(|(_, project)| *project == Some(true))
+                .map(|(s, _)| scenes::wrapped_id(s.id()))
+                .collect(),
+            ensure_ms: self.ensure_ms,
+        }));
+        let runner = RunnerParts {
+            programs: self.programs.clone(),
+            gates: self.gates.clone(),
+            command_gates: self.command_gates,
+            guarded: self.guarded.clone(),
+            recording: self.recording.clone(),
+            main_recording: self.main_recording.clone(),
+            lease_ms: self.lease_ms,
+            tick_ms: self.tick_ms,
+        };
+        let tools = scenes::FlowTools::new(sh.clone());
         let scenes: Vec<SceneLayer> = self
             .scenes
             .iter()
-            .map(|(base, project)| tools::flow_scene(base.clone(), &tools, *project))
+            .map(|(base, project)| scenes::flow_scene(base.clone(), &tools, *project))
             .collect();
         let base = self.author.unwrap_or_else(|| SceneBase::builtin("harnix"));
         let author = author::author_scene(base, sh.clone());
-        let packs = Arc::new(CatalogPacks {
-            inner: OnceLock::new(),
-            scenes: sh.cfg.scenes.clone(),
-            templates: own_templates,
-            guarded: sh.cfg.guarded.clone(),
-            main_scene: sh.cfg.main_scene.clone(),
-            command_gates: sh.cfg.command_gates,
-            projects: Some(sh.projects.clone()),
-        });
+        let packs = Arc::new(CatalogPacks::new(&runner.config(&sh), own_templates));
         let problems = crate::kernel::protocol::guard_problems(&self.guarded);
         let config_error = (!problems.is_empty()).then(|| {
             format!(
-                "the flow module's guarded tools cannot all be refused by a session's permission \
-                 rules: {}",
+                "the flow extension's guarded tools cannot all be refused by a session's permission rules: {}",
                 problems.join("; ")
             )
         });
         if let Some(p) = self.packs {
-            let _ = packs.inner.set(p);
+            packs.set_inner(p);
         }
         Flow {
             sh,
@@ -477,134 +480,43 @@ impl FlowBuilder {
             scenes,
             author,
             templates: self.templates,
+            runner: Mutex::new(Some(runner)),
+            events,
             config_error,
         }
-    }
-}
-
-/// The application's packs (given, or made at start), with what the module adds to the
-/// catalog: its wrapped `flow-*` scenes, and — when the application lists templates at all —
-/// its own templates.
-struct CatalogPacks {
-    inner: OnceLock<Arc<dyn Packs>>,
-    scenes: Vec<String>,
-    templates: Vec<String>,
-    guarded: Vec<String>,
-    main_scene: Option<String>,
-    command_gates: bool,
-    /// Whose trust a project's own packs wait on; `None` for a project's view itself.
-    projects: Option<Arc<crate::packs::ProjectTrust>>,
-}
-
-impl CatalogPacks {
-    fn inner(&self) -> &dyn Packs {
-        static EMPTY: OnceLock<MemPacks> = OnceLock::new();
-        match self.inner.get() {
-            Some(p) => p.as_ref(),
-            None => EMPTY.get_or_init(MemPacks::new),
-        }
-    }
-}
-
-impl Packs for CatalogPacks {
-    fn flows(&self) -> Vec<String> {
-        self.inner().flows()
-    }
-    fn flow(&self, name: &str) -> Option<(crate::FlowDef, String)> {
-        self.inner().flow(name)
-    }
-    fn part(&self, kind: crate::PartKind, name: &str) -> Option<(String, String)> {
-        self.inner().part(kind, name)
-    }
-    fn parts(&self, kind: crate::PartKind) -> Vec<String> {
-        self.inner().parts(kind)
-    }
-    fn catalog(&self) -> Catalog {
-        let mut c = self.inner().catalog();
-        c.command_gates = self.command_gates;
-        c.scenes.extend(self.scenes.iter().cloned());
-        if !c.templates.is_empty() {
-            c.templates.extend(self.templates.iter().cloned());
-        }
-        c.guarded = self.guarded.clone();
-        c.submit_scenes = self.scenes.iter().cloned().collect();
-        if c.main_scene.is_none() {
-            c.main_scene = self.main_scene.clone();
-        }
-        c
-    }
-    fn flow_text(&self, name: &str) -> Option<String> {
-        self.inner().flow_text(name)
-    }
-    fn writable(&self) -> bool {
-        self.inner().writable()
-    }
-    fn origin(&self, flow: &str) -> Origin {
-        self.inner().origin(flow)
-    }
-    fn save_flow(&self, yaml: &str) -> Result<String, String> {
-        self.inner().save_flow(yaml)
-    }
-    fn delete_flow(&self, name: &str) -> Result<(), String> {
-        self.inner().delete_flow(name)
-    }
-    fn part_origin(&self, kind: crate::PartKind, name: &str) -> Origin {
-        self.inner().part_origin(kind, name)
-    }
-    fn save_part(&self, kind: crate::PartKind, name: &str, text: &str) -> Result<String, String> {
-        self.inner().save_part(kind, name, text)
-    }
-    fn delete_part(&self, kind: crate::PartKind, name: &str) -> Result<(), String> {
-        self.inner().delete_part(kind, name)
-    }
-    /// The project's own packs over the application's, with the same additions to the catalog;
-    /// read only while the project is trusted, as last heard.
-    fn project(&self, root: &str) -> Option<Arc<dyn Packs>> {
-        let trust = self.projects.as_ref()?;
-        let base = self.inner.get()?.clone();
-        let view = crate::packs::ProjectPacks::new(base, root, trust.trusted(root));
-        let inner = OnceLock::new();
-        let _ = inner.set(Arc::new(view) as Arc<dyn Packs>);
-        Some(Arc::new(CatalogPacks {
-            inner,
-            scenes: self.scenes.clone(),
-            templates: self.templates.clone(),
-            guarded: self.guarded.clone(),
-            main_scene: self.main_scene.clone(),
-            command_gates: self.command_gates,
-            projects: None,
-        }))
-    }
-    fn withheld_flows(&self) -> Vec<(String, crate::Withheld)> {
-        self.inner().withheld_flows()
     }
 }
 
 /// The kernel from Rust. Clone freely.
 ///
 /// The application fills in the [`crate::Actor`] itself. An operation's [`Outcome`] carries
-/// work (sessions to start, programs to run) that only the module can carry out: hand it to
+/// work (sessions to start, programs to run) that only the runner can carry out: hand it to
 /// [`FlowHandle::dispatch`].
 #[derive(Clone)]
 pub struct FlowHandle {
     sh: Arc<Shared>,
+    events: broadcast::Sender<Event>,
 }
 
 impl FlowHandle {
-    /// The kernel; `None` until the module has started.
+    /// The kernel; `None` until the extension has started.
     pub fn engine(&self) -> Option<Arc<Engine>> {
         self.sh.engine.get().cloned()
     }
 
     /// Every kernel event, as committed, from here on.
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
-        self.sh.events.subscribe()
+        self.events.subscribe()
     }
 
     /// Carry out what an operation produced: publish the runs it touched, broadcast its
-    /// events, start its work. The module does this itself for its methods and tools.
+    /// events, start its work. The extension does this itself for its methods and tools. Before
+    /// the extension has started nothing can be carried out, and the outcome is dropped.
     pub async fn dispatch(&self, outcome: Outcome) {
-        dispatch::apply(&self.sh, None, outcome).await;
+        match self.sh.runner.get() {
+            Some(rn) => rn.apply(outcome).await,
+            None => tracing::warn!("an outcome handed to the flow extension before it started is dropped"),
+        }
     }
 
     /// [`FlowHandle::dispatch`] for the result of an engine call, passing the value through.
@@ -631,8 +543,8 @@ impl Extension for Flow {
                  writes run records and saved flows where the application said; names the sessions \
                  it opens and lists a run's sub-agents",
             )
-            // Naming a run's main session and a flow's conversation; a main session's
-            // sub-agents and other tasks (xops-03).
+            // Naming a run's main session and a flow's conversation; a main session's sub-agents
+            // and other tasks.
             .requires([caps::ENGINE_CONTROL, caps::ENGINE_INSPECT])
     }
 
@@ -671,19 +583,25 @@ impl Extension for Flow {
         if let Some(why) = &self.config_error {
             anyhow::bail!("{why}");
         }
+        let Some(parts) = lock(&self.runner).take() else {
+            anyhow::bail!("the flow extension was started twice");
+        };
+        let cfg = parts.config(&self.sh);
         self.sh.load_ledger(cx.data_dir().join("instances.json"));
-        self.sh
-            .load_flow_sessions(cx.data_dir().join("sessions.json"));
+        self.sh.load_flow_sessions(cx.data_dir().join("sessions.json"));
         if let Some(make) = lock(&self.lazy_packs).take() {
-            let _ = self.packs.inner.set(make(cx.data_dir()));
+            self.packs.set_inner(make(cx.data_dir()));
         }
+        let layout = project_layout(cx.product(), cx.data_dir());
+        self.packs.set_layout(layout.clone());
         let packs: Arc<dyn Packs> = self.packs.clone();
         let mut engine = Engine::new(store, packs.clone())
-            .with_lease_ms(self.sh.cfg.lease_ms)
-            .with_guarded(self.sh.cfg.guarded.clone())
-            .with_submit_scenes(self.sh.cfg.scenes.clone())
-            .with_workspaces(cx.data_dir().join("workspaces"));
-        if let Some(m) = &self.sh.cfg.main_scene {
+            .with_lease_ms(cfg.lease_ms)
+            .with_guarded(cfg.guarded.clone())
+            .with_submit_scenes(cfg.profiles.clone())
+            .with_workspaces(cx.data_dir().join("workspaces"))
+            .with_layout(layout);
+        if let Some(m) = &cfg.main_profile {
             engine = engine.with_main_scene(m.clone());
         }
         if let Some(a) = &self.auth {
@@ -692,65 +610,65 @@ impl Extension for Flow {
         if let Some(t) = &self.tools {
             engine = engine.with_tools(t.clone());
         }
-        if self.sh.engine.set(Arc::new(engine)).is_err() {
-            anyhow::bail!("the flow module was started twice");
+        let engine = Arc::new(engine);
+        if self.sh.engine.set(engine.clone()).is_err() {
+            anyhow::bail!("the flow extension was started twice");
         }
         let _ = self.sh.sandbox.set(Arc::new(Sandbox::new(
             packs,
             SandboxConfig {
-                guarded: self.sh.cfg.guarded.clone(),
-                submit_scenes: self.sh.cfg.scenes.clone(),
-                main_scene: self.sh.cfg.main_scene.clone(),
+                guarded: cfg.guarded.clone(),
+                submit_scenes: cfg.profiles.clone(),
+                main_scene: cfg.main_profile.clone(),
             },
         )));
         let _ = self.sh.cx.set(cx.clone());
-        for scene in self
-            .sh
-            .cfg
-            .scenes
-            .iter()
-            .map(String::as_str)
-            .chain([AUTHOR_SCENE])
-        {
-            if let Err(e) = cx
-                .call(
-                    "engine.scene.activate",
-                    json!({"instance": FLOW_INSTANCE, "scene": scene}),
-                )
-                .await
-            {
+        let host = host::HarnixSessionHost::new(self.sh.clone());
+        let runner = Runner::new(engine, host.clone(), cfg);
+        let sandbox = self.sh.sandbox().map_err(|e| anyhow::anyhow!(e.message))?;
+        let author = crate::author::AuthorTools::new(&runner, sandbox, author::HarnixAuthorHost::new(self.sh.clone()));
+        let _ = self.sh.author.set(Arc::new(author));
+        let _ = self.sh.runner.set(runner.clone());
+        for scene in self.sh.cfg.scenes.iter().map(String::as_str).chain([AUTHOR_SCENE]) {
+            if let Err(e) = cx.call("engine.scene.activate", json!({"instance": FLOW_INSTANCE, "scene": scene})).await {
                 anyhow::bail!("scene {scene} could not be activated: {}", e.message);
             }
         }
         publish::publish_all(&self.sh).await;
         publish::publish_defs(&self.sh).await;
         publish::publish_dry(&self.sh, None).await;
-        let sh = self.sh.clone();
-        self.sh.spawn(async move {
-            dispatch::stop_stale_instances(&sh).await;
-            // Runs in projects read their project's packs as they go: its trust first.
-            project_packs::hear_active(&sh).await;
-            dispatch::recover(&sh).await
+        // What the runner changes goes out on the topics; its events to the handle's subscribers.
+        tokio::spawn(publish::follow(self.sh.clone(), runner.changes()));
+        let events = self.events.clone();
+        let mut from_runner = runner.events();
+        tokio::spawn(async move {
+            loop {
+                match from_runner.recv().await {
+                    Ok(e) => {
+                        let _ = events.send(e);
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => return,
+                }
+            }
         });
-        let sh = self.sh.clone();
-        let tick = self.sh.spawn(async move { dispatch::tick_loop(sh).await });
-        *lock(&self.sh.tick) = Some(tick);
+        host.stop_stale_instances().await;
+        runner.start().await;
         Ok(())
     }
 
-    /// Every task told to stop, and waited for a little: the module can say when it is quiet.
+    /// Every task told to stop, and waited for a little: the extension can say when it is quiet.
     /// Runs are not cancelled; the next start recovers their work.
     async fn stop(&self) {
-        if let Some(t) = lock(&self.sh.tick).take() {
-            t.abort();
-        }
-        if !self.sh.stop_tasks(STOP_GRACE).await {
-            tracing::warn!(left = self.sh.tasks.len(), "tasks still running after the stop's grace");
+        if let Some(rn) = self.sh.runner.get() {
+            if !rn.stop(STOP_GRACE).await {
+                tracing::warn!(left = rn.tasks_left(), "tasks still running after the stop's grace");
+            }
         }
     }
 }
 
-/// How long stopping waits for the module's tasks to notice.
+/// How long stopping waits for the runner's tasks to notice.
 const STOP_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// A kernel error as a method answers it: the code by kind — `NOT_FOUND` for no such run, station,
@@ -773,6 +691,28 @@ pub fn rpc_error(e: FlowError) -> harnix_ext::RpcError {
     err
 }
 
+/// Why a worktree could not be ended, as a method answers it: a merge that conflicts is
+/// `CONFLICT` with the files (`data: {flow: "conflict", files, branch, worktree}`), git's refusal
+/// `CONFLICT` too (`data: {flow: "git", branch}`), the kernel's as [`rpc_error`] says.
+pub fn worktree_error(e: EndError) -> harnix_ext::RpcError {
+    use harnix_ext::codes;
+    match e {
+        EndError::Flow(e) => rpc_error(e),
+        EndError::Conflict { files, branch, worktree } => {
+            let message = EndError::Conflict { files: files.clone(), branch: branch.clone(), worktree: worktree.clone() }.to_string();
+            harnix_ext::RpcError::with_data(
+                codes::CONFLICT,
+                message,
+                json!({"flow": "conflict", "files": files, "branch": branch, "worktree": worktree}),
+            )
+        }
+        EndError::Git { message, branch } => {
+            harnix_ext::RpcError::with_data(codes::CONFLICT, message, json!({"flow": "git", "branch": branch}))
+        }
+        EndError::Lost(m) => harnix_ext::RpcError::new(codes::INTERNAL_ERROR, m),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -790,62 +730,15 @@ mod tests {
         assert_eq!(code(FlowError::Conflict("revs".into())), codes::CONFLICT);
         assert_eq!(code(FlowError::Denied("no".into())), codes::REFUSED);
         assert_eq!(rpc_error(FlowError::Lease("x".into())).data, Some(json!({"flow": "lease"})));
-    }
-
-    fn catalog_packs(inner: MemPacks, templates: &[&str]) -> CatalogPacks {
-        let packs = CatalogPacks {
-            inner: OnceLock::new(),
-            scenes: vec!["flow-harnix".into()],
-            templates: templates.iter().map(|s| s.to_string()).collect(),
-            guarded: vec![],
-            main_scene: None,
-            command_gates: false,
-            projects: None,
-        };
-        let _ = packs.inner.set(Arc::new(inner));
-        packs
+        let conflict = worktree_error(EndError::Conflict { files: vec!["a.txt".into()], branch: "b".into(), worktree: "/w".into() });
+        assert_eq!(conflict.code, codes::CONFLICT);
+        assert_eq!(conflict.data.unwrap()["files"], json!(["a.txt"]));
+        assert_eq!(worktree_error(EndError::Flow(FlowError::Invalid("x".into()))).code, codes::INVALID_PARAMS);
     }
 
     #[test]
-    fn the_catalog_has_the_applications_scenes_and_the_wrapped_ones() {
-        let packs = catalog_packs(
-            MemPacks::new()
-                .scene("harnix")
-                .skill("work", "Do it."),
-            &["flow.local"],
-        );
-        let yaml = |scene: &str| {
-            format!(
-                "name: f\nstations: [{{id: a, executor: {{kind: session, scene: {scene}}}, skill: work, output: {{type: object}}, exit: [{{kind: output}}]}}]"
-            )
-        };
-        assert!(crate::validate_yaml(&yaml("flow-harnix"), &packs).is_empty());
-        assert!(crate::validate_yaml(&yaml("harnix"), &packs).is_empty());
-        let problems = crate::validate_yaml(&yaml("nowhere"), &packs);
-        assert!(
-            problems.iter().any(|p| p.message.contains("scene nowhere")),
-            "{problems:?}"
-        );
-        assert_eq!(
-            packs.catalog().scenes.into_iter().collect::<Vec<_>>(),
-            ["flow-harnix", "harnix"]
-        );
-        assert!(
-            packs.catalog().templates.is_empty(),
-            "templates the application does not list are not checked"
-        );
-        let listed = catalog_packs(MemPacks::new().template("acme.box"), &["flow.local"]);
-        assert_eq!(
-            listed.catalog().templates.into_iter().collect::<Vec<_>>(),
-            ["acme.box", "flow.local"]
-        );
-    }
-
-    #[test]
-    fn a_guarded_pattern_no_permission_rule_can_say_keeps_the_module_from_starting() {
-        let ok = Flow::builder()
-            .guarded_tools(["Bash", "mcp__db__*"])
-            .build();
+    fn a_guarded_pattern_no_permission_rule_can_say_keeps_the_extension_from_starting() {
+        let ok = Flow::builder().guarded_tools(["Bash", "mcp__db__*"]).build();
         assert!(ok.config_error.is_none());
         let bad = Flow::builder().guarded_tools(["Bash", "Note*"]).build();
         let why = bad.config_error.unwrap();
@@ -857,10 +750,7 @@ mod tests {
     #[test]
     fn with_no_scene_given_the_built_in_ones_are_offered_on_harnix() {
         let flow = Flow::builder().build();
-        assert_eq!(
-            flow.sh.cfg.scenes,
-            ["flow-harnix", "flow-code", "flow-mini"]
-        );
+        assert_eq!(flow.sh.cfg.scenes, ["flow-harnix", "flow-code", "flow-mini"]);
         assert_eq!(flow.sh.cfg.main_scene.as_deref(), Some("flow-harnix"));
         assert!(flow.scenes.iter().all(|s| s.parts().interactive == Some(true)));
         assert_eq!(flow.sh.cfg.project_scenes.iter().collect::<Vec<_>>(), ["flow-code"], "code's sessions work in a project");
@@ -869,22 +759,22 @@ mod tests {
     }
 
     #[test]
-    fn packs_made_at_start_are_empty_until_then_and_writable_after() {
-        let packs = CatalogPacks {
-            inner: OnceLock::new(),
-            scenes: vec![],
-            templates: vec![],
-            guarded: vec![],
-            main_scene: None,
-            command_gates: false,
-            projects: None,
-        };
-        assert!(packs.flows().is_empty() && !packs.writable());
-        let _ = packs.inner.set(Arc::new(MemPacks::new().writable()));
-        assert!(packs.writable());
-        packs
-            .save_flow("name: x\nstations: [{id: a, exit: [{kind: confirm}]}]")
-            .unwrap();
-        assert_eq!(packs.origin("x"), Origin::User);
+    fn the_layout_is_the_projects_data_directory_shared_with_the_engine() {
+        let l = layout(Path::new("/state/ext/flow/data"));
+        assert_eq!(l.dir, harnix_ext::engine::PROJECT_DIR);
+        assert_eq!(l.worktree_dir("f-1"), Path::new("/state/ext/flow/data/worktrees/f-1"));
+        assert_eq!(l.worktree_branch("f-1"), format!("{BRANCH_PREFIX}/f-1"));
+        assert_eq!(l.agent_dirs_in("/p"), ["/p/.harnix/scratchpad", "/p/.harnix/memory"]);
+    }
+
+    /// A branded product's projects keep its own directory, and its runs' branches its own name.
+    #[test]
+    fn a_branded_products_layout_is_its_own() {
+        let names = harnix_ext::engine::ProductNames::new(".acme", "Acme").unwrap();
+        let l = project_layout(&names, Path::new("/state/ext/flow/data"));
+        assert_eq!(l.dir, ".acme");
+        assert_eq!(l.worktree_branch("f-1"), "acme/flow/f-1");
+        assert_eq!(l.runs_dir(Path::new("/p")), Path::new("/p/.acme/runs"));
+        assert_eq!(l.agent_dirs_in("/p"), ["/p/.acme/scratchpad", "/p/.acme/memory"]);
     }
 }

@@ -22,7 +22,7 @@ pub fn now_ms() -> u64 {
 
 /// An instance that could not be built: a ledger entry whose template is gone or whose owner is
 /// disabled, or a carrier that failed to start. It is listed `Down` with the reason, so the
-/// system space can say what happened to it; its data root is not touched.
+/// instance list can say what happened to it; its data root is not touched.
 pub struct DownLink {
     status: watch::Sender<LinkStatus>,
     carrier: InstanceCarrier,
@@ -123,7 +123,7 @@ impl EngineOps for DownLink {
     async fn rename(&self, _: &str, _: &str) -> Answer<Value> {
         Err(self.unavailable())
     }
-    async fn set_model(&self, _: &str, _: &str, _: Option<&str>) -> Answer<Value> {
+    async fn set_model(&self, _: &str, _: &harnix_contract::wire::ModelChoice) -> Answer<Value> {
         Err(self.unavailable())
     }
     async fn set_prompt(&self, _: &str, _: Option<Option<String>>, _: Option<Option<String>>) -> Answer<Value> {

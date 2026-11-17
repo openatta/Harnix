@@ -1,0 +1,18 @@
+{"at":1794787200000,"by":{"id":"golden","kind":"device"},"detail":{"flow":"demo-parallel","parent":null,"subject":"the pull request"},"op":"create","run":"demo-parallel-1","seq":1}
+{"at":1794787200000,"by":{"id":"golden","kind":"device"},"detail":{"round":1,"tasks":["collect"]},"op":"enter","run":"demo-parallel-1","seq":2,"station":"collect"}
+{"at":1794787200000,"by":{"id":"dispatch","kind":"flow"},"detail":{"attempt":1,"by":{"id":"dispatch","kind":"flow"}},"op":"claim","run":"demo-parallel-1","seq":3,"station":"collect","task":"collect"}
+{"at":1794787200000,"by":{"id":"dispatch","kind":"flow"},"detail":{"session":"s1"},"op":"attach_main","run":"demo-parallel-1","seq":4}
+{"at":1794787201000,"by":{"id":"dispatch","kind":"flow"},"op":"submit","run":"demo-parallel-1","seq":5,"station":"collect","task":"collect"}
+{"at":1794787201000,"by":{"id":"dispatch","kind":"flow"},"detail":{"forced":false,"round":1},"op":"pass","run":"demo-parallel-1","seq":6,"station":"collect"}
+{"at":1794787201000,"by":{"id":"dispatch","kind":"flow"},"detail":{"round":1,"tasks":["code"]},"op":"enter","run":"demo-parallel-1","seq":7,"station":"code"}
+{"at":1794787201000,"by":{"id":"dispatch","kind":"flow"},"detail":{"attempt":1,"by":{"id":"dispatch","kind":"flow"}},"op":"claim","run":"demo-parallel-1","seq":8,"station":"code","task":"code"}
+{"at":1794787201000,"by":{"id":"dispatch","kind":"flow"},"detail":{"round":1,"tasks":["docs"]},"op":"enter","run":"demo-parallel-1","seq":9,"station":"docs"}
+{"at":1794787201000,"by":{"id":"dispatch","kind":"flow"},"detail":{"attempt":1,"by":{"id":"dispatch","kind":"flow"}},"op":"claim","run":"demo-parallel-1","seq":10,"station":"docs","task":"docs"}
+{"at":1794787201500,"by":{"id":"dispatch","kind":"flow"},"op":"submit","run":"demo-parallel-1","seq":11,"station":"docs","task":"docs"}
+{"at":1794787201500,"by":{"id":"dispatch","kind":"flow"},"detail":{"forced":false,"round":1},"op":"pass","run":"demo-parallel-1","seq":12,"station":"docs"}
+{"at":1794787201500,"by":{"id":"dispatch","kind":"flow"},"op":"submit","run":"demo-parallel-1","seq":13,"station":"code","task":"code"}
+{"at":1794787201500,"by":{"id":"dispatch","kind":"flow"},"detail":{"forced":false,"round":1},"op":"pass","run":"demo-parallel-1","seq":14,"station":"code"}
+{"at":1794787201500,"by":{"id":"dispatch","kind":"flow"},"detail":{"round":1,"tasks":[]},"op":"enter","run":"demo-parallel-1","seq":15,"station":"join"}
+{"at":1794787201500,"by":{"id":"golden","kind":"device"},"detail":{"pass":true,"reason":null,"round":1},"op":"confirm","run":"demo-parallel-1","seq":16,"station":"join"}
+{"at":1794787201500,"by":{"id":"golden","kind":"device"},"detail":{"forced":false,"round":1},"op":"pass","run":"demo-parallel-1","seq":17,"station":"join"}
+{"at":1794787201500,"by":{"id":"golden","kind":"device"},"op":"finish","run":"demo-parallel-1","seq":18}

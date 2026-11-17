@@ -1,0 +1,17 @@
+{"at":1794787200000,"by":{"id":"golden","kind":"device"},"detail":{"flow":"demo-each","parent":null,"subject":"the repo"},"op":"create","run":"demo-each-1","seq":1}
+{"at":1794787200000,"by":{"id":"golden","kind":"device"},"detail":{"round":1,"tasks":["list"]},"op":"enter","run":"demo-each-1","seq":2,"station":"list"}
+{"at":1794787200000,"by":{"id":"dispatch","kind":"flow"},"detail":{"attempt":1,"by":{"id":"dispatch","kind":"flow"}},"op":"claim","run":"demo-each-1","seq":3,"station":"list","task":"list"}
+{"at":1794787200000,"by":{"id":"dispatch","kind":"flow"},"detail":{"session":"s1"},"op":"attach_main","run":"demo-each-1","seq":4}
+{"at":1794787201000,"by":{"id":"dispatch","kind":"flow"},"op":"submit","run":"demo-each-1","seq":5,"station":"list","task":"list"}
+{"at":1794787201000,"by":{"id":"dispatch","kind":"flow"},"detail":{"forced":false,"round":1},"op":"pass","run":"demo-each-1","seq":6,"station":"list"}
+{"at":1794787201000,"by":{"id":"dispatch","kind":"flow"},"detail":{"round":1,"tasks":["core","ui"]},"op":"enter","run":"demo-each-1","seq":7,"station":"analyze"}
+{"at":1794787201000,"by":{"id":"dispatch","kind":"flow"},"detail":{"attempt":1,"by":{"id":"dispatch","kind":"flow"}},"op":"claim","run":"demo-each-1","seq":8,"station":"analyze","task":"core"}
+{"at":1794787201000,"by":{"id":"dispatch","kind":"flow"},"detail":{"attempt":1,"by":{"id":"dispatch","kind":"flow"}},"op":"claim","run":"demo-each-1","seq":9,"station":"analyze","task":"ui"}
+{"at":1794787201500,"by":{"id":"dispatch","kind":"flow"},"op":"submit","run":"demo-each-1","seq":10,"station":"analyze","task":"core"}
+{"at":1794787201500,"by":{"id":"dispatch","kind":"flow"},"op":"submit","run":"demo-each-1","seq":11,"station":"analyze","task":"ui"}
+{"at":1794787201500,"by":{"id":"dispatch","kind":"flow"},"detail":{"forced":false,"round":1},"op":"pass","run":"demo-each-1","seq":12,"station":"analyze"}
+{"at":1794787201500,"by":{"id":"dispatch","kind":"flow"},"detail":{"round":1,"tasks":["report"]},"op":"enter","run":"demo-each-1","seq":13,"station":"report"}
+{"at":1794787201500,"by":{"id":"dispatch","kind":"flow"},"detail":{"attempt":1,"by":{"id":"dispatch","kind":"flow"}},"op":"claim","run":"demo-each-1","seq":14,"station":"report","task":"report"}
+{"at":1794787202000,"by":{"id":"dispatch","kind":"flow"},"op":"submit","run":"demo-each-1","seq":15,"station":"report","task":"report"}
+{"at":1794787202000,"by":{"id":"dispatch","kind":"flow"},"detail":{"forced":false,"round":1},"op":"pass","run":"demo-each-1","seq":16,"station":"report"}
+{"at":1794787202000,"by":{"id":"dispatch","kind":"flow"},"op":"finish","run":"demo-each-1","seq":17}

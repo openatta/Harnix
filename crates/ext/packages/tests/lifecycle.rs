@@ -80,12 +80,12 @@ async fn a_package_is_installed_registered_switched_and_taken_out() {
     let e = call("packages.installFile", json!({"path": board})).await.unwrap_err();
     assert_eq!(e.code, codes::REFUSED);
 
-    // A consent that lists the system space's power: refused at registration, and nothing of it
-    // stays — no record, no directory, no extension.
-    let borrower = package(dir.path(), "acme.borrow", &["system.compact"], "");
+    // A consent that lists a first-party power (a session's context): refused at registration, and
+    // nothing of it stays — no record, no directory, no extension.
+    let borrower = package(dir.path(), "acme.borrow", &["observability.context"], "");
     let e = call("packages.installFile", json!({"path": borrower})).await.unwrap_err();
     assert_eq!(e.code, codes::REFUSED);
-    assert!(e.message.contains("system.compact"), "{}", e.message);
+    assert!(e.message.contains("observability.context"), "{}", e.message);
     assert!(!dir.path().join("state/ext/acme.borrow").exists());
     assert!(listed(&call("packages.list", json!({})).await.unwrap(), "acme.borrow").is_none());
 

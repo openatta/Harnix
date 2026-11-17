@@ -2,7 +2,9 @@
 /.local
 .DS_Store
 .env
-/.agix
+# What the engine and Harnix write in a project they run in (an engine a test starts in a crate's
+# directory among them).
+.harnix/
 /3rds
 # Version migration notes (docs/migrations/<x.y.z>.md): kept locally, not in the repository.
 /docs/migrations/
@@ -17,3 +19,6 @@ tests/browser/.running.json
 /examples/packages/*/component/target/
 /ui/packages/ext-sdk/dist/
 /ui/packages/ext-kit/dist/
+
+# scripts/harnix-demo.sh keeps everything here
+/demo/

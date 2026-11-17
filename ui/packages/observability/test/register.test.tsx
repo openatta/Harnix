@@ -1,8 +1,7 @@
 /**
- * What @harnix/observability registers: the trajectory as a view of the centre, the context and
- * usage tabs of the right column, and the trajectory as a page of the system space's inspector —
- * which is nowhere when that space is not there. The trajectory lists a session's calls by turn,
- * opens a call's inspector, picks out the tool call a person came for, and says which run it covers.
+ * What @harnix/observability registers: the trajectory as a view of the centre, and the context
+ * (standing), usage and output tabs of the right column. The trajectory lists a session's calls by
+ * turn, opens a call's inspector, and says which run it covers.
  */
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -47,36 +46,34 @@ function answering(method: string, params: unknown): unknown {
 }
 
 describe("what is registered", () => {
-  it("the trajectory view, two tabs with guide entries; the inspector page only where the system space defines its point", () => {
+  it("the trajectory view; the context tab standing, the usage tab with a guide entry, the output tab one a task; a person's message's two changes; and nothing else", () => {
     const alone = new Registry();
     alone.activate("observability", () => register(alone, scripted(() => ({})).host));
     alone.settle();
     expect(alone.at("conversation.view").map((v) => v.id)).toEqual([TRAJECTORY_VIEW]);
-    expect(alone.at("sidebar.tab").map((t) => [t.kind, t.priority, t.guide?.length ?? 0])).toEqual([
-      ["context", "builtin", 1],
-      ["usage", "builtin", 1],
+    expect(alone.at("sidebar.tab").map((t) => [t.kind, t.priority, t.pinned ?? false, t.guide?.length ?? 0, t.multiple ?? false])).toEqual([
+      ["context", "builtin", true, 0, false],
+      ["usage", "builtin", false, 1, false],
+      ["output", "builtin", false, 0, true],
     ]);
-    expect(alone.list("system.inspector.tab")).toEqual([]);
-
-    const r = new Registry();
-    r.definePoint("system.inspector.tab", { kind: "render" }, "system");
-    r.activate("observability", () => register(r, scripted(() => ({})).host));
-    r.settle();
-    expect(r.list<{ id: string; tools?: boolean }>("system.inspector.tab").map((t) => [t.id, t.tools ?? false])).toEqual([[TRAJECTORY_VIEW, true]]);
+    expect(alone.at("session.action").map((a) => [a.id, a.at])).toEqual([
+      ["observability.output", ["tool"]],
+      ["observability.message.edit", ["message"]],
+      ["observability.message.drop", ["message"]],
+    ]);
+    expect(alone.definitions().map((d) => d.name)).toEqual(["observability.usage.section"]);
+    expect(alone.refusals()).toEqual([]);
   });
 });
 
 describe("the trajectory", () => {
-  function drawn(host: ReturnType<typeof scripted>["host"], extra: { tool?: string } = {}) {
+  function drawn(host: ReturnType<typeof scripted>["host"]) {
     const r = new Registry();
-    r.definePoint("system.inspector.tab", { kind: "render" }, "system");
     r.register("space", { id: "sessions", icon: "chat", title: () => "Sessions" }, "test");
     r.activate("observability", () => register(r, host));
     r.settle();
     const view = r.at("conversation.view")[0]!;
-    const page = r.list<{ render(t: unknown): React.ReactNode }>("system.inspector.tab")[0]!;
-    const body = extra.tool ? page.render({ kind: "session", instance: "main", sessionId: "s1", tool: extra.tool }) : view.render({ instance: "main", sessionId: "s1" });
-    return render(<RegistryProvider registry={r}>{body}</RegistryProvider>);
+    return render(<RegistryProvider registry={r}>{view.render({ instance: "main", sessionId: "s1" })}</RegistryProvider>);
   }
 
   it("lists the turn's words, its calls with their tools and the call beside it, the feedback on the last call, and the run", async () => {
@@ -134,22 +131,6 @@ describe("the trajectory", () => {
     expect(container.querySelector('[data-testid="call-compare"]')).not.toBeNull();
     fireEvent.click(container.querySelector('[data-testid="call-back"]')!);
     expect(container.querySelector('[data-testid="call-detail"]')).toBeNull();
-  });
-
-  it("in the system space's inspector: picks out the call that asked for the tool a person came for, and offers the way into the session", async () => {
-    const s = scripted(answering, { space: "system" });
-    const { container } = drawn(s.host, { tool: "tu-a" });
-    await act(tick);
-    // Opened on the call: the compact inspector takes the list's place.
-    const detail = container.querySelector('[data-testid="call-detail"]');
-    expect(detail?.getAttribute("data-call")).toBe("0");
-    expect(s.calls.find((c) => c.method === "observability.trace")?.params).toMatchObject({ space: "system" });
-    fireEvent.click(container.querySelector('[data-testid="call-back"]')!);
-    expect(container.querySelector('[data-testid="system-call"][data-located="true"]')?.getAttribute("data-call")).toBe("0");
-    expect(container.querySelector('[data-testid="system-call-tool"][data-located="true"]')?.getAttribute("data-tool")).toBe("tu-a");
-    fireEvent.click(container.querySelector('[data-testid="traj-open-session"]')!);
-    await act(tick);
-    expect(s.opened).toEqual([{ instance: "main", sessionId: "s1", options: { switchSpace: true, view: TRAJECTORY_VIEW } }]);
   });
 
   it("reads again when a turn of the session settles, and says a failure in its own words", async () => {

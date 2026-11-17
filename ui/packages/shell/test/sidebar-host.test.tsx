@@ -180,6 +180,35 @@ describe("the column as drawn", () => {
     expect([...container.querySelectorAll('[data-testid="sidebar-tab"]')].map((e) => e.getAttribute("data-kind"))).toEqual(["files"]);
   });
 
+  it("a pinned type stands in every session's strip: last, without a close, not on the guide, and the guide still seeds", async () => {
+    const { app, host } = ready();
+    app.registry.register("sidebar.tab", type("context", { priority: "builtin", pinned: true, guide: [{ id: "context", title: () => "Context" }] }), "test");
+    app.registry.register("sidebar.tab", type("usage", { priority: "builtin", guide: [{ id: "usage", title: () => "Usage" }] }), "test");
+    app.registry.register("sidebar.tab", type("files", { priority: "builtin", guide: [{ id: "files", title: () => "Files" }] }), "test");
+    const { container } = draw(app);
+    act(() => app.toggleDetails(true));
+    await act(tick);
+    const kinds = () => [...container.querySelectorAll('[data-testid="sidebar-tab"]')].map((e) => e.getAttribute("data-kind"));
+    // The guide in front, the standing tab after it; the guide lists only what is not standing.
+    expect(kinds()).toEqual(["guide", "context"]);
+    expect(container.querySelector('[data-testid="sidebar-tab"][data-kind="guide"]')!.getAttribute("data-state")).toBe("current");
+    expect([...container.querySelectorAll('[data-testid="sidebar-guide-entry"]')].map((e) => e.getAttribute("data-kind"))).toEqual(["usage", "files"]);
+    const pinned = container.querySelector('[data-testid="sidebar-tab"][data-kind="context"]')!;
+    expect(pinned.getAttribute("data-pinned")).toBe("true");
+    expect(pinned.querySelector('[data-testid="sidebar-tab-close"]')).toBeNull();
+    host.sidebar.close(app.sidebar.tabs(s1).find((x) => x.kind === "context")!.id);
+    expect(app.sidebar.tabs(s1).some((x) => x.kind === "context")).toBe(true);
+    // A page opened later goes before it.
+    fireEvent.click(container.querySelector('[data-testid="sidebar-guide-entry"][data-kind="usage"]')!);
+    expect(kinds()).toEqual(["usage", "context"]);
+    // Another session has it too (its guide seeded as ever), and it does not take the front from what is open.
+    act(() => app.open({ instance: "main", sessionId: "s2" }));
+    host.sidebar.openResource("harnix-resource://file/src/a.ts");
+    await act(tick);
+    expect(kinds()).toEqual(["guide", "preview", "context"]);
+    expect(host.sidebar.active()?.kind).toBe("preview");
+  });
+
   it("with exactly one guide entry, that page opens instead of the guide", async () => {
     const { app } = ready();
     app.registry.register("sidebar.tab", type("usage", { priority: "builtin", guide: [{ id: "usage", title: () => "Usage" }] }), "test");

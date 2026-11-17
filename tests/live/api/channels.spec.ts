@@ -110,7 +110,7 @@ test.describe("on loopback", () => {
 
     const first = stream();
     expect((await first.response).status).toBe(200);
-    expect((await rpc("harnix.topics.subscribe", { topic: "system.process" })).result).toBeTruthy();
+    expect((await rpc("harnix.topics.subscribe", { topic: "observability.process" })).result).toBeTruthy();
     // The connection drops, as a proxy's idle timeout or a laptop's sleep drops it.
     first.abort.abort();
     await sleep(200);
@@ -121,8 +121,8 @@ test.describe("on loopback", () => {
     const reopened = await second.response;
     expect(reopened.status).toBe(200);
     // A value computed afresh goes to who already watches it: this client, on the new stream.
-    expect((await rpc("harnix.topics.subscribe", { topic: "system.process" })).result).toBeTruthy();
-    const frame = await readUntil(reopened, (f) => f.method === "harnix.topic" && f.params?.topic === "system.process");
+    expect((await rpc("harnix.topics.subscribe", { topic: "observability.process" })).result).toBeTruthy();
+    const frame = await readUntil(reopened, (f) => f.method === "harnix.topic" && f.params?.topic === "observability.process");
     expect(frame?.params?.value?.uptime_secs).toBeGreaterThanOrEqual(0);
   });
 
@@ -244,7 +244,7 @@ test.describe("on a reachable node", () => {
     child = spawn(binary(), [
       "--profile", join(scratch, "profile.toml"), "--port", String(port),
       "--tls-cert", join(scratch, "cert.pem"), "--tls-key", join(scratch, "key.pem"),
-      "--agix-dir", join(scratch, "agix"), "--data-dir", join(scratch, "projects"),
+      "--engine-dir", join(scratch, "engine"), "--data-dir", join(scratch, "projects"),
       "--replay-dir", RECORDINGS,
     ], {
       cwd: join(scratch, "project"),

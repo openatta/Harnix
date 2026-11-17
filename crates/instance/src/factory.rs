@@ -98,16 +98,14 @@ pub struct Factory {
     /// The data root of the instance a template's `inherit_providers` inherits from: the
     /// main instance's. `None`, nothing is inherited.
     pub providers_from: Option<PathBuf>,
-    /// Where Harnix keeps the data roots of the instances it makes, under its state directory:
-    /// Harnix's defaults (`defaults`) are written only beneath it. `main`'s engine root is the
-    /// person's own (`~/.agix` unless told otherwise) and an attached daemon's is its owner's, so
-    /// neither is written. `None`, nothing is.
-    pub owned_roots: Option<PathBuf>,
     /// What every link built here records with.
     pub recording: Arc<Recording>,
     /// Which calls each session's running turn is on behalf of, as the hub writes it: what the
     /// tool calls of every engine this process builds or spawns carry.
     pub turns: Arc<harnix_kernel::TurnChains>,
+    /// The directory every engine this process builds or spawns keeps in a project, and the name
+    /// it goes by: the product's (`[brand]`). An attached daemon is somebody else's, named by them.
+    pub names: harnix_engine_api::ProductNames,
 }
 
 /// The hub's turns, as an engine's tool calls read them.
@@ -130,9 +128,9 @@ impl Factory {
             credential,
             providers: Vec::new(),
             providers_from: None,
-            owned_roots: None,
             recording: Recording::new(None),
             turns: Arc::default(),
+            names: harnix_engine_api::ProductNames::default(),
         })
     }
 
@@ -161,12 +159,13 @@ impl Factory {
         data_root: PathBuf,
         contrib: EngineContribution,
     ) -> anyhow::Result<Built> {
-        // `main` is built here and not through `build_with`: its engine root is not Harnix's, and
-        // nothing of Harnix's defaults is written into it.
+        // `main` is built here and not through `build_with`: Harnix's defaults are written for it
+        // too, its engine root being Harnix's own.
         std::fs::create_dir_all(&data_root)?;
+        harnix_defaults(id, &data_root);
         let host = HostSide::new(id, self.chains(), &contrib).map_err(anyhow::Error::msg)?;
         let profile = engine_scenes(id, profile, host.layers())?;
-        let engine = Engine::start(EngineConfig::from_profile(&profile, &data_root)).await?;
+        let engine = Engine::start(EngineConfig::from_profile(&profile, &data_root).named(&self.names)).await?;
         let facts = Facts::from(&engine);
         let here = InProcessEngine::start(engine, id, host).await?;
         let recorder = self.recording.of(id, Some(data_root.join("recordings")));
@@ -205,8 +204,9 @@ impl Factory {
         if !matches!(carrier, TemplateCarrier::Attach(_)) {
             harnix_engine::strip_package_skills(&data_root);
         }
-        // Not for an engine somebody else runs: its settings are theirs.
-        if !matches!(carrier, TemplateCarrier::Attach(_)) && self.owns(&data_root) {
+        // Not for an engine somebody else runs: its settings are theirs. One built in this process
+        // has them written by `in_process`.
+        if matches!(carrier, TemplateCarrier::Spawn { .. }) {
             harnix_defaults(id, &data_root);
         }
         if template.is_some_and(|t| t.inherit_providers) {
@@ -241,6 +241,7 @@ impl Factory {
                 // This binary's daemon holds the instance's lock on its data root (ipdrun-08); a
                 // program of somebody else's gets the arguments it always got.
                 let lock = program.is_none().then(|| {
+                    argv.extend(names_args(&self.names));
                     argv.push("--instance".into());
                     argv.push(id.to_string());
                     if reap_on_stop {
@@ -312,16 +313,6 @@ impl Factory {
             }
             _ => anyhow::bail!("instance `{id}`: a carrier this build does not know"),
         }
-    }
-
-    /// Whether `data_root` is one Harnix keeps, beneath [`Factory::owned_roots`]. Compared as
-    /// written, so a root that climbs out with `..` is not.
-    fn owns(&self, data_root: &Path) -> bool {
-        self.owned_roots.as_deref().is_some_and(|own| {
-            data_root.starts_with(own)
-                && data_root != own
-                && !data_root.components().any(|c| matches!(c, std::path::Component::ParentDir))
-        })
     }
 
     /// `main`'s providers into the instance whose data `facts` describes; `Ok(true)` when its
@@ -402,8 +393,14 @@ fn daemon_args(engine: &EngineProfile, data_root: &Path, socket: &Path) -> Vec<S
     argv
 }
 
-/// What an instance whose data root is Harnix's own starts with where the engine's default is
-/// not Harnix's (`defaults`). Not written is not fatal: the engine's own default stands.
+/// The product's names, as this binary's `daemon` takes them: what a program of somebody else's
+/// is not given, its arguments being the ones it always got.
+fn names_args(names: &harnix_engine_api::ProductNames) -> [String; 4] {
+    ["--project-dir".into(), names.project_dir().into(), "--product-name".into(), names.product_name().into()]
+}
+
+/// What an instance of Harnix's own starts with where the engine's default is not Harnix's
+/// (`defaults`). Not written is not fatal: the engine's own default stands.
 fn harnix_defaults(id: &str, data_root: &Path) {
     if let Err(e) = crate::defaults::telemetry_off(data_root) {
         tracing::warn!(instance = id, error = %e, "the telemetry default was not written");
@@ -442,6 +439,13 @@ mod tests {
     use serde_json::{json, Value};
     use std::time::Duration;
     use tokio::net::UnixListener;
+
+    /// This binary's daemon is told the product's names, by the flags `harnix daemon` reads.
+    #[test]
+    fn a_spawned_daemon_of_this_binary_is_told_the_products_names() {
+        let names = harnix_engine_api::ProductNames::new(".acme", "Acme").unwrap();
+        assert_eq!(names_args(&names), ["--project-dir", ".acme", "--product-name", "Acme"]);
+    }
 
     struct Echo(ToolSpec);
 
@@ -568,22 +572,6 @@ mod tests {
         assert_eq!(engine_scenes("i", &profile, &layers).unwrap().scenes, ["mini"]);
         let wrong = EngineProfile::new().scene("probe");
         assert!(engine_scenes("i", &wrong, &layers).unwrap_err().to_string().contains("scene layer"));
-    }
-
-    /// Harnix's defaults go only into the data roots it keeps under its state directory: not into
-    /// one named elsewhere (as `main`'s engine root is the person's own), nor one that climbs out.
-    #[test]
-    fn harnix_writes_its_defaults_only_into_roots_of_its_own() {
-        let dir = tempfile::tempdir().unwrap();
-        let own = dir.path().join("state").join("instances");
-        let mut factory = Factory::new(Arc::new(|_: &str| None)).unwrap();
-        assert!(!factory.owns(&own.join("w1")), "owned with no roots of its own");
-        factory.owned_roots = Some(own.clone());
-        assert!(factory.owns(&own.join("w1")));
-        assert!(factory.owns(&own.join("workers").join("a").join("w1")));
-        assert!(!factory.owns(&own), "the directory of every instance is no one instance's");
-        assert!(!factory.owns(&dir.path().join("agix")), "a root outside the state directory");
-        assert!(!factory.owns(&own.join("..").join("..").join("agix")), "a root that climbs out");
     }
 
     #[test]

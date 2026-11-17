@@ -4,7 +4,7 @@
  * what waits, its conversations, its tasks, its recent changes, its settings in force, its trust —
  * and a conversation opened there hands the column back to the conversation; a permission a turn
  * waits on (`asks-permission`) is in 待我处理 — the overview's block, the left column's entry, the
- * system space's "等你处理" — and a row opens the conversation, where answering it empties the list.
+ * home page's block and its count — and a row opens the conversation, where answering it empties the list.
  */
 
 import type { Page } from "@playwright/test";
@@ -92,7 +92,7 @@ test("a project opened with nothing open shows its overview; a conversation open
   expect(errors).toEqual([]);
 });
 
-test("a permission a turn waits on is in 待我处理 — the overview, the left column, the system space's count — and a row opens it to be answered", TAGS, async ({ page }) => {
+test("a permission a turn waits on is in 待我处理 — the overview, the left column, the home page's block and count — and a row opens it to be answered", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, backend.url);
   const { path } = await project(page, "inbox");
@@ -111,19 +111,20 @@ test("a permission a turn waits on is in 待我处理 — the overview, the left
   await expect(item).toHaveAttribute("data-source", "harnix-app.asks");
   await expect(item).toContainText("Bash");
 
-  // The system space's "等你处理" opens the same list.
-  await spaceEntry(page, "system").click();
-  await expect(page.locator("#main")).toHaveAttribute("data-space", "system");
-  const waiting = page.locator('[data-testid="system-strip"] [data-kpi="waiting"]');
-  await expect(waiting).toHaveAttribute("data-testid", "system-kpi-link");
+  // The home page: its block lists it, and its count of what waits opens the same list.
+  await spaceEntry(page, "home").click();
+  await expect(page.locator("#main")).toHaveAttribute("data-space", "home");
+  const block = page.locator('[data-testid="home-block"][data-block="harnix-app.inbox"]');
+  await expect(block.locator('[data-testid="inbox-item"][data-kind="approval"]')).toContainText("Bash");
+  const waiting = page.getByTestId("home-stats-waiting");
   await expect(waiting.locator(".v")).toHaveText("1", { timeout: 10_000 });
   await waiting.click();
-  const listed = page.locator('[data-testid="inbox-list"] [data-testid="inbox-item"]');
+  const listed = page.getByTestId("modal").locator('[data-testid="inbox-list"] [data-testid="inbox-item"]');
   await expect(listed).toHaveCount(1);
   // A row opens its conversation where it belongs, the dialog closing; the card is answered there.
   await listed.click();
-  await expect(page.getByTestId("inbox-list")).toHaveCount(0);
-  await expect(page.locator("#main")).not.toHaveAttribute("data-space", "system");
+  await expect(page.getByTestId("modal")).toHaveCount(0);
+  await expect(page.locator("#main")).not.toHaveAttribute("data-space", "home");
   await expect.poll(() => page.evaluate(() => (window as any).harnix.app.snapshot.current?.sessionId ?? null)).toBe(sid);
   const ask = page.getByTestId("conv-ask");
   await ask.getByTestId("conv-ask-allow").click();

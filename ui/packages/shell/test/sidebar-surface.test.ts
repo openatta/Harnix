@@ -72,6 +72,17 @@ describe("the store", () => {
     expect(localStorage.getItem(storageKey({ instance: "main", sessionId: "s3" }))).toBeNull();
   });
 
+  it("opened without focus, a tab goes to the end and leaves the front where it was", () => {
+    const store = new SurfaceStore(localStorage);
+    const a = store.open(s1, { kind: "guide", address: null, title: "Guide" });
+    const b = store.open(s1, { kind: "context", address: null, title: "Context", focus: false });
+    expect(store.tabs(s1).map((t) => t.id)).toEqual([a, b]);
+    expect(store.active(s1)?.id).toBe(a);
+    // With nothing in front, it is.
+    const c = store.open(s2, { kind: "context", address: null, title: "Context", focus: false });
+    expect(store.active(s2)?.id).toBe(c);
+  });
+
   it("stores every change under the session's key, and keeps sessions apart", () => {
     const store = new SurfaceStore(localStorage);
     const a = store.open(s1, { kind: "guide", address: null, title: "Guide" });

@@ -1,9 +1,9 @@
 /**
  * What the package registers, and only through other packages' points: the session menu's
  * "Schedule…" (not for a session another extension owns), the clocks on a session's row and a
- * task's, another way to start a flow, a project's block at 40, the console's tab; each dropped
- * quietly where nobody defines its point. And the lists those draw: a session's, a project's, the
- * console's with the models' jobs; run now, pause, delete, and the deliveries opened.
+ * task's, another way to start a flow, a project's block at 40, the home page's block at 50; each
+ * dropped quietly where nobody defines its point. And the lists those draw: a session's, a
+ * project's, the home page's with the models' jobs; run now, pause, delete, and the deliveries opened.
  */
 
 import type { ReactNode } from "react";
@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { ScheduleList } from "@harnix/core";
 import { Registry, setLocale, type ActionTarget } from "@harnix/react";
 
-import { STRINGS, STRINGS_OWNER, extension, register } from "../src/index";
+import { AllSchedules, STRINGS, STRINGS_OWNER, ScheduleStore, extension, register } from "../src/index";
 import { ROOT, schedule } from "./fixtures";
 import { drawn, fakeHost, type Fake } from "./host";
 
@@ -27,7 +27,7 @@ const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)))
 const POINTS = [
   ["harnix-app", "harnix-app.session.badge", "render"],
   ["harnix-app", "harnix-app.project.panels", "render"],
-  ["system", "system.console.tab", "register"],
+  ["harnix-app", "harnix-app.home.panels", "render"],
   ["flow", "flow.task.badge", "render"],
   ["flow", "flow.start.action", "register"],
 ] as const;
@@ -67,7 +67,7 @@ describe("the registration", () => {
     const fake = fakeHost();
     const r = registered(fake);
     expect(r.list("harnix-app.project.panels").map((p) => [p.id, (p as { order?: number }).order])).toEqual([["schedule.project", 40]]);
-    expect(r.list("system.console.tab").map((p) => p.id)).toEqual(["schedule"]);
+    expect(r.list("harnix-app.home.panels").map((p) => [p.id, (p as { order?: number }).order, (p as { wide?: boolean }).wide])).toEqual([["schedule.all", 50, true]]);
     expect(r.list("flow.start.action").map((p) => p.id)).toEqual(["schedule.task"]);
     expect(r.list("harnix-app.session.badge").map((p) => p.id)).toEqual(["schedule.clock"]);
     expect(r.list("flow.task.badge").map((p) => p.id)).toEqual(["schedule.next"]);
@@ -75,7 +75,6 @@ describe("the registration", () => {
     expect(r.icon("schedule.clock")).toBeTruthy();
     expect(r.refusals()).toEqual([]);
     const bare = registered(fakeHost(), false);
-    expect(bare.list("system.console.tab")).toEqual([]);
     expect(bare.refusals()).toEqual([]);
     expect(bare.at("session.action").map((a) => a.id)).toEqual(["schedule.session"]);
   });
@@ -153,7 +152,7 @@ describe("the registration", () => {
     const r = registered(fake);
     const action = r.list<{ label(): string; run(d: unknown): Promise<void> }>("flow.start.action")[0]!;
     expect(action.label()).toBe("Schedule this flow…");
-    await action.run({ flow: "example-review", subject: "the repo", title: "Nightly", project_root: ROOT, show_in_space: "sessions", workspace: "worktree" });
+    await action.run({ flow: "example-review", subject: "the repo", title: "Nightly", project_root: ROOT, shown_in: "sessions", workspace: "worktree" });
     const page = drawn(fake, fake.dialogs[0]!(() => undefined));
     await settle();
     expect(page.getByTestId("schedule-target").textContent).toBe("A task");
@@ -190,17 +189,16 @@ describe("the registration", () => {
     expect(editor.getByTestId("schedule-project-fixed").textContent).toBe(`${ROOT}/`);
   });
 
-  it("the console's tab: every schedule with its state and source, filtered; the models' jobs; what could not be read", async () => {
+  it("every schedule at once, with its state and source, filtered; the models' jobs; what could not be read", async () => {
     const receipts = [
       { id: "rc2", scheduled_at: Date.parse("2026-11-16T01:00:00Z"), delivered_at: Date.parse("2026-11-16T01:00:01Z"), manual: true, outcome: "delivered", target: { instance: "main", session_id: "s1", created: false } },
       { id: "rc1", scheduled_at: Date.parse("2026-11-15T01:00:00Z"), manual: false, outcome: "skipped", reason: "missed" },
     ];
-    const fake = fakeHost((method) => (method === "schedule.history" ? { receipts, total: 2 } : {}), { front: "system" });
+    const fake = fakeHost((method) => (method === "schedule.history" ? { receipts, total: 2 } : {}), { front: "projects" });
     const r = registered(fake);
-    const tab = r.list<{ render(): ReactNode; title(): string }>("system.console.tab")[0]!;
-    expect(tab.title()).toBe("Schedules");
+    const store = new ScheduleStore(fake.host);
     fake.push("schedule.list", LIST);
-    const page = drawn(fake, tab.render());
+    const page = drawn(fake, <AllSchedules host={fake.host} r={r} store={store} />);
     await settle();
     const rows = page.getAllByTestId("schedule-row");
     expect(rows.map((el) => [el.dataset.schedule, el.dataset.state, el.dataset.source])).toEqual([

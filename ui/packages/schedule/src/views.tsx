@@ -1,6 +1,6 @@
 /**
  * Where the schedules are listed: a session's, in a dialog from its menu; a project's, as a block of
- * its overview; every one, as a tab of the system console — with the models' jobs, and the
+ * its overview; every one, as a block of the home page — with the models' jobs, and the
  * instances whose jobs could not be read. Each offers a new one, made for where it was opened.
  */
 
@@ -71,7 +71,7 @@ export function ProjectSchedules({ host, r, store, context }: { host: HostApi; r
         type="button"
         className="btn sm ghost"
         data-testid="schedule-new"
-        onClick={() => void scheduleEditor(host, r, { kinds: ["new_session", "task"], project: context.root, space: context.space, showInSpace: context.space })}
+        onClick={() => void scheduleEditor(host, r, { kinds: ["new_session", "task"], project: context.root, space: context.space, shownIn: context.space })}
       >
         {tt("schedule.new")}
       </button>
@@ -82,7 +82,7 @@ export function ProjectSchedules({ host, r, store, context }: { host: HostApi; r
 const STATES: ScheduleState[] = ["on", "paused", "ended"];
 
 /** Every schedule of the process, filtered by state and text; the models' jobs; a new one. */
-export function ConsoleSchedules({ host, r, store }: { host: HostApi; r: Registry; store: ScheduleStore }) {
+export function AllSchedules({ host, r, store }: { host: HostApi; r: Registry; store: ScheduleStore }) {
   const tt = useT();
   const list = useSchedules(store);
   const [state, setState] = useState<"" | ScheduleState>("");
@@ -94,14 +94,14 @@ export function ConsoleSchedules({ host, r, store }: { host: HostApi; r: Registr
   }, [list, state, text]);
   if (!list) {
     return (
-      <div className="system-pane hx-sched-console" data-testid="system-schedules">
+      <div className="hx-sched-all" data-testid="schedules">
         {tt("schedule.loading")}
       </div>
     );
   }
   const filtered = Boolean(state || text.trim());
   return (
-    <div className="system-pane hx-sched-console" data-testid="system-schedules">
+    <div className="hx-sched-all" data-testid="schedules">
       <div className="hx-sched-toolbar">
         <button type="button" className="btn sm primary" data-testid="schedule-new" onClick={() => void scheduleEditor(host, r, { kinds: ["new_session", "task"] })}>
           {tt("schedule.new")}

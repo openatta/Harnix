@@ -82,8 +82,8 @@ Linux 要有 Landlock 与 Yama，缺了就说「没跑」和原因，不算过�
 （那会让整次测试的 feature 合并打开 `compile`）。
 
 流程会话任务的判轮（发任务、没交就催一次、退回修正、任务结束时打断还在跑的轮、重启后接着做）在 `rust` 层里测：
-`crates/ext/flow/src/module/turns.rs` 的循环读一串帧、经一个 trait 发消息和打断，测试拿真内核配一份按脚本出帧的会话，一轮一轮看；
-`command` 门禁和门禁结果碰上提交冲突的情况在 `crates/ext/flow/src/module/gate.rs`。LIVE 的 `ui/flow*.spec.ts` 看的是同一段逻辑过整个后端。
+`crates/flow/src/runner/turns.rs` 的循环读一串帧、经一个 trait 发消息和打断，测试拿真内核配一个按脚本出帧的宿主（`ScriptedHost`），一轮一轮看；整个流程包从头跑到尾在 `crates/flow/tests/runner.rs`；
+`command` 门禁和门禁结果碰上提交冲突的情况在 `crates/flow/src/runner/gate.rs`。LIVE 的 `ui/flow*.spec.ts` 看的是同一段逻辑过整个后端。
 
 ## 3. 跑 LIVE
 
@@ -282,7 +282,7 @@ node tests/live/record-fixture.mjs --scene code <名字> "<提示词>"    # 别�
 方法或主题改名后，录像里说过旧名字的块（工具描述、`flow_guide` 返回的指南）要改写：`node scripts/rewrite-recordings.mjs`
 把块里的旧名字换成新名字，块按新内容重算摘要（文件名与 `calls.jsonl` 里的引用一起改）；`--check` 只查不写，有要改的就退出 1。
 
-**读录像的测试**（系统 space 的调用、轮、用量，对话里的请求信封）不能用回放的会话：回放的会话不录，读者经引擎的协议只读
+**读录像的测试**（轨迹的调用与轮、用量，对话里的请求信封）不能用回放的会话：回放的会话不录，读者经引擎的协议只读
 会话自己录下的那份。它们在一个录制的后端上（`launchFor("none")`：没有可回放的、也没有模型，所以不跑轮）建一个会话，把一份录像
 放到 `main` 录它的地方，录像里原来的会话 id 换成这个会话的（`ui/page.ts` 的 `recorded`）；会话的第一次调用才会重写录像，
 它一次也不调。手写的行要带引擎的读者要的字段（`recording` 行的 `name`，`call` 行的 `provider`、`params.thinking_mode`、`tools` 等）。
@@ -413,7 +413,7 @@ node tests/live/coverage.mjs --check               # scripts/check.sh 跑的就�
 一个来源一个文件：`contract.ts` 是 `harnix-contract`（版本号、错误码、握手，`harnix.hello`、中枢的帧与行，
 `harnix_contract::wire`），`readers.ts` 是 `harnix-engine-api` 的 readers（`observability.*` 的答），
 `packages.ts` 是 `harnix-ext-packages`（`packages.list` 的行，连同清单的 `[inline]`）。只有一个第一方包读的生成进那个包：
-`@harnix/flow` 的 `src/generated/flow.ts` 是 `harnix-ext-flow`（流程定义、运行记录、`flow.*` 的行与参数），由它的 `types.ts` 转出：
+`@harnix/flow` 的 `src/generated/flow.ts` 是流程库 `harnix-flow`（流程定义、运行记录、试运行、`flow.defs` 的行）与 `harnix-ext-flow`（`flow.start` 的参数），由它的 `types.ts` 转出：
 
 ```sh
 cargo test -p harnix --features ts --test ts_export                     # 改了这些类型后：重新生成，连生成的文件一起提交

@@ -197,8 +197,9 @@ pub(crate) const FIELDS: &[Field] = &[
     Field::new("model.fallback_model", Type::Text, "models")
         .offer(Offer::Models)
         .hint("settings.hint.model.fallback_model"),
-    // Every `task_models` route is here, the web's two included; `main` is the default provider and
-    // the model a session picks: not a row of its own.
+    // Every `task_models` route is here, the web's two included. `main` is the conversation's own:
+    // what a session's turns go to unless the composer switched that session to another.
+    Field::new("task_models.main", Type::Route, "task-models").hint("settings.hint.task_models.main"),
     Field::new("task_models.subagent", Type::Route, "task-models").hint("settings.hint.task_models"),
     Field::new("task_models.compact", Type::Route, "task-models").hint("settings.hint.task_models"),
     Field::new("task_models.memory", Type::Route, "task-models").hint("settings.hint.task_models"),
@@ -239,11 +240,11 @@ pub(crate) const FIELDS: &[Field] = &[
     // What the engine answers in; the shell's language choice writes it (`auto` gives it back).
     Field::new("language", Type::Text, "general").tiers(GLOBAL),
     // privacy & advanced
-    // The engine's own default is on, and is what `main` runs with until the person says; the
-    // instances whose data Harnix keeps start with it off in their global tier (docs/harnix-app.md,
-    // settings).
+    // Harnix's instances, `main` among them, start with it off in the global tier
+    // (docs/harnix-app.md, settings); the engine's own default is on, so a cleared value reads as on
+    // until the next start.
     Field::new("telemetry_enabled", Type::Toggle, "privacy")
-        .default(Default::Bool(true))
+        .default(Default::Bool(false))
         .tiers(GLOBAL)
         .hint("settings.hint.telemetry_enabled"),
     Field::new("telemetry_url", Type::Text, "privacy").tiers(GLOBAL).hint("settings.hint.telemetry_url"),
@@ -349,7 +350,9 @@ pub(crate) fn offers(field: &Field, providers: &Value) -> Map<String, Value> {
     let models_of = |provider: &Value| -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
         let named = provider.get("default_model").into_iter().chain(provider.get("models").and_then(Value::as_array).into_iter().flatten());
-        for model in named.filter_map(Value::as_str).filter(|m| !m.trim().is_empty()) {
+        // A `models` entry is an id, or an object with its id and the model's limits.
+        let ids = named.filter_map(|m| m.as_str().or_else(|| m.get("id")?.as_str()));
+        for model in ids.filter(|m| !m.trim().is_empty()) {
             if !out.iter().any(|m| m == model) {
                 out.push(model.to_string());
             }
@@ -668,11 +671,11 @@ mod tests {
         }
         assert_eq!(find("model.effort").unwrap().ty, Type::Select(&["low", "medium", "high", "xhigh", "max"]));
         // Every route in one section, the web's two included.
-        for task in ["subagent", "compact", "memory", "title", "web_search", "web_fetch"] {
+        for task in ["main", "subagent", "compact", "memory", "title", "web_search", "web_fetch"] {
             let field = find(&format!("task_models.{task}")).unwrap_or_else(|| panic!("{task} is not routed"));
             assert_eq!((field.ty, field.section), (Type::Route, "task-models"));
         }
-        assert!(find("task_models.main").is_none(), "main is the default provider's");
+        assert_eq!(find("task_models.main").unwrap().hint, Some("settings.hint.task_models.main"));
         assert!(check(Type::Select(&["auto", "off", "on"]), &json!("on")).is_ok());
     }
 
@@ -680,7 +683,7 @@ mod tests {
     fn the_configured_models_are_offered() {
         let providers = json!({"providers": {
             "a": {"default_model": "a-1", "models": ["a-1", "a-2"]},
-            "b": {"default_model": null, "models": ["a-2", "b-1"]},
+            "b": {"default_model": null, "models": ["a-2", {"id": "b-1", "context_window": 128000}]},
         }});
         let fallback = offers(find("model.fallback_model").unwrap(), &providers);
         assert_eq!(fallback["suggestions"], json!(["a-1", "a-2", "b-1"]));
@@ -718,7 +721,7 @@ mod tests {
         let language = find("language").unwrap();
         assert_eq!((language.section, language.tiers), ("general", GLOBAL));
         let telemetry = declaration(find("telemetry_enabled").unwrap());
-        assert_eq!((&telemetry["section"], &telemetry["default"]), (&json!("privacy"), &json!(true)));
+        assert_eq!((&telemetry["section"], &telemetry["default"]), (&json!("privacy"), &json!(false)));
         assert_eq!(telemetry["hint"], json!("settings.hint.telemetry_enabled"));
         assert!(check(find("telemetry_url").unwrap().ty, &json!("http://localhost:4318")).is_ok());
         for key in ["compaction", "execution", "hooks_config", "team", "checkpoints"] {

@@ -2,17 +2,18 @@
 // thinking as the settings page reads and writes them.
 //
 // Every key is one the engine reads (agix/docs/schemas/settings.schema.json). The models a field
-// offers are the configured providers' own: the engine lists no endpoint's models, so nothing here
-// asks an endpoint for its catalogue.
+// offers are the configured providers' own; what an endpoint serves is asked through
+// `settings.listModels`, and the endpoints here are not there, so what is checked is that the
+// asking fails as the engine says, and that nothing about the key comes back with it.
 
 import { isDeepStrictEqual } from "node:util";
 
-import { INVALID_PARAMS } from "@harnix/core/protocol";
-import { assert, defineSuite } from "@harnix/testkit";
+import { INVALID_PARAMS, REFUSED } from "@harnix/core/protocol";
+import { assert, connect, defineSuite, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
 type Field = { key: string; type: string; section: string; options?: string[]; suggestions?: string[]; routes?: { provider: string; default_model?: string | null; models?: string[] }[]; tiers: Record<string, unknown>; effective: unknown };
 
-const TASKS = ["subagent", "compact", "memory", "title", "web_search", "web_fetch"];
+const TASKS = ["main", "subagent", "compact", "memory", "title", "web_search", "web_fetch"];
 
 /** A provider the tests route to: the engine builds a client for it without calling it. */
 const PROVIDER = "test-models";
@@ -36,8 +37,8 @@ defineSuite("settings-models", { feature: "settings" }, {
         const route = field(`task_models.${task}`);
         assert(route.type === "route" && route.section === "task-models" && Array.isArray(route.routes), JSON.stringify(route));
       }
-      // `main` is the default provider, and the model a session picks.
-      assert(!described.fields.some((f: Field) => f.key === "task_models.main"), "main is routed from the settings page");
+      // `main` is the conversation's own route.
+      assert(field("task_models.main").section === "task-models", JSON.stringify(field("task_models.main")));
     },
 
     "a provider's models are offered to the model fields and to every route": async ({ client }) => {
@@ -106,7 +107,41 @@ defineSuite("settings-models", { feature: "settings" }, {
         const provider = described.providers?.providers?.[PROVIDER];
         assert(provider?.api_key === "***wxyz", `read back as ${JSON.stringify(provider)}`);
         assert(provider.api_key_env === "HARNIX_TEST_MODELS_KEY", JSON.stringify(provider));
+        // Whether the engine has a key for it, as it says: one is stored.
+        assert(provider.credential_present === true, `credential_present: ${JSON.stringify(provider)}`);
         assert(!JSON.stringify(described).includes("sk-secret-value"), "the key came back in the clear");
+      } finally {
+        await client.call("settings.setProvider", { provider_id: PROVIDER, delete: true });
+      }
+    },
+
+    "a provider's models are objects with their own limits, and their shape is checked first": async ({ client }) => {
+      const models = ["m-default", { id: "m-other", max_output: 4096, context_window: 64000 }];
+      await client.call("settings.setProvider", { provider_id: PROVIDER, config: { ...CONFIG, models } });
+      try {
+        const described = await client.call("settings.describe", {});
+        assert(isDeepStrictEqual(described.providers?.providers?.[PROVIDER]?.models, models), JSON.stringify(described.providers?.providers?.[PROVIDER]));
+        // Offered by id, whichever way it is written.
+        const route = described.fields.find((f: Field) => f.key === "task_models.title").routes?.find((r: { provider: string }) => r.provider === PROVIDER);
+        assert(JSON.stringify(route?.models) === JSON.stringify(["m-default", "m-other"]), JSON.stringify(route));
+        const e = await client.refused("settings.setProvider", { provider_id: PROVIDER, config: { models: [{ id: "m", max_output: 0 }] } });
+        assert(e && e.code === INVALID_PARAMS && /max_output/.test(e.message), `answered ${JSON.stringify(e)}`);
+      } finally {
+        await client.call("settings.setProvider", { provider_id: PROVIDER, delete: true });
+      }
+    },
+
+    "an endpoint that cannot be asked for its models says so, and nothing of the key comes back": async ({ client }) => {
+      await client.call("settings.setProvider", { provider_id: PROVIDER, config: CONFIG });
+      try {
+        const e = await client.refused("settings.listModels", { provider: PROVIDER });
+        assert(e && e.code !== INVALID_PARAMS, `answered ${JSON.stringify(e)}`);
+        assert(!JSON.stringify(e).includes("sk-secret-value"), "the key came back with the failure");
+        const unknown = await client.refused("settings.listModels", { provider: "not-configured" });
+        assert(unknown && unknown.code === INVALID_PARAMS, `answered ${JSON.stringify(unknown)}`);
+        // The engine's own method stays off a device.
+        const direct = await client.refused("engine.config.listModels", { provider: PROVIDER });
+        assert(direct && direct.code === REFUSED, `answered ${JSON.stringify(direct)}`);
       } finally {
         await client.call("settings.setProvider", { provider_id: PROVIDER, delete: true });
       }
@@ -124,4 +159,30 @@ defineSuite("settings-models", { feature: "settings" }, {
       }
     },
   },
+});
+
+// Whether the engine has a key for a provider is its own word (`credential_present`), from what is
+// stored or the variable named. A provider it would have no key for never gets that far: the page's
+// write is tried first and one without a key does not route — nor does an engine start with one,
+// and a hand edit of the global tier is not read while it runs. So "missing" is the interface's to
+// draw should the engine say it; what is checked here is the engine saying "present" for a key taken
+// from a variable, and refusing the keyless one.
+test("a provider's key from a variable is present as the engine says, and one with no key at all is refused", { tag: ["@feature:settings", "@layer:api"] }, async () => {
+  const { api_key: _key, ...keyless } = CONFIG;
+  const backend = await startHarnix(launchFor("none", { env: { HARNIX_TEST_MODELS_KEY: "sk-from-the-environment-abcd" } }));
+  try {
+    const client = await connect(backend);
+    const e = await client.refused("settings.setProvider", { provider_id: PROVIDER, config: { ...keyless, api_key_env: "HARNIX_TEST_MODELS_KEY_NOT_SET" } });
+    expect(e?.code, JSON.stringify(e)).toBe(INVALID_PARAMS);
+    expect(e?.message).toContain("api_key");
+    expect((await client.call("settings.describe", {})).providers?.providers?.[PROVIDER]).toBeUndefined();
+    await client.call("settings.setProvider", { provider_id: PROVIDER, config: { ...keyless, api_key_env: "HARNIX_TEST_MODELS_KEY" } });
+    const provider = (await client.call("settings.describe", {})).providers?.providers?.[PROVIDER];
+    expect(provider?.credential_present, JSON.stringify(provider)).toBe(true);
+    expect(provider?.api_key_env).toBe("HARNIX_TEST_MODELS_KEY");
+    expect(JSON.stringify(provider)).not.toContain("from-the-environment");
+    client.close();
+  } finally {
+    await backend.dispose();
+  }
 });

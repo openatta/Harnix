@@ -53,7 +53,7 @@ export function Timeline({
         <span className="muted" data-testid="traj-start">
           {new Date(overview.start).toLocaleTimeString()}
         </span>
-        <span className="muted">{tr("system.duration", { seconds: ((overview.end - overview.start) / 1000).toFixed(1) })}</span>
+        <span className="muted">{tr("obs.duration", { seconds: ((overview.end - overview.start) / 1000).toFixed(1) })}</span>
         {shown ? <span className="muted" data-testid="traj-zoomed">{tr("trajectory.zoomed", { seconds: (total / 1000).toFixed(1) })}</span> : null}
         <span className="sp" />
         {shown || range ? (
@@ -74,7 +74,7 @@ export function Timeline({
         className={`timeline lanes-${lanes}`}
         ref={strip}
         data-testid="calls-timeline"
-        title={tr("system.timelineHint")}
+        title={tr("obs.timelineHint")}
         onWheel={onWheel}
         onPointerDown={(e) => {
           if (e.button !== 0) return;
@@ -104,7 +104,7 @@ export function Timeline({
             className={`call lane-${bar.lane}${bar.call.purpose ? " aux" : ""}${bar.call.status === "error" ? " bad" : ""}${selected === bar.call.index ? " on" : ""}`}
             data-testid="timeline-call"
             data-call={bar.call.index}
-            title={`${new Date(bar.from).toLocaleTimeString()} · ${seconds(bar.to - bar.from)}${bar.first != null ? ` · ${tr("system.ttft", { ms: bar.first - bar.from })}` : ""}`}
+            title={`${new Date(bar.from).toLocaleTimeString()} · ${seconds(bar.to - bar.from)}${bar.first != null ? ` · ${tr("obs.ttft", { ms: bar.first - bar.from })}` : ""}`}
             style={{ left: pct(bar.from), width: width(bar.from, bar.to) }}
             onClick={(e) => {
               e.stopPropagation();
@@ -119,9 +119,9 @@ export function Timeline({
         ) : null}
       </div>
       <div className="traj-legend">
-        <span className="model">{tr("system.legend.model")}</span>
-        <span className="wait">{tr("system.legend.wait")}</span>
-        <span className="gap">{tr("system.legend.toolsTime")}</span>
+        <span className="model">{tr("obs.legend.model")}</span>
+        <span className="wait">{tr("obs.legend.wait")}</span>
+        <span className="gap">{tr("obs.legend.toolsTime")}</span>
         {lanes > 1 ? <span className="agent">{tr("trajectory.legend.agents")}</span> : null}
       </div>
     </div>

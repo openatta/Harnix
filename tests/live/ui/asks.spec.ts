@@ -12,7 +12,7 @@ import type { Page } from "@playwright/test";
 import { type Backend, connect, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
 import { PLAN_FEEDBACK } from "../api/recorded";
-import { open, say, watchConsole } from "./page";
+import { open, say, toSessions, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:sessions", "@layer:ui"] };
 
@@ -25,8 +25,9 @@ test.afterAll(async () => {
   await backend?.dispose();
 });
 
-/** A `code` session replaying `recording`, opened. */
+/** A `code` session replaying `recording`, opened in the session space. */
 async function codeSession(page: Page, recording: string, options: Record<string, unknown> = {}): Promise<string> {
+  await toSessions(page);
   await page.evaluate(
     ({ name, options }) => (window as any).harnix.app.create({ scene: "code", options: { recorder: { name }, ...options } }),
     { name: recording, options },

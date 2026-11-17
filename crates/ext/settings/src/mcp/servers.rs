@@ -1,37 +1,29 @@
-//! MCP servers in a tier's files: what a form gives turned into the engine's configuration, the
-//! files read back as the page sees them, and the changes the engine has no method for (removing
-//! one, switching one off and on).
+//! MCP servers of a tier: what a form gives turned into the engine's configuration, and what the
+//! engine reads back shown as the page sees it.
 //!
-//! A server is two halves, as the engine writes it (`engine.mcp.addServer`): its `env` and `headers` in the
-//! tier's `settings.local.json` (0600, never committed), the rest in its `settings.json`; the two
-//! merged are the server. Both are read and written under the tier's directory lock.
+//! A server is two halves, as the engine keeps it: its `env` and `headers` in the tier's
+//! `settings.local.json` (0600, never committed), the rest in its `settings.json`; the two merged
+//! are the server. The engine reads both (`engine.config.get`) and writes both
+//! (`engine.mcp.addServer` / `updateServer`, handed the server whole).
 //!
 //! What a form may say of a value it was given in secret: the engine's environment variable it is
 //! read from (`var`, written as `${NAME}`), a new value (`secret`, written with `$` as `$$` so the
 //! engine does not expand it), or `keep` — the one already written, which the page never saw.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
 
-use harnix_ext::{codes, Rpc, RpcError};
+use harnix_ext::{Rpc, RpcError};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
 use crate::wire::{McpAuthStatus, McpOAuth, McpServer, McpStatus, McpValue};
 
-/// A server's two halves: what goes to settings.json, and to settings.local.json.
-pub(crate) type Halves = (Map<String, Value>, Map<String, Value>);
-
 /// The key every tier's servers are under.
 pub(crate) const SERVERS: &str = "mcp_servers";
-/// The file beside a tier's settings.json that holds what is secret.
-pub(crate) const LOCAL_FILE: &str = "settings.local.json";
 
 /// What a form sets; every other key of a server already written (its `oauth` block, its time
 /// limits) is kept as it is.
 const FORM_KEYS: &[&str] = &["type", "command", "args", "env", "url", "headers"];
-/// The keys that go to `settings.local.json`.
-const SECRET_KEYS: &[&str] = &["env", "headers"];
 
 const MAX_NAME: usize = 64;
 const MAX_ARGS: usize = 64;
@@ -132,12 +124,12 @@ pub(crate) fn transport_of(engine_type: Option<&str>) -> String {
     }
 }
 
-/// The server a form describes, as its two halves: what goes into settings.json, and the `env` /
-/// `headers` that go into settings.local.json. `before` is the server as written already (the two
-/// halves merged), whose other keys are kept and whose values `keep` refers to. In the project tier
-/// a value cannot come from the engine's environment: the engine does not let a project's server
-/// read it.
-pub(crate) fn build(input: &Input, tier: &str, before: Option<&Map<String, Value>>) -> Rpc<Halves> {
+/// The server a form describes, whole: the engine puts its `env` and `headers` into the tier's
+/// settings.local.json and the rest into its settings.json. `before` is the server as written
+/// already (the two halves merged), whose other keys are kept and whose values `keep` refers to. In
+/// the project tier a value cannot come from the engine's environment: the engine does not let a
+/// project's server read it.
+pub(crate) fn build(input: &Input, tier: &str, before: Option<&Map<String, Value>>) -> Rpc<Map<String, Value>> {
     let ty = engine_type(&input.transport)?;
     let stdio = ty == "stdio";
     let mut public: Map<String, Value> = before
@@ -173,7 +165,6 @@ pub(crate) fn build(input: &Input, tier: &str, before: Option<&Map<String, Value
         }
         public.insert("url".into(), json!(url));
     }
-    let mut secret = Map::new();
     let previous = |key: &str, name: &str| before.and_then(|b| b.get(key)).and_then(|m| m.get(name)).and_then(Value::as_str).map(str::to_string);
     for (key, given, valid, what) in [
         ("env", &input.env, env_name as fn(&str) -> bool, "an environment variable"),
@@ -212,10 +203,10 @@ pub(crate) fn build(input: &Input, tier: &str, before: Option<&Map<String, Value
             values.insert(name.clone(), json!(written));
         }
         if !values.is_empty() {
-            secret.insert(key.into(), Value::Object(values));
+            public.insert(key.into(), Value::Object(values));
         }
     }
-    Ok((public, secret))
+    Ok(public)
 }
 
 /// A remote server's address: `http` or `https`, with a host, nothing else.
@@ -315,209 +306,22 @@ pub(crate) fn status_of(entry: &Value) -> McpStatus {
     }
 }
 
-/// The settings.local.json beside a tier's settings.json.
-pub(crate) fn local_of(settings: &Path) -> PathBuf {
-    settings.with_file_name(LOCAL_FILE)
-}
-
-/// A tier's two documents.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub(crate) struct Tier {
-    pub settings: Value,
-    pub local: Value,
-}
-
-impl Tier {
-    /// Its servers, each one's two halves merged (the local one over the other, as the engine
-    /// merges them), by name.
-    pub(crate) fn servers(&self) -> BTreeMap<String, Map<String, Value>> {
-        let mut out: BTreeMap<String, Map<String, Value>> = BTreeMap::new();
-        for doc in [&self.settings, &self.local] {
-            let Some(servers) = doc.get(SERVERS).and_then(Value::as_object) else { continue };
-            for (name, server) in servers {
-                let Some(server) = server.as_object() else { continue };
-                let merged = out.entry(name.clone()).or_default();
-                for (key, value) in server {
-                    merged.insert(key.clone(), value.clone());
-                }
+/// A tier's servers as the engine read them (`engine.config.get`'s `settings` and `local`, secrets
+/// included), each one's two halves merged — the local one over the other, as the engine merges
+/// them — by name.
+pub(crate) fn declared(settings: Option<&Value>, local: Option<&Value>) -> BTreeMap<String, Map<String, Value>> {
+    let mut out: BTreeMap<String, Map<String, Value>> = BTreeMap::new();
+    for doc in [settings, local].into_iter().flatten() {
+        let Some(servers) = doc.get(SERVERS).and_then(Value::as_object) else { continue };
+        for (name, server) in servers {
+            let Some(server) = server.as_object() else { continue };
+            let merged = out.entry(name.clone()).or_default();
+            for (key, value) in server {
+                merged.insert(key.clone(), value.clone());
             }
         }
-        out
     }
-
-    pub(crate) fn declares(&self, name: &str) -> bool {
-        [&self.settings, &self.local].iter().any(|doc| doc.get(SERVERS).and_then(|s| s.get(name)).is_some())
-    }
-
-    /// Take a server out of both documents: its two halves, `None` for a half it did not have.
-    pub(crate) fn take(&mut self, name: &str) -> (Option<Value>, Option<Value>) {
-        let out = |doc: &mut Value| {
-            let servers = doc.get_mut(SERVERS)?.as_object_mut()?;
-            let taken = servers.remove(name);
-            if servers.is_empty() {
-                if let Some(object) = doc.as_object_mut() {
-                    object.remove(SERVERS);
-                }
-            }
-            taken
-        };
-        let public = out(&mut self.settings);
-        let secret = out(&mut self.local);
-        (public, secret)
-    }
-
-    /// Put a server in, as two halves; the local half only when it has anything, and nothing of
-    /// it left behind when it has not (a server is replaced whole).
-    pub(crate) fn put(&mut self, name: &str, public: Map<String, Value>, secret: Map<String, Value>) {
-        self.take(name);
-        servers_of(&mut self.settings).insert(name.into(), Value::Object(public));
-        if !secret.is_empty() {
-            servers_of(&mut self.local).insert(name.into(), Value::Object(secret));
-        }
-    }
-}
-
-fn servers_of(doc: &mut Value) -> &mut Map<String, Value> {
-    if !doc.is_object() {
-        *doc = json!({});
-    }
-    let object = doc.as_object_mut().expect("an object just now");
-    let servers = object.entry(SERVERS).or_insert_with(|| json!({}));
-    if !servers.is_object() {
-        *servers = json!({});
-    }
-    servers.as_object_mut().expect("an object just now")
-}
-
-/// A merged server split back into what goes to settings.json and what to settings.local.json.
-pub(crate) fn split(server: &Map<String, Value>) -> Halves {
-    let (secret, public): (Map<String, Value>, Map<String, Value>) =
-        server.iter().map(|(k, v)| (k.clone(), v.clone())).partition(|(k, _)| SECRET_KEYS.contains(&k.as_str()));
-    (public, secret)
-}
-
-/// Read a tier's two files, change them, and write back the ones that changed (the local one
-/// first, created 0600), all under the tier's directory lock.
-pub(crate) fn edit<T>(settings: &Path, change: impl FnOnce(&mut Tier) -> Rpc<T>) -> Rpc<T> {
-    let local = local_of(settings);
-    let _held = crate::lock_tier(settings)?;
-    let before = Tier { settings: crate::read_document(settings)?, local: crate::read_document(&local)? };
-    let mut tier = before.clone();
-    let out = change(&mut tier)?;
-    if tier.local != before.local {
-        write_private(&local, &tier.local)?;
-    }
-    if tier.settings != before.settings {
-        crate::write_document(settings, &tier.settings)?;
-    }
-    Ok(out)
-}
-
-/// Read a tier's two files. Not under the lock, which would make the tier's directory: listing a
-/// project's servers leaves no `.agix/` behind. Each file is replaced whole when written, so a
-/// read sees one version of it.
-pub(crate) fn read(settings: &Path) -> Rpc<Tier> {
-    Ok(Tier { settings: crate::read_document(settings)?, local: crate::read_document(&local_of(settings))? })
-}
-
-/// Replace a file atomically, readable by its owner alone.
-pub(crate) fn write_private(path: &Path, document: &Value) -> Rpc<()> {
-    let io = |e: std::io::Error| RpcError::new(codes::INTERNAL_ERROR, format!("could not write {}: {e}", path.display()));
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(io)?;
-    }
-    let temp = path.with_extension("json.tmp");
-    let body = serde_json::to_vec_pretty(document).map_err(|e| RpcError::new(codes::INTERNAL_ERROR, e.to_string()))?;
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        options.mode(0o600);
-    }
-    {
-        use std::io::Write as _;
-        let mut file = options.open(&temp).map_err(io)?;
-        file.write_all(&body).map_err(io)?;
-    }
-    std::fs::rename(&temp, path).map_err(io)
-}
-
-/// Servers switched off, kept by Harnix where the engine does not read them: in the extension's own
-/// data, not beside the tier — a project's `.agix/` may be committed, and a server's secrets go with
-/// it. One file, 0600: `{"<a tier's settings.json>": {"<server>": {"settings": …, "local": …}}}`.
-pub(crate) struct Aside {
-    path: PathBuf,
-}
-
-impl Aside {
-    pub(crate) fn new(path: PathBuf) -> Self {
-        Self { path }
-    }
-
-    fn read(&self) -> Rpc<Map<String, Value>> {
-        Ok(crate::read_document(&self.path)?.as_object().cloned().unwrap_or_default())
-    }
-
-    /// One change to the file at a time in this process; it is this extension's alone.
-    fn changing() -> std::sync::MutexGuard<'static, ()> {
-        static CHANGING: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        CHANGING.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
-    /// The servers switched off in the tier whose settings.json is `tier`, merged as [`Tier::servers`] merges.
-    pub(crate) fn of(&self, tier: &Path) -> Rpc<BTreeMap<String, Map<String, Value>>> {
-        let all = self.read()?;
-        let Some(servers) = all.get(&key(tier)).and_then(Value::as_object) else { return Ok(BTreeMap::new()) };
-        Ok(servers
-            .iter()
-            .map(|(name, kept)| {
-                let mut merged = kept.get("settings").and_then(Value::as_object).cloned().unwrap_or_default();
-                if let Some(local) = kept.get("local").and_then(Value::as_object) {
-                    merged.extend(local.clone());
-                }
-                (name.clone(), merged)
-            })
-            .collect())
-    }
-
-    pub(crate) fn holds(&self, tier: &Path, name: &str) -> Rpc<bool> {
-        Ok(self.read()?.get(&key(tier)).and_then(|s| s.get(name)).is_some())
-    }
-
-    /// Keep a server's two halves aside.
-    pub(crate) fn keep(&self, tier: &Path, name: &str, public: Option<Value>, secret: Option<Value>) -> Rpc<()> {
-        let _one = Self::changing();
-        let mut all = self.read()?;
-        let servers = all.entry(key(tier)).or_insert_with(|| json!({}));
-        if !servers.is_object() {
-            *servers = json!({});
-        }
-        servers
-            .as_object_mut()
-            .expect("an object just now")
-            .insert(name.into(), json!({"settings": public.unwrap_or(json!({})), "local": secret}));
-        write_private(&self.path, &Value::Object(all))
-    }
-
-    /// Take a server's two halves back out.
-    pub(crate) fn take(&self, tier: &Path, name: &str) -> Rpc<Option<Halves>> {
-        let _one = Self::changing();
-        let mut all = self.read()?;
-        let k = key(tier);
-        let Some(servers) = all.get_mut(&k).and_then(Value::as_object_mut) else { return Ok(None) };
-        let Some(kept) = servers.remove(name) else { return Ok(None) };
-        if servers.is_empty() {
-            all.remove(&k);
-        }
-        write_private(&self.path, &Value::Object(all))?;
-        let half = |key: &str| kept.get(key).and_then(Value::as_object).cloned().unwrap_or_default();
-        Ok(Some((half("settings"), half("local"))))
-    }
-}
-
-fn key(tier: &Path) -> String {
-    tier.display().to_string()
+    out
 }
 
 #[cfg(test)]
@@ -544,10 +348,12 @@ mod tests {
             "transport": "stdio", "command": " npx ", "args": ["-y", "@x/server"],
             "env": {"TOKEN": {"secret": "s3cr$t-value"}, "HOME_DIR": {"var": "HOME"}},
         }));
-        let (public, secret) = build(&given, "global", None).unwrap();
-        assert_eq!(Value::Object(public), json!({"type": "stdio", "command": "npx", "args": ["-y", "@x/server"]}));
+        let server = build(&given, "global", None).unwrap();
         // A literal `$` is written so the engine does not expand it; a variable is named.
-        assert_eq!(Value::Object(secret), json!({"env": {"TOKEN": "s3cr$$t-value", "HOME_DIR": "${HOME}"}}));
+        assert_eq!(
+            Value::Object(server),
+            json!({"type": "stdio", "command": "npx", "args": ["-y", "@x/server"], "env": {"TOKEN": "s3cr$$t-value", "HOME_DIR": "${HOME}"}})
+        );
     }
 
     #[test]
@@ -555,14 +361,17 @@ mod tests {
         let before = json!({"type": "streamable_http", "url": "https://old.example/mcp", "oauth": {"client_id": "c"}, "tool_timeout_ms": 5000,
                             "headers": {"Authorization": "Bearer old-token-1234"}});
         let given = input(json!({"transport": "http", "url": "https://mcp.example/mcp", "headers": {"Authorization": {"keep": true}, "X-Team": {"secret": "t"}}}));
-        let (public, secret) = build(&given, "global", before.as_object()).unwrap();
-        assert_eq!(Value::Object(public), json!({"type": "streamable_http", "url": "https://mcp.example/mcp", "oauth": {"client_id": "c"}, "tool_timeout_ms": 5000}));
-        assert_eq!(Value::Object(secret), json!({"headers": {"Authorization": "Bearer old-token-1234", "X-Team": "t"}}));
-        // An sse server too; and turned into a process, its `oauth` is no longer one it has.
-        let (public, _) = build(&input(json!({"transport": "sse", "url": "http://127.0.0.1:9/sse"})), "global", None).unwrap();
-        assert_eq!(public["type"], json!("sse"));
-        let (public, _) = build(&input(json!({"transport": "stdio", "command": "x"})), "global", before.as_object()).unwrap();
-        assert!(!public.contains_key("oauth") && !public.contains_key("url"));
+        let server = build(&given, "global", before.as_object()).unwrap();
+        assert_eq!(
+            Value::Object(server),
+            json!({"type": "streamable_http", "url": "https://mcp.example/mcp", "oauth": {"client_id": "c"}, "tool_timeout_ms": 5000,
+                   "headers": {"Authorization": "Bearer old-token-1234", "X-Team": "t"}})
+        );
+        // An sse server too; and turned into a process, its `oauth` and headers are no longer ones it has.
+        let server = build(&input(json!({"transport": "sse", "url": "http://127.0.0.1:9/sse"})), "global", None).unwrap();
+        assert_eq!(server["type"], json!("sse"));
+        let server = build(&input(json!({"transport": "stdio", "command": "x"})), "global", before.as_object()).unwrap();
+        assert!(!server.contains_key("oauth") && !server.contains_key("url") && !server.contains_key("headers"));
     }
 
     #[test]
@@ -620,79 +429,14 @@ mod tests {
     }
 
     #[test]
-    fn a_tier_is_edited_in_its_two_files_and_a_server_replaced_whole() {
-        let dir = tempfile::tempdir().unwrap();
-        let settings = dir.path().join("settings.json");
-        std::fs::write(&settings, r#"{"model": {"max_tokens": 10}, "mcp_servers": {"old": {"type": "stdio", "command": "o"}}}"#).unwrap();
-        std::fs::write(local_of(&settings), r#"{"providers": {"p": {"api_key": "k"}}, "mcp_servers": {"fs": {"env": {"A": "stale"}}}}"#).unwrap();
-        let given = input(json!({"transport": "stdio", "command": "fs-server", "env": {"T": {"secret": "v"}}}));
-        edit(&settings, |tier| {
-            let (public, secret) = build(&given, "global", tier.servers().get("fs"))?;
-            tier.put("fs", public, secret);
-            Ok(())
-        })
-        .unwrap();
-        let tier = read(&settings).unwrap();
-        assert_eq!(tier.settings["model"]["max_tokens"], json!(10), "the rest of the file is kept");
-        assert_eq!(tier.settings["mcp_servers"]["fs"], json!({"type": "stdio", "command": "fs-server", "args": []}));
-        assert_eq!(tier.local["mcp_servers"]["fs"], json!({"env": {"T": "v"}}), "the stale half went with the server");
-        assert_eq!(tier.local["providers"]["p"]["api_key"], json!("k"));
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            let mode = std::fs::metadata(local_of(&settings)).unwrap().permissions().mode() & 0o777;
-            assert_eq!(mode, 0o600);
-        }
-        // Taken out: from both files, and the key goes with the last server.
-        edit(&settings, |tier| {
-            tier.take("fs");
-            tier.take("old");
-            Ok(())
-        })
-        .unwrap();
-        let tier = read(&settings).unwrap();
-        assert!(tier.settings.get("mcp_servers").is_none() && tier.local.get("mcp_servers").is_none(), "{tier:?}");
-    }
-
-    #[test]
-    fn a_server_switched_off_is_kept_aside_with_its_secrets_and_comes_back_as_it_was() {
-        let dir = tempfile::tempdir().unwrap();
-        let settings = dir.path().join("tier").join("settings.json");
-        std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
-        std::fs::write(&settings, r#"{"mcp_servers": {"fs": {"type": "stdio", "command": "x"}}}"#).unwrap();
-        std::fs::write(local_of(&settings), r#"{"mcp_servers": {"fs": {"env": {"T": "secret-value"}}}}"#).unwrap();
-        let aside = Aside::new(dir.path().join("data").join("mcp-aside.json"));
-        let (public, secret) = edit(&settings, |tier| Ok(tier.take("fs"))).unwrap();
-        aside.keep(&settings, "fs", public, secret).unwrap();
-        assert!(!read(&settings).unwrap().declares("fs"));
-        assert!(aside.holds(&settings, "fs").unwrap());
-        assert_eq!(aside.of(&settings).unwrap()["fs"], json!({"type": "stdio", "command": "x", "env": {"T": "secret-value"}}).as_object().unwrap().clone());
-        let (public, secret) = aside.take(&settings, "fs").unwrap().unwrap();
-        edit(&settings, |tier| {
-            tier.put("fs", public, secret);
-            Ok(())
-        })
-        .unwrap();
-        let tier = read(&settings).unwrap();
-        assert_eq!(tier.local["mcp_servers"]["fs"]["env"]["T"], json!("secret-value"));
-        assert!(!aside.holds(&settings, "fs").unwrap());
-        assert!(aside.take(&settings, "fs").unwrap().is_none());
-    }
-
-    #[test]
-    fn reading_a_tier_that_has_no_files_makes_nothing() {
-        let dir = tempfile::tempdir().unwrap();
-        let settings = dir.path().join("project").join(".agix").join("settings.json");
-        assert_eq!(read(&settings).unwrap(), Tier { settings: json!({}), local: json!({}) });
-        assert!(!dir.path().join("project").exists(), "a read made the tier's directory");
-    }
-
-    #[test]
-    fn a_merged_server_splits_back_into_its_two_halves() {
-        let merged = json!({"type": "stdio", "command": "x", "env": {"A": "b"}});
-        let (public, secret) = split(merged.as_object().unwrap());
-        assert_eq!(Value::Object(public), json!({"type": "stdio", "command": "x"}));
-        assert_eq!(Value::Object(secret), json!({"env": {"A": "b"}}));
+    fn a_tiers_servers_are_its_two_halves_merged() {
+        let settings = json!({"model": {"max_tokens": 10}, "mcp_servers": {"fs": {"type": "stdio", "command": "fs-server"}, "old": {"type": "stdio", "command": "o"}}});
+        let local = json!({"providers": {"p": {"api_key": "k"}}, "mcp_servers": {"fs": {"env": {"T": "v"}}, "only-secret": {"headers": {"A": "b"}}}});
+        let servers = declared(Some(&settings), Some(&local));
+        assert_eq!(servers.keys().map(String::as_str).collect::<Vec<_>>(), ["fs", "old", "only-secret"]);
+        assert_eq!(Value::Object(servers["fs"].clone()), json!({"type": "stdio", "command": "fs-server", "env": {"T": "v"}}));
+        // A tier with no file: no servers.
+        assert!(declared(Some(&Value::Null), None).is_empty());
     }
 
     #[test]

@@ -198,3 +198,28 @@ describe("a disabled space", () => {
     expect(app.snapshot.space).toBe("first");
   });
 });
+
+describe("a landing space", () => {
+  it("a page opened afresh lands on it, whatever was stored; a reload in the same tab stays where it was", () => {
+    sessionStorage.clear();
+    const { app } = scriptedApp();
+    app.registry.register("space", space("home", { order: 1, landing: true }), "test");
+    app.set({ space: "b" });
+    land(app);
+    expect(app.snapshot.space).toBe("home");
+
+    // The same tab again: what was in front stays.
+    app.set({ space: "b" });
+    land(app);
+    expect(app.snapshot.space).toBe("b");
+  });
+
+  it("one that cannot be entered for now is not landed on", () => {
+    sessionStorage.clear();
+    const { app } = scriptedApp();
+    app.registry.register("space", space("home", { order: 1, landing: true, sidebar: { disabled: () => "closed" } }), "test");
+    app.set({ space: "b" });
+    land(app);
+    expect(app.snapshot.space).toBe("b");
+  });
+});

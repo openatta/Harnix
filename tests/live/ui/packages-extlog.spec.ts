@@ -1,13 +1,14 @@
 /**
- * The system console's extension log in the browser, with the showcase installed: its backend's
- * line is there, under its id; filtered to it, or to errors only, the tab asks again and shows what
- * it was asked for; live, the line its backend logs on stopping comes in without a reload.
+ * The extension log in the settings' diagnostics (harnix-app.md §12.2), with the showcase
+ * installed: its backend's line is there, under its id; filtered to it, or to errors only, the
+ * block asks again and shows what it was asked for; live, the line its backend logs on stopping
+ * comes in without a reload.
  */
 
 import { type Backend, connect, expect, test, topology } from "@harnix/testkit";
 
 import { SHOWCASE_ID, showcasePackage, startApps } from "../api/packages-host";
-import { open, watchConsole } from "./page";
+import { diagnosticsBlock, open, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:packages", "@layer:ui"] };
 
@@ -34,14 +35,10 @@ test.afterAll(async () => {
 test("the extension log: its line under its id, filtered by extension and level, followed live", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, backend.url);
-  await page.locator('#side [data-space="system"]:not(#space-column)').click();
-  await expect(page.getByTestId("system-console")).toBeVisible();
-  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="system.extlog"]').click();
-  const tab = page.getByTestId("system-extlog");
+  const tab = (await diagnosticsBlock(page, "observability.extlog")).getByTestId("extlog");
   await expect(tab).toBeVisible();
   const ours = tab.locator(`[data-testid="extlog-line"][data-extension="${SHOWCASE_ID}"]`);
   await expect(ours.filter({ hasText: "the showcase's backend started" })).toHaveCount(1, { timeout: 20_000 });
-  await expect(page.getByTestId("system-about")).toHaveAttribute("data-tab", "system.extlog");
 
   await page.getByTestId("extlog-extension").selectOption(SHOWCASE_ID);
   await expect(tab.locator('[data-testid="extlog-line"]').first()).toBeVisible();

@@ -62,6 +62,7 @@ impl App {
             args: None,
             child_entries: Vec::new(),
             default_engine: None,
+            model_switch: false,
         }
     }
 }
@@ -139,7 +140,10 @@ pub mod testing {
     /// the method-table snapshot pins.
     pub fn describe(app: crate::AppBuilder) -> anyhow::Result<Value> {
         let dir = tempfile_dir()?;
-        let (table, grants, _) = crate::run::register_only(app.entries, &crate::profile::Profile::default(), &dir)?;
+        // Under a profile that writes nothing: the product's own defaults stand.
+        let mut profile = crate::profile::Profile::default();
+        profile.shell.model_switch = Some(app.model_switch);
+        let (table, grants, _) = crate::run::register_only(app.entries, &profile, &dir)?;
         let snapshot = Router::new(table, grants, Arc::new(harnix_authz::Audit::default())).snapshot();
         let _ = std::fs::remove_dir_all(&dir);
         Ok(snapshot)
@@ -171,7 +175,7 @@ pub mod testing {
             let mut args: Vec<std::ffi::OsString> = vec![
                 "harnix-test".into(),
                 "--headless".into(),
-                "--agix-dir".into(),
+                "--engine-dir".into(),
                 dir.join("engine").into(),
                 "--data-dir".into(),
                 dir.join("data").into(),
@@ -184,7 +188,7 @@ pub mod testing {
                 args.extend(["--profile".into(), path.into()]);
             }
             let cli = crate::cli::parse(&app.name, &app.version, Some(args));
-            let basis = crate::run::Basis::read(&cli, app.default_engine.as_ref())?;
+            let basis = crate::run::Basis::read(&cli, app.default_engine.as_ref(), app.model_switch)?;
             let started = crate::run::start_process(app, &cli, &basis).await?;
             Ok(Self { started, _basis: basis })
         }
@@ -232,6 +236,8 @@ pub struct AppBuilder {
     pub(crate) child_entries: Vec<(String, ChildEntry)>,
     /// The `[engine]` of the profile used when the command line names none.
     pub(crate) default_engine: Option<harnix_instance::EngineProfile>,
+    /// `[shell] model_switch` where the profile does not write it.
+    pub(crate) model_switch: bool,
 }
 
 impl AppBuilder {
@@ -255,6 +261,14 @@ impl AppBuilder {
     /// of either.
     pub fn default_engine(mut self, engine: harnix_instance::EngineProfile) -> Self {
         self.default_engine = Some(engine);
+        self
+    }
+
+    /// Whether the composer may change a session's model (`harnix.session.setModel`) where the
+    /// profile does not say: the product's default for `[shell] model_switch`, off unless turned
+    /// on here. A profile's own line wins, either way — `model_switch = false` closes it again.
+    pub fn model_switch(mut self, on: bool) -> Self {
+        self.model_switch = on;
         self
     }
 

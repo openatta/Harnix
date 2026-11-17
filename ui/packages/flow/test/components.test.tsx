@@ -46,6 +46,7 @@ const DEF: FlowDef = {
 function view(stations: Record<string, StationRec>, status: "active" | "finished" = "active"): RunView {
   return {
     record: {
+      format: 1,
       id: "r1",
       flow: "demo-review",
       def_digest: "d",
@@ -345,8 +346,8 @@ describe("registerFlowSpace", () => {
     expect(r.refusals()).toEqual([]);
     const space = r.at("space")[0]!;
     expect(space).toMatchObject({ id: "flow", center: { mode: "chat" }, details: { initial: "open" }, owner: "flowui" });
-    // The space's own sessions on the left, new ones allowed: nothing of its own there.
-    expect(space.sidebar?.render).toBeUndefined();
+    // Its own left column (the flows and their runs); new sessions allowed.
+    expect(typeof space.sidebar?.render).toBe("function");
     expect(space.center?.overview).toBeUndefined();
     expect(space.conversation?.newSession).toBeUndefined();
     expect(typeof space.conversation?.composerNotice).toBe("function");

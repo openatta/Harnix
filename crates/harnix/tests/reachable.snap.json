@@ -112,6 +112,7 @@
       "harnix.session.respond",
       "harnix.session.rewind",
       "harnix.session.send",
+      "harnix.session.setModel",
       "harnix.session.skills",
       "harnix.session.tasks",
       "harnix.sessions.list",
@@ -120,6 +121,13 @@
       "harnix.topics.unsubscribe",
       "harnix.ui",
       "observability.calls",
+      "observability.context",
+      "observability.extensions.log",
+      "observability.messages.drop",
+      "observability.messages.edit",
+      "observability.process",
+      "observability.tasks.output",
+      "observability.tasks.stop",
       "observability.trace",
       "observability.trace.call",
       "observability.turns",
@@ -152,6 +160,7 @@
       "schedule.runNow",
       "schedule.update",
       "settings.describe",
+      "settings.listModels",
       "settings.mcp.add",
       "settings.mcp.authCancel",
       "settings.mcp.authComplete",
@@ -165,26 +174,7 @@
       "settings.mcp.update",
       "settings.set",
       "settings.setProvider",
-      "settings.write",
-      "system.clear",
-      "system.compact",
-      "system.context",
-      "system.extensions.log",
-      "system.goal",
-      "system.goal.set",
-      "system.goal.update",
-      "system.instances.create",
-      "system.instances.restart",
-      "system.instances.stop",
-      "system.instances.templates",
-      "system.messages.drop",
-      "system.messages.edit",
-      "system.model",
-      "system.process",
-      "system.rename",
-      "system.tasks.message",
-      "system.tasks.output",
-      "system.tasks.stop"
+      "settings.write"
     ],
     "topics": [
       "flow.defs",
@@ -200,10 +190,10 @@
       "harnix.sessions.status",
       "harnix.spaces",
       "harnix.ui",
+      "observability.process",
       "packages.list",
       "packages.progress",
-      "schedule.list",
-      "system.process"
+      "schedule.list"
     ]
   },
   "module": {
@@ -292,9 +282,9 @@
       "harnix.sessions.status",
       "harnix.spaces",
       "harnix.ui",
+      "observability.process",
       "probe.counter",
-      "probe.job",
-      "system.process"
+      "probe.job"
     ]
   },
   "plugin_app": {

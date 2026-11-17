@@ -950,6 +950,15 @@
   flex: none;
 }
 
+/* A standing tab (`pinned`) sits at the strip's end, after everything the person opened. */
+#details .tabs .chip.pinned {
+  margin-left: auto;
+}
+
+#details .tabs .chip.pinned ~ .chip.pinned {
+  margin-left: 0;
+}
+
 #details .tabs .chip .tab-close {
   display: flex;
   align-items: center;

@@ -67,7 +67,7 @@ test("the model never sees an entry", TAGS, async () => {
   const history = await api.call("engine.session.history", s);
   expect(history.total, "an entry is not a message").toBe(before);
   expect(JSON.stringify(history.messages)).not.toContain("entry-marker-77");
-  const context = await api.call("system.context", s);
+  const context = await api.call("observability.context", s);
   expect(context.messages.count).toBe(before);
   expect(JSON.stringify(context)).not.toContain("entry-marker-77");
 });
