@@ -64,7 +64,7 @@ test("the module says what it offers: flows, a definition with its parts, the ca
   const defs = await api.call("flow.defs");
   expect(defs.map((d: any) => d.name).sort()).toEqual([
     "demo-agent", "demo-asked", "demo-bypassed", "demo-guarded", "demo-linear", "demo-main", "demo-misplaced", "demo-outside",
-    "demo-outside-strict", "demo-placed", "demo-propose", "demo-review", "demo-shared", "demo-task",
+    "demo-outside-strict", "demo-placed", "demo-propose", "demo-reserved", "demo-review", "demo-shared", "demo-task",
   ]);
   // Where each comes from and whether it is valid (xops-02 §3): all built in here.
   expect(defs.every((d: any) => d.origin === "builtin" && d.valid === true)).toBe(true);
@@ -94,7 +94,7 @@ test("the module says what it offers: flows, a definition with its parts, the ca
   expect(catalog.steps).toEqual(["collect", "self-check"]);
   expect(catalog).toMatchObject({ checks: ["lint"], tools: ["open_high"], command_gates: true });
   expect(catalog.parts).toMatchObject({
-    skill: ["analyze", "report", "write-notes", "write-outside"], rule: ["review-rules"], policy: ["ask-todo"],
+    skill: ["analyze", "report", "write-notes", "write-outside", "write-reserved"], rule: ["review-rules"], policy: ["ask-todo"],
     gate: ["lint", "open-high", "self-test", "task-check"], hook: [],
   });
   const def = await api.call("flow.schema", { of: "definition" });
@@ -391,7 +391,8 @@ test("a task: a run in a project carries its root, workspace, output directory a
     // The template resolved and made at start, inside the project: the first of the day is `01`.
     expect(rec.output_dir).toMatch(new RegExp(`^${project}/flows/demo-review-\\d{8}01$`));
     expect(existsSync(rec.output_dir)).toBe(true);
-    expect(readFileSync(join(project, ".harnix", ".gitignore"), "utf8")).toBe("runs/\nworktrees/\n");
+    // Only `runs/`: the worktrees are out of the project, in the application's state.
+    expect(readFileSync(join(project, ".harnix", ".gitignore"), "utf8")).toBe("runs/\n");
     expect(rec.trigger).toMatchObject({ kind: "manual", by: { kind: "device" } });
     const other = (await api.call("flow.get", { run: plain })).record;
     expect(other.project_root).toBeUndefined();
