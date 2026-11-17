@@ -418,7 +418,7 @@ spawn 的看护在 `harnix-supervise`：等它就绪；stdin 一断它就退出�
 
 **归 space 的实例**照同一条规则：模板为某个 space 建的实例，点名它的调用（建会话、挪会话、全部 `engine.*` 直通，与 space 无关的行在内）只对它的 space、跨 space 的调用与内核开放，
 在唤醒之前判；不声称 space、产品又没有缺省 space 的调用也答 `SPACE_MISMATCH`。不归任何 space 的实例（`main`、profile 的实例、扩展经 `harnix.instances.create` 建的）
-照旧谁都能点名。原生扩展用归 space 的实例时也要声称 space（`cx.sessions().in_space(..)`），不开豁免；替设备读会话内部的扩展（`observability`）转过去的调用照设备声称的 space。
+照旧谁都能点名。原生扩展用归 space 的实例时也要声称 space（`cx.sessions().in_space(..)`），不开豁免；替设备读、改会话内部的扩展（`observability`）转过去的调用照设备声称的 space。
 
 ### 3.2 中枢
 
@@ -733,7 +733,7 @@ fn main() -> anyhow::Result<()> {
 |---|---|---|---|---|
 | `instances.admin` | 停、重启任何不属于内核的实例；按任何模板建实例、列出全部模板 | ✔ | | —（应用自己的调试面要它） |
 | `engine.inspect` | 读**任何**会话的内部：上下文、后台任务、后台任务的输出、目标、历史 | ✔ | | observability（会话的上下文、后台任务的输出）、flow、schedule（模型建的定时）、settings（会话的 MCP 上下文，可选） |
-| `engine.control` | 改任何会话的内部：后台任务、消息、压缩、清空、模型、名字、目标；读、改项目的信任 | ✔ | | flow（给它开的会话改名）、schedule（删模型建的定时）、harnix-app（项目信任，可选） |
+| `engine.control` | 改任何会话的内部：后台任务、消息、压缩、清空、模型、名字、目标；读、改项目的信任 | ✔ | | flow（给它开的会话改名）、schedule（删模型建的定时）、harnix-app（项目信任，可选）、observability（替人停后台任务、改写或去掉人说的话，可选） |
 | `engine.config.read` / `engine.config.write` | 读 / 写引擎设置与 provider；后者含重读设置、交给继承 provider 的实例 | ✔ | | settings · settings |
 | `engine.plugins` | Agix 插件的装、卸、启停、重读 | ✔ | | plugins、packages |
 | `engine.export` | 导出、导入会话 | ✔ | | harnix-app |
@@ -1013,7 +1013,7 @@ IPDrun 已经有能对着 Harnix 协议跑的 React 对话组件，直接回流�
 | `@harnix/harnix-app` | React | 首页、会话 space、项目 space、新会话与添加项目的对话框、`@` 文件候选、归档与导出；定义项目的条目与概况、待我处理、首页的区块等点 |
 | `@harnix/settings` · `@harnix/plugins` · `@harnix/devices` | React | 设置节：模型、场景、MCP · Agix 插件 · 设备 |
 | `@harnix/packages` | React | 设置节「扩展包」（装、升、卸、同意、清数据）；设置 → 诊断里「扩展包运行状况」 |
-| `@harnix/observability` | React | 对话区的「轨迹」视图（`conversation.view`）、右栏的「上下文」（常驻）「用量」「输出」页签、首页的全局统计与用量、设置 → 诊断里的扩展日志 |
+| `@harnix/observability` | React | 对话区的「轨迹」视图（`conversation.view`）、右栏的「上下文」（常驻）「用量」「输出」（可停止任务）页签、消息菜单的改写与去掉、首页的全局统计与用量、设置 → 诊断里的扩展日志 |
 | `@harnix/flow` | React | 流程 space、项目里的任务、首页的最近任务；定义任务行的标记与另一种起法两个点 |
 | `@harnix/schedule` | React | 定时：会话菜单「定时…」、项目概况与首页的区块、会话行与任务行的时钟、「定时运行这个流程…」；全经别的包定义的点 |
 | `@harnix/ext-sdk` · `@harnix/ext-kit` | 否 | 扩展包的页面在 iframe 里的一侧：桥的客户端与 mock 宿主 · 外壳的令牌与几样基础部件 |
@@ -1140,7 +1140,7 @@ space 自己的会话。这件事错一次就是把消息发进了别的产品�
 
 | 在哪 | 看什么 | 谁的 |
 |---|---|---|
-| 首页 | 全局统计（版本、运行时长、内存、线程、连接、实例、Agent、运行中的会话与后台任务、等人处理的）、待我处理、最近的会话与任务、全部定时、30 天的用量 | `harnix-app` 定义的点 `harnix-app.home.panels`，各块由 `observability`、`harnix-app`、`flow`、`schedule` 的 UI 包注册 |
+| 首页 | 没做完时的首次运行（没配模型的提示与首次运行的几步）、全局统计（版本、运行时长、内存、线程、连接、实例、Agent、运行中的会话与后台任务、等人处理的）、待我处理、最近的会话与任务、全部定时、30 天的用量 | `harnix-app` 定义的点 `harnix-app.home.panels`，各块由 `observability`、`harnix-app`、`flow`、`schedule` 的 UI 包注册 |
 | 会话的右栏 | 下一次调用将要带的上下文（每个会话的页签栏末尾常驻）、用量、后台任务的输出 | `observability` |
 | 会话的中区 | 轨迹：记录下来的每一次模型调用 | `observability` |
 | 设置 → 诊断 | 引擎、界面模块、扩展与它们在本页上的面板、被拒的贡献、自检；扩展包运行状况；扩展日志 | 外壳；`packages`、`observability` 的区块（`settings.section` 的 `within: "diagnostics"`） |
@@ -1149,9 +1149,9 @@ space 自己的会话。这件事错一次就是把消息发进了别的产品�
 每一块、每个数据来源见 [Harnix app](harnix-app.md) §6.1、§10、§11、§12。都只用公开的扩展接口与贡献点，没有私有通道；首页不认识往里放东西的包，
 挂在哪由点有没有定义决定，不按 id（§5.6）。
 
-**设备够不着的引擎方法包在扩展后面。** 读会话的上下文与后台任务的输出要 `engine.inspect`，读进程信息与扩展日志要 `process.observe`；`observability`
-被授予它们，把四样包成设备能调的方法：`observability.context`、`observability.tasks.output`、`observability.process`、`observability.extensions.log`。
-设备调它，它以自己的身份、凭自己的能力调引擎或内核，两次判定都进审计（§3.4.6）。前两个按 `RowScope::Session` 判，只对设备声称的 space 的会话，
+**设备够不着的引擎方法包在扩展后面。** 读会话的上下文与后台任务的输出要 `engine.inspect`，停后台任务、改写或去掉人说的话要 `engine.control`，读进程信息与扩展日志要 `process.observe`；`observability`
+被授予它们，包成设备能调的方法：`observability.context`、`observability.tasks.output`、`observability.tasks.stop`、`observability.messages.edit`、`observability.messages.drop`、`observability.process`、`observability.extensions.log`。
+设备调它，它以自己的身份、凭自己的能力调引擎或内核，两次判定都进审计（§3.4.6）。关于一个会话的五个按 `RowScope::Session` 判，只对设备声称的 space 的会话，
 转过去的调用照设备声称的 space——**它不跨 space**；扩展日志只转 `extension`、`level`、`after`、`limit` 四个键，内核那一行不对设备与扩展包开放。
 
 **录像里有完整的系统提示词，敏感级别和 transcript 相同**（§6.4），所以只能经要能力的方法读（`observability.*` 要 `recordings.read`），录像目录永不经 HTTP 暴露。

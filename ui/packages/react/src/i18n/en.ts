@@ -705,7 +705,7 @@ const en: Record<string, string> = {
   "obs.message.save": "Rewrite",
   "obs.message.edited": "The message was rewritten.",
   "obs.message.drop": "Take out of the context",
-  "obs.message.dropAsk": "From its next call on, the model no longer sees what this message said; the message stays in the conversation, marked as removed. What the model already answered stays as it was.",
+  "obs.message.dropAsk": "From its next call on, the model no longer sees what this message said; the message stays in the conversation, its words replaced by [removed by the host]. What the model already answered stays as it was.",
   "obs.message.dropConfirm": "Take it out",
   "obs.message.dropped": "The message was taken out of the context.",
   "obs.message.busy": "Not while a turn runs or waits",

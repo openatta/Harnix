@@ -703,7 +703,7 @@ const zhCN: Record<string, string> = {
   "obs.message.save": "改写",
   "obs.message.edited": "已改写这条消息。",
   "obs.message.drop": "从上下文中去掉",
-  "obs.message.dropAsk": "模型从下一次调用起不再看到这条消息说的内容；消息还在对话里，标为已去掉。模型已经答过的不变。",
+  "obs.message.dropAsk": "模型从下一次调用起不再看到这条消息说的内容；消息还在对话里，内容换成 [removed by the host]。模型已经答过的不变。",
   "obs.message.dropConfirm": "去掉",
   "obs.message.dropped": "已从上下文中去掉这条消息。",
   "obs.message.busy": "有一轮在跑或在排队时不能改",

@@ -310,7 +310,9 @@ r.register("harnix-app.project.items", {
   目录），然后 `harnix.session.send`。Harnix app 的两个 space 不给建议与提示；卡片是首次运行的三步（§4.1），应用的扩展与扩展包也可以给 `home.card`。
 - **新会话对话框**（从项目菜单或首次运行的「场景与权限」进来）：场景（启用的场景，引擎缺省的在前）、权限模式（`default`、`acceptEdits`、`plan`、
   `bypassPermissions`）、项目目录（`harnix-app.recentProjects` 给的最近目录，或不带项目），可以浏览目录。
-- **换模型**：会话的模型菜单在有 `harnix.session.setModel`（`[shell] model_switch = true`）时用它，只对前台 space 的会话；没有它时菜单只显示模型、不能换。
+- **换模型**：会话的模型菜单在有 `harnix.session.setModel` 时用它，只对前台 space 的会话；没有它时菜单只显示模型、不能换。有没有它是 profile 的
+  `[shell] model_switch`，profile 不写时是产品自己的缺省（`AppBuilder::model_switch`，[Harnix 扩展](harnix-ext.md) §17.1）：`harnix` 二进制缺省开着，
+  写 `model_switch = false` 关掉；库的缺省是关，应用不说就把换模型留给设置页。
   同一个菜单下面是这个会话的推理强度（`low` … `max`）与思考开关（`auto` / `off` / `on`），「随设置」是没有会话自己的值；
   新会话的输入框里选的，建会话时经 `options.effort`、`options.thinking_mode` 给。
 
@@ -331,6 +333,7 @@ r.register("harnix-app.project.items", {
 - **不说信任**：新建的项目是不受信的，但空页上不提这件事。那是对话上方横幅（§3.1）的事：在一个有被扣下设置的项目里打开会话时才说，
   两处不重复。
 - 产品关掉 `settings` 扩展时没有模型那一步，关掉 `harnix-app` 时没有后两步。
+- **首页也有**：新开的页面落在首页（§10），它的「开始使用」块画的是同一组 `home.card`，上面另有「没有模型」的提示；都做完、关掉之后那一块不显示。
 
 **`harnix` 的缺省场景**：不给 `--profile` 时，`harnix` 二进制的 `[engine]` 是 `scene = "harnix"`、`scenes = ["code"]`
 （`AppBuilder::default_engine`，见 [Harnix 扩展](harnix-ext.md) §17.1）：新会话仍在 `harnix` 场景里，`code`（要一个项目的编程 Agent）在新会话
@@ -406,7 +409,24 @@ r.register("harnix-app.project.items", {
 
 人的一条话（开启了一轮的那条，不是运行中送进去的）下面有 `⋯`，悬停或聚焦时出现，是**消息菜单**：外壳问 `session.action` 里 `at` 有
 `message` 的（`target` 是 `{kind: "message", session, space, turnId, text}`）。外壳自己往里放一项「**回到这里**」；文件工具
-（`Write`、`Edit`、`MultiEdit`、`NotebookEdit`）的工具行下面也有一项「**把文件退回到这次调用之前**」。space 把对话设成只读时没有消息菜单。
+（`Write`、`Edit`、`MultiEdit`、`NotebookEdit`）的工具行下面也有一项「**把文件退回到这次调用之前**」。`@harnix/observability` 再放两项改这条话本身的
+（下面的「改写与去掉」）。space 把对话设成只读时没有消息菜单。
+
+**改写与去掉**（`observability.message.edit`、`observability.message.drop`）。不回退、不撤掉哪一轮，只改这一条，模型从下一次调用起看到改过的，
+它已经答过的不变：
+
+| 项 | 做什么 | 方法 |
+|---|---|---|
+| 改写这条消息 | 对话框里改这条话的字（字没变时「改写」按不下去），确认后原地换掉 | `observability.messages.edit {instance?, session_id, space?, at, text, total}` → `{edited}`（引擎的 `editMessage`：只改人自己写的、只有文字的消息） |
+| 从上下文中去掉 | 先问一次，确认后这条话在此后的上下文里换成 `[removed by the host]`，位置留着、对话里照样有它 | `observability.messages.drop {instance?, session_id, space?, at: [..], total}` → `{dropped}`（引擎的 `dropMessages`：人的话或工具结果，模型的消息不能去掉） |
+
+- **哪一条**：`harnix.session.outline` 里这一轮（`turnId`）的 `seq` 是开启它的那条人的话在历史里的位置，`total` 是读的时候历史有几条。两样都带上：
+  `total` 必须给，引擎看历史的条数对不上（期间有新的、压缩过）就拒绝（`INVALID_PARAMS`），改的只会是人看到的那一条。
+- **什么时候不行**：这个会话有一轮在跑或在排队时两项是灰的，悬停说为什么；引擎此时也答 `SESSION_BUSY`。
+- **之后**：引擎就地改了消息、不推帧，所以中枢在 `editMessage`、`dropMessages` 之后照回退那样清掉这个会话的追赶缓冲、向每个观看者推
+  `harnix.session_resync`：各台设备重读历史，画出来的就是引擎现在的。
+- **谁能调**：设备，`RowScope::Session`，同 §6.1 的两个读：`observability` 先以调用方声称的 space 问 `engine.session.get`（看不到的会话由中枢拒绝，
+  `SPACE_MISMATCH`），再凭被授予的 `engine.control` 调引擎，只转它点名的键，两次判定都进审计。产品不授予 `engine.control` 时这两个方法与 §6.1 的停止被拒，别的照旧。
 
 两项都走 `harnix.session.rewind`，也都先问一次 `dry_run`，弹一个对话框写清楚：
 
@@ -503,14 +523,16 @@ transcript 里没有 diff。所以**一轮结束时，中枢把这一轮写过�
 
 ### 6.1 上下文与输出：`@harnix/observability`
 
-产品链了 `observability` 才有（`harnix` 二进制链了）。两页读的都是会话的**内部**，设备自己够不着引擎的这两个方法（`engine.session.inspectContext`、
-`taskOutput` 要 `engine.inspect`），所以经 `observability` 的方法：设备调它，它以自己的身份、凭被授予的 `engine.inspect` 调引擎，两次判定都进审计，后者挂在前者下面。
-两个方法都是设备的、按 `RowScope::Session` 判：只对设备声称的 space 的会话（像别的会话调用一样，`engine.session.get` 查这台设备看不看得到它），`instance` 不写是 `main`。
+产品链了 `observability` 才有（`harnix` 二进制链了）。两页读的都是会话的**内部**，设备自己够不着引擎的这些方法（`engine.session.inspectContext`、
+`taskOutput` 要 `engine.inspect`，`stopTask` 要 `engine.control`），所以经 `observability` 的方法：设备调它，它以自己的身份、凭被授予的能力调引擎，两次判定都进审计，后者挂在前者下面。
+方法都是设备的、按 `RowScope::Session` 判：只对设备声称的 space 的会话（像别的会话调用一样，`engine.session.get` 查这台设备看不看得到它），`instance` 不写是 `main`。
+`engine.control` 是 `observability` 的可选能力（`harnix::first_party::standard` 授予）：不授予时停止任务与 §5.1 的改写、去掉被拒，读照旧。
 
 | 方法 | 参数 | 答 |
 |---|---|---|
 | `observability.context` | `{instance?, session_id, space?}` | 引擎的 `inspectContext`：下一次调用要带的系统块（来源、正文、估算的 token）、工具表、消息，压缩阈值；另带 `measured`，上一次调用 provider 实测的数 |
 | `observability.tasks.output` | `{instance?, session_id, space?, task_id, tail_bytes?, from_byte?}` | 引擎的 `taskOutput`：一个后台任务的输出，整份、末尾或从某个字节起；`{output, from_byte, next_byte, dropped, final}` |
+| `observability.tasks.stop` | `{instance?, session_id, space?, task_id}` | 引擎的 `stopTask`：Shell 命令连同它的进程组结束，子 Agent 在下一个检查点停下；`{stopped}`，没有这个任务或它已经结束是 `false` |
 
 **上下文**（`sidebar.tab`，`kind: "context"`，`pinned`）：每个会话的页签栏最后一个，常驻、不能关，不进引导页（`pinned` 见 [Harnix 扩展](harnix-ext.md) §22.7）。
 下一次调用**将要**带的东西，每一部分各读各的、各自失败——产品没有某个方法时只少那一部分，页签照在：
@@ -528,6 +550,8 @@ transcript 里没有 diff。所以**一轮结束时，中枢把这一轮写过�
 从对话里 `Bash`、`Monitor` 工具行的「查看输出」打开（`session.action` 的 `observability.output`，`at: ["tool"]`）。只读：先读末尾（`observability.tasks.output`），
 再跟着会话推来的 `task_progress` 往下接，中间有缺口就补读；自动跟到末尾，往回翻就停，回到底又跟；页面至多留 256 KiB（引擎留的也是最后 256 KiB）。
 任务本身来自会话的后台任务列表（`harnix.session.tasks`）。模型建的定时没有输出。
+任务还在跑（`running`、`waiting`、`pending`）时，页签头上有「停止」：按一次只是变成「再按一次停止」，3 秒内再按才停（`observability.tasks.stop`），
+同中断一轮的两次 Esc，免得误点；停下的状态从任务列表回来，「停止」随之消失。已经结束的说一句「这个任务已经结束了」，被拒的照外壳的话说。
 
 ## 7. profile
 
@@ -535,7 +559,7 @@ transcript 里没有 diff。所以**一轮结束时，中枢把这一轮写过�
 
 ```toml
 [shell]
-model_switch = false      # true：加 harnix.session.setModel，能在输入框换模型（只限前台 space 的会话）
+model_switch = true       # 加 harnix.session.setModel，能在输入框换模型（只限前台 space 的会话）；false 不加。不写是产品的缺省（AppBuilder::model_switch）：harnix 二进制开，库的缺省关
 new_session = true        # false：整个外壳不画「新会话」、⌘K 不归外壳；只是界面
 narrow_details = "over"   # ≤ 960 宽时打开的右栏：over 是盖住中区的抽屉；beside 三栏并排（< 720 仍是抽屉）
 
@@ -550,7 +574,7 @@ default_space = "sessions"  # 不声称 space 的调用按它检查，换掉扩�
 |---|---|
 | `harnix-app` | 首页、会话 space 与项目 space 的后端与界面都没有；后端的 `sessions`、`home` 两个 space 也不再声明（见 §1：要另指缺省 space） |
 | `flow` | 流程 space 的后端与界面都没有（§11），项目里没有任务，首页没有最近任务 |
-| `observability` | 右栏没有上下文、用量、输出，没有轨迹视图，首页没有全局统计与用量，诊断里没有扩展日志 |
+| `observability` | 右栏没有上下文、用量、输出，没有轨迹视图，消息菜单里没有改写与去掉，首页没有全局统计与用量，诊断里没有扩展日志 |
 
 一个 space 都没有时，外壳说「没有注册任何 space」。
 
@@ -741,6 +765,7 @@ Harnix app 是原生扩展最小的例子：一个后端扩展、一个界面包
 
 | `order` | 区块 | id（谁的） | 内容 |
 |---|---|---|---|
+| 5 | 开始使用 | `harnix-app.setup`（`@harnix/harnix-app`），`wide` | 首次运行，只在还有没做完的时候有（见下） |
 | 10 | 全局统计 | `observability.stats`（`@harnix/observability`），`wide` | 一行数字（§10.1） |
 | 20 | 待我处理 | `harnix-app.inbox` | §3.3 的列表，全部项目的，至多 8 行 |
 | 30 | 最近会话 | `harnix-app.sessions` | 会话 space 最近活动的 8 个（归档的不列），在跑的带点，有项目的写项目名；点了到所属 space 打开（`host.session.open(…, {switchSpace: true})`）；「全部会话」到会话 space |
@@ -749,6 +774,14 @@ Harnix app 是原生扩展最小的例子：一个后端扩展、一个界面包
 | 60 | 用量 | `observability.summary`（`@harnix/observability`），`wide` | 最近 30 天的用量汇总（§10.3） |
 
 产品没链某个扩展，它那一块就不在；没有 `harnix-app` 就没有首页，别的包往这个点里注册时给的 `orElse` 什么都不做。
+
+**开始使用**：新开的页面落在首页，所以首次运行在这里也说一遍，和新对话的空页（§4.1）是同一套：
+
+- 上面是「还没有配置后端模型」的提示与「配置模型」（到 设置 · 模型与凭据），`harnix.hello` 说没有模型可用时才有（同 §4.1 模型那一步的判断）；
+  画出来时读一次，此后每关一次对话框再读。它不能关，配好模型就没了。这条提示是 `@harnix/react` 的 `ModelSetupNote`，输入框上方的是同一个。
+- 下面是 `home.card` 的全部卡片，按 `order`，每张由它的包画、各自失败——就是空页上的那几张（模型、项目、场景与权限，以及应用与扩展包加的），
+  做完、关掉的一样不画；关掉的记在同一个 `harnix.setup.dismissed` 里，两处一起不再画。
+- **做完了就没有**：卡片什么都没画时不占位置（`:empty`）；提示不在、卡片全空时，整块不显示。
 
 ### 10.1 全局统计
 
@@ -825,7 +858,7 @@ Harnix app 是原生扩展最小的例子：一个后端扩展、一个界面包
 - **流程**：标题、来源（内置 / 已改 / 自建 / 项目）、不合法的标记；按来源、合法与否筛选，按名字搜索，按名字或标题排序。「添加」
   打开通用会话并在输入框里放一句提示。数据是主题 `flow.defs`。
 - **运行**：全部运行与试运行，状态、标题、试运行标记、流程、开始时间、耗时、token；按状态、流程、真跑 / 试运行筛选，按开始、耗时、token 排序。
-  数据是主题 `flow.runs`、`flow.dry_runs`。
+  数据是主题 `flow.runs`、`flow.dry_runs`。在这里点一条运行，它的流程也一起选中：左栏换到那条流程、展开它的运行，这一条标为当前；再点一次是放开这条运行，流程留着。
 - **参考**：流程指南（`flow.guide {lang}`）、本产品的目录与字段表。
 - 这一处只呈现，不编辑定义：改流程在它的对话里，由 Agent 做。
 
