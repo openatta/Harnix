@@ -836,7 +836,7 @@ test('关注组列表 @feature:watchlist @layer:api', async ({ api }) => {
 
 | 名字 | 现在 | 在哪 | 什么时候升 |
 |---|---|---|---|
-| Harnix 版本 | `0.4.5-2026111601` | 各 crate 的 `Cargo.toml`；`harnix::HARNIX_VERSION` | 每次发布（`scripts/set-version.sh` 连这一格一起改，`tests/crate-metadata.mjs` 查它和 crate 一致） |
+| Harnix 版本 | `0.4.6-2026111701` | 各 crate 的 `Cargo.toml`；`harnix::HARNIX_VERSION` | 每次发布（`scripts/set-version.sh` 连这一格一起改，`tests/crate-metadata.mjs` 查它和 crate 一致） |
 | 扩展 API | `1` | `harnix::ext::EXT_API_VERSION` | 写进文档、`--version` 打印的数，不做编译期检查：兼容靠 crate 的版本，从 0.4.4 起扩展接口只做加法（公开的结构与枚举都是 `non_exhaustive` 或只有私有字段，一个 feature 只加函数与模块）；破坏性的变化升它，也升 crate 的大版本。`harnix::ext::http::axum` 与 `harnix::axum`（feature `axum`）、`harnix::testing`（feature `testing`）不在承诺内 |
 | 贡献点 API | `4` | `harnix::CONTRIB_API_VERSION`；`harnix.hello` 里也有 | 贡献点的契约变了。2：运行期包的界面模块是预编译的 ES 模块，从页面的 import map 拿 React；**React 的大版本是它的一部分**。3：宿主 API `HostApi`/`useHost()`、第九个内核点 `session.action`、扩展自己定义的点（`definePoint`）、`space` 分组、按 `hello.extensions` 激活。4：第十个内核点 `sidebar.tab`（右栏的页签类型）、宿主 API `host.sidebar`（导航控制器）、页签域 `useTabInfo()`；第十一个内核点 `shortcut`（有快捷键的命令，§22.8）；仍是 4、同一版里加的：第十二个内核点 `conversation.view`（中区里对话之外的视图，§22.10）、宿主 API `host.conversation`、`session.open(ref, { view })`；只做加法，照 3 写的模块照常 |
 | 协议 | `5` | `harnix_contract::PROTOCOL_VERSION` | 握手比对，不一致拒绝（`HANDSHAKE_REFUSED`）。5：名字规整（内核 `harnix.<区域>.<动词>`、引擎直通 `engine.*`、扩展在自己的 id 下），默认实例叫 `main`，新增错误码 `CANCELLED`、`DEADLINE_EXCEEDED`、`EXTENSION_UNAVAILABLE`。`harnix.event` 帧里的事件负载与 `engine.*` 的答是 Agix 的形状，不在加法承诺里，由 `hello.engine_protocol` 标明 |
