@@ -251,13 +251,15 @@ pub(crate) fn parse(app: &str, app_version: &str, args: Option<Vec<OsString>>) -
 }
 
 /// The profile, then the flags on top of it. With no profile named, the product's
-/// `default_engine` (`AppBuilder::default_engine`) is the `[engine]`, when it gave one.
+/// `default_engine` (`AppBuilder::default_engine`) is the `[engine]`, when it gave one. Whether the
+/// composer switches models is the profile's `[shell] model_switch` when written, the product's
+/// `model_switch` (`AppBuilder::model_switch`) when not — a profile named or not.
 ///
 /// A flag overriding a profile line is the ordinary case — try a different
 /// scene without editing a file. A flag is only applied when it was actually
 /// given, so an unmentioned flag does not quietly reset a profile line to its
 /// own default.
-pub(crate) fn resolve_profile(cli: &Cli, default_engine: Option<&EngineProfile>) -> anyhow::Result<Profile> {
+pub(crate) fn resolve_profile(cli: &Cli, default_engine: Option<&EngineProfile>, model_switch: bool) -> anyhow::Result<Profile> {
     let mut profile = match &cli.profile {
         Some(path) => Profile::load(path)?,
         None => {
@@ -268,6 +270,7 @@ pub(crate) fn resolve_profile(cli: &Cli, default_engine: Option<&EngineProfile>)
             profile
         }
     };
+    profile.shell.model_switch.get_or_insert(model_switch);
     if let Some(port) = cli.port {
         profile.transport.port = port;
     }
@@ -338,13 +341,13 @@ mod profile_tests {
     #[test]
     fn with_no_profile_named_the_products_engine_is_the_default_and_flags_go_on_top() {
         let engine = EngineProfile::new().scenes(["code"]);
-        let profile = resolve_profile(&cli(&["harnix"]), Some(&engine)).unwrap();
+        let profile = resolve_profile(&cli(&["harnix"]), Some(&engine), false).unwrap();
         assert_eq!(profile.instances.engine.scene, "harnix");
         assert_eq!(profile.instances.engine.scenes, ["code"]);
-        let profile = resolve_profile(&cli(&["harnix", "--scenes", "mini"]), Some(&engine)).unwrap();
+        let profile = resolve_profile(&cli(&["harnix", "--scenes", "mini"]), Some(&engine), false).unwrap();
         assert_eq!(profile.instances.engine.scenes, ["mini"]);
         // A product that gives none runs on the library's.
-        assert!(resolve_profile(&cli(&["harnix"]), None).unwrap().instances.engine.scenes.is_empty());
+        assert!(resolve_profile(&cli(&["harnix"]), None, false).unwrap().instances.engine.scenes.is_empty());
     }
 
     #[test]
@@ -354,8 +357,32 @@ mod profile_tests {
         let path = dir.join("p.toml");
         std::fs::write(&path, "[engine]\nscene = \"harnix\"\n").unwrap();
         let engine = EngineProfile::new().scenes(["code"]);
-        let profile = resolve_profile(&cli(&["harnix", "--profile", path.to_str().unwrap()]), Some(&engine)).unwrap();
+        let profile = resolve_profile(&cli(&["harnix", "--profile", path.to_str().unwrap()]), Some(&engine), false).unwrap();
         assert!(profile.instances.engine.scenes.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The product's model switch stands where the profile does not say, named or not; a line
+    /// written wins over it either way.
+    #[test]
+    fn the_model_switch_is_the_products_unless_written() {
+        assert!(resolve_profile(&cli(&["harnix"]), None, true).unwrap().shell.switches_model());
+        assert!(!resolve_profile(&cli(&["harnix"]), None, false).unwrap().shell.switches_model());
+        let dir = std::env::temp_dir().join(format!("harnix-switch-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let unwritten = dir.join("unwritten.toml");
+        std::fs::write(&unwritten, "[engine]\nscene = \"harnix\"\n").unwrap();
+        let off = dir.join("off.toml");
+        std::fs::write(&off, "[shell]\nmodel_switch = false\n").unwrap();
+        let on = dir.join("on.toml");
+        std::fs::write(&on, "[shell]\nmodel_switch = true\n").unwrap();
+        let named = |path: &std::path::Path, product: bool| {
+            resolve_profile(&cli(&["harnix", "--profile", path.to_str().unwrap()]), None, product).unwrap().shell.switches_model()
+        };
+        assert!(named(&unwritten, true));
+        assert!(!named(&unwritten, false));
+        assert!(!named(&off, true), "a product's default does not reopen what its profile closed");
+        assert!(named(&on, false));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

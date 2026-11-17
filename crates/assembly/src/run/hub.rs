@@ -174,7 +174,7 @@ fn shell(profile: &Profile, roots: &Roots, has_icon: bool) -> HelloShell {
         },
         runtime_modules: profile.ui.runtime_modules,
         new_session: profile.shell.new_session,
-        model_switch: profile.shell.model_switch,
+        model_switch: profile.shell.switches_model(),
         narrow_details: profile.shell.narrow_details,
         state_dir: roots.state.display().to_string(),
         projects_dir: roots.projects.display().to_string(),

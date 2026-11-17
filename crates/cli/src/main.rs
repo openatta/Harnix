@@ -18,7 +18,8 @@
 //! while this process does: turns in sessions, new sessions, tasks of a flow in a project.
 //!
 //! With no profile named, a session starts in the `harnix` scene and `code` is served beside it
-//! ([`default_engine`]), so the new-session dialog offers both.
+//! ([`default_engine`]), so the new-session dialog offers both. The composer changes a session's
+//! model unless the profile says `[shell] model_switch = false`.
 
 #[cfg(feature = "flow")]
 use harnix_ext_flow::{DirPacks, Flow, MemPacks};
@@ -89,7 +90,7 @@ pub fn default_engine() -> harnix::engine::EngineProfile {
 }
 
 fn main() -> anyhow::Result<()> {
-    harnix::App::builder().extensions(extensions()).default_engine(default_engine()).run()
+    harnix::App::builder().extensions(extensions()).default_engine(default_engine()).model_switch(true).run()
 }
 
 #[cfg(all(test, feature = "flow"))]

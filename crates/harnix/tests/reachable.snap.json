@@ -112,6 +112,7 @@
       "harnix.session.respond",
       "harnix.session.rewind",
       "harnix.session.send",
+      "harnix.session.setModel",
       "harnix.session.skills",
       "harnix.session.tasks",
       "harnix.sessions.list",
