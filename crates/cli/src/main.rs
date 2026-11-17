@@ -23,18 +23,20 @@
 #[cfg(feature = "flow")]
 use harnix_ext_flow::{DirPacks, Flow, MemPacks};
 
+// The example pack is the flow library's (`crates/flow/packs/examples`): it goes wherever the
+// library is copied, and the library's golden runs play it.
 #[cfg(feature = "flow")]
 /// The example flow built into the binary: a session reviews the subject, a person approves.
-pub const EXAMPLE_FLOW: &str = include_str!("../packs/flows/example-review.yaml");
+pub const EXAMPLE_FLOW: &str = include_str!("../../flow/packs/examples/flows/example-review.yaml");
 #[cfg(feature = "flow")]
 /// The skill its session works from.
-pub const EXAMPLE_SKILL: &str = include_str!("../packs/skills/review/SKILL.md");
+pub const EXAMPLE_SKILL: &str = include_str!("../../flow/packs/examples/skills/review/SKILL.md");
 #[cfg(feature = "flow")]
 /// The rule it keeps.
-pub const EXAMPLE_RULE: &str = include_str!("../packs/rules/review-honest.md");
+pub const EXAMPLE_RULE: &str = include_str!("../../flow/packs/examples/rules/review-honest.md");
 #[cfg(feature = "flow")]
 /// The policy it works under.
-pub const EXAMPLE_POLICY: &str = include_str!("../packs/policies/read-only.yaml");
+pub const EXAMPLE_POLICY: &str = include_str!("../../flow/packs/examples/policies/read-only.yaml");
 
 #[cfg(feature = "flow")]
 /// The example's flow and parts.
