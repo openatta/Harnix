@@ -30,13 +30,15 @@ struct FakeLink {
     status: watch::Sender<LinkStatus>,
     asked: Mutex<Vec<RewindParams>>,
     appended: Mutex<Vec<Entry>>,
+    /// The turns a rewind took out: no longer listed, as the engine lists them.
+    removed: Mutex<Vec<String>>,
 }
 
 impl FakeLink {
     fn new() -> Arc<Self> {
         let (tx, rx) = mpsc::channel(1024);
         let (status, _) = watch::channel(LinkStatus::Ready);
-        Arc::new(Self { events: Mutex::new(Some(rx)), tx, status, asked: Mutex::default(), appended: Mutex::default() })
+        Arc::new(Self { events: Mutex::new(Some(rx)), tx, status, asked: Mutex::default(), appended: Mutex::default(), removed: Mutex::default() })
     }
 }
 
@@ -140,6 +142,7 @@ impl EngineOps for FakeLink {
     async fn rewind(&self, session: &str, ask: &RewindParams) -> Answer<RewindResult> {
         self.asked.lock().unwrap().push(ask.clone());
         if !ask.dry_run {
+            self.removed.lock().unwrap().extend(["t2".to_string(), "t3".to_string()]);
             let event = json!({"kind": "rewound", "seq": 2});
             let kind = SessionEventKind::Rewound { messages: 2 };
             let _ = self.tx.send(EngineEvent::Session { session: session.into(), turn_id: String::new(), kind, event }).await;
@@ -164,7 +167,8 @@ impl EngineOps for FakeLink {
         })
     }
     async fn live_turns(&self, _: &str) -> Answer<Vec<String>> {
-        Ok(vec!["t1".into(), "t2".into(), "t3".into()])
+        let removed = self.removed.lock().unwrap().clone();
+        Ok(["t1", "t2", "t3"].into_iter().filter(|t| !removed.iter().any(|r| r == t)).map(str::to_string).collect())
     }
 }
 
@@ -334,7 +338,7 @@ async fn a_rewind_voids_its_turns_changes_and_every_watcher_reads_the_session_ag
     let listed = rig.call(device(), "engine.session.entries", json!({"session_id": "s1", "space": "a"})).await.unwrap();
     let turns: Vec<&str> = listed["entries"].as_array().unwrap().iter().filter_map(|e| e["payload"]["turn_id"].as_str()).collect();
     assert_eq!(turns, ["t1"]);
-    // A turn it took out is no target again, though the engine still lists it; the one before is.
+    // A turn it took out is no target again; the one before is.
     let again = json!({"session_id": "s1", "space": "a", "to": {"before_turn": "t2"}, "dry_run": true});
     assert_eq!(rig.call(device(), "harnix.session.rewind", again).await.unwrap_err().code, codes::INVALID_PARAMS);
     let first = json!({"session_id": "s1", "space": "a", "to": {"before_turn": "t1"}, "dry_run": true});
