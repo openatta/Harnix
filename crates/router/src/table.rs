@@ -411,8 +411,8 @@ impl RouteTable {
 
     /// Whether a package — as itself, or through its pages in frames — may be let at the row
     /// `name`, whatever else it holds: not a native extension's row that is not open to it. What a
-    /// native extension opens to devices alone is a first-party power (the system space's, for
-    /// one) that a package's consent or its frames never borrow.
+    /// native extension opens to devices alone is a first-party power (reading a session's
+    /// context, for one) that a package's consent or its frames never borrow.
     pub fn open_to_package(&self, pkg: &ExtId, name: &str) -> Result<(), &'static str> {
         let Some(entry) = self.rows.get(name) else { return Ok(()) };
         let Some(owner) = entry.owner.extension_id() else { return Ok(()) };

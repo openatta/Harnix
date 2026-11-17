@@ -4,7 +4,7 @@
 //! session's parent — so one read gives a session and every Agent under it. It covers the latest
 //! run only (see the module above); the answer says which, and never adds runs up.
 //!
-//! The system space asks for many sessions at once, again and again. At most [`CONCURRENT`] are
+//! The usage summary asks for many sessions at once, again and again. At most [`CONCURRENT`] are
 //! read at a time, and a session the link has seen nothing of since it was read is not asked about
 //! again ([`crate::activity`]). A sleeping instance is not woken for it: what was read before is
 //! given, marked stale.

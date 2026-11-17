@@ -266,7 +266,7 @@ fn settings(cfg: &Config) -> Generated {
 
 /// `harnix-ext-schedule`: the schedules `schedule.*` answer with and the topic `schedule.list`
 /// carries, and their params. In `@harnix/core`: the session menu, the project's overview and the
-/// system space all show them.
+/// home page all show them.
 fn schedule(cfg: &Config) -> Generated {
     use harnix_ext_schedule::wire::*;
     Generated {

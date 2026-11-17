@@ -127,7 +127,7 @@ impl ProcessInfo {
         Self { value }
     }
 
-    /// All of it, as `system.process` shows it.
+    /// All of it, as `observability.process` shows it.
     pub fn to_json(&self) -> Value {
         self.value.clone()
     }

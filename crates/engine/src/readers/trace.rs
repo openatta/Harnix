@@ -1,4 +1,4 @@
-//! The calls of a recording as the system space shows them: a list of rows, one call in full, and
+//! The calls of a recording as the trajectory view shows them: a list of rows, one call in full, and
 //! the rows summed per turn.
 
 use std::collections::HashMap;

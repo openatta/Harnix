@@ -13,7 +13,7 @@
 //!   backend published them.
 //! - **Its `calls` capability** is what `host.call` and `host.subscribe` may reach as
 //!   `ext:<id>`; the kernel decides, grants and audits. Whatever it refuses is kept here too,
-//!   for the system space.
+//!   for the settings' diagnostics.
 //! - **Its spaces** (`[[space]]`) are listed with every other.
 //!
 //! **A call's chain.** Every call the host serves for the product comes with its [`CallMeta`], and
@@ -45,7 +45,7 @@ use tokio::sync::{mpsc, oneshot};
 use harnix_wasm_port::codes;
 use harnix_contract::sync::lock;
 
-/// Refused calls kept per package for the system space.
+/// Refused calls kept per package for the settings' diagnostics.
 const REFUSALS_KEPT: usize = 20;
 /// Publishes waiting for the kernel, and topic values waiting for the backend's VM to start.
 /// Past this the package (or the hub, for what it subscribed to) is outrunning what takes them,
@@ -107,7 +107,7 @@ fn leave(served: &mut HashMap<String, Served>, id: &str) {
     }
 }
 
-/// What one package did, as the system space shows it. Every count it makes bumps the host's
+/// What one package did, as the settings' diagnostics show it. Every count it makes bumps the host's
 /// generation (`Host::generation`): what the package does on its own — a timer's work, what
 /// it publishes — moves it as much as a call does.
 #[derive(Default)]

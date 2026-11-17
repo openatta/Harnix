@@ -196,14 +196,12 @@ async fn packages_run_kept_and_checked_in_processes_of_their_own() {
     let row = row.unwrap_or_else(|| panic!("its session is not listed in its space: {sessions}"));
     assert_eq!((row["instance"].as_str(), row["trust"].as_str()), (Some("proc.acme.board"), Some("extension")), "{row}");
     // Its engine is its space's: named from another space, or by a call claiming none, it is
-    // refused. The system space reaches across spaces, and sees its session.
+    // refused.
     let e = product.call("harnix.session.create", json!({"space": "other", "instance": "proc.acme.board"})).await.unwrap_err();
     assert_eq!(e.code, codes::SPACE_MISMATCH, "{e:?}");
     let e = product.call("engine.scene.list", json!({"instance": "proc.acme.board"})).await.unwrap_err();
     assert_eq!(e.code, codes::SPACE_MISMATCH, "{e:?}");
     product.call("engine.scene.list", json!({"space": "acme.board", "instance": "proc.acme.board"})).await.unwrap();
-    let seen = product.call("harnix.sessions.list", json!({"space": "system"})).await.unwrap();
-    assert!(seen["sessions"].as_array().unwrap().iter().any(|s| s["session_id"] == session.as_str()), "{seen}");
     // Nobody reaches its engine's settings or plugins, and nobody but it stops it.
     let e = product.call("engine.plugin.list", json!({"instance": "proc.acme.board"})).await.unwrap_err();
     assert_eq!(e.code, codes::REFUSED, "{e:?}");
