@@ -230,6 +230,9 @@ export interface HostApi {
   extensions: { list(): ExtensionEntry[]; onChange(fn: () => void): () => void };
   /** `hello.defaults`: neither the shell nor an extension writes "main" or "sessions" in. */
   defaults: { instance: string; space: string | null };
+  /** The directory this product keeps in each project (`hello.shell.brand.project_dir`): `.harnix`,
+   *  or a branded application's `.<product_id>`. Absent from a host that does not know it. */
+  projectDir?: string;
 }
 
 const HostContext = createContext<HostApi | null>(null);

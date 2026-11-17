@@ -19,7 +19,7 @@ use agix::embed::{EmbedConfig, EmbedError, Embedded};
 use harnix_contract::sync::lock;
 use harnix_contract::RpcError;
 use harnix_engine_link::link::{EngineControl, EngineIdentity, InstanceCarrier, LinkStatus};
-use harnix_engine_api::{EngineProfile, PROJECT_DIR};
+use harnix_engine_api::{EngineProfile, ProductNames};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -30,10 +30,6 @@ use crate::host::HostSide;
 /// What the engine answers a request a connection has no room for: an answer of the link's is
 /// sent again then.
 pub(crate) const TOO_MANY_IN_FLIGHT: i32 = agix::rpc::codes::TOO_MANY_IN_FLIGHT;
-
-/// The name the engine goes by: what the model is told it is, the `User-Agent` of its requests,
-/// its worktrees' branch prefix (`harnix/worktree-`).
-const PRODUCT_NAME: &str = "Harnix";
 
 /// What one direction of an in-process engine's stream holds before its writer waits for the
 /// reader: the pipe's, not a frame's, limit — a larger frame goes through in pieces.
@@ -65,6 +61,10 @@ pub struct EngineConfig {
     /// it, and one started beside it runs without (its commands are recorded there all the same).
     /// `None` records nothing: what a killed run left keeps running.
     pub groups_file: Option<PathBuf>,
+    /// The directory it keeps in each project and the name it goes by — what the model is told it
+    /// is, the `User-Agent` of its requests, its worktrees' branch prefix (`<name>/worktree-`):
+    /// the product's (`[brand]`), Harnix's own (`.harnix`, `Harnix`) when it names none.
+    pub names: ProductNames,
 }
 
 impl EngineConfig {
@@ -82,7 +82,14 @@ impl EngineConfig {
             cwd: None,
             socket: None,
             groups_file: None,
+            names: ProductNames::default(),
         }
+    }
+
+    /// Under the product's names rather than Harnix's.
+    pub fn named(mut self, names: &ProductNames) -> Self {
+        self.names = names.clone();
+        self
     }
 
     /// Recording its commands' process groups in its data root, so that a start after a run that
@@ -95,8 +102,8 @@ impl EngineConfig {
     /// Agix's settings for it.
     fn embed(&self) -> EmbedConfig {
         let mut config = EmbedConfig::new(self.data_root.clone());
-        config.project_dir = PROJECT_DIR.into();
-        config.product_name = PRODUCT_NAME.into();
+        config.project_dir = self.names.project_dir().into();
+        config.product_name = self.names.product_name().into();
         config.cwd = self.cwd.clone();
         config.scene = self.scene.clone();
         config.scenes = Vec::new();
@@ -404,7 +411,7 @@ mod tests {
     async fn a_projects_tier_is_in_its_harnix_directory() {
         let dir = tempfile::tempdir().unwrap();
         let project = dir.path().join("p");
-        for (sub, tokens) in [(PROJECT_DIR, 1234), (".agix", 4321)] {
+        for (sub, tokens) in [(harnix_engine_api::PROJECT_DIR, 1234), (".agix", 4321)] {
             std::fs::create_dir_all(project.join(sub)).unwrap();
             std::fs::write(project.join(sub).join("settings.json"), json!({"model": {"max_tokens": tokens}}).to_string()).unwrap();
         }
@@ -412,6 +419,51 @@ mod tests {
         let tier = here.link().ops().passthrough("config.get", json!({"scene": here.engine().scene, "tier": "project", "project_root": project})).await.unwrap();
         assert_eq!(tier["settings"]["model"]["max_tokens"], 1234, "{tier}");
         here.shutdown().await;
+    }
+
+    /// A branded product's engine keeps its project tier in `.<product_id>/`: `.harnix/` beside it
+    /// is not read.
+    #[tokio::test]
+    async fn a_branded_products_project_tier_is_in_its_own_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("p");
+        for (sub, tokens) in [(".acme", 1234), (harnix_engine_api::PROJECT_DIR, 4321)] {
+            std::fs::create_dir_all(project.join(sub)).unwrap();
+            std::fs::write(project.join(sub).join("settings.json"), json!({"model": {"max_tokens": tokens}}).to_string()).unwrap();
+        }
+        let names = ProductNames::new(".acme", "Acme").unwrap();
+        let here = started_with(config(&dir.path().join("root")).named(&names)).await;
+        let tier = here.link().ops().passthrough("config.get", json!({"scene": here.engine().scene, "tier": "project", "project_root": project})).await.unwrap();
+        assert_eq!(tier["settings"]["model"]["max_tokens"], 1234, "{tier}");
+        here.shutdown().await;
+    }
+
+    /// Harnix checks a product's names by the engine's rules: what it refuses the engine refuses,
+    /// naming the same field, and what it takes the engine takes. The engine checks them before it
+    /// reads anything, so an unknown scene stands in for a start that went past the check.
+    #[tokio::test]
+    async fn the_names_harnix_refuses_are_the_ones_the_engine_refuses() {
+        use harnix_contract::product::samples;
+        let dir = tempfile::tempdir().unwrap();
+        let start = |project_dir: &str, product_name: &str| {
+            let mut embed = config(dir.path()).embed();
+            embed.scene = "no-such-scene".into();
+            embed.project_dir = project_dir.into();
+            embed.product_name = product_name.into();
+            async move { Embedded::start(embed).await.err().expect("an unknown scene does not start") }
+        };
+        for bad in samples::BAD_PROJECT_DIRS {
+            assert!(harnix_contract::product::check_project_dir(bad).is_err(), "{bad:?}");
+            assert!(matches!(start(bad, "Acme").await, EmbedError::InvalidProjectDir { .. }), "{bad:?}");
+        }
+        for bad in samples::BAD_PRODUCT_NAMES {
+            assert!(harnix_contract::product::check_product_name(bad).is_err(), "{bad:?}");
+            assert!(matches!(start(".acme", bad).await, EmbedError::InvalidProductName { .. }), "{bad:?}");
+        }
+        for (dir, name) in samples::GOOD_PROJECT_DIRS.iter().zip(samples::GOOD_PRODUCT_NAMES) {
+            assert!(ProductNames::new(dir, name).is_ok(), "{dir:?} {name:?}");
+            assert!(matches!(start(dir, name).await, EmbedError::UnknownScene { .. }), "{dir:?} {name:?}");
+        }
     }
 
     /// A call's reply goes to its caller and never into the event stream, and a mark made after

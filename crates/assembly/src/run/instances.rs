@@ -29,6 +29,8 @@ pub(super) struct Wiring<'a> {
     pub credentials: &'a Arc<dyn Credentials>,
     pub recording: Arc<Recording>,
     pub grants: Arc<dyn harnix_kernel::GrantBook>,
+    /// The product's names, for every engine this process builds or spawns.
+    pub names: &'a harnix_contract::ProductNames,
 }
 
 pub(super) async fn build(
@@ -68,7 +70,7 @@ fn registry(
     table: &mut RouteTable,
     wiring: Wiring<'_>,
 ) -> anyhow::Result<RegistryConfig> {
-    let Wiring { credentials, recording, grants } = wiring;
+    let Wiring { credentials, recording, grants, names } = wiring;
     let resolve = {
         let credentials = credentials.clone();
         Arc::new(move |name: &str| credentials.get(name).ok().map(|s| s.expose().to_string()))
@@ -77,6 +79,7 @@ fn registry(
     // A template that inherits providers inherits the main instance's.
     factory.providers_from = Some(roots.engine.clone());
     factory.recording = recording;
+    factory.names = names.clone();
     // What the extensions give every engine this process builds or spawns.
     factory.providers.extend(lifecycle::everywhere(records));
     let mut registry = RegistryConfig {

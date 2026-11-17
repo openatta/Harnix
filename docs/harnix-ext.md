@@ -295,7 +295,9 @@ Harnix 只管什么时候迁、失败了怎么办，不管用什么迁。数据�
   `data_dir`）放 `~/.<product_id>`，不配 `[brand]` 就是 `~/.harnix`；`HARNIX_STATE_DIR` 能挪。
 - 项目根（选项目从这里开始、新项目建在这里）是 `cx.projects_dir()`：缺省 `~/Documents`，`--data-dir` / `HARNIX_DATA_DIR` 能改。
   Documents 里只放项目，不放隐藏目录。
-- 项目里，项目自己的数据与配置一律放 `<项目>/.harnix/`（`harnix::engine::PROJECT_DIR`：引擎的项目层也在这里），不另开 `<项目>/.<你的产品>/`。
+- 项目里，项目自己的数据与配置一律放项目数据目录 `<项目>/.harnix/`（引擎的项目层也在这里），不另开别的目录。带品牌的应用的是
+  `<项目>/.<product_id>/`（`[brand] project_dir` 可另起名，§18），引擎、Harnix 和扩展都用它：扩展从 `cx.product().project_dir()`
+  读名字、`cx.product().data_dir_of(项目)` 拿路径，不写死 `.harnix`（`harnix::engine::PROJECT_DIR` 只是 Harnix 自己的名字）。
   引擎在里面占着设置、agents、hooks、rules、memory、`worktrees/`、`teams/` 等，扩展用自己的子目录（流程用 `runs/`、`flows/`）；
   沙箱里的命令在这里只写得了引擎的 `scratchpad/`、`memory/`、`worktrees/`，扩展的子目录由扩展自己（宿主进程）写。
 
@@ -1009,6 +1011,7 @@ pub trait Extension: Send + Sync + 'static {
 | `config::<T>()` | profile 的 `[ext.<id>]` 节 |
 | `data_dir()` | 这个扩展自己的数据目录（`<状态目录>/ext/<id>/data/`，见 §20） |
 | `projects_dir()` | 本产品的项目根：选项目的起点、新项目建在这里 |
+| `product()` | `ProductNames`（`harnix::engine::ProductNames`）：`project_dir()` 项目数据目录的名字（`.harnix` 或 `.<product_id>`）、`data_dir_of(项目)`、`product_name()` 引擎自称的名字、`product_id()` 它的小写（§5.4、§18） |
 | `credentials()` | `&dyn Credentials`：`.get(reference) -> Result<Secret, String>` |
 | `topics()` | `Topics`（§17.3） |
 | `call(method, params)` | 以 `ext:<id>` 的身份调任何方法（根调用），和设备走同一个准入点、同样审计 |
@@ -1136,7 +1139,10 @@ extra_origins = []             # 回环之外允许的浏览器 Origin，例如 
 [brand]
 name = "Helm"                  # 页面标题、左栏产品名；不写是 Harnix
 icon = "brand/helm.svg"        # 品牌图标（SVG），相对 profile 所在目录；服务在 /brand/icon.svg
-product_id = "helm"            # 程序自己的目录 ~/.helm（§20）；小写字母、数字、`-`，字母开头；不写是 harnix
+product_id = "helm"            # 程序自己的目录 ~/.helm（§20），也是项目里的目录 .helm（§5.4）；小写字母、数字、`-`，字母开头；不写是 harnix
+# project_dir = ".helm"        # 项目数据目录，不写是 .<product_id>（再不写是 .harnix）；`.` 开头、小写字母数字与 . _ -，不能是别的工具的（.git、.claude、.github…）
+# product_name = "Helm"        # 引擎自称的名字（模型看到的、请求的 User-Agent、worktree 的分支前缀），不写是 name（再不写是 product_id、Harnix）；
+                               # ASCII 字母开头、至多 32 个字母数字 - _。name 不合这条（有空格、中文）就必须写它，否则启动时报错，指明该写哪个键
 
 [shell]
 model_switch = false           # true：加 harnix.session.setModel，能在输入框换模型（只限调用方声称的 space 的会话）；不开就不能换
@@ -1241,7 +1247,7 @@ quote_api_key = { credential = "helm/quote-api" }
 | 　`ext/<id>/install.json`、`ext/<id>/<version>/` | 扩展包的安装记录与**同意记录**（扩展进程看不见它）、解开并验过签的包（`packages` 拥有，见 [扩展包](harnix-ext-package.md)） |
 | 　`ext/<id>/run/{data,kv,engine,work,home,tmp}` | 扩展包的数据、kv、（模式 3）它自己 Agix 的根、它的会话的项目目录、`HOME`、`TMPDIR`（载体拥有） |
 | `~/Documents/` | 只放项目：选项目从这里开始，新建项目建在这里（`projects_dir`，`--data-dir` 能改）。Documents 里不放隐藏目录 |
-| `<项目>/.harnix/` | 项目自己的数据与配置**一律**放这里（引擎的项目层也在这），不开 `<项目>/.<产品>/`（§5） |
+| `<项目>/.harnix/`（带品牌的应用：`.<product_id>/`） | 项目数据目录：项目自己的数据与配置**一律**放这里（引擎的项目层也在这），不另开（§5.4） |
 
 扩展的数据（`cx.data_dir()`）随产品 id 走；同一台机器上装 Helm 和 IPDrun 不会抢令牌和账本。
 
@@ -1321,7 +1327,7 @@ cookie。一帧最大 16 MiB（`MAX_FRAME_BYTES`），一次上传最大 32 MiB�
   engine: { model, active_scenes, scene, data_root, has_credentials, providers, status },   // main 实例
   instances: [{ id, carrier, trust, status, version, protocol_version }],
   permission_prompt_timeout_secs, scenes, commands,
-  shell: { brand: { name, icon, product_id }, new_session, narrow_details, model_switch, user },
+  shell: { brand: { name, icon, product_id, project_dir }, new_session, narrow_details, model_switch, user },
   extensions: [{ id, trust, carrier?, version, enabled }] }   // 外壳据此同步激活编译进来的 UI 包；harnix.ui 管之后的变化
 ```
 

@@ -93,7 +93,7 @@ pub(crate) async fn start_process(app: AppBuilder, cli: &Cli, basis: &Basis) -> 
         &basis.roots,
         &mut records,
         &mut table,
-        instances::Wiring { credentials: &credentials, recording, grants: grants.clone() },
+        instances::Wiring { credentials: &credentials, recording, grants: grants.clone(), names: &basis.names },
     )
     .await?;
     let hub::Assembled { hub, instances, ui, brand_icon } =
@@ -114,6 +114,7 @@ pub(crate) async fn start_process(app: AppBuilder, cli: &Cli, basis: &Basis) -> 
             credentials: credentials.clone(),
             state_root: basis.roots.state.clone(),
             projects_root: basis.roots.projects.clone(),
+            product: basis.names.clone(),
             dynamic,
             runtime_modules: profile.ui.runtime_modules,
             package_sections,
@@ -259,7 +260,10 @@ async fn subcommand(cli: &Cli) -> Option<anyhow::Result<()>> {
                 .map(|count| println!("\n  {count} files → {}\n", dir.display()))
                 .map_err(Into::into),
         ),
-        Some(Command::Daemon(daemon)) => Some(harnix_instance::serve_daemon(daemon.args()).await),
+        Some(Command::Daemon(daemon)) => Some(match daemon.args() {
+            Ok(args) => harnix_instance::serve_daemon(args).await,
+            Err(e) => Err(e),
+        }),
         None => None,
     }
 }
@@ -272,6 +276,9 @@ pub(crate) struct Basis {
     host: IpAddr,
     tls: Option<harnix_transport::Tls>,
     roots: Roots,
+    /// The directory the engine and Harnix keep in each project, and the name the engine goes by:
+    /// the brand's.
+    names: harnix_contract::ProductNames,
     /// Held for as long as the process runs.
     state_lock: Arc<StateLock>,
 }
@@ -286,6 +293,7 @@ impl Basis {
         // without. Refused at the point of binding rather than here, so every
         // caller of that function inherits the rule instead of remembering it.
         let tls = tls(cli)?;
+        let names = profile.brand.names()?;
         let roots = Roots::resolve(&RootArgs {
             engine_dir: cli.engine_dir.clone(),
             data_dir: cli.data_dir.clone(),
@@ -295,6 +303,8 @@ impl Basis {
             engine = %roots.engine.display(),
             projects = %roots.projects.display(),
             state = %roots.state.display(),
+            project_dir = names.project_dir(),
+            product_name = names.product_name(),
             "directories"
         );
         // Before anything in the state directory is read: a second process on it is refused here,
@@ -305,6 +315,7 @@ impl Basis {
             host,
             tls,
             roots,
+            names,
             state_lock,
         })
     }

@@ -16,3 +16,9 @@ is a Harnix issue, whatever layer it turns out to live in.
 Rename `myapp` (in `app/Cargo.toml`, `app/src/main.rs`, `profiles/`,
 `scripts/build.sh`), then add your first module: see
 `harnix/docs/harnix-ext.md`.
+
+The profile's `[brand]` is your product's names: `product_id` names its state directory
+(`~/.myapp`) and its directory in each project (`.myapp/`, where the engine's project settings and
+your extensions' project data go), and `name` is what the engine calls itself. Both can be set apart
+(`project_dir`, `product_name`); one the engine cannot take stops the start, naming the key
+(`harnix/docs/harnix-ext.md` §18).

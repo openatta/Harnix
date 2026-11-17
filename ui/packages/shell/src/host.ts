@@ -203,6 +203,9 @@ export function hostFor(app: App, owner = "page"): HostApi {
       const given = app.snapshot.hello?.defaults;
       return { instance: given?.instance ?? MAIN_INSTANCE, space: given?.space ?? null };
     },
+    get projectDir() {
+      return app.snapshot.hello?.shell?.brand?.project_dir;
+    },
   };
 }
 

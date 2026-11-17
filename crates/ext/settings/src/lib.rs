@@ -18,7 +18,7 @@
 //! MCP servers are the page's too ([`mcp`]): added, changed, removed, switched off and signed in to,
 //! in the tier chosen.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use harnix_ext::{caps, codes, Access, Call, Extension, ExtensionContext, Manifest, Registrar, Rpc, RpcError, MAIN_INSTANCE};
 use harnix_host_api::SettingsTiers;
@@ -112,7 +112,7 @@ pub(crate) fn tier_path(call: &Call, tier: &str, scene: Option<&str>, project_ro
             Some(scene) => Some(under_main(files.scene(MAIN_INSTANCE, scene))?),
             None => None,
         },
-        "project" => project_root.map(|p| PathBuf::from(p).join(harnix_ext::engine::PROJECT_DIR).join("settings.json")),
+        "project" => project_root.map(|p| call.ext().product().data_dir_of(Path::new(p)).join("settings.json")),
         _ => None,
     })
 }

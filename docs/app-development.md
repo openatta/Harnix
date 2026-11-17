@@ -110,6 +110,11 @@ Harnix 本身是**框架 + 第一方扩展**：Harnix app（首页、会话 spac
   - 第一方扩展：`harnix::first_party::standard()` 整套，或挑几个；可选的两个另加：流程（`standard_with_flow(..)`，feature `flow`：流程、项目里的任务、项目自带的流程，[原生扩展](harnix-ext.md) §23）、
     定时（`.with(Schedules::new(), SCHEDULE_GRANTS)`，feature `schedule`：到点往会话发一轮、新建会话、起一个任务，[Harnix app](harnix-app.md) §9）；
   - 前端的 UI 包、品牌与 profile。
+- **品牌用自己的名字，连项目里的目录和引擎的自称一起。** profile 写了 `[brand] product_id` 的应用，状态在 `~/.<product_id>/`，
+  项目数据目录是 `<项目>/.<product_id>/`（引擎的项目层、流程的 `runs/` 与 `flows/` 都在这里），引擎自称 `[brand] name`
+  （模型看到的、请求的 User-Agent、worktree 的分支前缀）；`harnix` 自己仍是 `.harnix` 与 Harnix。两个名字都可以在 `[brand]` 里另写
+  （`project_dir`、`product_name`），不合引擎的规则就启动不了，报错说该写哪个键（[原生扩展](harnix-ext.md) §18）。扩展从
+  `cx.product()` 读这两个名字，不写死 `.harnix`。模式 3 的扩展进程自带的引擎这一版仍用 `.harnix` 与 Harnix。
 - **信任按出身，特权按授予。** 编进二进制的扩展都是可信的源码，但它能做的特权只是 `main.rs` 里写下的那几项能力；少授、多授、授了没定义的都拒绝启动。
   第一方扩展也一样，没有「内建」这种特权。
 - 要装扩展包时开 feature `wasm`（模式 2）或 `proc`（模式 3），链上 `packages` 并授予它 `extensions.manage`（`harnix::first_party::standard_with(packages())` 连同它的授予）；profile 的 `[ext.packages]` 照 [扩展包](harnix-ext-package.md) 配。

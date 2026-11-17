@@ -103,6 +103,9 @@ pub struct Factory {
     /// Which calls each session's running turn is on behalf of, as the hub writes it: what the
     /// tool calls of every engine this process builds or spawns carry.
     pub turns: Arc<harnix_kernel::TurnChains>,
+    /// The directory every engine this process builds or spawns keeps in a project, and the name
+    /// it goes by: the product's (`[brand]`). An attached daemon is somebody else's, named by them.
+    pub names: harnix_engine_api::ProductNames,
 }
 
 /// The hub's turns, as an engine's tool calls read them.
@@ -127,6 +130,7 @@ impl Factory {
             providers_from: None,
             recording: Recording::new(None),
             turns: Arc::default(),
+            names: harnix_engine_api::ProductNames::default(),
         })
     }
 
@@ -161,7 +165,7 @@ impl Factory {
         harnix_defaults(id, &data_root);
         let host = HostSide::new(id, self.chains(), &contrib).map_err(anyhow::Error::msg)?;
         let profile = engine_scenes(id, profile, host.layers())?;
-        let engine = Engine::start(EngineConfig::from_profile(&profile, &data_root)).await?;
+        let engine = Engine::start(EngineConfig::from_profile(&profile, &data_root).named(&self.names)).await?;
         let facts = Facts::from(&engine);
         let here = InProcessEngine::start(engine, id, host).await?;
         let recorder = self.recording.of(id, Some(data_root.join("recordings")));
@@ -237,6 +241,7 @@ impl Factory {
                 // This binary's daemon holds the instance's lock on its data root (ipdrun-08); a
                 // program of somebody else's gets the arguments it always got.
                 let lock = program.is_none().then(|| {
+                    argv.extend(names_args(&self.names));
                     argv.push("--instance".into());
                     argv.push(id.to_string());
                     if reap_on_stop {
@@ -388,6 +393,12 @@ fn daemon_args(engine: &EngineProfile, data_root: &Path, socket: &Path) -> Vec<S
     argv
 }
 
+/// The product's names, as this binary's `daemon` takes them: what a program of somebody else's
+/// is not given, its arguments being the ones it always got.
+fn names_args(names: &harnix_engine_api::ProductNames) -> [String; 4] {
+    ["--project-dir".into(), names.project_dir().into(), "--product-name".into(), names.product_name().into()]
+}
+
 /// What an instance of Harnix's own starts with where the engine's default is not Harnix's
 /// (`defaults`). Not written is not fatal: the engine's own default stands.
 fn harnix_defaults(id: &str, data_root: &Path) {
@@ -428,6 +439,13 @@ mod tests {
     use serde_json::{json, Value};
     use std::time::Duration;
     use tokio::net::UnixListener;
+
+    /// This binary's daemon is told the product's names, by the flags `harnix daemon` reads.
+    #[test]
+    fn a_spawned_daemon_of_this_binary_is_told_the_products_names() {
+        let names = harnix_engine_api::ProductNames::new(".acme", "Acme").unwrap();
+        assert_eq!(names_args(&names), ["--project-dir", ".acme", "--product-name", "Acme"]);
+    }
 
     struct Echo(ToolSpec);
 

@@ -51,6 +51,8 @@ pub(super) struct Parts {
     pub state_root: PathBuf,
     /// Where projects live (`--data-dir`).
     pub projects_root: PathBuf,
+    /// The directory the engine and Harnix keep in each project, and the name the engine goes by.
+    pub product: harnix_contract::ProductNames,
     /// Whether anything may register extensions while the process runs.
     pub dynamic: bool,
     /// `[ui] runtime_modules`: whether packages' interfaces reach the page.
@@ -111,6 +113,7 @@ pub(super) fn admit(
         services: services.clone(),
         listen: listening,
         projects_dir: parts.projects_root.clone(),
+        product: parts.product.clone(),
     });
     if parts.dynamic {
         // Every linked extension's id was registered in the table, enabled or not: one registered

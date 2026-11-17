@@ -234,7 +234,12 @@ export type Brand = { name: string | null,
 /**
  * Where the icon is served, when the profile names one.
  */
-icon: string | null, product_id: string, };
+icon: string | null, product_id: string, 
+/**
+ * The directory the engine and Harnix keep in each project: `.harnix`, or the product's
+ * (`.<product_id>`, `[brand] project_dir`).
+ */
+project_dir: string, };
 
 /**
  * `[shell] narrow_details`: `beside` keeps three columns at ≤ 960px instead of maximizing an open

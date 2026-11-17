@@ -39,6 +39,7 @@ pub(super) async fn serve(
         tls,
         roots,
         state_lock,
+        ..
     } = basis;
     let host = *host;
     let token = uuid::Uuid::new_v4().simple().to_string();
