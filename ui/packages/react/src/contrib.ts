@@ -174,6 +174,10 @@ export interface SpaceContribution {
   /** The group it is listed in, among the `top` spaces: a line is drawn between two neighbours (by
    *  `order`) whose groups differ. Undefined counts as "". Grouping does not reorder. */
   group?: string;
+  /** Where a page opened afresh lands — a new tab, the app started again; not a reload, which
+   *  stays where it was — ahead of the space left in front last time and the product's default
+   *  space. The first such space by `order` that can be entered. */
+  landing?: boolean;
   /** Another space's id: this one is shown inside it rather than listed — entered by code, and
    *  while it is in front that space's entry is lit. */
   within?: string;
