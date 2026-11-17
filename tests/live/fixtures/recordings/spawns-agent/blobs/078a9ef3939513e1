@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"thinking","text":"Simple task: run ls and reply with file names only.","signature":"70860d7e-f761-4b32-adae-98854b8635ab"},{"type":"tool_use","id":"call_00_QJPvqXSbyBrBEqLryWVb9190","name":"Bash","input":{"command":"ls","description":"List files in current directory"}}]}

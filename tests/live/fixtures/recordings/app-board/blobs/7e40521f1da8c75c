@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"thinking","text":"The user wants me to call the board tool with no arguments. It asks before running (permission prompt). Let me call it.","signature":"fd2f76b5-9c95-4d12-b1a8-388f38bc3e79"},{"type":"tool_use","id":"call_00_CFJiODJ9Wodn9zevYcd72737","name":"ext__example_showcase__board","input":{}}]}

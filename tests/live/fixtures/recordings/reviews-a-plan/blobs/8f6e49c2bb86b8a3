@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"text","text":"## Plan\n\n- Create `plan-fixture-2.txt` in the project root, containing exactly one line: `harnix-plan`\n- No other files touched, no existing files modified\n- Verify afterwards that the file contains only that single line"},{"type":"tool_use","id":"call_00_ET_VCJU8qF9ZSbu3bqyqaC86633","name":"ExitPlanMode","input":{}}]}

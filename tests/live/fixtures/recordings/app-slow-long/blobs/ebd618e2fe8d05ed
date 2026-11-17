@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"thinking","text":"The user wants me to call the slow tool with steps 100 and ms 300. That's 30 seconds. Default timeout for tool might be fine. Let's call it.","signature":"f79693b2-f32e-4819-81e5-1ab9da4989ac"},{"type":"tool_use","id":"call_00_7nufbhtjCZfLoguQdZPA6911","name":"ext__example_showcase__slow","input":{"ms":300,"steps":100}}]}

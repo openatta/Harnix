@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"thinking","text":"The user wants me to call the vetoed tool. Let me do it.","signature":"6ff58ce4-1f2c-4f62-9147-beded23eb83e"},{"type":"tool_use","id":"call_00_eYpxijErbpg8mkH84BLw9015","name":"ext__example_showcase__vetoed","input":{}}]}

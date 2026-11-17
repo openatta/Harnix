@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"thinking","text":"The user wants me to call the tool with path README.md. Each showcase tool asks before it runs. Just call it.","signature":"de0264f1-337c-44cf-a0c2-5affb71a50df"},{"type":"tool_use","id":"call_00_wYB6A8iKejIPPSDxPioL7433","name":"ext__example_showcase__read_project","input":{"path":"README.md"}}]}

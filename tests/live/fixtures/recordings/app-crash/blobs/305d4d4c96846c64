@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"text","text":"I'll call the crash tool three times in sequence."},{"type":"tool_use","id":"call_00_ET_SooJOGkIVqi2KExeYhyZ4687","name":"ext__example_showcase__crash","input":{}}]}

@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"thinking","text":"The user wants me to run exactly `echo harnix-fixture` via Bash tool. Straightforward.","signature":"16a6ddb0-8897-43b4-80a3-0820c88dfdf9"},{"type":"tool_use","id":"call_00_J04xnF6V553MXYFhr2xE8062","name":"Bash","input":{"command":"echo harnix-fixture","description":"Echo the fixture string"}}]}
