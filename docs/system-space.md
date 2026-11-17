@@ -131,7 +131,7 @@
 
 「返回系统」回到控制台，停在流程页签上。在流程里时左栏底部系统 space 的入口仍然亮着。
 
-**同一条运行的另一个入口：项目里的任务**（[Harnix app](harnix-app.md) §3.2）。从项目起的任务，`flow` 把主会话展示到项目 space（`show_in_space`），
+**同一条运行的另一个入口：项目里的任务**（[Harnix app](harnix-app.md) §3.2）。从项目起的任务，`flow` 把主会话展示到项目 space（`shown_in`），
 项目树里点它，主会话就在项目 space 的中区打开；没展示到那里的运行（从这里或定时起的）走的是这条路——流程的界面 space
 带到前台、停在这条运行上，只是左栏的「返回」回到项目 space（`FlowSpaceState.enter(flow, run, { from })`），任务行菜单的「在流程里打开」对任何任务都这样进。
 两种进法，会话旁的详情面板都不开，改在右栏开「流程」页签（`sidebar.tab`，`kind: "flow"`，`keepMounted`；`openTab("flow", { params: { run } })`；

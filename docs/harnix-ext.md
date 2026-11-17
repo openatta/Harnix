@@ -494,7 +494,7 @@ while let Some(item) = tap.next().await {
   （`harnix.session.expose`；`Exposure::view()` 只给看）。声称那个 space 的调用就能 attach、读历史，`interactive` 时还能发话、答问、中断、回退、评价；
   关闭、删除、分叉、改名、改模型与提示词仍只能从它自己的 space 做。归属、实例、启动者都不变，列表里的行带 `exposed_to`，在那个 space 的列表里带 `exposed_from`；
   重启不丢，`unexpose` 收回，会话删了就没了。只有建它的扩展能展示，设备不能；目标不能是它自己的、关掉的或 `cross_space()` 的 space
-  （[概念与架构](concept_and_architecture.md) §5.4 第 6 条）。流程扩展就这样把任务的主会话展示到项目 space 列的 space（`flow.start` 的 `show_in_space`，§23）。
+  （[概念与架构](concept_and_architecture.md) §5.4 第 6 条）。流程扩展就这样把任务的主会话展示到项目 space 列的 space（`flow.start` 的 `shown_in`，§23）。
 
 每个方法、`OnBusy` 的各值、附件、容量与结算帧的细节见 §17.6。
 
@@ -1034,7 +1034,7 @@ pub trait Extension: Send + Sync + 'static {
 
 | 方法 | 说明 |
 |---|---|
-| `create(SessionSpec) -> SessionRef` | `SessionSpec::new()` 再 `.space(..)`、`.instance(..)`、`.scene(..)`、`.project_root(..)`、`.provider(..)`、`.model(..)`、`.permission_mode(..)`、`.permission_rules(..)`、`.output_schema(..)`、`.recording(..)` |
+| `create(SessionSpec) -> SessionRef` | `SessionSpec::new()` 再 `.space(..)`、`.instance(..)`、`.scene(..)`、`.project_root(..)`、`.provider(..)`、`.model(..)`、`.effort(..)`（会话自己的推理强度，`low` … `max`）、`.permission_mode(..)`、`.permission_rules(..)`、`.output_schema(..)`、`.recording(..)` |
 | `open(instance, session_id)` | 已有的会话（内存里的或只在磁盘上的） |
 | `send(&s, text, OnBusy)` | `OnBusy::{Queue（默认）, Reject, Interrupt, Steer}` |
 | `send_with(&s, text, SendOptions)` | `SendOptions::new().on_busy(..).attachment(..).reference(SessionRef)`；`Attachment::{file(path), text(path, content), image(media_type, base64)}`；`reference` 同输入框的 `@session`（那个会话的转录作为文本附件）；带附件的不 steer |
@@ -1783,16 +1783,17 @@ Harnix 自己的二进制注册了它（`crates/cli/src/main.rs`）。
 | `.space(id)` | 流程会话所在的 space，缺省 `flow` |
 | `.recording(…)` / `.main_recording(…)` / `.conversation_recording(…)` | 回放时工作项的会话、主会话、流程会话用哪份录像（只在 `--replay-dir` 下有意义） |
 
-运行在哪干活（引用 `${workspace}`）：带 `project_root` 的运行是项目任务，在项目里干活，`workspace: worktree` 的在项目之外的 worktree（扩展数据目录下 `worktrees/<运行>`，分支 `harnix/flow/<运行>`）；
+运行在哪干活（引用 `${workspace}`）：带 `project_root` 的运行是项目任务，在项目里干活，`workspace: worktree` 的在项目之外的 worktree（扩展数据目录下 `worktrees/<运行>`，分支 `harnix/flow/<运行>`；扩展把这些作为 `ProjectLayout` 交给库，见库的[嵌入指南](../crates/flow/docs/embed.zh-CN.md) §2）；
 交付物在它的输出目录（`${output_dir}`），过程在 `<项目>/.harnix/runs/<运行>/`（流程指南「执行与运行」一节）。不带项目的运行，主会话的 scene 需要项目时，
-扩展给它建工作目录（扩展数据目录下 `workspaces/<run>`），不往里写任何东西。`start` 的 `show_in_space` 让扩展把主会话展示到那个 space（`cx.sessions().expose`，可对话，§17.6）：项目 space 的「新任务」传它列会话的 space，
-任务就在项目 space 里打开；扩展不认识任何 space 的名字，展示失败只记日志，运行照跑。记录与 `flow.runs` 的行带 `show_in_space`。
+扩展给它建工作目录（扩展数据目录下 `workspaces/<run>`），不往里写任何东西。`start` 的 `shown_in`（旧名 `show_in_space` 也认）让扩展把主会话展示到那个 space（`cx.sessions().expose`，可对话，§17.6）：项目 space 的「新任务」传它列会话的 space，
+任务就在项目 space 里打开；扩展不认识任何 space 的名字，展示失败只记日志，运行照跑。记录与 `flow.runs` 的行带 `shown_in`；记录的 `session_keys` 是会话键 → `{id, opened_with}`（会话、开它时用的场景、模型、推理强度、放哪），按键共享的工作项开得不一样就不进那个会话。
+会话站和流程的 `main` 可以写 `effort`，扩展照它开会话（`SessionSpec::effort`）。任务的工具碰项目的 `.harnix/` 算碰项目之外（只有 `paths` 指到它里面的 `allow` 放开）；编写会话的 `flow_create` 是扩展自己的工具，不受这条限制。
 `start` 的 `from_session {instance?, session_id, space}` 是发起它的对话（`/flow`，[Harnix app](harnix-app.md) §3.2）：扩展声称那个 space、往对话里写一条条目
 `task_started {run, flow, flow_title, title, subject, project_root}`，界面把它画成链到任务的卡；对话本身不变成任务，写不进去只记日志，运行照跑。没写 `agent_type` 的子 Agent 站用引擎不带类型的子 Agent：跑在主会话的 scene 上、用它的工具。钩子是流程包里的文件（`hooks/`），扩展自己投递，没有 `Hooks` trait。
 
 方法 `flow.*`（设备调用）：读——`defs {project?}`、`def`、`list {project?}`（一个项目的任务）、`get`、`history`、`catalog`、`schema`、`validate`、
 `parts {kind}`、`part`、`hooks`、`guide`、`sessions {run}`；写流程与件——`save`、`delete`、`part.save`、`part.delete`；
-运行——`start {flow, subject, inputs?, title?, project_root?, workspace?, output_dir?, trigger?, show_in_space?, from_session?}`、`cancel`、`pause`、`resume`、`confirm`、`force`、`rework`、`retry`、`release`、`proposal`、`runOf {instance?, session_id}`（哪个运行的主会话，答 `{run}`，不是就 `null`）；项目与 worktree——`workspace_info {project_root}`（能不能在 worktree 里跑，答 `{git, reason?, branch?}`）、`worktree.merge` / `keep` / `discard {run}`（运行结束后它的分支怎么处理）；外部工作项——`claim`、
+运行——`start {flow, subject, inputs?, title?, project_root?, workspace?, output_dir?, trigger?, shown_in?, from_session?}`、`cancel`、`pause`、`resume`、`confirm`、`force`、`rework`、`retry`、`release`、`proposal`、`runOf {instance?, session_id}`（哪个运行的主会话，答 `{run}`，不是就 `null`）；项目与 worktree——`workspace_info {project_root}`（能不能在 worktree 里跑，答 `{git, reason?, branch?}`）、`worktree.merge` / `keep` / `discard {run}`（运行结束后它的分支怎么处理）；外部工作项——`claim`、
 `heartbeat`、`submit`、`fail`；对话——`session {flow?}`、`focus`；试运行——`dry_run.start` / `step` / `run` / `list`。
 错误码按类：没有这个运行、站、工作项或流程答 `NOT_FOUND`；不合运行的状态或契约答 `INVALID_PARAMS`；租约不是你的、
 版本已经往前走答 `CONFLICT`；`data.flow` 是内核自己的类别。`heartbeat` 只续租约：不进运行的历史，也不重发 `flow.runs`。

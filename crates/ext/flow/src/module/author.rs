@@ -360,7 +360,9 @@ How to work:\n\
   and do only what the user asked for.\n\
 - A flow for one project is saved in it (`flow_create` with `project_root`): it is committed \
   with the project and offered only there. A conversation in a project saves everything there \
-  and starts its runs as tasks of that project.\n\
+  and starts its runs as tasks of that project. Save with the flow tools only, never by writing \
+  files into the project's `.harnix/` yourself: that directory is the application's, and a task's \
+  tools are kept out of it too (only a permission whose `paths` point into it opens it).\n\
 - The runs of the current flow: `flow_runs`, `flow_run`. When the user asks, you may pause, resume, \
   cancel, confirm (pass or reject), force, rework, retry or release with the run tools. Never do \
   one the user did not ask for.";

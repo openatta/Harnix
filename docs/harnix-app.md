@@ -231,8 +231,8 @@ r.register("harnix-app.project.items", {
 一行写标题（没有就是对象）、流程名、状态（运行中、等待及原因、已暂停、已完成、已取消）、「第 k/n 站」、在 worktree 里跑的写分支名（合回或丢弃后划掉），由定时启动的带时钟；
 时钟后面是别的包经 `flow.task.badge` 放的标记（定时还开着时，`@harnix/schedule` 写它的下一次时间，§9.1）。
 点了行：主会话归 `flow` 的后端 space，项目 space 声明的是 `sessions`，直接在这里打开本会被 `SPACE_MISMATCH` 拒绝（[概念与架构](concept_and_architecture.md) §5.4），
-所以从项目 space 建的任务，`flow.start` 带上 `show_in_space: context.space`，流程扩展把主会话**展示**到 `sessions`（`harnix.session.expose`，可对话；
-运行记录与 `flow.runs` 的行带 `show_in_space`）：任务就像项目里别的会话一样在项目 space 的中区打开、能插话，会话列表不把它当普通会话列（行带 `exposed_from`，
+所以从项目 space 建的任务，`flow.start` 带上 `shown_in: context.space`，流程扩展把主会话**展示**到 `sessions`（`harnix.session.expose`，可对话；
+运行记录与 `flow.runs` 的行带 `shown_in`）：任务就像项目里别的会话一样在项目 space 的中区打开、能插话，会话列表不把它当普通会话列（行带 `exposed_from`，
 由任务行来画），右栏开「流程」页签（`sidebar.tab` 的 `kind: "flow"`，`openTab("flow", { params: { run } })`，[系统 space](system-space.md) §5），
 页签靠 `flow.runOf {instance, session_id}` 找到自己的运行。关闭、删除、改名这些仍是流程的事，从项目 space 调答 `SPACE_MISMATCH`。
 没有展示到这里的运行（从系统控制台或定时启动的）点了行则和系统控制台进一条运行一样——把流程的界面 space 带到前台、停在这条运行上，「返回」回到项目 space；
@@ -240,16 +240,16 @@ r.register("harnix-app.project.items", {
 「新任务」对话框：流程（全部，标来源，不合法的不能选）、按 `inputs` 的 schema 生成的表单（字符串、数字、布尔、枚举、字符串数组，其余是 JSON 框）、
 对象（必填）、标题、输出目录（留空用缺省 `flows/<流程>-<YYYYMMDD><NN>`，对话框预估当天序号，由扩展最终定）、在 worktree 里跑（见下）；
 项目里已有任务在跑时提示；流程不是 `guard: strict` 时写明「这个流程会直接修改项目文件」（在 worktree 里跑时改说「合回之后项目才会变」）。
-确认即 `flow.start {flow, subject, inputs?, title?, project_root, output_dir?, workspace?, show_in_space}`，然后打开这个任务。
+确认即 `flow.start {flow, subject, inputs?, title?, project_root, output_dir?, workspace?, shown_in}`，然后打开这个任务。
 对话框底部「开始」旁边是别的包经 `flow.start.action` 登记的另一种起法（「定时运行这个流程…」，§9.1）：拿到的是已经填的这些（`draft`，对象可以还空着），对话框先关上；
 流程详情（系统控制台的流程页）的标题行上也有同一批按钮，只带流程名。
 
 **对话里的 `/flow <流程> [主题]`**（`@harnix/flow` 的 `ui/packages/flow/src/slash.tsx`，一条 `command`，外壳不认识它）：在项目里的对话中，
 「/」菜单列出 `/flow` 和这个项目能启动的每个流程 `/flow <名>`（`flow.defs {project}`，对话的项目取会话列表那一行的 `project_root`）。
 发出的 `/flow …` 交给它（`submit`），不发给会话：
-- 带了主题、流程又没有必填而没有缺省的输入：直接 `flow.start {flow, subject, project_root, show_in_space, from_session}`；
+- 带了主题、流程又没有必填而没有缺省的输入：直接 `flow.start {flow, subject, project_root, shown_in, from_session}`；
 - 没带主题、或流程要填输入：打开上面的「新任务」对话框，停在这个流程上、主题已填好，确认时同样带 `from_session`；
-- `show_in_space` 和 `from_session.space` 都是对话所在的后端 space（会话列表那一行的 `space`），任务因此在项目 space 里打开；
+- `shown_in` 和 `from_session.space` 都是对话所在的后端 space（会话列表那一行的 `space`），任务因此在项目 space 里打开；
 - 流程扩展往原对话里写一条条目 `task_started`，`@harnix/flow` 用 `flow.block` 画成一张卡（`flow-task-card`）：流程、主题、任务现在的状态和站，
   「打开任务」照上面打开它（主会话在中区，右栏「流程」页签）。原对话不变成任务，也不跳走；
 - 对话没有项目：不启动，横幅说任务属于项目、要在项目里的对话中用；没有这个流程、或它不能启动（不合法、项目没受信）：横幅说明，输入框里的字留着。
