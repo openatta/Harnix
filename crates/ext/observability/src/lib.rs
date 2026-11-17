@@ -107,6 +107,9 @@ impl Extension for Observability {
             .describe("the output of one of a session's background tasks: the whole, its tail, or from a byte on")
             .raw(|call, params| async move {
                 let mut target = session_target(&params)?;
+                // The engine's `taskOutput` knows nothing of spaces: the session is asked as the
+                // caller first, so one the caller may not see is refused by the hub's own words.
+                call.call("engine.session.get", target.clone()).await?;
                 for key in ["task_id", "tail_bytes", "from_byte"] {
                     if let Some(value) = params.get(key) {
                         target[key] = value.clone();
@@ -265,17 +268,18 @@ fn session_target(params: &Value) -> Rpc<Value> {
 
 /// `context {instance?, session_id, space?}`: the engine's `engine.session.inspectContext` — what the
 /// next call will carry, per block, its token counts estimated — with `measured`: what the provider
-/// counted for the last call that was made (`engine.session.get`'s `context`), absent before the
-/// first one. The interface sizes the bar by the measured figure and only divides it by the
+/// counted for the last call that was made (`engine.session.get`'s `context`, read before the
+/// context), absent before the first one. The interface sizes the bar by the measured figure and only divides it by the
 /// estimates, so an estimate never passes for a count.
 async fn inspect_context(call: &Call, params: &Value) -> Rpc<Value> {
     let target = session_target(params)?;
-    let mut context = call.call("engine.session.inspectContext", target.clone()).await?;
-    let measured = call
-        .call("engine.session.get", target)
-        .await
-        .ok()
-        .and_then(|info| info.get("context").cloned())
+    // Asked as the caller before anything else: the engine's `inspectContext` knows nothing of
+    // spaces, so a session the caller may not see is refused here, by the hub.
+    let info = call.call("engine.session.get", target.clone()).await?;
+    let mut context = call.call("engine.session.inspectContext", target).await?;
+    let measured = info
+        .get("context")
+        .cloned()
         .filter(|c| c.get("tokens").and_then(Value::as_u64).is_some_and(|n| n > 0));
     if let (Some(measured), Some(obj)) = (measured, context.as_object_mut()) {
         obj.insert("measured".into(), measured);
