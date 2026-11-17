@@ -1204,7 +1204,7 @@ quote_api_key = { credential = "helm/quote-api" }
 | `--replay-dir <dir>` | 模型调用改成录像回放（测试用；只有运维能开，客户端要不到）。扩展进程的沙箱此时只读放行这个目录 |
 | `--replay-strict` | 和 `--replay-dir` 一起：请求与录下的不一样就让那次调用失败（缺省只报告）；回放的会话按录像那天定日期 |
 | `--tls-cert`、`--tls-key` | 绑非回环必须 |
-| `--agix-dir` | 引擎目录，默认 `$AGIX_CONFIG_HOME`，再默认 `~/.agix` |
+| `--engine-dir` | `main` 的引擎目录，默认状态目录下的 `engine/` |
 | `--data-dir` | 项目目录（`ExtensionContext::projects_dir()`），默认 `$HARNIX_DATA_DIR`，再默认 `~/Documents` |
 | `--launch-link` | 同 `[transport] launch_link` |
 | `--exit-with-stdin`（隐藏） | stdin 关了就退出：桌面壳带走它的子进程 |
@@ -1214,7 +1214,6 @@ quote_api_key = { credential = "helm/quote-api" }
 
 | 环境变量 | 说明 |
 |---|---|
-| `AGIX_CONFIG_HOME` | 引擎目录 |
 | `HARNIX_DATA_DIR` | 项目目录 |
 | `HARNIX_STATE_DIR` | 程序自己的目录，单独挪（§20） |
 | `HARNIX_CREDENTIAL_<名字>` | 默认的 `Credentials` 读这里；名字是引用转大写、非字母数字转 `_` |
@@ -1227,9 +1226,9 @@ quote_api_key = { credential = "helm/quote-api" }
 
 | 路径 | 是什么 |
 |---|---|
-| `~/.agix/` | 引擎：设置分层、transcript、记忆、技能、录像。和 `agixd` 共用 |
 | `~/.<product_id>/`（不配 `[brand]` 就是 `~/.harnix/`；`HARNIX_STATE_DIR` 可挪） | 程序自己的配置与状态。每一处有一个所有者，0.4.4 只读写下面这些位置 |
 | 　`token`、`devices.json`、`harnix.lock` | 进程令牌、配对过的设备（与 `token` 一样只有属主可读；重启后仍在）、进程锁（进程活着就持有的独占锁，内容 `{"pid", "url"}`，`url` 在监听后写上：一个状态目录只能有一个进程，第二个启动时报「`<目录>` is in use by pid N (url)」并以非零退出） |
+| 　`engine/` | `main` 的引擎根（`--engine-dir` 可挪）：设置分层、transcript、记忆、技能、录像。不读别的客户端的 `~/.agix` |
 | 　`kernel/spaces.json` | 会话 ↔ space 的绑定、space 按模板建的实例、Harnix 起的会话（中枢读写） |
 | 　`kernel/instances.json`、`instances/<data_root>/` | 实例账本、按模板建的实例的数据根 |
 | 　`run/` | spawn 的 daemon 的私有套接字目录（0700） |

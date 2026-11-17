@@ -3,7 +3,7 @@
  *
  * Each one gets everything of its own: HOME, data root, engine root, project,
  * port, recordings. A test that inherits yesterday's sessions — or a
- * developer's memories under `~/.agix` — is a test whose failures depend on
+ * developer's memories in an engine directory of their own — is a test whose failures depend on
  * what somebody did yesterday.
  */
 
@@ -327,7 +327,7 @@ export async function startHarnix(options: LaunchOptions = {}): Promise<Backend>
   const args = [
     "--profile", profile,
     "--port", String(port),
-    "--agix-dir", join(scratch, "agix"),
+    "--engine-dir", join(scratch, "engine"),
     "--data-dir", join(scratch, "projects"),
     ...(options.uiDir ? ["--ui-dir", options.uiDir] : []),
     ...(options.replay ? ["--replay-dir", RECORDINGS] : []),

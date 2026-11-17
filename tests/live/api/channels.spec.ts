@@ -244,7 +244,7 @@ test.describe("on a reachable node", () => {
     child = spawn(binary(), [
       "--profile", join(scratch, "profile.toml"), "--port", String(port),
       "--tls-cert", join(scratch, "cert.pem"), "--tls-key", join(scratch, "key.pem"),
-      "--agix-dir", join(scratch, "agix"), "--data-dir", join(scratch, "projects"),
+      "--engine-dir", join(scratch, "engine"), "--data-dir", join(scratch, "projects"),
       "--replay-dir", RECORDINGS,
     ], {
       cwd: join(scratch, "project"),

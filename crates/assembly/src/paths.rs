@@ -3,10 +3,9 @@
 //! Two directories are configurable, because two are what a user actually
 //! moves:
 //!
-//! - **`--agix-dir`** — the engine's root, which Harnix points Agix at:
-//!   settings tiers, transcripts, memory, skills. Default `~/.agix`, the same
-//!   tree `agixd` and Agix use, so an existing install keeps its
-//!   sessions.
+//! - **`--engine-dir`** — `main`'s engine root: settings tiers, transcripts,
+//!   memory, skills, recordings. Default `<state>/engine`, Harnix's own: an
+//!   engine directory of another client's (`~/.agix`) is never read.
 //! - **`--data-dir`** — the projects root: where the picker starts and where
 //!   "new project" creates a directory. Default `~/Documents`. It is a
 //!   starting point, not a fence — an existing project anywhere under `$HOME`
@@ -17,7 +16,8 @@
 //! module's data) lives in `~/.<product_id>` — `~/.harnix` unless the profile's
 //! `[brand]` names the product — so two products on one machine never share a
 //! token or a ledger, and Documents holds only projects, with nothing hidden in
-//! it. A project's own data goes in `<project>/.agix/`, beside the engine's.
+//! it. A project's own data goes in `<project>/.harnix/`, the engine's project
+//! tier beside it.
 //! `HARNIX_STATE_DIR` moves it for the case that needs to. An older
 //! `~/Documents/.harnix` is not read (maintainer, 2026-10-26).
 //!
@@ -34,7 +34,7 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct Roots {
-    /// The engine's root — what `AGIX_CONFIG_HOME` names.
+    /// `main`'s engine root.
     pub engine: PathBuf,
     /// Where projects live: the picker's starting point, and where a new
     /// project directory is created.
@@ -45,7 +45,7 @@ pub struct Roots {
 
 #[derive(Debug, Default, Clone)]
 pub struct RootArgs {
-    pub agix_dir: Option<PathBuf>,
+    pub engine_dir: Option<PathBuf>,
     pub data_dir: Option<PathBuf>,
     /// `[brand] product_id`; `harnix` when absent.
     pub product_id: Option<String>,
@@ -60,19 +60,13 @@ impl Roots {
     /// Resolve against a given environment.
     ///
     /// The lookup is a parameter so the precedence rules can be tested without
-    /// touching process-global state — three tests mutating `AGIX_CONFIG_HOME`
+    /// touching process-global state — three tests mutating `HARNIX_DATA_DIR`
     /// in parallel threads is a race, and the race is the test harness's, not
     /// the code's.
     pub fn resolve_with(args: &RootArgs, env: &dyn Fn(&str) -> Option<OsString>) -> Self {
         let home = env("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-
-        let engine = args
-            .agix_dir
-            .clone()
-            .or_else(|| env("AGIX_CONFIG_HOME").map(PathBuf::from))
-            .unwrap_or_else(|| home.join(".agix"));
 
         let projects = args
             .data_dir
@@ -84,6 +78,7 @@ impl Roots {
         let state = env("HARNIX_STATE_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(format!(".{product}")));
+        let engine = args.engine_dir.clone().unwrap_or_else(|| state.join("engine"));
 
         Self {
             engine,
@@ -108,9 +103,9 @@ mod tests {
     }
 
     #[test]
-    fn defaults_keep_the_engine_where_it_already_is() {
+    fn the_engine_is_in_harnixs_own_state_by_default() {
         let roots = Roots::resolve_with(&RootArgs::default(), &env(&[("HOME", "/home/x")]));
-        assert_eq!(roots.engine, PathBuf::from("/home/x/.agix"));
+        assert_eq!(roots.engine, PathBuf::from("/home/x/.harnix/engine"));
         assert_eq!(roots.projects, PathBuf::from("/home/x/Documents"));
         assert_eq!(roots.state, PathBuf::from("/home/x/.harnix"));
     }
@@ -125,6 +120,7 @@ mod tests {
             &env(&[("HOME", "/home/x")]),
         );
         assert_eq!(roots.state, PathBuf::from("/home/x/.helm"));
+        assert_eq!(roots.engine, PathBuf::from("/home/x/.helm/engine"));
         assert_eq!(roots.projects, PathBuf::from("/home/x/Documents"));
     }
 
@@ -132,13 +128,13 @@ mod tests {
     fn both_directories_move_independently() {
         let roots = Roots::resolve_with(
             &RootArgs {
-                agix_dir: Some(PathBuf::from("/srv/agix")),
+                engine_dir: Some(PathBuf::from("/srv/engine")),
                 data_dir: Some(PathBuf::from("/srv/projects")),
                 product_id: None,
             },
             &env(&[("HOME", "/home/x")]),
         );
-        assert_eq!(roots.engine, PathBuf::from("/srv/agix"));
+        assert_eq!(roots.engine, PathBuf::from("/srv/engine"));
         assert_eq!(roots.projects, PathBuf::from("/srv/projects"));
         // The program's state stays in the home directory, not with the projects.
         assert_eq!(roots.state, PathBuf::from("/home/x/.harnix"));
@@ -154,7 +150,8 @@ mod tests {
                 ("HARNIX_DATA_DIR", "/env/projects"),
             ]),
         );
-        assert_eq!(roots.engine, PathBuf::from("/env/agix"));
+        // The engine's own variable is not Harnix's to read.
+        assert_eq!(roots.engine, PathBuf::from("/home/x/.harnix/engine"));
         assert_eq!(roots.projects, PathBuf::from("/env/projects"));
         assert_eq!(roots.state, PathBuf::from("/home/x/.harnix"));
     }
@@ -163,12 +160,12 @@ mod tests {
     fn a_flag_outranks_the_environment() {
         let roots = Roots::resolve_with(
             &RootArgs {
-                agix_dir: Some(PathBuf::from("/flag/agix")),
+                data_dir: Some(PathBuf::from("/flag/projects")),
                 ..RootArgs::default()
             },
-            &env(&[("HOME", "/home/x"), ("AGIX_CONFIG_HOME", "/env/agix")]),
+            &env(&[("HOME", "/home/x"), ("HARNIX_DATA_DIR", "/env/projects")]),
         );
-        assert_eq!(roots.engine, PathBuf::from("/flag/agix"));
+        assert_eq!(roots.projects, PathBuf::from("/flag/projects"));
     }
 
     #[test]
@@ -179,5 +176,7 @@ mod tests {
         );
         assert_eq!(roots.projects, PathBuf::from("/home/x/Documents"));
         assert_eq!(roots.state, PathBuf::from("/var/lib/harnix"));
+        // The engine goes with it.
+        assert_eq!(roots.engine, PathBuf::from("/var/lib/harnix/engine"));
     }
 }

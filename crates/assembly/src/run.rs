@@ -287,7 +287,7 @@ impl Basis {
         // caller of that function inherits the rule instead of remembering it.
         let tls = tls(cli)?;
         let roots = Roots::resolve(&RootArgs {
-            agix_dir: cli.agix_dir.clone(),
+            engine_dir: cli.engine_dir.clone(),
             data_dir: cli.data_dir.clone(),
             product_id: profile.brand.product_id.clone(),
         });

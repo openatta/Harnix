@@ -3,9 +3,9 @@
 #
 #   scripts/harnix-demo.sh start | stop | restart | status
 #
-# Everything it keeps — program state, the engine directory, projects, the log, the pid and the
-# port — is under demo/ in this repository (ignored by git; $HARNIX_DEMO_DIR to put it elsewhere),
-# so it never touches ~/.harnix or ~/.agix; delete that directory to start over. The model comes from `.env` when there is one (it is read into the
+# Everything it keeps — program state (the engine directory, state/engine, in it), projects, the
+# log, the pid and the port — is under demo/ in this repository (ignored by git; $HARNIX_DEMO_DIR
+# to put it elsewhere), so it never touches ~/.harnix; delete that directory to start over. The model comes from `.env` when there is one (it is read into the
 # environment, not written into any settings); without it, configure one on the page.
 #
 # `start` builds first when there is no binary, or when the interface or the Rust sources are newer
@@ -101,7 +101,6 @@ talk() {
   # process does, and should see the demo's files, not this repository.
   (cd "$DIR" && HARNIX_STATE_DIR="$DIR/state" exec "$BIN" \
     --port "$PORT" \
-    --agix-dir "$DIR/agix" \
     --data-dir "$DIR/projects" \
     --replay-dir "$DIR/recordings") \
     >"$DIR/seed.log" 2>&1 &
@@ -130,7 +129,7 @@ start() {
   choose_port
   if stale; then build; fi
 
-  mkdir -p "$DIR/state" "$DIR/agix" "$DIR/projects"
+  mkdir -p "$DIR/state" "$DIR/projects"
   echo "$PORT" >"$PORTFILE"
   seed
   if [ -f .env ]; then
@@ -138,7 +137,6 @@ start() {
   fi
   (cd "$DIR" && HARNIX_STATE_DIR="$DIR/state" exec nohup "$BIN" \
     --port "$PORT" \
-    --agix-dir "$DIR/agix" \
     --data-dir "$DIR/projects") \
     >"$LOG" 2>&1 &
   echo $! >"$PIDFILE"

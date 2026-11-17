@@ -341,18 +341,16 @@ test("the language chosen is the engine's too, and given back with the choice of
 });
 
 // privacy & advanced
-test("telemetry is explained, on main the engine's own default (on) until turned off, and its switch writes the global tier", TAGS, async ({ page }) => {
+test("telemetry is explained and off, and its switch writes the global tier", TAGS, async ({ page }) => {
   await open(page, backend.url);
   await section(page, "privacy");
   await expect(page.getByTestId("privacy-explain")).toBeVisible();
   const flag = page.getByTestId("settings-telemetry_enabled");
-  await expect(flag).toBeChecked();
-  expect((await field(page, "telemetry_enabled")).tiers.global, "Harnix wrote into main's engine root").toBeNull();
-  await flag.click();
-  await expect.poll(async () => (await field(page, "telemetry_enabled")).tiers.global).toBe(false);
+  await expect(flag).not.toBeChecked();
   await flag.click();
   await expect.poll(async () => (await field(page, "telemetry_enabled")).tiers.global).toBe(true);
-  await writeElsewhere(page, { telemetry_enabled: null });
+  await flag.click();
+  await expect.poll(async () => (await field(page, "telemetry_enabled")).tiers.global).toBe(false);
 });
 
 test("the advanced section shows what the engine runs with, its source and the file to edit, and nothing to change", TAGS, async ({ page }) => {

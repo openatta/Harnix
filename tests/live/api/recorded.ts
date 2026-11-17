@@ -173,8 +173,8 @@ ${entry.profile ?? ""}`,
         ...options,
         seed: (scratch: string) => {
           options.seed?.(scratch);
-          mkdirSync(join(scratch, "agix"), { recursive: true });
-          writeFileSync(join(scratch, "agix", "settings.json"), JSON.stringify(entry.settings));
+          mkdirSync(join(scratch, "engine"), { recursive: true });
+          writeFileSync(join(scratch, "engine", "settings.json"), JSON.stringify(entry.settings));
         },
       }
     : options;

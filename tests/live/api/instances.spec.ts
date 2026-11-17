@@ -60,15 +60,14 @@ test("the instances are listed with where they came from", TAGS, async () => {
   for (const i of hello.instances) expect(i.protocol_version, i.id).toBe(all.main.protocol_version);
 });
 
-// Harnix writes its defaults only where it keeps an instance's data; `main`'s engine root is the
-// person's own, shared with the engine's other clients (harnix-app.md, settings: privacy).
-test("telemetry starts off in the instances Harnix keeps, and main's engine root is left to the engine's default", TAGS, async () => {
+// Harnix writes its defaults into every engine root it owns, `main`'s among them (harnix-app.md,
+// settings: privacy).
+test("telemetry starts off in every instance Harnix owns, main among them", TAGS, async () => {
   await until(api, "ci", "ready");
   const all = await instances(api);
-  for (const id of ["side", "ci", "fleet-side"]) {
+  for (const id of ["main", "side", "ci", "fleet-side"]) {
     expect(globalTier(all[id].data_root).telemetry_enabled, `${id}'s global tier`).toBe(false);
   }
-  expect(globalTier(all.main.data_root), "Harnix wrote into main's engine root").not.toHaveProperty("telemetry_enabled");
 });
 
 test("each instance runs its own sessions and sees none of the others'", TAGS, async () => {

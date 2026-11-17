@@ -22,8 +22,8 @@ test.beforeAll(async () => {
   // Teams are the operator's switch, in the global tier: a project's own tier cannot turn them
   // on, so it is written before the engine reads its settings.
   const seed = (scratch: string) => {
-    mkdirSync(join(scratch, "agix"), { recursive: true });
-    writeFileSync(join(scratch, "agix", "settings.json"), JSON.stringify({ team: { enabled: true } }));
+    mkdirSync(join(scratch, "engine"), { recursive: true });
+    writeFileSync(join(scratch, "engine", "settings.json"), JSON.stringify({ team: { enabled: true } }));
   };
   backend = await startHarnix(launchFor("replay", { profile: '\n[engine]\nscenes = ["code"]\n', seed }));
 });

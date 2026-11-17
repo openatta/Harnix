@@ -168,7 +168,7 @@ export async function recorded(
   } finally {
     api.close();
   }
-  const dir = join(backend.scratch, "agix", "recordings", sid);
+  const dir = join(backend.scratch, "engine", "recordings", sid);
   if ("fixture" in source) {
     cpSync(join(RECORDINGS, source.fixture), dir, { recursive: true });
     const text = readFileSync(join(dir, "calls.jsonl"), "utf8");

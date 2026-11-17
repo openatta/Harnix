@@ -171,7 +171,7 @@ pub mod testing {
             let mut args: Vec<std::ffi::OsString> = vec![
                 "harnix-test".into(),
                 "--headless".into(),
-                "--agix-dir".into(),
+                "--engine-dir".into(),
                 dir.join("engine").into(),
                 "--data-dir".into(),
                 dir.join("data").into(),

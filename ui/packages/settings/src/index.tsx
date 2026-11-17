@@ -695,7 +695,7 @@ function ProviderForm({
         "api_key",
         t("settings.apiKey"),
         id && provider.api_key ? `${maskedKey(provider.api_key)} · ${t("settings.apiKeyKeep")}` : "sk-…",
-        t("settings.apiKeyHint", { path: path ?? "~/.agix/settings.json" }),
+        t("settings.apiKeyHint", { path: path ?? "~/.harnix/engine/settings.json" }),
       )}
       {text("api_key_env", t("settings.apiKeyEnv"), "OPENAI_API_KEY", t("settings.apiKeyEnvHint"))}
       {text("default_model", t("settings.defaultModel"), type.model)}

@@ -26,7 +26,7 @@ cargo build --release
 会话、项目，以及带着流程的系统，还有扩展包的宿主（模式 2，进程内）。
 
 不需要任何环境变量。没配模型也能启动，页面会提示：**配置模型**（或头像 → **设置 → 模型与凭据**）添加 provider——
-Anthropic 或兼容 OpenAI 的 API，其中一个是缺省——存在 `~/.agix/settings.json`，不会出现在浏览器或日志里。
+Anthropic 或兼容 OpenAI 的 API，其中一个是缺省——存在 `~/.harnix/engine/settings.json`，不会出现在浏览器或日志里。
 `ANTHROPIC_AUTH_TOKEN`（可加 `ANTHROPIC_BASE_URL`）也行。
 新对话的空页用三张卡带着走完第一次：模型、一个项目，以及会话从什么开始——`harnix` 场景和缺省的权限模式，
 旁边推荐 `code`（在项目里写代码的 Agent）。每一张做完或关掉就不再出现。
@@ -166,13 +166,13 @@ off = ["system"]                    # 链进来、但要关掉的扩展，连同
 |---|---|
 | `--profile` | 上面那份 profile；每一节都有所有者，都拒绝它不认识的键 |
 | `--port` / `--host` | `4080` / `127.0.0.1`；绑非回环地址要 TLS 和已配对的设备 |
-| `--agix-dir` | 引擎的目录：`$AGIX_CONFIG_HOME`，再是 `~/.agix` |
+| `--engine-dir` | 引擎的目录：缺省是程序状态目录下的 `engine/` |
 | `--data-dir` | 项目在哪：`$HARNIX_DATA_DIR`，再是 `~/Documents` |
 | `--ui-dir` / `--headless` | 从某个目录提供界面 / 不提供界面 |
 | `--launch-link` | 令牌不进页面：浏览器从一次性链接进来 |
 
-程序自己的状态在 `~/.<product_id>/`（缺省 `~/.harnix`，`HARNIX_STATE_DIR` 可以挪走）；引擎的在 `~/.agix/`；项目在
-`~/Documents/`，里面不藏任何东西。
+程序自己的状态在 `~/.<product_id>/`（缺省 `~/.harnix`，`HARNIX_STATE_DIR` 可以挪走），引擎的目录在它里面（`engine/`）；项目在
+`~/Documents/`，里面不藏任何东西；项目自己的设置与数据在它的 `.harnix/` 里。
 
 ## 文档
 

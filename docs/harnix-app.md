@@ -535,7 +535,7 @@ product_id = "harnix"     # 程序自己的目录 ~/.<product_id>；小写字母
 ```
 
 Harnix app 的项目在项目根 `projects_dir`（`--data-dir`，缺省 `$HARNIX_DATA_DIR`，再缺省 `~/Documents`）里，工作区登记、归档、偏好在 `~/.<product_id>/ext/harnix-app/data/state.json`，会话标题在引擎里，
-对话在引擎的目录（`~/.agix/`）里。
+对话在 `main` 的引擎目录（`~/.<product_id>/engine/`）里。
 
 ### 7.3 `harnix.hello` 里的 `shell`
 
@@ -568,14 +568,9 @@ Harnix app 的项目在项目根 `projects_dir`（`--data-dir`，缺省 `$HARNIX
 
 **隐私**：遥测是引擎对自己做了什么的记录，每个会话一个 JSONL，写在引擎数据目录的 `telemetry/` 下，不含提示词、消息文本和工具的输入输出
 （`agix/docs/telemetry.md`）。字段 `telemetry_enabled` 与 `telemetry_url`（OTLP 端点，只有带导出支持的引擎才用）只写全局层，项目没有发言权。
-引擎自己的缺省是开。Harnix 不往不归它管的引擎目录里写缺省值：
-- **主实例 `main`** 的引擎目录是人自己的（缺省 `~/.agix`，或 `--agix-dir`、`AGIX_CONFIG_HOME`），Agix 的其他客户端也用它。
-  Harnix 不写，用引擎自己的缺省（开），直到人在设置页里关掉；关掉写进这个目录的全局层，对这个目录一直有效。
-  字段 `telemetry_enabled` 声明的缺省因此是 `true`，没有哪一层写时设置页显示为开、来源是引擎缺省。
-- **Harnix 自己建的实例**（数据根在状态目录的 `instances/` 下，即 spawn 和从模板建的，非 attach 的承载方式）缺省关：建起来时，
-  `harnix-instance` 在该实例全局层的 `settings.json` 里缺 `telemetry_enabled` 就写 `false`（`crates/instance/src/defaults.rs`），
-  已有值（开或关）不动，其余内容不动；「清除」之后，下次启动会再写一次 `false`。数据根写在状态目录之外的（`[[instances]]` 的
-  `data_root` 给了绝对路径）不写。attach 的守护进程是别人的，也不写。
+引擎自己的缺省是开；**Harnix 的缺省是关**：实例建起来（非 attach 的承载方式，主实例 `main` 也在内）时，`harnix-instance` 在该实例全局层的 `settings.json`
+里缺 `telemetry_enabled` 就写 `false`（`crates/instance/src/defaults.rs`），已有值（开或关）不动，其余内容不动。
+人在设置页里「清除」这一项后，下次启动会再写一次 `false`。
 
 **高级**：压缩（`compaction`）、执行参数（`execution`）、hooks（`hooks_config`）、团队（`team`）、检查点（`checkpoints`）的当前值，
 按引擎实际使用的值显示，并说哪一层写了它；没有任何一层写的，说是引擎缺省。这些字段声明为 `json` 类型、没有可写的层，

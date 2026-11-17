@@ -33,7 +33,7 @@ host for extension packages (mode 2, in-process).
 
 No environment variable is required. With no model configured it still starts and says so:
 **Set up a model** (or the avatar → **Settings → Models & credentials**) adds providers — Anthropic or
-OpenAI-compatible APIs, one of them the default — kept in `~/.agix/settings.json`, never shown to the
+OpenAI-compatible APIs, one of them the default — kept in `~/.harnix/engine/settings.json`, never shown to the
 browser or the logs. `ANTHROPIC_AUTH_TOKEN` (plus an optional `ANTHROPIC_BASE_URL`) works too.
 The empty page of a new conversation walks through the first run in three cards — the model, a
 project to work in, and what a conversation starts with: the `harnix` scene and the default
@@ -194,13 +194,14 @@ off = ["system"]                    # linked-in extensions to switch off, with t
 |---|---|
 | `--profile` | the profile above; every section has an owner and refuses keys it does not know |
 | `--port` / `--host` | `4080` / `127.0.0.1`; a non-loopback bind needs TLS and paired devices |
-| `--agix-dir` | the engine's directory: `$AGIX_CONFIG_HOME`, then `~/.agix` |
+| `--engine-dir` | the engine's directory: `engine/` in the program's state, by default |
 | `--data-dir` | where projects are: `$HARNIX_DATA_DIR`, then `~/Documents` |
 | `--ui-dir` / `--headless` | serve the interface from a directory / serve none |
 | `--launch-link` | keep the token out of the page: browsers come in through one-time links |
 
 The program's own state is in `~/.<product_id>/` (`~/.harnix` by default, `HARNIX_STATE_DIR` moves
-it); the engine's in `~/.agix/`; projects in `~/Documents/`, with nothing hidden in it.
+it), the engine's directory in it (`engine/`); projects in `~/Documents/`, with nothing hidden in it;
+a project's own settings and data in its `.harnix/`.
 
 ## Documentation
 

@@ -76,8 +76,6 @@ fn registry(
     let mut factory = Factory::new(resolve)?;
     // A template that inherits providers inherits the main instance's.
     factory.providers_from = Some(roots.engine.clone());
-    // Harnix's defaults go into the data roots it keeps, never into `main`'s engine root.
-    factory.owned_roots = Some(roots.state.join("instances"));
     factory.recording = recording;
     // What the extensions give every engine this process builds or spawns.
     factory.providers.extend(lifecycle::everywhere(records));

@@ -25,9 +25,9 @@ const SERVER = "a-server-that-cannot-start";
 /** Settings the engine reads at startup, naming an MCP server whose command
  *  does not exist. Connecting it fails as the engine starts. */
 function seedFailingMcp(scratch: string): void {
-  const agix = join(scratch, "agix");
-  mkdirSync(agix, { recursive: true });
-  writeFileSync(join(agix, "settings.json"), JSON.stringify({
+  const engine = join(scratch, "engine");
+  mkdirSync(engine, { recursive: true });
+  writeFileSync(join(engine, "settings.json"), JSON.stringify({
     mcp_servers: {
       // Valid configuration, unreachable binary.
       [SERVER]: {

@@ -216,7 +216,7 @@ async function measureProcesses(root) {
     const child = spawn(
       bin,
       ["--profile", profile, "--port", String(port), "--headless",
-       "--agix-dir", join(scratch, "agix"), "--data-dir", join(scratch, "projects")],
+       "--engine-dir", join(scratch, "engine"), "--data-dir", join(scratch, "projects")],
       { cwd: makeProject(scratch),
         env: { ...process.env, ...env, ANTHROPIC_API_KEY: "budget-test", HARNIX_STATE_DIR: join(scratch, "state"),
                RUST_LOG: "error,harnix_carrier_proc=debug" },
@@ -339,7 +339,7 @@ async function measureInstances(root) {
     const child = spawn(
       bin,
       ["--profile", profile, "--port", String(port), "--headless",
-       "--agix-dir", join(scratch, "agix"), "--data-dir", join(scratch, "projects")],
+       "--engine-dir", join(scratch, "engine"), "--data-dir", join(scratch, "projects")],
       { cwd: makeProject(scratch), env: { ...process.env, ANTHROPIC_API_KEY: "budget-test", HARNIX_STATE_DIR: join(scratch, "state"), RUST_LOG: "error" },
         stdio: "ignore" },
     );
@@ -381,7 +381,7 @@ async function measureLive(root) {
   const child = spawn(
     bin,
     ["--port", String(port), "--headless",
-     "--agix-dir", join(scratch, "agix"), "--data-dir", join(scratch, "projects")],
+     "--engine-dir", join(scratch, "engine"), "--data-dir", join(scratch, "projects")],
     { cwd: makeProject(scratch), env: { ...process.env, ANTHROPIC_API_KEY: "budget-test", HARNIX_STATE_DIR: join(scratch, "state"), RUST_LOG: "error" },
       stdio: "ignore" },
   );

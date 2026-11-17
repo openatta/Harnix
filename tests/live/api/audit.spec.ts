@@ -37,7 +37,7 @@ interface AuditEntry {
 
 /** Every entry in every transcript this backend has written. */
 function entries(backend: Backend): Record<string, unknown>[] {
-  const root = join(backend.scratch, "agix", "projects");
+  const root = join(backend.scratch, "engine", "projects");
   const out: Record<string, unknown>[] = [];
   let projects: string[] = [];
   try { projects = readdirSync(root); } catch { return out; }

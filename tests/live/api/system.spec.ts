@@ -68,7 +68,7 @@ async function planted(client: TestClient, on: Backend, lines: (id: string) => o
   const created = await client.call("harnix.session.create", { instance: "main", space: "sessions", scene: "harnix" });
   const s = { instance: created.instance, session_id: created.session_id };
   await client.call("harnix.session.attach", { ...s, space: "sessions" });
-  const dir = join(on.scratch, "agix", "recordings", s.session_id);
+  const dir = join(on.scratch, "engine", "recordings", s.session_id);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "calls.jsonl"), lines(s.session_id).map((l) => JSON.stringify(l)).join("\n") + "\n");
   return s;

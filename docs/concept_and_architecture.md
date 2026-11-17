@@ -1302,6 +1302,7 @@ profile 的 `[brand]`：`name`（页面标题、左栏产品名）、`icon`（SV
 | 位置 | 所有者 | 内容 |
 |---|---|---|
 | `token`、`devices.json`、`harnix.lock` | 装配、准入 | 进程令牌、配对的设备、进程锁 |
+| `engine/`（`--engine-dir` 可挪走） | `main` 实例 | 它的引擎根：设置分层、transcript、记忆、技能、录像。Harnix 自己的，别的引擎客户端的目录（`~/.agix`）不读 |
 | `kernel/spaces.json` | 中枢 | 会话与 space 的绑定、space 按模板建的实例、Harnix 起的会话 |
 | `kernel/instances.json`、`instances/<数据根>/` | 实例层 | 实例账本、按模板建的实例的数据根 |
 | `run/` | 实例层 | spawn 的 daemon 的私有套接字目录（只有本用户能进） |
@@ -1310,10 +1311,10 @@ profile 的 `[brand]`：`name`（页面标题、左栏产品名）、`icon`（SV
 | `ext/<id>/install.json` | `packages` | 扩展包的安装记录与**同意记录**（扩展进程看不见它，§6.6） |
 | `ext/<id>/<version>/` | `packages` | 解开、验过签的包 |
 | `ext/<id>/run/` | 载体 | 扩展包的数据、kv，模式 3 里它自己 Agix 的根、它的会话的项目目录、`HOME`、`TMPDIR` |
+| `ext/flow/data/worktrees/<运行>/` | 流程扩展 | worktree 任务的 worktree（分支 `harnix/flow/<运行>`），在项目之外 |
 
 | 其余路径 | 是什么 |
 |---|---|
-| `~/.agix/`（`--agix-dir` / `AGIX_CONFIG_HOME`） | `main` 实例的引擎根：设置分层、transcript、记忆、技能、录像 |
 | `~/Documents/`（`--data-dir` / `HARNIX_DATA_DIR`） | **只放项目**。选项目从这里开始，新建项目建在这里；里面没有隐藏目录 |
 | `<项目>/.harnix/` | 项目自己的数据与配置，**一律**放这里，不另开 `<项目>/.<产品>/`：引擎的项目层（设置、agents、hooks、rules、memory、它的 worktree）与 Harnix 写的（流程的 `runs/`、项目的 `flows/`）同在一处 |
 

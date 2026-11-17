@@ -166,10 +166,10 @@ pub(crate) struct Cli {
     #[arg(long)]
     pub tls_key: Option<PathBuf>,
 
-    /// The engine's directory: settings tiers, transcripts, memory, skills,
-    /// recordings. Defaults to `$AGIX_CONFIG_HOME`, else `~/.agix`.
+    /// The main instance's engine directory: settings tiers, transcripts,
+    /// memory, skills, recordings. Defaults to `engine/` in the state directory.
     #[arg(long)]
-    pub agix_dir: Option<PathBuf>,
+    pub engine_dir: Option<PathBuf>,
 
     /// The projects directory: where the picker starts and where a new project
     /// is created. Defaults to `$HARNIX_DATA_DIR`, else `~/Documents`. A

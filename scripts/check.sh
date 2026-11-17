@@ -264,7 +264,7 @@ port = $PORT_UI
 EOF
   set -a; . ./.env; set +a
   HARNIX_STATE_DIR="$scratch/state" target/release/harnix --profile "$scratch/profile.toml" --scenes harnix \
-    --ui-dir ui/dist --agix-dir "$scratch/atta" --data-dir "$scratch/projects" \
+    --ui-dir ui/dist --engine-dir "$scratch/engine" --data-dir "$scratch/projects" \
     > "$scratch/backend.log" 2>&1 &
   backend_pid=$!
   for _ in $(seq 200); do
@@ -299,7 +299,7 @@ EOF
   set -a; . ./.env; set +a
   HARNIX_STATE_DIR="$scratch/remote-state" target/release/harnix --profile "$scratch/remote.toml" \
     --tls-cert "$scratch/cert.pem" --tls-key "$scratch/key.pem" \
-    --ui-dir ui/dist --agix-dir "$scratch/remote-atta" --data-dir "$scratch/remote-projects" \
+    --ui-dir ui/dist --engine-dir "$scratch/remote-engine" --data-dir "$scratch/remote-projects" \
     > "$scratch/remote.log" 2>&1 &
   backend_pid=$!
   for _ in $(seq 200); do
