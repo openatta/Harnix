@@ -661,8 +661,8 @@ Harnix app 是原生扩展最小的例子：一个后端扩展、一个界面包
 | 错过（`missed`） | 晚了一分钟以上的算错过（Harnix 没在跑、机器睡着）：`catch_up_latest`（缺省）只补最近一次，`skip` 一次也不补、记一条 `skipped`、`missed` |
 | 并发（`concurrency`） | 只对任务：上一次的运行还在跑时 `skip`（缺省，记 `previous_run`）或 `parallel`（再起一个，配合 `workspace: worktree`）。会话目标按会话排队 |
 | 最小间隔 | 同一条定时两次投递至少隔 60 秒，「立即执行」也算；不到就记 `skipped`、`min_interval` |
-| 回执（`Receipt`） | `scheduled_at`（计划时间；立即执行是按下的时间）、`delivered_at`、`manual`、`outcome`（`pending` · `delivered` · `skipped` · `failed`）、`reason`（跳过的四种理由，或失败的错误）、`target`（`{instance, session_id, created, item?}` 或 `{run}`）。只说明交出去了，不说明模型做得怎样。**失败不重试**。每条留最近 200 条、30 天以内的，最近一条总留着 |
-| 幂等 | 投递一条一条来。先写下 `pending` 回执；新会话一建好就把它的 id 写进回执（`new_once_then_reuse` 还写进 `target.session`），再发提示词——重启后沿用，不会再开一个。启动时还是 `pending` 的回执改成 `failed`（`interrupted…`），不重投：一个时间至多投一次 |
+| 回执（`Receipt`） | `scheduled_at`（计划时间；立即执行是按下的时间）、`delivered_at`、`manual`、`outcome`（`pending` · `delivered` · `skipped` · `failed`）、`reason`（跳过的四种理由，或失败的错误）、`target`（`{instance, session_id, created, item?}` 或 `{run}`）。只说明交出去了，不说明模型做得怎样。**失败不重试**（只有上面「幂等」说的那一种重投）。每条留最近 200 条、30 天以内的，最近一条总留着 |
+| 幂等 | 投递一条一条来。先写下 `pending` 回执。新会话的 id 在建之前就定下：由定时的 id 和计划时间推出（v5 UUID，写成引擎的 BASE58），先写进回执，再带着它 `harnix.session.create`（`session_id`，引擎对已有的 id 答那个会话）；建好后 `new_once_then_reuse` 还写进 `target.session`，再起名、发提示词。启动时还是 `pending` 的回执：正在开新会话的那条**重投一次**——同一个 id 建出来的就是上次那个会话，不会多出一个；它已经收到过东西（有消息或有一轮在跑）就不再发提示词，记 `delivered`。别的目标（往已有会话发、起任务）改成 `failed`（`interrupted…`），不重投，因为不知道那一轮、那个运行发出去没有 |
 | 存储 | 扩展数据目录下的 `schedules.json`：整份写到临时文件再改名，带版本号；读不了的放到一边（`.json.unread`），从空开始，不迁移旧格式 |
 | 归属与授权 | 一条定时属于一个 space（`space`，建时声称的，缺省是缺省 space）；带 `space` 的调用只够得着那个 space 的定时（不是的答 `SPACE_MISMATCH`），不带的够得着全部（首页的「定时」一块这样调，§10.2）。会话目标建时核对会话属于这个 space。设备不要能力：人管自己的定时，不审批；别的扩展要被授予 `schedule.manage`（定时扩展声明的） |
 | 改 | `update` 带读到的 `revision`；别人改过了答 `CONFLICT`，`data.revision` 是现在的。改了时间就从现在重新算下一次；`every`、`after` 原样送回不会重新起算。开关（`enable`、`disable`）也算一次改；重新打开从现在算，关着期间到期的不补 |
