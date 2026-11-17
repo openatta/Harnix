@@ -19,9 +19,7 @@ const en: Record<string, string> = {
   "flowui.tab.flows": "Flows",
   "flowui.tab.runs": "Runs",
   "flowui.tab.reference": "Reference",
-  // Inside the system space: the console's tab, and a flow's context in the left column.
-  "flowui.about.flows": "The flows this application defines, and their runs. A flow or a run opened here becomes a space of its own inside this one, with its details on the right.",
-  "flowui.context.back": "Back to the system",
+  // The left column: the way back while a task was entered from another space.
   "flowui.context.backTo": "Back to {space}",
   // A task: a run in a project (the projects space's tree, its "+" menu, the right column's tab).
   "flowui.task.kind": "Tasks",
@@ -491,9 +489,7 @@ const zhCN: Record<string, string> = {
   "flowui.tab.flows": "流程",
   "flowui.tab.runs": "运行",
   "flowui.tab.reference": "参考",
-  // 在系统 space 里：控制台的页签，左栏是一条流程的上下文。
-  "flowui.about.flows": "这个应用定义的流程和它们的运行。在这里打开一个流程或一次运行，它就成为系统 space 里的一个 space，详情在右栏。",
-  "flowui.context.back": "返回系统",
+  // 左栏：从别的 space 进来一个任务时，回去的路。
   "flowui.context.backTo": "返回{space}",
   // 任务：项目里的一次运行（项目树、项目的「＋」菜单、右栏的页签）。
   "flowui.task.kind": "任务",

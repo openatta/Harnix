@@ -13,7 +13,7 @@ import { HostProvider, Registry, TabInfoProvider, setLocale, type HostApi, type 
 import { collectInputs, defOptions, defaultOutputDir, fieldsOf, initialText, newTaskDialog, noWorktreeText, workspaceParam } from "../src/NewTask";
 import { register } from "../src/register";
 import { WorktreeLine, currentStation, taskStep, worktreeOpen } from "../src/RunPanel";
-import { registerSystemFlows } from "../src/space";
+import { registerFlowSpace } from "../src/space";
 import { registerFlowStrings } from "../src/strings";
 import { INBOX, PROJECT_ITEMS, PROJECT_PANELS, ProjectTasks, TASK_KIND, TASK_TAB_KIND, TaskRow, TasksPanel, enterTask, openTask, taskCounts, taskRows, waitingItems } from "../src/task";
 import { START_ACTION, TASK_BADGE, type StartAction, type StartDraft, type TaskBadge } from "../src/points";
@@ -254,7 +254,6 @@ describe("where a run is", () => {
 describe("the registration", () => {
   const defined = (fake: ReturnType<typeof fakeHost>) => {
     const r = new Registry();
-    r.activate("system", () => r.definePoint("system.console.tab", { kind: "register" }));
     r.activate("harnix-app", () => r.definePoint(PROJECT_ITEMS, { kind: "register" }));
     r.activate("flow", () => register(r, fake.host));
     r.settle();
@@ -312,7 +311,6 @@ describe("what waits on a person, and the overview's block", () => {
   it("registers its source and its block where the Harnix app defines them; the source opens the task", async () => {
     const fake = fakeHost({ "flow.get": view(), "flow.session": { instance: "main", session_id: "general" } });
     const r = new Registry();
-    r.activate("system", () => r.definePoint("system.console.tab", { kind: "register" }));
     r.activate("harnix-app", () => {
       r.definePoint(PROJECT_ITEMS, { kind: "register" });
       r.definePoint(PROJECT_PANELS, { kind: "render" });
@@ -362,7 +360,7 @@ describe("opening a task", () => {
     const fake = fakeHost({ "flow.get": view({ show_in_space: "sessions" }) });
     const r = new Registry();
     r.register("space", { id: "projects", icon: "folder", title: () => "Projects" }, "harnix-app");
-    const flows = registerSystemFlows(r, { host: fake.host });
+    const flows = registerFlowSpace(r, { host: fake.host });
     await openTask(fake.host, r, flows, "example-review-1", "example-review");
     expect(fake.host.spaces.switch).not.toHaveBeenCalled();
     expect(fake.opened.at(-1)).toEqual({ instance: "main", sessionId: "main-1" });
@@ -375,7 +373,7 @@ describe("opening a task", () => {
     const fake = fakeHost({ "flow.get": view(), "flow.session": { instance: "main", session_id: "general" } });
     const r = new Registry();
     r.register("space", { id: "projects", icon: "folder", title: () => "Projects" }, "harnix-app");
-    const flows = registerSystemFlows(r, { host: fake.host });
+    const flows = registerFlowSpace(r, { host: fake.host });
     await openTask(fake.host, r, flows, "example-review-1", "example-review");
     expect(fake.host.spaces.switch).toHaveBeenCalledWith("flow");
     expect(fake.opened.at(-1)).toEqual({ instance: "main", sessionId: "main-1" });
@@ -405,7 +403,7 @@ describe("opening a task", () => {
     expect(fake.host.spaces.switch).toHaveBeenCalledWith("flow");
     expect(fake.tabs.at(-1)).toEqual([TASK_TAB_KIND, { params: { run: "example-review-1" } }]);
     // The same the plain way, as `enterTask`.
-    const flows = registerSystemFlows(new Registry(), { host: fake.host });
+    const flows = registerFlowSpace(new Registry(), { host: fake.host });
     await enterTask(fake.host, r, flows, "example-review-1", "example-review");
     expect(flows.state.get()).toMatchObject({ run: "example-review-1" });
 

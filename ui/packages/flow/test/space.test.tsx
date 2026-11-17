@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { HostProvider, Registry, setLocale, type HostSessionRef, type HostApi } from "@harnix/react";
 
 import { toolTarget } from "../src/model";
-import { registerFlowSpace, registerSystemFlows } from "../src/space";
+import { registerFlowSpace } from "../src/space";
 import { ToolTargetLine } from "../src/ToolTarget";
 import { FlowSpaceState } from "../src/state";
 import { StationPanel } from "../src/StationPanel";
@@ -292,7 +292,7 @@ describe("the line over the composer", () => {
     expect(flow.state.tabs).toEqual(flow.tabs);
   });
 
-  it("the selection's details are the second side panel; closing it lets go of the selection, not the middle", async () => {
+  it("the selection's details are the second side panel; closing it hides the panel until the next pick, not the selection or the middle", async () => {
     const fake = fakeHost({ "flow.session": conversations });
     const r = new Registry();
     const flow = registerFlowSpace(r, { host: fake.host });
@@ -306,9 +306,12 @@ describe("the line over the composer", () => {
     expect(panel?.width).toBe(560);
     const before = ids(fake.opened);
     panel?.onClose?.();
-    expect(flow.state.get().flow).toBeNull();
+    expect(flow.state.get().flow).toBe("example-review");
     expect(space.center?.secondary?.()).toBeNull();
     expect(ids(fake.opened)).toEqual(before);
+    // Picked again: the panel is back.
+    flow.state.selectFlow("example-review");
+    expect(space.center?.secondary?.()?.key).toBe("flow:example-review");
     // The runs tab: its run's.
     flow.state.showRun("example-review-1");
     act(() => fake.tab("flow.runs"));
@@ -870,57 +873,62 @@ describe("a changing tool call names what it acts on", () => {
   });
 });
 
-describe("inside the system space (registerSystemFlows)", () => {
-  /** The flows registered inside the system space, the system space in front. */
-  function inSystem(answers: Record<string, unknown> = {}) {
+describe("the space of its own, and its left column (FlowSidebar)", () => {
+  /** The flow space registered, another space in front. */
+  function elsewhere(answers: Record<string, unknown> = {}) {
     const fake = fakeHost({ "flow.session": conversations, ...answers });
-    act(() => fake.open(null, "system"));
+    act(() => fake.open(null, "projects"));
     const r = new Registry();
-    const flows = registerSystemFlows(r, { host: fake.host });
+    const flows = registerFlowSpace(r, { host: fake.host });
     return { fake, r, flows, space: r.at("space")[0]! };
   }
 
-  it("is a space shown inside the system space: its left column a flow's context, the reference its one right tab", () => {
-    const { flows, space } = inSystem();
-    expect(space).toMatchObject({ id: "flow", within: "system", center: { mode: "chat" }, details: { initial: "closed" } });
+  it("is listed at the bottom of the left column, with its own left column and its three right tabs", () => {
+    const { space } = elsewhere();
+    expect(space).toMatchObject({ id: "flow", place: "bottom", center: { mode: "chat" }, details: { initial: "open" } });
     expect(typeof space.sidebar?.render).toBe("function");
-    expect((space.details?.tabs as { id: string }[]).map((x) => x.id)).toEqual(["flow.reference"]);
-    expect(flows.within).toBe("system");
-    expect(flows.state.within).toBe("system");
+    expect((space.details?.tabs as { id: string }[]).map((x) => x.id)).toEqual(["flow.flows", "flow.runs", "flow.reference"]);
   });
 
-  it("entered on a flow from the system space: brought to the front, its own conversation in the middle, its details beside; left, back", async () => {
-    const { fake, flows, space } = inSystem();
-    await act(() => flows.state.enter("example-review"));
+  it("entered on a flow from another space: brought to the front, the flows tab opened, its own conversation in the middle, its details beside; left, back where it came from, once", async () => {
+    const { fake, flows, space } = elsewhere();
+    await act(() => flows.state.enter("example-review", null, { from: { space: "projects", title: "Projects" } }));
     await settle();
     expect(fake.host.spaces.switch).toHaveBeenCalledWith("flow");
+    expect(fake.host.details.open).toHaveBeenCalledWith("flow.flows");
     expect(ids(fake.opened)).toEqual(["f-example-review"]);
     expect(space.center?.secondary?.()?.key).toBe("flow:example-review");
+    expect(flows.state.from()).toEqual({ space: "projects", title: "Projects" });
     await act(() => flows.state.leave());
-    expect(fake.host.spaces.switch).toHaveBeenLastCalledWith("system");
+    expect(fake.host.spaces.switch).toHaveBeenLastCalledWith("projects");
+    expect(flows.state.from()).toBeNull();
+    const switches = (fake.host.spaces.switch as ReturnType<typeof vi.fn>).mock.calls.length;
+    await act(() => flows.state.leave());
+    expect((fake.host.spaces.switch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(switches);
   });
 
-  it("in the left column a run is picked, then the flow's conversation; closing the panel keeps the flow; the right column is never asked for a list", async () => {
-    const { fake, flows, space } = inSystem({ "flow.get": { record: { id: "r-1", flow: "example-review", session_keys: { "@main": "main/main-1" } } } });
+  it("entered on a run: the runs tab opened, its main session in the middle; closing the panel keeps the run, the flow picked again shows the flow", async () => {
+    const { fake, flows, space } = elsewhere({ "flow.get": { record: { id: "r-1", flow: "example-review", session_keys: { "@main": "main/main-1" } } } });
     await act(() => flows.state.enter("example-review", "r-1"));
     await settle();
+    expect(fake.host.details.open).toHaveBeenCalledWith("flow.runs");
     expect(fake.opened.at(-1)).toEqual({ instance: "main", sessionId: "main-1" });
+    act(() => fake.tab("flow.runs"));
     expect(space.center?.secondary?.()?.key).toBe("run:r-1");
     space.center?.secondary?.()?.onClose?.();
     expect(space.center?.secondary?.()).toBeNull();
     expect(flows.state.get()).toMatchObject({ flow: "example-review", run: "r-1" });
     flows.state.selectFlow("example-review");
+    act(() => fake.tab("flow.flows"));
     await settle();
     expect(ids(fake.opened).at(-1)).toBe("f-example-review");
     expect(space.center?.secondary?.()?.key).toBe("flow:example-review");
-    flows.state.openList(flows.tabs.runs);
-    expect(fake.host.details.open).not.toHaveBeenCalled();
   });
 
   it("brought to the front another way, the open session stays and its flow is the context", async () => {
     const fake = fakeHost({ "flow.session": conversations });
     act(() => fake.open({ instance: "main", sessionId: "f-example-review" }, "flow"));
-    const flows = registerSystemFlows(new Registry(), { host: fake.host });
+    const flows = registerFlowSpace(new Registry(), { host: fake.host });
     flows.state.lookFront();
     await settle();
     expect(fake.opened).toEqual([]);
@@ -929,7 +937,7 @@ describe("inside the system space (registerSystemFlows)", () => {
   });
 
   it("the general conversation opened from a flow is the context, whatever the conversation it replaces says", async () => {
-    const { fake, flows } = inSystem();
+    const { fake, flows } = elsewhere();
     await act(() => flows.state.enter("example-review"));
     await settle();
     const opening = flows.state.openGeneral();
@@ -940,8 +948,8 @@ describe("inside the system space (registerSystemFlows)", () => {
     expect(flows.state.get().flow).toBe(null);
   });
 
-  it("the left column: the way back, the flow's name, its conversation and its own runs", async () => {
-    const { fake, flows, r } = inSystem();
+  it("the left column: the general conversation, every flow, the selected one's own runs under it; a pick brings the right column's list along; the way back only from elsewhere", async () => {
+    const { fake, flows, r } = elsewhere({ "flow.get": { record: { id: "example-review-1", flow: "example-review", session_keys: { "@main": "main/main-1" } } } });
     fake.push("flow.defs", {}, DEFS);
     fake.push("flow.runs", {}, [
       { id: "example-review-1", flow: "example-review", subject: "repo", status: "active", created_at: 2 },
@@ -952,33 +960,28 @@ describe("inside the system space (registerSystemFlows)", () => {
     render(<HostProvider host={fake.host}>{space.sidebar!.render!()}</HostProvider>);
     await settle();
     expect(screen.getByTestId("flow-context").getAttribute("data-flow")).toBe("example-review");
-    expect(screen.getByTestId("flow-context-title").textContent).toBe("Example: review and approve");
-    expect(screen.getByTestId("flow-context-conversation").getAttribute("aria-current")).toBe("true");
+    expect(screen.queryByTestId("flow-back")).toBeNull();
+    expect(screen.getByTestId("flow-context-flow-example-review").getAttribute("aria-current")).toBe("true");
+    expect(screen.getByTestId("flow-context-flow-broken").getAttribute("data-valid")).toBe("false");
     expect(screen.getByTestId("flow-run-example-review-1")).toBeTruthy();
     expect(screen.queryByTestId("flow-run-broken-1")).toBeNull();
-    fireEvent.click(screen.getByTestId("flow-back"));
-    await settle();
-    expect(fake.host.spaces.switch).toHaveBeenLastCalledWith("system");
-  });
-
-  it("on the system space's page: the flows and the runs; a click enters the flow, not a toggle", async () => {
-    const { fake, flows } = inSystem();
-    fake.push("flow.defs", {}, DEFS);
-    fake.push("flow.runs", {}, [{ id: "example-review-1", flow: "example-review", subject: "repo", status: "active", created_at: 2 }]);
-    render(<HostProvider host={fake.host}>{flows.render()}</HostProvider>);
-    await settle();
-    expect(screen.getByTestId("system-flows")).toBeTruthy();
+    // A run picked: shown, the runs tab in front, its main session in the middle.
     fireEvent.click(screen.getByTestId("flow-run-example-review-1"));
     await settle();
     expect(flows.state.get()).toMatchObject({ flow: "example-review", run: "example-review-1" });
-    expect(fake.host.spaces.switch).toHaveBeenCalledWith("flow");
-    // Clicked again from the system space: entered again, not let go of.
-    act(() => fake.open(null, "system"));
-    fireEvent.click(screen.getByTestId("flow-def-example-review"));
+    expect(fake.host.details.open).toHaveBeenLastCalledWith("flow.runs");
+    expect(fake.opened.at(-1)).toEqual({ instance: "main", sessionId: "main-1" });
+    // The general conversation: nothing selected, the flows tab in front.
+    fireEvent.click(screen.getByTestId("flow-context-conversation"));
     await settle();
-    expect(flows.state.get()).toMatchObject({ flow: "example-review", run: null });
-    fireEvent.click(screen.getByTestId("flow-def-example-review"));
+    expect(flows.state.get()).toMatchObject({ flow: null, run: null });
+    expect(ids(fake.opened).at(-1)).toBe("general");
+    // Entered from the projects space: the way back, once.
+    await act(() => flows.state.enter("example-review", null, { from: { space: "projects", title: "Projects" } }));
     await settle();
-    expect(flows.state.get().flow).toBe("example-review");
+    expect(screen.getByTestId("flow-back").getAttribute("data-to")).toBe("projects");
+    fireEvent.click(screen.getByTestId("flow-back"));
+    await settle();
+    expect(fake.host.spaces.switch).toHaveBeenLastCalledWith("projects");
   });
 });
