@@ -29,7 +29,15 @@ pub use tool::{Cancel, CancelGuard, Permission, Progress, Tool, ToolCx, ToolErro
 /// The directory a project keeps its Harnix data in, the engine's and Harnix's own:
 /// `<project>/.harnix/` holds the engine's project tier (settings, agents, hooks, rules, memory,
 /// its worktrees) beside what Harnix writes there (a flow's `runs/`, a project's `flows/`).
-pub const PROJECT_DIR: &str = ".harnix";
+///
+/// Harnix's own name for it. A branded application's is `.<product_id>` (or its `[brand]
+/// project_dir`): an extension reads the one this process uses from
+/// `ExtensionContext::product().project_dir()`, not from here.
+pub const PROJECT_DIR: &str = harnix_contract::s1::product::DEFAULT_PROJECT_DIR;
+
+/// The directory the engine keeps in each project and the name it goes by, as this product
+/// names them (`[brand]`).
+pub use harnix_contract::s1::product::{NameError, ProductNames};
 
 /// A session's name and a call chain's link: the contract's words, in a tool call's context.
 pub use harnix_contract::s1::{ChainLink, SessionRef};

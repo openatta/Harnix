@@ -584,15 +584,21 @@ default_space = "sessions"  # 不声称 space 的调用按它检查，换掉扩�
 [brand]
 name = "Harnix"           # 页面标题、左栏产品名；不写是 Harnix
 icon = "brand/icon.svg"   # SVG，相对 profile；服务在 /brand/icon.svg
-product_id = "harnix"     # 程序自己的目录 ~/.<product_id>；小写字母、数字、-，字母开头；不写是 harnix
+product_id = "harnix"     # 程序自己的目录 ~/.<product_id>，也是项目数据目录 .<product_id>；小写字母、数字、-，字母开头；不写是 harnix
+# project_dir = ".harnix"   # 项目数据目录另起名；不写是 .<product_id>
+# product_name = "Harnix"   # 引擎自称的名字；不写是 name，再不写是 product_id；name 有空格、中文时必须写（ASCII 字母开头，字母数字 - _，至多 32）
 ```
+
+带品牌的应用（写了 `product_id`）在每个项目里用 `.<product_id>/`，不用 `.harnix/`：本文说到 `<项目>/.harnix/` 的地方（项目层的设置、
+项目自带的流程 `flows/`、任务的过程目录 `runs/`）在它那里都是这个目录。引擎在提示词、请求的 User-Agent、worktree 分支里也用它的名字，
+流程 worktree 的分支是 `<名字的小写>/flow/<运行>`。
 
 Harnix app 的项目在项目根 `projects_dir`（`--data-dir`，缺省 `$HARNIX_DATA_DIR`，再缺省 `~/Documents`）里，工作区登记、归档、偏好在 `~/.<product_id>/ext/harnix-app/data/state.json`，会话标题在引擎里，
 对话在 `main` 的引擎目录（`~/.<product_id>/engine/`）里。
 
 ### 7.3 `harnix.hello` 里的 `shell`
 
-外壳不读 profile，读握手之后 `harnix.hello` 的 `shell`：`brand {name, icon, product_id}`、`runtime_modules`、`new_session`、
+外壳不读 profile，读握手之后 `harnix.hello` 的 `shell`：`brand {name, icon, product_id, project_dir}`、`runtime_modules`、`new_session`、
 `model_switch`、`narrow_details`、`state_dir`、`projects_dir`、`user`。哪些 space 在，外壳看 `hello.extensions` 里启用的扩展
 （首页、会话与项目是 `harnix-app` 的，流程 space 是 `flow` 的）。`harnix-app.describe` 也答 `projects_dir`。
 
@@ -682,7 +688,7 @@ Harnix app 是原生扩展最小的例子：一个后端扩展、一个界面包
 |---|---|
 | 时间（`timing.kind`） | `once {at}`（RFC 3339 带偏移，或时区里的墙钟 `YYYY-MM-DDTHH:MM[:SS]`）· `after {seconds}`（建好之后多久，一次）· `every {minutes}`（每 N 分钟，≥ 1，按经过的时间算）· `daily {time: "HH:MM"}` · `weekly {weekdays: [1..7], time}`（周一 1 … 周日 7）· `cron {expr}`（5 段，照 Vixie：`*`、数字、范围、列表、步长；不认名字和宏；日、周两段都写了时任一满足即可）。每月、工作日由界面拼成 `cron`、`weekly` |
 | 时区 | `time_zone` 是 IANA 名字，缺省是本机的；墙钟时间都按它算。夏令时跳过的那段钟点当天不到期，重复的那段只算第一次；`once` 落在跳过的那段里，顺延到跳过之后 |
-| 目标（`target.kind`） | `session {instance, session_id, prompt}`：已有会话发一轮，会话忙就排队（`OnBusy::Queue`）；上一次投的还在队列里时这一次并进去（回执 `skipped`、`merged`）。`new_session {mode, project_root?, scene?, instance?, provider?, model?, prompt}`：新会话，`new_once_then_reuse`（缺省，第一次新建、之后都发给它）或 `new_each`（每次新建），标题是「定时标题 · 计划时间」（时区里的 `YYYY-MM-DD HH:MM`）。`task {flow, subject, inputs?, project_root, title?, output_dir?, workspace?, show_in_space?}`：每次 `flow.start` 一个运行，`trigger` 是 `{kind: schedule, schedule, fire_at}`；`show_in_space` 原样交给 `flow.start`（它照认这个旧名，即运行的 `shown_in`；建定时的界面传它列项目会话的 space，任务就在项目 space 里打开） |
+| 目标（`target.kind`） | `session {instance, session_id, prompt}`：已有会话发一轮，会话忙就排队（`OnBusy::Queue`）；上一次投的还在队列里时这一次并进去（回执 `skipped`、`merged`）。`new_session {mode, project_root?, scene?, instance?, provider?, model?, prompt}`：新会话，`new_once_then_reuse`（缺省，第一次新建、之后都发给它）或 `new_each`（每次新建），标题是「定时标题 · 计划时间」（时区里的 `YYYY-MM-DD HH:MM`）。`task {flow, subject, inputs?, project_root, title?, output_dir?, workspace?, shown_in?}`：每次 `flow.start` 一个运行，`trigger` 是 `{kind: schedule, schedule, fire_at}`；`shown_in` 原样交给 `flow.start`（建定时的界面传它列项目会话的 space，任务就在项目 space 里打开） |
 | 错过（`missed`） | 晚了一分钟以上的算错过（Harnix 没在跑、机器睡着）：`catch_up_latest`（缺省）只补最近一次，`skip` 一次也不补、记一条 `skipped`、`missed` |
 | 并发（`concurrency`） | 只对任务：上一次的运行还在跑时 `skip`（缺省，记 `previous_run`）或 `parallel`（再起一个，配合 `workspace: worktree`）。会话目标按会话排队 |
 | 最小间隔 | 同一条定时两次投递至少隔 60 秒，「立即执行」也算；不到就记 `skipped`、`min_interval` |
@@ -717,8 +723,8 @@ Harnix app 是原生扩展最小的例子：一个后端扩展、一个界面包
 | 在哪 | 贡献点 | 是什么 |
 |---|---|---|
 | 会话菜单「定时…」 | `session.action`（`schedule.session`，`at: ["menu"]`） | 对话框（`schedule-session`）：这个会话的定时和模型在它里面建的；「新建定时」的目标是往它发一轮，定时属于会话所在的 space。别的扩展展示过来的会话（`exposed_from`）不出这一项 |
-| 新任务对话框、流程详情「定时运行这个流程…」 | `flow.start.action`（`@harnix/flow` 定义，[Harnix 扩展](harnix-ext.md) 的扩展定义的点） | 编辑器，目标是任务，对话框里已填的流程、inputs、对象、标题、输出目录、worktree 带过来；从项目来的项目固定，`show_in_space` 与定时的 space 是项目 space 列会话的那个；流程详情没有项目，编辑器里问 |
-| 项目概况第 40 块「定时」 | `harnix-app.project.panels`（`schedule.project`） | 目标在这个项目里的定时（`overview-schedules`）；「新建定时」可选新会话或任务，项目固定，`show_in_space` 同上 |
+| 新任务对话框、流程详情「定时运行这个流程…」 | `flow.start.action`（`@harnix/flow` 定义，[Harnix 扩展](harnix-ext.md) 的扩展定义的点） | 编辑器，目标是任务，对话框里已填的流程、inputs、对象、标题、输出目录、worktree 带过来；从项目来的项目固定，`shown_in` 与定时的 space 是项目 space 列会话的那个；流程详情没有项目，编辑器里问 |
+| 项目概况第 40 块「定时」 | `harnix-app.project.panels`（`schedule.project`） | 目标在这个项目里的定时（`overview-schedules`）；「新建定时」可选新会话或任务，项目固定，`shown_in` 同上 |
 | 首页第 50 块「定时」 | `harnix-app.home.panels`（`schedule.all`，`wide`） | 全部定时与模型建的，见 §10.2 |
 | 会话行的时钟 | `harnix-app.session.badge`（`schedule.clock`） | 有开着的定时发给它（或复用它），或模型在它里面建了定时：一个时钟（`session-schedule-badge`，`data-count`），悬停列出前两条和下一次时间 |
 | 任务行的下一次时间 | `flow.task.badge`（`schedule.next`） | 起它的那条定时还开着时，「下一次 13 小时后」（`task-schedule-next`）；流程自己的时钟在它前面 |

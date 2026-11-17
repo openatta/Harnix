@@ -162,7 +162,7 @@ Feature：
 
 库没有自己的项目数据目录名，也不知道 worktree 放哪：由宿主给，`ProjectLayout { dir, worktrees_root, branch_prefix, agent_dirs }`
 （`Engine::with_layout`；没有缺省值）。Harnix 给的是 `.harnix`、流程扩展数据目录下的 `worktrees`、`harnix/flow`，以及引擎沙箱
-允许会话写的 `.harnix/` 子目录 `scratchpad`、`memory`、`worktrees`（`with_agent_dirs`）。
+允许会话写的 `.harnix/` 子目录 `scratchpad`、`memory`（`with_agent_dirs`）；在 Harnix 上做的带品牌的应用给的是它自己的 `.<product_id>` 与 `<名字>/flow`。
 
 ```text
 <项目>/<dir>/flows/          项目自己的流程包，随项目提交（ProjectPacks::new 收这个布局；项目受信才读）

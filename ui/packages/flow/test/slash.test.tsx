@@ -236,6 +236,11 @@ describe("为这个项目建流程", () => {
     expect(await trustedForAuthoring(fake.host, { root: ROOT, trust: { status: async () => "untrusted", ask } })).toBe(true);
     expect(fake.host.dialogs.confirm).toHaveBeenCalledWith(expect.stringContaining(`${ROOT}/.harnix/flows/`), expect.anything());
     expect(ask).toHaveBeenCalledTimes(1);
+    // A branded product's projects keep its own directory, and the question names it.
+    const branded = fakeHost();
+    Object.assign(branded.host, { projectDir: ".acme" });
+    await trustedForAuthoring(branded.host, { root: ROOT, trust: { status: async () => "untrusted", ask: vi.fn(async () => true) } });
+    expect(branded.host.dialogs.confirm).toHaveBeenCalledWith(expect.stringContaining(`${ROOT}/.acme/flows/`), expect.anything());
     vi.mocked(fake.host.dialogs.confirm).mockResolvedValueOnce(false);
     const view = space({ instance: "main", sessionId: "general" });
     await authorForProject(fake.host, new Registry(), view, { root: ROOT, trust: { status: async () => "untrusted", ask } });

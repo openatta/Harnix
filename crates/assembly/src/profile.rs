@@ -110,6 +110,9 @@ impl Profile {
                 anyhow::bail!("[brand] product_id `{id}`: lowercase letters, digits and `-`, starting with a letter");
             }
         }
+        // Before anything is built: a name the engine would refuse stops the start here, saying
+        // which key gave it.
+        self.brand.names()?;
         Ok(())
     }
 }
@@ -197,8 +200,43 @@ pub(crate) struct BrandProfile {
     /// An SVG file, relative to the profile, shown beside the name.
     pub icon: Option<PathBuf>,
     /// Names the product's own directory, `~/.<product_id>`: lowercase letters, digits and `-`,
-    /// starting with a letter. `harnix` when absent.
+    /// starting with a letter. `harnix` when absent. Also its directory in each project,
+    /// `.<product_id>`, unless `project_dir` says otherwise.
     pub product_id: Option<String>,
+    /// The directory the engine and Harnix keep in each project, in place of `.<product_id>`
+    /// (`.harnix` with no product id): `.` then `[a-z0-9._-]`, no other tool's (`.git`, `.claude`…).
+    pub project_dir: Option<String>,
+    /// The name the engine goes by — what the model is told it is, the `User-Agent` of its
+    /// requests, its worktrees' branches — in place of `name` (`Harnix` with neither): an ASCII
+    /// letter, then up to 31 ASCII letters, digits, `-` or `_`. Needed when `name` is not one.
+    pub product_name: Option<String>,
+}
+
+impl BrandProfile {
+    /// The directory the engine keeps in each project and the name it goes by: what this brand
+    /// says, else `.<product_id>` and `name` (`product_id` when there is no name), else Harnix's
+    /// own. A name the engine would refuse is an error naming the key it came from.
+    pub fn names(&self) -> anyhow::Result<harnix_contract::ProductNames> {
+        use harnix_contract::product::{check_product_name, check_project_dir, DEFAULT_PRODUCT_NAME, DEFAULT_PROJECT_DIR};
+        let (dir, dir_key) = match (&self.project_dir, &self.product_id) {
+            (Some(dir), _) => (dir.clone(), "project_dir"),
+            (None, Some(id)) => (format!(".{id}"), "product_id"),
+            (None, None) => (DEFAULT_PROJECT_DIR.to_string(), "project_dir"),
+        };
+        if let Err(why) = check_project_dir(&dir) {
+            anyhow::bail!("[brand] {dir_key}: `{dir}` cannot be the directory the engine keeps in each project: {why}; set [brand] project_dir to one that can");
+        }
+        let (name, name_key) = match (&self.product_name, &self.name, &self.product_id) {
+            (Some(name), _, _) => (name.as_str(), "product_name"),
+            (None, Some(name), _) => (name.as_str(), "name"),
+            (None, None, Some(id)) => (id.as_str(), "product_id"),
+            (None, None, None) => (DEFAULT_PRODUCT_NAME, "product_name"),
+        };
+        if let Err(why) = check_product_name(name) {
+            anyhow::bail!("[brand] {name_key}: `{name}` cannot be the name the engine goes by: {why}; set [brand] product_name to one that can (the page keeps `name`)");
+        }
+        harnix_contract::ProductNames::new(&dir, name).map_err(|e| anyhow::anyhow!("[brand] {e}"))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -288,6 +326,31 @@ mod tests {
         assert_eq!(shell("").narrow_details, NarrowDetails::Over);
         assert_eq!(shell("[shell]\nnarrow_details = \"beside\"\n").narrow_details, NarrowDetails::Beside);
         assert!(Profile::parse("[shell]\nnarrow_details = \"under\"\n").is_err());
+    }
+
+    /// No brand, Harnix's names; a product id names the project directory too, the brand's name
+    /// the engine; either can be said outright, and a name the engine would refuse stops the start
+    /// naming the key it came from.
+    #[test]
+    fn a_brand_names_the_engines_project_directory_and_the_engine() {
+        let names = |text: &str| Profile::parse(text).map(|p| p.brand.names().unwrap());
+        let n = names("").unwrap();
+        assert_eq!((n.project_dir(), n.product_name()), (".harnix", "Harnix"));
+        let n = names("[brand]\nname = \"Helm\"\nproduct_id = \"helm\"\n").unwrap();
+        assert_eq!((n.project_dir(), n.product_name()), (".helm", "Helm"));
+        let n = names("[brand]\nproduct_id = \"hello-app\"\n").unwrap();
+        assert_eq!((n.project_dir(), n.product_name()), (".hello-app", "hello-app"));
+        let n = names("[brand]\nname = \"Acme Desk\"\nproduct_id = \"acme\"\nproduct_name = \"AcmeDesk\"\nproject_dir = \".acme-desk\"\n").unwrap();
+        assert_eq!((n.project_dir(), n.product_name()), (".acme-desk", "AcmeDesk"));
+
+        let err = names("[brand]\nname = \"Acme Desk\"\nproduct_id = \"acme\"\n").unwrap_err().to_string();
+        assert!(err.contains("[brand] name") && err.contains("product_name"), "{err}");
+        let err = names("[brand]\nproduct_id = \"github\"\n").unwrap_err().to_string();
+        assert!(err.contains("[brand] product_id") && err.contains("another tool") && err.contains("project_dir"), "{err}");
+        let err = names("[brand]\nproject_dir = \"acme\"\n").unwrap_err().to_string();
+        assert!(err.contains("[brand] project_dir") && err.contains("start with `.`"), "{err}");
+        let err = names("[brand]\nproduct_name = \"1acme\"\n").unwrap_err().to_string();
+        assert!(err.contains("[brand] product_name"), "{err}");
     }
 
     #[test]

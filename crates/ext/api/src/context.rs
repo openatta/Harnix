@@ -279,6 +279,14 @@ impl ExtensionContext {
         self.shared.ports.projects_dir()
     }
 
+    /// The directory this product keeps in each project — `.harnix`, or a branded application's
+    /// `.<product_id>` — and the name its engine goes by. What an extension writes for a project
+    /// goes in `product().data_dir_of(project)`, the engine's project tier beside it; never a
+    /// `.harnix` of its own.
+    pub fn product(&self) -> &harnix_engine_api::ProductNames {
+        self.shared.ports.product()
+    }
+
     pub fn credentials(&self) -> &dyn Credentials {
         self.shared.ports.credentials()
     }

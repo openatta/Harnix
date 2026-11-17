@@ -31,7 +31,7 @@ pub struct ProjectLayout {
     /// What a run's worktree branch is named under: `<branch_prefix>/<run>`.
     pub branch_prefix: String,
     /// Directories in the data directory a task's session writes as its own, by name
-    /// (`scratchpad`, `memory`, `worktrees` in Harnix: what its sandbox lets a session write
+    /// (`scratchpad`, `memory` in Harnix: what its sandbox lets a session write
     /// there). The rest of the data directory is the host's, outside what the task works in.
     pub agent_dirs: Vec<String>,
 }

@@ -63,11 +63,11 @@ describe("a new schedule's draft", () => {
       target: { kind: "session", instance: "main", session_id: "s1", prompt: "hi" },
       missed: "catch_up_latest",
     });
-    const ctx: EditorContext = { kinds: ["task"], project: ROOT, space: "sessions", showInSpace: "sessions" };
+    const ctx: EditorContext = { kinds: ["task"], project: ROOT, space: "sessions", shownIn: "sessions" };
     const fields = inputFields({ type: "object", properties: { target: { type: "string" } } });
     const task = createParams(filled(ctx, { title: "Nightly", flow: "example-review", subject: "the repo", inputs: { target: "src/" }, concurrency: "parallel", workspace: "worktree" }), ctx, fields);
     expect(task).toMatchObject({ space: "sessions", concurrency: "parallel" });
-    expect(task.target).toEqual({ kind: "task", flow: "example-review", subject: "the repo", inputs: { target: "src/" }, project_root: ROOT, workspace: "worktree", show_in_space: "sessions" });
+    expect(task.target).toEqual({ kind: "task", flow: "example-review", subject: "the repo", inputs: { target: "src/" }, project_root: ROOT, workspace: "worktree", shown_in: "sessions" });
   });
 });
 

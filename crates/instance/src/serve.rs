@@ -23,6 +23,9 @@ pub struct DaemonArgs {
     /// The instance reaps on stop: the engine records its commands' process groups in the data
     /// root, and stops what a daemon that was killed left there before it builds anything.
     pub reap: bool,
+    /// The directory the engine keeps in a project and the name it goes by: the spawning
+    /// product's.
+    pub names: harnix_engine_api::ProductNames,
 }
 
 /// Serve the engine `args` describe. What a template contributes natively is not built here: the
@@ -44,7 +47,7 @@ pub async fn serve_daemon(args: DaemonArgs) -> anyhow::Result<()> {
         }
         None => None,
     };
-    let mut config = EngineConfig { socket: Some(args.socket.clone()), ..EngineConfig::from_profile(&args.engine, &args.data_root) };
+    let mut config = EngineConfig { socket: Some(args.socket.clone()), ..EngineConfig::from_profile(&args.engine, &args.data_root).named(&args.names) };
     if args.reap {
         config = config.reaping();
     }

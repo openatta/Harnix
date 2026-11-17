@@ -131,7 +131,7 @@ test("a task schedule from a project's overview starts a task: a row of the proj
   const scheduled = block.locator('[data-testid="schedule-row"][data-kind="task"]');
   await expect(scheduled).toHaveCount(1, { timeout: 10_000 });
   const made = (await call(page, "schedule.list", { project: path })).schedules[0];
-  expect(made).toMatchObject({ project: path, timing: { kind: "weekly", weekdays: [1, 2, 3, 4, 5], time: "09:00" }, target: { kind: "task", flow: "example-review", show_in_space: "sessions" } });
+  expect(made).toMatchObject({ project: path, timing: { kind: "weekly", weekdays: [1, 2, 3, 4, 5], time: "09:00" }, target: { kind: "task", flow: "example-review", shown_in: "sessions" } });
 
   // Run now: a run of the project, said to be the schedule's, shown in the session space.
   await scheduled.getByTestId("schedule-run-now").click();

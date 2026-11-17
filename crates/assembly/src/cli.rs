@@ -60,11 +60,19 @@ pub(crate) struct DaemonCommand {
     /// stop what a daemon that was killed left there before building the engine.
     #[arg(long)]
     pub reap: bool,
+    /// The directory the engine keeps in each project (the spawning product's; `.harnix` when not
+    /// given).
+    #[arg(long, default_value = harnix_contract::product::DEFAULT_PROJECT_DIR)]
+    pub project_dir: String,
+    /// The name the engine goes by (the spawning product's; `Harnix` when not given).
+    #[arg(long, default_value = harnix_contract::product::DEFAULT_PRODUCT_NAME)]
+    pub product_name: String,
 }
 
 impl DaemonCommand {
-    pub fn args(&self) -> harnix_instance::DaemonArgs {
-        harnix_instance::DaemonArgs {
+    pub fn args(&self) -> anyhow::Result<harnix_instance::DaemonArgs> {
+        let names = harnix_contract::ProductNames::new(&self.project_dir, &self.product_name).map_err(|e| anyhow::anyhow!("{e}"))?;
+        Ok(harnix_instance::DaemonArgs {
             data_root: self.data_root.clone(),
             socket: self.socket.clone(),
             engine: {
@@ -82,7 +90,8 @@ impl DaemonCommand {
             instance: self.instance.clone(),
             lock_wait: std::time::Duration::from_secs(self.lock_wait),
             reap: self.reap,
-        }
+            names,
+        })
     }
 }
 
@@ -384,5 +393,28 @@ mod profile_tests {
         assert!(!named(&off, true), "a product's default does not reopen what its profile closed");
         assert!(named(&on, false));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn daemon(extra: &[&str]) -> anyhow::Result<harnix_instance::DaemonArgs> {
+        let args = ["harnix", "daemon", "--data-root", "/d", "--socket", "/s"].iter().chain(extra);
+        let cli = Cli::try_parse_from(args).unwrap();
+        let Some(Command::Daemon(daemon)) = cli.command else { panic!("not the daemon") };
+        daemon.args()
+    }
+
+    /// A spawned daemon goes by the names the product that spawned it gives, Harnix's when it
+    /// gives none, and refuses one the engine would.
+    #[test]
+    fn a_daemon_takes_the_products_names() {
+        let names = daemon(&[]).unwrap().names;
+        assert_eq!((names.project_dir(), names.product_name()), (".harnix", "Harnix"));
+        let names = daemon(&["--project-dir", ".acme", "--product-name", "Acme"]).unwrap().names;
+        assert_eq!((names.project_dir(), names.product_name()), (".acme", "Acme"));
+        assert!(daemon(&["--project-dir", ".git"]).unwrap_err().to_string().contains("project_dir"));
     }
 }

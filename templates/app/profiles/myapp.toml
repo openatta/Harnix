@@ -1,3 +1,10 @@
+# Your product: its name on the page and to the engine (`product_name` when the name is not one
+# the engine takes: an ASCII letter, then letters, digits, `-`, `_`), its state in ~/.myapp, and
+# its directory in each project, `.myapp/` (`project_dir` to name it otherwise).
+[brand]
+name = "MyApp"
+product_id = "myapp"
+
 [engine]
 scene = "harnix"
 

@@ -53,7 +53,7 @@ interface StartDraft {
   output_dir?: string;
   workspace?: string;
   project_root?: string;
-  show_in_space?: string;
+  shown_in?: string;
 }
 
 export function register(r: Registry, host: HostApi): Dispose {
@@ -106,7 +106,7 @@ export function register(r: Registry, host: HostApi): Dispose {
       label: () => t("schedule.action.task"),
       // From a flow's detail there is no project yet (`null`): the editor asks for one.
       run: (draft: StartDraft) =>
-        scheduleEditor(host, r, { kinds: ["task"], task: draft, project: draft.project_root ?? null, space: draft.show_in_space, showInSpace: draft.show_in_space }).then(() => undefined),
+        scheduleEditor(host, r, { kinds: ["task"], task: draft, project: draft.project_root ?? null, space: draft.shown_in, shownIn: draft.shown_in }).then(() => undefined),
     },
     extension,
     quiet,

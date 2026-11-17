@@ -23,7 +23,7 @@
 | 迁移 | `migrations` | 2 | — 迁移没有自己的界面；结果在诊断页（设置 · 诊断） | — |
 | 扩展的 HTTP 路由 | `routes` | 5 | 1 | — |
 | 扩展条目 | `entries` | 5 | 3 | — |
-| 品牌与主题 | `brand` | 2 | 1 | — |
+| 品牌与主题 | `brand` | 4 | 1 | — |
 | 流程（harnix-ext-flow 与流程 space，xops-01、xops-02） | `flow` | 43 | 27 | — |
 | 定时（harnix-ext-schedule：时间与时区、三种目标、错过与并发、回执、模型建的定时） | `schedule` | 6 | 3 | — |
 | 扩展包（登记与撤下、安装与卸载、启停、工具、agent 包、界面模块、隔离 iframe 里的界面与外壳的桥、MCP 端点、WASM 后端、扩展进程、诊断里的运行状况、会话看得到的 skill 与 hook、诊断里的扩展日志） | `packages` | 69 | 19 | 69 |
@@ -32,7 +32,7 @@
 | 扩展包后端的闲置休眠（on-demand、冷启动、并发唤醒只起一个实例、订阅与定时器保持常驻、诊断里的运行状况） | `packages-idle` | 6 | 1 | 7 |
 | 应用构建 | `build` | — 在脚本层检查（check-pins、check-lock、sync-app-deps），不经协议 | — 构建没有界面 | — |
 | 桌面壳 | `desktop` | — 桌面壳不加协议面：webview 加载的就是服务端的页面 | — 桌面壳是模板（templates/desktop）：它不调 IPC 由 check-no-ipc.mjs 在 offline 层查，本机模式由它的 --smoke 查 | — |
-| **合计** | | **500** | **265** | **102** |
+| **合计** | | **502** | **265** | **102** |
 
 ## 已知缺口（`@gap`）
 

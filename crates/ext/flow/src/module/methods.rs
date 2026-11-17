@@ -965,7 +965,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         packs,
         "start",
         devices_and_the_scheduler(),
-        "start a run: {flow, subject, inputs?, title?, project_root?, workspace?: project|worktree|scratch, output_dir?, trigger?: {kind: manual} | {kind: schedule, schedule, fire_at}, shown_in?, from_session?: {instance?, session_id, space}} → {run}; with a project_root (an existing absolute directory) the run is a task of that project; output_dir (a template relative to the project, before the flow's and flows/${flow}-${date}${seq}) is made at start and must stay inside it; workspace (absent: the flow's, else project) worktree needs a git repository with a commit: the run works in a worktree of its own out of the project, on the branch harnix/flow/<run>, decided with worktree.merge|keep|discard once over; only the kernel and extensions start one on a schedule; shown_in (show_in_space, its earlier name, is read too) names a space the main session is also shown in, to be looked at and talked to there; from_session names the conversation it was started from, which gets a card linking to the run (an entry task_started; one that cannot be written is logged and the run goes on)",
+        "start a run: {flow, subject, inputs?, title?, project_root?, workspace?: project|worktree|scratch, output_dir?, trigger?: {kind: manual} | {kind: schedule, schedule, fire_at}, shown_in?, from_session?: {instance?, session_id, space}} → {run}; with a project_root (an existing absolute directory) the run is a task of that project; output_dir (a template relative to the project, before the flow's and flows/${flow}-${date}${seq}) is made at start and must stay inside it; workspace (absent: the flow's, else project) worktree needs a git repository with a commit: the run works in a worktree of its own out of the project, on the branch harnix/flow/<run>, decided with worktree.merge|keep|discard once over; only the kernel and extensions start one on a schedule; shown_in names a space the main session is also shown in, to be looked at and talked to there; from_session names the conversation it was started from, which gets a card linking to the run (an entry task_started; one that cannot be written is logged and the run goes on)",
         |sh, _, cx, p: StartParams| async move {
             let by = caller(&cx);
             let trigger = start_trigger(cx.device().is_some(), p.trigger, &by)?;
@@ -1490,9 +1490,9 @@ mod tests {
         assert_eq!((bare.project_root, bare.workspace, bare.trigger), (None, None, None));
         let shown: StartParams = serde_json::from_value(json!({"flow": "f", "subject": "s", "shown_in": "sessions"})).unwrap();
         assert_eq!(shown.shown_in.as_deref(), Some("sessions"));
-        // Its earlier name still reads.
+        // Its earlier name is not read.
         let earlier: StartParams = serde_json::from_value(json!({"flow": "f", "subject": "s", "show_in_space": "sessions"})).unwrap();
-        assert_eq!(earlier.shown_in.as_deref(), Some("sessions"));
+        assert_eq!(earlier.shown_in, None);
     }
 
     /// The space a start shows the main session in is a space id, trimmed; none or blank is none;

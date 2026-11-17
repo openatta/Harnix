@@ -811,8 +811,7 @@ trigger?: StartTrigger,
 /**
  * A space the run's main session is shown in besides the flow's own — the one the
  * interface that starts a task lists the project's sessions in — to be looked at and talked
- * to there (`harnix.session.expose`). Absent: shown nowhere else. `show_in_space`, its
- * earlier name, is read too.
+ * to there (`harnix.session.expose`). Absent: shown nowhere else.
  */
 shown_in?: string, 
 /**

@@ -150,6 +150,9 @@ pub struct Brand {
     /// Where the icon is served, when the profile names one.
     pub icon: Option<String>,
     pub product_id: String,
+    /// The directory the engine and Harnix keep in each project: `.harnix`, or the product's
+    /// (`.<product_id>`, `[brand] project_dir`).
+    pub project_dir: String,
 }
 
 /// `[shell] narrow_details`: `beside` keeps three columns at ≤ 960px instead of maximizing an open

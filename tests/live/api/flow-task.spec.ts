@@ -134,6 +134,8 @@ test("a task's deliverables go in flows/<flow>-<date>01, its progress in .harnix
   // The project's own flows (`flows/`) are committed, and worktrees are not in the project at all.
   const ignored = readFileSync(join(project, ".harnix", ".gitignore"), "utf8").split("\n");
   expect(ignored).toContain("runs/");
+  // The engine's are what is this machine's and this user's; its worktrees are not here at all.
+  expect(ignored).toEqual(expect.arrayContaining(["settings.local.json", "memory/", "scratchpad/"]));
   expect(ignored).not.toContain("worktrees/");
   expect(ignored).not.toContain("flows/");
   // Nothing else in the project: the engine's project tier is in the same `.harnix/`.
@@ -215,7 +217,7 @@ test("a worktree task writes in its worktree, not the project's tree; merged, th
   const done = await until(run, (v) => v.record.status !== "active" || !!station(v, "write")?.tasks?.[0]?.asking, "the run finishes");
   expect(done.record.status).toBe("finished");
   const wt = done.record.worktree;
-  // Out of the project (the engine's own worktrees are in its `.harnix/worktrees/`), in Harnix's state:
+  // Out of the project (the engine's own worktrees are in the repository's `.wkts/`), in Harnix's state:
   // the flow extension's data directory, on a branch apart from the engine's `harnix/worktree-*`.
   expect(wt).toMatchObject({ branch: `harnix/flow/${run}` });
   expect(wt.path.endsWith(`/ext/flow/data/worktrees/${run}`)).toBe(true);

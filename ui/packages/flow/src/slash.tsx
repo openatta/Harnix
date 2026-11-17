@@ -20,7 +20,7 @@
 import { Glyph, t, useT, type CommandCandidate, type CommandContext, type HostApi, type HostSessionRef as SessionRef, type MenuItem, type Registry, type SpaceContribution } from "@harnix/react";
 
 import { errorText, useRunView } from "./hooks";
-import { defBlockedKey, defsOf, methodName, phaseOf, type BlockShape } from "./model";
+import { defBlockedKey, defsOf, methodName, phaseOf, projectDir, type BlockShape } from "./model";
 import { fieldsOf, newTaskDialog } from "./NewTask";
 import { PhaseBadge, taskStep } from "./RunPanel";
 import type { FlowSpace } from "./space";
@@ -244,7 +244,7 @@ export async function trustedForAuthoring(host: HostApi, context: ProjectMenuCon
     host.shell.notice(t("flowui.forProject.noLayer"), "error");
     return false;
   }
-  const go = await host.dialogs.confirm(t("flowui.forProject.trustFirst", { path: context.root }), { title: t("flowui.forProject.title"), confirm: t("flowui.forProject.trust") });
+  const go = await host.dialogs.confirm(t("flowui.forProject.trustFirst", { path: context.root, dir: projectDir(host) }), { title: t("flowui.forProject.title"), confirm: t("flowui.forProject.trust") });
   return go && (await trust.ask());
 }
 

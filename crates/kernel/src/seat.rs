@@ -119,6 +119,8 @@ pub struct Seat {
     pub data_dir: PathBuf,
     /// Where this product's projects live: what the picker opens on and a new project is made in.
     pub projects_dir: PathBuf,
+    /// The directory the engine and Harnix keep in each project, and the name the engine goes by.
+    pub product: harnix_contract::ProductNames,
     pub dispatch: Arc<dyn Dispatch>,
     pub grants: Arc<dyn GrantBook>,
     pub clients: Arc<dyn ClientRegistry>,

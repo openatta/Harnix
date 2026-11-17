@@ -200,6 +200,10 @@ impl Ports {
         &self.seat.projects_dir
     }
 
+    pub(crate) fn product(&self) -> &harnix_engine_api::ProductNames {
+        &self.seat.product
+    }
+
     pub(crate) fn listen_now(&self) -> Option<Listen> {
         let rx = self.seat.listen.as_ref()?;
         let listening = rx.borrow().clone();

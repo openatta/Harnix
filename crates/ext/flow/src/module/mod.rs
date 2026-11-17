@@ -63,25 +63,32 @@ use state::{Config, ConversationRecordingFn, Shared};
 /// The extension's id: methods and topics are `flow.*`, its templates `flow.<id>`.
 pub const MODULE_ID: &str = "flow";
 
-/// What a run's worktree branch is named under: `harnix/flow/<run>`, apart from the engine's own
-/// `harnix/worktree-*`.
+/// What a run's worktree branch is named under in Harnix: `harnix/flow/<run>`, apart from the
+/// engine's own `harnix/worktree-*`. A branded product's is `<its lowercase name>/flow`.
 pub const BRANCH_PREFIX: &str = "harnix/flow";
 
-/// The directories of a project's `.harnix/` the engine's sandbox lets a session write: a task's
-/// own there, where the rest of the directory is the application's.
-pub const AGENT_DIRS: &[&str] = &["scratchpad", "memory", "worktrees"];
+/// The directories of a project's data directory (`.harnix/`) the engine's sandbox lets a session
+/// write: a task's own there, where the rest of the directory is the application's.
+pub const AGENT_DIRS: &[&str] = &["scratchpad", "memory"];
 
 /// The prefix of the HTTP headers a webhook delivery carries: `X-Harnix-Event`, `-Delivery`,
 /// `-Timestamp`, `-Signature`.
 pub const HOOK_HEADERS: &str = "X-Harnix";
 
-/// Where the extension keeps what it writes for a project, from its data directory: the project's
-/// `.harnix/` (shared with the engine), runs' worktrees in `<data>/worktrees/<run>` on
-/// [`BRANCH_PREFIX`]`/<run>`. An extension is handed only its own directory, so the worktrees are
-/// there rather than beside the engine's state.
-pub(crate) fn layout(data_dir: &Path) -> crate::ProjectLayout {
-    crate::ProjectLayout::new(harnix_ext::engine::PROJECT_DIR, data_dir.join("worktrees"), BRANCH_PREFIX)
+/// Where the extension keeps what it writes for a project, from the product's names and its data
+/// directory: the project's data directory (`.harnix/`, a branded product's `.<product_id>/`,
+/// shared with the engine), runs' worktrees in `<data>/worktrees/<run>` on `<product>/flow/<run>`
+/// ([`BRANCH_PREFIX`] in Harnix). An extension is handed only its own directory, so the worktrees
+/// are there rather than beside the engine's state.
+pub(crate) fn project_layout(names: &harnix_ext::engine::ProductNames, data_dir: &Path) -> crate::ProjectLayout {
+    crate::ProjectLayout::new(names.project_dir(), data_dir.join("worktrees"), format!("{}/flow", names.product_id()))
         .with_agent_dirs(AGENT_DIRS.iter().copied())
+}
+
+/// Harnix's own layout, with no brand: what the tests take.
+#[cfg(test)]
+pub(crate) fn layout(data_dir: &Path) -> crate::ProjectLayout {
+    project_layout(&Default::default(), data_dir)
 }
 
 /// `spec`, with `set` applied when there is a value to set.
@@ -585,7 +592,7 @@ impl Extension for Flow {
         if let Some(make) = lock(&self.lazy_packs).take() {
             self.packs.set_inner(make(cx.data_dir()));
         }
-        let layout = layout(cx.data_dir());
+        let layout = project_layout(cx.product(), cx.data_dir());
         self.packs.set_layout(layout.clone());
         let packs: Arc<dyn Packs> = self.packs.clone();
         let mut engine = Engine::new(store, packs.clone())
@@ -756,7 +763,18 @@ mod tests {
         let l = layout(Path::new("/state/ext/flow/data"));
         assert_eq!(l.dir, harnix_ext::engine::PROJECT_DIR);
         assert_eq!(l.worktree_dir("f-1"), Path::new("/state/ext/flow/data/worktrees/f-1"));
-        assert_eq!(l.worktree_branch("f-1"), "harnix/flow/f-1");
-        assert_eq!(l.agent_dirs_in("/p"), ["/p/.harnix/scratchpad", "/p/.harnix/memory", "/p/.harnix/worktrees"]);
+        assert_eq!(l.worktree_branch("f-1"), format!("{BRANCH_PREFIX}/f-1"));
+        assert_eq!(l.agent_dirs_in("/p"), ["/p/.harnix/scratchpad", "/p/.harnix/memory"]);
+    }
+
+    /// A branded product's projects keep its own directory, and its runs' branches its own name.
+    #[test]
+    fn a_branded_products_layout_is_its_own() {
+        let names = harnix_ext::engine::ProductNames::new(".acme", "Acme").unwrap();
+        let l = project_layout(&names, Path::new("/state/ext/flow/data"));
+        assert_eq!(l.dir, ".acme");
+        assert_eq!(l.worktree_branch("f-1"), "acme/flow/f-1");
+        assert_eq!(l.runs_dir(Path::new("/p")), Path::new("/p/.acme/runs"));
+        assert_eq!(l.agent_dirs_in("/p"), ["/p/.acme/scratchpad", "/p/.acme/memory"]);
     }
 }

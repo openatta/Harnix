@@ -265,7 +265,7 @@ function NewTaskForm({ host, module, options, onStarted, close }: { host: HostAp
           output_dir: outputDir.trim() || undefined,
           workspace: workspaceParam(git, worktree),
           project_root: options.root,
-          show_in_space: options.space || undefined,
+          shown_in: options.space || undefined,
         }
       : null;
 

@@ -295,9 +295,11 @@ Harnix 只管什么时候迁、失败了怎么办，不管用什么迁。数据�
   `data_dir`）放 `~/.<product_id>`，不配 `[brand]` 就是 `~/.harnix`；`HARNIX_STATE_DIR` 能挪。
 - 项目根（选项目从这里开始、新项目建在这里）是 `cx.projects_dir()`：缺省 `~/Documents`，`--data-dir` / `HARNIX_DATA_DIR` 能改。
   Documents 里只放项目，不放隐藏目录。
-- 项目里，项目自己的数据与配置一律放 `<项目>/.harnix/`（`harnix::engine::PROJECT_DIR`：引擎的项目层也在这里），不另开 `<项目>/.<你的产品>/`。
-  引擎在里面占着设置、agents、hooks、rules、memory、`worktrees/`、`teams/` 等，扩展用自己的子目录（流程用 `runs/`、`flows/`）；
-  沙箱里的命令在这里只写得了引擎的 `scratchpad/`、`memory/`、`worktrees/`，扩展的子目录由扩展自己（宿主进程）写。
+- 项目里，项目自己的数据与配置一律放项目数据目录 `<项目>/.harnix/`（引擎的项目层也在这里），不另开别的目录。带品牌的应用的是
+  `<项目>/.<product_id>/`（`[brand] project_dir` 可另起名，§18），引擎、Harnix 和扩展都用它：扩展从 `cx.product().project_dir()`
+  读名字、`cx.product().data_dir_of(项目)` 拿路径，不写死 `.harnix`（`harnix::engine::PROJECT_DIR` 只是 Harnix 自己的名字）。
+  引擎在里面占着设置、agents、hooks、rules、memory、`teams/` 等，扩展用自己的子目录（流程用 `runs/`、`flows/`）；
+  沙箱里的命令在这里只写得了引擎的 `scratchpad/`、`memory/`，扩展的子目录由扩展自己（宿主进程）写。引擎的 worktree 不在这里，在仓库根的 `.wkts/`。
 
 ## 6. Agent 侧
 
@@ -335,7 +337,7 @@ fn register(&self, r: &mut Registrar<'_, ()>) {
   之后新建的会话有新的工具集，已有的会话保持原样。工具名要符合引擎的字母表（字母、数字、`_`、`-`），一个会话自己的工具至多 64 个。
 - **`ToolHook` 在权限检查之前就看到调用**；`ToolCallFacts` 带发起调用的会话（`session_id()`，子 Agent 的调用是它自己的 id）、`depth()`（人开的会话为 0，子 Agent 逐层加 1）与 `cwd()`。
 - **工具在哪干活**：`ToolCx::project()` 是会话的项目；`cwd()` 是发起调用的会话的工作目录——模型在 git worktree 里起的子 Agent 是那个 worktree
-  （`<项目>/.harnix/worktrees/<名>`），读写文件要照它，否则同 `project()`。流程在 worktree 里跑的任务（`workspace: worktree`）不是这种：
+  （仓库根的 `.wkts/<名>`），读写文件要照它，否则同 `project()`。流程在 worktree 里跑的任务（`workspace: worktree`）不是这种：
   它的会话本来就开在那个运行的 worktree 里（在项目之外，流程扩展的数据目录下 `worktrees/<运行>`），`project()` 就是那个 worktree，扩展包的工具照 `project()` 读写也落在 worktree 里。`depth()` 与钩子的同义。
   `HookDecision::AddContext` 的文字在这次调用放行之后、模型的下一步之前，作为 system-reminder 交给模型。
 - **宿主工具的权限**由链路按 `Tool::permission` 代答：`Allow` 与 `Deny` 直接生效，`Ask` 时把工具自己的问句（`Permission::Ask(text)`）附在转给界面的询问上，界面显示它。
@@ -1010,6 +1012,7 @@ pub trait Extension: Send + Sync + 'static {
 | `config::<T>()` | profile 的 `[ext.<id>]` 节 |
 | `data_dir()` | 这个扩展自己的数据目录（`<状态目录>/ext/<id>/data/`，见 §20） |
 | `projects_dir()` | 本产品的项目根：选项目的起点、新项目建在这里 |
+| `product()` | `ProductNames`（`harnix::engine::ProductNames`）：`project_dir()` 项目数据目录的名字（`.harnix` 或 `.<product_id>`）、`data_dir_of(项目)`、`product_name()` 引擎自称的名字、`product_id()` 它的小写（§5.4、§18） |
 | `credentials()` | `&dyn Credentials`：`.get(reference) -> Result<Secret, String>` |
 | `topics()` | `Topics`（§17.3） |
 | `call(method, params)` | 以 `ext:<id>` 的身份调任何方法（根调用），和设备走同一个准入点、同样审计 |
@@ -1137,7 +1140,10 @@ extra_origins = []             # 回环之外允许的浏览器 Origin，例如 
 [brand]
 name = "Helm"                  # 页面标题、左栏产品名；不写是 Harnix
 icon = "brand/helm.svg"        # 品牌图标（SVG），相对 profile 所在目录；服务在 /brand/icon.svg
-product_id = "helm"            # 程序自己的目录 ~/.helm（§20）；小写字母、数字、`-`，字母开头；不写是 harnix
+product_id = "helm"            # 程序自己的目录 ~/.helm（§20），也是项目里的目录 .helm（§5.4）；小写字母、数字、`-`，字母开头；不写是 harnix
+# project_dir = ".helm"        # 项目数据目录，不写是 .<product_id>（再不写是 .harnix）；`.` 开头、小写字母数字与 . _ -，不能是别的工具的（.git、.claude、.github…）
+# product_name = "Helm"        # 引擎自称的名字（模型看到的、请求的 User-Agent、worktree 的分支前缀），不写是 name（再不写是 product_id、Harnix）；
+                               # ASCII 字母开头、至多 32 个字母数字 - _。name 不合这条（有空格、中文）就必须写它，否则启动时报错，指明该写哪个键
 
 [shell]
 model_switch = true            # 加 harnix.session.setModel，能在输入框换模型（只限调用方声称的 space 的会话）；false 不加。不写是产品的 .model_switch（§17.1），它不说是 false
@@ -1238,11 +1244,11 @@ quote_api_key = { credential = "helm/quote-api" }
 | 　`run/` | spawn 的 daemon 的私有套接字目录（0700） |
 | 　`uploads/<pid>/` | 本进程的上传 |
 | 　`ext/<id>/data/` | 原生扩展 `<id>` 的 `data_dir()`（例如 `ext/harnix-app/data/state.json`：工作区、归档、偏好） |
-| 　`ext/flow/data/worktrees/<运行>/` | 流程 worktree 任务的 worktree（分支 `harnix/flow/<运行>`），在项目之外：引擎会清掉 `<项目>/.harnix/worktrees/` 下它不认识的目录（§23） |
+| 　`ext/flow/data/worktrees/<运行>/` | 流程 worktree 任务的 worktree（分支 `harnix/flow/<运行>`），在项目之外，与引擎自己的 worktree（仓库根的 `.wkts/`）分开（§23） |
 | 　`ext/<id>/install.json`、`ext/<id>/<version>/` | 扩展包的安装记录与**同意记录**（扩展进程看不见它）、解开并验过签的包（`packages` 拥有，见 [扩展包](harnix-ext-package.md)） |
 | 　`ext/<id>/run/{data,kv,engine,work,home,tmp}` | 扩展包的数据、kv、（模式 3）它自己 Agix 的根、它的会话的项目目录、`HOME`、`TMPDIR`（载体拥有） |
 | `~/Documents/` | 只放项目：选项目从这里开始，新建项目建在这里（`projects_dir`，`--data-dir` 能改）。Documents 里不放隐藏目录 |
-| `<项目>/.harnix/` | 项目自己的数据与配置**一律**放这里（引擎的项目层也在这），不开 `<项目>/.<产品>/`（§5） |
+| `<项目>/.harnix/`（带品牌的应用：`.<product_id>/`） | 项目数据目录：项目自己的数据与配置**一律**放这里（引擎的项目层也在这），不另开（§5.4） |
 
 扩展的数据（`cx.data_dir()`）随产品 id 走；同一台机器上装 Helm 和 IPDrun 不会抢令牌和账本。
 
@@ -1322,7 +1328,7 @@ cookie。一帧最大 16 MiB（`MAX_FRAME_BYTES`），一次上传最大 32 MiB�
   engine: { model, active_scenes, scene, data_root, has_credentials, providers, status },   // main 实例
   instances: [{ id, carrier, trust, status, version, protocol_version }],
   permission_prompt_timeout_secs, scenes, commands,
-  shell: { brand: { name, icon, product_id }, new_session, narrow_details, model_switch, user },
+  shell: { brand: { name, icon, product_id, project_dir }, new_session, narrow_details, model_switch, user },
   extensions: [{ id, trust, carrier?, version, enabled }] }   // 外壳据此同步激活编译进来的 UI 包；harnix.ui 管之后的变化
 ```
 
@@ -1793,9 +1799,9 @@ worktree、过程目录）也在库里，只通过 trait `SessionHost` 认识会
 
 运行在哪干活（引用 `${workspace}`）：带 `project_root` 的运行是项目任务，在项目里干活，`workspace: worktree` 的在项目之外的 worktree（扩展数据目录下 `worktrees/<运行>`，分支 `harnix/flow/<运行>`；扩展把这些作为 `ProjectLayout` 交给库，见库的[嵌入指南](../crates/flow/docs/embed.zh-CN.md) §2）；
 交付物在它的输出目录（`${output_dir}`），过程在 `<项目>/.harnix/runs/<运行>/`（流程指南「执行与运行」一节）。不带项目的运行，主会话的 scene 需要项目时，
-扩展给它建工作目录（扩展数据目录下 `workspaces/<run>`），不往里写任何东西。`start` 的 `shown_in`（旧名 `show_in_space` 也认）让扩展把主会话展示到那个 space（`cx.sessions().expose`，可对话，§17.6）：项目 space 的「新任务」传它列会话的 space，
+扩展给它建工作目录（扩展数据目录下 `workspaces/<run>`），不往里写任何东西。`start` 的 `shown_in` 让扩展把主会话展示到那个 space（`cx.sessions().expose`，可对话，§17.6）：项目 space 的「新任务」传它列会话的 space，
 任务就在项目 space 里打开；扩展不认识任何 space 的名字，展示失败只记日志，运行照跑。记录与 `flow.runs` 的行带 `shown_in`；记录的 `session_keys` 是会话键 → `{id, opened_with}`（会话、开它时用的场景、模型、推理强度、放哪），按键共享的工作项开得不一样就不进那个会话。
-会话站和流程的 `main` 可以写 `effort`，扩展照它开会话（`SessionSpec::effort`）。任务的工具碰项目的 `.harnix/` 算碰项目之外（只有 `paths` 指到它里面的 `allow` 放开），其中引擎沙箱让会话写的 `scratchpad/`、`memory/`、`worktrees/` 除外（`ProjectLayout::agent_dirs`）；编写会话的 `flow_create` 是扩展自己的工具，不受这条限制。
+会话站和流程的 `main` 可以写 `effort`，扩展照它开会话（`SessionSpec::effort`）。任务的工具碰项目的 `.harnix/` 算碰项目之外（只有 `paths` 指到它里面的 `allow` 放开），其中引擎沙箱让会话写的 `scratchpad/`、`memory/` 除外（`ProjectLayout::agent_dirs`）；编写会话的 `flow_create` 是扩展自己的工具，不受这条限制。
 `start` 的 `from_session {instance?, session_id, space}` 是发起它的对话（`/flow`，[Harnix app](harnix-app.md) §3.2）：扩展声称那个 space、往对话里写一条条目
 `task_started {run, flow, flow_title, title, subject, project_root}`，界面把它画成链到任务的卡；对话本身不变成任务，写不进去只记日志，运行照跑。没写 `agent_type` 的子 Agent 站用引擎不带类型的子 Agent：跑在主会话的 scene 上、用它的工具。钩子是流程包里的文件（`hooks/`），扩展自己投递，没有 `Hooks` trait。
 

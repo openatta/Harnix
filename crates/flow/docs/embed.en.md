@@ -204,8 +204,9 @@ it the runner drives a whole pack from start to finish with no model (`tests/run
 The library has no name of its own for a project's data directory, and no place for worktrees: the
 host says, with `ProjectLayout { dir, worktrees_root, branch_prefix, agent_dirs }`
 (`Engine::with_layout`; there is no default). Harnix gives `.harnix`, its flow extension's data
-directory's `worktrees`, `harnix/flow`, and `scratchpad`, `memory`, `worktrees` as the directories
-of `.harnix/` its engine's sandbox lets a session write (`with_agent_dirs`).
+directory's `worktrees`, `harnix/flow`, and `scratchpad`, `memory` as the directories of `.harnix/`
+its engine's sandbox lets a session write (`with_agent_dirs`); a branded application built on Harnix
+gives its own `.<product_id>` and `<name>/flow`.
 
 ```text
 <project>/<dir>/flows/        the project's own pack, committed with it (ProjectPacks::new takes the

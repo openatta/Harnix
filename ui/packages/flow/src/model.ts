@@ -936,3 +936,8 @@ export function schemaRows(schema: unknown, maxDepth = 8): SchemaRow[] {
   walk(root, "", 0, true, new Set());
   return rows;
 }
+
+/** The directory the product keeps in each project, as the host says: `.harnix` when it does not. */
+export function projectDir(host: { projectDir?: string } | null | undefined): string {
+  return host?.projectDir || ".harnix";
+}
