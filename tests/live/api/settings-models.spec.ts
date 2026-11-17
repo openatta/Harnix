@@ -9,7 +9,7 @@
 import { isDeepStrictEqual } from "node:util";
 
 import { INVALID_PARAMS, REFUSED } from "@harnix/core/protocol";
-import { assert, defineSuite } from "@harnix/testkit";
+import { assert, connect, defineSuite, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
 type Field = { key: string; type: string; section: string; options?: string[]; suggestions?: string[]; routes?: { provider: string; default_model?: string | null; models?: string[] }[]; tiers: Record<string, unknown>; effective: unknown };
 
@@ -115,17 +115,6 @@ defineSuite("settings-models", { feature: "settings" }, {
       }
     },
 
-    "a provider with no key stored and no variable set has none, as the engine says": async ({ client }) => {
-      const { api_key: _key, ...keyless } = CONFIG;
-      await client.call("settings.setProvider", { provider_id: PROVIDER, config: { ...keyless, api_key_env: "HARNIX_TEST_MODELS_KEY_NOT_SET" } });
-      try {
-        const provider = (await client.call("settings.describe", {})).providers?.providers?.[PROVIDER];
-        assert(provider?.credential_present === false && !provider.api_key, JSON.stringify(provider));
-      } finally {
-        await client.call("settings.setProvider", { provider_id: PROVIDER, delete: true });
-      }
-    },
-
     "a provider's models are objects with their own limits, and their shape is checked first": async ({ client }) => {
       const models = ["m-default", { id: "m-other", max_output: 4096, context_window: 64000 }];
       await client.call("settings.setProvider", { provider_id: PROVIDER, config: { ...CONFIG, models } });
@@ -170,4 +159,30 @@ defineSuite("settings-models", { feature: "settings" }, {
       }
     },
   },
+});
+
+// Whether the engine has a key for a provider is its own word (`credential_present`), from what is
+// stored or the variable named. A provider it would have no key for never gets that far: the page's
+// write is tried first and one without a key does not route — nor does an engine start with one,
+// and a hand edit of the global tier is not read while it runs. So "missing" is the interface's to
+// draw should the engine say it; what is checked here is the engine saying "present" for a key taken
+// from a variable, and refusing the keyless one.
+test("a provider's key from a variable is present as the engine says, and one with no key at all is refused", { tag: ["@feature:settings", "@layer:api"] }, async () => {
+  const { api_key: _key, ...keyless } = CONFIG;
+  const backend = await startHarnix(launchFor("none", { env: { HARNIX_TEST_MODELS_KEY: "sk-from-the-environment-abcd" } }));
+  try {
+    const client = await connect(backend);
+    const e = await client.refused("settings.setProvider", { provider_id: PROVIDER, config: { ...keyless, api_key_env: "HARNIX_TEST_MODELS_KEY_NOT_SET" } });
+    expect(e?.code, JSON.stringify(e)).toBe(INVALID_PARAMS);
+    expect(e?.message).toContain("api_key");
+    expect((await client.call("settings.describe", {})).providers?.providers?.[PROVIDER]).toBeUndefined();
+    await client.call("settings.setProvider", { provider_id: PROVIDER, config: { ...keyless, api_key_env: "HARNIX_TEST_MODELS_KEY" } });
+    const provider = (await client.call("settings.describe", {})).providers?.providers?.[PROVIDER];
+    expect(provider?.credential_present, JSON.stringify(provider)).toBe(true);
+    expect(provider?.api_key_env).toBe("HARNIX_TEST_MODELS_KEY");
+    expect(JSON.stringify(provider)).not.toContain("from-the-environment");
+    client.close();
+  } finally {
+    await backend.dispose();
+  }
 });

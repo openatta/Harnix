@@ -5,10 +5,24 @@
 // wrote a value the engine does not use (an untrusted project can only tighten). Every write is the
 // engine's (`engine.config.set`), against the revision of the tier written.
 
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
 import { CONFLICT, INVALID_PARAMS, METHOD_NOT_FOUND, REFUSED } from "@harnix/core/protocol";
 import { assert, defineSuite } from "@harnix/testkit";
+
+/** The engine's refusal of what an untrusted project's own tier may not take (`PROJECT_UNTRUSTED`): nothing written, `data.rejected` naming each key. */
+const PROJECT_UNTRUSTED = -32022;
+
+/** A project's own settings file, as a person writes it by hand: the engine reads it as it is. */
+function writeProjectSettings(project: string, settings: Record<string, unknown>): void {
+  mkdirSync(join(project, ".harnix"), { recursive: true });
+  writeFileSync(join(project, ".harnix", "settings.json"), JSON.stringify(settings));
+}
+function removeProjectSettings(project: string): void {
+  rmSync(join(project, ".harnix", "settings.json"), { force: true });
+}
 
 defineSuite("settings", { feature: "settings" }, {
   tests: {
@@ -225,7 +239,7 @@ defineSuite("settings", { feature: "settings" }, {
       }
     },
 
-    "an untrusted project's allow rule is withheld, its deny is not": async ({ client }) => {
+    "an untrusted project's allow rule is refused when written and withheld when found, its deny is not": async ({ client }) => {
       const at = { project_root: client.project };
       const field = async () =>
         (await client.call("settings.describe", at)).fields.find((f: { key: string }) => f.key === "permission_rules");
@@ -233,12 +247,23 @@ defineSuite("settings", { feature: "settings" }, {
       try {
         const deny = await field();
         assert(deny.withheld === false && deny.source === "project", JSON.stringify(deny));
-        await client.call("settings.write", { tier: "project", changes: { permission_rules: [{ tool: "Bash(curl:*)", action: "allow" }] }, ...at });
+        // The engine takes nothing looser into an untrusted project's own tier: the write is
+        // refused whole, saying which key, and nothing of it is written.
+        const e = await client.refused("settings.write", { tier: "project", changes: { permission_rules: [{ tool: "Bash(curl:*)", action: "allow" }] }, ...at });
+        assert(e && e.code === PROJECT_UNTRUSTED && e.data?.rejected?.some((r: { key: string }) => r.key === "permission_rules"), `answered ${JSON.stringify(e)}`);
+        assert(!JSON.stringify((await field()).tiers.project ?? []).includes("curl"), "the refused allow was written");
+      } finally {
+        await client.call("settings.write", { tier: "project", changes: { permission_rules: null }, ...at });
+      }
+      // One already in the project's file (written there by hand, or before the engine checked) is
+      // read and withheld, and said so.
+      writeProjectSettings(client.project, { permission_rules: [{ tool: "Bash(curl:*)", action: "allow" }] });
+      try {
         const allow = await field();
         assert(allow.withheld === true, JSON.stringify(allow));
         assert(!(allow.effective ?? []).some((r: { tool: string }) => r.tool === "Bash(curl:*)"), "an untrusted project's allow is in force");
       } finally {
-        await client.call("settings.write", { tier: "project", changes: { permission_rules: null }, ...at });
+        removeProjectSettings(client.project);
       }
     },
 
@@ -299,20 +324,24 @@ defineSuite("settings", { feature: "settings" }, {
       assert(!after.providers?.providers?.[id], "the provider was not removed");
     },
 
-    "a looser value in an untrusted project's tier is withheld, and said so": async ({ client }) => {
+    "a looser value in an untrusted project's tier is refused when written and withheld when found, and said so": async ({ client }) => {
       // A project is untrusted unless something trusted it, and an untrusted project tier may only
       // tighten: the engine does not take `bypassPermissions` from it.
       const at = { project_root: client.project };
       const field = async () =>
         (await client.call("settings.describe", at)).fields.find((f: { key: string }) => f.key === "permission_mode");
       assert((await field()).withheld === false, "withheld before anything was written");
-      await client.call("settings.set", { tier: "project", key: "permission_mode", value: "bypassPermissions", ...at });
+      const e = await client.refused("settings.set", { tier: "project", key: "permission_mode", value: "bypassPermissions", ...at });
+      assert(e && e.code === PROJECT_UNTRUSTED && e.data?.rejected?.some((r: { key: string }) => r.key === "permission_mode"), `answered ${JSON.stringify(e)}`);
+      const after = await field();
+      assert(after.tiers.project !== "bypassPermissions", `the refused value was written: ${JSON.stringify(after)}`);
+      writeProjectSettings(client.project, { permission_mode: "bypassPermissions" });
       try {
-        const written = await field();
-        assert(written.tiers.project === "bypassPermissions" && written.source === "project", JSON.stringify(written));
-        assert(written.withheld === true && written.effective !== "bypassPermissions", JSON.stringify(written));
+        const found = await field();
+        assert(found.tiers.project === "bypassPermissions" && found.source === "project", JSON.stringify(found));
+        assert(found.withheld === true && found.effective !== "bypassPermissions", JSON.stringify(found));
       } finally {
-        await client.call("settings.set", { tier: "project", key: "permission_mode", value: null, ...at });
+        removeProjectSettings(client.project);
       }
       assert((await field()).withheld === false, "still withheld once the project tier gave it back");
     },
