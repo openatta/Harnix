@@ -170,6 +170,8 @@ fn contract(cfg: &Config) -> Generated {
         Rating, FeedbackCategory, Feedback, FeedbackFiled, FeedbackNotice,
         // Answering a session's asks.
         AskKind, AskReply, RespondParams, AskAnsweredKind, AskAnswered,
+        // `harnix.session.setModel`.
+        SessionModelParams, ModelChoice,
         // What a session sees: its skills and hooks.
         SkillTier, SkillRow, ShadowedSkill, SkillDirRow, SessionSkills, HookSource, HookRow, SessionHooks,
         // Each extension's log.

@@ -123,7 +123,7 @@ impl EngineOps for DownLink {
     async fn rename(&self, _: &str, _: &str) -> Answer<Value> {
         Err(self.unavailable())
     }
-    async fn set_model(&self, _: &str, _: &str, _: Option<&str>) -> Answer<Value> {
+    async fn set_model(&self, _: &str, _: &harnix_contract::wire::ModelChoice) -> Answer<Value> {
         Err(self.unavailable())
     }
     async fn set_prompt(&self, _: &str, _: Option<Option<String>>, _: Option<Option<String>>) -> Answer<Value> {

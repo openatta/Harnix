@@ -154,7 +154,7 @@ impl EngineOps for FakeLink {
     async fn rename(&self, session: &str, _: &str) -> Answer<Value> {
         Ok(described(session))
     }
-    async fn set_model(&self, session: &str, _: &str, _: Option<&str>) -> Answer<Value> {
+    async fn set_model(&self, session: &str, _: &harnix_contract::wire::ModelChoice) -> Answer<Value> {
         Ok(described(session))
     }
     async fn set_prompt(&self, session: &str, append: Option<Option<String>>, override_text: Option<Option<String>>) -> Answer<Value> {

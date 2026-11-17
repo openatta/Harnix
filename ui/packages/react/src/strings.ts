@@ -214,6 +214,16 @@ export interface HarnixUiStrings {
   attachFootReady: string;
   modelCustom: string;
   modelFootSwitch: string;
+  /** 模型菜单里推理强度那一排的名字 */
+  effort: string;
+  /** 模型菜单里思考开关那一排的名字 */
+  thinkingMode: string;
+  /** 「随设置」：会话没有自己的值；带上设置的值（知道时） */
+  followSettings: (value: string | null) => string;
+  /** 一档推理强度的名字（`low` … `max`） */
+  effortLevel: (level: string) => string;
+  /** 一种思考开关的名字（`auto`、`off`、`on`） */
+  thinkingLevel: (mode: string) => string;
   screenshot: string;
   mentionItem: string;
   mentionItemHint: string;
@@ -345,6 +355,11 @@ export function uiStrings(locale: Locale): HarnixUiStrings {
     attachFootReady: s("attachFootReady"),
     modelCustom: s("modelCustom"),
     modelFootSwitch: s("modelFootSwitch"),
+    effort: s("effort"),
+    thinkingMode: s("thinkingMode"),
+    followSettings: (value) => (value ? s("followSettingsValue", { value }) : s("followSettings")),
+    effortLevel: (level) => (["low", "medium", "high", "xhigh", "max"].includes(level) ? s(`effort.${level}`) : level),
+    thinkingLevel: (mode) => (["auto", "off", "on"].includes(mode) ? s(`thinking.${mode}`) : mode),
     screenshot: s("screenshot"),
     mentionItem: s("mentionItem"),
     mentionItemHint: s("mentionItemHint"),

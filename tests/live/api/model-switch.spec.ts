@@ -6,7 +6,7 @@
  * across — and without the line nothing is added.
  */
 
-import { SPACE_MISMATCH } from "@harnix/core/protocol";
+import { INVALID_PARAMS, SPACE_MISMATCH } from "@harnix/core/protocol";
 import { type Backend, connect, expect, test } from "@harnix/testkit";
 
 import { startTestApp } from "./testapp";
@@ -37,6 +37,28 @@ test("with model_switch, a space changes its own session's model", TAGS, async (
     const chosen = await api.call("harnix.session.setModel", { ...session, space: "fleet", model: "switched-model" });
     expect(chosen).toMatchObject({ session_id: session.session_id, model: "switched-model", applies: "next_turn" });
     expect((await api.call("fleet.model", session)).model).toBe("switched-model");
+  } finally {
+    api.close();
+  }
+});
+
+test("a space changes its own session's effort and thinking, and gives them back to the settings", TAGS, async () => {
+  const api = await connect(backend);
+  try {
+    const created = await api.call("harnix.session.create", { space: "fleet", options: { effort: "low" } });
+    const session = { instance: created.instance, session_id: created.session_id, space: "fleet" };
+    // Given when it was made: the session's own.
+    const made = await api.call("engine.session.get", session).catch(() => null);
+    if (made?.reasoning) expect(made.reasoning).toMatchObject({ effort: "low", effort_source: "session" });
+    // Changed alone: the model is left as it is.
+    const changed = await api.call("harnix.session.setModel", { ...session, effort: "max", thinking_mode: "off" });
+    expect(changed).toMatchObject({ session_id: session.session_id, effort: "max", thinking_mode: "off" });
+    // `null` gives one back.
+    const back = await api.call("harnix.session.setModel", { ...session, effort: null });
+    expect(back).toMatchObject({ effort: null, thinking_mode: "off" });
+    // Nothing to change is refused, and so is an effort the engine does not know.
+    expect((await api.refused("harnix.session.setModel", session))?.code).toBe(INVALID_PARAMS);
+    expect((await api.refused("harnix.session.setModel", { ...session, effort: "extreme" }))?.code).toBe(INVALID_PARAMS);
   } finally {
     api.close();
   }

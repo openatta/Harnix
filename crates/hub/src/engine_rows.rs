@@ -89,6 +89,9 @@ const BY_CAPABILITY: &[(&str, Capability, After)] = &[
     ("engine.session.export", caps::ENGINE_EXPORT, After::Nothing),
     ("engine.config.get", caps::ENGINE_CONFIG_READ, After::Nothing),
     ("engine.config.getProvider", caps::ENGINE_CONFIG_READ, After::Nothing),
+    // A provider's endpoint asked which models it serves, with the credentials it has: nothing is
+    // written, and nothing leaves but to where the provider already sends its model calls.
+    ("engine.config.listModels", caps::ENGINE_CONFIG_READ, After::Nothing),
     ("engine.config.reload", caps::ENGINE_CONFIG_WRITE, After::Nothing),
     ("engine.plugin.install", caps::ENGINE_PLUGINS, After::Nothing),
     ("engine.plugin.uninstall", caps::ENGINE_PLUGINS, After::Nothing),
@@ -137,7 +140,8 @@ const ENGINE_SCHEDULE: &[(&str, Capability)] = &[
 /// `engine.mcp.addServer` stays refused, and the difference is the point: it configures a
 /// subprocess-spawning tool with no manifest, no capability declaration and no disclosure at all.
 /// A device adds one through the `settings` extension, which holds `engine.mcp` and says what it
-/// does; the same goes for changing one and for signing in to one.
+/// does; the same goes for changing, removing, switching and reconnecting one, and for signing in
+/// to one.
 pub const ENGINE_REFUSALS: &[(&str, &str, Option<Capability>)] = &[
     (
         "engine.config.setProvider",
@@ -162,6 +166,21 @@ pub const ENGINE_REFUSALS: &[(&str, &str, Option<Capability>)] = &[
     (
         "engine.mcp.updateServer",
         "changing an MCP server is equivalent to installing a tool that runs subprocesses",
+        Some(caps::ENGINE_MCP),
+    ),
+    (
+        "engine.mcp.removeServer",
+        "removing an MCP server changes which tools run subprocesses",
+        Some(caps::ENGINE_MCP),
+    ),
+    (
+        "engine.mcp.setEnabled",
+        "switching an MCP server on starts a tool that runs subprocesses",
+        Some(caps::ENGINE_MCP),
+    ),
+    (
+        "engine.mcp.reconnect",
+        "reconnecting an MCP server starts its subprocess again",
         Some(caps::ENGINE_MCP),
     ),
     ("engine.mcp.auth.start", MCP_SIGN_IN, Some(caps::ENGINE_MCP)),

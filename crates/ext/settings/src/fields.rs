@@ -197,8 +197,9 @@ pub(crate) const FIELDS: &[Field] = &[
     Field::new("model.fallback_model", Type::Text, "models")
         .offer(Offer::Models)
         .hint("settings.hint.model.fallback_model"),
-    // Every `task_models` route is here, the web's two included; `main` is the default provider and
-    // the model a session picks: not a row of its own.
+    // Every `task_models` route is here, the web's two included. `main` is the conversation's own:
+    // what a session's turns go to unless the composer switched that session to another.
+    Field::new("task_models.main", Type::Route, "task-models").hint("settings.hint.task_models.main"),
     Field::new("task_models.subagent", Type::Route, "task-models").hint("settings.hint.task_models"),
     Field::new("task_models.compact", Type::Route, "task-models").hint("settings.hint.task_models"),
     Field::new("task_models.memory", Type::Route, "task-models").hint("settings.hint.task_models"),
@@ -670,11 +671,11 @@ mod tests {
         }
         assert_eq!(find("model.effort").unwrap().ty, Type::Select(&["low", "medium", "high", "xhigh", "max"]));
         // Every route in one section, the web's two included.
-        for task in ["subagent", "compact", "memory", "title", "web_search", "web_fetch"] {
+        for task in ["main", "subagent", "compact", "memory", "title", "web_search", "web_fetch"] {
             let field = find(&format!("task_models.{task}")).unwrap_or_else(|| panic!("{task} is not routed"));
             assert_eq!((field.ty, field.section), (Type::Route, "task-models"));
         }
-        assert!(find("task_models.main").is_none(), "main is the default provider's");
+        assert_eq!(find("task_models.main").unwrap().hint, Some("settings.hint.task_models.main"));
         assert!(check(Type::Select(&["auto", "off", "on"]), &json!("on")).is_ok());
     }
 

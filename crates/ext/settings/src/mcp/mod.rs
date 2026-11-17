@@ -1,15 +1,13 @@
 //! MCP servers from the settings page: listed with what the engine says of them, added, changed,
 //! removed, switched off and on, reconnected, and signed in to — in the tier the person chooses.
 //!
-//! The engine's protocol writes a server into a **project** tier only (`engine.mcp.addServer`,
-//! `mcp.updateServer`): it refuses an untrusted project, applies its MCP policy, and connects the
-//! server at once. Those go through it, with `engine.mcp`. The **global** and **scene** tiers have
-//! no engine method, and are written here the way the engine writes a project's — the server's
-//! `env` and `headers` into the tier's `settings.local.json`, the rest into its `settings.json`,
-//! under the tier's directory lock ([`servers::edit`]) — then the engine re-reads them
-//! (`engine.config.reload`), which reconnects that (project, scene)'s servers. Nor has it a way to
-//! remove a server or switch one off: removing is the same edit, and a server switched off is kept
-//! aside in this extension's data ([`servers::Aside`]) until it is switched on.
+//! Every one through the engine, holding `engine.mcp`: `engine.mcp.addServer`, `updateServer`,
+//! `removeServer` and `setEnabled` write the tier they are told (global, scene or project) under its
+//! directory lock — the server's `env` and `headers` into its `settings.local.json`, the rest into
+//! its `settings.json`, a switched-off server as `mcp_enabled.<name>: false` beside it — and settle
+//! that one server's connection; `engine.mcp.reconnect` connects one again; `engine.mcp.status`
+//! says what each is doing for the (project, scene) asked about, without starting a pair that has
+//! not connected yet. A tier's servers are read with `engine.config.get`.
 //!
 //! Nothing secret goes back to the page: a value given for an environment variable or a header is
 //! shown as its last four characters at most ([`servers::shown_value`]).
@@ -23,14 +21,14 @@ use std::path::PathBuf;
 
 use harnix_ext::{codes, Access, Call, Registrar, RowScope, Rpc, RpcError};
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use crate::fields::TIERS;
 use crate::wire::{McpAuthStarted, McpList, McpPaths, McpServer, McpStatus};
-use servers::{invalid, Aside, Input};
+use servers::{invalid, Input};
 
-/// Where the servers switched off are kept, in the extension's data.
-const ASIDE_FILE: &str = "mcp-aside.json";
+/// The engine's code for a `project_root` that is not a directory (daemon protocol §9).
+const PROJECT_NOT_FOUND: i32 = -32010;
 
 /// What the MCP methods keep between calls: the sign-ins under way.
 #[derive(Default)]
@@ -42,11 +40,11 @@ pub(crate) fn register(r: &mut Registrar<'_, ()>) {
     let device = Access::device;
     r.method("mcp.list")
         .access(device())
-        .describe("every MCP server of the tiers there are for this (project, scene), with what the engine says of it")
+        .describe("every MCP server of the tiers there are for this (project, scene), with what the engine says of it there")
         .raw(|call, params| async move { answer(list(&call, &At::of(&call, &params)?, Vec::new()).await?) });
     r.method("mcp.add")
         .access(device())
-        .describe("add an MCP server to one tier {tier, name, config}; a project's through the engine, which refuses an untrusted one")
+        .describe("add an MCP server to one tier {tier, name, config}, through the engine, which refuses an untrusted project's")
         .raw(|call, params| async move { put(&call, params, false).await });
     r.method("mcp.update")
         .access(device())
@@ -54,15 +52,15 @@ pub(crate) fn register(r: &mut Registrar<'_, ()>) {
         .raw(|call, params| async move { put(&call, params, true).await });
     r.method("mcp.remove")
         .access(device())
-        .describe("remove an MCP server from one tier {tier, name}, its secrets with it")
+        .describe("remove an MCP server from one tier {tier, name}, its secrets and its switch with it")
         .raw(|call, params| async move { remove(&call, params).await });
     r.method("mcp.enable")
         .access(device())
-        .describe("switch an MCP server of one tier off or on {tier, name, enabled}: off, it is kept aside where the engine does not read it")
+        .describe("switch an MCP server off or on in one tier {tier, name, enabled}: off, the engine does not start it")
         .raw(|call, params| async move { enable(&call, params).await });
     r.method("mcp.reconnect")
         .access(device())
-        .describe("make the engine connect this (project, scene)'s MCP servers again {tier, name}")
+        .describe("make the engine connect one MCP server of this (project, scene) again {name}, the others left as they are")
         .raw(|call, params| async move { reconnect(&call, params).await });
     r.method("mcp.authorize")
         .access(device())
@@ -120,35 +118,70 @@ impl At {
         crate::locate(self.scene.as_deref(), self.project_root.as_deref())
     }
 
-    /// Each tier's settings.json there is for this (project, scene), in [`TIERS`]' order.
+    /// Each tier's settings.json there is for this (project, scene), in [`TIERS`]' order: where the
+    /// page says a tier's servers are declared.
     fn paths(&self, call: &Call) -> Rpc<Vec<(&'static str, Option<PathBuf>)>> {
         TIERS.iter().map(|tier| Ok((*tier, crate::tier_path(call, tier, self.scene.as_deref(), self.project_root.as_deref())?))).collect()
     }
 
-    /// The settings.json of the tier a change names.
-    fn tier(&self, call: &Call, params: &Value) -> Rpc<(String, PathBuf)> {
+    /// The tier a change names, when there is one here.
+    fn tier(&self, params: &Value) -> Rpc<String> {
         let tier = require_str(params, "tier")?;
         if !TIERS.contains(&tier.as_str()) {
             return Err(invalid(format!("`{tier}` is not a tier: global, scene or project")));
         }
-        let path = crate::tier_path(call, &tier, self.scene.as_deref(), self.project_root.as_deref())?
-            .ok_or_else(|| invalid(format!("no `{tier}` tier here: the scene tier needs a scene, the project tier a project")))?;
-        Ok((tier, path))
+        if (tier == "scene" && self.scene.is_none()) || (tier == "project" && self.project_root.is_none()) {
+            return Err(invalid(format!("no `{tier}` tier here: the scene tier needs a scene, the project tier a project")));
+        }
+        Ok(tier)
+    }
+
+    /// An engine call about one server of this (project, scene), into `tier` when it writes one.
+    fn request(&self, name: &str, tier: Option<&str>) -> Value {
+        let mut request = self.locate();
+        request["name"] = json!(name);
+        if let Some(tier) = tier {
+            request["tier"] = json!(tier);
+        }
+        request
     }
 }
 
-fn aside(call: &Call) -> Aside {
-    Aside::new(call.ext().data_dir().join(ASIDE_FILE))
+/// The servers one tier declares, as the engine reads them, secrets and all — they stay here: the
+/// page is shown each as [`servers::view`] masks it. `None`: the project the tier is in is not
+/// there.
+async fn declared(call: &Call, at: &At, tier: &str) -> Rpc<Option<BTreeMap<String, Map<String, Value>>>> {
+    let mut request = at.locate();
+    request["tier"] = json!(tier);
+    request["include_secrets"] = json!(true);
+    match call.call("engine.config.get", request).await {
+        Ok(read) => Ok(Some(servers::declared(read.get("settings"), read.get("local")))),
+        Err(e) if e.code == PROJECT_NOT_FOUND => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
-/// What the engine says of each server of its own (project, scene), by name; `None` when it could
-/// not be asked.
-async fn statuses(call: &Call) -> Option<BTreeMap<String, McpStatus>> {
-    let answer = call.call("engine.mcp.status", json!({})).await.ok()?;
-    Some(statuses_in(&answer))
+/// Which servers are switched on for this (project, scene): `mcp_enabled` as the engine merged it
+/// over the tiers, by name; a name it does not say is on.
+async fn switches(call: &Call, at: &At) -> Map<String, Value> {
+    let mut request = at.locate();
+    request["tier"] = json!("effective");
+    call.call("engine.config.get", request)
+        .await
+        .ok()
+        .and_then(|read| read.get("settings")?.get("mcp_enabled")?.as_object().cloned())
+        .unwrap_or_default()
 }
 
-/// The statuses in an answer that lists servers (`engine.mcp.status`, `engine.mcp.addServer`).
+/// What the engine says of each server of a (project, scene) — `located` says which — by name,
+/// and whether that pair's servers have been connected; `None` when it could not be asked.
+async fn statuses(call: &Call, located: Value) -> Option<(bool, BTreeMap<String, McpStatus>)> {
+    let answer = call.call("engine.mcp.status", located).await.ok()?;
+    let loaded = answer.get("loaded").and_then(Value::as_bool).unwrap_or(true);
+    Some((loaded, statuses_in(&answer)))
+}
+
+/// The statuses in an answer that lists servers (`engine.mcp.status`, a change's answer).
 fn statuses_in(answer: &Value) -> BTreeMap<String, McpStatus> {
     answer
         .get("servers")
@@ -159,24 +192,26 @@ fn statuses_in(answer: &Value) -> BTreeMap<String, McpStatus> {
         .collect()
 }
 
-/// Every server of every tier there is, with the statuses the engine gave (`changed`: those a
-/// change's answer gave, over the rest).
+/// Every server of every tier there is, with the statuses the engine gave for this (project,
+/// scene) (`changed`: those a change's answer gave, over the rest).
 async fn list(call: &Call, at: &At, changed: Vec<Value>) -> Rpc<McpList> {
     let paths = at.paths(call)?;
-    let mut status = statuses(call).await;
+    let status = statuses(call, at.locate()).await;
+    let loaded = status.as_ref().map(|(loaded, _)| *loaded);
+    let mut status = status.map(|(_, by_name)| by_name);
     let status_read = status.is_some() || !changed.is_empty();
     for answer in &changed {
         status.get_or_insert_with(BTreeMap::new).extend(statuses_in(answer));
     }
-    let aside = aside(call);
+    let switches = switches(call, at).await;
     let mut tiers: Vec<(&str, Vec<McpServer>)> = Vec::new();
     for (tier, path) in &paths {
-        let Some(path) = path else { continue };
-        let written = servers::read(path)?;
-        let mut shown: Vec<McpServer> = written.servers().iter().map(|(name, s)| servers::view(name, tier, true, s)).collect();
-        shown.extend(aside.of(path)?.iter().filter(|(name, _)| !written.declares(name)).map(|(name, s)| servers::view(name, tier, false, s)));
-        shown.sort_by(|a, b| a.name.cmp(&b.name));
-        tiers.push((tier, shown));
+        if path.is_none() {
+            continue;
+        }
+        let Some(written) = declared(call, at, tier).await? else { continue };
+        let on = |name: &str| switches.get(name).and_then(Value::as_bool).unwrap_or(true);
+        tiers.push((tier, written.iter().map(|(name, s)| servers::view(name, tier, on(name), s)).collect()));
     }
     Ok(McpList {
         servers: settle(tiers, status.as_ref()),
@@ -187,6 +222,9 @@ async fn list(call: &Call, at: &At, changed: Vec<Value>) -> Rpc<McpList> {
         },
         status_read,
         written: None,
+        loaded,
+        scene: at.scene.clone(),
+        project_root: at.project_root.clone(),
     })
 }
 
@@ -196,7 +234,7 @@ fn settle(tiers: Vec<(&str, Vec<McpServer>)>, status: Option<&BTreeMap<String, M
     let mut above: BTreeMap<String, String> = BTreeMap::new();
     let mut settled: Vec<Vec<McpServer>> = Vec::new();
     for (tier, mut shown) in tiers.into_iter().rev() {
-        for server in shown.iter_mut().filter(|s| s.enabled) {
+        for server in shown.iter_mut() {
             match above.get(&server.name) {
                 Some(higher) => server.overridden_by = Some(higher.clone()),
                 None => {
@@ -210,142 +248,67 @@ fn settle(tiers: Vec<(&str, Vec<McpServer>)>, status: Option<&BTreeMap<String, M
     settled.into_iter().rev().flatten().collect()
 }
 
-/// Make the engine read the tiers again for this (project, scene), and for its own when this is
-/// another project's — `engine.mcp.status` reports its own.
-async fn reload(call: &Call, at: &At) {
-    if let Err(e) = call.call("engine.config.reload", at.locate()).await {
-        tracing::warn!(error = %e.message, "the engine did not re-read its settings after an MCP change");
-    }
-    if at.project_root.is_some() {
-        let _ = call.call("engine.config.reload", json!({})).await;
-    }
+/// A change's answer as the page reads it: the servers as they stand after it, with the file it
+/// wrote.
+async fn changed(call: &Call, at: &At, done: Value) -> Rpc<Value> {
+    let written = done.get("written_to").and_then(Value::as_str).map(str::to_string);
+    let mut out = list(call, at, vec![done]).await?;
+    out.written = written;
+    answer(out)
 }
 
 /// `mcp.add` / `mcp.update`.
 async fn put(call: &Call, params: Value, must_exist: bool) -> Rpc<Value> {
     let at = At::of(call, &params)?;
-    let (tier, path) = at.tier(call, &params)?;
+    let tier = at.tier(&params)?;
     let name = require_str(&params, "name")?;
     if !must_exist {
         servers::check_name(&name)?;
     }
     let input: Input = serde_json::from_value(params.get("config").cloned().unwrap_or(Value::Null))
         .map_err(|e| invalid(format!("config: {e}")))?;
-    if aside(call).holds(&path, &name)? {
-        return Err(invalid(format!("`{name}` is switched off in the {tier} tier: switch it on to change it, or remove it")));
-    }
-    let before = servers::read(&path)?.servers().remove(&name);
+    let before = declared(call, &at, &tier).await?.unwrap_or_default().remove(&name);
     match (must_exist, before.is_some()) {
         (false, true) => return Err(invalid(format!("the {tier} tier already has a server named `{name}`"))),
         (true, false) => return Err(invalid(format!("the {tier} tier has no server named `{name}`"))),
         _ => {}
     }
-    let (public, secret) = servers::build(&input, &tier, before.as_ref())?;
-    let mut changed = Vec::new();
-    let written = if tier == "project" {
-        let mut config = public;
-        config.extend(secret);
-        let mut request = at.locate();
-        request["name"] = json!(name);
-        request["config"] = Value::Object(config);
-        let method = if must_exist { "engine.mcp.updateServer" } else { "engine.mcp.addServer" };
-        let answer = call.call(method, request).await?;
-        let written = answer.get("written_to").and_then(Value::as_str).map(str::to_string);
-        changed.push(answer);
-        written.unwrap_or_else(|| path.display().to_string())
-    } else {
-        servers::edit(&path, |files| {
-            // Read again under the lock: another writer may have been first.
-            if files.declares(&name) != must_exist {
-                return Err(invalid(format!("the {tier} tier changed meanwhile: read it again")));
-            }
-            files.put(&name, public, secret);
-            Ok(())
-        })?;
-        reload(call, &at).await;
-        path.display().to_string()
-    };
-    let mut out = list(call, &at, changed).await?;
-    out.written = Some(written);
-    answer(out)
+    let mut request = at.request(&name, Some(&tier));
+    request["config"] = Value::Object(servers::build(&input, &tier, before.as_ref())?);
+    let method = if must_exist { "engine.mcp.updateServer" } else { "engine.mcp.addServer" };
+    let done = call.call(method, request).await?;
+    changed(call, &at, done).await
 }
 
-/// `mcp.remove`: out of the tier's two files, or from aside when it was switched off.
+/// `mcp.remove`: out of the tier's two files, with its switch.
 async fn remove(call: &Call, params: Value) -> Rpc<Value> {
     let at = At::of(call, &params)?;
-    let (tier, path) = at.tier(call, &params)?;
+    let tier = at.tier(&params)?;
     let name = require_str(&params, "name")?;
-    let was_aside = aside(call).take(&path, &name)?.is_some();
-    let was_written = servers::read(&path)?.declares(&name)
-        && servers::edit(&path, |files| {
-            let there = files.declares(&name);
-            files.take(&name);
-            Ok(there)
-        })?;
-    if !was_aside && !was_written {
-        return Err(invalid(format!("the {tier} tier has no server named `{name}`")));
-    }
-    if was_written {
-        reload(call, &at).await;
-    }
-    let mut out = list(call, &at, Vec::new()).await?;
-    out.written = Some(path.display().to_string());
-    answer(out)
+    let done = call.call("engine.mcp.removeServer", at.request(&name, Some(&tier))).await?;
+    changed(call, &at, done).await
 }
 
-/// `mcp.enable {enabled}`: off, the server's two halves go aside and out of the tier; on, back.
+/// `mcp.enable {enabled}`: the server's switch in the tier, `mcp_enabled.<name>`.
 async fn enable(call: &Call, params: Value) -> Rpc<Value> {
     let at = At::of(call, &params)?;
-    let (tier, path) = at.tier(call, &params)?;
+    let tier = at.tier(&params)?;
     let name = require_str(&params, "name")?;
     let enabled = params.get("enabled").and_then(Value::as_bool).ok_or_else(|| invalid("missing enabled: true or false"))?;
-    let aside = aside(call);
-    if enabled {
-        let Some(kept) = aside.of(&path)?.remove(&name) else {
-            if servers::read(&path)?.declares(&name) {
-                return answer(list(call, &at, Vec::new()).await?);
-            }
-            return Err(invalid(format!("the {tier} tier has no server named `{name}`")));
-        };
-        let (public, secret) = servers::split(&kept);
-        // Back into the tier first, then out of aside: a failure in between leaves it in both, and
-        // the tier's is the one shown.
-        servers::edit(&path, |files| {
-            if !files.declares(&name) {
-                files.put(&name, public, secret);
-            }
-            Ok(())
-        })?;
-        aside.take(&path, &name)?;
-    } else {
-        if aside.holds(&path, &name)? {
-            return answer(list(call, &at, Vec::new()).await?);
-        }
-        servers::edit(&path, |files| {
-            if !files.declares(&name) {
-                return Err(invalid(format!("the {tier} tier has no server named `{name}`")));
-            }
-            let (public, secret) = files.take(&name);
-            // Aside before the tier's files are written: a failure in between loses nothing.
-            aside.keep(&path, &name, public, secret)
-        })?;
-    }
-    reload(call, &at).await;
-    let mut out = list(call, &at, Vec::new()).await?;
-    out.written = Some(path.display().to_string());
-    answer(out)
+    let mut request = at.request(&name, Some(&tier));
+    request["enabled"] = json!(enabled);
+    let done = call.call("engine.mcp.setEnabled", request).await?;
+    changed(call, &at, done).await
 }
 
-/// `mcp.reconnect`: the engine connects this (project, scene)'s servers again, this one with them.
+/// `mcp.reconnect`: the engine connects this one server of this (project, scene) again, by its
+/// settings as they are now; the others are left as they are.
 async fn reconnect(call: &Call, params: Value) -> Rpc<Value> {
     let at = At::of(call, &params)?;
-    let (tier, path) = at.tier(call, &params)?;
     let name = require_str(&params, "name")?;
-    if !servers::read(&path)?.declares(&name) {
-        return Err(invalid(format!("the {tier} tier has no server named `{name}` switched on")));
-    }
-    reload(call, &at).await;
-    answer(list(call, &at, Vec::new()).await?)
+    let done = call.call("engine.mcp.reconnect", at.request(&name, None)).await?;
+    let servers: Vec<Value> = done.get("server").cloned().into_iter().collect();
+    answer(list(call, &at, vec![json!({"servers": servers})]).await?)
 }
 
 /// `mcp.authorize {name, origin?, scopes?}`.
@@ -394,9 +357,12 @@ async fn mcp_context(call: &Call, params: Value) -> Rpc<Value> {
             target[key] = value.clone();
         }
     }
-    call.call("engine.session.get", target.clone()).await?;
+    let session = call.call("engine.session.get", target.clone()).await?;
     let inspect = call.call("engine.session.inspectContext", target).await?;
-    let status = statuses(call).await.unwrap_or_default();
+    // The session's own (project, scene): what its servers are doing is that pair's.
+    let pair = |key: &str| session.get(key).and_then(Value::as_str).map(str::to_string);
+    let located = crate::locate(pair("scene").as_deref(), pair("project_root").as_deref());
+    let status = statuses(call, located).await.map(|(_, by_name)| by_name).unwrap_or_default();
     answer(context::context_of(&inspect, &status))
 }
 
@@ -427,8 +393,21 @@ mod tests {
         assert!(row("fs", "global").status.is_none());
         assert_eq!(row("fs", "project").status.as_ref(), Some(&status));
         assert!(row("gh", "global").status.is_none() && row("gh", "global").overridden_by.is_none());
-        // Switched off: nothing of the engine's is its.
-        assert!(row("off", "scene").status.is_none());
+        // Switched off: what the engine says of it is that it is.
+        assert_eq!(row("off", "scene").status.as_ref(), Some(&status));
+    }
+
+    #[test]
+    fn a_change_names_the_server_its_tier_and_the_pair_it_is_about() {
+        let at = At { scene: Some("code".into()), project_root: Some("/p".into()) };
+        assert_eq!(at.request("fs", Some("global")), json!({"scene": "code", "project_root": "/p", "name": "fs", "tier": "global"}));
+        // A reconnect writes no tier.
+        assert_eq!(at.request("fs", None), json!({"scene": "code", "project_root": "/p", "name": "fs"}));
+        let no_project = At { scene: Some("code".into()), project_root: None };
+        assert!(no_project.tier(&json!({"tier": "project"})).is_err());
+        assert_eq!(no_project.tier(&json!({"tier": "scene"})).unwrap(), "scene");
+        assert!(no_project.tier(&json!({"tier": "user"})).is_err());
+        assert_eq!(no_project.locate(), json!({"scene": "code"}));
     }
 
     #[test]

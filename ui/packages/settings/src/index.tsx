@@ -19,9 +19,13 @@ import { useEffect, useState, type ReactNode } from "react";
 import { errorText, modelConfigured, type Hello } from "@harnix/core";
 import { FieldForm, Glyph, SettingsRow, SettingsSection, SettingsValue, SetupStep, onLocaleChoice, setupStepDismissed, t, useHello, useSetupStep, useSettingsReload, useT, type FieldDoc, type FieldStore, type HostApi, type Registry, type LocaleChoice, type SettingsNeed } from "@harnix/react";
 
+import { writeFailed } from "./errors.ts";
 import { Mcp } from "./mcp.tsx";
+import { forgetModels, modelLister } from "./models.ts";
 
 export { givenOf, mcpState, signIn } from "./mcp.tsx";
+export { modelIds, modelLister } from "./models.ts";
+export { settingsError } from "./errors.ts";
 
 /** The backend extension this is the interface of. */
 export const extension = "settings";
@@ -62,7 +66,7 @@ function followLanguage(host: HostApi): void {
   unfollow = onLocaleChoice((choice: LocaleChoice) => {
     host
       .call("settings.write", { tier: "global", changes: { language: choice === "auto" ? null : choice } })
-      .catch((e: unknown) => host.shell.notice(t("settings.writeFailed", { error: errorText(e) }), "error"));
+      .catch((e: unknown) => host.shell.notice(writeFailed(e), "error"));
   });
 }
 
@@ -150,6 +154,8 @@ interface Described extends FieldDoc {
         models?: ModelEntry[];
         thinking_toggle?: string | null;
         reasoning_passback?: boolean;
+        /** Whether the engine can get a key for it now, from what is stored or the variable named. */
+        credential_present?: boolean;
       }
     >;
     default_provider?: string | null;
@@ -229,6 +235,7 @@ function EngineSettings({ host, section, title = "settings.engineDefaults", only
       section={section}
       tier={selected}
       tierName={name}
+      listModels={modelLister(host, request)}
       header={(data) => {
         const paths = data.paths ?? {};
         const tiers = (["global", "scene", "project"] as const).filter((id) => paths[id]).map((id) => [id, name(id)] as [string, string]);
@@ -255,7 +262,7 @@ function EngineSettings({ host, section, title = "settings.engineDefaults", only
         host.shell.notice(t("settings.written", { path: data?.paths?.[selected] }));
         reload();
       }}
-      onFailed={(e) => host.shell.notice(t("settings.writeFailed", { error: errorText(e) }), "error")}
+      onFailed={(e) => host.shell.notice(writeFailed(e), "error")}
     />
   );
 }
@@ -403,6 +410,7 @@ function Models({ host }: { host: HostApi }) {
   // The shell reads the providers again when the panel closes: the composer's model menu follows.
   const saved = () => {
     setEditing(null);
+    forgetModels(host);
     reload();
   };
   return (
@@ -422,13 +430,13 @@ function Models({ host }: { host: HostApi }) {
               ) : null}
               {names.map((id) =>
                 editing === id ? (
-                  <ProviderForm key={id} host={host} id={id} provider={providers[id]!} isDefault={fallback === id} path={data.paths?.global} onDone={saved} onCancel={() => setEditing(null)} />
+                  <ProviderForm key={id} host={host} id={id} provider={providers[id]!} isDefault={fallback === id} path={data.paths?.global} where={request} onDone={saved} onCancel={() => setEditing(null)} />
                 ) : (
                   <ProviderCard key={id} host={host} id={id} provider={providers[id]!} isDefault={fallback === id} onEdit={() => setEditing(id)} onChanged={saved} />
                 ),
               )}
               {editing === "" ? (
-                <ProviderForm host={host} id="" provider={{}} isDefault={!names.length} path={data.paths?.global} onDone={saved} onCancel={() => setEditing(null)} />
+                <ProviderForm host={host} id="" provider={{}} isDefault={!names.length} path={data.paths?.global} where={request} onDone={saved} onCancel={() => setEditing(null)} />
               ) : (
                 <button type="button" className="btn sm outline add-provider" data-testid="provider-add" onClick={() => setEditing("")}>
                   <Glyph name="plus" className="glyph" />
@@ -510,7 +518,7 @@ function ProviderCard({
     host
       .call("settings.setProvider", { provider_id: id, ...params })
       .then(onChanged)
-      .catch((e: unknown) => host.shell.notice(t("settings.writeFailed", { error: errorText(e) }), "error"));
+      .catch((e: unknown) => host.shell.notice(writeFailed(e), "error"));
   const models = [provider.default_model, ...(provider.models ?? []).map(modelId)].filter((m, i, all): m is string => Boolean(m) && all.indexOf(m) === i);
   return (
     <div className={`provider-card${isDefault ? " default" : ""}`} data-provider={id} data-state={isDefault ? "default" : undefined}>
@@ -549,11 +557,23 @@ function ProviderCard({
   );
 }
 
-/** Where a provider's key comes from: the one stored, as its last four; else the environment
- *  variable it names (whether the engine's environment has it, the engine does not say). */
-function ProviderKey({ provider }: { provider: ProviderEntry }) {
+/**
+ * Whether the engine has a key for a provider: detected or missing, as the engine says
+ * (`credential_present`), with where it comes from — the one stored, as its last four, or the
+ * environment variable it names. An engine that does not say is read from what is configured.
+ */
+export function ProviderKey({ provider }: { provider: ProviderEntry }) {
   const t = useT();
   const stored = maskedKey(provider.api_key);
+  const source = stored ? t("settings.keyStoredHint", { value: stored }) : provider.api_key_env ? t("settings.keyEnvHint", { name: provider.api_key_env }) : t("settings.keyNoneHint");
+  if (provider.credential_present !== undefined) {
+    const present = provider.credential_present;
+    return (
+      <span data-testid="provider-key" data-state={present ? "present" : "missing"} data-source={stored ? "stored" : provider.api_key_env ? "env" : "none"} title={source}>
+        <SettingsValue tone={present ? "ok" : "err"}>{present ? t("settings.keyDetected") : t("settings.keyAbsent")}</SettingsValue>
+      </span>
+    );
+  }
   if (stored) {
     return (
       <span data-testid="provider-key" data-state="stored">
@@ -575,6 +595,41 @@ function ProviderKey({ provider }: { provider: ProviderEntry }) {
   );
 }
 
+/** One row of a provider's models: its id, and what the engine is told of the model. */
+type ModelRow = { id: string; max_output: string; context_window: string; rest: Record<string, unknown> };
+
+/** A provider's `models` as rows to edit: an entry written as an object keeps the keys the page
+ *  does not edit. */
+export function modelRows(models: readonly ModelEntry[] | undefined): ModelRow[] {
+  return (models ?? []).map((m) => {
+    if (typeof m === "string") return { id: m, max_output: "", context_window: "", rest: {} };
+    const { id, max_output, context_window, ...rest } = m;
+    const n = (v: unknown) => (typeof v === "number" ? String(v) : "");
+    return { id, max_output: n(max_output), context_window: n(context_window), rest };
+  });
+}
+
+/** The rows as the engine takes them: a model with nothing said of it is its id alone. */
+export function modelEntries(rows: readonly ModelRow[]): ModelEntry[] {
+  const out: ModelEntry[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const id = row.id.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const whole = (text: string) => (/^\d+$/.test(text.trim()) && Number(text) > 0 ? Number(text) : undefined);
+    const said: Record<string, unknown> = { ...row.rest };
+    const maxOutput = whole(row.max_output);
+    const window = whole(row.context_window);
+    if (maxOutput !== undefined) said.max_output = maxOutput;
+    else delete said.max_output;
+    if (window !== undefined) said.context_window = window;
+    else delete said.context_window;
+    out.push(Object.keys(said).length ? { id, ...said } : id);
+  }
+  return out;
+}
+
 /** Add (no id yet) or edit one provider — the only path credentials take from the interface. */
 function ProviderForm({
   host,
@@ -582,6 +637,7 @@ function ProviderForm({
   provider,
   isDefault,
   path,
+  where: at,
   onDone,
   onCancel,
 }: {
@@ -590,10 +646,24 @@ function ProviderForm({
   provider: ProviderEntry;
   isDefault: boolean;
   path?: string;
+  /** The (scene, project) the endpoint is asked through. */
+  where: { scene?: string; project_root: string | null };
   onDone: () => void;
   onCancel: () => void;
 }) {
   const t = useT();
+  const [rows, setRows] = useState<ModelRow[]>(() => modelRows(provider.models));
+  // What the endpoint serves: asked of a provider the engine already has, kept per provider.
+  const [served, setServed] = useState<{ names: string[]; failed: boolean }>({ names: [], failed: false });
+  const ask = (fresh: boolean) => {
+    if (!id) return;
+    modelLister(host, at)(id, fresh).then(
+      (names) => setServed({ names, failed: false }),
+      () => setServed({ names: [], failed: true }),
+    );
+  };
+  useEffect(() => ask(false), [id]);
+  const listId = `provider-models-${id || "new"}`;
   const [fields, setFields] = useState({
     provider_id: "",
     api_type: apiTypeOf(provider).id,
@@ -601,7 +671,6 @@ function ProviderForm({
     api_key: "",
     api_key_env: provider.api_key_env ?? "",
     default_model: provider.default_model ?? "",
-    models: (provider.models ?? []).map(modelId).join(", "),
     thinking_toggle: provider.thinking_toggle ?? "",
     reasoning_passback: provider.reasoning_passback === true,
     make_default: isDefault,
@@ -611,7 +680,7 @@ function ProviderForm({
   // A type the table lacks stays selectable as it is, so the other fields can be saved without turning it into another.
   const types = API_TYPES.some((x) => x.id === fields.api_type) ? API_TYPES : [...API_TYPES, type];
   const set = (key: keyof typeof fields, value: string | boolean) => setFields({ ...fields, [key]: value });
-  const text = (key: "provider_id" | "base_url" | "api_key" | "api_key_env" | "default_model" | "models", label: string, placeholder?: string, hint?: string) => (
+  const text = (key: "provider_id" | "base_url" | "api_key" | "api_key_env" | "default_model", label: string, placeholder?: string, hint?: string) => (
     <div className="field" key={key}>
       <label>{label}</label>
       <input
@@ -621,20 +690,21 @@ function ProviderForm({
         placeholder={placeholder}
         autoComplete="off"
         spellCheck={false}
+        list={key === "default_model" && served.names.length ? listId : undefined}
         onChange={(e) => set(key, e.target.value)}
       />
       {hint ? <div className="hint">{hint}</div> : null}
     </div>
   );
+  const setRow = (i: number, row: Partial<ModelRow>) => setRows(rows.map((r, at) => (at === i ? { ...r, ...row } : r)));
   const save = async () => {
     const providerId = id || fields.provider_id.trim();
     if (!providerId) {
       host.shell.notice(t("settings.providerIdRequired"));
       return;
     }
-    // An id still listed keeps the object it was written as, with what that says of the model.
-    const written = new Map((provider.models ?? []).map((m) => [modelId(m), m] as const));
-    const models = fields.models.split(/[,，\s]+/).map((m) => m.trim()).filter(Boolean).map((m) => written.get(m) ?? m);
+    // A model written as an object keeps what the page does not edit of it.
+    const models = modelEntries(rows);
     const config: Record<string, unknown> = {
       api_type: fields.api_type,
       base_url: fields.base_url.trim(),
@@ -657,7 +727,7 @@ function ProviderForm({
       });
       onDone();
     } catch (e) {
-      host.shell.notice(t("settings.writeFailed", { error: errorText(e) }), "error");
+      host.shell.notice(writeFailed(e), "error");
       setSaving(false);
     }
   };
@@ -699,7 +769,46 @@ function ProviderForm({
       )}
       {text("api_key_env", t("settings.apiKeyEnv"), "OPENAI_API_KEY", t("settings.apiKeyEnvHint"))}
       {text("default_model", t("settings.defaultModel"), type.model)}
-      {text("models", t("settings.models"), undefined, t("settings.modelsHint"))}
+      {served.names.length ? (
+        <datalist id={listId}>
+          {served.names.map((name) => (
+            <option key={name} value={name} />
+          ))}
+        </datalist>
+      ) : null}
+      <div className="field" data-testid="provider-models">
+        <label>
+          {t("settings.models")}
+          {id ? (
+            <button
+              type="button"
+              className="btn sm ghost"
+              data-testid="provider-models-fetch"
+              data-state={served.failed ? "failed" : "ok"}
+              title={served.failed ? t("settings.modelsFetchFailed") : t("settings.modelsRefresh")}
+              aria-label={t("settings.modelsRefresh")}
+              onClick={() => ask(true)}
+            >
+              <Glyph name="refresh" className="glyph" />
+            </button>
+          ) : null}
+        </label>
+        {rows.map((row, i) => (
+          <div className="kv-row" key={i} data-testid="provider-model-row">
+            <input type="text" data-testid="provider-model-id" value={row.id} placeholder={t("settings.modelId")} aria-label={t("settings.modelId")} list={served.names.length ? listId : undefined} autoComplete="off" spellCheck={false} onChange={(e) => setRow(i, { id: e.target.value })} />
+            <input type="number" min={1} data-testid="provider-model-max_output" value={row.max_output} placeholder={t("settings.modelMaxOutput")} aria-label={t("settings.modelMaxOutput")} onChange={(e) => setRow(i, { max_output: e.target.value })} />
+            <input type="number" min={1} data-testid="provider-model-context_window" value={row.context_window} placeholder={t("settings.modelContextWindow")} aria-label={t("settings.modelContextWindow")} onChange={(e) => setRow(i, { context_window: e.target.value })} />
+            <button type="button" className="btn sm ghost" aria-label={t("common.remove")} onClick={() => setRows(rows.filter((_, at) => at !== i))}>
+              <Glyph name="close" className="glyph" />
+            </button>
+          </div>
+        ))}
+        <button type="button" className="btn sm ghost" data-testid="provider-model-add" onClick={() => setRows([...rows, { id: "", max_output: "", context_window: "", rest: {} }])}>
+          <Glyph name="plus" className="glyph" />
+          {t("settings.modelAdd")}
+        </button>
+        <div className="hint">{served.failed ? `${t("settings.modelsTableHint")} · ${t("settings.modelsFetchFailed")}` : t("settings.modelsTableHint")}</div>
+      </div>
       {fields.api_type === "openai_compatible" ? (
         <>
           <div className="field">

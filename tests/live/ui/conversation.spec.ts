@@ -279,6 +279,30 @@ test("the composer's model menu switches the session's model", TAGS, async ({ pa
   await expect(page.getByTestId("conv-model-menu")).toHaveCount(0);
 });
 
+test("the composer's model menu sets the session's own effort and thinking, and gives them back to the settings", TAGS, async ({ page }) => {
+  await open(page, URL);
+  await newSession(page, "says-ready");
+  await page.getByTestId("conv-model").click();
+  const effort = page.getByTestId("conv-effort");
+  await expect(effort).toBeVisible();
+  // A new session has none of its own: "as set".
+  await expect(page.getByTestId("conv-effort-default")).toHaveAttribute("aria-pressed", "true");
+  await page.getByTestId("conv-effort-high").click();
+  await expect(effort).toHaveAttribute("data-current", "high");
+  await page.getByTestId("conv-thinking_mode-off").click();
+  await expect(page.getByTestId("conv-thinking_mode")).toHaveAttribute("data-current", "off");
+  // The engine has them as the session's.
+  const reasoning = await page.evaluate(async () => {
+    const { host } = (window as any).harnix;
+    const current = host.session.current();
+    return (await host.call("engine.session.get", { instance: current.instance, session_id: current.sessionId }).catch(() => null))?.reasoning ?? null;
+  });
+  if (reasoning) expect(reasoning).toMatchObject({ effort: "high", effort_source: "session", thinking_mode: "off", thinking_mode_source: "session" });
+  // Given back: the settings' again.
+  await page.getByTestId("conv-effort-default").click();
+  await expect(effort).toHaveAttribute("data-current", "");
+});
+
 // A module that refuses some of what a person says (ipdrun-13): `harnix-testapp`'s `probe` gives
 // every session of `main` a prompt middleware that refuses anything with `blocked-word` in it.
 test.describe("a message a module refuses", () => {

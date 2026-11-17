@@ -409,20 +409,24 @@ impl Hub {
         Ok(json!({"session_id": key.1, "title": title}))
     }
 
-    /// `harnix.session.setModel {instance?, session_id, model, provider?, space?}`: the model of a
-    /// session of the space the caller claims (the default space when it claims none). Never
-    /// across spaces: a space reaching across is not where this is done.
+    /// `harnix.session.setModel {instance?, session_id, model?, provider?, effort?, thinking_mode?,
+    /// space?}`: what the next model call of a session of the space the caller claims is (the
+    /// default space when it claims none) — its model and provider, and its own reasoning effort
+    /// and thinking switch (`null` gives either back to the settings'). Never across spaces: a
+    /// space reaching across is not where this is done.
     pub(crate) async fn set_model(self: &Arc<Self>, params: Value) -> Result<Value, RpcError> {
         let key = self.key_of(&params)?;
-        let model = params
-            .get("model")
-            .and_then(Value::as_str)
-            .filter(|m| !m.is_empty())
-            .ok_or_else(|| RpcError::invalid_params("missing model"))?
-            .to_string();
-        let provider = params.get("provider").and_then(Value::as_str).map(str::to_string);
+        let given: harnix_contract::wire::SessionModelParams =
+            serde_json::from_value(params.clone()).map_err(|e| RpcError::invalid_params(format!("harnix.session.setModel: {e}")))?;
+        let choice = given.choice;
+        if choice.model.as_deref().is_some_and(str::is_empty) || choice.provider.as_deref().is_some_and(str::is_empty) {
+            return Err(RpcError::invalid_params("a model or provider named is not empty"));
+        }
+        if choice.is_empty() {
+            return Err(RpcError::invalid_params("missing model: give a model, a provider, an effort or a thinking mode"));
+        }
         self.within_own_space(&key, &params, "a session's model is changed")?;
-        self.engine(&key.0)?.ops().set_model(&key.1, &model, provider.as_deref()).await
+        self.engine(&key.0)?.ops().set_model(&key.1, &choice).await
     }
 
     /// A session of the space the call claims (the default space when it claims none), and never

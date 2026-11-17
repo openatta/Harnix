@@ -310,7 +310,8 @@ r.register("harnix-app.project.items", {
 - **新会话对话框**（从项目菜单或首次运行的「场景与权限」进来）：场景（启用的场景，引擎缺省的在前）、权限模式（`default`、`acceptEdits`、`plan`、
   `bypassPermissions`）、项目目录（`harnix-app.recentProjects` 给的最近目录，或不带项目），可以浏览目录。
 - **换模型**：会话的模型菜单在有 `harnix.session.setModel`（`[shell] model_switch = true`）时用它，否则用系统 space 的
-  `system.model`。
+  `system.model`。同一个菜单下面是这个会话的推理强度（`low` … `max`）与思考开关（`auto` / `off` / `on`），「随设置」是没有会话自己的值；
+  新会话的输入框里选的，建会话时经 `options.effort`、`options.thinking_mode` 给。
 
 ### 4.1 首次运行
 

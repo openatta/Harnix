@@ -1022,6 +1022,71 @@ impl AskReply {
     }
 }
 
+/// `harnix.session.setModel`'s params: what a session's next model call is — its model and
+/// provider, and how hard it reasons. At least one of the four; a key left out is left as it is.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct SessionModelParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub instance: Option<String>,
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub space: Option<String>,
+    #[serde(flatten)]
+    #[cfg_attr(feature = "ts", ts(flatten))]
+    pub choice: ModelChoice,
+}
+
+/// What a session's next model call is: each key left out is left as it is.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct ModelChoice {
+    /// The model's name, checked against the provider's `models` when it lists any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub model: Option<String>,
+    /// A provider's id; named alone, its default model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub provider: Option<String>,
+    /// The session's own reasoning effort: `low`, `medium`, `high`, `xhigh` or `max`; `null` gives
+    /// it back to the settings' `model.effort`.
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "double_option")]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub effort: Option<Option<String>>,
+    /// The session's own thinking switch: `auto`, `off` or `on`; `null` gives it back to the
+    /// settings' `model.thinking_mode`.
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "double_option")]
+    #[cfg_attr(feature = "ts", ts(optional, type = "string | null"))]
+    pub thinking_mode: Option<Option<String>>,
+}
+
+impl ModelChoice {
+    /// Whether it says anything to change.
+    pub fn is_empty(&self) -> bool {
+        self.model.is_none() && self.provider.is_none() && self.effort.is_none() && self.thinking_mode.is_none()
+    }
+}
+
+/// A key that may be absent (`None`), `null` (`Some(None)`) or a value: the three are three
+/// different answers to "change this?".
+mod double_option {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer, T: Serialize>(value: &Option<Option<T>>, serializer: S) -> Result<S::Ok, S::Error> {
+        match value {
+            Some(inner) => inner.serialize(serializer),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>, T: Deserialize<'de>>(deserializer: D) -> Result<Option<Option<T>>, D::Error> {
+        Option::<T>::deserialize(deserializer).map(Some)
+    }
+}
+
 /// `harnix.session.respond`'s params. Whoever answers first is the answer; a later one succeeds
 /// and changes nothing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1369,6 +1434,19 @@ pub fn params<T: Serialize>(frame: &T) -> Value {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_session_model_change_tells_left_out_from_given_back() {
+        let read = |v: serde_json::Value| serde_json::from_value::<SessionModelParams>(v).unwrap();
+        let both = read(json!({"session_id": "s", "model": "m", "effort": "high", "thinking_mode": null, "space": "chat"}));
+        assert_eq!(both.choice, ModelChoice { model: Some("m".into()), provider: None, effort: Some(Some("high".into())), thinking_mode: Some(None) });
+        assert_eq!(both.space.as_deref(), Some("chat"));
+        // Written back as read: a key left out stays out, a `null` stays `null`.
+        assert_eq!(serde_json::to_value(&both).unwrap(), json!({"session_id": "s", "space": "chat", "model": "m", "effort": "high", "thinking_mode": null}));
+        let none = read(json!({"session_id": "s"}));
+        assert!(none.choice.is_empty());
+        assert!(serde_json::from_value::<SessionModelParams>(json!({"session_id": "s", "effort": 3})).is_err());
+    }
 
     #[test]
     fn what_is_absent_is_not_written() {

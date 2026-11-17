@@ -62,7 +62,30 @@ describe("Settings · MCP", () => {
     const resting = await card("resting");
     expect(resting.getAttribute("data-state")).toBe("off");
     expect(resting.querySelector('[data-testid="mcp-toggle"]')!.textContent).toBe("Switch on");
-    expect(resting.querySelector('[data-testid="mcp-edit"]')).toBeNull();
+    // Switched off, it is still in the tier's file: edited like any other, not reconnected.
+    expect(resting.querySelector('[data-testid="mcp-edit"]')).toBeTruthy();
+    expect(resting.querySelector('[data-testid="mcp-reconnect"]')).toBeNull();
+  });
+
+  it("says which (project, scene) the statuses are of, and that its servers start with its first session", async () => {
+    const list: McpList = {
+      servers: [server({ name: "fs", tier: "project", status: status("not_started") }), server({ name: "off", status: status("disabled") })],
+      paths,
+      status_read: true,
+      loaded: false,
+      scene: "code",
+      project_root: "/p",
+    };
+    mount(list);
+    const pair = await screen.findByTestId("mcp-pair");
+    expect(pair.textContent).toContain("/p");
+    expect(pair.textContent).toContain("code");
+    expect(pair.textContent).toContain("first session");
+    const fs = (await screen.findByText("fs")).closest("[data-mcp]")!;
+    expect(fs.getAttribute("data-state")).toBe("not_started");
+    // Nothing connected here yet: there is nothing to connect again.
+    expect(fs.querySelector('[data-testid="mcp-reconnect"]')).toBeNull();
+    expect(mcpState(server({ status: status("disabled") })).key).toBe("off");
   });
 
   it("reads a server's state the way the row draws it", () => {

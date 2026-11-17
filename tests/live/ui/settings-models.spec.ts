@@ -1,7 +1,8 @@
 /**
  * Model settings driven from the page: a model parameter written from Settings · Models, a task
- * routed to a provider and a model of it from Settings · Models by task, and a provider's key shown
- * only as its last four characters.
+ * routed to a provider and a model of it from Settings · Models by task (the conversation's own
+ * route among them), a provider's key said detected as the engine says and shown only as its last
+ * four characters, and its models edited as rows with their limits.
  *
  * On a backend of its own, as the other settings suite: the providers are the instance's settings.
  */
@@ -87,12 +88,54 @@ test("a provider's key is shown as its last four characters, never whole", TAGS,
   try {
     await section(page, "models");
     const key = page.locator(`[data-provider="${PROVIDER}"]`).getByTestId("provider-key");
-    await expect(key).toHaveAttribute("data-state", "stored");
-    await expect(key).toContainText("***wxyz");
+    await expect(key).toHaveAttribute("data-state", "present");
+    await expect(key).toHaveAttribute("data-source", "stored");
+    await expect(key).toHaveAttribute("title", /\*\*\*wxyz/);
     await expect(page.getByTestId("settings-page")).not.toContainText(KEY);
     // Editing it shows the same four, and leaves the key as it is when nothing is typed.
     await page.locator(`[data-provider="${PROVIDER}"]`).getByTestId("provider-edit").click();
     await expect(page.getByTestId("provider-form").getByTestId("provider-api_key")).toHaveAttribute("placeholder", /\*\*\*wxyz/);
+  } finally {
+    await call(page, "settings.setProvider", { provider_id: PROVIDER, delete: true });
+  }
+});
+
+test("the conversation's route is set in Settings · Models by task", TAGS, async ({ page }) => {
+  await open(page, backend.url);
+  await addProvider(page);
+  try {
+    await section(page, "task-models");
+    const provider = page.getByTestId("settings-task_models.main");
+    await expect(provider).toBeVisible();
+    await provider.selectOption(PROVIDER);
+    await expect.poll(async () => (await field(page, "task_models.main")).tiers.global).toBe(PROVIDER);
+    // The endpoint is not there: asking it again says so, and a model is still typed in.
+    const refresh = page.getByTestId("settings-task_models.main-models");
+    await refresh.click();
+    await expect(refresh).toHaveAttribute("data-state", "failed");
+    await page.getByTestId("settings-task_models.main-model").fill("route-other");
+    await page.getByTestId("settings-task_models.main-model").blur();
+    await expect.poll(async () => (await field(page, "task_models.main")).tiers.global).toEqual({ provider: PROVIDER, model: "route-other" });
+  } finally {
+    await call(page, "settings.write", { tier: "global", changes: { "task_models.main": null } });
+    await call(page, "settings.setProvider", { provider_id: PROVIDER, delete: true });
+  }
+});
+
+test("a provider's models are edited as rows, each with its own limits", TAGS, async ({ page }) => {
+  await open(page, backend.url);
+  await addProvider(page);
+  try {
+    await section(page, "models");
+    await page.locator(`[data-provider="${PROVIDER}"]`).getByTestId("provider-edit").click();
+    const form = page.getByTestId("provider-form");
+    await expect(form.getByTestId("provider-model-id")).toHaveCount(2);
+    await form.getByTestId("provider-model-max_output").nth(1).fill("4096");
+    await form.getByTestId("provider-model-context_window").nth(1).fill("64000");
+    await form.getByTestId("provider-save").click();
+    await expect(form).toHaveCount(0);
+    const models = await page.evaluate(async (id) => (await (window as any).harnix.app.call("settings.describe", {})).providers.providers[id].models, PROVIDER);
+    expect(models).toEqual(["route-default", { id: "route-other", max_output: 4096, context_window: 64000 }]);
   } finally {
     await call(page, "settings.setProvider", { provider_id: PROVIDER, delete: true });
   }

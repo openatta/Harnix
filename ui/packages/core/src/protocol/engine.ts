@@ -9,6 +9,15 @@
 // `AskAnswered` is the hub's own event in the stream: the first answer to an ask the engine took, and what it was.
 import type { AskAnswered, HubSessionRow } from "./generated/contract.ts";
 
+/* ── 引擎的错误码 ───────────────────────────────────────────────────── */
+
+/** 引擎：`project_root` 不存在或不是目录（daemon_rpc_protocol §9）。 */
+export const ENGINE_PROJECT_NOT_FOUND = -32010;
+/** 引擎：设置目录被别的进程握着，等满 10 秒仍没拿到锁，什么都没写；放手后重发。 */
+export const ENGINE_SETTINGS_LOCKED = -32026;
+/** 引擎：provider 的端点不列模型（`config.listModels`）。 */
+export const ENGINE_MODELS_UNSUPPORTED = -32027;
+
 /* ── 引擎的场景、会话 ─────────────────────────────────────────────────── */
 
 /** `engine.scene.list` 的一行（`hello.scenes`）。 */
@@ -49,6 +58,16 @@ export interface SessionInfo extends EngineSession, Pick<HubSessionRow, "scene_l
   usage?: Usage | null;
   /** 最近一次调过模型的那一轮的上下文占用；会话在内存里、且至少有一轮调过模型时才有。 */
   context?: ContextUsage;
+  /** 下一次模型调用带的推理强度与思考开关；`*_source` 是 `session`（会话自己的）或 `settings`。 */
+  reasoning?: SessionReasoning;
+}
+
+/** 引擎答会话时带的 `reasoning`：`effort` 为 `null` 是不发、交给端点；`thinking_mode` 是 `auto` / `off` / `on` 或 `{on_budget}`。 */
+export interface SessionReasoning {
+  effort?: string | null;
+  effort_source?: "session" | "settings" | string;
+  thinking_mode?: unknown;
+  thinking_mode_source?: "session" | "settings" | string;
 }
 
 /**

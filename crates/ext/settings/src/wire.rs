@@ -28,6 +28,19 @@ pub struct McpList {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub written: Option<String>,
+    /// Whether this (project, scene)'s servers have been connected. `false`: none is started until
+    /// its first session, and each status says only what the settings make of it (`not_started`,
+    /// `disabled`, `untrusted`, `denied`). Absent when the engine was not asked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub loaded: Option<bool>,
+    /// The (project, scene) the statuses are of.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub scene: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub project_root: Option<String>,
 }
 
 /// The settings.json of each tier.
@@ -46,8 +59,8 @@ pub struct McpServer {
     pub name: String,
     /// `global`, `scene` or `project`.
     pub tier: String,
-    /// `false`: switched off here, kept aside by Harnix and not in the tier's file; the engine does
-    /// not know of it.
+    /// `false`: switched off for this (project, scene) — `mcp_enabled` in a tier says so — and the
+    /// engine does not start it.
     pub enabled: bool,
     /// `stdio`, `http`, `sse` or `websocket`; a type the engine does not have, as written.
     pub transport: String,
@@ -73,8 +86,8 @@ pub struct McpServer {
     /// What it asks for that this build does not have: `private_key_jwt` (Harnix's engine is built
     /// without the `mcp-oauth-jwt` feature).
     pub unsupported: Vec<String>,
-    /// What the engine says of it; absent when the engine was not asked, or does not list it (a
-    /// switched-off server, another project's server).
+    /// What the engine says of it for this (project, scene); absent when the engine was not asked,
+    /// or does not list it, or a higher tier declares it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub status: Option<McpStatus>,
@@ -115,8 +128,8 @@ pub struct McpOAuth {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct McpStatus {
-    /// `connected`, `disconnected`, `connecting`, `auth_required`, `failed`, `denied` or
-    /// `untrusted`.
+    /// `connected`, `disconnected`, `connecting`, `auth_required`, `failed`, `denied`, `untrusted`,
+    /// `disabled` (switched off) or `not_started` (its pair has not connected yet).
     pub state: String,
     pub tool_count: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]

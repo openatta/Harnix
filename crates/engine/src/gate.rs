@@ -99,9 +99,9 @@ impl EngineOps for GatedOps {
         self.awake().await?;
         self.agix.rename(session, title).await
     }
-    async fn set_model(&self, session: &str, model: &str, provider: Option<&str>) -> Answer<Value> {
+    async fn set_model(&self, session: &str, choice: &harnix_contract::wire::ModelChoice) -> Answer<Value> {
         self.awake().await?;
-        self.agix.set_model(session, model, provider).await
+        self.agix.set_model(session, choice).await
     }
     async fn set_prompt(&self, session: &str, append: Option<Option<String>>, override_text: Option<Option<String>>) -> Answer<Value> {
         self.awake().await?;
