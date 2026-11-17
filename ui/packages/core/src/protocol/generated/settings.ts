@@ -49,8 +49,8 @@ export type McpServer = { name: string,
  */
 tier: string, 
 /**
- * `false`: switched off here, kept aside by Harnix and not in the tier's file; the engine does
- * not know of it.
+ * `false`: switched off for this (project, scene) — `mcp_enabled` in a tier says so — and the
+ * engine does not start it.
  */
 enabled: boolean, 
 /**
@@ -79,8 +79,8 @@ overridden_by?: string,
  */
 unsupported: Array<string>, 
 /**
- * What the engine says of it; absent when the engine was not asked, or does not list it (a
- * switched-off server, another project's server).
+ * What the engine says of it for this (project, scene); absent when the engine was not asked,
+ * or does not list it, or a higher tier declares it.
  */
 status?: McpStatus, };
 
@@ -109,8 +109,8 @@ grant: string, client_id?: string, issuer?: string, scopes: Array<string>, };
  */
 export type McpStatus = { 
 /**
- * `connected`, `disconnected`, `connecting`, `auth_required`, `failed`, `denied` or
- * `untrusted`.
+ * `connected`, `disconnected`, `connecting`, `auth_required`, `failed`, `denied`, `untrusted`,
+ * `disabled` (switched off) or `not_started` (its pair has not connected yet).
  */
 state: string, tool_count: number, error?: string, 
 /**

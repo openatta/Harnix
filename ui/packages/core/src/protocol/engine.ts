@@ -58,6 +58,16 @@ export interface SessionInfo extends EngineSession, Pick<HubSessionRow, "scene_l
   usage?: Usage | null;
   /** 最近一次调过模型的那一轮的上下文占用；会话在内存里、且至少有一轮调过模型时才有。 */
   context?: ContextUsage;
+  /** 下一次模型调用带的推理强度与思考开关；`*_source` 是 `session`（会话自己的）或 `settings`。 */
+  reasoning?: SessionReasoning;
+}
+
+/** 引擎答会话时带的 `reasoning`：`effort` 为 `null` 是不发、交给端点；`thinking_mode` 是 `auto` / `off` / `on` 或 `{on_budget}`。 */
+export interface SessionReasoning {
+  effort?: string | null;
+  effort_source?: "session" | "settings" | string;
+  thinking_mode?: unknown;
+  thinking_mode_source?: "session" | "settings" | string;
 }
 
 /**

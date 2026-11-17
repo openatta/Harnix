@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import type { Hello } from "@harnix/core";
 
+import { reasoningAfter } from "../src/Shell";
 import { openSettingsFor } from "../src/settings";
 import { scriptedApp, tick } from "./scripted";
 
@@ -54,5 +55,20 @@ describe("models from hello", () => {
     openSettingsFor(app, "models");
     const { container } = render(<>{app.snapshot.modal?.content}</>);
     expect(container.querySelector('[data-state="current"]')?.getAttribute("data-section")).toBe("llm");
+  });
+});
+
+describe("a session's reasoning after a change", () => {
+  it("is the session's own when the engine answered a value, and the settings' again on null", () => {
+    const before = { effort: "medium", effort_source: "settings", thinking_mode: "on", thinking_mode_source: "session" };
+    // Effort set for the session; thinking left as it was.
+    expect(reasoningAfter(before, { effort: "max" }, { effort: "max", thinking_mode: "on" })).toEqual({ ...before, effort: "max", effort_source: "session" });
+    // Thinking given back: the settings' value was not shown, so it is not guessed.
+    expect(reasoningAfter(before, { thinking_mode: null }, { thinking_mode: null })).toEqual({ ...before, thinking_mode: null, thinking_mode_source: "settings" });
+    // Effort given back after it was the session's: the settings' value it had shown stays unknown.
+    const own = { effort: "max", effort_source: "session" };
+    expect(reasoningAfter(own, { effort: null }, {})).toEqual({ effort: null, effort_source: "settings" });
+    // A new session's, chosen before it exists: what was picked.
+    expect(reasoningAfter(null, { thinking_mode: "off" }, {})).toEqual({ thinking_mode: "off", thinking_mode_source: "session" });
   });
 });

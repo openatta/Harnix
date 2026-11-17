@@ -875,6 +875,53 @@ export type AskAnswered = { kind: AskAnsweredKind, prompt_id: string, prompt_typ
 extension?: string, };
 
 /**
+ * `harnix.session.setModel`'s params: what a session's next model call is — its model and
+ * provider, and how hard it reasons. At least one of the four; a key left out is left as it is.
+ */
+export type SessionModelParams = { instance?: string, session_id: string, space?: string, 
+/**
+ * The model's name, checked against the provider's `models` when it lists any.
+ */
+model?: string, 
+/**
+ * A provider's id; named alone, its default model.
+ */
+provider?: string, 
+/**
+ * The session's own reasoning effort: `low`, `medium`, `high`, `xhigh` or `max`; `null` gives
+ * it back to the settings' `model.effort`.
+ */
+effort?: string | null, 
+/**
+ * The session's own thinking switch: `auto`, `off` or `on`; `null` gives it back to the
+ * settings' `model.thinking_mode`.
+ */
+thinking_mode?: string | null, };
+
+/**
+ * What a session's next model call is: each key left out is left as it is.
+ */
+export type ModelChoice = { 
+/**
+ * The model's name, checked against the provider's `models` when it lists any.
+ */
+model?: string, 
+/**
+ * A provider's id; named alone, its default model.
+ */
+provider?: string, 
+/**
+ * The session's own reasoning effort: `low`, `medium`, `high`, `xhigh` or `max`; `null` gives
+ * it back to the settings' `model.effort`.
+ */
+effort?: string | null, 
+/**
+ * The session's own thinking switch: `auto`, `off` or `on`; `null` gives it back to the
+ * settings' `model.thinking_mode`.
+ */
+thinking_mode?: string | null, };
+
+/**
  * Where a skill a session sees comes from.
  */
 export type SkillTier = "space" | "project" | "plugin" | "user" | "builtin";

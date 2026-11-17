@@ -22,7 +22,8 @@ import type { SessionController } from "@harnix/core/state";
 import { Agent, AskCard, ContextRow, ImageBlock, rowTitle, toolAsks, type ToolAsks } from "../components/blocks";
 import { ConnectionBadge } from "../components/ConnectionBadge";
 import type { AnswerFeedback } from "./feedback";
-import { ChatComposer, type Attached, type ComposerApi, type ContextRingConfig, type ModelOption } from "./ChatComposer";
+import type { SessionReasoning } from "@harnix/core";
+import { ChatComposer, type Attached, type ComposerApi, type ContextRingConfig, type ModelOption, type ReasoningChange } from "./ChatComposer";
 import { useDisplay } from "../display";
 import { t } from "../i18n/index";
 import { TOOL_NAMES, compactTokens } from "./format";
@@ -134,6 +135,10 @@ export interface ChatPanelProps {
   models?: readonly ModelOption[];
   /** 换模型；给了模型菜单才可选 */
   onModel?: (model: ModelOption) => Promise<void> | void;
+  /** 会话的推理强度与思考开关（见 ChatComposer 的 `reasoning`）；给了 `onReasoning` 时缺省取会话的 `session.reasoning` */
+  reasoning?: SessionReasoning | null;
+  /** 改它们；给了模型菜单里才可选 */
+  onReasoning?: (change: ReasoningChange) => Promise<void> | void;
   /** 底栏右侧、模型前面的额外控件（例如工位的"立即送达"） */
   composerTools?: ReactNode;
   /** 有一轮在跑时发送的话怎么办：queue（缺省）排到这一轮结束；steer 在下一个步骤边界送进这一轮。给了 `send` 时不用它 */
@@ -502,6 +507,8 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
             modelUnset={props.modelUnset}
             models={props.models}
             onModel={props.onModel}
+            reasoning={props.reasoning !== undefined ? props.reasoning : props.onReasoning ? (state?.session?.reasoning ?? null) : null}
+            onReasoning={props.onReasoning}
             tools={props.composerTools}
           />
         )}

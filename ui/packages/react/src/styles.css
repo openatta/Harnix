@@ -424,6 +424,12 @@
 .hx-pop-input { padding: 4px 4px 2px; }
 .hx-pop-input input { width: 100%; font: inherit; font-size: 12.5px; color: var(--hx-fg); background: var(--hx-bg-soft); border: 1px solid var(--hx-line); border-radius: 8px; padding: 6px 9px; outline: none; }
 .hx-pop-input input:focus { border-color: var(--hx-accent); }
+.hx-pop-seg { display: flex; align-items: center; gap: 8px; padding: 6px 8px 2px; font-size: 12px; }
+.hx-pop-seg-l { color: var(--hx-fg-soft); flex: none; min-width: 4.5em; }
+.hx-pop-seg-o { display: flex; flex-wrap: wrap; gap: 4px; }
+.hx-pop-seg-o button { font: inherit; font-size: 11.5px; color: var(--hx-fg); background: var(--hx-bg-soft); border: 1px solid var(--hx-line); border-radius: 6px; padding: 2px 7px; cursor: pointer; }
+.hx-pop-seg-o button.on { border-color: var(--hx-accent); background: var(--hx-accent-soft); color: var(--hx-fg); }
+.hx-pop-seg-o button:disabled { cursor: default; opacity: 0.6; }
 .hx-models { width: min(300px, calc(100% - 12px)); }
 .hx-models[aria-busy="true"] { opacity: 0.7; }
 .hx-cmp-model svg:first-child { flex: none; opacity: 0.8; }

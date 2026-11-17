@@ -10,7 +10,7 @@ export { HarnixUiProvider, useConnection, useHello, useHarnixClient, useSession,
 export { TurnRail, TICK_SPACING, type TurnRailProps } from "./chat/TurnRail";
 export { TURN_NEXT, TURN_PREVIOUS, addTurnRail, currentTurnRail, registerTurnShortcuts, type TurnRailHandle } from "./chat/turnNav";
 export { ChatPanel, type ChatPanelProps } from "./chat/ChatPanel";
-export { ChatComposer, ContextRing, ringValue, type Attached, type ChatComposerProps, type ComposerApi, type ModelOption, type RingValue } from "./chat/ChatComposer";
+export { ChatComposer, ContextRing, EFFORTS, THINKING_MODES, ringValue, type Attached, type ChatComposerProps, type ComposerApi, type ModelOption, type ReasoningChange, type RingValue } from "./chat/ChatComposer";
 export { TranscriptList, type TranscriptListProps } from "./chat/TranscriptList";
 export { readDraft, writeDraft } from "./chat/drafts";
 export { Avatar, ComposerNote, DiffView, QueuedBubble, SegmentRow, TranscriptToolRow, UnifiedDiffView } from "./chat/messages";

@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use harnix_contract::wire::{RemovedTurn, RewindParams, RewindResult, RewindScope, RewindTo, RewoundConversation, RewoundFiles};
+use harnix_contract::wire::{ModelChoice, RemovedTurn, RewindParams, RewindResult, RewindScope, RewindTo, RewoundConversation, RewoundFiles};
 use harnix_contract::wire::{HookRow, HookSource, SessionHooks, SessionSkills, ShadowedSkill, SkillDirRow, SkillRow, SkillTier};
 use harnix_contract::RpcError;
 use harnix_engine_link::events::{Completion, DaemonEventKind, EngineEvent, FileWrite, Fragment, Joins, Prompt, SessionEventKind, Waiting};
@@ -274,12 +274,8 @@ impl EngineOps for AgixOps {
         self.call(SESSION_RENAME, json!({"session_id": session, "name": title})).await
     }
 
-    async fn set_model(&self, session: &str, model: &str, provider: Option<&str>) -> Answer<Value> {
-        let mut params = json!({"session_id": session, "model": model});
-        if let Some(provider) = provider {
-            params["provider"] = json!(provider);
-        }
-        self.call(SESSION_SET_MODEL, params).await
+    async fn set_model(&self, session: &str, choice: &ModelChoice) -> Answer<Value> {
+        self.call(SESSION_SET_MODEL, set_model_params(session, choice)).await
     }
 
     async fn set_prompt(&self, session: &str, append: Option<Option<String>>, override_text: Option<Option<String>>) -> Answer<Value> {
@@ -630,6 +626,25 @@ fn set_up(mut params: Value, setup: &SessionSetup) -> Value {
 
 /// `harnix.session.respond`'s answer as the engine takes it: a question's `decline` gives a
 /// reason (the model reads "has not answered: <reason>"), an MCP server's gives none.
+/// `session.setModel`'s params: the session, and each key the choice says — `null` for effort or
+/// thinking gives the session's own back to the settings'.
+fn set_model_params(session: &str, choice: &ModelChoice) -> Value {
+    let mut params = json!({"session_id": session});
+    if let Some(model) = &choice.model {
+        params["model"] = json!(model);
+    }
+    if let Some(provider) = &choice.provider {
+        params["provider"] = json!(provider);
+    }
+    if let Some(effort) = &choice.effort {
+        params["effort"] = json!(effort);
+    }
+    if let Some(thinking) = &choice.thinking_mode {
+        params["thinking_mode"] = json!(thinking);
+    }
+    params
+}
+
 fn respond_params(mut params: Value) -> Value {
     let kind = params.get("prompt_type").and_then(Value::as_str).map(str::to_string);
     if let Some(Value::Object(answer)) = params.get_mut("answer") {
@@ -1229,6 +1244,14 @@ pub(crate) fn user_prompt(input: &Value) -> (String, Delivery, Option<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_model_choice_names_only_what_it_changes() {
+        let choice = ModelChoice { model: Some("m".into()), effort: Some(Some("high".into())), thinking_mode: Some(None), ..Default::default() };
+        assert_eq!(set_model_params("s", &choice), json!({"session_id": "s", "model": "m", "effort": "high", "thinking_mode": null}));
+        let provider = ModelChoice { provider: Some("p".into()), ..Default::default() };
+        assert_eq!(set_model_params("s", &provider), json!({"session_id": "s", "provider": "p"}));
+    }
 
     #[test]
     fn a_frame_says_which_session_moved_and_whether_a_turn_began_or_ended() {
