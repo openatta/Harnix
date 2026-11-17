@@ -8,7 +8,7 @@ mod common;
 use std::sync::{Arc, Mutex};
 
 use common::*;
-use harnix_ext_flow::*;
+use harnix_flow::*;
 use serde_json::json;
 
 const RESUB: &str = "name: resub\nstations: [{id: s, executor: {kind: external}, output: {type: object}, exit: [{kind: output}, {kind: confirm}]}]";

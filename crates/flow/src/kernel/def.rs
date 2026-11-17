@@ -593,6 +593,12 @@ impl FlowDef {
         })
     }
 
+    /// `given` checked against the inputs and their defaults filled in: what a run of it is
+    /// started with. Why not, said.
+    pub fn apply_inputs(&self, given: &Value) -> Result<Value, String> {
+        crate::kernel::txn::apply_inputs(self, given)
+    }
+
     pub fn rework_limit(&self) -> u32 {
         self.rework_limit.unwrap_or(DEFAULT_REWORK_LIMIT)
     }

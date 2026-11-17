@@ -22,6 +22,7 @@ members = [
     "crates/ext/api",
     "crates/ext/devices",
     "crates/ext/flow",
+    "crates/flow",
     "crates/ext/harnix-app",
     "crates/ext/observability",
     "crates/ext/packages",
@@ -100,6 +101,7 @@ harnix-engine-link = { path = "crates/engine-link" }
 harnix-ext       = { path = "crates/ext/api" }
 harnix-ext-devices = { path = "crates/ext/devices" }
 harnix-ext-flow    = { path = "crates/ext/flow" }
+harnix-flow        = { path = "crates/flow" }
 harnix-ext-harnix-app = { path = "crates/ext/harnix-app" }
 harnix-ext-observability = { path = "crates/ext/observability" }
 harnix-ext-packages = { path = "crates/ext/packages" }

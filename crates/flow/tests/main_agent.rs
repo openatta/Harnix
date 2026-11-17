@@ -3,7 +3,7 @@
 mod common;
 
 use common::*;
-use harnix_ext_flow::*;
+use harnix_flow::*;
 use serde_json::json;
 
 /// A session station without a scene, a sub-agent station, a person confirming.

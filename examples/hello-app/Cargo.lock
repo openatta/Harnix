@@ -1419,6 +1419,7 @@ dependencies = [
  "harnix-ext-plugins",
  "harnix-ext-schedule",
  "harnix-ext-settings",
+ "harnix-flow",
  "harnix-package",
  "harnix-proc",
  "serde",
@@ -1643,10 +1644,9 @@ dependencies = [
  "async-trait",
  "futures",
  "harnix-ext",
- "jsonschema",
+ "harnix-flow",
  "libc",
  "reqwest 0.12.28",
- "schemars",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -1748,6 +1748,25 @@ dependencies = [
  "tracing",
  "ts-rs",
  "url",
+]
+
+[[package]]
+name = "harnix-flow"
+version = "0.4.5-2026111601"
+dependencies = [
+ "async-trait",
+ "jsonschema",
+ "libc",
+ "schemars",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "ts-rs",
+ "uuid",
 ]
 
 [[package]]

@@ -1752,7 +1752,7 @@ r.register("conversation.view", {
 
 可选的第一方扩展：产品自己列进去才有（`harnix::first_party::standard_with_flow(Flow::builder()….build())`，授予 `FLOW_GRANTS`：`engine.control`、`engine.inspect`）；
 Harnix 自己的二进制注册了它（`crates/cli/src/main.rs`）。
-对象与写法（站、执行者、出口条件、规则、策略与权限、门禁、钩子……）见流程指南 `crates/ext/flow/docs/guide.zh-CN.md`
+对象与写法（站、执行者、出口条件、规则、策略与权限、门禁、钩子……）见流程指南 `crates/flow/docs/guide.zh-CN.md`
 （系统 space 里流程的参考页就是它，`flow.guide {lang}` 也给它）。
 
 | 构建器 | 意思 |

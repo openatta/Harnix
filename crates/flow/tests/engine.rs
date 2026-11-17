@@ -6,8 +6,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use common::*;
-use harnix_ext_flow::kernel::refs::station_output;
-use harnix_ext_flow::*;
+use harnix_flow::kernel::refs::station_output;
+use harnix_flow::*;
 use serde_json::{json, Value};
 
 const SEQ: &str = r#"
@@ -1195,7 +1195,7 @@ async fn a_task_works_in_its_project_and_its_summary_says_so() {
     // A relative output directory is taken where the run works: its project.
     assert_eq!(rec.output_dir.as_deref(), Some("/work/app/flows/seq-2026111601"));
     // `${output_dir}` and `${workspace}` read it and the project.
-    let ctx = harnix_ext_flow::kernel::refs::context_in(&rec, None, None, h.eng.workspace_for(&rec).as_deref().and_then(|p| p.to_str()));
+    let ctx = harnix_flow::kernel::refs::context_in(&rec, None, None, h.eng.workspace_for(&rec).as_deref().and_then(|p| p.to_str()));
     assert_eq!((ctx["output_dir"].as_str(), ctx["workspace"].as_str()), (Some("/work/app/flows/seq-2026111601"), Some("/work/app")));
     let summary = rec.summary();
     assert_eq!(summary.project_root.as_deref(), Some("/work/app"));

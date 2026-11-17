@@ -3,7 +3,7 @@
 mod common;
 
 use common::packs;
-use harnix_ext_flow::*;
+use harnix_flow::*;
 
 /// The example of the issue (xops-01 §3), with the `output` contract `report` needs.
 const ISSUE_EXAMPLE: &str = r#"

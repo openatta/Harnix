@@ -4,7 +4,7 @@
 mod common;
 
 use common::*;
-use harnix_ext_flow::*;
+use harnix_flow::*;
 use serde_json::json;
 
 const RULED: &str = r#"

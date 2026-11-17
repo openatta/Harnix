@@ -6,9 +6,9 @@ mod common;
 use std::sync::Arc;
 
 use common::{packs, T0};
-use harnix_ext_flow::dryrun::{StartIn, KEEP};
-use harnix_ext_flow::kernel::host::default_instance;
-use harnix_ext_flow::*;
+use harnix_flow::dryrun::{StartIn, KEEP};
+use harnix_flow::kernel::host::default_instance;
+use harnix_flow::*;
 use serde_json::{json, Value};
 
 fn me() -> Actor {

@@ -959,7 +959,7 @@ Harnix 自己的二进制 `harnix` 链了它。它被授予 `engine.inspect` 与
 `host`）、人的确认。**规则**与 skill 只告诉 Agent，不拦。**钩子**是旁观者：不写在流程里，从不阻塞运行。
 
 **不进 Harnix 的**：审批策略（几个人批、批与做不能是同一人）归应用——流程把 `who` 交给应用的授权方。
-对象与写法见系统 space 里流程的参考页（`crates/ext/flow/docs/guide.*.md`）；构建器、方法与主题见 [原生扩展](harnix-ext.md)。
+对象与写法见系统 space 里流程的参考页（`crates/flow/docs/guide.*.md`）；构建器、方法与主题见 [原生扩展](harnix-ext.md)。
 
 ---
 

@@ -143,7 +143,7 @@ fn main() -> anyhow::Result<()> {
 | 后端行为 | 一个原生扩展（`harnix::ext::Extension`）：方法、主题、路由、原生工具、scene、模板 | [原生扩展](harnix-ext.md) |
 | 自己的界面 | 一个 space 和贡献（`spaces/*/ui`，构建进外壳） | [贡献点](contribution_points.md) |
 | 自己的样子 | `[brand]`、主题 tokens、语言包 | [原生扩展](harnix-ext.md) |
-| 让 Agent 按流程干活 | 流程：站、skill、规则、策略、门禁、钩子 | 系统 space 里流程的参考页、`crates/ext/flow/docs/guide.*.md` |
+| 让 Agent 按流程干活 | 流程：站、skill、规则、策略、门禁、钩子 | 系统 space 里流程的参考页、`crates/flow/docs/guide.*.md` |
 | 桌面应用 | `templates/desktop`（Tauri 2，本地或连远程） | `templates/desktop/README.md` |
 | 让别人往产品里装东西 | 扩展包：一个签了名的 `.hxext`，WebAssembly 后端、Agix 插件、隔离的界面——在你的进程里（模式 2）或各一个进程（模式 3） | [扩展包](harnix-ext-package.md) |
 | 对着真二进制的测试 | `@harnix/testkit`：回放模型调用，接口与浏览器测试 | [测试](testing.md) |
