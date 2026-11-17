@@ -414,6 +414,10 @@ pub struct ParentRef {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct RunRecord {
+    /// The state format it is written in (`RUN_FORMAT`): a library that reads an older one
+    /// refuses it.
+    #[serde(default = "super::def::first_format")]
+    pub format: u32,
     pub id: String,
     pub flow: String,
     /// Digest of the definition text the run was started from.

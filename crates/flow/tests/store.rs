@@ -11,6 +11,7 @@ fn record(id: &str, flow: &str, subject: &str, rev: u64, at: u64) -> RunRecord {
     ))
     .unwrap();
     RunRecord {
+        format: RUN_FORMAT,
         id: id.into(),
         flow: flow.into(),
         def_digest: "d".into(),
@@ -374,4 +375,48 @@ async fn a_history_whose_last_line_was_cut_short_still_reads() {
     // A line that does not read in the middle is still an error: that is not a torn append.
     std::fs::write(&path, format!("{{\"half\n{whole}\n")).unwrap();
     assert!(s.history("demo-1").await.is_err());
+}
+
+/// A store's directory says its state format (`FORMAT`); a directory or a record this library
+/// does not read is refused whole, with why, not read in part.
+#[tokio::test]
+async fn a_file_store_keeps_its_format_and_refuses_one_it_does_not_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = FileStore::new(dir.path().join("runs"));
+    assert!(s.list(&RunQuery::default()).await.unwrap().is_empty(), "nothing there yet");
+    s.alloc_id("demo").await.unwrap();
+    let format = dir.path().join("runs/FORMAT");
+    assert_eq!(std::fs::read_to_string(&format).unwrap(), format!("{RUN_FORMAT}\n"));
+    s.commit(&ChangeSet { records: vec![(record("demo-1", "demo", "x", 1, 1), None)], history: vec![] })
+        .await
+        .unwrap();
+    let saved: Value = serde_json::from_slice(&std::fs::read(dir.path().join("runs/demo-1.json")).unwrap()).unwrap();
+    assert_eq!(saved["format"], json!(RUN_FORMAT));
+
+    // A record of a newer format, on its own.
+    let mut newer = serde_json::to_value(record("demo-2", "demo", "y", 1, 2)).unwrap();
+    newer["format"] = json!(RUN_FORMAT + 1);
+    std::fs::write(dir.path().join("runs/demo-2.json"), serde_json::to_vec(&newer).unwrap()).unwrap();
+    let e = s.load("demo-2").await.unwrap_err();
+    assert!(matches!(&e, StoreError::Other(m) if m.contains("state format 2")), "{e:?}");
+
+    // A directory of a newer format: every call says so.
+    std::fs::write(&format, format!("{}\n", RUN_FORMAT + 1)).unwrap();
+    let fresh = FileStore::new(dir.path().join("runs"));
+    for e in [
+        fresh.list(&RunQuery::default()).await.unwrap_err(),
+        fresh.load("demo-1").await.unwrap_err(),
+        fresh.alloc_id("demo").await.unwrap_err(),
+        fresh.history("demo-1").await.unwrap_err(),
+    ] {
+        assert!(matches!(&e, StoreError::Other(m) if m.contains("needs a newer one")), "{e:?}");
+    }
+
+    // Runs from before formats were kept: not read.
+    std::fs::remove_file(&format).unwrap();
+    let old = FileStore::new(dir.path().join("runs"));
+    let e = old.list(&RunQuery::default()).await.unwrap_err();
+    assert!(matches!(&e, StoreError::Other(m) if m.contains("before state formats")), "{e:?}");
+    assert!(old.alloc_id("demo").await.is_err());
+    assert!(!format.exists(), "nothing written over them");
 }

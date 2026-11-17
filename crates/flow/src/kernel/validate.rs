@@ -88,6 +88,10 @@ pub fn validate(def: &FlowDef, packs: &dyn Packs) -> Vec<Problem> {
         catalog: packs.catalog(),
         out: vec![],
     };
+    if let Some(why) = super::def::format_problem(u64::from(def.format), "flow") {
+        c.flow(why);
+        return c.out;
+    }
     if !is_name(&def.name, &[]) {
         c.flow(format!("name {:?} must match [a-z][a-z0-9-]*", def.name));
     } else if def.name.starts_with(DRY_PREFIX) {
@@ -949,7 +953,7 @@ pub fn part_problems(kind: PartKind, name: &str, text: &str, packs: &dyn Packs) 
                 out.push("it is empty".to_string());
             }
         }
-        PartKind::Policy => match serde_yaml::from_str::<PolicyDef>(text) {
+        PartKind::Policy => match super::def::parse_part::<PolicyDef>(text, "policy") {
             Err(e) => out.push(format!("not a policy: {e}")),
             Ok(p) => {
                 named(&p.name, &mut out);
@@ -963,14 +967,14 @@ pub fn part_problems(kind: PartKind, name: &str, text: &str, packs: &dyn Packs) 
                 }
             }
         },
-        PartKind::Gate => match serde_yaml::from_str::<GateDef>(text) {
+        PartKind::Gate => match super::def::parse_part::<GateDef>(text, "gate") {
             Err(e) => out.push(format!("not a gate: {e}")),
             Ok(g) => {
                 named(&g.name, &mut out);
                 out.extend(gate_problems(&g, &packs.catalog()));
             }
         },
-        PartKind::Hook => match serde_yaml::from_str::<HookDef>(text) {
+        PartKind::Hook => match super::def::parse_part::<HookDef>(text, "hook") {
             Err(e) => out.push(format!("not a hook: {e}")),
             Ok(h) => {
                 named(&h.name, &mut out);

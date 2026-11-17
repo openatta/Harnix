@@ -333,6 +333,7 @@ pub(crate) fn new_record(
     parent: Option<ParentRef>,
 ) -> RunRecord {
     RunRecord {
+        format: crate::RUN_FORMAT,
         id,
         flow: def.name.clone(),
         def_digest: digest,

@@ -26,6 +26,11 @@ pub const MAX_REWORK_LIMIT: u32 = 20;
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct FlowDef {
+    /// The definition format it is written in (`DEFINITION_FORMAT`); 1 when absent. A library
+    /// that reads an older format refuses it whole.
+    #[serde(default = "first_format", skip_serializing_if = "is_first_format")]
+    #[schemars(range(min = 1, max = 1))]
+    pub format: u32,
     /// `[a-z][a-z0-9-]*`; run ids are `<name>-<n>`.
     pub name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -68,6 +73,50 @@ pub struct FlowDef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<super::run::Workspace>,
     pub stations: Vec<Station>,
+}
+
+/// A definition's format when it says none: the first.
+pub(crate) fn first_format() -> u32 {
+    1
+}
+
+pub(crate) fn is_first_format(n: &u32) -> bool {
+    *n == 1
+}
+
+/// Whether this library reads a definition format: why not, said.
+pub(crate) fn format_problem(n: u64, what: &str) -> Option<String> {
+    let reads = crate::DEFINITION_FORMAT;
+    if n > u64::from(reads) {
+        Some(format!(
+            "this {what} is written in definition format {n}; this library reads format {reads}: it needs a newer one"
+        ))
+    } else if n == 0 {
+        Some(format!("format: a {what}'s definition format is a whole number from 1 (this library reads {reads})"))
+    } else {
+        None
+    }
+}
+
+/// A definition or part text checked for its `format` before anything else is read: one written
+/// for a newer library is refused as that, not as fields this one does not know.
+pub(crate) fn check_format(text: &str, what: &str) -> Result<(), String> {
+    let Ok(serde_yaml::Value::Mapping(m)) = serde_yaml::from_str::<serde_yaml::Value>(text) else {
+        return Ok(());
+    };
+    match m.get("format") {
+        None => Ok(()),
+        Some(v) => match v.as_u64() {
+            Some(n) => format_problem(n, what).map_or(Ok(()), Err),
+            None => Err(format_problem(0, what).unwrap_or_default()),
+        },
+    }
+}
+
+/// A part's text (a policy, a gate, a hook) read, its format checked first.
+pub(crate) fn parse_part<T: serde::de::DeserializeOwned>(text: &str, what: &str) -> Result<T, String> {
+    check_format(text, what)?;
+    serde_yaml::from_str(text).map_err(|e| e.to_string())
 }
 
 /// Where a run's deliverables go when neither its flow nor its start says.
@@ -560,6 +609,7 @@ impl Station {
 impl FlowDef {
     /// Parse a definition from YAML (shape only; see [`crate::validate`] for the rest).
     pub fn parse(yaml: &str) -> Result<Self, String> {
+        check_format(yaml, "flow")?;
         serde_yaml::from_str(yaml).map_err(|e| e.to_string())
     }
 

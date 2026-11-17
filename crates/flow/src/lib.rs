@@ -35,12 +35,13 @@
 /// a change that breaks a host; additions leave it.
 pub const FLOW_API_VERSION: u32 = 1;
 
-/// The format a flow definition and its parts are read in. Not yet written into a definition: a
-/// file without one is this format.
+/// The format a flow definition and its parts are read in: their optional `format:` (1 when
+/// absent). One written in a later format is refused whole.
 pub const DEFINITION_FORMAT: u32 = 1;
 
-/// The format of the run records, their histories and the run ids a store keeps. Not yet written
-/// into a record or a store: one without it is this format.
+/// The format of the run records, their histories and the run ids a store keeps: each record's
+/// `format`, and the `FORMAT` file of a [`FileStore`]'s directory. A store or record of a later
+/// format is refused, not read in part.
 pub const RUN_FORMAT: u32 = 1;
 
 pub mod dryrun;

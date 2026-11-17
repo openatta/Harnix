@@ -566,3 +566,40 @@ fn a_stations_task_specs_are_its_work_whatever_its_shape() {
     assert_eq!(ids("each"), ["each"], "a foreach station's tasks share its one template");
     assert!(ids("check").is_empty(), "a checkpoint has none");
 }
+
+/// A definition and its parts may say their format; absent is 1. One for a newer library is
+/// refused as that, before any field it might have that this one does not know.
+#[test]
+fn a_definition_says_its_format_and_one_for_a_newer_library_is_refused_whole() {
+    let p = packs();
+    let flow = |head: &str| format!("{head}name: f\nstations: [{{id: a, exit: [{{kind: confirm}}]}}]");
+    assert!(validate_yaml(&flow(""), &p).is_empty());
+    assert!(validate_yaml(&flow("format: 1\n"), &p).is_empty());
+    let def = FlowDef::parse(&flow("format: 1\n")).unwrap();
+    assert_eq!(def.format, DEFINITION_FORMAT);
+    assert!(!serde_yaml::to_string(&def).unwrap().contains("format"), "the first format is not written");
+
+    let newer = validate_yaml(&format!("format: {}\nname: f\nwhatever_comes_next: true\nstations: []", DEFINITION_FORMAT + 1), &p);
+    assert_eq!(newer.len(), 1, "{newer:?}");
+    assert!(newer[0].message.contains("definition format 2") && newer[0].message.contains("needs a newer one"), "{}", newer[0].message);
+    for bad in ["format: 0\n", "format: one\n"] {
+        let problems = validate_yaml(&flow(bad), &p);
+        assert!(problems.iter().any(|x| x.message.contains("whole number from 1")), "{bad}: {problems:?}");
+    }
+    // One made otherwise is judged the same.
+    let mut made = def.clone();
+    made.format = DEFINITION_FORMAT + 1;
+    assert!(validate(&made, &p).iter().any(|x| x.message.contains("needs a newer one")));
+    // The schema says it.
+    assert_eq!(definition_schema()["properties"]["format"]["maximum"], serde_json::json!(DEFINITION_FORMAT));
+
+    // Parts the same.
+    let policy = |head: &str| format!("{head}name: ro\npermissions: [{{effect: deny, tools: [Bash]}}]");
+    assert!(part_problems(PartKind::Policy, "ro", &policy("format: 1\n"), &p).is_empty());
+    let refused = part_problems(PartKind::Policy, "ro", &policy("format: 2\nnew_field: x\n"), &p).join("; ");
+    assert!(refused.contains("policy is written in definition format 2"), "{refused}");
+    let gate = part_problems(PartKind::Gate, "lint", "format: 2\nname: lint\nkind: host", &p).join("; ");
+    assert!(gate.contains("definition format 2"), "{gate}");
+    let packs = MemPacks::new().policy(&policy("format: 2\n"));
+    assert!(Packs::policy(&packs, "ro").is_none(), "a pack does not read it either");
+}

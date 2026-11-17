@@ -171,6 +171,10 @@ impl Permission {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct PolicyDef {
+    /// Its definition format (`DEFINITION_FORMAT`); 1 when absent.
+    #[serde(default = "super::def::first_format", skip_serializing_if = "super::def::is_first_format")]
+    #[schemars(range(min = 1, max = 1))]
+    pub format: u32,
     pub name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub title: String,
@@ -649,6 +653,10 @@ pub const DEFAULT_GATE_SECONDS: u64 = 600;
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct GateDef {
+    /// Its definition format (`DEFINITION_FORMAT`); 1 when absent.
+    #[serde(default = "super::def::first_format", skip_serializing_if = "super::def::is_first_format")]
+    #[schemars(range(min = 1, max = 1))]
+    pub format: u32,
     pub name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub title: String,
@@ -711,6 +719,10 @@ pub enum HookKind {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct HookDef {
+    /// Its definition format (`DEFINITION_FORMAT`); 1 when absent.
+    #[serde(default = "super::def::first_format", skip_serializing_if = "super::def::is_first_format")]
+    #[schemars(range(min = 1, max = 1))]
+    pub format: u32,
     pub name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub title: String,
