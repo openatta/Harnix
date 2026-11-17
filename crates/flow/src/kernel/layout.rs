@@ -9,8 +9,10 @@
 //! ```
 //!
 //! The data directory may be shared with others (Harnix shares `.harnix` with its engine): the
-//! library uses `flows/` and `runs/` in it and nothing else. There is no default: the library does
-//! not know whose application it is in.
+//! library uses `flows/` and `runs/` in it and nothing else. It is the host's, not a task's: a
+//! session's write into it is judged as one outside the project — except into the directories the
+//! host names as its sessions' own there (`agent_dirs`: the engine's scratchpad, memory and
+//! worktrees in Harnix). There is no default: the library does not know whose application it is in.
 
 use std::path::{Path, PathBuf};
 
@@ -28,6 +30,10 @@ pub struct ProjectLayout {
     pub worktrees_root: PathBuf,
     /// What a run's worktree branch is named under: `<branch_prefix>/<run>`.
     pub branch_prefix: String,
+    /// Directories in the data directory a task's session writes as its own, by name
+    /// (`scratchpad`, `memory`, `worktrees` in Harnix: what its sandbox lets a session write
+    /// there). The rest of the data directory is the host's, outside what the task works in.
+    pub agent_dirs: Vec<String>,
 }
 
 impl ProjectLayout {
@@ -36,7 +42,18 @@ impl ProjectLayout {
             dir: dir.into(),
             worktrees_root: worktrees_root.into(),
             branch_prefix: branch_prefix.into(),
+            agent_dirs: vec![],
         }
+    }
+
+    /// The directories in the data directory a task's session may write as its own.
+    pub fn with_agent_dirs<I, S>(mut self, dirs: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.agent_dirs = dirs.into_iter().map(Into::into).collect();
+        self
     }
 
     /// The project's data directory: `<project>/<dir>`.
@@ -70,6 +87,13 @@ impl ProjectLayout {
     pub fn reserved(&self, root: &str) -> Vec<String> {
         vec![format!("{}/{}", root.trim_end_matches('/'), self.dir)]
     }
+
+    /// What a session working in `root` writes as its own inside the reserved directory
+    /// (`<root>/<dir>/<agent dir>`).
+    pub fn agent_dirs_in(&self, root: &str) -> Vec<String> {
+        let data = format!("{}/{}", root.trim_end_matches('/'), self.dir);
+        self.agent_dirs.iter().map(|d| format!("{data}/{}", d.trim_matches('/'))).collect()
+    }
 }
 
 #[cfg(test)]
@@ -85,5 +109,8 @@ mod tests {
         assert_eq!(l.worktree_dir("f/1"), Path::new("/state/flow/worktrees/f-1"));
         assert_eq!(l.worktree_branch("f/1"), "codix/flow/f-1");
         assert_eq!(l.reserved("/work/app/"), ["/work/app/.codix"]);
+        assert!(l.agent_dirs_in("/work/app").is_empty(), "nothing in it is a task's unless the host says");
+        let l = l.with_agent_dirs(["scratchpad", "memory/"]);
+        assert_eq!(l.agent_dirs_in("/work/app/"), ["/work/app/.codix/scratchpad", "/work/app/.codix/memory"]);
     }
 }

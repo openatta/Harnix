@@ -186,6 +186,7 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: bool, mut
                     workspace: e.workspace_for(&rec).and_then(|p| p.to_str().map(String::from)),
                     root: None,
                     reserved: vec![],
+                    agent_dirs: vec![],
                 },
                 e.layout().cloned(),
             ),
@@ -204,11 +205,11 @@ async fn watch_loop(sh: &Arc<Shared>, run: &str, s: &SessionRef, main: bool, mut
     };
     let root = root.or_else(|| judging.workspace.clone());
     // The project's data directory there is the application's: outside what the task works in.
-    let reserved = match (&layout, &root) {
-        (Some(l), Some(r)) => l.reserved(r),
-        _ => vec![],
+    let (reserved, agent_dirs) = match (&layout, &root) {
+        (Some(l), Some(r)) => (l.reserved(r), l.agent_dirs_in(r)),
+        _ => (vec![], vec![]),
     };
-    let judging = Judging { root, reserved, ..judging };
+    let judging = Judging { root, reserved, agent_dirs, ..judging };
     // Turn → the task it was started for: read when the turn's first frame comes, while that
     // task is in hand (by its settlement it has often handed in and been let go).
     let mut turns: std::collections::HashMap<String, Option<Binding>> =
@@ -420,6 +421,8 @@ pub(crate) struct Judging {
     pub root: Option<String>,
     /// The project's data directory in the root (`ProjectLayout::reserved`).
     pub reserved: Vec<String>,
+    /// What a session writes as its own in it (`ProjectLayout::agent_dirs_in`).
+    pub agent_dirs: Vec<String>,
 }
 
 /// Whether the module answers a question of a task's turn: one about a tool the flow asks about;
@@ -453,6 +456,7 @@ pub(crate) fn verdict(sh: &Shared, b: &Binding, prompt: &Value, input: Option<&V
             workspace: j.workspace.as_deref(),
             root: j.root.as_deref(),
             reserved: &j.reserved,
+            agent_dirs: &j.agent_dirs,
         },
         &b.station,
     )
@@ -536,7 +540,7 @@ mod tests {
     #[test]
     fn under_auto_every_permission_question_of_a_task_is_answered_and_under_strict_only_the_asked_ones() {
         let asked = vec!["Write".to_string()];
-        let j = |guard| Judging { guard, workspace: None, root: None, reserved: vec![] };
+        let j = |guard| Judging { guard, workspace: None, root: None, reserved: vec![], agent_dirs: vec![] };
         let about = |tool: &str| json!({"kind": "prompt", "prompt_type": "permission", "tool_name": tool});
         assert!(answers(&j(Guard::Strict), &asked, &about("Write")));
         assert!(!answers(&j(Guard::Strict), &asked, &about("Read")), "the engine's own: a person's");

@@ -86,12 +86,17 @@ pub const MODULE_ID: &str = "flow";
 /// `harnix/worktree-*`.
 pub const BRANCH_PREFIX: &str = "harnix/flow";
 
+/// The directories of a project's `.harnix/` the engine's sandbox lets a session write: a task's
+/// own there, where the rest of the directory is the application's.
+pub const AGENT_DIRS: &[&str] = &["scratchpad", "memory", "worktrees"];
+
 /// Where the module keeps what it writes for a project, from its data directory: the project's
 /// `.harnix/` (shared with the engine), runs' worktrees in `<data>/worktrees/<run>` on
 /// [`BRANCH_PREFIX`]`/<run>`. An extension is handed only its own directory, so the worktrees are
 /// there rather than beside the engine's state.
 pub(crate) fn layout(data_dir: &Path) -> crate::ProjectLayout {
     crate::ProjectLayout::new(harnix_ext::engine::PROJECT_DIR, data_dir.join("worktrees"), BRANCH_PREFIX)
+        .with_agent_dirs(AGENT_DIRS.iter().copied())
 }
 
 /// `spec`, with `set` applied when there is a value to set.

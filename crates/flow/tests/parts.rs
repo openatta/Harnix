@@ -93,7 +93,7 @@ async fn a_task_is_handed_its_rules_and_its_permissions_resolved() {
         let v = judge(
             &permissions,
             h.eng.guarded(),
-            &Call { tool, input: Some(&input), paths: &[], workspace: Some("/data/ws/ruled-1"), root: Some("/data/ws/ruled-1"), reserved: &[] },
+            &Call { tool, input: Some(&input), paths: &[], workspace: Some("/data/ws/ruled-1"), root: Some("/data/ws/ruled-1"), reserved: &[], agent_dirs: &[] },
             "emit",
         );
         assert_eq!(v.effect, want, "{tool} {input}: {}", v.reason);
@@ -111,7 +111,7 @@ async fn a_task_is_handed_its_rules_and_its_permissions_resolved() {
             Guard::Auto,
             &permissions,
             h.eng.guarded(),
-            &Call { tool, input: Some(&input), paths: &[], workspace: Some("/data/ws/ruled-1"), root: Some("/data/ws/ruled-1"), reserved: &[] },
+            &Call { tool, input: Some(&input), paths: &[], workspace: Some("/data/ws/ruled-1"), root: Some("/data/ws/ruled-1"), reserved: &[], agent_dirs: &[] },
             "emit",
         );
         assert_eq!(v.effect, want, "auto: {tool} {input}: {}", v.reason);

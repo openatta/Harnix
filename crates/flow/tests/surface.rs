@@ -275,12 +275,14 @@ const BUILDERS: &[(&str, &str)] = &[
         "ProjectLayout::new",
         "fnnew(dir:implInto<String>,worktrees_root:implInto<PathBuf>,branch_prefix:implInto<String>)->Self",
     ),
+    ("ProjectLayout::with_agent_dirs", "fnwith_agent_dirs<I,S>(mutself,dirs:I)->SelfwhereI:IntoIterator<Item=S>,S:Into<String>,"),
     ("ProjectLayout::data_dir", "fndata_dir(&self,project:&Path)->PathBuf"),
     ("ProjectLayout::pack_dir", "fnpack_dir(&self,project:&Path)->PathBuf"),
     ("ProjectLayout::runs_dir", "fnruns_dir(&self,base:&Path)->PathBuf"),
     ("ProjectLayout::worktree_dir", "fnworktree_dir(&self,run:&str)->PathBuf"),
     ("ProjectLayout::worktree_branch", "fnworktree_branch(&self,run:&str)->String"),
     ("ProjectLayout::reserved", "fnreserved(&self,root:&str)->Vec<String>"),
+    ("ProjectLayout::agent_dirs_in", "fnagent_dirs_in(&self,root:&str)->Vec<String>"),
 ];
 
 /// The types whose inherent impls [`BUILDERS`] lists, and the file each is in.
