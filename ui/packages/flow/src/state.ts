@@ -4,8 +4,9 @@
  *
  * - The flows tab with a flow selected: that flow's own conversation (`session {flow}`, made by
  *   the module the first time). The runs tab with a run selected: the run's main session (its
- *   `@main` session key). Anything else — nothing selected, the reference tab: the general
- *   conversation (`session {}`), where flows are created and questions asked.
+ *   `@main` session key). The reference tab is read beside the conversation, not instead of it:
+ *   the middle stays as it is (with nothing of this space open, the selected flow's). Nothing
+ *   selected: the general conversation (`session {}`), where flows are created and questions asked.
  * - A selection is made in the right column's lists or in the left column (`FlowSidebar`: the
  *   flows, the selected flow's runs, the general conversation); a pick in the left column brings
  *   the right column's list to the front with it (`openList`).
@@ -17,7 +18,8 @@
  *   under its own conversation clears the selection.
  *
  * What is selected is shown beside the conversation, in the shell's second side panel (xops-04 §7):
- * the flows tab's flow, or the runs tab's run (`detail()`). Closing that panel keeps the selection
+ * the flows tab's flow, or the runs tab's run (`detail()`); with the reference in front, what it last
+ * showed. Closing that panel keeps the selection
  * (the left column still says what the context is) and leaves the middle as it is, until the next
  * pick or tab change (`closeDetail()`).
  *
@@ -66,6 +68,8 @@ export class FlowSpaceState {
   private front = false;
   /** The panel beside the conversation was closed, until the next pick or tab change. */
   private shut = false;
+  /** What the panel beside the conversation last showed for a list's tab: kept while the reference is read. */
+  private beside: FlowDetailOf | null = null;
   /** The general conversation is being opened: the focus of the session it replaces says nothing. */
   private opening = false;
   readonly tabs: StateTabs;
@@ -211,9 +215,16 @@ export class FlowSpaceState {
   detail(): FlowDetailOf | null {
     if (this.shut) return null;
     const tab = this.tabNow();
-    if (tab === this.tabs.flows && this.value.flow) return { kind: "flow", flow: this.value.flow };
-    if (tab === this.tabs.runs && this.value.run) return { kind: "run", run: this.value.run };
-    return null;
+    if (tab === this.tabs.reference) {
+      // Read beside what was shown: the panel stays on it, while it is still the selection.
+      const was = this.beside;
+      return was && (was.kind === "flow" ? was.flow === this.value.flow : was.run === this.value.run) ? was : null;
+    }
+    let now: FlowDetailOf | null = null;
+    if (tab === this.tabs.flows && this.value.flow) now = { kind: "flow", flow: this.value.flow };
+    else if (tab === this.tabs.runs && this.value.run) now = { kind: "run", run: this.value.run };
+    this.beside = now;
+    return now;
   }
 
   /** The second side panel was closed: the selection stays (the left column still says what the
@@ -263,7 +274,12 @@ export class FlowSpaceState {
       ref = isDryRun(run) ? await this.conversation(await this.flowOfRun(run)) : await this.mainOf(run);
     } else if (tab === this.tabs.flows && flow) {
       ref = await this.conversation(flow);
-    } else if (tab === this.tabs.flows || tab === this.tabs.reference || tab === this.tabs.runs) {
+    } else if (tab === this.tabs.reference) {
+      // The reference is read beside the conversation, not instead of it: the middle stays on what
+      // it shows; with nothing of this space open, on the selected flow's (the general one).
+      if (before && this.session()) return before;
+      ref = await this.conversation(flow);
+    } else if (tab === this.tabs.flows || tab === this.tabs.runs) {
       ref = await this.conversation(null);
     }
     if (!ref || generation !== this.switching) return null;
