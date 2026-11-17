@@ -23,37 +23,14 @@
 #[cfg(feature = "flow")]
 use harnix_ext_flow::{DirPacks, Flow, MemPacks};
 
-// The example pack is the flow library's (`crates/flow/packs/examples`): it goes wherever the
-// library is copied, and the library's golden runs play it.
-#[cfg(feature = "flow")]
-/// The example flow built into the binary: a session reviews the subject, a person approves.
-pub const EXAMPLE_FLOW: &str = include_str!("../../flow/packs/examples/flows/example-review.yaml");
-#[cfg(feature = "flow")]
-/// The skill its session works from.
-pub const EXAMPLE_SKILL: &str = include_str!("../../flow/packs/examples/skills/review/SKILL.md");
-#[cfg(feature = "flow")]
-/// The rule it keeps.
-pub const EXAMPLE_RULE: &str = include_str!("../../flow/packs/examples/rules/review-honest.md");
-#[cfg(feature = "flow")]
-/// The policy it works under.
-pub const EXAMPLE_POLICY: &str = include_str!("../../flow/packs/examples/policies/read-only.yaml");
-
-#[cfg(feature = "flow")]
-/// The example's flow and parts.
-fn example() -> MemPacks {
-    MemPacks::new()
-        .flow(EXAMPLE_FLOW)
-        .skill("review", EXAMPLE_SKILL)
-        .rule("review-honest", EXAMPLE_RULE)
-        .policy(EXAMPLE_POLICY)
-}
-
 #[cfg(feature = "flow")]
 /// The flow module as the Harnix app registers it.
 pub fn flow() -> Flow {
     Flow::builder()
         .packs_with(|dir| {
-            DirPacks::writable(dir.join("packs")).with_builtin(example())
+            // The example pack is the flow library's (`MemPacks::examples`): it goes wherever the
+            // library is copied, and the library's golden runs play it.
+            DirPacks::writable(dir.join("packs")).with_builtin(MemPacks::examples())
         })
         .command_gates(true)
         // Under `--replay-dir` only (outside it the names mean nothing): a run's main session
@@ -100,8 +77,8 @@ mod tests {
     /// Valid with nothing of an application's: the catalog has only the wrapped scenes.
     #[test]
     fn the_example_flow_is_valid_in_the_empty_application() {
-        let packs = example().main_scene("flow-harnix");
-        let problems = validate_yaml(EXAMPLE_FLOW, &packs as &dyn Packs);
+        let packs = MemPacks::examples().main_scene("flow-harnix");
+        let problems = validate_yaml(&packs.flow_text("example-review").unwrap(), &packs as &dyn Packs);
         assert!(problems.is_empty(), "{problems:?}");
     }
 
@@ -134,11 +111,7 @@ mod tests {
     #[test]
     fn saved_flows_go_over_the_built_in_one() {
         let tmp = std::env::temp_dir().join(format!("harnix-cli-{}", std::process::id()));
-        let packs = DirPacks::writable(tmp.join("packs")).with_builtin(
-            MemPacks::new()
-                .flow(EXAMPLE_FLOW)
-                .skill("review", EXAMPLE_SKILL),
-        );
+        let packs = DirPacks::writable(tmp.join("packs")).with_builtin(MemPacks::examples());
         assert!(packs.writable());
         assert_eq!(packs.flows(), ["example-review"]);
         assert_eq!(packs.origin("example-review"), harnix_ext_flow::Origin::Builtin);

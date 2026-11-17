@@ -1,44 +1,32 @@
-//! Writing flows in conversation (xops-02 §4): the `flow-author` scene and its tools.
+//! Writing flows in conversation (xops-02 §4): the `flow-author` scene, with the library's
+//! authoring tools (`harnix_flow::author`) and a system prompt block on how to write flows.
 //!
 //! The flow space's default scene. It wraps a scene the application gives (Agix's harnix by
-//! default) and adds the tools below and a system prompt block on how to write flows. A tool
-//! that needs **the current flow** reads it from the conversation's focus: what the person has
-//! selected in the panel beside it (device method `focus`), or the flow `flow_create` just made.
-//!
-//! | tool | read-only | does |
-//! |---|---|---|
-//! | `flow_list` | yes | the flows: name, title, origin, valid |
-//! | `flow_show` | yes | the current flow: YAML, the parts it uses, the hooks over it, problems, its stations |
-//! | `flow_schema` | yes | the JSON Schemas of a definition and of the parts, and this application's catalog |
-//! | `flow_validate {yaml}` | yes | a text's problems, nothing saved |
-//! | `flow_create {yaml, parts?}` | no | a new flow, which becomes the current one |
-//! | `flow_update {yaml?, parts?}` | no | change the current flow |
-//! | `flow_delete` | no | delete the current flow (a built-in one: its override) |
-//! | `flow_part_set {kind, name, text}` / `flow_part_delete {kind, name}` | no | change, delete a skill, rule, policy, gate or hook |
-//! | `flow_dry_run {inputs?, mocks?}` | yes | dry-run the current flow, as far as it goes |
-//! | `flow_start {subject, inputs?, title?}` | no | start the current flow for real |
+//! default). What is Harnix's is here: a conversation's **current flow** is its focus — what the
+//! person has selected in the panel beside it (device method `focus`), or the flow `flow_create`
+//! just made — and a conversation acts on that flow only (`pinned`); the project it works in; and
+//! the topics told of what changed (`defs`, `focus`, `dry_runs`).
 //!
 //! No tool asks the person (harnix-app.md §11): a change is checked, not approved — a
 //! definition with problems is not saved. A run tool acts only when the user asks for it, and the
 //! run's history records the conversation as who did it.
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use harnix_ext::engine::{
-    Permission, PromptText, SceneBase, SceneLayer, Tool, ToolCx, ToolError, ToolOutput, ToolSpec as Spec,
-};
-use serde_json::{json, Value};
+use harnix_ext::engine::{Permission, PromptText, SceneBase, SceneLayer, Tool, ToolCx, ToolError, ToolOutput, ToolSpec as Spec};
+use serde_json::Value;
 
 use super::publish;
-use super::state::Shared;
-use crate::dryrun::StartIn;
-use crate::kernel::def::{definition_schema, FlowDef, Work};
-use crate::kernel::engine::CreateIn;
-use crate::kernel::host::{Catalog, Packs};
-use crate::kernel::parts::{part_schema, rules_of, PartKind};
+use super::state::{session_ref, Shared};
+use crate::author::{AuthorHost, Notice, CONVERSATION_KIND, RUN_TOOLS};
 use crate::kernel::run::Actor;
-use crate::kernel::validate::{part_problems, validate_yaml};
+use crate::runner::{SessionId, ToolSpec as FlowToolSpec};
+
+pub use crate::author::{
+    TOOL_CANCEL, TOOL_CONFIRM, TOOL_CREATE, TOOL_DELETE, TOOL_DRY_RUN, TOOL_FORCE, TOOL_GUIDE, TOOL_LIST, TOOL_PART_DELETE,
+    TOOL_PART_SET, TOOL_PAUSE, TOOL_RELEASE, TOOL_RESUME, TOOL_RETRY, TOOL_REWORK, TOOL_RUN, TOOL_RUNS, TOOL_SCHEMA,
+    TOOL_SHOW, TOOL_START, TOOL_UPDATE, TOOL_VALIDATE,
+};
 
 /// The scene's id.
 pub const AUTHOR_SCENE: &str = "flow-author";
@@ -49,273 +37,31 @@ pub const NO_FOCUS: &str = "This conversation works on no flow: ask the user to 
      选择要操作的流程，会打开这个流程自己的会话). Creating a new flow with `flow_create` needs no \
      selection.";
 
-pub const TOOL_LIST: &str = "flow_list";
-pub const TOOL_SHOW: &str = "flow_show";
-pub const TOOL_SCHEMA: &str = "flow_schema";
-pub const TOOL_VALIDATE: &str = "flow_validate";
-pub const TOOL_CREATE: &str = "flow_create";
-pub const TOOL_UPDATE: &str = "flow_update";
-pub const TOOL_DELETE: &str = "flow_delete";
-pub const TOOL_PART_SET: &str = "flow_part_set";
-pub const TOOL_PART_DELETE: &str = "flow_part_delete";
-pub const TOOL_DRY_RUN: &str = "flow_dry_run";
-pub const TOOL_START: &str = "flow_start";
-pub const TOOL_GUIDE: &str = "flow_guide";
-pub const TOOL_RUNS: &str = "flow_runs";
-pub const TOOL_RUN: &str = "flow_run";
-pub const TOOL_PAUSE: &str = "flow_pause";
-pub const TOOL_RESUME: &str = "flow_resume";
-pub const TOOL_CANCEL: &str = "flow_cancel";
-pub const TOOL_CONFIRM: &str = "flow_confirm";
-pub const TOOL_FORCE: &str = "flow_force";
-pub const TOOL_REWORK: &str = "flow_rework";
-pub const TOOL_RETRY: &str = "flow_retry";
-pub const TOOL_RELEASE: &str = "flow_release";
-
-/// The flow guide (xops-03 §6): what `flow_guide` gives and the reference tab shows.
-pub const GUIDE_EN: &str = harnix_flow::GUIDE_EN;
-pub const GUIDE_ZH: &str = harnix_flow::GUIDE_ZH;
-
-/// Who acted when a run tool acts in a conversation: the conversation, `<instance>/<session>`.
-pub const CONVERSATION_KIND: &str = "conversation";
-
-/// Every authoring tool, and whether it is read-only: [`TOOLS`], as names.
-pub const AUTHOR_TOOLS: [(&str, bool); TOOLS.len()] = {
-    let mut out = [("", false); TOOLS.len()];
-    let mut i = 0;
-    while i < TOOLS.len() {
-        out[i] = (TOOLS[i].name, TOOLS[i].read_only);
-        i += 1;
-    }
-    out
-};
-
-/// One authoring tool, everything about it but its code. [`TOOLS`] is the one place a tool is
-/// listed: its name, what the model is told of it, its input, whether it changes anything, and
-/// which arm of [`AuthorTool::call`] runs it.
-pub(crate) struct ToolSpec {
-    pub name: &'static str,
-    pub description: &'static str,
-    /// Its input's JSON Schema.
-    pub schema: fn() -> Value,
-    /// It changes nothing: it may run beside other calls.
-    pub read_only: bool,
-    does: Does,
-}
-
-/// Which arm of [`AuthorTool::call`] a tool is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Does {
-    List,
-    Show,
-    Schema,
-    Validate,
-    Save { creating: bool },
-    Delete,
-    PartSet,
-    PartDelete,
-    DryRun,
-    Start,
-    Guide,
-    Runs,
-    Run,
-    /// A run tool: it acts on a run of the current flow (xops-03 §5).
-    Act(Act),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Act {
-    Pause,
-    Resume,
-    Cancel,
-    Confirm,
-    Force,
-    Rework,
-    Retry,
-    Release,
-}
-
-fn flow_named() -> Value {
-    json!({"type": "string", "description": "the flow this acts on, by name: the current one, as flow_show or flow_list gave it"})
-}
-
-fn parts_given() -> Value {
-    json!({"type": "array", "description": "parts saved with the flow", "items": {
-        "type": "object", "required": ["kind", "name", "text"], "properties": {
-            "kind": {"enum": ["skill", "rule", "policy", "gate", "hook"]},
-            "name": {"type": "string"}, "text": {"type": "string"}}}})
-}
-
-fn no_input() -> Value {
-    json!({"type": "object", "properties": {}})
-}
-
-fn run_named() -> Value {
-    json!({"type": "object", "required": ["run"], "properties": {"run": {"type": "string"}}})
-}
-
-/// Every authoring tool, in the order the model is offered them.
-pub(crate) const TOOLS: &[ToolSpec] = &[
-    ToolSpec {
-        name: TOOL_LIST,
-        description: "The flows on offer: name, title, origin (builtin, override, user, project) and whether each is valid; which one is current; and the project the conversation works in, if any.",
-        schema: no_input,
-        read_only: true,
-        does: Does::List,
-    },
-    ToolSpec {
-        name: TOOL_SHOW,
-        description: "The current flow (the one the user selected): its YAML, the texts of the parts it uses (skills, rules, policies, gates), the hooks over it, its problems, and its stations in brief.",
-        schema: no_input,
-        read_only: true,
-        does: Does::Show,
-    },
-    ToolSpec {
-        name: TOOL_SCHEMA,
-        description: "The JSON Schemas of a flow definition and of policies, gates and hooks, and the names this application offers (scenes, steps, checks, tools, templates, instances, spaces, models, guarded tools, and the parts on offer by kind).",
-        schema: no_input,
-        read_only: true,
-        does: Does::Schema,
-    },
-    ToolSpec {
-        name: TOOL_VALIDATE,
-        description: "Every problem of a flow definition text (YAML), without saving anything. An empty list: it is valid.",
-        schema: || json!({"type": "object", "required": ["yaml"], "properties": {"yaml": {"type": "string"}}}),
-        read_only: true,
-        does: Does::Validate,
-    },
-    ToolSpec {
-        name: TOOL_CREATE,
-        description: "Create a new flow from its YAML (and, optionally, parts it uses: [{kind: skill|rule|policy|gate, name, text}]). Everything is validated first and nothing is saved if anything has problems. It becomes the current flow. With `project_root`, it is saved in that project (its `.harnix/flows/`, committed with it; the project must be trusted) and the conversation works in that project from then on.",
-        schema: || json!({"type": "object", "required": ["yaml"], "properties": {"yaml": {"type": "string"}, "parts": parts_given(), "project_root": {"type": "string", "description": "the project to save it in, when the user asks for that: its absolute directory"}}}),
-        read_only: false,
-        does: Does::Save { creating: true },
-    },
-    ToolSpec {
-        name: TOOL_UPDATE,
-        description: "Change the current flow, named in `flow`: its YAML (same name), and/or parts ([{kind, name, text}]). Validated first; nothing is saved if anything has problems. Runs already started keep their definition.",
-        schema: || json!({"type": "object", "required": ["flow"], "properties": {"flow": flow_named(), "yaml": {"type": "string"}, "parts": parts_given()}}),
-        read_only: false,
-        does: Does::Save { creating: false },
-    },
-    ToolSpec {
-        name: TOOL_DELETE,
-        description: "Delete the current flow, named in `flow`. For a built-in flow, this deletes the saved override and the built-in version is back.",
-        schema: || json!({"type": "object", "required": ["flow"], "properties": {"flow": flow_named()}}),
-        read_only: false,
-        does: Does::Delete,
-    },
-    ToolSpec {
-        name: TOOL_PART_SET,
-        description: "Create or change a part of the pack: a skill (its SKILL.md), a rule (markdown, first `# ` heading its title), a policy, a gate or a hook (YAML; its `name` the same). Checked first; the flows it breaks are listed.",
-        schema: || json!({"type": "object", "required": ["kind", "name", "text"], "properties": {"kind": {"enum": ["skill", "rule", "policy", "gate", "hook"]}, "name": {"type": "string"}, "text": {"type": "string"}}}),
-        read_only: false,
-        does: Does::PartSet,
-    },
-    ToolSpec {
-        name: TOOL_PART_DELETE,
-        description: "Delete a saved part (a built-in one: its override, and the built-in one is back).",
-        schema: || json!({"type": "object", "required": ["kind", "name"], "properties": {"kind": {"enum": ["skill", "rule", "policy", "gate", "hook"]}, "name": {"type": "string"}}}),
-        read_only: false,
-        does: Does::PartDelete,
-    },
-    ToolSpec {
-        name: TOOL_DRY_RUN,
-        description: "Dry-run the current flow, named in `flow`: the real kernel, everything outside mocked (no session, no program, no model, no command). Runs until it ends or waits for a person, and returns the path it took. `mocks`: {stations: {id: output}, gates: {gate: false} (command and host gates), tools: {tool: result} (what tool gates get)}.",
-        schema: || json!({"type": "object", "required": ["flow"], "properties": {
-            "flow": flow_named(),
-            "inputs": {"type": "object"},
-            "mocks": {"type": "object", "properties": {
-                "stations": {"type": "object"}, "gates": {"type": "object"}, "tools": {"type": "object"}}}}}),
-        read_only: true,
-        does: Does::DryRun,
-    },
-    ToolSpec {
-        name: TOOL_START,
-        description: "Start a real run of the current flow, named in `flow`, for a subject. Only when the user asks for it.",
-        schema: || json!({"type": "object", "required": ["flow", "subject"], "properties": {
-            "flow": flow_named(),
-            "subject": {"type": "string"}, "inputs": {"type": "object"}, "title": {"type": "string"}}}),
-        read_only: false,
-        does: Does::Start,
-    },
-    ToolSpec {
-        name: TOOL_GUIDE,
-        description: "The guide to flows: the objects (flow, station, work, task, executor, exit condition, rule, policy and permission, gate, hook, run, main session, sub-agent, lease, rework, dry run), what they mean, and how to define a flow, with examples. `lang`: en or zh-CN.",
-        schema: || json!({"type": "object", "properties": {"lang": {"enum": ["en", "zh-CN"]}}}),
-        read_only: true,
-        does: Does::Guide,
-    },
-    ToolSpec {
-        name: TOOL_RUNS,
-        description: "The runs of the current flow, newest first: id, title, what each is doing (phase), when it started, its tokens.",
-        schema: no_input,
-        read_only: true,
-        does: Does::Runs,
-    },
-    ToolSpec {
-        name: TOOL_RUN,
-        description: "One run of the current flow: each station's status, time and tokens, what it waits for, its tasks.",
-        schema: run_named,
-        read_only: true,
-        does: Does::Run,
-    },
-    ToolSpec {
-        name: TOOL_PAUSE,
-        description: "Pause a run of the current flow: what is in hand finishes, nothing new starts. Only when the user asks.",
-        schema: run_named,
-        read_only: false,
-        does: Does::Act(Act::Pause),
-    },
-    ToolSpec {
-        name: TOOL_RESUME,
-        description: "Resume a paused run of the current flow. Only when the user asks.",
-        schema: run_named,
-        read_only: false,
-        does: Does::Act(Act::Resume),
-    },
-    ToolSpec {
-        name: TOOL_CANCEL,
-        description: "Cancel a run of the current flow, with a reason. Only when the user asks.",
-        schema: || json!({"type": "object", "required": ["run", "reason"], "properties": {"run": {"type": "string"}, "reason": {"type": "string"}}}),
-        read_only: false,
-        does: Does::Act(Act::Cancel),
-    },
-    ToolSpec {
-        name: TOOL_CONFIRM,
-        description: "Confirm a station of a run of the current flow (`pass`: true passes, false rejects), with an optional reason. Only when the user asks for it.",
-        schema: || json!({"type": "object", "required": ["run", "station", "pass"], "properties": {"run": {"type": "string"}, "station": {"type": "string"}, "pass": {"type": "boolean"}, "reason": {"type": "string"}}}),
-        read_only: false,
-        does: Does::Act(Act::Confirm),
-    },
-    ToolSpec {
-        name: TOOL_FORCE,
-        description: "Pass a station of a run by force, with a reason, whatever is not met. Only when the user asks.",
-        schema: || json!({"type": "object", "required": ["run", "station", "reason"], "properties": {"run": {"type": "string"}, "station": {"type": "string"}, "reason": {"type": "string"}}}),
-        read_only: false,
-        does: Does::Act(Act::Force),
-    },
-    ToolSpec {
-        name: TOOL_REWORK,
-        description: "Send a run of the current flow back to station `to` (optionally only `tasks`), with a reason. Only when the user asks.",
-        schema: || json!({"type": "object", "required": ["run", "to", "reason"], "properties": {"run": {"type": "string"}, "to": {"type": "string"}, "tasks": {"type": "array", "items": {"type": "string"}}, "reason": {"type": "string"}}}),
-        read_only: false,
-        does: Does::Act(Act::Rework),
-    },
-    ToolSpec {
-        name: TOOL_RETRY,
-        description: "Put a failed task of a run back to work with a fresh retry budget. Only when the user asks.",
-        schema: || json!({"type": "object", "required": ["run", "station", "task"], "properties": {"run": {"type": "string"}, "station": {"type": "string"}, "task": {"type": "string"}}}),
-        read_only: false,
-        does: Does::Act(Act::Retry),
-    },
-    ToolSpec {
-        name: TOOL_RELEASE,
-        description: "Release a held station of a run. Only when the user asks.",
-        schema: || json!({"type": "object", "required": ["run", "station"], "properties": {"run": {"type": "string"}, "station": {"type": "string"}}}),
-        read_only: false,
-        does: Does::Act(Act::Release),
-    },
+/// Every authoring tool, and whether it is read-only, in the order the model is offered them
+/// (`harnix_flow::author::tool_specs`).
+pub const AUTHOR_TOOLS: [(&str, bool); 22] = [
+    (TOOL_LIST, true),
+    (TOOL_SHOW, true),
+    (TOOL_SCHEMA, true),
+    (TOOL_VALIDATE, true),
+    (TOOL_CREATE, false),
+    (TOOL_UPDATE, false),
+    (TOOL_DELETE, false),
+    (TOOL_PART_SET, false),
+    (TOOL_PART_DELETE, false),
+    (TOOL_DRY_RUN, true),
+    (TOOL_START, false),
+    (TOOL_GUIDE, true),
+    (TOOL_RUNS, true),
+    (TOOL_RUN, true),
+    (TOOL_PAUSE, false),
+    (TOOL_RESUME, false),
+    (TOOL_CANCEL, false),
+    (TOOL_CONFIRM, false),
+    (TOOL_FORCE, false),
+    (TOOL_REWORK, false),
+    (TOOL_RETRY, false),
+    (TOOL_RELEASE, false),
 ];
 
 /// The system prompt block `flow-author` adds.
@@ -378,8 +124,8 @@ pub(crate) fn author_scene(base: SceneBase, sh: Arc<Shared>) -> SceneLayer {
         .name("Flow author")
         .description("write, check and try out flows in conversation")
         .prompt(PromptText::cached(AUTHOR_PROMPT));
-    for row in TOOLS {
-        layer = layer.tool(Arc::new(AuthorTool::new(row, sh.clone())));
+    for spec in crate::author::tool_specs() {
+        layer = layer.tool(Arc::new(AuthorTool::new(spec, sh.clone())));
     }
     layer
         .requires_project(false)
@@ -387,222 +133,106 @@ pub(crate) fn author_scene(base: SceneBase, sh: Arc<Shared>) -> SceneLayer {
         .auto_name(false)
 }
 
-/// Parts about to be saved: (kind, name) → text.
-type PartTexts = BTreeMap<(PartKind, String), String>;
-
-/// The packs as they will be once `parts` are saved: what a text is checked against first.
-struct WithParts<'a> {
-    base: &'a dyn Packs,
-    parts: &'a PartTexts,
+/// A conversation as the authoring tools see it, in Harnix: its focus, its project, the topics.
+/// A conversation is named `<instance>/<session_id>`.
+pub(crate) struct HarnixAuthorHost {
+    sh: Arc<Shared>,
 }
 
-impl Packs for WithParts<'_> {
-    fn flows(&self) -> Vec<String> {
-        self.base.flows()
+impl HarnixAuthorHost {
+    pub(crate) fn new(sh: Arc<Shared>) -> Arc<Self> {
+        Arc::new(Self { sh })
     }
-    fn flow(&self, name: &str) -> Option<(FlowDef, String)> {
-        self.base.flow(name)
+}
+
+#[async_trait::async_trait]
+impl AuthorHost for HarnixAuthorHost {
+    async fn current(&self, session: &SessionId) -> Option<String> {
+        let s = session_ref(session);
+        self.sh.focus(&s.instance, &s.session_id)
     }
-    fn part(&self, kind: PartKind, name: &str) -> Option<(String, String)> {
-        match self.parts.get(&(kind, name.to_string())) {
-            Some(b) => Some((b.clone(), crate::kernel::host::digest(b))),
-            None => self.base.part(kind, name),
-        }
+
+    async fn project(&self, session: &SessionId) -> Option<String> {
+        let s = session_ref(session);
+        self.sh.conversation_project(&s.instance, &s.session_id)
     }
-    fn parts(&self, kind: PartKind) -> Vec<String> {
-        let mut names = self.base.parts(kind);
-        for (k, n) in self.parts.keys() {
-            if *k == kind && !names.contains(n) {
-                names.push(n.clone());
+
+    /// What changes or runs a flow names it, and acts only if it is still the current one: the
+    /// call means that flow, not whatever is selected when it runs.
+    fn pinned(&self, _: &SessionId) -> bool {
+        true
+    }
+
+    fn no_current(&self, _: &SessionId) -> String {
+        NO_FOCUS.to_string()
+    }
+
+    async fn set_project(&self, session: &SessionId, root: &str) {
+        let s = session_ref(session);
+        self.sh.set_conversation_project(&s.instance, &s.session_id, Some(root.to_string()));
+    }
+
+    async fn created(&self, session: &SessionId, flow: &str) -> Option<String> {
+        let s = session_ref(session);
+        let (instance, id) = (s.instance.as_str(), s.session_id.as_str());
+        let note = match self.sh.flow_of_session(instance, id) {
+            // The general conversation becomes the new flow's own; the next one asked for is a new
+            // general conversation (xops-03 §5).
+            Some(own) if own.is_empty() => {
+                self.sh.set_flow_session("", None);
+                self.sh.set_flow_session(flow, Some(session.clone()));
+                None
             }
-        }
-        names
-    }
-    fn catalog(&self) -> Catalog {
-        self.base.catalog()
-    }
-}
-
-/// The flow a tool that changes or runs one acts on: the `flow` it names, if that is still the
-/// conversation's current flow.
-pub(crate) fn target_flow(input: &Value, focus: Option<&str>) -> Result<String, String> {
-    let Some(named) = input
-        .get("flow")
-        .and_then(Value::as_str)
-        .filter(|s| !s.trim().is_empty())
-    else {
-        return Err(
-            "name the flow this acts on in `flow`: the current one, as flow_show gave it".into(),
-        );
-    };
-    match focus {
-        None => Err(NO_FOCUS.into()),
-        Some(f) if f == named => Ok(named.to_string()),
-        Some(f) => Err(format!(
-            "the current flow changed to `{f}` (you named `{named}`): nothing was done — ask the \
-             user again which flow they mean"
-        )),
-    }
-}
-
-/// Put back parts this call saved: each as its text was before, or gone if it was not there.
-fn restore_parts(packs: &dyn Packs, before: &[((PartKind, String), Option<String>)], saved: &[(PartKind, String)]) {
-    for ((kind, name), old) in before.iter().filter(|(k, _)| saved.contains(k)) {
-        let _ = packs.delete_part(*kind, name);
-        let now = packs.part(*kind, name).map(|(b, _)| b);
-        if now != *old {
-            if let Some(text) = old {
-                let _ = packs.save_part(*kind, name, text);
+            // Another flow's conversation stays that flow's.
+            Some(own) => Some(format!(
+                "this is flow {own}'s conversation: the new flow has its own — the user selects it on the right"
+            )),
+            None => {
+                self.sh.set_focus(instance, id, Some(flow.to_string()));
+                None
             }
+        };
+        publish::publish_focus(&self.sh, instance, id).await;
+        note
+    }
+
+    async fn notice(&self, notice: Notice) {
+        match notice {
+            Notice::Packs => publish::publish_defs(&self.sh).await,
+            Notice::Deleted { flow, gone } => {
+                if gone {
+                    self.sh.set_flow_session(&flow, None);
+                }
+                for (i, s) in self.sh.focused_on(&flow) {
+                    if gone {
+                        self.sh.set_focus(&i, &s, None);
+                    }
+                    publish::publish_focus(&self.sh, &i, &s).await;
+                }
+            }
+            Notice::DryRun { run } => publish::publish_dry(&self.sh, Some(&run)).await,
+            _ => {}
         }
     }
 }
 
-type ToolOut = Result<ToolOutput, ToolError>;
-
-/// One authoring tool: its row of [`TOOLS`].
+/// One authoring tool as the engine sees it: its spec from the library, its calls routed to the
+/// library's `AuthorTools` under the calling conversation's name.
 struct AuthorTool {
-    spec: &'static ToolSpec,
-    /// What the model is told of it: the row's name, description and input; what changes nothing
-    /// is read-only and may run beside other calls.
     told: Spec,
+    name: String,
     sh: Arc<Shared>,
 }
 
 impl AuthorTool {
-    fn new(spec: &'static ToolSpec, sh: Arc<Shared>) -> Self {
-        let mut told = Spec::new(spec.name, spec.description, (spec.schema)());
+    /// What changes nothing is read-only and may run beside other calls.
+    fn new(spec: FlowToolSpec, sh: Arc<Shared>) -> Self {
+        let mut told = Spec::new(&spec.name, &spec.description, spec.input_schema);
         if spec.read_only {
             told = told.read_only().concurrency_safe();
         }
-        Self { spec, told, sh }
+        Self { told, name: spec.name, sh }
     }
-}
-
-fn pretty(v: &Value) -> String {
-    serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string())
-}
-
-fn text(v: Value) -> ToolOut {
-    Ok(ToolOutput::text(pretty(&v)))
-}
-
-fn error(m: impl Into<String>) -> ToolOut {
-    Ok(ToolOutput::error(m.into()))
-}
-
-fn str_of<'v>(input: &'v Value, k: &str) -> Option<&'v str> {
-    input
-        .get(k)
-        .and_then(Value::as_str)
-        .filter(|s| !s.trim().is_empty())
-}
-
-/// `parts: [{kind, name, text}]` from a tool's input.
-fn parts_of(input: &Value) -> Result<PartTexts, String> {
-    match input.get("parts") {
-        None | Some(Value::Null) => Ok(BTreeMap::new()),
-        Some(Value::Array(a)) => a
-            .iter()
-            .map(|p| {
-                let kind = p
-                    .get("kind")
-                    .and_then(Value::as_str)
-                    .and_then(PartKind::parse)
-                    .ok_or("each part has a `kind`: skill, rule, policy, gate or hook")?;
-                let name = p.get("name").and_then(Value::as_str).ok_or("each part has a `name`")?;
-                let text = p.get("text").and_then(Value::as_str).ok_or("each part has its `text`")?;
-                Ok(((kind, name.to_string()), text.to_string()))
-            })
-            .collect(),
-        Some(_) => Err("`parts` is a list of {kind, name, text}".into()),
-    }
-}
-
-/// The names this application offers and the parts on offer, by kind.
-pub(crate) fn catalog_json(packs: &dyn Packs) -> Value {
-    let c: Catalog = packs.catalog();
-    let parts: BTreeMap<&str, Vec<String>> = PartKind::ALL
-        .into_iter()
-        .map(|k| (k.as_str(), packs.parts(k)))
-        .collect();
-    json!({
-        "scenes": c.scenes, "steps": c.steps, "checks": c.gates, "tools": c.tools,
-        "command_gates": c.command_gates, "templates": c.templates, "instances": c.instances,
-        "spaces": c.spaces, "models": c.models, "guarded": c.guarded, "parts": parts,
-    })
-}
-
-/// The JSON Schemas of the parts that are YAML.
-pub(crate) fn part_schemas() -> Value {
-    let m: serde_json::Map<String, Value> = [PartKind::Policy, PartKind::Gate, PartKind::Hook]
-        .into_iter()
-        .filter_map(|k| part_schema(k).map(|s| (k.as_str().to_string(), s)))
-        .collect();
-    Value::Object(m)
-}
-
-/// The parts a flow uses, with their texts (`null`: not in the packs), and the hooks over it.
-pub(crate) fn parts_used(packs: &dyn Packs, def: &FlowDef) -> Value {
-    let mut used: BTreeMap<&str, BTreeMap<String, Option<String>>> = BTreeMap::new();
-    let mut put = |kind: PartKind, name: &str| {
-        used.entry(kind.dir())
-            .or_default()
-            .insert(name.to_string(), packs.part(kind, name).map(|(t, _)| t));
-    };
-    for s in &def.stations {
-        for t in s.task_specs() {
-            if let Some(k) = t.skill {
-                put(PartKind::Skill, &k);
-            }
-        }
-        for r in rules_of(def, s) {
-            put(PartKind::Rule, &r);
-        }
-        for p in def.policies.iter().chain(s.policies.iter()) {
-            put(PartKind::Policy, p);
-        }
-        for e in &s.exit {
-            if let crate::ExitCond::Gate { gate, .. } = e {
-                put(PartKind::Gate, gate);
-            }
-        }
-    }
-    let hooks: Vec<Value> = packs
-        .hooks()
-        .into_iter()
-        .filter(|h| h.flows.is_empty() || h.flows.contains(&def.name))
-        .map(|h| json!({"name": h.name, "title": h.title, "on": h.on, "kind": h.kind, "action": crate::runner::redact_url(&h.action)}))
-        .collect();
-    json!({"parts": used, "hooks": hooks})
-}
-
-/// A flow's stations, briefly: `id`, `title`, `needs`, its work, its exits.
-fn stations_of(def: &FlowDef) -> Vec<Value> {
-    def.stations
-        .iter()
-        .map(|s| {
-            let work = match s.work() {
-                Work::None => "checkpoint".to_string(),
-                Work::One(t) => t.executor.kind().to_string(),
-                Work::Tasks(ts) => format!(
-                    "tasks: {}",
-                    ts.iter()
-                        .map(|t| format!("{} ({})", t.id, t.executor.kind()))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
-                Work::Foreach { items, task, .. } => {
-                    format!("foreach {items}: {}", task.executor.kind())
-                }
-            };
-            json!({
-                "id": s.id, "title": s.title, "needs": def.needs_of(&s.id), "work": work,
-                "exit": s.exit.iter().map(|e| e.label()).collect::<Vec<_>>(),
-                "rework_to": s.rework_to,
-            })
-        })
-        .collect()
 }
 
 #[async_trait::async_trait]
@@ -614,596 +244,55 @@ impl Tool for AuthorTool {
     fn permission(&self, _: &Value) -> Permission {
         Permission::Allow
     }
-    async fn call(&self, cx: ToolCx, input: Value) -> ToolOut {
-        let sh = &self.sh;
-        let Ok(engine) = sh.engine() else {
-            return error("the flow module has not started");
+    async fn call(&self, cx: ToolCx, input: Value) -> Result<ToolOutput, ToolError> {
+        let Some(tools) = self.sh.author.get() else {
+            return Ok(ToolOutput::error("the flow module has not started"));
         };
         // The session the call is made in, on the instance its engine carries (the flow space's
         // when an engine does not say).
         let me = cx.session();
-        let instance = if me.instance.is_empty() { sh.cfg.instance.clone() } else { me.instance };
-        let session = me.session_id;
-        let by = Actor::agent(format!("{instance}/{session}"));
-        // A conversation in a project reads and saves the project's packs
-        // (`<project>/.harnix/flows/`); `flow_create` with a project moves it into that one.
-        let asked = match (self.spec.does, str_of(&input, "project_root")) {
-            (Does::Save { creating: true }, Some(root)) => match super::state::project_root(root) {
-                Ok(root) => Some(root),
-                Err(m) => return error(m),
-            },
-            _ => None,
+        let instance = if me.instance.is_empty() { self.sh.cfg.instance.as_str() } else { me.instance.as_str() };
+        let session = format!("{instance}/{}", me.session_id);
+        // A run's history records the conversation acting on it; what it saves or starts, the
+        // conversation's session.
+        let by = if RUN_TOOLS.contains(&self.name.as_str()) {
+            Actor::new(CONVERSATION_KIND, session.clone())
+        } else {
+            Actor::agent(session.clone())
         };
-        let project = asked.clone().or_else(|| sh.conversation_project(&instance, &session));
-        let packs = match &project {
-            Some(root) => {
-                if !sh.hear(root).await
-                    && matches!(self.spec.does, Does::Save { .. } | Does::Delete | Does::PartSet | Does::PartDelete)
-                {
-                    return error(format!(
-                        "the project {root} is not trusted: nothing is saved in it until the user trusts it (in the projects space)"
-                    ));
-                }
-                engine.packs_for(Some(root))
-            }
-            None => engine.packs().clone(),
-        };
-        if asked.is_some() {
-            sh.set_conversation_project(&instance, &session, asked);
-        }
-        let focus = sh
-            .focus(&instance, &session)
-            .filter(|f| packs.flow(f).is_some());
-        let need_focus = || focus.clone().ok_or(());
-        // What changes or runs a flow names it, and acts only if it is still the current one:
-        // the call means that flow, not whatever is selected when it runs.
-        let target = || target_flow(&input, focus.as_deref());
-        match self.spec.does {
-            Does::List => text(json!({
-                // What the conversation needs of each: its inputs are in the definition `flow_show` gives.
-                "flows": publish::defs_list(packs.as_ref()).into_iter().map(|d| json!({
-                    "name": d.name, "title": d.title, "digest": d.digest,
-                    "origin": d.origin, "valid": d.valid,
-                })).collect::<Vec<_>>(),
-                "current": focus,
-                "writable": packs.writable(),
-                "project": project,
-            })),
-            Does::Schema => text(json!({
-                "definition": definition_schema(),
-                "parts": part_schemas(),
-                "catalog": catalog_json(packs.as_ref()),
-            })),
-            Does::Validate => {
-                let Some(yaml) = str_of(&input, "yaml") else {
-                    return error("give the definition as `yaml`");
-                };
-                text(json!({"problems": validate_yaml(yaml, packs.as_ref())}))
-            }
-            Does::Show => {
-                let Ok(name) = need_focus() else {
-                    return error(NO_FOCUS);
-                };
-                let Some((def, digest)) = packs.flow(&name) else {
-                    return error(format!("flow {name} is gone"));
-                };
-                let used = parts_used(packs.as_ref(), &def);
-                text(json!({
-                    "name": name, "title": def.title, "origin": packs.origin(&name), "digest": digest,
-                    "yaml": packs.flow_text(&name).unwrap_or_default(),
-                    "problems": crate::kernel::validate::validate(&def, packs.as_ref()),
-                    "stations": stations_of(&def),
-                    "parts": used["parts"], "hooks": used["hooks"],
-                }))
-            }
-            Does::Save { creating } => {
-                let current = match (creating, target()) {
-                    (true, _) => None,
-                    (false, Ok(f)) => Some(f),
-                    (false, Err(m)) => return error(m),
-                };
-                let parts = match parts_of(&input) {
-                    Ok(s) => s,
-                    Err(m) => return error(m),
-                };
-                let yaml = str_of(&input, "yaml");
-                if creating && yaml.is_none() {
-                    return error("give the new flow's definition as `yaml`");
-                }
-                if yaml.is_none() && parts.is_empty() {
-                    return error("give `yaml`, `parts`, or both");
-                }
-                let name = match yaml.map(FlowDef::parse) {
-                    Some(Ok(d)) => Some(d.name),
-                    Some(Err(e)) => return error(format!("not a flow definition: {e}")),
-                    None => None,
-                };
-                if let (Some(n), Some(cur)) = (&name, &current) {
-                    if n != cur {
-                        return error(format!(
-                            "the text defines flow `{n}`, but the current flow is `{cur}`: keep \
-                             the name, or create a new flow with {TOOL_CREATE}"
-                        ));
-                    }
-                }
-                if let (true, Some(n)) = (creating, &name) {
-                    if packs.flow(n).is_some() {
-                        return error(format!(
-                            "there is a flow `{n}` already: ask the user to select it, then change \
-                             it with {TOOL_UPDATE}, or choose another name"
-                        ));
-                    }
-                }
-                // Everything is checked — the parts, the text with the parts it brings — before
-                // anything is written.
-                let with = WithParts {
-                    base: packs.as_ref(),
-                    parts: &parts,
-                };
-                let mut problems: Vec<Value> = parts
-                    .iter()
-                    .flat_map(|((k, n), t)| {
-                        part_problems(*k, n, t, &with)
-                            .into_iter()
-                            .map(move |m| json!({"message": format!("{k} {n}: {m}")}))
-                    })
-                    .collect();
-                if let Some(y) = yaml {
-                    problems.extend(
-                        validate_yaml(y, &with)
-                            .into_iter()
-                            .filter_map(|p| serde_json::to_value(p).ok()),
-                    );
-                }
-                if !problems.is_empty() {
-                    return text(json!({"saved": false, "problems": problems}));
-                }
-                // Then written; if the flow is not saved after all, the parts this call wrote
-                // are put back as they were.
-                let before: Vec<((PartKind, String), Option<String>)> = parts
-                    .keys()
-                    .map(|(k, n)| ((*k, n.clone()), packs.part(*k, n).map(|(b, _)| b)))
-                    .collect();
-                let mut saved_parts: Vec<(PartKind, String)> = vec![];
-                let mut failed = None;
-                for ((k, n), t) in &parts {
-                    match engine.save_part_in(packs.as_ref(), *k, n, t, by.clone()).await {
-                        Ok(_) => saved_parts.push((*k, n.clone())),
-                        Err(e) => {
-                            failed = Some(format!("{k} {n} not saved: {e}"));
-                            break;
-                        }
-                    }
-                }
-                let mut out = json!({
-                    "saved": true,
-                    "parts": saved_parts.iter().map(|(k, n)| json!({"kind": k, "name": n})).collect::<Vec<_>>(),
-                });
-                if let (None, Some(y)) = (&failed, yaml) {
-                    match engine.save_flow_in(packs.as_ref(), y, by.clone()).await {
-                        Ok(v) => out["flow"] = v,
-                        Err(e) => failed = Some(format!("not saved: {e}")),
-                    }
-                }
-                if let Some(m) = failed {
-                    restore_parts(packs.as_ref(), &before, &saved_parts);
-                    publish::publish_defs(sh).await;
-                    return error(format!("{m} (nothing this call wrote was kept)"));
-                }
-                publish::publish_defs(sh).await;
-                if let (true, Some(n)) = (creating, name) {
-                    match sh.flow_of_session(&instance, &session) {
-                        // The general conversation becomes the new flow's own; the next one
-                        // asked for is a new general conversation (xops-03 §5).
-                        Some(own) if own.is_empty() => {
-                            sh.set_flow_session("", None);
-                            sh.set_flow_session(&n, Some(format!("{instance}/{session}")));
-                            out["current"] = json!(n);
-                        }
-                        // Another flow's conversation stays that flow's.
-                        Some(own) => {
-                            out["note"] = json!(format!(
-                                "this is flow {own}'s conversation: the new flow has its own — \
-                                 the user selects it on the right"
-                            ));
-                        }
-                        None => {
-                            sh.set_focus(&instance, &session, Some(n.clone()));
-                            out["current"] = json!(n);
-                        }
-                    }
-                    publish::publish_focus(sh, &instance, &session).await;
-                }
-                text(out)
-            }
-            Does::Delete => {
-                let name = match target() {
-                    Ok(n) => n,
-                    Err(m) => return error(m),
-                };
-                match engine.delete_flow_in(packs.as_ref(), &name, by).await {
-                    Ok(v) => {
-                        publish::publish_defs(sh).await;
-                        if packs.flow(&name).is_none() {
-                            sh.set_flow_session(&name, None);
-                        }
-                        for (i, s) in sh.focused_on(&name) {
-                            if packs.flow(&name).is_none() {
-                                sh.set_focus(&i, &s, None);
-                            }
-                            publish::publish_focus(sh, &i, &s).await;
-                        }
-                        text(v)
-                    }
-                    Err(e) => error(format!("not deleted: {e}")),
-                }
-            }
-            Does::PartSet => {
-                let kind = str_of(&input, "kind").and_then(PartKind::parse);
-                let (Some(kind), Some(name), Some(body)) = (kind, str_of(&input, "name"), str_of(&input, "text"))
-                else {
-                    return error("give the part's `kind` (skill, rule, policy, gate, hook), `name` and `text`");
-                };
-                match engine.save_part_in(packs.as_ref(), kind, name, body, by).await {
-                    Ok(v) => {
-                        publish::publish_defs(sh).await;
-                        text(v)
-                    }
-                    Err(e) => error(format!("not saved: {e}")),
-                }
-            }
-            Does::PartDelete => {
-                let kind = str_of(&input, "kind").and_then(PartKind::parse);
-                let (Some(kind), Some(name)) = (kind, str_of(&input, "name")) else {
-                    return error("give the part's `kind` and `name`");
-                };
-                match engine.delete_part_in(packs.as_ref(), kind, name, by).await {
-                    Ok(v) => {
-                        publish::publish_defs(sh).await;
-                        text(v)
-                    }
-                    Err(e) => error(format!("not deleted: {e}")),
-                }
-            }
-            Does::DryRun => {
-                let name = match target() {
-                    Ok(n) => n,
-                    Err(m) => return error(m),
-                };
-                let Ok(sandbox) = sh.sandbox() else {
-                    return error("the flow module has not started");
-                };
-                let start = StartIn {
-                    flow: Some(name),
-                    inputs: input.get("inputs").cloned().unwrap_or(Value::Null),
-                    mocks: match input.get("mocks") {
-                        None | Some(Value::Null) => Default::default(),
-                        Some(m) => match serde_json::from_value(m.clone()) {
-                            Ok(m) => m,
-                            Err(e) => return error(format!("`mocks`: {e}")),
-                        },
-                    },
-                    ..Default::default()
-                };
-                let run = match sandbox.start(start, by).await {
-                    Ok(r) => r,
-                    Err(e) => return error(format!("the dry run did not start: {e}")),
-                };
-                let progress = sandbox.run(&run).await;
-                publish::publish_dry(sh, Some(&run)).await;
-                let progress = match progress {
-                    Ok(p) => p,
-                    Err(e) => return error(e.to_string()),
-                };
-                let view = sandbox.get(&run).await.unwrap_or(Value::Null);
-                let stations: BTreeMap<String, Value> = view
-                    .pointer("/record/stations")
-                    .and_then(Value::as_object)
-                    .map(|m| {
-                        m.iter()
-                            .map(|(k, v)| (k.clone(), v["status"].clone()))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                text(json!({
-                    "run": run, "status": progress.status, "steps": progress.steps,
-                    "stations": stations, "waiting": view.get("unmet"),
-                }))
-            }
-            Does::Start => {
-                let name = match target() {
-                    Ok(n) => n,
-                    Err(m) => return error(m),
-                };
-                let Some(subject) = str_of(&input, "subject") else {
-                    return error("give the run's `subject`");
-                };
-                let start = CreateIn {
-                    flow: name,
-                    subject: subject.to_string(),
-                    inputs: input.get("inputs").cloned().unwrap_or(Value::Null),
-                    title: str_of(&input, "title").map(String::from),
-                    parent: None,
-                    project_root: project.clone(),
-                    ..Default::default()
-                };
-                let Ok(rn) = sh.runner() else {
-                    return error("the flow module has not started");
-                };
-                match rn.start_run(start, by).await {
-                    Ok(o) => {
-                        let value = o.value.clone();
-                        rn.apply(o).await;
-                        text(value)
-                    }
-                    Err(e) => error(format!("not started: {e}")),
-                }
-            }
-            Does::Guide => {
-                let zh = str_of(&input, "lang").is_some_and(|l| l.starts_with("zh"));
-                Ok(ToolOutput::text(if zh { GUIDE_ZH } else { GUIDE_EN }.to_string()))
-            }
-            Does::Runs => {
-                let Ok(name) = need_focus() else {
-                    return error(NO_FOCUS);
-                };
-                match engine
-                    .list(crate::RunQuery {
-                        flow: Some(name),
-                        project: project.clone(),
-                        limit: Some(50),
-                        ..Default::default()
-                    })
-                    .await
-                {
-                    Ok(list) => text(json!({"runs": list.iter().map(run_line).collect::<Vec<_>>()})),
-                    Err(e) => error(e.to_string()),
-                }
-            }
-            Does::Run => {
-                let run = match run_of_focus(&engine, &input, focus.as_deref()).await {
-                    Ok(r) => r,
-                    Err(m) => return error(m),
-                };
-                text(run_detail(&run, engine.clock().now_ms()))
-            }
-            Does::Act(act) => {
-                let rec = match run_of_focus(&engine, &input, focus.as_deref()).await {
-                    Ok(r) => r,
-                    Err(m) => return error(m),
-                };
-                let run = rec.id.clone();
-                let who = Actor::new(CONVERSATION_KIND, format!("{instance}/{session}"));
-                let station = str_of(&input, "station").unwrap_or_default().to_string();
-                let reason = str_of(&input, "reason").map(String::from);
-                let r = match act {
-                    Act::Pause => engine.pause(&run, who).await,
-                    Act::Resume => engine.resume(&run, who).await,
-                    Act::Cancel => {
-                        engine
-                            .cancel(&run, reason.as_deref().unwrap_or("cancelled in conversation"), who)
-                            .await
-                    }
-                    Act::Confirm => {
-                        let pass = input.get("pass").and_then(Value::as_bool).unwrap_or(true);
-                        engine.confirm(&run, &station, pass, reason.as_deref(), who).await
-                    }
-                    Act::Force => {
-                        engine
-                            .force(&run, &station, reason.as_deref().unwrap_or("forced in conversation"), who)
-                            .await
-                    }
-                    Act::Rework => {
-                        let to = str_of(&input, "to").unwrap_or_default();
-                        let tasks: Option<Vec<String>> = input
-                            .get("tasks")
-                            .and_then(Value::as_array)
-                            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect());
-                        engine
-                            .rework(&run, to, tasks, reason.as_deref().unwrap_or("sent back in conversation"), who)
-                            .await
-                    }
-                    Act::Retry => {
-                        let task = str_of(&input, "task").unwrap_or_default();
-                        engine.retry(&run, &station, task, who).await
-                    }
-                    Act::Release => engine.release(&run, &station, who).await,
-                };
-                match r {
-                    Ok(o) => {
-                        let value = o.value.clone();
-                        match sh.runner() {
-                            Ok(rn) => rn.apply_for(&run, o).await,
-                            Err(_) => return error("the flow module has not started"),
-                        }
-                        let after = engine.record(&run).await.ok();
-                        text(json!({"done": value, "phase": after.map(|r| r.phase())}))
-                    }
-                    Err(e) => error(format!("not done: {e}")),
-                }
-            }
-        }
+        let reply = tools.call(&session, &self.name, input, &by).await;
+        Ok(if reply.is_error { ToolOutput::error(reply.text) } else { ToolOutput::text(reply.text) })
     }
-}
-
-/// The run a run tool names, if it is a run of the conversation's current flow.
-async fn run_of_focus(
-    engine: &crate::Engine,
-    input: &Value,
-    focus: Option<&str>,
-) -> Result<crate::RunRecord, String> {
-    let Some(flow) = focus else {
-        return Err(NO_FOCUS.into());
-    };
-    let Some(run) = str_of(input, "run") else {
-        return Err("name the run in `run` (flow_runs lists them)".into());
-    };
-    if crate::dryrun::is_dry(run) {
-        return Err("a dry run is driven with flow_dry_run, not the run tools".into());
-    }
-    let rec = engine.record(run).await.map_err(|e| e.to_string())?;
-    if rec.flow != flow {
-        return Err(format!(
-            "run {run} is a run of flow {}, not of {flow}, this conversation's flow: nothing was done",
-            rec.flow
-        ));
-    }
-    Ok(rec)
-}
-
-/// A run in a list, for the conversation.
-fn run_line(s: &crate::RunSummary) -> Value {
-    json!({
-        "run": s.id, "title": s.title, "subject": s.subject,
-        "phase": s.phase, "created_at": s.created_at, "finished_at": s.finished_at,
-        "tokens": s.usage.total(),
-    })
-}
-
-/// A run's stations, for the conversation: status, time, tokens, what each waits for.
-fn run_detail(rec: &crate::RunRecord, now: u64) -> Value {
-    let view = crate::view(rec.clone());
-    let stations: Vec<Value> = rec
-        .def
-        .stations
-        .iter()
-        .filter_map(|d| {
-            let s = rec.stations.get(&d.id)?;
-            let elapsed = s.entered_at.map(|e| s.left_at.unwrap_or(now).saturating_sub(e));
-            Some(json!({
-                "station": d.id, "status": s.status, "round": s.round,
-                "elapsed_ms": elapsed, "tokens": s.usage().total(),
-                "waiting": view.unmet.get(&d.id),
-                "tasks": s.tasks.iter().map(|t| json!({
-                    "task": t.id, "status": t.status, "attempt": t.attempt,
-                    "error": t.error, "tokens": t.usage.total(),
-                })).collect::<Vec<_>>(),
-            }))
-        })
-        .collect();
-    json!({
-        "run": rec.id, "flow": rec.flow, "subject": rec.subject, "phase": rec.phase(),
-        "tokens": rec.usage().total(), "main_session": rec.main_session(), "stations": stations,
-    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
-    fn the_tools_that_change_nothing_are_read_only_and_none_is_asked_about() {
-        let read_only: Vec<&str> = AUTHOR_TOOLS
-            .iter()
-            .filter(|(_, r)| *r)
-            .map(|(n, _)| *n)
-            .collect();
-        assert_eq!(
-            read_only,
-            [
-                TOOL_LIST,
-                TOOL_SHOW,
-                TOOL_SCHEMA,
-                TOOL_VALIDATE,
-                TOOL_DRY_RUN,
-                TOOL_GUIDE,
-                TOOL_RUNS,
-                TOOL_RUN
-            ]
-        );
-        let writes: Vec<&str> = AUTHOR_TOOLS
-            .iter()
-            .filter(|(_, r)| !*r)
-            .map(|(n, _)| *n)
-            .collect();
-        assert_eq!(
-            writes,
-            [
-                TOOL_CREATE,
-                TOOL_UPDATE,
-                TOOL_DELETE,
-                TOOL_PART_SET,
-                TOOL_PART_DELETE,
-                TOOL_START,
-                TOOL_PAUSE,
-                TOOL_RESUME,
-                TOOL_CANCEL,
-                TOOL_CONFIRM,
-                TOOL_FORCE,
-                TOOL_REWORK,
-                TOOL_RETRY,
-                TOOL_RELEASE
-            ]
-        );
-        // None of them asks the person: a change is checked as it runs, not approved.
+    fn the_scene_offers_the_librarys_tools_and_none_is_asked_about() {
         let sh = Arc::new(Shared::for_tests());
-        for t in TOOLS {
-            let tool = AuthorTool::new(t, sh.clone());
-            assert_eq!(tool.permission(&json!({"flow": "f", "run": "r-1"})), Permission::Allow, "{}", t.name);
+        let layer = author_scene(SceneBase::builtin("harnix"), sh);
+        let p = layer.parts();
+        let told: Vec<(&str, bool)> = p.tools.iter().map(|t| (t.spec().name(), t.spec().is_read_only())).collect();
+        assert_eq!(told, AUTHOR_TOOLS, "the library's tools, in its order");
+        assert_eq!((p.interactive, p.auto_name, p.requires_project), (Some(true), Some(false), Some(false)));
+        // None of them asks the person: a change is checked as it runs, not approved.
+        for tool in p.tools {
+            assert_eq!(tool.permission(&json!({"flow": "f", "run": "r-1"})), Permission::Allow, "{}", tool.spec().name());
         }
     }
 
-    /// The table is the one list: every name once, each with its words and an input schema.
-    #[test]
-    fn every_tool_is_one_row_of_the_table() {
-        let mut names: Vec<&str> = TOOLS.iter().map(|t| t.name).collect();
-        assert_eq!(AUTHOR_TOOLS.map(|(n, _)| n).to_vec(), names, "the public list is the table's");
-        names.sort();
-        names.dedup();
-        assert_eq!(names.len(), TOOLS.len(), "no name twice");
-        for t in TOOLS {
-            assert!(t.name.starts_with("flow_") && !t.description.is_empty(), "{}", t.name);
-            assert_eq!((t.schema)()["type"], "object", "{}", t.name);
-        }
+    #[tokio::test]
+    async fn before_the_extension_starts_a_tool_says_so() {
+        let layer = author_scene(SceneBase::builtin("harnix"), Arc::new(Shared::for_tests()));
+        let out = layer.parts().tools[0].call(ToolCx::new("nobody", "t"), json!({})).await.unwrap();
+        assert!(out.is_error() && out.content().contains("has not started"));
     }
 
-    #[test]
-    fn a_change_acts_only_on_the_flow_it_names_while_that_is_current() {
-        let named = json!({"flow": "a"});
-        assert_eq!(target_flow(&named, Some("a")).unwrap(), "a");
-        let changed = target_flow(&named, Some("b")).unwrap_err();
-        assert!(
-            changed.contains("changed to `b`") && changed.contains("ask the user again"),
-            "{changed}"
-        );
-        assert_eq!(target_flow(&named, None).unwrap_err(), NO_FOCUS);
-        assert!(target_flow(&json!({}), Some("a"))
-            .unwrap_err()
-            .contains("`flow`"));
-    }
-
-    #[test]
-    fn parts_written_before_a_failed_save_are_put_back() {
-        use crate::packs::MemPacks;
-        let packs = MemPacks::new().skill("old", "Built in.").writable();
-        let sk = |n: &str| (PartKind::Skill, n.to_string());
-        packs.save_part(PartKind::Skill, "mine", "Mine before.").unwrap();
-        let before = vec![
-            (sk("old"), Some("Built in.".to_string())),
-            (sk("mine"), Some("Mine before.".to_string())),
-            ((PartKind::Rule, "new".to_string()), None),
-        ];
-        packs.save_part(PartKind::Skill, "old", "Changed.").unwrap();
-        packs.save_part(PartKind::Skill, "mine", "Changed.").unwrap();
-        packs.save_part(PartKind::Rule, "new", "Fresh.").unwrap();
-        let saved = vec![sk("old"), sk("mine"), (PartKind::Rule, "new".to_string())];
-        restore_parts(&packs, &before, &saved);
-        assert_eq!(Packs::skill(&packs, "old").unwrap().0, "Built in.");
-        assert_eq!(Packs::skill(&packs, "mine").unwrap().0, "Mine before.");
-        assert!(Packs::rule(&packs, "new").is_none());
-    }
-
-    #[test]
-    fn parts_come_as_a_list() {
-        assert_eq!(parts_of(&json!({})).unwrap().len(), 0);
-        let p = parts_of(&json!({"parts": [{"kind": "rule", "name": "a", "text": "A."}]})).unwrap();
-        assert_eq!(p[&(PartKind::Rule, "a".to_string())], "A.");
-        assert!(parts_of(&json!({"parts": [{"kind": "nope", "name": "a", "text": "A."}]})).is_err());
-        assert!(parts_of(&json!({"parts": {"a": "A."}})).is_err());
-    }
-
-    /// A module with an engine over `MemPacks` and its project packs, before start (no context:
-    /// a project's trust is what the test sets).
+    /// A module with an engine over `MemPacks` and its project packs, a runner and the authoring
+    /// tools, before start (no context: a project's trust is what the test sets).
     fn started() -> Arc<Shared> {
         let sh = Arc::new(Shared::for_tests());
         let cfg = crate::runner::RunnerConfig {
@@ -1212,17 +301,45 @@ mod tests {
             trust: sh.projects.clone(),
             ..Default::default()
         };
-        let packs = crate::runner::CatalogPacks::over(&cfg, vec![], Arc::new(crate::MemPacks::new().skill("look", "Look.").writable()));
+        let packs = Arc::new(crate::runner::CatalogPacks::over(
+            &cfg,
+            vec![],
+            Arc::new(crate::MemPacks::new().skill("look", "Look.").writable()),
+        ));
         packs.set_layout(super::super::layout(std::path::Path::new("/state/ext/flow/data")));
-        let engine = crate::Engine::new(Arc::new(crate::MemStore::new()), Arc::new(packs));
-        let _ = sh.engine.set(Arc::new(engine));
+        let engine = Arc::new(crate::Engine::new(Arc::new(crate::MemStore::new()), packs.clone()));
+        let _ = sh.engine.set(engine.clone());
+        let runner = crate::runner::Runner::new(engine, super::super::host::HarnixSessionHost::new(sh.clone()), cfg);
+        let sandbox = Arc::new(crate::Sandbox::new(packs, Default::default()));
+        let _ = sh.author.set(Arc::new(crate::author::AuthorTools::new(&runner, sandbox, HarnixAuthorHost::new(sh.clone()))));
+        let _ = sh.runner.set(runner);
         sh
     }
 
     async fn call(sh: &Arc<Shared>, tool: &str, session: &str, input: Value) -> ToolOutput {
-        let row = TOOLS.iter().find(|t| t.name == tool).unwrap();
+        let spec = crate::author::tool_specs().into_iter().find(|t| t.name == tool).unwrap();
         let cx = ToolCx::new(session, "t1").with_instance("main");
-        AuthorTool::new(row, sh.clone()).call(cx, input).await.unwrap()
+        AuthorTool::new(spec, sh.clone()).call(cx, input).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_change_acts_only_on_the_selected_flow_and_creating_one_selects_it() {
+        let sh = started();
+        let yaml = "name: fresh\nstations: [{id: a, exit: [{kind: confirm}]}]";
+        // Nothing selected: the person is asked to select one.
+        let out = call(&sh, TOOL_UPDATE, "s1", json!({"flow": "fresh", "yaml": yaml})).await;
+        assert!(out.is_error() && out.content() == NO_FOCUS, "{}", out.content());
+        let out = call(&sh, TOOL_CREATE, "s1", json!({"yaml": yaml})).await;
+        assert!(out.content().contains("\"current\": \"fresh\""), "{}", out.content());
+        assert_eq!(sh.focus("main", "s1").as_deref(), Some("fresh"));
+        // Another flow named than the selected one: nothing done.
+        sh.engine().unwrap().packs().save_flow("name: other\nstations: [{id: a, exit: [{kind: confirm}]}]").unwrap();
+        let out = call(&sh, TOOL_DELETE, "s1", json!({"flow": "other"})).await;
+        assert!(out.is_error() && out.content().contains("changed to `fresh`"), "{}", out.content());
+        // Deleted: no longer selected.
+        let out = call(&sh, TOOL_DELETE, "s1", json!({"flow": "fresh"})).await;
+        assert!(!out.is_error(), "{}", out.content());
+        assert_eq!(sh.focus("main", "s1"), None);
     }
 
     #[tokio::test]

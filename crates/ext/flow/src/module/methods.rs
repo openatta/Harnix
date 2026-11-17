@@ -664,7 +664,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         "catalog",
         "the names definitions may use: {scenes, steps, checks, tools, command_gates, templates, instances, spaces, models, guarded, parts: {kind: [name]}, writable}",
         |_, packs, _, _: Value| async move {
-            let mut v = super::author::catalog_json(packs.as_ref());
+            let mut v = crate::author::catalog_json(packs.as_ref());
             v["writable"] = json!(packs.writable());
             Ok(v)
         },
@@ -878,7 +878,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
             let zh = p.lang.as_deref().is_some_and(|l| l.starts_with("zh"));
             Ok(json!({
                 "lang": if zh { "zh-CN" } else { "en" },
-                "text": if zh { super::author::GUIDE_ZH } else { super::author::GUIDE_EN },
+                "text": if zh { crate::GUIDE_ZH } else { crate::GUIDE_EN },
             }))
         },
     );
@@ -1344,7 +1344,7 @@ fn def_info(engine: &Engine, packs: &dyn Packs, name: &str) -> Answer {
         }
     }
     let problems = validate(&def, packs);
-    let used = super::author::parts_used(packs, &def);
+    let used = crate::author::parts_used(packs, &def);
     Ok(json!({
         "def": def, "yaml": yaml, "digest": digest, "origin": packs.origin(name),
         "valid": problems.is_empty(), "problems": problems, "writable": packs.writable(),
