@@ -391,8 +391,12 @@ test("a task: a run in a project carries its root, workspace, output directory a
     // The template resolved and made at start, inside the project: the first of the day is `01`.
     expect(rec.output_dir).toMatch(new RegExp(`^${project}/flows/demo-review-\\d{8}01$`));
     expect(existsSync(rec.output_dir)).toBe(true);
-    // Only `runs/`: the worktrees are out of the project, in the application's state.
-    expect(readFileSync(join(project, ".harnix", ".gitignore"), "utf8")).toBe("runs/\n");
+    // `runs/` is Harnix's one line (the engine adds its own local directories to the same file when
+    // its session there starts): the worktrees are out of the project, in the application's state.
+    const ignored = readFileSync(join(project, ".harnix", ".gitignore"), "utf8").split("\n");
+    expect(ignored).toContain("runs/");
+    expect(ignored).not.toContain("worktrees/");
+    expect(ignored).not.toContain("flows/");
     expect(rec.trigger).toMatchObject({ kind: "manual", by: { kind: "device" } });
     const other = (await api.call("flow.get", { run: plain })).record;
     expect(other.project_root).toBeUndefined();
