@@ -144,7 +144,7 @@ pub const POINTS: &[Point] = &[
     Point {
         id: "settings.section",
         kind: PointKind::Render,
-        what: "设置面板里的一节",
+        what: "设置面板里的一节；给了 `within: \"diagnostics\"` 的是诊断那一节里的一块",
         when: "设置页打开时",
         frequency: Frequency::PerInteraction,
     },
@@ -226,7 +226,7 @@ pub const EXTENSION_POINTS: &[ExtensionPoint] = &[
         owner: "harnix-app",
         id: "harnix-app.home.panels",
         kind: PointKind::Render,
-        what: "首页的一个区块（`{id, title(), order?, render(context)}`）：全局统计、用量、待我处理、最近会话、最近任务",
+        what: "首页的一个区块（`{id, title(), order?, wide?, render(context)}`）：全局统计、待我处理、最近会话、最近任务、定时、用量",
         when: "首页画出时",
         frequency: Frequency::PerInteraction,
     },

@@ -12,7 +12,7 @@
  * | `flow.block` | `match(块)`、`render(块)` | 后注册的先认领 |
  * | `sidebar.group` | `group(会话) → 组[]`、`label?()` | 只用最后注册的那一个 |
  * | `command` | `trigger?`（`/` 或 `@`）、`complete(query, ctx?) → 候选[]`（候选可带 `run`） | 全部，按注册顺序拼起来；`/` 与 `@` 两个菜单各问各的 |
- * | `settings.section` | `id`、`label()`、`render()`，可选的 `covers`；或不给 `render`，给 `fields`（字段声明，见 `fields.tsx`）与可选的 `store` | 全部，按注册顺序；外壳要人去配模型时打开 `covers` 里有 `"models"` 的那一节；只给 `fields` 的按声明画表单，值缺省存在这个浏览器里 |
+ * | `settings.section` | `id`、`label()`、`render()`，可选的 `covers`、`within`；或不给 `render`，给 `fields`（字段声明，见 `fields.tsx`）与可选的 `store` | 全部，按注册顺序；外壳要人去配模型时打开 `covers` 里有 `"models"` 的那一节；只给 `fields` 的按声明画表单，值缺省存在这个浏览器里；给了 `within`（`"diagnostics"`）的不单占一节，画在外壳的那一节里、它自己的内容之后，以 `label()` 为题 |
  * | `session.action` | `id`、`at`、`label(target)`、`match(target)`、`run(target)`，可选的 `disabled(target)` | 标题栏、会话菜单、工具行（按钮与参数）、人的消息的菜单（`message`）各问 `at` 里有它的，按注册顺序 |
  * | `sidebar.tab` | `id`、`kind`、`title(address?)`、`render()`，可选的 `patterns`、`priority`、`canOpen`、`guide`、`multiple`、`keepMounted`、`pinned`、`scope` | 右栏的页签类型（`sidebar.ts`）：资源地址按优先级档、模式长度、注册顺序认领；一个 `kind` 至多一份 extension 加一份 builtin，extension 生效 |
  * | `shortcut` | `id`、`title()`、`run(ctx)`，可选的 `keys`、`scope`、`enabled()` | 一条有快捷键的命令（`shortcuts.ts`）：设置里列出、可改键；一个键按下时焦点所在处的先于全局的，再按注册顺序；`id` 在全页唯一 |
@@ -307,6 +307,9 @@ export interface Contributions {
     fields?: LocalField[];
     /** Where those fields' values are: this browser's (`harnix.pref.<owner>.<key>`) when none. */
     store?: FieldStore;
+    /** Drawn inside one of the shell's own sections, under its label, rather than as a section of
+     *  its own in the list: `"diagnostics"`, a block of what this page and the process are doing. */
+    within?: SettingsHost;
   };
   "session.action": SessionAction;
   "sidebar.tab": SidebarTabType;
@@ -321,6 +324,10 @@ export type ContributionInput<P extends Point> = P extends "settings.section"
 
 /** What the shell itself sends a reader to the settings for, to whichever section `covers` it. */
 export type SettingsNeed = "models";
+
+/** The shell's own sections a `settings.section` may be drawn inside (`within`). */
+export const SETTINGS_HOSTS = ["diagnostics"] as const;
+export type SettingsHost = (typeof SETTINGS_HOSTS)[number];
 
 /** What a point an extension defines is: how its contributions are used. */
 export interface PointSpec {
@@ -395,6 +402,9 @@ function shapeError(point: Point, c: Record<string, unknown>): string | null {
     if ((keys !== undefined && keys !== null && typeof keys !== "string" && typeof keys !== "object") || written.some((k) => k !== null && k !== undefined && (typeof k !== "string" || !parseKeys(k, "mac")))) {
       return `a shortcut's keys are written like "Mod+K", not ${JSON.stringify(keys)}`;
     }
+  }
+  if (point === "settings.section" && c.within !== undefined && !(SETTINGS_HOSTS as readonly unknown[]).includes(c.within)) {
+    return `a settings section is drawn within ${SETTINGS_HOSTS.join(", ")}, not ${JSON.stringify(c.within)}`;
   }
   if (point === "command" && c.trigger !== undefined && c.trigger !== "/" && c.trigger !== "@") {
     return `a command's trigger is "/" or "@", not ${JSON.stringify(c.trigger)}`;

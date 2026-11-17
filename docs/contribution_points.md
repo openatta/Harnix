@@ -53,7 +53,7 @@ Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发
 | `flow.block` | 呈现 | 流里的一种新块 | 该块状态变化时 | 每次块状态变化(10¹ 量级) |
 | `sidebar.group` | 注册 | 会话列表的分组与排序 | 会话集合变化时 | 每次交互(10⁰–10¹ 量级) |
 | `command` | 注册 | 一条 `/` 命令或 `@` 引用的补全候选（`trigger` 选哪个菜单；带 `submit` 的 `/` 候选收下发出的 `/<名> <参数>`） | 命令面板打开时 | 每次交互(10⁰–10¹ 量级) |
-| `settings.section` | 呈现 | 设置面板里的一节 | 设置页打开时 | 每次交互(10⁰–10¹ 量级) |
+| `settings.section` | 呈现 | 设置面板里的一节；给了 `within: "diagnostics"` 的是诊断那一节里的一块 | 设置页打开时 | 每次交互(10⁰–10¹ 量级) |
 | `session.action` | 注册 | 对一个会话、它里面一次工具调用或人的一条消息的动作（`at`：标题栏、会话菜单、工具行、工具行的参数、消息的菜单） | 标题栏、会话菜单、工具行、人的消息画出时 | 每次交互(10⁰–10¹ 量级) |
 | `sidebar.tab` | 注册 | 右栏的一种页签类型：按 `patterns` 认领 `harnix-resource://` 地址，或按 `kind` 打开的页；`guide` 进引导页 | 右栏打开一个地址或一种页时 | 每次交互(10⁰–10¹ 量级) |
 | `shortcut` | 注册 | 一条有快捷键的命令：按平台的缺省键、生效的地方（全局、输入框、右栏）、要跑的动作；设置的「快捷键」列出它、可改键 | 按下一个键时；设置的「快捷键」打开时 | 每次交互(10⁰–10¹ 量级) |
@@ -70,7 +70,7 @@ Agix 插件的 `[[ui]]` 段是几个预编译的 ES 模块，Harnix 把它们发
 |---|---|---|---|---|---|
 | `harnix-app.project.items` | `harnix-app` | 注册 | 项目树里会话之外的一种条目（`{id, title(), rows(root), subscribe(fn), render(row), open(row), menu?(row), create?, projectMenu?(context)}`）：流程的任务 | 项目 space 的树画出时、条目的 `subscribe` 说变了时 | 每次交互(10⁰–10¹ 量级) |
 | `harnix-app.project.panels` | `harnix-app` | 呈现 | 项目概况页的一个区块（`{id, title(), order?, render(context)}`） | 项目的概况页画出时 | 每次交互(10⁰–10¹ 量级) |
-| `harnix-app.home.panels` | `harnix-app` | 呈现 | 首页的一个区块（`{id, title(), order?, render(context)}`）：全局统计、用量、待我处理、最近会话、最近任务 | 首页画出时 | 每次交互(10⁰–10¹ 量级) |
+| `harnix-app.home.panels` | `harnix-app` | 呈现 | 首页的一个区块（`{id, title(), order?, wide?, render(context)}`）：全局统计、待我处理、最近会话、最近任务、定时、用量 | 首页画出时 | 每次交互(10⁰–10¹ 量级) |
 | `harnix-app.inbox` | `harnix-app` | 注册 | 待我处理的一个来源（`{id, items(), subscribe(fn), open(item)}`）：中枢的提问、流程的确认、hold、外部工作项 | 来源的 `subscribe` 说变了时、点一项时 | 每次交互(10⁰–10¹ 量级) |
 | `harnix-app.session.badge` | `harnix-app` | 呈现 | 左栏会话行上的一个标记（`{id, render(session)}`）：定时的时钟 | 会话行画出时 | 每次交互(10⁰–10¹ 量级) |
 | `flow.task.badge` | `flow` | 呈现 | 任务行上的一个标记（`{id, render(run)}`）：定时的下一次时间 | 任务行画出时 | 每次交互(10⁰–10¹ 量级) |
