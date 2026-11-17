@@ -1,15 +1,16 @@
-# The layers that need nothing this runner cannot have.
+# The layers of `scripts/check.sh` that need nothing this runner cannot have.
 #
-# No model, no `.env`, no reachable network: so no `--live`, no topology
-# parity, and no `remote-smoke`. Those three are the ones `scripts/check.sh`
-# reports as skipped on a machine without them, and the same honesty applies
-# here — a green tick on this workflow means the deterministic layers passed,
-# not that everything did.
+# Each step is one layer, run by the script itself (`--only <layer>`), so the
+# crates, features and suites are the ones a local run checks and cannot drift
+# from it: a list kept here went stale once already.
 #
-# What is covered: the dependency-graph assertions, every unit test, clippy at
-# zero warnings on Harnix's own crates, the offline interface checks, the whole
-# API surface over both topologies against recorded fixtures, the browser
-# layer, and a package installed end to end on the shipped binary.
+# No model, no `.env`, no secrets, no reachable network: so no `live`, no
+# `interface` (topology parity) and no `remote`. Those are the layers
+# `scripts/check.sh` reports as skipped on a machine without them, and the same
+# honesty applies here — a green tick on this workflow means the deterministic
+# layers passed, not that everything did. The strict replay of the recordings
+# made on a real model (`api/strict-replay.spec.ts`) runs on macOS alone; on
+# this Linux runner it skips itself.
 
 name: check
 
@@ -25,7 +26,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,9 +34,19 @@ jobs:
           # it — without this there is nothing to build.
           submodules: recursive
 
+      # A full run builds a few tens of gigabytes; `check.sh` refuses to start
+      # with less than 15 GB free, and the runner's image comes with less.
+      - name: Make room
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h .
+
+      # `wasm32-wasip2`: the packages' components, the scaffold `harnix-pack new` makes, and the
+      # `harnix-wasm` fixtures are built for it.
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+          targets: wasm32-wasip2
 
       - uses: Swatinem/rust-cache@v2
 
@@ -45,71 +56,35 @@ jobs:
 
       - uses: pnpm/action-setup@v4
 
-      # The binary embeds the built interface and will not build without it.
-      - name: Build the interface
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm --filter @harnix/shell build
+      - name: build — the interface, the shipped binary, the packing tool, the example application
+        run: scripts/check.sh --only build
 
-      # The `harnix` binary is `harnix-cli` (xops-02): `crates/harnix` is the library alone.
-      - name: Build the shipped binary
-        run: cargo build --release -p harnix-cli -p harnix-testapp
+      - name: rust — unit tests, layering and contracts, the flow library copied out
+        run: scripts/check.sh --only rust
 
-      - name: Build the example application, as an application is built
-        run: examples/hello-app/scripts/build.sh --offline
+      - name: clippy — zero warnings on Harnix's crates
+        run: scripts/check.sh --only clippy
 
-      - name: Unit tests and layering assertions
-        run: |
-          cargo test -p harnix -p harnix-cli -p harnix-assembly -p harnix-instance -p harnix-authz -p harnix-builtin \
-                     -p harnix-client -p harnix-contract -p harnix-flow -p harnix-ext-flow -p harnix-module -p harnix-hub \
-                     -p harnix-transport -p harnix-testapp
+      - name: offline — metadata, style, README pairing, recordings, UI layering, desktop template
+        run: scripts/check.sh --only offline
 
-      # `--no-deps` so the Agix submodule's own lints are not this
-      # repository's to answer for.
-      - name: Clippy, zero warnings on Harnix's crates
-        run: |
-          cargo clippy -p harnix -p harnix-cli -p harnix-assembly -p harnix-instance -p harnix-authz -p harnix-builtin \
-                       -p harnix-client -p harnix-contract -p harnix-flow -p harnix-ext-flow -p harnix-module -p harnix-hub \
-                       -p harnix-transport -p harnix-testapp \
-                       --all-targets --no-deps -- -D warnings
+      - name: frontend — typecheck, unit tests, protocol types, coverage table
+        run: scripts/check.sh --only frontend
 
-      - name: Interface checks that need no backend
-        run: |
-          node tests/style-lint.mjs
-          node tests/readme-pairing.mjs
-          node templates/desktop/check-no-ipc.mjs
-          node tests/app-scripts.mjs
+      - name: api — LIVE API suites, both topologies and the process carrier, replayed
+        run: scripts/check.sh --only api
 
-      - name: The application template, built offline from a clean copy
-        run: node tests/app-template.mjs
-
-      - name: Front-end packages, protocol types, coverage table
-        run: |
-          pnpm -r --if-present run typecheck
-          pnpm -r --if-present run test
-          HARNIX_TS_OUT="$RUNNER_TEMP/ts" cargo test -q -p harnix-contract --features ts --test ts_export
-          diff -u ui/packages/core/src/protocol/generated/contract.ts "$RUNNER_TEMP/ts/contract.ts"
-          node tests/live/coverage.mjs --check
-
-      - name: The API, both topologies, against recorded fixtures
-        env:
-          HARNIX_BIN: ${{ github.workspace }}/target/release/harnix
-        run: |
-          node tests/live/run.mjs --project api --topology single_duplex
-          node tests/live/run.mjs --project api --topology split_streams
+      - name: template — the application template, built offline from a clean copy
+        run: scripts/check.sh --only template
 
       - name: Install chromium
         run: pnpm --filter @harnix/live-tests exec playwright install --with-deps chromium
 
-      - name: The interface, both topologies
-        env:
-          HARNIX_BIN: ${{ github.workspace }}/target/release/harnix
-        run: |
-          node tests/live/run.mjs --project ui --topology single_duplex
-          node tests/live/run.mjs --project ui --topology split_streams
+      - name: browser — LIVE interface suites, both topologies and the process carrier
+        run: scripts/check.sh --only browser
 
       # Latency and memory, measured last and alone — a shared runner makes
       # the numbers noisy, so this reports rather than gates.
-      - name: Budget
-        run: node tests/budget.mjs
+      - name: budget
+        run: scripts/check.sh --only budget
         continue-on-error: true
