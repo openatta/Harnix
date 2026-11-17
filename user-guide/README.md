@@ -122,7 +122,7 @@ A **task** is a run of a **flow** in a project: a plan made of stations. The age
 
 If another task is already running in the project, the dialog says so. Press "Start", and the task starts at once. Unless the flow is strict, the dialog says plainly that the flow changes project files directly. "Schedule this flow…" in the same dialog makes a schedule of it instead (section 6).
 
-**No approvals by default.** A flow has a setting `guard`. The default is `auto`: inside the project, the agent's tools run without asking. A path outside the project (or the worktree) is refused, and the agent sees why; so is a write into the project's `.harnix/` folder, which holds Harnix's settings and the project's flows. A task asks you no questions; the flow's author may still write stations that wait for you (a confirmation, or a hold). `strict` refuses what nothing allows and asks you about a path outside.
+**No approvals by default.** A flow has a setting `guard`. The default is `auto`: inside the project, the agent's tools run without asking. A path outside the project (or the worktree) is refused, and the agent sees why; so is a write into the project's `.harnix/` folder, which holds Harnix's settings and the project's flows (an app built on Harnix uses its own folder, named after it). A task asks you no questions; the flow's author may still write stations that wait for you (a confirmation, or a hold). `strict` refuses what nothing allows and asks you about a path outside.
 
 **The task in the project tree.** Tasks are listed under the project beside the sessions. A row shows the task's title, the flow, its state and its progress ("station 2/5"); a worktree task also shows its branch. A task started by a schedule has a clock.
 
