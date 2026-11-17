@@ -941,16 +941,17 @@ Harnix 自己的二进制 `harnix` 链了它。它被授予 `engine.inspect` 与
  流程包（内置层 + 可写层）     flows · skills · rules · policies · gates · hooks
           │ 校验、建运行时钉住定义与策略、门禁
           ▼
- 内核（kernel/，纯）          站的有向无环图：进站、派工、租约、出站判定、返工、暂停；
+ 内核（库 harnix-flow，纯）   站的有向无环图：进站、派工、租约、出站判定、返工、暂停；
           │                   只经宿主 trait 读写（RunStore、Packs、Authorizer、Tools）
           ▼ 工作项
- 扩展（module/）              会话工作项交给会话（主会话 = 主 Agent；子 Agent；独立会话），
+ 扩展（harnix-ext-flow）      会话工作项交给会话（主会话 = 主 Agent；子 Agent；独立会话），
                               程序交给应用，命令 / 宿主门禁去跑，钩子去投递；
                               答流程会话的权限询问；flow.* 方法与主题
 ```
 
 **分层**：流程的内核不建会话、不碰磁盘、不知道谁是用户——存储、授权、应用的程序与检查都由应用以 trait 交进来，
-所以同一个内核也跑在试运行的沙箱里（外面的一切模拟）。扩展那一层把内核接到 Harnix：会话、原生工具（`flow_submit`、
+所以同一个内核也跑在试运行的沙箱里（外面的一切模拟）。内核连同存储、流程包、试运行是一个单独的库 `harnix-flow`（`crates/flow`），
+不链 Harnix 也不链 Agix，别的宿主可以整个拷走（[嵌入指南](../crates/flow/docs/embed.zh-CN.md)）。扩展那一层把内核接到 Harnix：会话、原生工具（`flow_submit`、
 `flow_state`、`flow_propose`，用 `Tool` 写）、作者场景 `flow-author`（用 `SceneLayer` 包在一个底版场景上）、实例模板、方法与主题、系统 space 里的流程界面。
 
 **每个时间点只有一处能拦**：干活过程中是**权限**——流程会话对受限工具和权限提到的工具都 `ask`，`flow` 按这一轮所属

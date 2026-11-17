@@ -1749,12 +1749,17 @@ r.register("conversation.view", {
 
 ---
 
-## 23. 流程扩展：`harnix-ext-flow`、`@harnix/flow`
+## 23. 流程：`harnix-flow`、`harnix-ext-flow`、`@harnix/flow`
 
 可选的第一方扩展：产品自己列进去才有（`harnix::first_party::standard_with_flow(Flow::builder()….build())`，授予 `FLOW_GRANTS`：`engine.control`、`engine.inspect`）；
 Harnix 自己的二进制注册了它（`crates/cli/src/main.rs`）。
 对象与写法（站、执行者、出口条件、规则、策略与权限、门禁、钩子……）见流程指南 `crates/flow/docs/guide.zh-CN.md`
 （系统 space 里流程的参考页就是它，`flow.guide {lang}` 也给它）。
+
+流程本身是一个库，`harnix-flow`（`crates/flow`）：定义、运行记录、内核、存储、流程包、试运行，不链 Harnix 的任何 crate，也不链 Agix，
+整个目录可以拷进别的 workspace。`harnix-ext-flow` 是它在 Harnix 里的宿主，把它整个转出（`harnix_ext_flow::Engine` 就是
+`harnix_flow::Engine`）。宿主要实现的 trait、版本号（`FLOW_API_VERSION`，§16）与格式号、依赖表、怎么拷走、每一版的迁移，
+见嵌入指南 [`crates/flow/docs/embed.zh-CN.md`](../crates/flow/docs/embed.zh-CN.md)。
 
 | 构建器 | 意思 |
 |---|---|
