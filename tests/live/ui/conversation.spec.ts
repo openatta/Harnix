@@ -7,7 +7,7 @@
  * could go.
  */
 
-import { type Backend, dropSessions, expect, test } from "@harnix/testkit";
+import { type Backend, dropSessions, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
 import { startTestApp } from "../api/testapp";
 import { connected, newSession, open, reply, say, sessionRow, watchConsole } from "./page";
@@ -135,7 +135,8 @@ test("a compaction is a row of its own: told with its counts as it happens, and 
     await expect(replies).toHaveCount(i + 1, { timeout: 20_000 });
     await expect(page.getByTestId("conv-send")).toBeVisible();
   }
-  await page.evaluate((sid) => (window as any).harnix.app.call("system.compact", { instance: "main", session_id: sid }), id);
+  // The engine's own command, sent as a person would type it: a compaction now.
+  await page.evaluate((sid) => (window as any).harnix.app.call("harnix.session.send", { instance: "main", session_id: sid, space: "sessions", message: "/compact" }), id);
   const live = page.getByTestId("conv-compact").last();
   await expect(live).toBeVisible({ timeout: 20_000 });
   await expect(live).toContainText(/\d+ (条 )?→ \d+/);
@@ -268,39 +269,35 @@ test("the host API inserts into the composer, reveals in details, and refuses wh
   expect(tasks).toHaveProperty("tasks");
 });
 
-test("the composer's model menu switches the session's model", TAGS, async ({ page }) => {
-  await open(page, URL);
-  await newSession(page, "says-ready");
-  await page.getByTestId("conv-model").click();
-  await expect(page.getByTestId("conv-model-option").first()).toBeVisible();
-  await page.getByTestId("conv-model-custom").fill("claude-switched-model");
-  await page.getByTestId("conv-model-custom").press("Enter");
-  await expect(page.getByTestId("conv-model")).toContainText("claude-switched-model");
-  await expect(page.getByTestId("conv-model-menu")).toHaveCount(0);
-});
-
+// The session's own effort and thinking go through the same method as its model, which the profile
+// opens (`[shell] model_switch`): the worker's shared backend does not, so this one starts its own.
 test("the composer's model menu sets the session's own effort and thinking, and gives them back to the settings", TAGS, async ({ page }) => {
-  await open(page, URL);
-  await newSession(page, "says-ready");
-  await page.getByTestId("conv-model").click();
-  const effort = page.getByTestId("conv-effort");
-  await expect(effort).toBeVisible();
-  // A new session has none of its own: "as set".
-  await expect(page.getByTestId("conv-effort-default")).toHaveAttribute("aria-pressed", "true");
-  await page.getByTestId("conv-effort-high").click();
-  await expect(effort).toHaveAttribute("data-current", "high");
-  await page.getByTestId("conv-thinking_mode-off").click();
-  await expect(page.getByTestId("conv-thinking_mode")).toHaveAttribute("data-current", "off");
-  // The engine has them as the session's.
-  const reasoning = await page.evaluate(async () => {
-    const { host } = (window as any).harnix;
-    const current = host.session.current();
-    return (await host.call("engine.session.get", { instance: current.instance, session_id: current.sessionId }).catch(() => null))?.reasoning ?? null;
-  });
-  if (reasoning) expect(reasoning).toMatchObject({ effort: "high", effort_source: "session", thinking_mode: "off", thinking_mode_source: "session" });
-  // Given back: the settings' again.
-  await page.getByTestId("conv-effort-default").click();
-  await expect(effort).toHaveAttribute("data-current", "");
+  const backend = await startHarnix(launchFor("replay", { profile: "[shell]\nmodel_switch = true\n[extensions]\noff = [\"flow\"]\n" }));
+  try {
+    await open(page, backend.url);
+    await newSession(page, "says-ready");
+    await page.getByTestId("conv-model").click();
+    const effort = page.getByTestId("conv-effort");
+    await expect(effort).toBeVisible();
+    // A new session has none of its own: "as set".
+    await expect(page.getByTestId("conv-effort-default")).toHaveAttribute("aria-pressed", "true");
+    await page.getByTestId("conv-effort-high").click();
+    await expect(effort).toHaveAttribute("data-current", "high");
+    await page.getByTestId("conv-thinking_mode-off").click();
+    await expect(page.getByTestId("conv-thinking_mode")).toHaveAttribute("data-current", "off");
+    // The engine has them as the session's.
+    const reasoning = await page.evaluate(async () => {
+      const { host } = (window as any).harnix;
+      const current = host.session.current();
+      return (await host.call("engine.session.get", { instance: current.instance, session_id: current.sessionId }).catch(() => null))?.reasoning ?? null;
+    });
+    if (reasoning) expect(reasoning).toMatchObject({ effort: "high", effort_source: "session", thinking_mode: "off", thinking_mode_source: "session" });
+    // Given back: the settings' again.
+    await page.getByTestId("conv-effort-default").click();
+    await expect(effort).toHaveAttribute("data-current", "");
+  } finally {
+    await backend.dispose();
+  }
 });
 
 // A module that refuses some of what a person says (ipdrun-13): `harnix-testapp`'s `probe` gives

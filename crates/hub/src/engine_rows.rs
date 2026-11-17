@@ -102,7 +102,7 @@ const BY_CAPABILITY: &[(&str, Capability, After)] = &[
 
 /// The engine's context requests: it takes one at a time for a session and refuses another that
 /// comes while one is under way (`SESSION_BUSY`, reason `context_operation`). Two readers of a
-/// session's context — the right column's context tab reads it twice, the system space once more —
+/// session's context — the right column's context tab and the composer's gauge, say —
 /// are not a conflict, so the hub sends them one after the other rather than let one be refused.
 /// A turn still refuses them while it runs: that is the engine's to say.
 const CONTEXT_REQUESTS: &[&str] = &["engine.session.inspectContext", "engine.session.dropMessages", "engine.session.editMessage"];
@@ -263,7 +263,7 @@ pub(crate) fn rows(hub: &HubCell) -> Vec<HubRow> {
             handler: Some(answer(hub, "harnix.session.import", false, |h, cx, p| async move { h.import(&cx, p).await })),
         },
         // A session's own prompt text, behind its scene layer's: changed as its context is, by
-        // whoever holds `engine.control` (a device through the system space).
+        // whoever holds `engine.control`.
         HubRow::Method {
             name: "harnix.session.setPrompt",
             owner: Owner::Kernel(harnix_kernel::KernelPart::Hub),
@@ -336,7 +336,7 @@ impl Hub {
             ));
         }
         let session = params.get("session_id").and_then(Value::as_str).map(str::to_string);
-        // An instance that is some spaces' is theirs and the system space's, whatever the row —
+        // An instance that is some spaces' is theirs and a `cross_space` space's, whatever the row —
         // one open to any space included: before anything reaches it, or wakes it. A session
         // exposed to the claimed space is reached on its instance as from its own space: the
         // space check (before this) already held the call to what the exposure allows.

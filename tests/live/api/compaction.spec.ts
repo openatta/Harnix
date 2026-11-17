@@ -1,8 +1,8 @@
 /**
  * Compaction as a session's watchers see it: a session long enough to compact (eight replayed
- * turns), compacted from the system space; the engine says so as it happens (`compact_action`,
- * `compact`, with how many messages before and after) and the transcript keeps what replaced the
- * older messages as messages of their own (`origin: "compact"`).
+ * turns), compacted by the engine's `/compact` command sent as a message; the engine says so as it
+ * happens (`compact_action`, `compact`, with how many messages before and after) and the transcript
+ * keeps what replaced the older messages as messages of their own (`origin: "compact"`).
  *
  * `many-turns` is one recorded call (`says-ready`'s) sixty times: whichever call comes next — a
  * turn, a memory extraction, a compaction's summary — the same answer stands for it.
@@ -41,7 +41,7 @@ test("a compaction is told as it happens, what replaced the older messages stays
     const before = await api.call("engine.session.history", { session_id });
     expect(before.messages.some((m: any) => m.origin === "compact")).toBe(false);
     const mark = api.events.length;
-    await api.call("system.compact", { instance: "main", session_id });
+    await api.call("harnix.session.send", { session_id, message: "/compact" });
 
     const event = await api.waitFor(
       (f) => f.method === "harnix.event" && f.params.session_id === session_id && f.params.event?.kind === "compact" && api.events.indexOf(f) >= mark,

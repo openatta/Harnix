@@ -1,9 +1,9 @@
 /**
- * An on-demand application's backend hibernating, in the browser: the system space's Apps tab
- * says so — not a fault, its backend asleep — and a call wakes it, which the tab shows too. The
+ * An on-demand application's backend hibernating, in the browser: the settings' diagnostics say so
+ * (harnix-app.md §12.1) — not a fault, its backend asleep — and a call wakes it, which the block shows too. The
  * showcase made on-demand in the test, on the apps-enabled test application, which idles such a
- * backend for four seconds here (`HARNIX_TESTAPP_APP_IDLE_MS`): long enough for the tab, which
- * looks once a second, to see it awake in between.
+ * backend for four seconds here (`HARNIX_TESTAPP_APP_IDLE_MS`): long enough for the block, which
+ * is pushed each change of state, to see it awake in between.
  */
 
 import { rmSync } from "node:fs";
@@ -13,7 +13,7 @@ import { type Backend, connect, expect, scratchDir, test, topology } from "@harn
 
 import { SHOWCASE_ID, showcasePackage, startApps, variant } from "../api/packages-host";
 import { appsTestApp } from "../api/packages-store";
-import { open, watchConsole } from "./page";
+import { diagnosticsBlock, open, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:packages-idle", "@layer:ui"] };
 
@@ -47,13 +47,11 @@ test.afterAll(async () => {
   if (scratch) rmSync(scratch, { recursive: true, force: true });
 });
 
-test("the Apps tab shows a hibernating backend, and a call waking it", TAGS, async ({ page }) => {
+test("the diagnostics' packages block shows a hibernating backend, and a call waking it", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, backend.url);
-  await page.locator('#side [data-space="system"]:not(#space-column)').click();
-  await expect(page.getByTestId("system-console")).toBeVisible();
-  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="packages"]').click();
-  const row = page.locator(`[data-testid="system-package"][data-package="${SHOWCASE_ID}"]`);
+  const block = await diagnosticsBlock(page, "packages.runtime");
+  const row = block.locator(`[data-testid="packages-runtime-row"][data-package="${SHOWCASE_ID}"]`);
   await expect(row).toHaveAttribute("data-state", "hibernating", { timeout: 20_000 });
   await expect(row.locator('[data-field="state"]')).toHaveText(/Hibernating|休眠中/);
   await expect(row.locator('[data-field="backend"]')).toHaveText(/Asleep|休眠/);

@@ -190,7 +190,7 @@ describe("what is selected on the right is what the middle talks to", () => {
     expect(fake.calls.some(([m]) => m === "flow.focus")).toBe(false);
   });
 
-  it("a run: its main session; the tab in front decides; the reference tab is the general conversation", async () => {
+  it("a run: its main session; the tab in front decides; the reference tab leaves the middle as it is", async () => {
     const fake = fakeHost({
       "flow.session": conversations,
       "flow.get": { record: { id: "example-review-1", flow: "example-review", session_keys: { "@main": { id: "main/main-1" } } } },
@@ -209,9 +209,11 @@ describe("what is selected on the right is what the middle talks to", () => {
     act(() => fake.tab("flow.flows"));
     await settle();
     expect(ids(fake.opened).at(-1)).toBe("f-example-review");
+    const opened = fake.opened.length;
     act(() => fake.tab("flow.reference"));
     await settle();
-    expect(ids(fake.opened).at(-1)).toBe("general");
+    expect(fake.opened.length).toBe(opened);
+    expect(ids(fake.opened).at(-1)).toBe("f-example-review");
   });
 
   it("puts the middle on the selection when the space comes to the front", async () => {
@@ -293,7 +295,7 @@ describe("the line over the composer", () => {
     expect(flow.state.tabs).toEqual(flow.tabs);
   });
 
-  it("the selection's details are the second side panel; closing it hides the panel until the next pick, not the selection or the middle", async () => {
+  it("the selection's details are the second side panel, kept while the reference is read; closing it hides the panel until the next pick, not the selection or the middle", async () => {
     const fake = fakeHost({ "flow.session": conversations });
     const r = new Registry();
     const flow = registerFlowSpace(r, { host: fake.host });
@@ -317,8 +319,10 @@ describe("the line over the composer", () => {
     flow.state.showRun("example-review-1");
     act(() => fake.tab("flow.runs"));
     expect(space.center?.secondary?.()?.key).toBe("run:example-review-1");
-    // The reference tab: nothing beside.
+    // The reference tab: read beside what was shown, which stays — while it is the selection.
     act(() => fake.tab("flow.reference"));
+    expect(space.center?.secondary?.()?.key).toBe("run:example-review-1");
+    flow.state.showRun(null);
     expect(space.center?.secondary?.()).toBeNull();
   });
 

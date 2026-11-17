@@ -468,7 +468,7 @@ test.describe("an extension process's own engine", () => {
     expect(sessions.map((s: any) => s.session_id)).toContain(created.session_id);
   });
 
-  test("idle, its process is let go; reading lists and opening the system space wake nothing", TAGS, async () => {
+  test("idle, its process is let go; reading lists and opening the home page wake nothing", TAGS, async () => {
     test.setTimeout(180_000);
     const listedBefore = (await api.call("harnix.sessions.list", { instance: ENGINE })).sessions.length;
     const pid = (await runtime(api)).process.pid;
@@ -477,12 +477,13 @@ test.describe("an extension process's own engine", () => {
     expect(asleep.process.pid).toBeNull();
     expect(alive(pid)).toBe(false);
     expect((await instanceRow(api, ENGINE)).status.state).toBe("hibernating");
-    // What only reads is answered without it: the lists, the hello, the system space's views.
+    // What only reads is answered without it: the lists, the hello, the home page's figures.
     expect((await api.call("harnix.sessions.list", { instance: ENGINE })).sessions).toHaveLength(listedBefore);
     await api.call("harnix.sessions.list", { space: SHOWCASE_ID });
     await api.call("harnix.instances.list");
     await api.call("harnix.hello");
-    await api.call("harnix.sessions.list", { space: "system" }).catch(() => {});
+    await api.call("observability.process");
+    expect((await api.call("harnix.sessions.list", { space: "home" })).sessions).toEqual([]);
     await sleep(IDLE_MS);
     expect((await runtime(api)).state).toBe("hibernating");
     expect((await instanceRow(api, ENGINE)).status.state).toBe("hibernating");

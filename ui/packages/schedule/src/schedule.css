@@ -1,10 +1,10 @@
-/* Schedules: their rows (a session's list, a project's block, the console), the editor, and the
+/* Schedules: their rows (a session's list, a project's block, the home page's), the editor, and the
  * clocks on the rows of sessions and tasks. Colours only from tokens. */
 
 .hx-sched-rows,
 .hx-sched-panel,
 .hx-sched-pane,
-.hx-sched-console,
+.hx-sched-all,
 .hx-sched-history {
   display: flex;
   flex-direction: column;
@@ -12,7 +12,7 @@
   min-width: 0;
 }
 
-.hx-sched-console {
+.hx-sched-all {
   gap: 12px;
 }
 

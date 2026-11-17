@@ -3,7 +3,7 @@
  * applications are, with two spaces of its own beside Harnix's built-in ones:
  *
  *   greeter  a tab and a home card, a backend extension, its own in-process instance
- *   notes    interface and Agent only, on `system`
+ *   notes    interface and Agent only, on the main instance
  *
  * The invariant under test is the one between the front space and its session: whatever space is in front, the centre,
  * the composer and the right column show and act on that space's own session, and coming back to
@@ -53,9 +53,11 @@ test("the application's spaces are listed, each with its own title", TAGS, async
   const errors = watchConsole(page);
   await open(page, backend.url);
   const ids = await page.getByTestId("space-list").getByTestId("space-entry").evaluateAll((nodes) => nodes.map((n) => (n as HTMLElement).dataset.space));
-  expect(ids).toEqual(["sessions", "projects", "greeter", "notes"]);
-  // The system space is entered from the bottom, beside the avatar.
-  await expect(page.getByTestId("sidebar-foot").locator('[data-testid="space-entry"][data-space="system"]')).toBeVisible();
+  // The home page first, where the page lands; the Harnix app's spaces, then the application's.
+  expect(ids).toEqual(["home", "sessions", "projects", "greeter", "notes"]);
+  await expect(page.locator("#main")).toHaveAttribute("data-space", "home");
+  // Nothing at the bottom, beside the avatar: the flow space is there only where the product has flows.
+  await expect(page.getByTestId("sidebar-foot").getByTestId("space-entry")).toHaveCount(0);
   await inSpace(page, "greeter");
   await expect(page.getByTestId("space-pill")).toContainText("Greeter");
   expect(errors).toEqual([]);

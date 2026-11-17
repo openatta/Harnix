@@ -18,7 +18,7 @@
 //! | `flow_dry_run {inputs?, mocks?}` | yes | dry-run the current flow, as far as it goes |
 //! | `flow_start {subject, inputs?, title?}` | no | start the current flow for real |
 //!
-//! No tool asks the person (docs/system-space.md §5): a change is checked, not approved — a
+//! No tool asks the person (harnix-app.md §11): a change is checked, not approved — a
 //! definition with problems is not saved. A run tool acts only when the user asks for it, and the
 //! run's history records the conversation as who did it.
 

@@ -478,7 +478,11 @@ built: string | null, scene: string | null, cross_space: boolean,
 /**
  * The space a call that claims none is checked as.
  */
-default: boolean, };
+default: boolean, 
+/**
+ * A page of its own: no session is created in it, and it lists none.
+ */
+no_sessions?: boolean, };
 
 /**
  * `harnix.spaces.list`'s answer and the topic `harnix.spaces`'s value.
@@ -1085,7 +1089,7 @@ message: string, };
 export type ExtensionLogCount = { extension: string, lines: number, };
 
 /**
- * `harnix.extensions.log` (and `system.extensions.log`): the lines kept, oldest first.
+ * `harnix.extensions.log` (and `observability.extensions.log`): the lines kept, oldest first.
  */
 export type ExtensionLog = { lines: Array<ExtensionLogLine>, 
 /**

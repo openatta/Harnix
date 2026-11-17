@@ -78,7 +78,9 @@ export function ScheduleEditor({ host, ctx, close }: { host: HostApi; ctx: Edito
   const tt = useT();
   const hello = useHello();
   const [base, setBase] = useState<Schedule | undefined>(ctx.existing);
-  const [draft, setDraft] = useState<Draft>(() => initialDraft(ctx));
+  // When the draft was made: what it fills from the clock, and what a newer revision is compared at.
+  const [opened] = useState(() => Date.now());
+  const [draft, setDraft] = useState<Draft>(() => initialDraft(ctx, opened));
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -135,7 +137,7 @@ export function ScheduleEditor({ host, ctx, close }: { host: HostApi; ctx: Edito
     try {
       const current = await host.call<Schedule>("schedule.get", { id: base.id });
       if (keep) {
-        setDraft((d) => rebase(d, ctx, base, current));
+        setDraft((d) => rebase(d, ctx, base, current, opened));
         setReviewed({ revision: current.revision, fields: changedFields(base, current) });
       } else {
         setDraft(initialDraft({ ...ctx, existing: current }));

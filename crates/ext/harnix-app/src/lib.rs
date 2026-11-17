@@ -14,7 +14,8 @@
 //!
 //! It declares the home space too: the page a person lands on, with the figures and lists other
 //! extensions put there (`harnix-app.home.panels`). It holds no conversation; it is declared so that
-//! what the page asks claiming it is answered for a space that exists, and lists nothing.
+//! what the page asks claiming it is answered for a space that exists, and lists nothing — a session
+//! is never created there (`SpaceDecl::no_sessions`).
 
 mod export;
 mod files;
@@ -84,7 +85,7 @@ impl Extension for HarnixApp {
 
     fn register(&self, r: &mut Registrar<'_, Config>) {
         r.space(SpaceDecl::new(SESSIONS_SPACE).default_space());
-        r.space(SpaceDecl::new(HOME_SPACE));
+        r.space(SpaceDecl::new(HOME_SPACE).no_sessions());
         let open = || Access::device();
         let session = || Access::device().scoped(RowScope::Session);
         r.method("workspaces.list").access(open()).raw(|c, _| with(c, |a, _| async move { a.workspaces_list().await }));

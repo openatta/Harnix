@@ -44,8 +44,8 @@ export function RunNote({ run, testId = "run-note" }: { run?: Run | null; testId
   const since = Number.isNaN(at.getTime()) ? run.created_at : at.toLocaleString();
   return (
     <div className="note" data-testid={testId} data-earlier={run.earlier_run ? "true" : undefined}>
-      {tr("system.runSince", { at: since })}
-      {run.earlier_run ? ` ${tr("system.earlierRunGone")}` : ""}
+      {tr("obs.runSince", { at: since })}
+      {run.earlier_run ? ` ${tr("obs.earlierRunGone")}` : ""}
     </div>
   );
 }
@@ -78,14 +78,14 @@ export function messageText(content: unknown): string {
 
 /** The codes these pages have words for. */
 const SAID: Record<number, string> = {
-  [-31000]: "system.error.refused",
-  [-31002]: "system.error.noInstance",
-  [-31003]: "system.error.space",
-  [-31004]: "system.error.unavailable",
-  [-31005]: "system.error.tooMany",
-  [-32000]: "system.error.noSession",
-  [-32015]: "system.error.busy",
-  [-32601]: "system.error.noMethod",
+  [-31000]: "obs.error.refused",
+  [-31002]: "obs.error.noInstance",
+  [-31003]: "obs.error.space",
+  [-31004]: "obs.error.unavailable",
+  [-31005]: "obs.error.tooMany",
+  [-32000]: "obs.error.noSession",
+  [-32015]: "obs.error.busy",
+  [-32601]: "obs.error.noMethod",
 };
 
 function codeOf(e: unknown): number | undefined {

@@ -1,9 +1,9 @@
 /**
  * What the package registers, and only through other packages' points: the session menu's
  * "Schedule…" (not for a session another extension owns), the clocks on a session's row and a
- * task's, another way to start a flow, a project's block at 40, the console's tab; each dropped
- * quietly where nobody defines its point. And the lists those draw: a session's, a project's, the
- * console's with the models' jobs; run now, pause, delete, and the deliveries opened.
+ * task's, another way to start a flow, a project's block at 40, the home page's block at 50; each
+ * dropped quietly where nobody defines its point. And the lists those draw: a session's, a
+ * project's, the home page's with the models' jobs; run now, pause, delete, and the deliveries opened.
  */
 
 import type { ReactNode } from "react";
@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { ScheduleList } from "@harnix/core";
 import { Registry, setLocale, type ActionTarget } from "@harnix/react";
 
-import { ConsoleSchedules, STRINGS, STRINGS_OWNER, ScheduleStore, extension, register } from "../src/index";
+import { AllSchedules, STRINGS, STRINGS_OWNER, ScheduleStore, extension, register } from "../src/index";
 import { ROOT, schedule } from "./fixtures";
 import { drawn, fakeHost, type Fake } from "./host";
 
@@ -27,6 +27,7 @@ const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)))
 const POINTS = [
   ["harnix-app", "harnix-app.session.badge", "render"],
   ["harnix-app", "harnix-app.project.panels", "render"],
+  ["harnix-app", "harnix-app.home.panels", "render"],
   ["flow", "flow.task.badge", "render"],
   ["flow", "flow.start.action", "register"],
 ] as const;
@@ -66,6 +67,7 @@ describe("the registration", () => {
     const fake = fakeHost();
     const r = registered(fake);
     expect(r.list("harnix-app.project.panels").map((p) => [p.id, (p as { order?: number }).order])).toEqual([["schedule.project", 40]]);
+    expect(r.list("harnix-app.home.panels").map((p) => [p.id, (p as { order?: number }).order, (p as { wide?: boolean }).wide])).toEqual([["schedule.all", 50, true]]);
     expect(r.list("flow.start.action").map((p) => p.id)).toEqual(["schedule.task"]);
     expect(r.list("harnix-app.session.badge").map((p) => p.id)).toEqual(["schedule.clock"]);
     expect(r.list("flow.task.badge").map((p) => p.id)).toEqual(["schedule.next"]);
@@ -196,7 +198,7 @@ describe("the registration", () => {
     const r = registered(fake);
     const store = new ScheduleStore(fake.host);
     fake.push("schedule.list", LIST);
-    const page = drawn(fake, <ConsoleSchedules host={fake.host} r={r} store={store} />);
+    const page = drawn(fake, <AllSchedules host={fake.host} r={r} store={store} />);
     await settle();
     const rows = page.getAllByTestId("schedule-row");
     expect(rows.map((el) => [el.dataset.schedule, el.dataset.state, el.dataset.source])).toEqual([

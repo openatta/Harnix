@@ -14,15 +14,19 @@
  *   and the usage summary (`UsageSummaryTab`: every session's figures over the last 30 days by
  *   project, day and model, `observability.usage.daily`, with the sections other packages add to
  *   `observability.usage.section`).
+ * - A block of the settings' diagnostics (`settings.section` `within: "diagnostics"`): each
+ *   extension's log (`observability.extensions.log`), filtered, followed live, copied.
  *
  * Read through the host API alone: `observability.*` (the recording, the context, a task's
- * output), `harnix.session.outline`, `.skills`, `.hooks`, `.tasks`, `engine.session.entries` (the
- * feedback), `settings.mcp.context` and `harnix-app.sessions.projectStatus` where the product has them.
+ * output, the process, the extensions' log), `harnix.session.outline`, `.skills`, `.hooks`,
+ * `.tasks`, `engine.session.entries` (the feedback), `settings.mcp.context` and
+ * `harnix-app.sessions.projectStatus` where the product has them.
  */
 
 import { t, type ActionTarget, type HostApi, type Registry } from "@harnix/react";
 
 import { ContextTab } from "./context.tsx";
+import { EXTLOG, ExtensionLogView } from "./extlog.tsx";
 import { GlobalStats, HOME_PANELS, type HomeContext } from "./home.tsx";
 import { OUTPUT_KIND, OUTPUT_TOOLS, OutputTab, openToolOutput, outputTitle } from "./output.tsx";
 import { TRAJECTORY_VIEW, type Observed } from "./shared.tsx";
@@ -37,6 +41,7 @@ export { SessionContext } from "./context.tsx";
 export { OUTPUT_KIND, outputAddress, parseOutputAddress, stripAnsi, taskLabel } from "./output.tsx";
 export { TRAJECTORY_VIEW };
 export { GlobalStats, agentActive, type ProcessFigures } from "./home.tsx";
+export { EXTLOG, ExtensionLogView, lineText, merged } from "./extlog.tsx";
 
 /** The backend extension this package is the interface of. */
 export const extension = "observability";
@@ -93,7 +98,7 @@ export function register(r: Registry, host: HostApi): void {
       priority: "builtin",
       multiple: true,
       keepMounted: true,
-      title: (address?: string) => outputTitle(address, t("system.output.title")),
+      title: (address?: string) => outputTitle(address, t("obs.output.title")),
       render: () => <OutputTab observed={observed} />,
     },
     extension,
@@ -112,17 +117,19 @@ export function register(r: Registry, host: HostApi): void {
     extension,
     { orElse: () => undefined },
   );
+  // Each extension's log, in the settings' diagnostics.
+  r.register("settings.section", { id: EXTLOG, within: "diagnostics", label: () => t("obs.extlog"), render: () => <ExtensionLogView host={host} /> }, extension);
   r.register(
     "session.action",
     {
       id: "observability.output",
       at: ["tool"],
       icon: "terminal",
-      label: () => t("system.output.view"),
+      label: () => t("obs.output.view"),
       match: (target: ActionTarget) => target.kind === "tool" && OUTPUT_TOOLS.has(target.tool),
       run: async (target: ActionTarget) => {
         if (target.kind !== "tool") return;
-        if (!(await openToolOutput(host, target.session, target.toolUseId))) host.shell.notice(t("system.output.noTask"));
+        if (!(await openToolOutput(host, target.session, target.toolUseId))) host.shell.notice(t("obs.output.noTask"));
       },
     },
     extension,

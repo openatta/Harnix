@@ -203,7 +203,7 @@ function figureColumns<R extends UsageRow>(tr: ReturnType<typeof useT>, sessions
       numeric: true,
       value: (r) => r.calls,
       render: (r) => (r.auxiliary ? `${r.calls} +${r.auxiliary}` : String(r.calls)),
-      title: (r) => (r.errors ? tr("system.stat.errors", { count: r.errors }) : undefined),
+      title: (r) => (r.errors ? tr("obs.stat.errors", { count: r.errors }) : undefined),
     },
     n("input", tr("usageAll.col.input")),
     n("output", tr("usageAll.col.output")),

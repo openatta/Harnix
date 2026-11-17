@@ -4,7 +4,9 @@
  * The frame is the shell's, and so are five sections every product has: the appearance and the keys first;
  * this page's diagnostics and what the product is last. Between them, whatever is registered at
  * `settings.section`, in order — the engine's settings, the plugins, the devices are UI packages'
- * like any application's. A section that throws loses its page, not the panel: the nav stays usable.
+ * like any application's. One registered `within` a section of the shell's is a block of that
+ * section instead, after its own content: the packages as they run, the extensions' log, in the
+ * diagnostics. A section that throws loses its page, not the panel: the nav stays usable.
  */
 
 import { Fragment, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
@@ -21,7 +23,8 @@ import { ShortcutsSection } from "./shortcuts.tsx";
 let active = "general";
 
 export function openSettings(app: App, section?: string): void {
-  if (section) active = section;
+  // A block drawn within one of the shell's sections opens that section.
+  if (section) active = app.registry.at("settings.section").find((s) => s.id === section && s.within)?.within ?? section;
   // Opened again while it is on top (`host.settings.open` from a section's frame), it is drawn anew in place.
   app.openModal({ title: t("settings.title"), wide: true, key: "settings", content: <Settings app={app} /> });
 }
@@ -30,6 +33,11 @@ export function openSettings(app: App, section?: string): void {
  *  first when none does. */
 export function openSettingsFor(app: App, need: SettingsNeed): void {
   openSettings(app, app.registry.at("settings.section").find((s) => s.covers?.includes(need))?.id ?? settingsSections(app)[0]);
+}
+
+/** The registered sections listed in the nav: not the ones drawn within a section of the shell's. */
+function listed<T extends { within?: string }>(sections: T[]): T[] {
+  return sections.filter((s) => !s.within);
 }
 
 /** The shell's own sections, around the registered ones. */
@@ -41,10 +49,12 @@ function ownSections(app: App) {
   };
 }
 
-/** Every section's id, in the panel's order: what `host.settings.open` may name. */
+/** Every section's id, in the panel's order, then the blocks drawn within one: what
+ *  `host.settings.open` may name. */
 export function settingsSections(app: App): string[] {
   const own = ownSections(app);
-  return [...own.first, ...app.registry.at("settings.section"), ...own.last].map((s) => s.id);
+  const registered = app.registry.at("settings.section");
+  return [...own.first, ...listed(registered), ...own.last, ...registered.filter((s) => s.within)].map((s) => s.id);
 }
 
 function Settings({ app }: { app: App }) {
@@ -53,7 +63,7 @@ function Settings({ app }: { app: App }) {
   const [current, setCurrent] = useState(active);
   const [version, setVersion] = useState(0);
   const own = ownSections(app);
-  const sections = [...own.first, ...registry.at("settings.section"), ...own.last];
+  const sections = [...own.first, ...listed(registry.at("settings.section")), ...own.last];
   const section = sections.find((s) => s.id === current) ?? sections[0];
   return (
     <SettingsReload version={version} reload={() => setVersion((v) => v + 1)}>
@@ -293,6 +303,26 @@ export function Diagnostics({ app }: { app: App }) {
           ))}
         </>
       ) : null}
+      {registry
+        .at("settings.section")
+        .filter((s) => s.within === "diagnostics")
+        .map((block) => (
+          <section key={`${block.owner}/${block.id}`} className="settings-within" data-testid="settings-within" data-section={block.id}>
+            <Contributed registry={registry} point="settings.section" contribution={block}>
+              <WithinBlock title={() => block.label()} body={() => block.render()} />
+            </Contributed>
+          </section>
+        ))}
+    </>
+  );
+}
+
+/** A block's title and body are called inside its guard: one that throws costs that block, not the section. */
+function WithinBlock({ title, body }: { title: () => string; body: () => ReactNode }) {
+  return (
+    <>
+      <h3>{title()}</h3>
+      {body()}
     </>
   );
 }

@@ -11,8 +11,8 @@
 //! sessions anyone watches, which come back from the engine's own store. A process let go while
 //! idle ([`Adoption::hibernate`]) is different: the instance is listed hibernating, its session
 //! list is answered from what was read before it went, and the first call that needs the engine
-//! wakes the process ([`Wake`]) and waits for it. Reading lists wakes nothing: the system space
-//! opening does not start an extension's process.
+//! wakes the process ([`Wake`]) and waits for it. Reading lists wakes nothing: a page
+//! listing sessions does not start an extension's process.
 //!
 //! What the carrier is told back ([`EngineNote`]): each turn the hub starts and settles on the
 //! engine, with the chain it runs on behalf of, and an engine that kept flooding.

@@ -5,7 +5,7 @@
 //! does not make it useful: a tool that traps on every call turns each of the
 //! model's attempts into an error, and the model will keep trying. So
 //! something has to decide the package is broken and stop asking — and
-//! say so, in the system space, where whoever installed it can see why.
+//! say so, in the settings' diagnostics, where whoever installed it can see why.
 //!
 //! Three rules, because the three kinds of call fail differently and cost
 //! different things:
@@ -71,7 +71,7 @@ pub(crate) struct Counters {
     pub last_crash: Option<std::time::Instant>,
 }
 
-/// One package's VM, as the system space shows it.
+/// One package's VM, as the settings' diagnostics show it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct HealthSnapshot {
     pub app: String,

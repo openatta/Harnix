@@ -1,49 +1,42 @@
 /**
- * The system space's backend (concept §5.5): any instance's sessions inspected and acted on through
- * `system.*` and the hub's own methods claiming the system space — and none of it there
- * when the profile turns the space off: the methods leave the authorization table, the space
- * stops existing, and nothing can claim it.
+ * What `observability` reads of a session and of this process (harnix-app.md §6.1, §10): a
+ * session's context and its tasks' output, asked of the engine with the extension's own
+ * `engine.inspect`, for the sessions of the space the caller claims and no other; its model calls,
+ * turns and usage read back out of the engine's recording; this process's figures, a method and a
+ * topic. Beside them, what a session's row says and what it is exported and imported as.
  *
  * Runs on `harnix-testapp`, whose `fleet` module builds an instance (`fleet-side`) for a space of
- * its own: the session there is another space's, which is the case the system space is for. That
- * backend replays in every run, a live one too, and a replayed session records nothing: what reads
- * a recording is tested on a second backend whose sessions record (`recorder` below).
+ * its own: a session there is another space's than the session space's. That backend replays in
+ * every run, a live one too, and a replayed session records nothing: what reads a recording is
+ * tested on a second backend whose sessions record (`recorder` below).
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { INVALID_PARAMS, METHOD_NOT_FOUND, NOT_FOUND, REFUSED, SPACE_MISMATCH } from "@harnix/core/protocol";
-import { type Backend, type TestClient, connect, expect, launchFor, modelMode, startHarnix, test } from "@harnix/testkit";
+import { INVALID_PARAMS, NOT_FOUND, REFUSED, SPACE_MISMATCH } from "@harnix/core/protocol";
+import { type Backend, type TestClient, connect, expect, launchFor, modelMode, sleep, startHarnix, test, topology } from "@harnix/testkit";
 
-import { until } from "./instances";
 import { startTestApp } from "./testapp";
 
-const TAGS = { tag: ["@feature:system", "@layer:api"] };
+/** A session's inside, as the right column and the trajectory read it. */
+const TAGS = { tag: ["@feature:session-space", "@layer:api"] };
+/** What a session's row says. */
+const SESSIONS = { tag: ["@feature:sessions", "@layer:api"] };
+/** This process's figures, as the home page shows them. */
+const SHELL = { tag: ["@feature:shell", "@layer:api"] };
 
-const SYSTEM_METHODS = [
-  "system.context",
+const METHODS = [
+  "observability.context",
+  "observability.tasks.output",
   "observability.calls",
+  "observability.trace",
+  "observability.trace.call",
   "observability.turns",
   "observability.usage",
   "observability.usage.daily",
-  "system.goal",
-  "system.goal.set",
-  "system.goal.update",
-  "system.tasks.stop",
-  "system.tasks.message",
-  "system.tasks.output",
-  "system.messages.drop",
-  "system.messages.edit",
-  "system.compact",
-  "system.clear",
-  "system.model",
-  "system.rename",
-  "system.instances.stop",
-  "system.instances.restart",
-  "system.instances.create",
-  "system.instances.templates",
-  "system.extensions.log",
+  "observability.process",
+  "observability.extensions.log",
 ];
 
 /** A session in `space` that has had one turn, the user's message first. */
@@ -119,55 +112,55 @@ test.describe("on", () => {
   });
   test.afterEach(() => api?.close());
 
-  test("the methods are offered", TAGS, async () => {
-    const { methods } = await api.call("harnix.reachable");
-    expect(methods).toEqual(expect.arrayContaining(SYSTEM_METHODS));
+  test("the methods are offered, and nothing of a system space is", TAGS, async () => {
+    const { methods, topics } = await api.call("harnix.reachable");
+    expect(methods).toEqual(expect.arrayContaining(METHODS));
+    expect(topics).toContain("observability.process");
+    expect(methods.filter((m: string) => m.startsWith("system.")), "no system.* method").toEqual([]);
+    expect(topics.filter((t: string) => t.startsWith("system.")), "no system.* topic").toEqual([]);
+    // Each extension's log is read through observability, never from the kernel by a device.
+    expect(methods).not.toContain("harnix.extensions.log");
   });
 
-  test("the context of another space's session, and its messages rewritten and removed", TAGS, async () => {
+  test("a session's context is read in its own space, and refused claiming another, naming its own", TAGS, async () => {
     const s = await oneTurn(api, "fleet");
-    const context = await api.call("system.context", s);
+    const context = await api.call("observability.context", { ...s, space: "fleet" });
     expect(context.basis).toBe("next_step_without_new_input");
     expect(context.system.length).toBeGreaterThan(0);
-    const history = await api.call("engine.session.history", { ...s, space: "system" });
+    const history = await api.call("engine.session.history", { ...s, space: "fleet" });
     // The turn's two messages, after what the engine put at the start of the conversation.
     const at = history.messages.findIndex((m: any) => m.origin === "user");
     expect(at, "the user's message is in the history").toBeGreaterThanOrEqual(0);
     expect(history.messages.slice(0, at).every((m: any) => m.origin === "injected")).toBe(true);
     expect(context.messages.count).toBe(at + 2);
-    expect(await api.call("system.messages.edit", { ...s, at, text: "Say exactly: edited", total: history.total })).toEqual({ edited: at });
-    let after = await api.call("engine.session.history", { ...s, space: "system" });
-    expect(text(after.messages[at])).toBe("Say exactly: edited");
 
-    // A count that is not the session's any more is a view that went stale.
-    await api.refused("system.messages.drop", { ...s, at: [at], total: history.total + 1 });
-    expect(await api.call("system.messages.drop", { ...s, at: [at], total: history.total })).toEqual({ dropped: [at] });
-    after = await api.call("engine.session.history", { ...s, space: "system" });
-    expect(text(after.messages[at])).toContain("removed by the host");
-    // The model's own message cannot be taken out.
-    await api.refused("system.messages.drop", { ...s, at: [at + 1], total: history.total });
+    // Claiming another space, it is not the caller's: the hub says whose it is.
+    const refused = await api.refused("observability.context", { ...s, space: "sessions" });
+    expect(refused?.code).toBe(SPACE_MISMATCH);
+    expect(refused?.data?.space).toBe("fleet");
+    expect((await api.refused("observability.context", { instance: s.instance, space: "fleet" }))?.code).toBe(INVALID_PARAMS);
+
+    // On the record: the device's call, and under it what observability asked the engine as itself.
+    // The refused reads stop at the session's check and ask the engine nothing: the read that
+    // answered is the one with the engine's inspection under it.
+    const { entries } = await api.call("harnix.audit", { limit: 200 });
+    const asked = entries.filter((e: any) => e.method === "observability.context" && e.decision === "allow");
+    expect(asked.length, JSON.stringify(entries.slice(0, 5))).toBeGreaterThan(0);
+    const inspected = entries.filter((e: any) => e.method === "engine.session.inspectContext" && asked.some((a: any) => a.call_id === e.parent));
+    expect(inspected).toHaveLength(1);
+    expect(inspected[0]).toMatchObject({ subject: "ext:observability", decision: "allow" });
   });
 
-  test("operations on another space's session take effect where it belongs, and are audited", TAGS, async () => {
+  test("a session's task output is read in its own space, and refused claiming another", TAGS, async () => {
     const s = await oneTurn(api, "fleet");
-    await api.call("system.rename", { ...s, name: "renamed from system" });
-    const row = (await api.call("harnix.sessions.list", { space: "fleet" })).sessions.find((r: any) => r.session_id === s.session_id);
-    expect(row.name).toBe("renamed from system");
-
-    expect(await api.call("system.tasks.stop", { ...s, task_id: "no-such-task" })).toEqual({ stopped: false });
-    const unknown = await api.refused("system.tasks.output", { ...s, task_id: "no-such-task" });
+    // A task the session does not have is the engine's to say, in its own space.
+    const unknown = await api.refused("observability.tasks.output", { ...s, space: "fleet", task_id: "no-such-task" });
     expect(unknown?.code, String(unknown)).toBe(-32018);
-    await api.call("system.compact", s);
-    await api.call("system.clear", s);
-    const context = await api.call("system.context", s);
-    expect(context.messages.count).toBe(0);
-
-    const { entries } = await api.call("harnix.audit", { limit: 200 });
-    for (const method of ["system.rename", "system.compact", "system.clear"]) {
-      expect(entries.some((e: any) => e.method === method && e.decision === "allow"), method).toBe(true);
-    }
-    // And what it asked of the engine, as the system module.
-    expect(entries.some((e: any) => e.method === "engine.session.clear" && JSON.stringify(e.subject).includes("system"))).toBe(true);
+    // Claiming another space, the hub refuses it before the engine is asked.
+    const across = await api.refused("observability.tasks.output", { ...s, space: "sessions", task_id: "no-such-task" });
+    expect(across?.code).toBe(SPACE_MISMATCH);
+    expect(across?.data?.space).toBe("fleet");
+    expect((await api.refused("observability.tasks.output", { instance: s.instance, space: "fleet", task_id: "x" }))?.code).toBe(INVALID_PARAMS);
   });
 
   test("observability.usage: what each Agent of a session used this run — the session first, then its sub-agents with their parents", TAGS, async () => {
@@ -258,7 +251,7 @@ test.describe("on", () => {
     }
   });
 
-  test("a session's row says who started it — a person, or Harnix itself — and what it waits on a person for", TAGS, async () => {
+  test("a session's row says who started it — a person, or Harnix itself — and what it waits on a person for", SESSIONS, async () => {
     const row = async (instance: string, id: string) =>
       (await api.call("harnix.sessions.list", { instance })).sessions.find((r: any) => r.session_id === id);
     const mine = await oneTurn(api, "sessions");
@@ -282,18 +275,18 @@ test.describe("on", () => {
     await api.waitFor((f) => f.method === "harnix.turn_settled" && f.params.turn_id === sent.turn_id, { timeout: 60_000, describe: "the turn to settle" });
   });
 
-  test("system.process counts the operating system's threads in the process, and is pushed while watched", TAGS, async () => {
-    const process = await api.call("system.process", {});
+  test("observability.process counts the operating system's threads in the process, and is pushed while watched", SHELL, async () => {
+    const process = await api.call("observability.process", {});
     expect(process.threads).toBeGreaterThan(1);
-    const first = await api.call("harnix.topics.subscribe", { topic: "system.process" });
+    const first = await api.call("harnix.topics.subscribe", { topic: "observability.process" });
     expect(first.value.threads).toBeGreaterThan(1);
     // Nothing asked again: the hub pushes it on its own clock.
-    const pushed = await api.waitFor((f) => f.method === "harnix.topic" && f.params.topic === "system.process", {
+    const pushed = await api.waitFor((f) => f.method === "harnix.topic" && f.params.topic === "observability.process", {
       timeout: 15_000,
-      describe: "system.process to be pushed",
+      describe: "observability.process to be pushed",
     });
     expect(pushed.params.value.uptime_secs).toBeGreaterThanOrEqual(first.value.uptime_secs);
-    await api.call("harnix.topics.unsubscribe", { topic: "system.process" });
+    await api.call("harnix.topics.unsubscribe", { topic: "observability.process" });
   });
 
   test("a session's model calls: its envelopes, every call with its tool calls, one in full", TAGS, async () => {
@@ -340,31 +333,31 @@ test.describe("on", () => {
   test("the context says what the provider counted for the last call, apart from its estimates", TAGS, async () => {
     // Before any call there is nothing measured, only estimates.
     const fresh = await api.call("harnix.session.create", { space: "sessions", options: { recorder: { name: "says-ready" } } });
-    const before = await api.call("system.context", { instance: fresh.instance, session_id: fresh.session_id });
+    const before = await api.call("observability.context", { instance: fresh.instance, session_id: fresh.session_id });
     expect(before.measured).toBeUndefined();
     expect(before.total_tokens).toBeGreaterThan(0);
 
     const s = await oneTurn(api, "sessions");
-    const context = await api.call("system.context", s);
-    const info = await api.call("engine.session.get", { ...s, space: "system" });
+    const context = await api.call("observability.context", s);
+    const info = await api.call("engine.session.get", { ...s, space: "sessions" });
     expect(info.context?.tokens, "the turn was counted").toBeGreaterThan(0);
     expect(context.measured).toMatchObject({ tokens: info.context.tokens });
     // The estimates stay what they were: per block, for the next call.
     expect(context.system.length).toBeGreaterThan(0);
   });
 
-  test("a fork cut inside a turn keeps exactly the messages asked for", TAGS, async () => {
+  test("a fork cut inside a turn keeps exactly the messages asked for", SESSIONS, async () => {
     const created = await api.call("harnix.session.create", { space: "sessions", options: { recorder: { name: "calls-a-tool" } } });
     const s = { instance: created.instance, session_id: created.session_id };
     await api.call("harnix.session.attach", { ...s, space: "sessions" });
     await api.call("harnix.session.send", { ...s, space: "sessions", message: "Use the Bash tool to run exactly: echo harnix-fixture" });
     await api.waitFor((f) => f.method === "harnix.turn_settled" && f.params.session_id === s.session_id, { timeout: 60_000, describe: "the turn to settle" });
-    const history = await api.call("engine.session.history", { ...s, space: "system" });
+    const history = await api.call("engine.session.history", { ...s, space: "sessions" });
     // Up to and including the model's tool call, before its result.
     const call = history.messages.findIndex((m: any) => m.role === "assistant" && JSON.stringify(m.content).includes("tool_use"));
     expect(call, "the turn called a tool").toBeGreaterThan(0);
-    const forked = await api.call("harnix.session.fork", { ...s, at_message: call + 1, space: "system" });
-    const kept = await api.call("engine.session.history", { instance: forked.instance ?? s.instance, session_id: forked.session_id, space: "system" });
+    const forked = await api.call("harnix.session.fork", { ...s, at_message: call + 1, space: "sessions" });
+    const kept = await api.call("engine.session.history", { instance: forked.instance ?? s.instance, session_id: forked.session_id, space: "sessions" });
     expect(kept.messages.slice(0, call + 1).map((m: any) => m.role)).toEqual(history.messages.slice(0, call + 1).map((m: any) => m.role));
     expect(JSON.stringify(kept.messages.at(call)?.content)).toContain("tool_use");
     // What the cut left open is closed, not left dangling: nothing after it is the original's.
@@ -409,7 +402,7 @@ test.describe("on", () => {
     expect(md.content).toContain("**User**\n\nSay exactly: fixture ready");
     expect(md.content).toMatch(/\*\*Assistant\*\*\n\n[\s\S]*fixture ready/i);
 
-    const history = await api.call("engine.session.history", { ...s, space: "system" });
+    const history = await api.call("engine.session.history", own);
     const plain = await api.call("harnix-app.sessions.export", { ...own, format: "bundle" });
     expect(plain.file).toMatch(/\.json$/);
     expect(plain.content).toMatchObject({ kind: "harnix-session", version: 1 });
@@ -473,88 +466,33 @@ test.describe("on", () => {
     expect((await api.call("harnix.sessions.list", { space: "sessions" })).sessions.length).toBe(before);
     expect((await api.refused("harnix-app.sessions.importUpload", { name: "x.txt", space: "sessions" }))?.code).toBe(INVALID_PARAMS);
   });
-
-  test("a session's model is switched from the system space, and says so", TAGS, async () => {
-    const s = await oneTurn(api, "fleet");
-    // The engine's answer: the model the session's next turn runs; `fleet.model` reads the engine's
-    // `engine.session.inspectContext`, which names the one chosen here before that turn.
-    const chosen = await api.call("system.model", { ...s, model: "claude-haiku-5-5" });
-    expect(chosen).toMatchObject({ session_id: s.session_id, model: "claude-haiku-5-5", applies: "next_turn" });
-    expect((await api.call("fleet.model", s)).model).toBe("claude-haiku-5-5");
-    expect((await api.refused("system.model", { ...s, session_id: "no-such-session", model: "x" }))).toBeTruthy();
-  });
-
-  test("the system space lists every space's sessions and builds from any template", TAGS, async () => {
-    const fleet = await oneTurn(api, "fleet");
-    const all = (await api.call("harnix.sessions.list", { space: "system" })).sessions.map((r: any) => r.session_id);
-    expect(all).toContain(fleet.session_id);
-    // Any template, through the system module, which holds `instances.admin`; a device by itself
-    // only the interface's own (`ui`), whatever space it claims.
-    const { templates } = await api.call("system.instances.templates", { space: "system" });
-    const fromSessions = (await api.call("harnix.instances.templates", {})).templates;
-    expect(templates.length).toBeGreaterThanOrEqual(fromSessions.length);
-    expect((await api.call("harnix.instances.templates", { space: "system" })).templates).toEqual(fromSessions);
-
-    // One the interface may not build from: the system module builds it, and stops it again.
-    expect((await api.refused("harnix.instances.create", { template: "fleet.side", name: "from-system", space: "system" }))?.code).toBe(REFUSED);
-    const built = await api.call("system.instances.create", { template: "fleet.side", name: "from-system", space: "system" });
-    expect(built).toMatchObject({ id: "from-system", template: "fleet.side" });
-    await until(api, "from-system", "ready");
-    await api.call("system.instances.stop", { instance: "from-system", space: "system" });
-    const { instances } = await api.call("harnix.instances.list");
-    expect(instances.map((i: any) => i.id)).not.toContain("from-system");
-  });
-
-  test("a session made in the system space is the system space's", TAGS, async () => {
-    const created = await api.call("harnix.session.create", { space: "system", options: { recorder: { name: "says-ready" } } });
-    expect(created.space).toBe("system");
-    const listed = (await api.call("harnix.sessions.list", { space: "sessions" })).sessions.map((r: any) => r.session_id);
-    expect(listed).not.toContain(created.session_id);
-  });
-
-  test("an instance restarts from where it was built; `main` does not", TAGS, async () => {
-    expect((await api.refused("system.instances.restart", { instance: "main", space: "system" }))?.code).toBe(REFUSED);
-    // Not the interface's to restart, from any space: a device holds no capability. The system
-    // module, holding `instances.admin`, restarts it for the system space.
-    expect((await api.refused("harnix.instances.restart", { instance: "fleet-side" }))?.code).toBe(REFUSED);
-    expect((await api.refused("harnix.instances.restart", { instance: "fleet-side", space: "system" }))?.code).toBe(REFUSED);
-    const restarted = await api.call("system.instances.restart", { instance: "fleet-side", space: "system" });
-    expect(restarted.id).toBe("fleet-side");
-    await until(api, "fleet-side", "ready");
-    await oneTurn(api, "fleet");
-    const { entries } = await api.call("harnix.audit", { limit: 200 });
-    // On the record as the system module's, made while answering the device's call.
-    const made = entries.find((e: any) => e.method === "harnix.instances.restart" && e.decision === "allow");
-    expect(made).toMatchObject({ subject: "ext:system" });
-    expect(made.parent).toBe(entries.find((e: any) => e.method === "system.instances.restart" && e.decision === "allow")?.call_id);
-  });
 });
 
-test.describe("off", () => {
-  let backend: Backend;
-  let api: TestClient;
-
-  test.beforeAll(async () => {
-    backend = await startTestApp({ profile: "\n[extensions]\noff = [\"system\"]\n" });
-  });
-  test.afterAll(async () => { await backend?.dispose(); });
-  test.beforeEach(async () => {
-    api = await connect(backend);
-  });
-  test.afterEach(() => api?.close());
-
-  test("the methods leave the authorization table, and the space cannot be claimed", TAGS, async () => {
-    const { methods } = await api.call("harnix.reachable");
-    // The inspector's tabs are what the recordings show, which outlive the system space.
-    const inspector = ["observability.calls", "observability.trace", "observability.trace.call", "observability.turns", "observability.usage", "observability.usage.daily"];
-    for (const method of SYSTEM_METHODS.filter((m) => !inspector.includes(m))) expect(methods, method).not.toContain(method);
-    const created = await api.call("harnix.session.create", { space: "sessions" });
-    const s = { instance: created.instance, session_id: created.session_id };
-    const error = await api.refused("system.context", s);
-    expect([METHOD_NOT_FOUND, REFUSED]).toContain(error?.code);
-
-    expect((await api.refused("harnix.sessions.list", { space: "system" }))?.code).toBe(SPACE_MISMATCH);
-    expect((await api.refused("harnix.session.attach", { ...s, space: "system" }))?.code).toBe(SPACE_MISMATCH);
-    expect((await api.refused("harnix.instances.restart", { instance: "fleet-side", space: "system" }))?.code).toBe(SPACE_MISMATCH);
-  });
+test("observability.process: versions, uptime, peak memory, and every connected user", SHELL, async () => {
+  const backend = await startHarnix(launchFor("replay"));
+  try {
+    const one = await connect(backend);
+    const two = await connect(backend);
+    const process = await one.call("observability.process");
+    expect(process.harnix).toMatch(/^0\.4\.\d+-\d{10}$/);
+    expect(typeof process.agix).toBe("string");
+    expect(process.uptime_secs).toBeGreaterThanOrEqual(0);
+    expect(process.connections.length).toBeGreaterThanOrEqual(2);
+    for (const c of process.connections) expect(c).toMatchObject({ device: expect.any(String), topology: expect.any(String), since_ms: expect.any(Number) });
+    two.close();
+    if (topology() === "split_streams") {
+      // A split-streams client says nothing when it goes: closing its streams looks the same as
+      // streams that dropped and are being reopened (a proxy's timeout, a laptop asleep), and its
+      // handshake has to outlive that or the page loses its subscriptions. So it is listed until
+      // the transport's idle sweep ends it — streams closed and no `/rpc` for SPLIT_IDLE, five
+      // minutes (crates/transport/src/session.rs, whose unit test covers the sweep).
+      await sleep(500);
+      expect((await one.call("observability.process")).connections.length).toBe(process.connections.length);
+    } else {
+      await expect.poll(async () => (await one.call("observability.process")).connections.length).toBe(process.connections.length - 1);
+    }
+    one.close();
+  } finally {
+    await backend.dispose();
+  }
 });

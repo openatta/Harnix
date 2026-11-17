@@ -200,6 +200,7 @@ impl Rig {
             SpaceDecl::new("beta").instance("own"),
             SpaceDecl::new("gamma").instance("side"),
             SpaceDecl::new("sys").instance("own").cross_space(),
+            SpaceDecl::new("overview").instance("own").no_sessions(),
         ];
         let spaces = Spaces::load(dir.join("spaces.json"), declared, ["off".to_string()].into()).unwrap();
         let hub = Hub::new(HubConfig { instances: Arc::new(Book), spaces, turns: Default::default() });
@@ -301,6 +302,27 @@ async fn an_exposed_session_is_reached_as_far_as_the_exposure_goes() {
     assert_eq!(taken, json!({"instance": "own", "session_id": "s1", "space": "beta", "to": "alpha", "exposed": false, "interact": false, "changed": true}));
     assert_eq!(rig.acme("harnix.session.unexpose", with(s.clone(), json!({"to": "alpha"}))).await.unwrap()["changed"], false);
     assert_eq!(code(rig.device("alpha", "engine.session.get", s.clone()).await), codes::SPACE_MISMATCH);
+}
+
+/// A space with no sessions of its own takes none: not created there, by a device or an extension,
+/// not imported there, not moved there; it lists none, and the spaces list says so.
+#[tokio::test]
+async fn a_space_with_no_sessions_takes_none() {
+    let dir = tempfile::tempdir().unwrap();
+    let rig = Rig::new(dir.path(), FakeLink::new(), FakeLink::new()).await;
+    let refused = rig.device("overview", "harnix.session.create", json!({"project_root": null})).await.unwrap_err();
+    assert_eq!(refused.code, codes::SPACE_MISMATCH);
+    assert!(refused.message.contains("holds no sessions"), "{}", refused.message);
+    assert_eq!(code(rig.acme("harnix.session.create", json!({"instance": "own", "space": "overview", "project_root": null})).await), codes::SPACE_MISMATCH);
+    assert_eq!(code(rig.device("overview", "harnix.session.import", json!({"path": "/b.zip"})).await), codes::SPACE_MISMATCH);
+    let s = rig.made("beta", "own").await;
+    assert_eq!(code(rig.acme("harnix.session.move", with(s.clone(), json!({"space": "overview"}))).await), codes::SPACE_MISMATCH);
+    assert_eq!(rig.own.sessions.lock().unwrap().len(), 1, "only beta's");
+    assert!(rig.ids_in("overview").await.is_empty());
+    let listed = rig.call_as(Subject::device("d"), "harnix.spaces.list", json!({})).await.unwrap();
+    let row = |id: &str| listed["spaces"].as_array().unwrap().iter().find(|r| r["id"] == id).cloned().unwrap();
+    assert_eq!(row("overview")["no_sessions"], json!(true));
+    assert!(row("beta").get("no_sessions").is_none());
 }
 
 /// A session exposed to a space is in that space's list, saying where it is from, and in its own

@@ -1,10 +1,10 @@
 /**
- * Schedules in a real browser against a real backend (harnix-app.md §9, system-space.md §6.3): a
+ * Schedules in a real browser against a real backend (harnix-app.md §9, §10.2): a
  * daily schedule made for a session from its menu, its clock on the session's row; «run now» sends
  * the turn, and the delivery is in its history; a task schedule made from a project's overview starts
- * a task that is a row of the project, opening in the projects space; the system console's tab lists
- * every schedule with its source and state — the models' jobs, if any, read-only — and pauses,
- * resumes and deletes one. The editor's guided frequency, the zone picker and the conflict review are
+ * a task that is a row of the project, opening in the projects space; the home page's block lists
+ * every schedule with its source and state — the models' jobs, if any, read-only — searches them,
+ * and pauses, resumes and deletes one. The editor's guided frequency, the zone picker and the conflict review are
  * the package's unit tests (`ui/packages/schedule/test`).
  *
  * Replayed: `says-ready` (the turn «run now» sends). Nothing here waits for a time to come.
@@ -165,14 +165,14 @@ test("a task schedule from a project's overview starts a task: a row of the proj
   expect(errors).toEqual([]);
 });
 
-test("the console's tab lists every schedule with its source and state; the models' jobs, if any, only deletable; pause, resume, delete", TAGS, async ({ page }) => {
+test("the home page's block lists every schedule with its source and state; the models' jobs, if any, only deletable; searched, paused, resumed, deleted", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, backend.url);
-  await page.locator('#side [data-space="system"]').click();
-  await expect(page.locator("#main")).toHaveAttribute("data-space", "system");
-  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="schedule"]').click();
-  const tab = page.getByTestId("system-schedules");
+  // Where a page lands: the block is the home page's, across its width.
+  await expect(page.locator("#main")).toHaveAttribute("data-space", "home");
+  const tab = page.locator('[data-testid="home-block"][data-block="schedule.all"]').getByTestId("schedules");
   await expect(tab).toBeVisible();
+  await expect(tab.getByTestId("schedule-new")).toBeVisible();
 
   // Both made above, by a person, on.
   const morning = tab.locator('[data-testid="schedule-row"]', { hasText: "Morning check" });
@@ -191,6 +191,13 @@ test("the console's tab lists every schedule with its source and state; the mode
     await expect(model.getByTestId("schedule-run-now")).toHaveCount(0);
   }
 
+  // Searched by title.
+  await tab.getByTestId("schedule-filter-text").fill("Morning");
+  await expect(tab.getByTestId("schedule-row")).toHaveCount(1);
+  await expect(morning).toBeVisible();
+  await tab.getByTestId("schedule-filter-text").fill("");
+  await expect(review).toBeVisible();
+
   // Filtered by state; paused and resumed.
   await morning.getByTestId("schedule-toggle").click();
   await expect(morning).toHaveAttribute("data-state", "paused");
@@ -200,7 +207,7 @@ test("the console's tab lists every schedule with its source and state; the mode
   await morning.getByTestId("schedule-toggle").click();
   await expect(morning).toHaveAttribute("data-state", "on");
 
-  // Deleted after asking: gone from the tab, the session it went to still there.
+  // Deleted after asking: gone from the block, the session it went to still there.
   await review.getByTestId("schedule-delete").click();
   await page.getByTestId("confirm").click();
   await expect(review).toHaveCount(0);

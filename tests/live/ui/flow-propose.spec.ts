@@ -1,5 +1,5 @@
 /**
- * A proposal in a flow, inside the system space: a station's session proposed to send the work back (`flow_propose`),
+ * A proposal in a flow, in the flow space: a station's session proposed to send the work back (`flow_propose`),
  * and the person sees it as a card in that session — accepts it, which reworks the run once and
  * leaves a line saying so, or dismisses the one the next round makes.
  *
@@ -126,15 +126,4 @@ test("the reference tab says whether command gates run here", TAGS, async ({ pag
   await expect(page.getByTestId("flow-catalog-command-gates")).toBeVisible();
   const on = await page.evaluate(async () => (await (window as any).harnix.app.call("flow.catalog", {})).command_gates);
   expect(on).toBe(true);
-});
-
-test("a station's session is Harnix's own: in the system space's all tab it is marked so", TAGS, async ({ page }) => {
-  await open(page, backend.url);
-  const run = await page.evaluate(async () => (await (window as any).harnix.app.call("flow.start", { flow: "demo-propose", subject: "marked" })).run as string);
-  const record = await until(page, run, (r) => Boolean(r.stations.propose?.tasks?.[0]?.session));
-  const [instance, sid] = (record.stations.propose.tasks[0].session as string).split("/");
-  await page.locator('#side [data-space="system"]').click();
-  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="all"]').click();
-  const row = page.locator(`[data-testid="system-agents"] [data-testid="system-agent-group"][data-instance="${instance}"][data-sid="${sid}"]`);
-  await expect(row.getByTestId("system-agent-harnix")).toBeVisible({ timeout: 15_000 });
 });

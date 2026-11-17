@@ -255,11 +255,12 @@ export function changedFields(before: Schedule, after: Schedule): string[] {
 /**
  * Keep this draft's changes over a newer revision: each field the draft changed from `before` (the
  * revision it was opened at) stays as typed; each it left alone takes `after`'s, so what the other
- * device changed there is not undone by saving.
+ * device changed there is not undone by saving. `opened` is when the draft was made: the defaults a
+ * draft fills from the clock are compared as they were then, not as a later day would fill them.
  */
-export function rebase(draft: Draft, ctx: EditorContext, before: Schedule, after: Schedule): Draft {
-  const was = initialDraft({ ...ctx, existing: before });
-  const now = initialDraft({ ...ctx, existing: after });
+export function rebase(draft: Draft, ctx: EditorContext, before: Schedule, after: Schedule, opened = Date.now()): Draft {
+  const was = initialDraft({ ...ctx, existing: before }, opened);
+  const now = initialDraft({ ...ctx, existing: after }, opened);
   const out = { ...now } as Record<keyof Draft, unknown>;
   for (const key of Object.keys(draft) as (keyof Draft)[]) {
     if (key === "inputs" || canonical(draft[key]) !== canonical(was[key])) out[key] = draft[key];

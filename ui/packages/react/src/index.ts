@@ -98,6 +98,7 @@ export { MenuBox, type MenuBoxProps } from "./menu";
 export { SetupStep, dismissSetupStep, resetSetupSteps, setupStepDismissed, setupStepState, useSetupStep, type SetupStepState } from "./setup";
 export {
   POINTS,
+  SETTINGS_HOSTS,
   Registry,
   RegistryProvider,
   Contributed,
@@ -110,6 +111,7 @@ export {
   type PointSpec,
   type RegisterOptions,
   type SessionAction,
+  type SettingsHost,
   type SettingsNeed,
   type CommandCandidate,
   type CommandContext,

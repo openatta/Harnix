@@ -409,7 +409,7 @@ impl Hub {
         send_after(guard, told).await;
     }
 
-    /// What a client is, as the transport saw it at handshake: shown in the system space.
+    /// What a client is, as the transport saw it at handshake: shown among who is connected.
     pub fn describe_client(&self, id: ClientId, description: Value) {
         lock(&self.described).insert(id, description);
     }

@@ -143,15 +143,10 @@ defineSuite("rewind", { feature: "sessions" }, {
       const s = { instance: created.instance, session_id: created.session_id, space: "sessions" };
       try {
         const spaces = (await client.call("harnix.spaces.list")).spaces.map((r: { id: string }) => r.id);
-        const other = spaces.find((id: string) => id !== "sessions" && id !== "system");
+        const other = spaces.find((id: string) => id !== "sessions");
         if (!other) return;
         const refused = await client.refused("harnix.session.rewind", { ...s, space: other, to: "start", dry_run: true });
         assert(refused?.code === SPACE_MISMATCH, JSON.stringify(refused));
-        // Nor across spaces: the system space's reach is not where a session is rewound.
-        if (spaces.includes("system")) {
-          const across = await client.refused("harnix.session.rewind", { ...s, space: "system", to: "start", dry_run: true });
-          assert(across?.code === SPACE_MISMATCH, JSON.stringify(across));
-        }
       } finally {
         await client.call("harnix.session.delete", s).catch(() => undefined);
       }

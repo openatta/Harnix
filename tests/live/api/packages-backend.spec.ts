@@ -220,7 +220,7 @@ test.describe("an application with a backend", () => {
     expect(answer.message).toContain("not in the package's `calls` capability");
     const entry = (await audit(api)).find((e) => e.subject === ME && e.method === "packages.uninstall");
     expect(entry).toMatchObject({ decision: "refuse", reason: "not in the package's `calls` capability" });
-    // Nothing happened, and the system space has it among the refusals.
+    // Nothing happened, and its runtime has it among the refusals.
     const rt = await runtime(api);
     expect(rt.state).toBe("running");
     expect(rt.calls.refused[0]).toMatchObject({ method: "packages.uninstall" });

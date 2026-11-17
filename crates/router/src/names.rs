@@ -99,7 +99,7 @@ pub(crate) fn short_name<'a>(id: &str, name: &'a str) -> Option<&'a str> {
 
 /// The package a name would belong to by its shape: its first two segments, when they are a
 /// package's id. Whether one does is the table's to say ([`crate::RouteTable::names_a_package`]):
-/// `system.instances.stop` has a package's shape and is the native `system`'s.
+/// `harnix-app.sessions.archive` has a package's shape and is the native `harnix-app`'s.
 pub(crate) fn package_part(name: &str) -> Option<&str> {
     let name = extension_part(name);
     let end = name.match_indices('.').nth(1)?.0;

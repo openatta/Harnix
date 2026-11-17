@@ -10,9 +10,9 @@
  */
 
 import type { Page } from "@playwright/test";
-import { expect, test } from "@harnix/testkit";
+import { expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-import { modKey, newSession, open, openSettings, say, sessionRow, spaceEntry } from "./page";
+import { modKey, newSession, open, openSettings, say, sessionRow, spaceEntry, toSessions } from "./page";
 
 const SHELL = { tag: ["@feature:shell", "@layer:ui"] };
 const SESSIONS = { tag: ["@feature:sessions", "@layer:ui"] };
@@ -176,7 +176,7 @@ test("a session's menu is worked by keyboard alone, and the focus comes back to 
   expect(await focused(page)).toBe("session-more");
 });
 
-test("the composer's + and model menus are worked by keyboard alone, like the shell's", SESSIONS, async ({ page }) => {
+test("the composer's + menu is worked by keyboard alone, like the shell's", SESSIONS, async ({ page }) => {
   await open(page, URL);
   await newSession(page, "says-ready");
   const input = page.getByTestId("conv-input");
@@ -225,7 +225,23 @@ test("the composer's + and model menus are worked by keyboard alone, like the sh
   await expect(attach).toHaveCount(0);
   expect(await focused(page)).toBe("conv-attach");
 
-  // The model: the options, then the field for a name of one's own — reached with ↓ like an item.
+});
+
+test("the composer's model menu is worked by keyboard alone, where the profile lets a model be changed", SESSIONS, async ({ page }) => {
+  // The menu changes nothing without `[shell] model_switch` (harnix-app.md §4): its options are not
+  // there to be reached.
+  const switching = await startHarnix(launchFor("replay", { profile: "[shell]\nmodel_switch = true\n" }));
+  try {
+    await open(page, switching.url);
+    await newSession(page, "says-ready");
+    await modelMenuByKeyboard(page);
+  } finally {
+    await switching.dispose();
+  }
+});
+
+/** The model: the options, then the field for a name of one's own — reached with ↓ like an item. */
+async function modelMenuByKeyboard(page: Page): Promise<void> {
   const model = page.getByTestId("conv-model");
   await expect(model).toHaveAttribute("aria-haspopup", "menu");
   await model.focus();
@@ -244,7 +260,7 @@ test("the composer's + and model menus are worked by keyboard alone, like the sh
   await page.keyboard.press("Enter");
   await expect(model).toContainText("claude-keyboard-model");
   await expect(models).toHaveCount(0);
-});
+}
 
 test("a right click opens the session's menu where it was clicked, not a dialog in the middle", SPACE, async ({ page }) => {
   await open(page, URL);
@@ -292,6 +308,7 @@ test("an ask answered on another page closes on this one, saying it was answered
   const other = await context.newPage();
   try {
     await open(other, URL);
+    await toSessions(other);
     await other.evaluate((sid) => (window as any).harnix.app.open({ instance: "main", sessionId: sid }), sid);
     const there = other.getByTestId("conv-ask");
     await expect(there).toHaveAttribute("data-state", "pending", { timeout: 15_000 });

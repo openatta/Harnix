@@ -8,7 +8,7 @@
  * - A project's overview, block 40 (`harnix-app.project.panels`): its schedules, a new session or task.
  * - Clocks: on a session's row (`harnix-app.session.badge`), a task's next time on its row (`flow.task.badge`).
  * - Every schedule at once, its source, state and next time, and the models' jobs, read-only and
- *   deletable (`ConsoleSchedules`): a component for whoever has a page for it.
+ *   deletable (`AllSchedules`): a block of the home page (`harnix-app.home.panels`, 50).
  *
  * A point nobody defines (no projects space, no flows) is dropped quietly. The data is the topic
  * `schedule.list`, followed while drawn, and the `schedule.*` methods.
@@ -20,7 +20,7 @@ import { SessionClock, TaskNext } from "./badges";
 import { scheduleEditor } from "./editor";
 import { ScheduleStore } from "./store";
 import { registerScheduleStrings } from "./strings";
-import { ConsoleSchedules, ProjectSchedules, sessionSchedulesDialog, type PanelContext } from "./views";
+import { AllSchedules, ProjectSchedules, sessionSchedulesDialog, type PanelContext } from "./views";
 import "./schedule.css";
 
 export { scheduleEditor, ScheduleEditor, type EditorContext } from "./editor";
@@ -29,7 +29,7 @@ export { changedFields, changesAnything, createParams, draftProblems, initialDra
 export { allZones, formatWhen, isZone, localZone, momentOf, offsetLabel, offsetMinutes, relativeTo, wallClockOf } from "./time";
 export { ScheduleStore, activeOfSession, ofProject, ofSession, scheduleOfRun, stateOf, type ScheduleState } from "./store";
 export { STRINGS, STRINGS_OWNER } from "./strings";
-export { ConsoleSchedules } from "./views";
+export { AllSchedules } from "./views";
 
 /** The backend extension this is the interface of. */
 export const extension = "schedule";
@@ -37,6 +37,7 @@ export const extension = "schedule";
 /** The points of other packages this one fills; each dropped quietly where nobody defines it. */
 const SESSION_BADGE = "harnix-app.session.badge";
 const PROJECT_PANELS = "harnix-app.project.panels";
+const HOME_PANELS = "harnix-app.home.panels";
 const TASK_BADGE = "flow.task.badge";
 const START_ACTION = "flow.start.action";
 
@@ -113,6 +114,13 @@ export function register(r: Registry, host: HostApi): Dispose {
   r.register(
     PROJECT_PANELS,
     { id: "schedule.project", order: 40, title: () => t("schedule.title"), render: (context: PanelContext) => <ProjectSchedules host={host} r={r} store={store} context={context} /> },
+    extension,
+    quiet,
+  );
+  // Every schedule, the models' jobs with them, across the home page under the lists.
+  r.register(
+    HOME_PANELS,
+    { id: "schedule.all", order: 50, wide: true, title: () => t("schedule.title"), render: () => <AllSchedules host={host} r={r} store={store} /> },
     extension,
     quiet,
   );

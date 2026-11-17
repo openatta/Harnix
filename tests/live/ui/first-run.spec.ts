@@ -14,7 +14,7 @@
 import type { Page } from "@playwright/test";
 import { type Backend, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-import { connected, open, settingsSection } from "./page";
+import { connected, open, settingsSection, toSessions } from "./page";
 
 const FIRST_RUN = { tag: ["@feature:session-space", "@layer:ui"] };
 
@@ -37,6 +37,7 @@ const call = (page: Page, method: string, params: Record<string, unknown>) =>
 
 test("a fresh profile's empty page has the three steps; the scene step says the defaults, offers code, and once closed stays closed", FIRST_RUN, async ({ page }) => {
   await open(page, fresh.url);
+  await toSessions(page);
   await expect(step(page, MODEL)).toHaveAttribute("data-state", "todo");
   await expect(step(page, PROJECT)).toHaveAttribute("data-state", "todo");
   const scene = step(page, SCENE);
@@ -71,6 +72,7 @@ test("a fresh profile's empty page has the three steps; the scene step says the 
 
 test("the model step opens Settings · Models, and is done once a provider is added there", FIRST_RUN, async ({ page }) => {
   await open(page, fresh.url);
+  await toSessions(page);
   const model = step(page, MODEL);
   await expect(model).toHaveAttribute("data-state", "todo");
   await model.getByTestId("setup-model-open").click();
@@ -107,6 +109,7 @@ test("the model step opens Settings · Models, and is done once a provider is ad
 
 test("the project step adds one, is done once it is listed, opens it in the projects space, and says nothing of trust", FIRST_RUN, async ({ page }) => {
   await open(page, fresh.url);
+  await toSessions(page);
   const project = step(page, PROJECT);
   await expect(project).toHaveAttribute("data-state", "todo");
   await project.getByTestId("setup-project-add").click();

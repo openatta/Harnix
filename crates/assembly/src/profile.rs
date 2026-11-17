@@ -153,7 +153,7 @@ pub(crate) struct TransportProfile {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct ShellProfile {
-    /// Whether the composer may change a session's model without the system space:
+    /// Whether the composer may change a session's model:
     /// `harnix.session.setModel`, scoped to the space the caller claims (ipdrun-12). Off unless
     /// written, so a product that left model choice to the settings page keeps it there.
     pub model_switch: bool,
