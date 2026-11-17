@@ -1,7 +1,8 @@
-// MCP servers from the settings page: added, changed, switched off and on, removed, in the tier
-// chosen; a value given in secret never comes back; a project's server goes through the engine,
-// which refuses an untrusted project; signing in goes through the settings extension and its own
-// route, never the engine's methods directly.
+// MCP servers from the settings page: added, changed, switched off and on, reconnected, removed,
+// in the tier chosen, every change through the engine; a value given in secret never comes back;
+// the engine refuses a server in an untrusted project; what each server is doing is said for the
+// (project, scene) asked about; signing in goes through the settings extension and its own route,
+// never the engine's methods directly.
 //
 // The server is one whose command does not exist: what matters here is what is written and what
 // the engine says of it, and a server that cannot start is said to have failed, with why. Every
@@ -79,21 +80,57 @@ defineSuite("settings-mcp", { feature: "settings" }, {
         });
         const server = named(changed.servers, name)!;
         assert(server.args[0] === "--second" && server.env.TOKEN.masked === "***6789" && !server.env.HOME_DIR, JSON.stringify(server));
-        // Off: kept aside, out of the engine's reach, and still listed.
+        // Off: still in the tier's file, its switch beside it, and the engine does not start it.
         const off = named((await client.call("settings.mcp.enable", { tier: "global", name, enabled: false })).servers, name)!;
-        assert(off.enabled === false && !off.status && off.env.TOKEN.masked === "***6789", JSON.stringify(off));
+        assert(off.enabled === false && off.env.TOKEN.masked === "***6789", JSON.stringify(off));
+        assert(!off.status || off.status.state === "disabled", JSON.stringify(off.status));
         const { servers: engine } = await client.call("engine.mcp.status");
-        assert(!engine.some((s: { name: string }) => s.name === name), "the engine still has a server switched off");
-        const refused = await client.refused("settings.mcp.update", { tier: "global", name, config: stdio() });
-        assert(refused && refused.code === INVALID_PARAMS && /switched off/.test(refused.message), JSON.stringify(refused));
-        // On: back as it was, its secret with it.
+        const held = engine.find((s: { name: string }) => s.name === name);
+        assert(!held || held.state === "disabled", `the engine has a server switched off as ${JSON.stringify(held)}`);
+        // Changed while off: it stays off.
+        const still = named((await client.call("settings.mcp.update", { tier: "global", name, config: { ...stdio(["--second"]), env: { TOKEN: { keep: true } } } })).servers, name)!;
+        assert(still.enabled === false, JSON.stringify(still));
+        // On: as it was, its secret with it.
         const on = named((await client.call("settings.mcp.enable", { tier: "global", name, enabled: true })).servers, name)!;
         assert(on.enabled && on.args[0] === "--second" && on.env.TOKEN.masked === "***6789", JSON.stringify(on));
-        await client.call("settings.mcp.reconnect", { tier: "global", name });
+        // Connected again alone: the engine answers for this one server.
+        const again = named((await client.call("settings.mcp.reconnect", { name })).servers, name)!;
+        assert(again.status && again.status.state !== "disabled", JSON.stringify(again));
       } finally {
         await giveBack(client, name);
       }
       assert(!named(await servers(client), name), "not removed");
+    },
+
+    "a scene's server is written into the scene tier and taken out of it, through the engine": async ({ client }) => {
+      const name = "live-scene";
+      const listed = await client.call("settings.mcp.list", {});
+      assert(typeof listed.scene === "string" && listed.paths.scene, `no scene tier here: ${JSON.stringify(listed)}`);
+      const added = await client.call("settings.mcp.add", { tier: "scene", name, config: stdio() });
+      try {
+        assert(/settings\.json$/.test(added.written ?? ""), `written to ${added.written}`);
+        assert(named(added.servers, name, "scene"), JSON.stringify(added.servers));
+        assert(!JSON.stringify(added).includes(SECRET), "the secret came back");
+      } finally {
+        await giveBack(client, name, "scene");
+      }
+      assert(!named(await servers(client), name, "scene"), "not removed");
+    },
+
+    "the statuses are a (project, scene)'s, said with which, and asking does not start a pair": async ({ client }) => {
+      const at = { project_root: client.project };
+      const listed = await client.call("settings.mcp.list", at);
+      assert(listed.project_root === client.project && typeof listed.scene === "string", JSON.stringify(listed));
+      assert(typeof listed.loaded === "boolean", `loaded is ${JSON.stringify(listed.loaded)}`);
+      // The suite's project is not trusted: its own servers, if any, are said so and not started.
+      for (const server of listed.servers.filter((s: Server) => s.tier === "project")) {
+        assert(!server.status || ["untrusted", "not_started", "disabled", "denied", "failed"].includes(server.status.state), JSON.stringify(server));
+      }
+      // Nothing connected for a pair: nothing to connect again.
+      if (listed.loaded === false && listed.servers.length) {
+        const e = await client.refused("settings.mcp.reconnect", { name: listed.servers[0].name, ...at });
+        assert(e && e.code === INVALID_PARAMS, JSON.stringify(e));
+      }
     },
 
     "what a form says wrong is refused by name, and nothing is written": async ({ client }) => {
@@ -130,7 +167,7 @@ defineSuite("settings-mcp", { feature: "settings" }, {
     },
 
     "the engine's MCP methods stay refused to a device; signing in is the settings extension's": async ({ client, backend }) => {
-      for (const method of ["engine.mcp.addServer", "engine.mcp.updateServer", "engine.mcp.auth.start", "engine.mcp.auth.complete", "engine.mcp.auth.logout"]) {
+      for (const method of ["engine.mcp.addServer", "engine.mcp.updateServer", "engine.mcp.removeServer", "engine.mcp.setEnabled", "engine.mcp.reconnect", "engine.mcp.auth.start", "engine.mcp.auth.complete", "engine.mcp.auth.logout"]) {
         const e = await client.refused(method, {});
         assert(e && e.code === REFUSED, `${method}: ${JSON.stringify(e)}`);
       }

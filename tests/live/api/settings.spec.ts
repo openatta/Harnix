@@ -2,7 +2,8 @@
 //
 // The value a field shows is the engine's own for the (project, scene) asked about, re-read after a
 // write; `source` is the highest tier whose file wrote it, and `withheld` says the project tier
-// wrote a value the engine does not use (an untrusted project can only tighten).
+// wrote a value the engine does not use (an untrusted project can only tighten). Every write is the
+// engine's (`engine.config.set`), against the revision of the tier written.
 
 import { isDeepStrictEqual } from "node:util";
 
@@ -103,6 +104,23 @@ defineSuite("settings", { feature: "settings" }, {
       assert(JSON.stringify(named) === JSON.stringify(["make.believe", "memory_enabled", "model.max_tokens"]), `named ${JSON.stringify(named)}`);
       const after = await client.call("settings.describe", {});
       assert(after.revision === before.revision, "part of a refused change was written");
+    },
+
+    "a dry run is checked by the engine and writes nothing": async ({ client }) => {
+      const before = await client.call("settings.describe", {});
+      const tried = await client.call("settings.write", { tier: "global", changes: { "model.max_tokens": 2468 }, dry_run: true });
+      assert(tried.dry_run === true && Array.isArray(tried.rejected), JSON.stringify({ dry_run: tried.dry_run, rejected: tried.rejected }));
+      const after = await client.call("settings.describe", {});
+      assert(after.revision === before.revision, "a dry run wrote something");
+      assert(after.fields.find((f: { key: string }) => f.key === "model.max_tokens").tiers.global !== 2468, "a dry run's value was written");
+    },
+
+    "a write into a project whose folder is not there is refused by the engine, and nothing is made": async ({ client }) => {
+      const gone = `${client.project}-not-there`;
+      const e = await client.refused("settings.write", { tier: "project", project_root: gone, changes: { permission_mode: "plan" } });
+      assert(e && e.code === -32010, `answered ${JSON.stringify(e)}`);
+      const { existsSync } = await import("node:fs");
+      assert(!existsSync(gone), "the project's folder was made");
     },
 
     // general & display

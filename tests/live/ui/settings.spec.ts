@@ -230,7 +230,7 @@ test("a provider is added, edited, made the default and deleted from Settings ·
 const mcpServers = (page: Page) =>
   page.evaluate(async () => (await (window as any).harnix.app.call("settings.mcp.list", {})).servers as any[]);
 
-test("an MCP server is added, edited with its secret kept, switched off and on, and removed after asking", TAGS, async ({ page }) => {
+test("an MCP server is added, edited with its secret kept, switched off and on, reconnected, and removed after asking", TAGS, async ({ page }) => {
   await open(page, backend.url);
   await section(page, "mcp");
   const list = page.getByTestId("mcp-servers");
@@ -263,12 +263,20 @@ test("an MCP server is added, edited with its secret kept, switched off and on, 
   expect(edited.args).toEqual(["--second"]);
   expect(edited.env.TOKEN.masked).toBe("***6789");
 
-  // Off, then on again.
+  // Which (project, scene) the statuses are of is said above the servers.
+  await expect(list.getByTestId("mcp-pair")).not.toBeEmpty();
+
+  // Off, then on again: off, it stays in its tier and can still be edited, not reconnected.
   await card.getByTestId("mcp-toggle").click();
   await expect(card).toHaveAttribute("data-state", "off");
+  await expect(card.getByTestId("mcp-edit")).toBeVisible();
+  await expect(card.getByTestId("mcp-reconnect")).toHaveCount(0);
   expect((await mcpServers(page)).find((s) => s.name === "live-ui").enabled).toBe(false);
   await card.getByTestId("mcp-toggle").click();
   await expect(card).not.toHaveAttribute("data-state", "off");
+  // Connected again alone: the engine says it failed again, with why.
+  await card.getByTestId("mcp-reconnect").click();
+  await expect(card).toHaveAttribute("data-state", "failed", { timeout: 20_000 });
 
   // Removed only once it is confirmed.
   await card.getByTestId("mcp-remove").click();
