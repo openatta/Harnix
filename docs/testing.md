@@ -82,8 +82,8 @@ Linux 要有 Landlock 与 Yama，缺了就说「没跑」和原因，不算过�
 （那会让整次测试的 feature 合并打开 `compile`）。
 
 流程会话任务的判轮（发任务、没交就催一次、退回修正、任务结束时打断还在跑的轮、重启后接着做）在 `rust` 层里测：
-`crates/ext/flow/src/module/turns.rs` 的循环读一串帧、经一个 trait 发消息和打断，测试拿真内核配一份按脚本出帧的会话，一轮一轮看；
-`command` 门禁和门禁结果碰上提交冲突的情况在 `crates/ext/flow/src/module/gate.rs`。LIVE 的 `ui/flow*.spec.ts` 看的是同一段逻辑过整个后端。
+`crates/flow/src/runner/turns.rs` 的循环读一串帧、经一个 trait 发消息和打断，测试拿真内核配一个按脚本出帧的宿主（`ScriptedHost`），一轮一轮看；整个流程包从头跑到尾在 `crates/flow/tests/runner.rs`；
+`command` 门禁和门禁结果碰上提交冲突的情况在 `crates/flow/src/runner/gate.rs`。LIVE 的 `ui/flow*.spec.ts` 看的是同一段逻辑过整个后端。
 
 ## 3. 跑 LIVE
 
