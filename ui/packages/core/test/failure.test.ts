@@ -68,6 +68,9 @@ describe("serviceSaid", () => {
     expect(said("rate_limited: Usage limit reached for this key, resets at 09:00 UTC")).toBe("Usage limit reached for this key, resets at 09:00 UTC");
     expect(said('rate_limited (HTTP 429): {"error":{"message":"Rate limit reached for gpt-x","type":"requests"}}')).toBe("Rate limit reached for gpt-x");
     expect(said('rate_limited (HTTP 429): {"error":{"message":"cut off')).toBe('{"error":{"message":"cut off');
+    // The kind twice over, as the engine words a rate limit: both taken off.
+    expect(said("rate_limited: rate_limited: rate limit exceeded")).toBe("rate limit exceeded");
+    expect(said('rate_limited: rate_limited (HTTP 429): {"error":{"message":"slow down"}}')).toBe("slow down");
   });
 
   it("is one line, without control characters, and at most so long", () => {

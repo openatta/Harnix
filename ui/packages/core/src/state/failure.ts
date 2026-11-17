@@ -86,12 +86,13 @@ export const SERVICE_SAID_MAX = 160;
 
 /**
  * 限流时服务自己的说明（哪个额度、几点恢复）的摘要，给界面跟在归类的话后面；没有就是 `undefined`。
- * 引擎把它接在 `<kind>` 或 `<kind> (HTTP n)` 加冒号后面；整段是 JSON 的（兼容 OpenAI 的服务）取 `error.message`。
+ * 引擎把它接在 `<kind>` 或 `<kind> (HTTP n)` 加冒号后面（可能不止一层）；整段是 JSON 的（兼容 OpenAI 的服务）取 `error.message`。
  * 压成一行、去掉控制字符，至多 `SERVICE_SAID_MAX` 字——是界面当文字画的，不当标记。
  */
 export function serviceSaid(f: FailureFacts): string | undefined {
   if (f.kind !== "rate_limited") return undefined;
-  const prefix = new RegExp(`^${f.kind}(?:\\s*\\(HTTP \\d+\\))?:\\s*`);
+  // 引擎给的消息里这个前缀会叠两层（`rate_limited: rate_limited: …`），有几层去几层。
+  const prefix = new RegExp(`^(?:${f.kind}(?:\\s*\\(HTTP \\d+\\))?:\\s*)+`);
   if (!prefix.test(f.raw)) return undefined;
   let said = f.raw.replace(prefix, "");
   if (said.startsWith("{")) {
