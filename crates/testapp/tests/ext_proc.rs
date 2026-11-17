@@ -32,10 +32,22 @@ fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+/// The binary, run once before any test spawns it: the first run of a freshly linked binary waits
+/// on the system's scan of it (seconds for a debug build on macOS), which is not the process's to
+/// answer for — a test's wait for its hello would otherwise measure that.
 fn program() -> PathBuf {
-    std::env::var_os("HARNIX_EXT_PROC_BIN")
+    static WARMED: std::sync::Once = std::sync::Once::new();
+    let program = std::env::var_os("HARNIX_EXT_PROC_BIN")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_harnix-testapp")))
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_harnix-testapp")));
+    WARMED.call_once(|| {
+        // No wire at descriptor 3: it says so and exits at once.
+        let _ = std::process::Command::new(&program)
+            .args(["ext-proc", "--ext", ID])
+            .stderr(std::process::Stdio::null())
+            .status();
+    });
+    program
 }
 
 /// Run `cargo` with `args` in `dir`, or fail saying what did not build.
