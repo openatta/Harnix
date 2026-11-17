@@ -1,17 +1,16 @@
 /**
- * The flows in the browser (xops-03 §6), against the Harnix app — the `harnix` binary,
- * which has the flow module, served the shell as built (`ui/dist`): they are the shell's own, in
- * the system space.
+ * The flows in the browser (harnix-app.md §11), against the Harnix app — the `harnix` binary,
+ * which has the flow module, served the shell as built (`ui/dist`): the flow space, at the bottom
+ * of the left column.
  *
- * The system space's Flows tab lists the flows and every run, and edits no definition: its first
- * rows add (in the general conversation), filter and sort. A flow clicked there makes the left
- * column that flow's — the way back, its conversation, its runs — and what is picked there is what
- * the middle talks to: the flow's own conversation (made by the module, `flow.session {flow}`)
- * or a run's main session; the general conversation is where a new flow is written. What is picked
- * opens beside the conversation, in the second side panel (xops-04 §7): a flow's diagram,
- * definition, parts (skills, rules, policies, gates, hooks) and YAML; a run's details. Closing that
- * panel leaves the conversation and the flow. The reference is the right column's one tab. An
- * empty conversation says what it is for.
+ * The right column's flows tab lists the flows and its runs tab every run; neither edits a
+ * definition: their first rows add (in the general conversation), filter and sort. A flow clicked
+ * is selected — the left column opens it on its runs — and what is picked is what the middle talks
+ * to: the flow's own conversation (made by the module, `flow.session {flow}`) or a run's main
+ * session; the general conversation is where a new flow is written. What is picked opens beside
+ * the conversation, in the second side panel: a flow's diagram, definition, parts (skills, rules,
+ * policies, gates, hooks) and YAML; a run's details. Closing that panel leaves the conversation and
+ * the flow. The reference is the right column's third tab. An empty conversation says what it is for.
  *
  * Recordings: `flow-ui-edit` (the Agent calls `flow_show`, then `flow_update {flow:
  * example-review}` with its title changed, then says so), `flow-author-unfocused` (`flow_update` with
@@ -22,13 +21,13 @@
  * passes its session station by force, as a person may.
  *
  * Without the flow module there are no flows: `examples/hello-app` (`spaces.spec.ts` lists its
- * spaces), and here a profile that drops them in `[shell] spaces`.
+ * spaces), and here a profile that switches them off.
  */
 
 import type { Page } from "@playwright/test";
 import { type Backend, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-import { flowReference, open, openFlow, reply, say, spaceEntry, toFlows, watchConsole } from "./page";
+import { flowReference, open, openFlow, reply, say, spaceEntry, toFlows, toRuns, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:flow", "@layer:ui"] };
 
@@ -73,7 +72,7 @@ async function converse(page: Page, fixture: string, flow: string | null): Promi
   return id;
 }
 
-test("the Flows tab: filter and sort; into a flow, its details beside the conversation — diagram, definition, parts, YAML; its own conversation in the middle", TAGS, async ({ page }) => {
+test("the flows tab: filter and sort; into a flow, its details beside the conversation — diagram, definition, parts, YAML; its own conversation in the middle", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, backend.url);
   await toFlows(page);
@@ -141,16 +140,17 @@ test("the Flows tab: filter and sort; into a flow, its details beside the conver
   await expect(page.locator("#main")).toBeVisible();
   expect((await side.boundingBox())!.width).toBeLessThan(wide);
 
-  // Closed: the panel goes, the flow and its conversation stay; its conversation picked again, back.
+  // Closed: the panel goes, the flow and its conversation stay; the flow picked again in the left column, back.
   await page.getByTestId("secondary-close").click();
   await expect(side).toHaveCount(0);
   await expect(page.getByTestId("flow-context")).toHaveAttribute("data-flow", "example-review");
+  await expect(page.getByTestId("flow-context-flow-example-review")).toHaveAttribute("aria-current", "true");
   await expect.poll(() => current(page)).toBe(own);
-  await page.getByTestId("flow-context-conversation").click();
+  await page.getByTestId("flow-context-flow-example-review").click();
   await expect(side).toHaveAttribute("data-key", "flow:example-review");
   await expect.poll(() => current(page)).toBe(own);
 
-  // Into it again from the Flows tab: the same conversation as before.
+  // Into it again from the flows tab: the same conversation as before.
   await select(page, "example-review");
   await expect.poll(() => current(page)).toBe(own);
   expect(errors).toEqual([]);
@@ -167,7 +167,8 @@ test("add: the general conversation's context, its composer started", TAGS, asyn
   expect(general).not.toBe(await conversationOf(page, "example-review"));
   await expect.poll(() => current(page)).toBe(general);
   await expect(page.getByTestId("flow-context")).toHaveAttribute("data-flow", "");
-  await expect(page.getByTestId("flow-context-title")).toContainText(/General conversation|通用会话/);
+  await expect(page.getByTestId("flow-context-conversation")).toHaveAttribute("aria-current", "true");
+  await expect(page.getByTestId("flow-context-conversation")).toContainText(/General conversation|通用会话/);
   await expect(page.getByTestId("flow-context-runs")).toHaveCount(0);
   await expect(page.locator("#secondary")).toHaveCount(0);
   await expect(page.getByTestId("conv-input")).toHaveValue(/Create a new flow:|新建一个流程：/);
@@ -177,7 +178,7 @@ test("add: the general conversation's context, its composer started", TAGS, asyn
   expect(errors).toEqual([]);
 });
 
-test("asked in a conversation on the flow, the Agent changes it, and the flow's context and the Flows tab follow", TAGS, async ({ page }) => {
+test("asked in a conversation on the flow, the Agent changes it, and the left column and the flows tab follow", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, backend.url);
   await select(page, "example-review");
@@ -195,12 +196,12 @@ test("asked in a conversation on the flow, the Agent changes it, and the flow's 
   await expect(reply(page)).toContainText("reviewed in conversation", { timeout: 30_000 });
   await expect(page.getByTestId("conv-ask")).toHaveCount(0);
 
-  await expect(page.getByTestId("flow-context-title")).toHaveText("Example: reviewed in conversation");
+  await expect(page.getByTestId("flow-context-flow-example-review")).toHaveText("Example: reviewed in conversation");
   await expect(page.locator("#secondary").getByTestId("flow-detail-title")).toHaveText("Example: reviewed in conversation");
   await expect(page.locator('#secondary [data-testid="flow-detail"]')).not.toHaveAttribute("data-digest", before ?? "");
   await expect(page.getByTestId("flow-focus-notice")).toContainText("Example: reviewed in conversation");
   await toFlows(page);
-  const row = page.getByTestId("flow-def-example-review");
+  const row = page.locator('#details [data-testid="flow-def-example-review"]');
   await expect(row).toContainText("Example: reviewed in conversation");
   await expect(row).toHaveAttribute("data-origin", "override");
   expect(errors).toEqual([]);
@@ -234,7 +235,9 @@ test("a dry run started on the flow is in the runs tab: it steps, runs to the ap
   const detail = page.locator('#secondary [data-testid="flow-run-detail"]');
   await expect(detail).toHaveAttribute("data-run", /^dry-example-review-/);
   const run = (await detail.getAttribute("data-run"))!;
-  await expect(page.getByTestId(`flow-run-${run}`)).toHaveAttribute("data-dry", "true");
+  // In the runs list, and under the flow in the left column.
+  await expect(page.locator(`#details [data-testid="flow-run-${run}"]`)).toHaveAttribute("data-dry", "true");
+  await expect(page.getByTestId("flow-context-runs").getByTestId(`flow-run-${run}`)).toHaveAttribute("data-dry", "true");
   await expect(page.getByTestId("flow-graph")).toHaveAttribute("data-mode", "run");
   await expect(page.getByTestId("flow-pause-run")).toHaveCount(0);
 
@@ -259,7 +262,7 @@ test("a dry run started on the flow is in the runs tab: it steps, runs to the ap
   await panel.getByTestId("flow-confirm").click();
   await expect(page.getByTestId("flow-run-phase")).toHaveAttribute("data-phase", "finished", { timeout: 15_000 });
   await expect(approve).toHaveAttribute("data-status", "passed");
-  await expect(page.getByTestId(`flow-run-${run}`)).toHaveAttribute("data-phase", "finished");
+  await expect(page.locator(`#details [data-testid="flow-run-${run}"]`)).toHaveAttribute("data-phase", "finished");
   expect(errors).toEqual([]);
 });
 
@@ -275,7 +278,7 @@ test("a run started on the flow: its main session in the middle, its state, paus
   const detail = page.locator('#secondary [data-testid="flow-run-detail"]');
   await expect(detail).toHaveAttribute("data-run", /^example-review-/);
   const run = (await detail.getAttribute("data-run"))!;
-  const row = page.getByTestId(`flow-run-${run}`);
+  const row = page.locator(`#details [data-testid="flow-run-${run}"]`);
   await expect(row).toBeVisible();
   await expect(row).not.toHaveAttribute("data-dry", "true");
   await expect(page.getByTestId("flow-dry-controls")).toHaveCount(0);
@@ -328,10 +331,10 @@ test("a run started on the flow: its main session in the middle, its state, paus
   expect(errors).toEqual([]);
 });
 
-test("the Flows tab lists every run and dry run, filtered by state and kind; a run clicked opens its flow with it", TAGS, async ({ page }) => {
+test("the runs tab lists every run and dry run, filtered by state and kind; a run clicked is shown beside its main session", TAGS, async ({ page }) => {
   const errors = watchConsole(page);
   await open(page, backend.url);
-  await toFlows(page);
+  await toRuns(page);
   await expect(page.getByTestId("flow-runs-toolbar")).toBeVisible();
   await expect(page.getByTestId("flow-runs").getByTestId("flow-add")).toHaveCount(0);
   const list = page.getByTestId("flow-run-list");
@@ -351,17 +354,16 @@ test("the Flows tab lists every run and dry run, filtered by state and kind; a r
   await page.getByTestId("flow-filter-state").selectOption("");
   await page.getByTestId("flow-sort-runs").selectOption("duration");
   await expect(rows.first()).toBeVisible();
-  // Nothing picked yet: nothing beside the console.
+  // Nothing picked yet: nothing beside the conversation.
   await expect(page.getByTestId("flow-run-pick-hint")).toBeVisible();
   await expect(page.locator("#secondary")).toHaveCount(0);
 
-  // A run clicked: its flow's context, the run picked there and shown beside its main session.
+  // A run clicked: picked in the list and shown beside its main session; the general conversation no longer the context.
   const first = rows.first();
   const run = (await first.getAttribute("data-testid"))!.replace(/^flow-run-/, "");
   await first.click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", "flow");
-  await expect(page.getByTestId("flow-context")).toHaveAttribute("data-flow", "example-review");
-  await expect(page.getByTestId(`flow-run-${run}`)).toHaveAttribute("aria-current", "true");
+  await expect(list.getByTestId(`flow-run-${run}`)).toHaveAttribute("aria-current", "true");
   await expect(page.locator('#secondary [data-testid="flow-run-detail"]')).toHaveAttribute("data-run", run);
   await expect(page.getByTestId("flow-context-conversation")).not.toHaveAttribute("aria-current", "true");
   expect(errors).toEqual([]);
@@ -413,32 +415,13 @@ test("a profile that switches the flows off does not get them", TAGS, async ({ p
     await open(page, without.url);
     await expect(spaceEntry(page, "sessions")).toBeVisible();
     await expect(page.locator('#side [data-space="flow"]')).toHaveCount(0);
-    await page.locator('#side button[data-space="system"]').click();
-    await expect(page.getByTestId("system-console")).toBeVisible();
-    await expect(page.locator('[data-testid="system-console"] [role="tab"][data-tab="flow.flows"]')).toHaveCount(0);
+    // Nor the home page's block of tasks, the other blocks drawn as ever.
+    await expect(page.locator('[data-testid="home-block"][data-block="harnix-app.sessions"]')).toBeVisible();
+    await expect(page.locator('[data-testid="home-block"][data-block="flow.tasks"]')).toHaveCount(0);
     // Switched off, its methods go with its interface.
     expect(await page.evaluate(() => (window as any).harnix.app.snapshot.reachable.includes("flow.defs"))).toBe(false);
     expect(errors).toEqual([]);
   } finally {
     await without.dispose();
-  }
-});
-
-test("a profile that keeps the flows but not the system space gets them as a space of their own, as before", TAGS, async ({ page }) => {
-  const alone = await startHarnix(launchFor("replay", { profile: '\n[extensions]\noff = ["system"]\n' }));
-  try {
-    const errors = watchConsole(page);
-    await open(page, alone.url);
-    await expect(page.locator('#side button[data-space="system"]')).toHaveCount(0);
-    await spaceEntry(page, "flow").click();
-    await expect(page.locator("#main")).toHaveAttribute("data-space", "flow");
-    await page.locator('#details [role="tab"][data-tab="flow.flows"]').click();
-    await page.getByTestId("flow-def-example-review").click();
-    await expect(page.locator('#secondary [data-testid="flow-detail"]')).toHaveAttribute("data-flow", "example-review");
-    await expect.poll(() => current(page)).toBe(await conversationOf(page, "example-review"));
-    await expect(page.getByTestId("flow-context")).toHaveCount(0);
-    expect(errors).toEqual([]);
-  } finally {
-    await alone.dispose();
   }
 });

@@ -55,17 +55,45 @@ export const settingsSection = (page: Page, section: string): Locator => page.ge
 /** A tab of a tab strip (`role="tab"`), by its `data-tab`. */
 export const tab = (scope: Page | Locator, id: string): Locator => scope.locator(`[role="tab"][data-tab="${id}"]`);
 
-/** Create a session replaying `fixture`, open it, and return its id. */
-/** Without a project root the session is in the engine's own working directory — the test project. */
-export async function newSession(page: Page, fixture: string, projectRoot?: string): Promise<string> {
-  // Connected is not started: until the shell has landed on a space whose contribution is in, a
-  // session would be made for the space it was in before (none, on a fresh page) and opened
-  // there, and the space it lands on has no current one.
+/**
+ * The shell has started: it has landed on a space whose contribution is in. Connected is not
+ * started — until then a session would be made for the space it was in before (none, on a fresh
+ * page). Where a space says it is the landing (the home page), the landing has been looked at too:
+ * the tab keeps that it landed (`harnix.landed`), so a switch made before it is not undone by it.
+ */
+export async function started(page: Page): Promise<void> {
   await page.waitForFunction(() => {
     const { app } = (window as unknown as { harnix: { app: any } }).harnix;
     const space = app.snapshot.space as string;
-    return space !== "" && app.registry.at("space").some((c: { id: string }) => c.id === space);
+    const spaces = app.registry.at("space") as { id: string; landing?: boolean }[];
+    if (space === "" || !spaces.some((c) => c.id === space)) return false;
+    return !spaces.some((c) => c.landing) || sessionStorage.getItem("harnix.landed") !== null;
   }, undefined, { timeout: 15_000 });
+}
+
+/** The space in front, by its entry in the left column. */
+export async function toSpace(page: Page, space: string): Promise<void> {
+  await started(page);
+  if ((await page.locator("#main").getAttribute("data-space")) !== space) await spaceEntry(page, space).click();
+  await expect(page.locator("#main")).toHaveAttribute("data-space", space);
+}
+
+/** The session space in front: where a page opened afresh is not (it lands on the home page). */
+export const toSessions = (page: Page): Promise<void> => toSpace(page, "sessions");
+
+/**
+ * Create a session replaying `fixture`, open it, and return its id. In the space in front — unless
+ * that space holds no conversation (the home page, where a page lands): then in the session space.
+ * Without a project root the session is in the engine's own working directory — the test project.
+ */
+export async function newSession(page: Page, fixture: string, projectRoot?: string): Promise<string> {
+  await started(page);
+  const talks = await page.evaluate(() => {
+    const { app } = (window as unknown as { harnix: { app: any } }).harnix;
+    const space = app.registry.at("space").find((c: { id: string }) => c.id === app.snapshot.space);
+    return space?.center?.mode !== "hidden";
+  });
+  if (!talks) await toSessions(page);
   const id = await page.evaluate(
     async ({ name, root }) => {
       const { app } = (window as unknown as { harnix: { app: any } }).harnix;
@@ -105,48 +133,76 @@ export async function openSettings(page: Page): Promise<void> {
   await expect(page.getByTestId("settings-nav")).toBeVisible();
 }
 
-/* ── the flows, in the system space ──────────────────────────────────── */
-
-/** The system space's Flows tab, from wherever the page is: the flows, then every run. */
-export async function toFlows(page: Page): Promise<void> {
-  await spaceEntry(page, "system").click();
-  await expect(page.locator("#main")).toHaveAttribute("data-space", "system");
-  await tab(page.getByTestId("system-console"), "flow.flows").click();
-  await expect(page.getByTestId("system-flows")).toBeVisible();
+/**
+ * Settings → 诊断 (harnix-app.md §12), from wherever the page is, and a block another package put
+ * after the shell's own content (`settings.section` `within: "diagnostics"`), by its id.
+ */
+export async function diagnosticsBlock(page: Page, section: string): Promise<Locator> {
+  if (!(await page.getByTestId("settings-nav").isVisible())) await openSettings(page);
+  await settingsSection(page, "diagnostics").click();
+  await expect(settingsSection(page, "diagnostics")).toHaveAttribute("data-state", "current");
+  const block = page.locator(`[data-testid="settings-within"][data-section="${section}"]`);
+  await expect(block).toBeVisible();
+  return block;
 }
 
-/** Into a flow from the Flows tab: the left column its context, its details beside its conversation. */
+/* ── the flow space ───────────────────────────────────────────────────── */
+
+/** A tab of the right column in front, the column opened first if it is closed. */
+export async function detailsTab(page: Page, id: string): Promise<void> {
+  if ((await page.locator("#frame").getAttribute("data-details")) !== "open") await page.getByTestId("details-toggle").click();
+  await tab(page.locator("#details"), id).click();
+  await expect(tab(page.locator("#details"), id)).toHaveAttribute("aria-selected", "true");
+}
+
+/** The flow space (harnix-app.md §11), from wherever the page is, its right column on the flows. */
+export async function toFlows(page: Page): Promise<void> {
+  await toSpace(page, "flow");
+  await detailsTab(page, "flow.flows");
+  await expect(page.locator('#details [data-testid="flow-flows"]')).toBeVisible();
+}
+
+/** The flow space, its right column on every run and dry run. */
+export async function toRuns(page: Page): Promise<void> {
+  await toSpace(page, "flow");
+  await detailsTab(page, "flow.runs");
+  await expect(page.locator('#details [data-testid="flow-runs"]')).toBeVisible();
+}
+
+/** Into a flow from the flows list (or still in it): the left column on it, its details beside its conversation. */
 export async function openFlow(page: Page, flow: string): Promise<void> {
   await toFlows(page);
-  await page.getByTestId(`flow-def-${flow}`).click();
+  // A click on the row already selected lets go of it.
+  const row = page.locator(`#details [data-testid="flow-def-${flow}"]`);
+  if ((await row.getAttribute("aria-current")) !== "true") await row.click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", "flow");
   await expect(page.getByTestId("flow-context")).toHaveAttribute("data-flow", flow);
   await expect(page.locator('#secondary [data-testid="flow-detail"]')).toHaveAttribute("data-flow", flow);
 }
 
-/** Into a run's flow from the Flows tab, the run shown beside its main session. */
+/** Into a run from the runs list, the run shown beside its main session. */
 export async function openRun(page: Page, run: string): Promise<void> {
-  await toFlows(page);
-  await page.getByTestId(`flow-run-${run}`).click();
+  await toRuns(page);
+  const row = page.locator(`#details [data-testid="flow-run-${run}"]`);
+  if ((await row.getAttribute("aria-current")) !== "true") await row.click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", "flow");
   await expect(page.locator('#secondary [data-testid="flow-run-detail"]')).toHaveAttribute("data-run", run);
 }
 
-/** The reference, the right column's one tab inside a flow. */
+/** The reference, the right column's third tab inside the flow space. */
 export async function flowReference(page: Page): Promise<void> {
-  if ((await page.locator("#frame").getAttribute("data-details")) !== "open") await page.getByTestId("details-toggle").click();
-  await tab(page.locator("#details"), "flow.reference").click();
+  await detailsTab(page, "flow.reference");
   await expect(page.getByTestId("flow-reference-tab")).toBeVisible();
 }
 
 /**
  * A session with a recording, for what reads one. A replayed session records nothing, and the
- * readers read a session's recording through its engine (system-space.md §8): so `backend` is one
+ * readers read a session's recording through its engine (testing.md §6): so `backend` is one
  * whose sessions record (`launchFor("none")`: nothing to replay and no model, so nothing on it runs
  * a turn). The session, on `main` in the session space, has run no turn; its recording is `lines`,
  * or the fixture `fixture` with the id it was recorded under replaced by the session's, put where
  * `main`'s engine records it. Nothing is written over it: a recording is rewritten by the session's
- * first call, and this session makes none. Opens the page on `backend`.
+ * first call, and this session makes none. Opens the page on `backend`, the session space in front.
  *
  * The session is made, and its recording written, with the page away: the engine's reader keeps
  * what it read until the session shows activity (`crates/engine/src/activity.rs`), and writing a
@@ -180,6 +236,7 @@ export async function recorded(
     writeFileSync(join(dir, "calls.jsonl"), source.lines(sid).map((l) => JSON.stringify(l)).join("\n") + "\n");
   }
   await open(page, backend.url);
+  await toSessions(page);
   return sid;
 }
 

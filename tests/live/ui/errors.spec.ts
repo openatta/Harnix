@@ -13,7 +13,7 @@ import type { Page } from "@playwright/test";
 import { type Backend, connect, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
 import { FAULTS, stubProvider, useStub, type Fault, type StubProvider } from "../api/stub-provider";
-import { open, say, settingsSection } from "./page";
+import { open, say, settingsSection, toSessions } from "./page";
 
 const TAGS = { tag: ["@feature:session-space", "@layer:ui"] };
 const MODELS = /模型与凭据|Models & credentials/;
@@ -35,12 +35,9 @@ test.afterAll(async () => {
   await failing?.dispose();
 });
 
-/** A session on the engine's own model (no recorder), open in the page. */
+/** A session on the engine's own model (no recorder), open in the session space. */
 async function plainSession(page: Page): Promise<void> {
-  await page.waitForFunction(() => {
-    const { app } = (window as any).harnix;
-    return app.snapshot.space !== "" && app.registry.at("space").some((c: { id: string }) => c.id === app.snapshot.space);
-  }, undefined, { timeout: 15_000 });
+  await toSessions(page);
   await page.evaluate(() => (window as any).harnix.app.create({ scene: "harnix" }));
 }
 

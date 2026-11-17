@@ -1,5 +1,5 @@
 /**
- * The system space's 用量 tab in the browser (system-space.md §6.2): every session's recording of
+ * The home page's usage block in the browser (harnix-app.md §10.3): every session's recording of
  * the last 30 days summed — totals, a bar a day, tables by project, model and day that sort by a
  * header — read again on asking, with the flows' section below it.
  *
@@ -11,9 +11,9 @@
 import type { Page } from "@playwright/test";
 import { type Backend, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-import { open, recorded, spaceEntry, watchConsole } from "./page";
+import { open, recorded, toSpace, watchConsole } from "./page";
 
-const TAGS = { tag: ["@feature:system", "@layer:ui"] };
+const TAGS = { tag: ["@feature:home", "@layer:ui"] };
 const MODEL = "claude-sonnet-4-6";
 
 let backend: Backend;
@@ -37,12 +37,11 @@ function now(lines: string[]): string[] {
   });
 }
 
+/** The page opened again (the summary is read when it is drawn), the home page in front. */
 async function toUsage(page: Page): Promise<void> {
   await open(page, backend.url);
-  await spaceEntry(page, "system").click();
-  await expect(page.getByTestId("system-console")).toBeVisible();
-  await page.locator('[data-testid="system-console"] [role="tab"][data-tab="observability.summary"]').click();
-  await expect(page.getByTestId("usage-summary")).toBeVisible();
+  await toSpace(page, "home");
+  await expect(page.locator('[data-testid="home-block"][data-block="observability.summary"] [data-testid="usage-summary"]')).toBeVisible();
 }
 
 test("usage-summary: the recordings of the window summed by project, model and day, a header sorting its table, read again on asking", TAGS, async ({ page }) => {
@@ -51,8 +50,6 @@ test("usage-summary: the recordings of the window summed by project, model and d
   await toUsage(page);
   const summary = page.getByTestId("usage-summary");
   await expect(summary).not.toHaveAttribute("data-loading", "true", { timeout: 20_000 });
-  // The right column says what the tab is.
-  await expect(page.locator('#details [data-testid="system-about"]')).toHaveAttribute("data-tab", "observability.summary");
 
   const totals = page.getByTestId("usage-summary-totals");
   await expect(totals.locator('[data-cell="sessions"] .v')).toHaveText("1");

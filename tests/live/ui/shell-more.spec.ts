@@ -1,15 +1,15 @@
 /**
  * The shell's own controls not covered elsewhere: the avatar's menu, a project added by name or by
- * picking its directory and then renamed and removed, the session menu from the title, the count of
- * running sessions on the system entry, and the note over the composer while no model is configured.
+ * picking its directory and then renamed and removed, the session menu from the title, and the note
+ * over the composer while no model is configured.
  *
- * Replayed: `says-ready`, `runs-a-while` (a turn that is still running four seconds on).
+ * Replayed: `says-ready`.
  */
 
 import type { Page } from "@playwright/test";
 import { type Backend, dropSessions, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-import { newSession, open, reply, say, settingsSection, spaceEntry, watchConsole } from "./page";
+import { newSession, open, reply, say, settingsSection, spaceEntry, toSessions, watchConsole } from "./page";
 
 const SHELL = { tag: ["@feature:session-space", "@layer:ui"] };
 const PROJECTS = { tag: ["@feature:projects", "@layer:ui"] };
@@ -126,17 +126,6 @@ test("the title opens the session's menu", SHELL, async ({ page }) => {
   for (const item of ["rename", "fork", "action:harnix-app.archive", "action:harnix-app.export", "delete"]) await expect(menu.locator(`button[data-item="${item}"]`)).toBeVisible();
 });
 
-test("the system entry counts the running sessions while they run", SHELL, async ({ page }) => {
-  await open(page, URL);
-  await newSession(page, "runs-a-while");
-  const count = page.locator('[data-testid="space-entry"][data-space="system"]').getByTestId("space-badge");
-  await expect(count).toHaveCount(0);
-  await say(page, "Use the Bash tool to wait a few seconds");
-  await expect(count).toHaveText("1", { timeout: 15_000 });
-  await page.getByTestId("conv-ask").getByTestId("conv-ask-allow").click();
-  await expect(count).toHaveCount(0, { timeout: 30_000 });
-});
-
 test.describe("without a model", () => {
   let bare: Backend;
   test.beforeAll(async () => {
@@ -148,6 +137,7 @@ test.describe("without a model", () => {
 
   test("the composer says no model is set up, and its button opens Settings · Models", SETTINGS, async ({ page }) => {
     await open(page, bare.url);
+    await toSessions(page);
     const note = page.getByTestId("model-setup");
     await expect(note).toBeVisible();
     // The model button agrees with the note: no model named, nothing to pick.

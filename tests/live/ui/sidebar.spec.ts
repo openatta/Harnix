@@ -129,9 +129,11 @@ test("host.sidebar opens a resource with the type that claims it, dedupes, deliv
     }
   });
   expect(refused).toMatch(/harnix-resource:\/\/nobody\/x/);
-  // Stored under the session's key; back after a reload, the type registered again.
+  // Stored under the session's key, beside the context tab that stands in every surface; back after
+  // a reload, the type registered again.
   const stored = await page.evaluate((id) => localStorage.getItem(`harnix.sidebar.v1.main/${id}`), sid);
-  expect(JSON.parse(stored!).layout.tabs).toEqual([first]);
+  const standing = await chip(page, "context").getAttribute("data-tab");
+  expect([...JSON.parse(stored!).layout.tabs].sort()).toEqual([standing, first].sort());
   await page.reload();
   await open(page, URL);
   await registerTypes(page);

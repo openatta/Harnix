@@ -1,5 +1,5 @@
 /**
- * What a person does to a run from a flow's station panel and run header, inside the system space: let a held station
+ * What a person does to a run from a flow's station panel and run header, in the flow space: let a held station
  * in, hand an external task in, reject a confirmation, send work back (rework), confirm, and cancel a
  * run with a reason.
  *
@@ -13,7 +13,7 @@
 import type { Page } from "@playwright/test";
 import { type Backend, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-import { open, openFlow, openRun, toFlows, watchConsole } from "./page";
+import { open, openFlow, openRun, toFlows, toRuns, watchConsole } from "./page";
 
 const TAGS = { tag: ["@feature:flow", "@layer:ui"] };
 
@@ -43,7 +43,7 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => { await backend?.dispose(); });
 
-/** A run of `ui-actions` started, entered from the system space's Flows tab: its details beside the conversation. */
+/** A run of `ui-actions` started, entered from the flow space's runs list: its details beside the conversation. */
 async function startRun(page: Page): Promise<string> {
   await open(page, backend.url);
   const run = await page.evaluate(async (yaml) => {
@@ -282,7 +282,7 @@ test("the runs narrowed to one flow's: by the filter, and inside the flow", TAGS
     },
     [FLOW, PAIR],
   );
-  await toFlows(page);
+  await toRuns(page);
   await expect(page.getByTestId(`flow-run-${a}`)).toBeVisible();
   await expect(page.getByTestId(`flow-run-${b}`)).toBeVisible();
   await page.getByTestId("flow-filter-flow").selectOption("ui-pair");

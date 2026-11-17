@@ -10,7 +10,7 @@
 import { dropSessions, expect, test } from "@harnix/testkit";
 import type { Page } from "@playwright/test";
 
-import { connected, newSession, open, reply, say } from "./page";
+import { connected, newSession, open, reply, say, toSessions } from "./page";
 
 const TAGS = { tag: ["@feature:sessions", "@layer:ui"] };
 
@@ -35,6 +35,7 @@ const thumb = (page: Page, rating: "up" | "down") => page.getByTestId(`conv-feed
 const dialog = (page: Page) => page.getByTestId("conv-feedback-dialog");
 
 async function reopen(page: Page, id: string): Promise<void> {
+  await toSessions(page);
   await page.evaluate((sid) => (window as any).harnix.app.open({ instance: "main", sessionId: sid }), id);
   await expect(reply(page)).toBeVisible({ timeout: 15_000 });
 }

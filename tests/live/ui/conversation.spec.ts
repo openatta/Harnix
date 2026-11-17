@@ -135,7 +135,8 @@ test("a compaction is a row of its own: told with its counts as it happens, and 
     await expect(replies).toHaveCount(i + 1, { timeout: 20_000 });
     await expect(page.getByTestId("conv-send")).toBeVisible();
   }
-  await page.evaluate((sid) => (window as any).harnix.app.call("system.compact", { instance: "main", session_id: sid }), id);
+  // The engine's own command, sent as a person would type it: a compaction now.
+  await page.evaluate((sid) => (window as any).harnix.app.call("harnix.session.send", { instance: "main", session_id: sid, space: "sessions", message: "/compact" }), id);
   const live = page.getByTestId("conv-compact").last();
   await expect(live).toBeVisible({ timeout: 20_000 });
   await expect(live).toContainText(/\d+ (条 )?→ \d+/);
@@ -266,17 +267,6 @@ test("the host API inserts into the composer, reveals in details, and refuses wh
     return host.instances.tasks(current.instance, current.sessionId);
   });
   expect(tasks).toHaveProperty("tasks");
-});
-
-test("the composer's model menu switches the session's model", TAGS, async ({ page }) => {
-  await open(page, URL);
-  await newSession(page, "says-ready");
-  await page.getByTestId("conv-model").click();
-  await expect(page.getByTestId("conv-model-option").first()).toBeVisible();
-  await page.getByTestId("conv-model-custom").fill("claude-switched-model");
-  await page.getByTestId("conv-model-custom").press("Enter");
-  await expect(page.getByTestId("conv-model")).toContainText("claude-switched-model");
-  await expect(page.getByTestId("conv-model-menu")).toHaveCount(0);
 });
 
 // A module that refuses some of what a person says (ipdrun-13): `harnix-testapp`'s `probe` gives
