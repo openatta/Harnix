@@ -15,6 +15,9 @@
 //
 // So the mode is set here, and the inconclusive message no longer claims to
 // know something it cannot see.
+//
+// And the command is one that asks: the engine runs a read-only one (`echo`, `ls`…) without
+// asking, so a test sending `echo` was inconclusive every time it ran.
 
 import type { AttachResult } from "@harnix/core/protocol";
 import { type Frame, assert, connect, defineSuite, finish, inconclusive } from "@harnix/testkit";
@@ -44,7 +47,7 @@ defineSuite("permissions", { feature: "sessions" }, {
         // Direct, and asking for the tool by name. A model that answers in
         // prose instead is not a failure of the permission path, and the
         // test says so rather than going green over it.
-        message: "Use the Bash tool to run: echo permission-check\n"
+        message: "Use the Bash tool to run: rm -f /tmp/harnix-permission-check-probe\n"
           + "Do this now. Do not describe it, do not ask, just call the tool.",
       });
 
@@ -99,7 +102,7 @@ defineSuite("permissions", { feature: "sessions" }, {
       await client.call("harnix.session.attach", { session_id: created.session_id });
       await client.call("harnix.session.send", {
         session_id: created.session_id,
-        message: "Use the Bash tool to run: echo late-watcher\n"
+        message: "Use the Bash tool to run: rm -f /tmp/harnix-late-watcher-probe\n"
           + "Do this now. Do not describe it, do not ask, just call the tool.",
       });
 
