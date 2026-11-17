@@ -11,7 +11,6 @@ import type {
   EngineTrust,
   FeedbackCategory,
   FeedbackFiled,
-  ExtensionLog,
   Handshake,
   Hello,
   HelloEngine,
@@ -200,11 +199,6 @@ export interface Methods {
   "schedule.runNow": { params: IdParams; result: Receipt };
   "schedule.history": { params: HistoryParams; result: History };
   "schedule.model.delete": { params: ModelDeleteParams; result: Deleted };
-  /** 各扩展的日志（系统 space 读，`harnix.extensions.log` 凭 `process.observe`）：最新的若干行，按扩展、最低级别、某行之后过滤。 */
-  "system.extensions.log": {
-    params: { extension?: string | null; level?: "error" | "warn" | "info" | "debug" | "trace" | null; after?: number; limit?: number };
-    result: ExtensionLog;
-  };
 }
 
 /** `settings.mcp.*` 定位到哪一对 (项目, 场景)：省略即引擎缺省的场景、无项目。 */

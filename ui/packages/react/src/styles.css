@@ -307,7 +307,7 @@
 .hx-cc-sys.hx-tone-error { color: var(--hx-danger); }
 .hx-cc-work { display: flex; align-items: center; gap: 8px; color: var(--hx-fg-soft); font-size: 13px; }
 
-/* 上下文报告（ContextReport）：系统块、工具、消息各占多长的一条，图例，事实表。系统 space 与右栏的上下文页共用。 */
+/* 上下文报告（ContextReport）：系统块、工具、消息各占多长的一条，图例，事实表。右栏的上下文页签用。 */
 .hx-ctx-stack { display: flex; height: 14px; margin: 8px 0 4px; overflow: hidden; border-radius: 6px; background: var(--hx-line); }
 .hx-ctx-stack i { display: block; height: 100%; }
 .hx-ctx-stack .sys, .hx-ctx-legend .sys::before { background: var(--state-info); }

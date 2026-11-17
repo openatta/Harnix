@@ -6,12 +6,12 @@
  * - "定时运行这个流程…" in the new-task dialog and a flow's detail (`flow.start.action`, `@harnix/flow`'s):
  *   the editor with a task target, what was filled in carried over.
  * - A project's overview, block 40 (`harnix-app.project.panels`): its schedules, a new session or task.
- * - The system console's tab (`system.console.tab`): every schedule, its source, state and next time;
- *   the models' jobs, read-only and deletable.
  * - Clocks: on a session's row (`harnix-app.session.badge`), a task's next time on its row (`flow.task.badge`).
+ * - Every schedule at once, its source, state and next time, and the models' jobs, read-only and
+ *   deletable (`ConsoleSchedules`): a component for whoever has a page for it.
  *
- * A point nobody defines (no projects space, no console, no flows) is dropped quietly. The data is the
- * topic `schedule.list`, followed while drawn, and the `schedule.*` methods.
+ * A point nobody defines (no projects space, no flows) is dropped quietly. The data is the topic
+ * `schedule.list`, followed while drawn, and the `schedule.*` methods.
  */
 
 import { t, type ActionTarget, type Dispose, type HostApi, type Registry } from "@harnix/react";
@@ -29,6 +29,7 @@ export { changedFields, changesAnything, createParams, draftProblems, initialDra
 export { allZones, formatWhen, isZone, localZone, momentOf, offsetLabel, offsetMinutes, relativeTo, wallClockOf } from "./time";
 export { ScheduleStore, activeOfSession, ofProject, ofSession, scheduleOfRun, stateOf, type ScheduleState } from "./store";
 export { STRINGS, STRINGS_OWNER } from "./strings";
+export { ConsoleSchedules } from "./views";
 
 /** The backend extension this is the interface of. */
 export const extension = "schedule";
@@ -36,7 +37,6 @@ export const extension = "schedule";
 /** The points of other packages this one fills; each dropped quietly where nobody defines it. */
 const SESSION_BADGE = "harnix-app.session.badge";
 const PROJECT_PANELS = "harnix-app.project.panels";
-const CONSOLE_TAB = "system.console.tab";
 const TASK_BADGE = "flow.task.badge";
 const START_ACTION = "flow.start.action";
 
@@ -116,12 +116,5 @@ export function register(r: Registry, host: HostApi): Dispose {
     extension,
     quiet,
   );
-  r.register(
-    CONSOLE_TAB,
-    { id: "schedule", order: 25, title: () => t("schedule.title"), about: () => t("schedule.about"), render: () => <ConsoleSchedules host={host} r={r} store={store} /> },
-    extension,
-    quiet,
-  );
-
   return () => store.stop();
 }

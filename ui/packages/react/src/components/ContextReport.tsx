@@ -1,14 +1,14 @@
 /**
- * What a session's next model call carries, drawn once for two places: the system space's context
- * tab and the conversation's right column (`@harnix/observability`'s context tab). The bar is as
- * long as the provider's own count of the last call, against the window; the estimates only divide
- * it, and an estimate is never shown as if it were a count (`~`).
+ * What a session's next model call carries, drawn in the right column's context tab
+ * (`@harnix/observability`'s). The bar is as long as the provider's own count of the last call,
+ * against the window; the estimates only divide it, and an estimate is never shown as if it were a
+ * count (`~`).
  */
 
 import { Disclosure } from "./blocks";
 import { useT } from "../i18n/index";
 
-/** `system.context`'s answer (the engine's `inspectContext`, with `measured` beside it). */
+/** `observability.context`'s answer (the engine's `inspectContext`, with `measured` beside it). */
 export interface ContextReportData {
   model?: string;
   provider?: string;

@@ -1,7 +1,7 @@
 /**
  * 录像读出来的用量，算成界面上的数：一个会话这次运行的概况（`observability.usage` 加 `observability.turns`），
- * 以及许多会话按项目、按天、按模型的汇总（`observability.usage.daily`）。不依赖框架，系统 space 的概况、
- * 右栏的用量页签、系统 space 的「用量」页签用的是同一份算法。
+ * 以及许多会话按项目、按天、按模型的汇总（`observability.usage.daily`）。不依赖框架，右栏的用量页签、
+ * 用量汇总用的是同一份算法。
  *
  * 用词照 `AgentUsage`：`input` 是没走缓存的输入，`cacheRead`、`cacheWrite` 是缓存读、写，四项不重叠，合计是四项之和。
  */

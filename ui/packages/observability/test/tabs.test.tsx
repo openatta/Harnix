@@ -1,8 +1,8 @@
 /**
- * The right column's two tabs. Context: the report where the system space is there to read, the
- * skills and hooks, the MCP servers, what trust holds back and the way to trust the project — each
- * part on its own, a method the product lacks leaving its part out. Usage: this run's figures and
- * the way into the trajectory.
+ * The right column's context and usage tabs. Context: the report of the next call, the skills and
+ * hooks, the MCP servers, what trust holds back and the way to trust the project — each part on its
+ * own, a method the product lacks leaving its part out. Usage: this run's figures and the way into
+ * the trajectory.
  */
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -56,7 +56,7 @@ const CONTEXT = {
 
 function full(method: string): unknown {
   switch (method) {
-    case "system.context":
+    case "observability.context":
       return CONTEXT;
     case "harnix.session.skills":
       return { instance: "main", session_id: "s1", listed: true, skills: [{ name: "deploy", description: "ship it", tier: "project", withheld: true }, { name: "notes", description: "", tier: "user", withheld: false }], dirs: [] };
@@ -82,7 +82,7 @@ describe("the context tab", () => {
     expect(container.querySelector('[data-testid="context-stack"]')?.getAttribute("data-measured")).toBe("400");
     expect(container.querySelectorAll('[data-testid="system-block"]')).toHaveLength(1);
     // Every read claims the front space's.
-    for (const method of ["system.context", "harnix.session.skills", "harnix.session.hooks", "settings.mcp.context", "harnix-app.sessions.projectStatus"]) {
+    for (const method of ["observability.context", "harnix.session.skills", "harnix.session.hooks", "settings.mcp.context", "harnix-app.sessions.projectStatus"]) {
       expect(s.calls.find((c) => c.method === method)?.params, method).toEqual({ instance: "main", session_id: "s1", space: "sessions" });
     }
     const skills = container.querySelectorAll('[data-testid="context-skill"]');
@@ -98,8 +98,8 @@ describe("the context tab", () => {
     expect(s.calls.find((c) => c.method === "harnix-app.projects.trust")?.params).toEqual({ project_root: "/p", trusted: true, instance: "main" });
   });
 
-  it("leaves out what this product has not: no system space, no Harnix app", async () => {
-    const s = scripted((method) => (method === "system.context" || method.startsWith("harnix-app.") ? NOT_DECLARED : full(method)));
+  it("leaves out what this product has not: no report, no Harnix app", async () => {
+    const s = scripted((method) => (method === "observability.context" || method.startsWith("harnix-app.") ? NOT_DECLARED : full(method)));
     const { container } = drawn(s.host, "context");
     await act(tick);
     expect(container.querySelector('[data-testid="context-report"]')).toBeNull();

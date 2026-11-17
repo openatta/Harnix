@@ -9,9 +9,8 @@
  * another, from their own runs topic. The hub does not know the flows; the page puts the two
  * together.
  *
- * Where it shows: a block of a project's overview (only that project's), an entry at the top of the
- * session and projects spaces' left column while anything waits, opening the whole list, and —
- * where the system space defines `system.metrics.link` — its metrics bar's "等你处理" count.
+ * Where it shows: a block of a project's overview (only that project's), and an entry at the top of
+ * the session and projects spaces' left column while anything waits, opening the whole list.
  */
 
 import { useSyncExternalStore } from "react";

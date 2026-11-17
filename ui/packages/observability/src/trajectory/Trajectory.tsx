@@ -10,15 +10,15 @@
  * A flow's station boundaries come from the outline's marks; the feedback given on a turn marks the
  * turn's last call.
  *
- * Drawn in the centre as a `conversation.view`, and in the system space's inspector (`compact`:
- * the inspector takes the list's place while a call is open; `inSystem`: a way into the session).
+ * Drawn in the centre as a `conversation.view`; `compact` has the inspector take the list's place
+ * while a call is open, for a narrow column.
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { FEEDBACK_NS, parseFeedback, type Feedback, type OutlineTurn, type SessionEntry, type TurnSummary } from "@harnix/core";
 import { Glyph, clip, compact, rowKeys, useT, type HostSessionRef as SessionKey } from "@harnix/react";
 
-import { Failure, RunNote, openTrajectory, seconds, sessionParams, usageText, type Observed, type Run, type TraceCall } from "../shared.tsx";
+import { Failure, RunNote, seconds, sessionParams, usageText, type Observed, type Run, type TraceCall } from "../shared.tsx";
 import { CallDetail } from "./Inspector.tsx";
 import {
   UNFOLDED,
@@ -51,7 +51,7 @@ type Level = "turns" | "calls" | "agents";
 /** The context column on a turn's row: how much it grew since the turn before, or the running total. */
 type ContextMode = "delta" | "total";
 
-export function Trajectory({ observed, session, tool, compact: compactMode = false, inSystem = false }: { observed: Observed; session: SessionKey; tool?: string; compact?: boolean; inSystem?: boolean }) {
+export function Trajectory({ observed, session, tool, compact: compactMode = false }: { observed: Observed; session: SessionKey; tool?: string; compact?: boolean }) {
   const tr = useT();
   const host = observed.host;
   const [calls, setCalls] = useState<TraceCall[] | null>(null);
@@ -188,11 +188,6 @@ export function Trajectory({ observed, session, tool, compact: compactMode = fal
                   {tr(`trajectory.fold.${level}`)}
                 </button>
               ))}
-              {inSystem ? (
-                <button type="button" className="btn sm outline" data-testid="traj-open-session" onClick={() => void openTrajectory(host, session)}>
-                  {tr("trajectory.openInSession")}
-                </button>
-              ) : null}
             </div>
             <div className="tools-row">
               <input className="search" type="search" data-testid="calls-search" placeholder={tr("system.searchCalls")} value={narrowing.query} onChange={(e) => setNarrowing({ ...narrowing, query: e.target.value })} />

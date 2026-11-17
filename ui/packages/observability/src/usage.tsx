@@ -4,7 +4,7 @@
  * token's wait, the output rate, how long the run took, the sub-agents' totals — from
  * `observability.usage` and `observability.turns`, and the way into the trajectory.
  *
- * The arithmetic is `@harnix/core`'s `summarizeUsage`, the one the system space's overview uses too.
+ * The arithmetic is `@harnix/core`'s `summarizeUsage`.
  */
 
 import { useEffect, useState } from "react";

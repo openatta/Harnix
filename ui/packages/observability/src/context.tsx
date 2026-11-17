@@ -1,12 +1,13 @@
 /**
- * The right column's context tab: what the session's next model call carries — the context's
- * parts and the system blocks' sources (the shared report, when the system space's `system.context`
- * is there to read), the skills and hooks in force (`harnix.session.skills`, `.hooks`), each MCP
- * server's tools and instructions (`settings.mcp.context`), and what the project's trust holds back
+ * The right column's context tab, standing at the end of every session's strip: what the session's
+ * next model call carries — the context's parts, the system blocks each with its source and size,
+ * the tools, the model (`observability.context`), the skills and hooks in force
+ * (`harnix.session.skills`, `.hooks`), each MCP server's tools and instructions
+ * (`settings.mcp.context`), and what the project's trust holds back
  * (`harnix-app.sessions.projectStatus`), with the way to trust the project.
  *
- * Each part is read on its own and fails on its own: a method this product does not have (the
- * system space not linked, no Harnix app) leaves its part out rather than the tab.
+ * Each part is read on its own and fails on its own: a method this product does not have (no
+ * settings, no Harnix app) leaves its part out rather than the tab.
  */
 
 import { useEffect, useState } from "react";
@@ -74,7 +75,7 @@ export function SessionContext({ observed, session, visible = true }: { observed
     ];
     return () => offs.forEach((off) => off());
   }, [host, session.sessionId]);
-  const context = usePart<ContextReportData>(() => host.call("system.context", params), key, again);
+  const context = usePart<ContextReportData>(() => host.call("observability.context", params), key, again);
   const skills = usePart<SessionSkills>(() => host.call("harnix.session.skills", params), key, again);
   const hooks = usePart<SessionHooks>(() => host.call("harnix.session.hooks", params), key, again);
   const mcp = usePart<McpContext>(() => host.call("settings.mcp.context", params), key, again);
@@ -96,7 +97,7 @@ export function SessionContext({ observed, session, visible = true }: { observed
   };
   if (!visible && context.state === "loading") return null;
   return (
-    <div className="system-pane obs-context" data-testid="context-tab">
+    <div className="obs-context" data-testid="context-tab">
       {context.state === "ok" ? (
         <>
           <div className="note">{tr("system.contextNote")}</div>

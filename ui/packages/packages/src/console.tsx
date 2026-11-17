@@ -1,6 +1,6 @@
 /**
- * The extension packages in the console of the process (`system.console.tab`, where a space
- * defines it): the ones this process hosts, and how each one's VM is doing — its backend up or
+ * The extension packages as they run (`PackagesTab`, for whoever has a page for it): the ones
+ * this process hosts, and how each one's VM is doing — its backend up or
  * down, how often it was recycled or rebuilt, its faults, its memory and storage against their
  * limits, the calls into its methods and their errors, and the calls it made as itself that were
  * refused. What this page's frames of it do is the shell's, in its diagnostics.

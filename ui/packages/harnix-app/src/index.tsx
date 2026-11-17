@@ -20,7 +20,7 @@
 import { t, type ActionTarget, type CommandCandidate, type Dispose, type HostApi, type Registry } from "@harnix/react";
 
 import { exportDialog } from "./dialogs.tsx";
-import { INBOX, Inbox, InboxEntryButton, hubAsks, inboxDialog } from "./inbox.tsx";
+import { INBOX, Inbox, InboxEntryButton, hubAsks } from "./inbox.tsx";
 import { PROJECT_ITEMS, PROJECT_PANELS, SESSION_BADGE } from "./items.ts";
 import { OVERVIEW, OverviewTab, registerOverview } from "./overview.tsx";
 import { ProjectsSidebar, TrustBanner } from "./projects.tsx";
@@ -53,9 +53,6 @@ export {
 
 /** The backend extension this is the interface of. */
 export const extension = "harnix-app";
-
-/** Where the system space's metrics bar takes a count to the list it counts (`system.metrics.link`). */
-const METRICS_LINK = "system.metrics.link";
 
 export function register(r: Registry, host: HostApi): Dispose {
   // What else a project holds, and what its overview shows: other packages fill these (`items.ts`).
@@ -204,10 +201,6 @@ export function register(r: Registry, host: HostApi): Dispose {
   r.register("home.card", { id: SCENE_STEP, order: 30, render: () => <SceneStep host={host} store={store} /> }, extension);
   // The overview's own blocks; other packages' go between them by order.
   registerOverview(r, host, store, inbox, extension);
-  // The system space's "等你处理" count opens the list, where that space defines the link.
-  r.register(METRICS_LINK, { id: "harnix-app.inbox", metric: "waiting", title: () => t("inbox.title"), open: () => void inboxDialog(host, r, inbox) }, extension, {
-    orElse: () => undefined,
-  });
 
   // Disabled: the stores stop following the hub with everything they fed.
   return () => {

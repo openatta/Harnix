@@ -1,7 +1,7 @@
 /**
  * 待我处理: the hub's asks as items, the sources registered at `harnix-app.inbox` put together and
  * followed, one project's part of them, the entry at the top of the left column opening the list,
- * a row opening where it is answered, and the system space's count linked to it.
+ * a row opening where it is answered.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -183,15 +183,5 @@ describe("in the Harnix app", () => {
     // Answered: nothing waits, and the entry goes.
     host.push("harnix.inbox", { items: [] });
     expect(page.queryByTestId("inbox-open")).toBeNull();
-  });
-
-  it("where the system space defines its metrics link, the count opens the list", async () => {
-    const host = fakeHost();
-    const { r } = await drawn(host, (r) => r.activate("system", () => r.definePoint("system.metrics.link", { kind: "register" })));
-    const links = r.list<{ metric: string; open(): void }>("system.metrics.link");
-    expect(links.map((l) => [l.id, l.metric])).toEqual([["harnix-app.inbox", "waiting"]]);
-    links[0]!.open();
-    await settle();
-    expect(host.shown).toHaveLength(1);
   });
 });

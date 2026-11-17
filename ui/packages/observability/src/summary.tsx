@@ -1,5 +1,5 @@
 /**
- * The system space's 用量 tab (`system.console.tab`): what every session of every instance has used
+ * The usage summary (`UsageSummaryTab`, for whoever has a page for it): what every session of every instance has used
  * over the last days — totals, a bar a day, and tables by project, by day and by model — summed from
  * the recordings (`observability.usage.daily`), and below them the sections other packages add to
  * the point this package defines, `observability.usage.section` (the flows, by flow).
