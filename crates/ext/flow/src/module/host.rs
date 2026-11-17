@@ -92,14 +92,21 @@ impl HarnixSessionHost {
     }
 }
 
+/// The engine's own codes the hub passes through as they are: no such session, and a session
+/// asked for by an id it has, under other options.
+const ENGINE_SESSION_NOT_FOUND: i32 = -32000;
+const ENGINE_SESSION_EXISTS: i32 = -32025;
+
 /// A hub error in the host's words: a session that is not there is `Gone`; the hub or the
-/// engine being away `Unavailable`; a refusal `Refused`.
+/// engine being away `Unavailable`; a refusal `Refused` — a key's session id that the engine
+/// holds under other options among them, so a second open of a key with another spec is refused
+/// after a restart as it is within one.
 fn host_error(e: RpcError) -> HostError {
     use harnix_ext::codes;
     match e.code {
-        codes::NOT_FOUND => HostError::Gone(e.message),
+        codes::NOT_FOUND | ENGINE_SESSION_NOT_FOUND => HostError::Gone(e.message),
         codes::INSTANCE_UNAVAILABLE => HostError::Unavailable(e.message),
-        codes::REFUSED | codes::INVALID_PARAMS | codes::CONFLICT => HostError::Refused(e.message),
+        codes::REFUSED | codes::INVALID_PARAMS | codes::CONFLICT | ENGINE_SESSION_EXISTS => HostError::Refused(e.message),
         _ => HostError::Other(e.message),
     }
 }
@@ -201,7 +208,7 @@ impl SessionHost for HarnixSessionHost {
         let s = session_ref(id);
         match cx.call("engine.session.get", json!({"instance": s.instance, "session_id": s.session_id})).await {
             Ok(v) => Ok(Some(info_of(&v))),
-            Err(e) if e.code == harnix_ext::codes::NOT_FOUND => Ok(None),
+            Err(e) if matches!(host_error(e.clone()), HostError::Gone(_)) => Ok(None),
             Err(e) => Err(host_error(e)),
         }
     }
@@ -445,6 +452,15 @@ fn turn_end(params: &Value) -> TurnEnd {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_engines_session_codes_are_gone_and_refused() {
+        let e = |code| host_error(RpcError::new(code, "said"));
+        assert_eq!(e(-32025), HostError::Refused("said".into()));
+        assert_eq!(e(-32000), HostError::Gone("said".into()));
+        assert_eq!(e(harnix_ext::codes::NOT_FOUND), HostError::Gone("said".into()));
+        assert_eq!(e(-32603), HostError::Other("said".into()));
+    }
 
     #[test]
     fn a_key_is_the_same_session_id_every_time_written_as_the_engine_writes_one() {

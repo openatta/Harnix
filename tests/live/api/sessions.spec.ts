@@ -201,6 +201,21 @@ defineSuite("sessions", { feature: "sessions" }, {
         await finish(client, created.session_id);
       },
 
+    // What makes a flow's sessions and a schedule's deliveries idempotent: the caller names the
+    // session, and creating it again is that session — but only under the same options.
+    "a caller's session id: again with the same options is that session, with others refused":
+      async ({ client }) => {
+        const created = await client.call("harnix.session.create", {});
+        const again = await client.call("harnix.session.create", { session_id: created.session_id });
+        assert(again.session_id === created.session_id, `the same id answered ${again.session_id}`);
+        assert(again.existing === true, `a session there already is not said to be: ${JSON.stringify(again)}`);
+        const e = await client.refused("harnix.session.create", { session_id: created.session_id, options: { permission_mode: "plan" } });
+        assert(e, "the same id under other options was not refused");
+        assert(e.code === -32025, `refused with ${e.code}: ${e.message}`);
+        assert(JSON.stringify(e.data ?? {}).includes("permission_mode"), `the refusal does not say what differs: ${JSON.stringify(e)}`);
+        await finish(client, created.session_id);
+      },
+
     "a closed session can be resumed explicitly": async ({ client }) => {
       const created = await client.call("harnix.session.create", {});
       await client.call("harnix.session.attach", { session_id: created.session_id });
