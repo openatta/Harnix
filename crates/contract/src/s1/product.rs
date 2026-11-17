@@ -18,6 +18,9 @@ pub const DEFAULT_PRODUCT_NAME: &str = "Harnix";
 /// engine's list; `crates/engine` checks the two agree.
 const OTHER_TOOLS_DIRS: &[&str] = &[".git", ".agents", ".claude", ".codex", ".cursor", ".github", ".vscode", ".idea"];
 
+/// Where the engine puts its worktrees, at a repository's root: not a project directory either.
+const ENGINE_WORKTREES_DIR: &str = ".wkts";
+
 /// The directory the engine keeps in each project, and the name it goes by.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,7 +92,7 @@ impl std::fmt::Display for NameError {
 impl std::error::Error for NameError {}
 
 /// Whether `name` can be a project data directory's: one path component of `[a-z0-9._-]`, at most
-/// 64 long, starting with `.`, not `.` or `..`, and no other tool's.
+/// 64 long, starting with `.`, not `.` or `..`, no other tool's, and not the engine's worktrees'.
 pub fn check_project_dir(name: &str) -> Result<(), &'static str> {
     if name.is_empty() {
         return Err("it is empty");
@@ -108,6 +111,9 @@ pub fn check_project_dir(name: &str) -> Result<(), &'static str> {
     }
     if OTHER_TOOLS_DIRS.contains(&name) {
         return Err("that directory belongs to another tool");
+    }
+    if name == ENGINE_WORKTREES_DIR {
+        return Err("that is where the engine's worktrees go");
     }
     Ok(())
 }
@@ -134,7 +140,7 @@ pub fn check_product_name(name: &str) -> Result<(), &'static str> {
 /// same answers.
 #[doc(hidden)]
 pub mod samples {
-    pub const BAD_PROJECT_DIRS: &[&str] = &["", "harnix", ".", "..", ".Acme", ".a/b", ".git", ".claude", ".agents", ".github"];
+    pub const BAD_PROJECT_DIRS: &[&str] = &["", "harnix", ".", "..", ".Acme", ".a/b", ".git", ".claude", ".agents", ".github", ".wkts"];
     pub const GOOD_PROJECT_DIRS: &[&str] = &[".harnix", ".acme", ".hello-app", ".a.b_c-1"];
     pub const BAD_PRODUCT_NAMES: &[&str] = &["", "1acme", "Acme Desk", "Acme/1", "Héllo"];
     pub const GOOD_PRODUCT_NAMES: &[&str] = &["Harnix", "Acme", "hello-app", "Helm_2"];

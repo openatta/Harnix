@@ -181,7 +181,7 @@ pub(crate) fn has_branch(project: &Path, branch: &str) -> Result<bool, String> {
 
 /// What the worktree at `dir` holds that is not committed, committed on its branch: every change,
 /// new files too, but what is in the project's data directory (`own`, `.harnix`) besides the
-/// project's flows (the engine's own, its delegates' worktrees among it). Answers the new commit,
+/// project's flows (the engine's own). Answers the new commit,
 /// `None` when there was nothing to commit or no worktree any more.
 pub(crate) fn snapshot(dir: &Path, own: Option<&str>, message: &str) -> Result<Option<String>, String> {
     if !dir.is_dir() {
@@ -370,7 +370,7 @@ pub(crate) mod tests {
         // Nothing changed: nothing committed.
         assert_eq!(snapshot(&wt, Some(".harnix"), "m").unwrap(), None);
         std::fs::write(wt.join("new.txt"), "new\n").unwrap();
-        std::fs::create_dir_all(wt.join(".harnix/worktrees/x")).unwrap();
+        std::fs::create_dir_all(wt.join(".harnix/scratchpad/x")).unwrap();
         std::fs::write(wt.join(".harnix/settings.local.json"), "{}\n").unwrap();
         std::fs::create_dir_all(wt.join(".harnix/flows")).unwrap();
         std::fs::write(wt.join(".harnix/flows/f.yaml"), "name: f\n").unwrap();

@@ -1331,10 +1331,10 @@ profile 的 `[brand]`：`name`（页面标题、左栏产品名）、`icon`（SV
 | 其余路径 | 是什么 |
 |---|---|
 | `~/Documents/`（`--data-dir` / `HARNIX_DATA_DIR`） | **只放项目**。选项目从这里开始，新建项目建在这里；里面没有隐藏目录 |
-| `<项目>/.harnix/`（带品牌的应用 `.<product_id>/`） | 项目数据目录：项目自己的数据与配置，**一律**放这里，不另开：引擎的项目层（设置、agents、hooks、rules、memory、它的 worktree）与 Harnix 写的（流程的 `runs/`、项目的 `flows/`）同在一处。它是工具的，不是任务的：流程任务的会话写它算写项目之外，引擎沙箱让会话写的 `scratchpad/`、`memory/`、`worktrees/` 除外；流程往它的 `.gitignore` 里只加 `runs/` |
+| `<项目>/.harnix/`（带品牌的应用 `.<product_id>/`） | 项目数据目录：项目自己的数据与配置，**一律**放这里，不另开：引擎的项目层（设置、agents、hooks、rules、memory）与 Harnix 写的（流程的 `runs/`、项目的 `flows/`）同在一处。它是工具的，不是任务的：流程任务的会话写它算写项目之外，引擎沙箱让会话写的 `scratchpad/`、`memory/` 除外；引擎往它的 `.gitignore` 里加本机的条目，流程只加 `runs/`。引擎的 worktree 不在这里，在仓库根的 `.wkts/` |
 
 为什么这样分：状态目录按产品 id 命名，同一台机器上装两个产品不会抢令牌和账本；每一处一个所有者，一个扩展停用或卸载时清掉的就是它自己那一处；
-Documents 是用户的，不该藏着程序的东西；项目里只有一个属于工具的目录，引擎与 Harnix 共用它（引擎启动时带 `project_dir = ".harnix"`、`product_name = "Harnix"`；带品牌的应用带 `.<product_id>` 与它的名字，二开的产品在用户的项目里留下的是自己的名字，不是 Harnix 的）。流程的 worktree 不在里面：引擎会清掉 `.harnix/worktrees/` 下它不认识的目录，所以它们在流程扩展的数据目录里。Harnix 只认这一种布局，不读、不迁移别的布局留下的文件。
+Documents 是用户的，不该藏着程序的东西；项目里只有一个属于工具的目录，引擎与 Harnix 共用它（引擎启动时带 `project_dir = ".harnix"`、`product_name = "Harnix"`；带品牌的应用带 `.<product_id>` 与它的名字，二开的产品在用户的项目里留下的是自己的名字，不是 Harnix 的）。流程的 worktree 不在项目里：引擎会清掉它的 worktree 目录（仓库根的 `.wkts/`）下它不认识的目录，所以它们在流程扩展的数据目录里。Harnix 只认这一种布局，不读、不迁移别的布局留下的文件。
 
 ### 5.11 桌面：Tauri 只是外壳
 

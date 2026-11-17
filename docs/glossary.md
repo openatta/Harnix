@@ -223,7 +223,7 @@
 | **流程库** | crate `harnix-flow`（`crates/flow`），`FLOW_API_VERSION` | 流程本身：定义、运行记录、内核、派工器、存储、流程包、试运行。不链 Harnix 也不链 Agix，别的宿主可以整个拷走；见它的嵌入指南 `crates/flow/docs/embed.zh-CN.md` |
 | **派工器** | runner，`harnix_flow::runner::Runner` | 流程库里把内核交出的工作项做掉的那一层：开会话、发消息、判权限询问、跑门禁、投钩子、开收 worktree。只经 `SessionHost` 认识会话 |
 | **宿主**（流程库的） | `SessionHost`；Harnix 的是 `HarnixSessionHost`（`harnix-ext-flow`） | 把会话交给派工器的那一方：开（同一个键再开是同一个会话）、看帧、发、打断、答权限。Harnix 的经中枢；测试与 `flowctl` 用按脚本答话的 `ScriptedHost`，每个宿主都要过一致性测试 `harnix_flow::conformance` |
-| **项目布局** | `ProjectLayout {dir, worktrees_root, branch_prefix, agent_dirs}` | 宿主告诉流程库它在项目里写到哪：项目数据目录的名字（Harnix `.harnix`，带品牌的应用 `.<product_id>`；库只用里面的 `flows/`、`runs/`）、worktree 的根（Harnix：流程扩展的数据目录下 `worktrees/`）、分支前缀（Harnix `harnix/flow`，带品牌的应用 `<引擎名小写>/flow`）、数据目录里任务的会话能当作自己的写的子目录（Harnix：`scratchpad`、`memory`、`worktrees`）。库里没有缺省 |
+| **项目布局** | `ProjectLayout {dir, worktrees_root, branch_prefix, agent_dirs}` | 宿主告诉流程库它在项目里写到哪：项目数据目录的名字（Harnix `.harnix`，带品牌的应用 `.<product_id>`；库只用里面的 `flows/`、`runs/`）、worktree 的根（Harnix：流程扩展的数据目录下 `worktrees/`）、分支前缀（Harnix `harnix/flow`，带品牌的应用 `<引擎名小写>/flow`）、数据目录里任务的会话能当作自己的写的子目录（Harnix：`scratchpad`、`memory`）。库里没有缺省 |
 | **格式号** | `format`；`DEFINITION_FORMAT`、`RUN_FORMAT`，存储目录的 `FORMAT` 文件 | 定义与件、运行记录各自的格式，缺省 1；比库新的整份拒读，不读半份。没有 `FORMAT` 却有运行的存储目录也拒 |
 | **流程 space** | space `flow`（场景 `flow-author`），`registerFlowSpace` | 流程自己的 space，入口在左栏底部（`place: "bottom"`）：左栏是通用会话、流程与它们的运行，中区是选中项的对话，右栏是流程、运行、参考。见 [Harnix app](harnix-app.md) §11 |
 | **流程** | `FlowDef` | 站组成的有向无环图，一份 YAML，随流程包分发 |

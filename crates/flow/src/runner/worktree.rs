@@ -8,8 +8,8 @@
 //! ```
 //!
 //! The worktree is out of the project, where the host's `ProjectLayout` says (Harnix: its flow
-//! extension's state, since `<project>/.harnix/worktrees/` is its engine's, which takes away what
-//! it does not know there, and the engine's branches are `harnix/worktree-*`).
+//! extension's state, apart from its engine's own worktrees in the repository's `.wkts/`, which
+//! the engine takes away what it does not know in, and from its branches `harnix/worktree-*`).
 //!
 //! Once the run is over a person decides: merge the branch into the project's current branch,
 //! keep the branch, or discard both ([`end`]). The worktree's uncommitted changes are committed
