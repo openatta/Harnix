@@ -109,7 +109,7 @@ fn first_party(without: &str) -> Modules {
         modules = modules.extension(System, system_caps());
     }
     if without != "observability" {
-        modules = modules.extension(Observability, [caps::RECORDINGS_READ]);
+        modules = modules.extension(Observability, [caps::RECORDINGS_READ, caps::PROCESS_OBSERVE]);
     }
     if without != "settings" {
         modules = modules.extension(Settings, [caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE, caps::ENGINE_MCP, caps::ENGINE_INSPECT]);
