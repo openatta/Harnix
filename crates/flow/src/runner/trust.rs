@@ -1,50 +1,33 @@
-//! A project's own flows (`<project>/.harnix/flows/`): read only while the project is trusted,
-//! and trust is the engine's (`engine.project.status`, which `engine.control` reaches). Each
-//! reader of a project's packs — `flow.defs {project}`, `flow.def`, `flow.start`, an authoring
-//! conversation in a project — asks the engine first; what it hears is kept for the kernel's own
-//! reads as a run goes on (`ProjectTrust`).
+//! A project's own flows (`<project>/<dir>/flows/`): read only while the project is trusted, and
+//! trust is the host's (`SessionHost::project_trusted`; Harnix asks its engine). Each reader of a
+//! project's packs — a start, a run in the project, the host's own readers — asks first; what is
+//! heard is kept for the kernel's own reads as a run goes on (`ProjectTrust`), and a host that
+//! hears of a change pushes it (`Runner::set_trust`).
 
-use std::sync::Arc;
+use std::path::Path;
 
-use harnix_ext::RpcError;
-use serde_json::{json, Value};
-
-use super::shared::Shared;
-use super::FLOW_INSTANCE;
+use super::Runner;
 use crate::kernel::host::Packs;
 use crate::kernel::run::{RunQuery, RunStatus};
 
-/// Whether the engine says `root` is trusted, kept for the kernel's reads. An engine that cannot
-/// say is heard as not trusted.
-pub(crate) async fn hear(sh: &Shared, root: &str) -> bool {
-    let Some(cx) = sh.cx.get() else {
-        return sh.projects.trusted(root);
-    };
-    let status = cx
-        .call(
-            "engine.project.status",
-            json!({"instance": FLOW_INSTANCE, "project_root": root}),
-        )
-        .await;
-    let trusted = match status {
-        Ok(v) => v.get("trust").and_then(Value::as_str) == Some("trusted"),
+/// Whether the host says `root` is trusted, kept for the kernel's reads. A host that cannot say
+/// is heard as not trusted.
+pub(crate) async fn hear(rn: &Runner, root: &str) -> bool {
+    let trusted = match rn.host().project_trusted(Path::new(root)).await {
+        Ok(t) => t,
         Err(e) => {
-            tracing::warn!(root, error = %e.message, "a project's trust was not read");
+            tracing::warn!(root, error = %e, "a project's trust was not read");
             false
         }
     };
-    sh.projects.set(root, trusted);
+    rn.trust().set(root, trusted);
     trusted
 }
 
 /// [`hear`] each project an unfinished run works in: what it reads next is its project's.
-pub(crate) async fn hear_active(sh: &Shared) {
-    let Ok(engine) = sh.engine() else { return };
-    let active = RunQuery {
-        status: Some(RunStatus::Active),
-        ..Default::default()
-    };
-    let Ok(runs) = engine.list(active).await else {
+pub(crate) async fn hear_active(rn: &Runner) {
+    let active = RunQuery { status: Some(RunStatus::Active), ..Default::default() };
+    let Ok(runs) = rn.engine().list(active).await else {
         return;
     };
     let mut roots: Vec<String> = runs
@@ -54,39 +37,13 @@ pub(crate) async fn hear_active(sh: &Shared) {
     roots.sort();
     roots.dedup();
     for root in roots {
-        hear(sh, &root).await;
+        hear(rn, &root).await;
     }
-}
-
-/// A project root a device or a conversation gives: an existing absolute directory, as given
-/// but for surrounding space and a trailing `/`.
-pub(crate) fn project_root(root: &str) -> Result<String, String> {
-    let root = root.trim();
-    let trimmed = root.trim_end_matches('/');
-    let root = if trimmed.is_empty() { root } else { trimmed };
-    if !std::path::Path::new(root).is_absolute() {
-        return Err(format!("project_root {root:?} is not an absolute path"));
-    }
-    match std::fs::metadata(root) {
-        Ok(m) if m.is_dir() => Ok(root.to_string()),
-        _ => Err(format!("project_root {root:?} is not an existing directory")),
-    }
-}
-
-/// The packs as a project sees them, its trust heard first; the application's without one.
-pub(crate) async fn packs_in(sh: &Arc<Shared>, project: Option<&str>) -> Result<Arc<dyn Packs>, RpcError> {
-    let engine = sh.engine()?;
-    let Some(root) = project.filter(|r| !r.trim().is_empty()) else {
-        return Ok(engine.packs().clone());
-    };
-    let root = project_root(root).map_err(RpcError::invalid_params)?;
-    hear(sh, &root).await;
-    Ok(engine.packs_for(Some(&root)))
 }
 
 /// Refuse a flow of the project's own while the project is not trusted: in a project its name
 /// means the project's, which is not run until then.
-pub(crate) fn withheld(packs: &dyn Packs, flow: &str) -> crate::Result<()> {
+pub fn withheld(packs: &dyn Packs, flow: &str) -> crate::Result<()> {
     match packs.withheld_flows().into_iter().find(|(n, _)| n == flow) {
         Some((_, crate::Withheld::Untrusted)) => Err(crate::FlowError::Denied(format!(
             "flow {flow} is the project's own, and the project is not trusted: trust the project first"
@@ -100,14 +57,18 @@ pub(crate) fn withheld(packs: &dyn Packs, flow: &str) -> crate::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::OnceLock;
+    use std::sync::Arc;
 
     use super::*;
     use crate::kernel::host::Origin;
-    use crate::module::publish::defs_list;
-    use crate::module::CatalogPacks;
     use crate::packs::{project_pack_dir, ProjectTrust};
-    use crate::{Actor, CreateIn, Engine, FlowError, MemPacks, MemStore, Withheld};
+    use crate::runner::{CatalogPacks, RunnerConfig, ScriptedHost};
+    use crate::wire::defs_list;
+    use crate::{Actor, CreateIn, Engine, FlowError, MemPacks, MemStore, ProjectLayout, Withheld};
+
+    fn layout() -> ProjectLayout {
+        ProjectLayout::new(".harnix", "/state/ext/flow/data/worktrees", "harnix/flow")
+    }
 
     const BASE: &str = "name: shared\ntitle: Built in\nstations: [{id: a, exit: [{kind: confirm}]}]";
     const OWN: &str = "name: shared\ntitle: The project's\nstations: [{id: a, exit: [{kind: confirm}]}]";
@@ -115,18 +76,9 @@ mod tests {
     const LACKING: &str = "name: lacking\nstations: [{id: a, executor: {kind: session, scene: flow-harnix}, skill: nowhere, output: {type: object}, exit: [{kind: output}]}]";
 
     fn engine(trust: Arc<ProjectTrust>) -> Engine {
-        let packs = CatalogPacks {
-            inner: OnceLock::new(),
-            scenes: vec!["flow-harnix".into()],
-            templates: vec![],
-            guarded: vec![],
-            main_scene: None,
-            command_gates: false,
-            projects: Some(trust),
-            layout: OnceLock::new(),
-        };
-        let _ = packs.layout.set(super::super::layout(std::path::Path::new("/state/ext/flow/data")));
-        let _ = packs.inner.set(Arc::new(MemPacks::new().flow(BASE).writable()));
+        let cfg = RunnerConfig { profiles: vec!["flow-harnix".into()], guarded: vec![], trust, ..Default::default() };
+        let packs = CatalogPacks::over(&cfg, vec![], Arc::new(MemPacks::new().flow(BASE).writable()));
+        packs.set_layout(layout());
         Engine::new(Arc::new(MemStore::new()), Arc::new(packs))
     }
 
@@ -143,7 +95,7 @@ mod tests {
     async fn a_task_runs_its_projects_own_flow_once_the_project_is_trusted() {
         let root = tempfile::tempdir().unwrap();
         let at = root.path().to_str().unwrap().to_string();
-        let dir = project_pack_dir(root.path(), &super::super::layout(std::path::Path::new("/state/ext/flow/data")));
+        let dir = project_pack_dir(root.path(), &layout());
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("shared.yaml"), OWN).unwrap();
         std::fs::write(dir.join("lacking.yaml"), LACKING).unwrap();
@@ -198,16 +150,25 @@ mod tests {
         assert!(eng.save_flow_in(packs.as_ref(), LACKING, me.clone()).await.is_err());
         let v = eng.save_flow_in(packs.as_ref(), yaml, me).await.unwrap();
         assert_eq!(v["origin"], "project");
-        assert!(project_pack_dir(root.path(), &super::super::layout(std::path::Path::new("/state/ext/flow/data"))).join("fresh.yaml").is_file());
+        assert!(project_pack_dir(root.path(), &layout()).join("fresh.yaml").is_file());
         assert!(eng.packs().flow("fresh").is_none(), "the application's packs are untouched");
     }
 
-    #[test]
-    fn a_project_root_is_an_existing_absolute_directory() {
-        let root = tempfile::tempdir().unwrap();
-        let at = root.path().to_str().unwrap();
-        assert_eq!(project_root(&format!(" {at}/ ")).unwrap(), at);
-        assert!(project_root("relative").is_err());
-        assert!(project_root(&format!("{at}/missing")).is_err());
+    /// Trust is the host's word, kept: asked once per read, and pushed when the host hears of a
+    /// change.
+    #[tokio::test]
+    async fn trust_is_heard_from_the_host_and_kept() {
+        let host = ScriptedHost::new();
+        let trust = Arc::new(ProjectTrust::default());
+        let eng = Arc::new(engine(trust.clone()));
+        let rn = crate::runner::Runner::for_tests_with(eng, host.clone(), RunnerConfig { trust: trust.clone(), ..Default::default() });
+        assert!(!hear(&rn, "/p").await);
+        host.trust(Path::new("/p"), true);
+        assert!(hear(&rn, "/p").await);
+        assert!(trust.trusted("/p"));
+        rn.set_trust(Path::new("/p"), false);
+        assert!(!trust.trusted("/p"), "what the host pushes is kept too");
+        host.unavailable(true);
+        assert!(!hear(&rn, "/p").await, "a host that cannot say is heard as not trusted");
     }
 }

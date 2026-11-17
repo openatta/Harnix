@@ -30,8 +30,8 @@ use harnix_ext::engine::{
 };
 use serde_json::{json, Value};
 
-use super::{dispatch, publish};
-use super::shared::Shared;
+use super::publish;
+use super::state::Shared;
 use crate::dryrun::StartIn;
 use crate::kernel::def::{definition_schema, FlowDef, Work};
 use crate::kernel::engine::CreateIn;
@@ -572,7 +572,7 @@ pub(crate) fn parts_used(packs: &dyn Packs, def: &FlowDef) -> Value {
         .hooks()
         .into_iter()
         .filter(|h| h.flows.is_empty() || h.flows.contains(&def.name))
-        .map(|h| json!({"name": h.name, "title": h.title, "on": h.on, "kind": h.kind, "action": super::hooks::redact_url(&h.action)}))
+        .map(|h| json!({"name": h.name, "title": h.title, "on": h.on, "kind": h.kind, "action": crate::runner::redact_url(&h.action)}))
         .collect();
     json!({"parts": used, "hooks": hooks})
 }
@@ -628,7 +628,7 @@ impl Tool for AuthorTool {
         // A conversation in a project reads and saves the project's packs
         // (`<project>/.harnix/flows/`); `flow_create` with a project moves it into that one.
         let asked = match (self.spec.does, str_of(&input, "project_root")) {
-            (Does::Save { creating: true }, Some(root)) => match super::project_packs::project_root(root) {
+            (Does::Save { creating: true }, Some(root)) => match super::state::project_root(root) {
                 Ok(root) => Some(root),
                 Err(m) => return error(m),
             },
@@ -637,7 +637,7 @@ impl Tool for AuthorTool {
         let project = asked.clone().or_else(|| sh.conversation_project(&instance, &session));
         let packs = match &project {
             Some(root) => {
-                if !super::project_packs::hear(sh, root).await
+                if !sh.hear(root).await
                     && matches!(self.spec.does, Does::Save { .. } | Does::Delete | Does::PartSet | Does::PartDelete)
                 {
                     return error(format!(
@@ -927,11 +927,13 @@ impl Tool for AuthorTool {
                     project_root: project.clone(),
                     ..Default::default()
                 };
-                let r = super::project::start(sh, &engine, start, by).await;
-                match r {
+                let Ok(rn) = sh.runner() else {
+                    return error("the flow module has not started");
+                };
+                match rn.start_run(start, by).await {
                     Ok(o) => {
                         let value = o.value.clone();
-                        dispatch::apply(sh, None, o).await;
+                        rn.apply(o).await;
                         text(value)
                     }
                     Err(e) => error(format!("not started: {e}")),
@@ -1010,7 +1012,10 @@ impl Tool for AuthorTool {
                 match r {
                     Ok(o) => {
                         let value = o.value.clone();
-                        dispatch::apply(sh, Some(&run), o).await;
+                        match sh.runner() {
+                            Ok(rn) => rn.apply_for(&run, o).await,
+                            Err(_) => return error("the flow module has not started"),
+                        }
                         let after = engine.record(&run).await.ok();
                         text(json!({"done": value, "phase": after.map(|r| r.phase())}))
                     }
@@ -1201,18 +1206,14 @@ mod tests {
     /// a project's trust is what the test sets).
     fn started() -> Arc<Shared> {
         let sh = Arc::new(Shared::for_tests());
-        let packs = super::super::CatalogPacks {
-            inner: std::sync::OnceLock::new(),
-            scenes: vec!["flow-harnix".into()],
-            templates: vec![],
+        let cfg = crate::runner::RunnerConfig {
+            profiles: vec!["flow-harnix".into()],
             guarded: vec![],
-            main_scene: None,
-            command_gates: false,
-            projects: Some(sh.projects.clone()),
-            layout: std::sync::OnceLock::new(),
+            trust: sh.projects.clone(),
+            ..Default::default()
         };
-        let _ = packs.layout.set(super::super::layout(std::path::Path::new("/state/ext/flow/data")));
-        let _ = packs.inner.set(Arc::new(crate::MemPacks::new().skill("look", "Look.").writable()));
+        let packs = crate::runner::CatalogPacks::over(&cfg, vec![], Arc::new(crate::MemPacks::new().skill("look", "Look.").writable()));
+        packs.set_layout(super::super::layout(std::path::Path::new("/state/ext/flow/data")));
         let engine = crate::Engine::new(Arc::new(crate::MemStore::new()), Arc::new(packs));
         let _ = sh.engine.set(Arc::new(engine));
         sh

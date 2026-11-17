@@ -33,3 +33,42 @@ pub struct DefRow {
     #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub inputs: Value,
 }
+
+/// The flows on offer, as a host's listing carries them; and, for a project, the project's own
+/// that are withheld (not valid, with the reason), in name order with the rest.
+pub fn defs_list(packs: &dyn crate::kernel::host::Packs) -> Vec<DefRow> {
+    let mut rows: Vec<DefRow> = packs
+        .flows()
+        .into_iter()
+        .filter_map(|n| {
+            let (def, digest) = packs.flow(&n)?;
+            let valid = crate::kernel::validate::validate(&def, packs).is_empty();
+            Some(DefRow {
+                origin: packs.origin(&n),
+                inputs: def.inputs_schema(),
+                name: n,
+                title: def.title,
+                description: def.description,
+                digest,
+                valid,
+                reason: None,
+            })
+        })
+        .collect();
+    let withheld = packs.withheld_flows();
+    if withheld.is_empty() {
+        return rows;
+    }
+    rows.extend(withheld.into_iter().map(|(name, why)| DefRow {
+        origin: packs.origin(&name),
+        title: String::new(),
+        description: String::new(),
+        digest: String::new(),
+        valid: false,
+        reason: Some(why),
+        inputs: serde_json::json!({"type": "object"}),
+        name,
+    }));
+    rows.sort_by(|a, b| a.name.cmp(&b.name));
+    rows
+}

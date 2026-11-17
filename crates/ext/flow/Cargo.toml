@@ -22,7 +22,8 @@ serde       = { workspace = true }
 serde_json  = { workspace = true }
 async-trait = { workspace = true }
 sha2        = { workspace = true }
-uuid        = { workspace = true }
+# A session id derived from its key (v5), so opening a run's session is idempotent.
+uuid        = { workspace = true, features = ["v5"] }
 serde_yaml  = "0.9"
 # The module's tasks and timers.
 tokio       = { workspace = true }

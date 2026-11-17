@@ -1,36 +1,33 @@
 //! A task in a worktree of its project (`workspace: worktree`, `docs/glossary.md` 项目任务):
 //!
 //! ```text
-//! <data>/worktrees/<run>/          the worktree, on the branch harnix/flow/<run> from HEAD at
+//! <worktrees_root>/<run>/          the worktree, on the branch <branch_prefix>/<run> from HEAD at
 //!                                  start: the run's sessions, gates and output directory are here
-//! <project>/.harnix/runs/<run>/    its process directory stays in the project's own tree, with
+//! <project>/<dir>/runs/<run>/      its process directory stays in the project's own tree, with
 //!                                  every other run's
 //! ```
 //!
-//! The worktree is out of the project: `<project>/.harnix/worktrees/` is the engine's, which takes
-//! away what it does not know there, and its branches are `harnix/worktree-*`. `<data>` is the
-//! module's data directory, in the application's state. Where they go is the engine's
-//! `ProjectLayout`, which the module gives it ([`super::layout`]).
+//! The worktree is out of the project, where the host's `ProjectLayout` says (Harnix: its flow
+//! extension's state, since `<project>/.harnix/worktrees/` is its engine's, which takes away what
+//! it does not know there, and the engine's branches are `harnix/worktree-*`).
 //!
-//! Once the run is over a person decides: merge the branch into the project's current branch
-//! (`flow.worktree.merge`), keep the branch (`flow.worktree.keep`), or discard both
-//! (`flow.worktree.discard`). The worktree's uncommitted changes are committed on its branch
-//! first, so keeping or merging loses nothing the task wrote; a merge never leaves the project's
-//! tree half-merged (`git.rs`). What was decided is recorded on the run (`RunRecord::worktree`).
+//! Once the run is over a person decides: merge the branch into the project's current branch,
+//! keep the branch, or discard both ([`end`]). The worktree's uncommitted changes are committed
+//! on its branch first, so keeping or merging loses nothing the task wrote; a merge never leaves
+//! the project's tree half-merged (`git.rs`). What was decided is recorded on the run
+//! (`RunRecord::worktree`).
 
 use std::path::{Path, PathBuf};
 
-use harnix_ext::{codes, RpcError};
 use serde_json::{json, Value};
 
 use super::git::{self, MergeFailed, NoRepo};
-use super::rpc_error;
 use crate::kernel::engine::{worktree_may_end, Engine};
 use crate::kernel::host::Outcome;
 use crate::kernel::run::{Actor, RunRecord, WorktreeEnd, WorktreeOutcome, WorktreeRec};
 use crate::kernel::FlowError;
 
-/// One piece of the module's git work at a time: two ends of one worktree never race, nor a start
+/// One piece of the runner's git work at a time: two ends of one worktree never race, nor a start
 /// and an end in one repository.
 static GIT: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -50,7 +47,7 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> 
 
 /// Whether a worktree can be made of `project`: `{git: true, branch, prefix}`, or `{git: false,
 /// reason, detail}` — `reason` one of `not_a_repository`, `bare`, `no_commit`, `no_git`.
-pub(crate) async fn info(project: PathBuf) -> Value {
+pub async fn info(project: PathBuf) -> Value {
     match blocking(move || git::probe(&project)).await {
         Ok(Ok(repo)) => json!({"git": true, "branch": repo.branch, "prefix": repo.prefix}),
         Ok(Err(no)) => json!({"git": false, "reason": no.code(), "detail": no.to_string()}),
@@ -64,8 +61,8 @@ fn needs_git(no: &NoRepo) -> FlowError {
 }
 
 /// Make the worktree a run of `flow` in `root` will work in, from the project's `HEAD`, under an id
-/// allocated for it now: `<data>/worktrees/<id>` on `harnix/flow/<id>`. The project's
-/// `.harnix/.gitignore` is written first, so the run's process directory is not something the
+/// allocated for it now: `<worktrees_root>/<id>` on `<branch_prefix>/<id>`. The project's
+/// `<dir>/.gitignore` is written first, so the run's process directory is not something the
 /// project's tree shows. Returns the id and the worktree.
 pub(crate) async fn make(engine: &Engine, root: &str, flow: &str) -> crate::Result<(String, WorktreeRec)> {
     let project = PathBuf::from(root);
@@ -76,9 +73,9 @@ pub(crate) async fn make(engine: &Engine, root: &str, flow: &str) -> crate::Resu
     let repo = probed.map_err(|no| needs_git(&no))?;
     let layout = engine
         .layout()
-        .ok_or_else(|| FlowError::Invalid("this application makes no worktrees".into()))?;
+        .ok_or_else(|| FlowError::Invalid("this host makes no worktrees".into()))?;
     if let Err(e) = super::project::ensure_gitignore(&project, layout) {
-        tracing::warn!(root, error = %e, "the project's .harnix/.gitignore not written");
+        tracing::warn!(root, error = %e, "the project's data directory's .gitignore not written");
     }
     for _ in 0..TRIES {
         let id = engine.alloc_id(flow, Some(root)).await?;
@@ -138,14 +135,51 @@ fn work_message(rec: &RunRecord) -> String {
     format!("Harnix task {} ({}): {line}", rec.id, rec.flow)
 }
 
+/// Why a worktree could not be ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EndError {
+    /// The kernel's: no such run, not over yet, no worktree, decided already.
+    Flow(FlowError),
+    /// Merging conflicts in `files`: nothing in the project changed; the task's work is committed
+    /// on `branch` and its worktree is still at `worktree`.
+    Conflict { files: Vec<String>, branch: String, worktree: String },
+    /// git refused or failed otherwise.
+    Git { message: String, branch: String },
+    /// The git work could not be run at all.
+    Lost(String),
+}
+
+impl std::fmt::Display for EndError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EndError::Flow(e) => e.fmt(f),
+            EndError::Conflict { files, branch, worktree } => write!(
+                f,
+                "merging {branch} into the project conflicts in {}: nothing in the project changed; the task's work is committed on {branch} and its worktree is still at {worktree}",
+                files.join(", ")
+            ),
+            EndError::Git { message, .. } => f.write_str(message),
+            EndError::Lost(m) => f.write_str(m),
+        }
+    }
+}
+
+impl std::error::Error for EndError {}
+
+impl From<FlowError> for EndError {
+    fn from(e: FlowError) -> Self {
+        EndError::Flow(e)
+    }
+}
+
 /// Decide `run`'s worktree: `how` carried out in git, then recorded on the run. `value`:
-/// `{run, worktree}`. A merge that conflicts answers `CONFLICT` with the files
-/// (`data: {flow: "conflict", files, branch, worktree}`), the project's tree untouched.
-pub(crate) async fn end(engine: &Engine, run: &str, how: WorktreeEnd, by: Actor) -> Result<Outcome, RpcError> {
-    let rec = engine.record(run).await.map_err(rpc_error)?;
-    let w = worktree_may_end(&rec).map_err(rpc_error)?.clone();
+/// `{run, worktree}`. A merge that conflicts answers [`EndError::Conflict`] with the files, the
+/// project's tree untouched.
+pub(crate) async fn end(engine: &Engine, run: &str, how: WorktreeEnd, by: Actor) -> Result<Outcome, EndError> {
+    let rec = engine.record(run).await?;
+    let w = worktree_may_end(&rec)?.clone();
     let Some(root) = rec.project_root.clone() else {
-        return Err(rpc_error(FlowError::Invalid(format!("run {run} has no project"))));
+        return Err(FlowError::Invalid(format!("run {run} has no project")).into());
     };
     let message = work_message(&rec);
     let merge_message = format!("Merge {} (Harnix task {})", w.branch, rec.id);
@@ -154,25 +188,13 @@ pub(crate) async fn end(engine: &Engine, run: &str, how: WorktreeEnd, by: Actor)
     let own = engine.layout().map(|l| l.dir.clone());
     let done = blocking(move || carry_out(&project, &path, &branch, own.as_deref(), how, &message, &merge_message))
         .await
-        .map_err(|e| RpcError::new(codes::INTERNAL_ERROR, e))?;
+        .map_err(EndError::Lost)?;
     let (into, commit, merged_how) = match done {
         Ok(d) => d,
         Err(MergeFailed::Conflict(files)) => {
-            return Err(RpcError::with_data(
-                codes::CONFLICT,
-                format!(
-                    "merging {} into the project conflicts in {}: nothing in the project changed; the task's work is committed on {} and its worktree is still at {}",
-                    w.branch,
-                    files.join(", "),
-                    w.branch,
-                    w.path
-                ),
-                json!({"flow": "conflict", "files": files, "branch": w.branch, "worktree": w.path}),
-            ))
+            return Err(EndError::Conflict { files, branch: w.branch.clone(), worktree: w.path.clone() });
         }
-        Err(MergeFailed::Other(m)) => {
-            return Err(RpcError::with_data(codes::CONFLICT, m, json!({"flow": "git", "branch": w.branch})))
-        }
+        Err(MergeFailed::Other(m)) => return Err(EndError::Git { message: m, branch: w.branch.clone() }),
     };
     let outcome = WorktreeOutcome {
         kind: how,
@@ -182,7 +204,7 @@ pub(crate) async fn end(engine: &Engine, run: &str, how: WorktreeEnd, by: Actor)
         commit,
         how: merged_how.map(String::from),
     };
-    engine.worktree_ended(run, outcome, by).await.map_err(rpc_error)
+    Ok(engine.worktree_ended(run, outcome, by).await?)
 }
 
 type Done = (Option<String>, Option<String>, Option<&'static str>);
@@ -225,26 +247,31 @@ fn carry_out(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+
     use crate::kernel::engine::CreateIn;
     use crate::kernel::run::Workspace;
-    use crate::module::git::tests::{commit_all, have_git, repo};
-    use crate::{ManualClock, MemPacks, MemStore};
+    use crate::runner::git::tests::{commit_all, have_git, repo};
+    use crate::runner::{Runner, ScriptedHost};
+    use crate::{ManualClock, MemPacks, MemStore, ProjectLayout};
 
-    fn engine(data: &Path) -> Engine {
+    fn engine(data: &Path) -> Arc<Engine> {
         let packs = MemPacks::new()
             .flow("{name: f, stations: [{id: a, exit: [{kind: confirm}]}]}")
             .flow("{name: w, workspace: worktree, stations: [{id: a, exit: [{kind: confirm}]}]}");
-        Engine::new(std::sync::Arc::new(MemStore::new()), std::sync::Arc::new(packs))
-            .with_clock(std::sync::Arc::new(ManualClock::new(1_794_787_200_000)))
-            .with_workspaces(data.join("workspaces"))
-            .with_layout(super::super::layout(data))
+        Arc::new(
+            Engine::new(Arc::new(MemStore::new()), Arc::new(packs))
+                .with_clock(Arc::new(ManualClock::new(1_794_787_200_000)))
+                .with_workspaces(data.join("workspaces"))
+                .with_layout(ProjectLayout::new(".harnix", data.join("worktrees"), "harnix/flow")),
+        )
     }
 
     fn by() -> Actor {
         Actor::device("d")
     }
 
-    async fn started(e: &Engine, flow: &str, root: &Path, ws: Option<Workspace>) -> crate::Result<String> {
+    async fn started(e: &Arc<Engine>, flow: &str, root: &Path, ws: Option<Workspace>) -> crate::Result<String> {
         let input = CreateIn {
             flow: flow.into(),
             subject: "the subject".into(),
@@ -252,8 +279,13 @@ mod tests {
             workspace: ws,
             ..Default::default()
         };
-        let o = super::super::project::start(&crate::module::shared::Shared::for_tests(), e, input, by()).await?;
+        let rn = Runner::for_tests(e.clone(), ScriptedHost::new());
+        let o = super::super::project::start(&rn, input, by()).await?;
         Ok(o.value["run"].as_str().unwrap().to_string())
+    }
+
+    fn invalid(e: &EndError) -> bool {
+        matches!(e, EndError::Flow(FlowError::Invalid(_)))
     }
 
     fn git_out(dir: &Path, args: &[&str]) -> String {
@@ -293,7 +325,7 @@ mod tests {
         assert_eq!(rec.summary().worktree.unwrap().branch, w.branch);
         // Not over: nothing to decide yet.
         let early = end(&e, &run, WorktreeEnd::Kept, by()).await.unwrap_err();
-        assert_eq!(early.code, codes::INVALID_PARAMS, "{}", early.message);
+        assert!(invalid(&early), "{early}");
     }
 
     #[tokio::test]
@@ -374,13 +406,14 @@ mod tests {
             output_dir: Some("../outside".into()),
             ..Default::default()
         };
-        assert!(super::super::project::start(&crate::module::shared::Shared::for_tests(), &e, input, by()).await.is_err());
+        let rn = Runner::for_tests(e.clone(), ScriptedHost::new());
+        assert!(super::super::project::start(&rn, input, by()).await.is_err());
         assert_eq!(std::fs::read_dir(data.path().join("worktrees")).map(|d| d.count()).unwrap_or(0), 0);
         assert_eq!(git_out(p, &["branch", "--list", "harnix/*"]), "");
     }
 
     /// A run of `f` in a worktree, a file written there, the run over.
-    async fn finished_with(e: &Engine, p: &Path, file: &str, text: &str) -> (String, PathBuf) {
+    async fn finished_with(e: &Arc<Engine>, p: &Path, file: &str, text: &str) -> (String, PathBuf) {
         let run = started(e, "f", p, Some(Workspace::Worktree)).await.unwrap();
         let wt = PathBuf::from(e.record(&run).await.unwrap().worktree.unwrap().path);
         std::fs::write(wt.join(file), text).unwrap();
@@ -408,7 +441,7 @@ mod tests {
         assert_eq!(git_out(p, &["branch", "--list", "harnix/*"]), "");
         assert_eq!(git_out(p, &["log", "-1", "--format=%s"]), format!("Harnix task {run} (f): the subject"));
         // Decided: nothing more to do.
-        assert_eq!(end(&e, &run, WorktreeEnd::Discarded, by()).await.unwrap_err().code, codes::INVALID_PARAMS);
+        assert!(invalid(&end(&e, &run, WorktreeEnd::Discarded, by()).await.unwrap_err()));
         let history = e.history(&run).await.unwrap();
         assert_eq!(history.last().unwrap().op, "worktree");
 
@@ -437,8 +470,8 @@ mod tests {
         commit_all(p, "person");
         let head = git_out(p, &["rev-parse", "HEAD"]);
         let err = end(&e, &run, WorktreeEnd::Merged, by()).await.unwrap_err();
-        assert_eq!(err.code, codes::CONFLICT);
-        assert_eq!(err.data.as_ref().unwrap()["files"], json!(["a.txt"]));
+        let EndError::Conflict { files, .. } = &err else { panic!("{err}") };
+        assert_eq!(files, &["a.txt"]);
         assert_eq!(git_out(p, &["rev-parse", "HEAD"]), head);
         assert_eq!(std::fs::read_to_string(p.join("a.txt")).unwrap(), "one\nperson\nthree\n");
         assert_eq!(git_out(p, &["status", "--porcelain", "--untracked-files=no"]), "");
@@ -487,6 +520,6 @@ mod tests {
         let run = started(&e, "f", project.path(), None).await.unwrap();
         e.cancel(&run, "done", by()).await.unwrap();
         let err = end(&e, &run, WorktreeEnd::Kept, by()).await.unwrap_err();
-        assert!(err.message.contains("does not work in a worktree"), "{}", err.message);
+        assert!(err.to_string().contains("does not work in a worktree"), "{err}");
     }
 }

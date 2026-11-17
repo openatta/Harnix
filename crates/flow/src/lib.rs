@@ -28,6 +28,7 @@
 //! dryrun.rs           dry runs: the kernel in a sandbox, everything outside it mocked
 //! wire.rs             the library's own rows (`DefRow`)
 //! runner/             the runner (feature `runner`): a run's work carried out in a host's sessions
+//! conformance.rs      what every runner host must do, checked against a live one
 //! docs/guide.*.md     the flow guide: what a flow is and how one is written
 //! ```
 
@@ -48,6 +49,8 @@ pub const RUN_FORMAT: u32 = 1;
 pub mod dryrun;
 pub mod kernel;
 pub mod packs;
+#[cfg(feature = "runner")]
+pub mod conformance;
 #[cfg(feature = "runner")]
 pub mod runner;
 pub mod store;

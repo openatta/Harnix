@@ -1,0 +1,16 @@
+# The demo's list → analyze each → report: the main Agent lists two modules, a sub-agent of the
+# main session analyzes each (two at once), the main Agent writes the report.
+pack: /tests/golden/packs/demo
+catalog: {scenes: [flow-harnix], submit_scenes: [flow-harnix], main_scene: flow-harnix}
+flow: demo-each
+subject: the repo
+steps:
+  - main: {session: s1, opened_with: {scene: flow-harnix, delivery: flow_submit, main: true}}
+  - advance: {ms: 1000}
+  - submit: {station: list, output: {modules: [core, ui]}}
+  - advance: {ms: 500}
+  - submit: {station: analyze, task: core, output: {risk: low}}
+  - submit: {station: analyze, task: ui, output: {risk: medium}}
+  - advance: {ms: 500}
+  - submit: {station: report, output: {text: core is fine; ui has a medium risk}}
+status: finished

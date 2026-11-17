@@ -1,0 +1,15 @@
+# The demo's collect → code and docs reviewed side by side → join: the main Agent collects, two
+# sub-agents of the main session review, a person confirms the whole.
+pack: /tests/golden/packs/demo
+catalog: {scenes: [flow-harnix], submit_scenes: [flow-harnix], main_scene: flow-harnix}
+flow: demo-parallel
+subject: the pull request
+steps:
+  - main: {session: s1, opened_with: {scene: flow-harnix, delivery: flow_submit, main: true}}
+  - advance: {ms: 1000}
+  - submit: {station: collect, output: {files: [src/a.rs, docs/a.md]}}
+  - advance: {ms: 500}
+  - submit: {station: docs, output: {ok: true}}
+  - submit: {station: code, output: {ok: true, notes: [one unwrap]}}
+  - confirm: {station: join, pass: true}
+status: finished

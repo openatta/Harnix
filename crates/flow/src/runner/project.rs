@@ -1,10 +1,10 @@
 //! A run's places in its project: the output directory its deliverables go to, and the process
-//! directory where the module shows what the run is doing.
+//! directory where the runner shows what the run is doing; and starting a run.
 //!
 //! ```text
 //! <project>/flows/<flow>-<YYYYMMDD><NN>/   the output directory (the default template): the user's
-//! <project>/.harnix/                      the project's, shared with the engine (its tier: settings,
-//!                                         agents, rules, memory, its own worktrees)
+//! <project>/<dir>/                        the project's data directory (Harnix: .harnix, shared with
+//!                                         its engine: settings, agents, rules, memory, its own worktrees)
 //!   .gitignore                            runs/, added on the first task (the engine adds its own)
 //!   flows/                                the project's own flows, committed with it
 //!   runs/<run>/
@@ -15,16 +15,16 @@
 //!                                         gate-<gate>.log, context.json (a command gate's)
 //! ```
 //!
-//! A worktree run's worktree is out of the project, in the module's data directory
+//! A worktree run's worktree is out of the project, where the host's `ProjectLayout` says
 //! (`worktree.rs`): its output directory is in there; its process directory is not. Where all of
-//! these are is the engine's `ProjectLayout` ([`super::layout`]): without one, nothing is
-//! projected.
+//! these are is the engine's `ProjectLayout`: without one, nothing is projected.
 //!
-//! The process directory is a projection: the ledger in the module's data directory is what
-//! counts, and a projection that cannot be written is logged and leaves the run as it was. A run
-//! of no project has the same layout under its own directory.
+//! The process directory is a projection: the store is what counts, and a projection that cannot
+//! be written is logged and leaves the run as it was. A run of no project has the same layout
+//! under its own directory.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde_json::{json, Value};
 
@@ -38,14 +38,11 @@ use crate::kernel::layout::ProjectLayout;
 use crate::kernel::run::Actor;
 use crate::kernel::FlowError;
 
-use harnix_ext::{Entry, SessionRef};
+use super::Runner;
 
-use super::shared::Shared;
-use crate::wire::StartedFrom;
-
-/// The line `<project>/.harnix/.gitignore` holds for the module: its process directories are not
-/// the project's. The project's own flows (`flows/`) are, to commit; the rest there is the
-/// engine's, which adds its own lines.
+/// The line `<project>/<dir>/.gitignore` holds for the runner: its process directories are not the
+/// project's. The project's own flows (`flows/`) are, to commit; the rest there is whoever shares
+/// the directory's, who adds their own lines.
 const IGNORED: &str = "runs/";
 
 /// The highest `${seq}` looked for.
@@ -66,18 +63,19 @@ pub(crate) fn local_date(epoch_ms: u64) -> String {
     crate::kernel::output::date_utc(epoch_ms)
 }
 
-/// Start a run as the module does: who may; then — for a task — the project's trust heard (its own
+/// Start a run as the runner does: who may; then — for a task — the project's trust heard (its own
 /// flows are the project's packs, read only while it is trusted); then, in a worktree, its
 /// worktree made (`worktree.rs`); then its output directory resolved and made in the workspace;
 /// then the run, and what a new run needs on disk ([`made`]). What was made for a run that is then
 /// not started is taken back.
-pub(crate) async fn start(sh: &Shared, engine: &Engine, mut input: CreateIn, by: Actor) -> crate::Result<Outcome> {
+pub(crate) async fn start(rn: &Arc<Runner>, mut input: CreateIn, by: Actor) -> crate::Result<Outcome> {
+    let engine = rn.engine();
     engine.may_create(&input, &by)?;
     let root = root_of(&input);
     if let Some(root) = &root {
-        super::project_packs::hear(sh, root).await;
+        super::trust::hear(rn, root).await;
         // In a project a name means the project's own flow: not run until it is trusted.
-        super::project_packs::withheld(engine.packs_for(Some(root)).as_ref(), &input.flow)?;
+        super::trust::withheld(engine.packs_for(Some(root)).as_ref(), &input.flow)?;
     }
     let mut prepared = Prepared::default();
     if let Some(root) = &root {
@@ -115,47 +113,6 @@ pub(crate) async fn start(sh: &Shared, engine: &Engine, mut input: CreateIn, by:
         }
     }
     r
-}
-
-/// The entry a conversation a task was started from gets (`flow.start`'s `from_session`): the
-/// card linking to the task, drawn by the interface; the conversation does not become the task.
-pub(crate) const TASK_STARTED: &str = "task_started";
-
-/// What that card says: the run, its flow (and the flow's title), the run's title and subject,
-/// and its project.
-pub(crate) fn task_card(rec: &RunRecord) -> Value {
-    json!({
-        "run": rec.id,
-        "flow": rec.flow,
-        "flow_title": rec.def.title,
-        "title": rec.title,
-        "subject": rec.subject,
-        "project_root": rec.project_root,
-    })
-}
-
-/// Write the card into the conversation `run` was started from, claiming the space it belongs
-/// to: the hub refuses a conversation of another space. The run is started either way; a card
-/// that cannot be written is logged.
-pub(crate) async fn link_from(sh: &Shared, engine: &Engine, from: &StartedFrom, run: &str) {
-    let Some(cx) = sh.cx.get() else { return };
-    let rec = match engine.record(run).await {
-        Ok(rec) => rec,
-        Err(e) => {
-            tracing::warn!(run, error = %e, "no card for a run whose record cannot be read");
-            return;
-        }
-    };
-    let instance = from.instance.as_deref().unwrap_or(harnix_ext::MAIN_INSTANCE);
-    let session = SessionRef::new(instance, from.session_id.as_str());
-    let written = cx
-        .sessions()
-        .in_space(&from.space)
-        .append_entry(&session, Entry::new(TASK_STARTED, task_card(&rec)))
-        .await;
-    if let Err(e) = written {
-        tracing::warn!(run, session = %from.session_id, space = %from.space, error = %e.message, "the conversation a task was started from has no card");
-    }
 }
 
 /// A start's project, as the run will hold it: trimmed, without trailing `/`s; none for none.
@@ -223,7 +180,7 @@ pub(crate) fn prepare(engine: &Engine, input: &mut CreateIn, worktree: Option<&W
 }
 
 /// After a run was made: its output directory where it does not exist yet (a run of no project's),
-/// and the project's `.harnix/.gitignore`. Neither failing undoes the run.
+/// and the project's `<dir>/.gitignore`. Neither failing undoes the run.
 pub(crate) async fn made(engine: &Engine, run: &str) {
     let Ok(rec) = engine.record(run).await else { return };
     if let Some(dir) = &rec.output_dir {
@@ -233,7 +190,7 @@ pub(crate) async fn made(engine: &Engine, run: &str) {
     }
     if let (Some(root), Some(layout)) = (&rec.project_root, engine.layout()) {
         if let Err(e) = ensure_gitignore(Path::new(root), layout) {
-            tracing::warn!(run, root, error = %e, "the project's .harnix/.gitignore not written");
+            tracing::warn!(run, root, error = %e, "the project's data directory's .gitignore not written");
         }
     }
 }
@@ -326,7 +283,7 @@ fn inside(real_base: &Path, dir: &Path) -> Result<(), String> {
     Err(format!("output_dir {} leads outside the project", dir.display()))
 }
 
-/// `<project>/.harnix/.gitignore` with `runs/`: written when there is none, the missing line added
+/// `<project>/<dir>/.gitignore` with `runs/`: written when there is none, the missing line added
 /// to one that is there.
 pub(crate) fn ensure_gitignore(project: &Path, layout: &ProjectLayout) -> std::io::Result<()> {
     let dir = layout.data_dir(project);
@@ -349,8 +306,8 @@ pub(crate) fn ensure_gitignore(project: &Path, layout: &ProjectLayout) -> std::i
     std::fs::write(&file, text)
 }
 
-/// Where the module shows what a run is doing: `<project>/.harnix/runs/<run>/` — the project's
-/// own, a worktree's run's too — or the same under a run of no project's own directory.
+/// Where the runner shows what a run is doing: `<project>/<dir>/runs/<run>/` — the project's own,
+/// a worktree's run's too — or the same under a run of no project's own directory.
 pub(crate) fn process_dir(engine: &Engine, rec: &RunRecord) -> Option<PathBuf> {
     let base = match &rec.project_root {
         Some(root) => PathBuf::from(root),
@@ -478,6 +435,12 @@ fn write_if_changed(path: &Path, text: &str) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runner::ScriptedHost;
+    use crate::ProjectLayout;
+
+    fn layout(data: &Path) -> ProjectLayout {
+        ProjectLayout::new(".harnix", data.join("worktrees"), "harnix/flow")
+    }
 
     fn vars<'a>(inputs: &'a Value) -> OutputVars<'a> {
         OutputVars { flow: "review", date: "20261116", title: "", inputs }
@@ -538,7 +501,7 @@ mod tests {
     #[test]
     fn the_gitignore_is_written_once_and_never_clobbered() {
         let p = tempfile::tempdir().unwrap();
-        let layout = super::super::layout(p.path());
+        let layout = layout(p.path());
         ensure_gitignore(p.path(), &layout).unwrap();
         let file = p.path().join(".harnix/.gitignore");
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "runs/\n");
@@ -549,14 +512,13 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "# mine\nsettings.local.json\nruns/\n");
     }
 
-    /// The project's own flows are where the packs read them: in its `.harnix/`, the engine's too;
-    /// its worktrees are in the module's data directory, on branches of its own.
+    /// The project's own flows are where the packs read them: in its data directory, shared with
+    /// whoever else uses it; its worktrees are where the host says, on branches of its own.
     #[test]
-    fn the_projects_flows_are_in_the_directory_it_shares_with_the_engine() {
+    fn the_projects_flows_are_in_the_directory_it_shares() {
         let root = Path::new("/p");
-        let layout = super::super::layout(Path::new("/state/ext/flow/data"));
+        let layout = layout(Path::new("/state/ext/flow/data"));
         assert_eq!(crate::packs::project_pack_dir(root, &layout), Path::new("/p/.harnix/flows"));
-        assert_eq!(layout.dir, harnix_ext::engine::PROJECT_DIR);
         assert_eq!(layout.worktree_dir("f-1"), Path::new("/state/ext/flow/data/worktrees/f-1"));
         assert_eq!(layout.worktree_branch("f-1"), "harnix/flow/f-1");
     }
@@ -571,10 +533,13 @@ mod tests {
              {id: one, executor: {kind: external}, output: {type: object}, exit: [{kind: output}]}, \
              {id: many, tasks: [{id: x, executor: {kind: external}}, {id: y, executor: {kind: external}}], output: {type: object}, exit: [{kind: output}]}]}",
         );
-        let engine = Engine::new(std::sync::Arc::new(MemStore::new()), std::sync::Arc::new(packs))
-            .with_clock(std::sync::Arc::new(ManualClock::new(1_794_787_200_000)))
-            .with_workspaces(data.path().join("workspaces"))
-            .with_layout(super::super::layout(data.path()));
+        let engine = Arc::new(
+            Engine::new(Arc::new(MemStore::new()), Arc::new(packs))
+                .with_clock(Arc::new(ManualClock::new(1_794_787_200_000)))
+                .with_workspaces(data.path().join("workspaces"))
+                .with_layout(layout(data.path())),
+        );
+        let rn = Runner::for_tests(engine.clone(), ScriptedHost::new());
         let root = project.path().to_string_lossy().into_owned();
         let by = Actor::device("d");
         let started = |output_dir: Option<&str>| CreateIn {
@@ -584,32 +549,28 @@ mod tests {
             output_dir: output_dir.map(String::from),
             ..Default::default()
         };
-        let run = start(&Shared::for_tests(), &engine, started(None), by.clone()).await.unwrap().value["run"].as_str().unwrap().to_string();
+        let run = start(&rn, started(None), by.clone()).await.unwrap().value["run"].as_str().unwrap().to_string();
         let rec = engine.record(&run).await.unwrap();
         let date = local_date(1_794_787_200_000);
         let out = project.path().join(format!("flows/two-{date}01"));
         assert_eq!(rec.output_dir.as_deref(), Some(out.to_str().unwrap()));
         assert!(out.is_dir());
         assert_eq!(std::fs::read_to_string(project.path().join(".harnix/.gitignore")).unwrap(), "runs/\n");
-        // The card of the conversation it might have been started from names the task.
-        let card = task_card(&rec);
-        assert_eq!((card["run"].as_str(), card["flow"].as_str(), card["subject"].as_str()), (Some(run.as_str()), Some("two"), Some("s")));
-        assert_eq!(card["project_root"].as_str(), Some(root.as_str()));
         // The next task of the flow that day takes the next number; one of its own template, its own.
-        let second = start(&Shared::for_tests(), &engine, started(None), by.clone()).await.unwrap().value["run"].as_str().unwrap().to_string();
+        let second = start(&rn, started(None), by.clone()).await.unwrap().value["run"].as_str().unwrap().to_string();
         assert!(engine.record(&second).await.unwrap().output_dir.unwrap().ends_with(&format!("two-{date}02")));
-        let own = start(&Shared::for_tests(), &engine, started(Some("out/${inputs.area}")), by.clone()).await.unwrap().value["run"].as_str().unwrap().to_string();
+        let own = start(&rn, started(Some("out/${inputs.area}")), by.clone()).await.unwrap().value["run"].as_str().unwrap().to_string();
         assert_eq!(engine.record(&own).await.unwrap().output_dir, Some(format!("{root}/out/core")));
         // Outside the project: refused, nothing started, nothing made.
         for bad in ["../elsewhere", "/tmp/elsewhere"] {
-            let e = start(&Shared::for_tests(), &engine, started(Some(bad)), by.clone()).await.unwrap_err();
+            let e = start(&rn, started(Some(bad)), by.clone()).await.unwrap_err();
             assert_eq!(e.code(), "invalid", "{bad}: {e}");
         }
         assert_eq!(engine.list(Default::default()).await.unwrap().len(), 3);
         // A flow that cannot start takes back the directory it was given.
         let mut refused = started(None);
         refused.inputs = json!({"area": 1});
-        assert!(start(&Shared::for_tests(), &engine, refused, by.clone()).await.is_err());
+        assert!(start(&rn, refused, by.clone()).await.is_err());
         assert!(!project.path().join(format!("flows/two-{date}03")).exists());
         assert_eq!(std::fs::read_dir(project.path().join("flows")).unwrap().count(), 2);
 
@@ -648,12 +609,15 @@ mod tests {
         use crate::{CreateIn, ManualClock, MemPacks, MemStore};
         let data = tempfile::tempdir().unwrap();
         let packs = MemPacks::new().flow("{name: solo, stations: [{id: a, exit: [{kind: confirm}]}]}");
-        let engine = Engine::new(std::sync::Arc::new(MemStore::new()), std::sync::Arc::new(packs))
-            .with_clock(std::sync::Arc::new(ManualClock::new(1_794_787_200_000)))
-            .with_workspaces(data.path().join("workspaces"))
-            .with_layout(super::super::layout(data.path()));
+        let engine = Arc::new(
+            Engine::new(Arc::new(MemStore::new()), Arc::new(packs))
+                .with_clock(Arc::new(ManualClock::new(1_794_787_200_000)))
+                .with_workspaces(data.path().join("workspaces"))
+                .with_layout(layout(data.path())),
+        );
+        let rn = Runner::for_tests(engine.clone(), ScriptedHost::new());
         let input = CreateIn { flow: "solo".into(), subject: "s".into(), ..Default::default() };
-        let run = start(&Shared::for_tests(), &engine, input, Actor::device("d")).await.unwrap().value["run"].as_str().unwrap().to_string();
+        let run = start(&rn, input, Actor::device("d")).await.unwrap().value["run"].as_str().unwrap().to_string();
         let rec = engine.record(&run).await.unwrap();
         let own = engine.workspace(&run).unwrap();
         let out = own.join(format!("flows/solo-{}01", local_date(1_794_787_200_000)));
@@ -662,7 +626,7 @@ mod tests {
         project_run(&engine, &rec);
         assert!(own.join(".harnix/runs").join(&run).join("task.json").is_file());
         let absolute = CreateIn { flow: "solo".into(), subject: "s".into(), output_dir: Some("/tmp/x".into()), ..Default::default() };
-        assert_eq!(start(&Shared::for_tests(), &engine, absolute, Actor::device("d")).await.unwrap_err().code(), "invalid");
+        assert_eq!(start(&rn, absolute, Actor::device("d")).await.unwrap_err().code(), "invalid");
     }
 
     #[test]

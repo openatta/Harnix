@@ -40,11 +40,21 @@ pub struct SessionSpec {
     permission_rules: Option<Value>,
     output_schema: Option<Value>,
     recording: Option<String>,
+    session_id: Option<String>,
 }
 
 impl SessionSpec {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The id the session is created under, in the engine's own form (a BASE58 UUID), so creating
+    /// it is idempotent: one that exists already with the same scene, project and options is
+    /// answered as it is ([`Sessions::open_or_create`] says so), one that differs is refused
+    /// (`SESSION_EXISTS`). The engine chooses when absent.
+    pub fn session_id(mut self, id: &str) -> Self {
+        self.session_id = Some(id.to_string());
+        self
     }
 
     /// The space it belongs to, for good: the default space when absent. Its default instance and
@@ -137,8 +147,20 @@ impl SessionSpec {
         if let Some(root) = &self.project_root {
             params["project_root"] = json!(root.display().to_string());
         }
+        if let Some(id) = &self.session_id {
+            params["session_id"] = json!(id);
+        }
         params
     }
+}
+
+/// What [`Sessions::open_or_create`] answers: the session, and whether it was there already.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Created {
+    pub session: SessionRef,
+    /// The spec's `session_id` named a session that existed: this is it, not a new one.
+    pub existed: bool,
 }
 
 /// An entry for [`Sessions::append_entry`]: what happened (`event`, the name the interface's
@@ -331,12 +353,21 @@ impl<'a> Sessions<'a> {
     }
 
     pub async fn create(&self, spec: SessionSpec) -> Rpc<SessionRef> {
+        Ok(self.open_or_create(spec).await?.session)
+    }
+
+    /// [`Sessions::create`], saying whether the session was there already (a spec with a
+    /// `session_id` the engine knows); `existed` is false for a session made now.
+    pub async fn open_or_create(&self, spec: SessionSpec) -> Rpc<Created> {
         let created = self.cx.call("harnix.session.create", self.claim(spec.params())).await?;
         let field = |k: &str| created.get(k).and_then(Value::as_str).map(str::to_string);
-        Ok(SessionRef::new(
-            field("instance").unwrap_or_else(|| MAIN_INSTANCE.to_string()),
-            field("session_id").unwrap_or_default(),
-        ))
+        Ok(Created {
+            session: SessionRef::new(
+                field("instance").unwrap_or_else(|| MAIN_INSTANCE.to_string()),
+                field("session_id").unwrap_or_default(),
+            ),
+            existed: created.get("existing").and_then(Value::as_bool).unwrap_or(false),
+        })
     }
 
     /// A session that already exists — in memory or only on disk.
@@ -849,6 +880,7 @@ mod tests {
         );
         // Its own reasoning effort goes to the engine with the rest of its options.
         assert_eq!(SessionSpec::new().effort("high").params(), json!({"options": {"effort": "high"}}));
+        assert_eq!(SessionSpec::new().session_id("abc").params(), json!({"options": {}, "session_id": "abc"}));
     }
 
     #[tokio::test]

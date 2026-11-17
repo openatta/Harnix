@@ -1,4 +1,4 @@
-//! Running a gate the kernel handed out: a `command` gate here, a `host` one by the application.
+//! Running a gate the kernel handed out: a `command` gate here, a `host` one by the host's checks.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -7,7 +7,7 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use super::dispatch::settle;
-use super::shared::Shared;
+use super::Runner;
 use crate::kernel::engine::Engine;
 use crate::kernel::host::{GateResult, Outcome};
 use crate::kernel::parts::GateKind;
@@ -15,8 +15,8 @@ use crate::kernel::run::RunRecord;
 use crate::kernel::FlowError;
 
 /// A gate's work item: run it, and hand its result to the kernel.
-pub(crate) async fn run_gate(sh: &Arc<Shared>, run: String, station: String, round: u32, gate: String) {
-    let Ok(engine) = sh.engine() else { return };
+pub(crate) async fn run_gate(rn: &Arc<Runner>, run: String, station: String, round: u32, gate: String) {
+    let engine = rn.engine();
     let rec = match engine.record(&run).await {
         Ok(r) => r,
         Err(e) => {
@@ -25,12 +25,12 @@ pub(crate) async fn run_gate(sh: &Arc<Shared>, run: String, station: String, rou
         }
     };
     let result = match rec.parts.gates.get(&gate) {
-        Some(g) if g.kind == GateKind::Command => command_gate(sh, &engine, &rec, &station, g).await,
-        Some(_) => match &sh.cfg.gates {
+        Some(g) if g.kind == GateKind::Command => command_gate(rn.cfg.command_gates, engine, &rec, &station, g).await,
+        Some(_) => match &rn.cfg.gates {
             Some(gs) => gs.run(&rec, &station, &gate).await,
             None => GateResult {
                 pass: false,
-                detail: format!("the application runs no checks: {gate} cannot run"),
+                detail: format!("the host runs no checks: {gate} cannot run"),
             },
         },
         None => GateResult {
@@ -38,8 +38,8 @@ pub(crate) async fn run_gate(sh: &Arc<Shared>, run: String, station: String, rou
             detail: format!("gate {gate} was not in the packs when the run started"),
         },
     };
-    let r = offer_result(&engine, &sh.cancel, &run, &station, round, &gate, result).await;
-    settle(sh, &run, "gate_result", r).await;
+    let r = offer_result(engine, rn.cancelled(), &run, &station, round, &gate, result).await;
+    settle(rn, &run, "gate_result", r).await;
 }
 
 /// The first wait before a gate's result is offered again after a conflict; it doubles each time.
@@ -50,7 +50,7 @@ const OFFER_AGAIN_AT_MOST: Duration = Duration::from_secs(5);
 /// Hand a gate's result to the kernel until it is taken. Each offer is a whole operation — the
 /// run loaded afresh, the result applied, the commit retried on a conflict as every operation
 /// is — so a run busy enough to outlast those retries only delays the result: it is offered
-/// again after a wait that grows, for as long as the module runs. A command may take minutes and
+/// again after a wait that grows, for as long as the runner runs. A command may take minutes and
 /// change things outside the run; running it again because one commit lost a race would be
 /// wrong, and dropping its result would leave the station waiting for good.
 ///
@@ -85,9 +85,9 @@ pub(crate) async fn offer_result(
     }
 }
 
-/// Run a `command` gate where the run works (xops-04 §4): `sh -c` in its `cwd` (references
-/// resolved; a relative one under the run's workspace), else the run's workspace; passes on exit
-/// status 0. Refused unless the application turned command gates on.
+/// Run a `command` gate where the run works: `sh -c` in its `cwd` (references resolved; a relative
+/// one under the run's workspace), else the run's workspace; passes on exit status 0. Refused
+/// unless the host turned command gates on (`allowed`).
 ///
 /// The command sees none of this process's environment but the basics (`PATH`, `HOME`, the
 /// locale, `TMPDIR`…): no provider key, no hook secret. The run reaches it there, never in the
@@ -96,10 +96,10 @@ pub(crate) async fn offer_result(
 /// the run's process directory) and, when it is small, `FLOW_CONTEXT` itself. It runs in a process
 /// group of its own, killed whole when it runs out of time; the end of its output is the result,
 /// and what was read of it is kept beside the context as `gate-<gate>.log`.
-pub(crate) async fn command_gate(sh: &Shared, engine: &Engine, rec: &RunRecord, station: &str, g: &crate::GateDef) -> GateResult {
+pub(crate) async fn command_gate(allowed: bool, engine: &Engine, rec: &RunRecord, station: &str, g: &crate::GateDef) -> GateResult {
     use tokio::io::AsyncReadExt;
     let fail = |detail: String| GateResult { pass: false, detail };
-    if !sh.cfg.command_gates {
+    if !allowed {
         return fail(format!("command gates are not turned on here: {} cannot run", g.name));
     }
     let Some(command) = g.command.clone().filter(|c| !c.trim().is_empty()) else {
@@ -232,7 +232,8 @@ mod tests {
     use super::*;
     use crate::kernel::host::{Gates, RunStore, StoreError, WorkItem};
     use crate::kernel::run::{Actor, CheckStatus, StationStatus};
-    use crate::{CreateIn, Hooked, ManualClock, MemPacks, MemStore};
+    use crate::runner::{RunnerConfig, ScriptedHost};
+    use crate::{CreateIn, Hooked, ManualClock, MemPacks, MemStore, ProjectLayout};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// A store whose next `n` commits conflict, `n` being what the counter holds.
@@ -248,7 +249,7 @@ mod tests {
         (Arc::new(store), conflicts)
     }
 
-    /// The application's checks: every one passes.
+    /// The host's checks: every one passes.
     struct Passes;
 
     #[async_trait::async_trait]
@@ -261,9 +262,9 @@ mod tests {
         }
     }
 
-    /// A run whose first station waits for gate `gate`, and the module it runs in.
+    /// A run whose first station waits for gate `gate`, and the runner it runs in.
     struct Gated {
-        sh: Arc<Shared>,
+        rn: Arc<Runner>,
         engine: Arc<Engine>,
         run: String,
         work: WorkItem,
@@ -271,7 +272,7 @@ mod tests {
     }
 
     impl Gated {
-        async fn new(gate_def: &str, store: Arc<dyn RunStore>, configure: impl FnOnce(&mut Shared)) -> Self {
+        async fn new(gate_def: &str, store: Arc<dyn RunStore>, configure: impl FnOnce(&mut RunnerConfig)) -> Self {
             let name = serde_yaml::from_str::<Value>(gate_def).unwrap()["name"].as_str().unwrap().to_string();
             let packs = MemPacks::new()
                 .command_gates()
@@ -285,12 +286,11 @@ mod tests {
                 Engine::new(store, Arc::new(packs))
                     .with_clock(Arc::new(ManualClock::new(1_000_000)))
                     .with_workspaces(ws.path())
-                    .with_layout(super::super::layout(ws.path())),
+                    .with_layout(ProjectLayout::new(".harnix", ws.path().join("worktrees"), "harnix/flow")),
             );
-            let mut sh = Shared::for_tests();
-            configure(&mut sh);
-            let sh = Arc::new(sh);
-            let _ = sh.engine.set(engine.clone());
+            let mut cfg = RunnerConfig { lease_ms: 60_000, guarded: vec![], ..Default::default() };
+            configure(&mut cfg);
+            let rn = Runner::for_tests_with(engine.clone(), ScriptedHost::new(), cfg);
             let o = engine
                 .create(
                     CreateIn {
@@ -308,13 +308,13 @@ mod tests {
                 .into_iter()
                 .find(|w| matches!(w, WorkItem::Gate { .. }))
                 .expect("the gate is handed out");
-            Gated { sh, engine, run, work, _ws: ws }
+            Gated { rn, engine, run, work, _ws: ws }
         }
         async fn run_it(&self) {
             let WorkItem::Gate { run, station, round, gate } = self.work.clone() else {
                 unreachable!()
             };
-            run_gate(&self.sh, run, station, round, gate).await;
+            run_gate(&self.rn, run, station, round, gate).await;
         }
         /// The station's status and its gate check's.
         async fn judged(&self) -> (StationStatus, CheckStatus, String) {
@@ -325,8 +325,8 @@ mod tests {
         }
     }
 
-    fn command(sh: &mut Shared) {
-        sh.cfg.command_gates = true;
+    fn command(cfg: &mut RunnerConfig) {
+        cfg.command_gates = true;
     }
 
     /// Where the run works, with the run in its environment and nothing of this process's but
@@ -396,7 +396,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_gates_result_outlasts_more_conflicts_than_one_commit_retries() {
         let (store, conflicts) = flaky();
-        let g = Gated::new("{name: lint, kind: host}", store.clone(), |sh| sh.cfg.gates = Some(Arc::new(Passes))).await;
+        let g = Gated::new("{name: lint, kind: host}", store.clone(), |cfg| cfg.gates = Some(Arc::new(Passes))).await;
         conflicts.store(3 * crate::DEFAULT_RETRIES - 1, Ordering::SeqCst);
         g.run_it().await;
         assert_eq!(conflicts.load(Ordering::SeqCst), 0);
@@ -409,11 +409,11 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_gates_result_not_recorded_before_stopping_runs_again_at_the_next_start() {
         let (store, conflicts) = flaky();
-        let g = Gated::new("{name: lint, kind: host}", store.clone(), |sh| sh.cfg.gates = Some(Arc::new(Passes))).await;
+        let g = Gated::new("{name: lint, kind: host}", store.clone(), |cfg| cfg.gates = Some(Arc::new(Passes))).await;
         conflicts.store(usize::MAX, Ordering::SeqCst);
         let stop = async {
             tokio::time::sleep(Duration::from_secs(60)).await;
-            g.sh.cancel.cancel();
+            g.rn.cancelled().cancel();
         };
         tokio::join!(g.run_it(), stop);
         conflicts.store(0, Ordering::SeqCst);

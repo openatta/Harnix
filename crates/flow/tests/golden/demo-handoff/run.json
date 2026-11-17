@@ -1,0 +1,181 @@
+{
+  "created_at": 1794787200000,
+  "created_by": {
+    "id": "golden",
+    "kind": "device"
+  },
+  "def": {
+    "description": "由外部（人或别的 Agent）认领并交付材料，再由人审批；不通过就退回重交。",
+    "name": "demo-handoff",
+    "stations": [
+      {
+        "executor": {
+          "kind": "external",
+          "who": "supplier"
+        },
+        "exit": [
+          {
+            "kind": "output"
+          },
+          {
+            "gate": "link-reachable",
+            "kind": "gate"
+          }
+        ],
+        "id": "prepare",
+        "output": {
+          "properties": {
+            "link": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "link"
+          ],
+          "type": "object"
+        },
+        "title": "外部交付"
+      },
+      {
+        "exit": [
+          {
+            "kind": "confirm",
+            "who": "manager"
+          }
+        ],
+        "id": "approve",
+        "rework_to": [
+          "prepare"
+        ],
+        "title": "审批"
+      }
+    ],
+    "title": "示例：外部交付与审批"
+  },
+  "def_digest": "caf7454034b28e8ad9182888b043187cb799aae51fcbb59ad12abb3038817524",
+  "finished_at": 1794787203000,
+  "flow": "demo-handoff",
+  "format": 1,
+  "id": "demo-handoff-1",
+  "inputs": {},
+  "parts": {
+    "gates": {
+      "link-reachable": {
+        "command": "case \"$FLOW_CONTEXT\" in *\"\\\"link\\\":\\\"https://\"*) exit 0;; *) echo \"交付的链接不是 https\"; exit 1;; esac",
+        "description": "交付的 link 是 https 地址（命令门禁从环境变量 FLOW_CONTEXT 读运行的上下文）。",
+        "kind": "command",
+        "name": "link-reachable",
+        "timeout_seconds": 10,
+        "title": "交付链接是 https"
+      }
+    }
+  },
+  "rev": 15,
+  "seq": 26,
+  "session_keys": {
+    "@main": {
+      "id": "s1",
+      "opened_with": {
+        "delivery": "flow_submit",
+        "main": true,
+        "scene": "flow-harnix"
+      }
+    }
+  },
+  "stations": {
+    "approve": {
+      "auto_reworks": 0,
+      "checks": [
+        {
+          "at": 1794787203000,
+          "cond": 0,
+          "kind": "confirm",
+          "label": "confirm by manager",
+          "round": 2,
+          "status": "pass"
+        }
+      ],
+      "confirms": [
+        {
+          "at": 1794787202000,
+          "by": {
+            "id": "golden",
+            "kind": "device"
+          },
+          "pass": false,
+          "reason": "the wrong version",
+          "round": 1
+        },
+        {
+          "at": 1794787203000,
+          "by": {
+            "id": "golden",
+            "kind": "device"
+          },
+          "pass": true,
+          "round": 2
+        }
+      ],
+      "entered_at": 1794787203000,
+      "left_at": 1794787203000,
+      "round": 2,
+      "rounds_total": 2,
+      "status": "passed"
+    },
+    "prepare": {
+      "auto_reworks": 0,
+      "checks": [
+        {
+          "at": 1794787203000,
+          "cond": 0,
+          "kind": "output",
+          "label": "output",
+          "round": 3,
+          "status": "pass"
+        },
+        {
+          "at": 1794787203000,
+          "cond": 1,
+          "kind": "gate",
+          "label": "gate link-reachable",
+          "round": 3,
+          "status": "pass"
+        }
+      ],
+      "entered_at": 1794787202000,
+      "left_at": 1794787203000,
+      "round": 3,
+      "rounds_total": 3,
+      "status": "passed",
+      "tasks": [
+        {
+          "attempt": 1,
+          "ended_at": 1794787203000,
+          "id": "prepare",
+          "lease": {
+            "by": {
+              "id": "golden",
+              "kind": "device"
+            },
+            "until": 1794787263000
+          },
+          "output": {
+            "link": "https://example.com/pack-v2.zip"
+          },
+          "started_at": 1794787203000,
+          "status": "submitted"
+        }
+      ]
+    }
+  },
+  "status": "finished",
+  "subject": "the vendor's materials",
+  "trigger": {
+    "by": {
+      "id": "golden",
+      "kind": "device"
+    },
+    "kind": "manual"
+  },
+  "workspace": "scratch"
+}
