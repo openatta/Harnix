@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use harnix_ext::{ExtensionContext, RpcError};
 
 use super::lock;
+use crate::author::AuthorTools;
 use crate::dryrun::Sandbox;
 use crate::kernel::engine::Engine;
 use crate::kernel::host::Packs;
@@ -37,6 +38,8 @@ pub(crate) struct Shared {
     pub cfg: Config,
     pub engine: OnceLock<Arc<Engine>>,
     pub runner: OnceLock<Arc<Runner>>,
+    /// The authoring tools `flow-author` offers, once the runner is there.
+    pub author: OnceLock<Arc<AuthorTools>>,
     pub cx: OnceLock<ExtensionContext>,
     /// Topic publishes in order: each reads the newest snapshot under it.
     pub publish: tokio::sync::Mutex<()>,
@@ -75,6 +78,7 @@ impl Shared {
             cfg,
             engine: OnceLock::new(),
             runner: OnceLock::new(),
+            author: OnceLock::new(),
             cx: OnceLock::new(),
             publish: tokio::sync::Mutex::new(()),
             proposals: Arc::default(),
@@ -287,18 +291,7 @@ impl Shared {
 
 /// A project root a device or a conversation gives: an existing absolute directory, as given
 /// but for surrounding space and a trailing `/`.
-pub(crate) fn project_root(root: &str) -> Result<String, String> {
-    let root = root.trim();
-    let trimmed = root.trim_end_matches('/');
-    let root = if trimmed.is_empty() { root } else { trimmed };
-    if !std::path::Path::new(root).is_absolute() {
-        return Err(format!("project_root {root:?} is not an absolute path"));
-    }
-    match std::fs::metadata(root) {
-        Ok(m) if m.is_dir() => Ok(root.to_string()),
-        _ => Err(format!("project_root {root:?} is not an existing directory")),
-    }
-}
+pub(crate) use crate::author::project_root;
 
 /// How a session is written in a run record: `<instance>/<session_id>`.
 pub fn session_name(s: &harnix_ext::SessionRef) -> String {

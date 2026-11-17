@@ -1,7 +1,7 @@
 //! The library's public surface, written down: what a host implements (the traits in
 //! `kernel::host` and the runner's `SessionHost`), the types those traits hand it and take from it
 //! (the runner's `OpenSpec`, `Frame` and the rest among them), the names `lib.rs` re-exports, how
-//! the stores and packs are built, and what the runner offers. A change that removes or alters an
+//! the stores and packs are built, what the runner offers, and the authoring tools' host and offer. A change that removes or alters an
 //! entry breaks the hosts that use it, and `FLOW_API_VERSION` goes up with it; an addition goes on
 //! the list, with a line in the version section of `docs/embed.en.md` and `docs/embed.zh-CN.md`.
 //!
@@ -83,6 +83,29 @@ const TYPES: &[(&str, &str)] = &[
     ("Outcome.events", "Vec<Event>"),
     ("Outcome.work", "Vec<WorkItem>"),
     ("Outcome.bookkeeping", "bool"),
+    ("Op", "#[non_exhaustive]"),
+    ("Op::Create", "{flow:String,subject:String}"),
+    ("Op::Claim", "{station:String,task:String,who:Option<String>}"),
+    ("Op::Submit", "{station:String,task:String,executor:String,who:Option<String>}"),
+    ("Op::Fail", "{station:String,task:String,executor:String}"),
+    ("Op::Heartbeat", "{station:String,task:String,executor:String}"),
+    ("Op::Confirm", "{station:String,pass:bool,who:Option<String>}"),
+    ("Op::Force", "{station:String}"),
+    ("Op::Rework", "{to:String,tasks:Option<Vec<String>>}"),
+    ("Op::Release", "{station:String}"),
+    ("Op::Retry", "{station:String,task:String}"),
+    ("Op::Cancel", ""),
+    ("Op::Pause", ""),
+    ("Op::Resume", ""),
+    ("Op::AttachSession", "{station:String,task:String,session:String}"),
+    ("Op::EditFlow", "{flow:String}"),
+    ("Op::EditPart", "{kind:PartKind,name:String}"),
+    ("Op::Worktree", "{action:String}"),
+    ("Op::ReadFlows", ""),
+    ("Op::ReadFlow", "{flow:String}"),
+    ("Op::ListRuns", "{flow:Option<String>}"),
+    ("Op::ReadRun", ""),
+    ("Op::DryRun", "{flow:String}"),
 ];
 
 /// What `lib.rs` offers at the root: each re-exported name with the module it comes from, the
@@ -91,6 +114,7 @@ const EXPORTS: &[(&str, &str)] = &[
     ("FLOW_API_VERSION", "const:u32"),
     ("DEFINITION_FORMAT", "const:u32"),
     ("RUN_FORMAT", "const:u32"),
+    ("author", "mod"),
     ("conformance", "mod"),
     ("dryrun", "mod"),
     ("kernel", "mod"),
@@ -440,6 +464,57 @@ const RUNNER: &[(&str, &str)] = &[
     ("EndError::Lost", "(String)"),
 ];
 
+/// The authoring tools (`src/author.rs`): `AuthorHost`'s methods, `Notice`, what `AuthorTools`
+/// offers, and the module's public functions and constants.
+const AUTHOR: &[(&str, &str)] = &[
+    ("AuthorHost", "#[async_trait]pubtraitAuthorHost:Send+Sync"),
+    ("AuthorHost::current", "asyncfncurrent(&self,session:&SessionId)->Option<String>"),
+    ("AuthorHost::project", "asyncfnproject(&self,session:&SessionId)->Option<String>"),
+    ("AuthorHost::pinned", "fnpinned(&self,_session:&SessionId)->bool = default"),
+    ("AuthorHost::no_current", "fnno_current(&self,_session:&SessionId)->String = default"),
+    ("AuthorHost::current_run", "asyncfncurrent_run(&self,_session:&SessionId)->Option<String> = default"),
+    ("AuthorHost::set_project", "asyncfnset_project(&self,_session:&SessionId,_root:&str) = default"),
+    ("AuthorHost::created", "asyncfncreated(&self,_session:&SessionId,_flow:&str)->Option<String> = default"),
+    ("AuthorHost::notice", "asyncfnnotice(&self,_notice:Notice) = default"),
+    ("Notice", "#[non_exhaustive]"),
+    ("Notice::Packs", ""),
+    ("Notice::Deleted", "{flow:String,gone:bool}"),
+    ("Notice::DryRun", "{run:String}"),
+    ("TOOL_LIST", "const:&str"),
+    ("TOOL_SHOW", "const:&str"),
+    ("TOOL_SCHEMA", "const:&str"),
+    ("TOOL_VALIDATE", "const:&str"),
+    ("TOOL_CREATE", "const:&str"),
+    ("TOOL_UPDATE", "const:&str"),
+    ("TOOL_DELETE", "const:&str"),
+    ("TOOL_PART_SET", "const:&str"),
+    ("TOOL_PART_DELETE", "const:&str"),
+    ("TOOL_DRY_RUN", "const:&str"),
+    ("TOOL_START", "const:&str"),
+    ("TOOL_GUIDE", "const:&str"),
+    ("TOOL_RUNS", "const:&str"),
+    ("TOOL_RUN", "const:&str"),
+    ("TOOL_PAUSE", "const:&str"),
+    ("TOOL_RESUME", "const:&str"),
+    ("TOOL_CANCEL", "const:&str"),
+    ("TOOL_CONFIRM", "const:&str"),
+    ("TOOL_FORCE", "const:&str"),
+    ("TOOL_REWORK", "const:&str"),
+    ("TOOL_RETRY", "const:&str"),
+    ("TOOL_RELEASE", "const:&str"),
+    ("RUN_TOOLS", "const:[&str;8]"),
+    ("CONVERSATION_KIND", "const:&str"),
+    ("NO_CURRENT", "const:&str"),
+    ("tool_specs", "fntool_specs()->Vec<ToolSpec>"),
+    ("AuthorTools::new", "fnnew(runner:&Arc<Runner>,sandbox:Arc<Sandbox>,host:Arc<dynAuthorHost>)->Self"),
+    ("AuthorTools::specs", "fnspecs(&self)->&[ToolSpec]"),
+    ("AuthorTools::call", "asyncfncall(&self,session:&SessionId,tool:&str,input:Value,by:&Actor)->ToolReply"),
+    ("project_root", "fnproject_root(root:&str)->Result<String,String>"),
+    ("catalog_json", "fncatalog_json(packs:&dynPacks)->Value"),
+    ("part_schemas", "fnpart_schemas()->Value"),
+    ("parts_used", "fnparts_used(packs:&dynPacks,def:&FlowDef)->Value"),
+];
+
 const HOST: &str = "src/kernel/host.rs";
 const RUNNER_HOST: &str = "src/runner/host.rs";
 const LIB: &str = "src/lib.rs";
@@ -539,7 +614,7 @@ fn fields(fields: &syn::Fields) -> String {
 }
 
 fn types() -> Vec<(String, String)> {
-    types_in(HOST, &["StoreError", "ChangeSet", "Event", "WorkItem", "Outcome"])
+    types_in(HOST, &["StoreError", "ChangeSet", "Event", "WorkItem", "Outcome", "Op"])
 }
 
 /// The public fields and variants of the named structs and enums in `file`; a struct marked
@@ -615,6 +690,33 @@ fn runner() -> Vec<(String, String)> {
     out.extend(types_in("src/runner/tools.rs", &["ToolReply"]));
     out.extend(types_in("src/runner/testing.rs", &["Turn"]));
     out.extend(types_in("src/runner/worktree.rs", &["EndError"]));
+    out
+}
+
+/// The authoring tools: the host trait, what it is told, `AuthorTools`' methods, and the module's
+/// public functions and constants.
+fn author() -> Vec<(String, String)> {
+    const FILE: &str = "src/author.rs";
+    let mut out = traits_in(FILE);
+    out.extend(types_in(FILE, &["Notice"]));
+    for item in parse(FILE).items {
+        match item {
+            syn::Item::Impl(i) if i.trait_.is_none() => {
+                let syn::Type::Path(p) = &*i.self_ty else { continue };
+                let Some(ty) = p.path.segments.last().map(|s| s.ident.to_string()) else { continue };
+                for item in &i.items {
+                    if let syn::ImplItem::Fn(f) = item {
+                        if public(&f.vis) {
+                            out.push((format!("{ty}::{}", f.sig.ident), squash(&f.sig)));
+                        }
+                    }
+                }
+            }
+            syn::Item::Fn(f) if public(&f.vis) => out.push((f.sig.ident.to_string(), squash(&f.sig))),
+            syn::Item::Const(c) if public(&c.vis) => out.push((c.ident.to_string(), format!("const:{}", squash(&c.ty)))),
+            _ => {}
+        }
+    }
     out
 }
 
@@ -702,5 +804,11 @@ fn the_session_host_keeps_its_shape() {
 #[test]
 fn the_runner_offers_what_it_did() {
     let problems = compare("runner item", "RUNNER", RUNNER, &runner());
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+#[test]
+fn the_authoring_tools_keep_their_shape() {
+    let problems = compare("authoring item", "AUTHOR", AUTHOR, &author());
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }

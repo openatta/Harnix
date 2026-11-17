@@ -29,10 +29,10 @@ pub struct ToolReply {
 }
 
 impl ToolReply {
-    fn text(text: impl Into<String>) -> Self {
+    pub(crate) fn text(text: impl Into<String>) -> Self {
         Self { text: text.into(), is_error: false }
     }
-    fn error(text: impl Into<String>) -> Self {
+    pub(crate) fn error(text: impl Into<String>) -> Self {
         Self { text: text.into(), is_error: true }
     }
 }

@@ -254,10 +254,13 @@ pub fn digest(text: &str) -> String {
 
 // ── authorization ────────────────────────────────────────────────────────────
 
-/// A change about to be made on someone's behalf. `who` carries the definition's opaque
-/// label (an external executor's or a confirm exit's) for the authorizer to interpret.
+/// A change about to be made on someone's behalf, or something about to be read for someone
+/// through the authoring tools (`author`). `who` carries the definition's opaque label (an
+/// external executor's or a confirm exit's) for the authorizer to interpret. More may come: an
+/// authorizer has a rule for the ones it does not know.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Op {
     Create {
         flow: String,
@@ -326,6 +329,23 @@ pub enum Op {
     Worktree {
         action: String,
     },
+    /// Reading the flows on offer as a whole: their list, the schemas and the catalog, a text
+    /// checked against them (no run).
+    ReadFlows,
+    /// Reading one flow: its definition and the parts it uses (no run).
+    ReadFlow {
+        flow: String,
+    },
+    /// Listing runs: of `flow`, or of every flow (no run).
+    ListRuns {
+        flow: Option<String>,
+    },
+    /// Reading one run.
+    ReadRun,
+    /// Dry-running a flow: nothing outside the flow is called, and no run is kept (no run).
+    DryRun {
+        flow: String,
+    },
 }
 
 impl Op {
@@ -348,14 +368,19 @@ impl Op {
             Self::EditFlow { .. } => "edit_flow",
             Self::EditPart { .. } => "edit_part",
             Self::Worktree { .. } => "worktree",
+            Self::ReadFlows => "read_flows",
+            Self::ReadFlow { .. } => "read_flow",
+            Self::ListRuns { .. } => "list_runs",
+            Self::ReadRun => "read_run",
+            Self::DryRun { .. } => "dry_run",
         }
     }
 }
 
 /// Decides who may do what. The one place authorization happens, whatever the entry point.
 pub trait Authorizer: Send + Sync {
-    /// `run` is `None` only for `create`, `edit_flow` and `edit_part`. `Err` carries the reason
-    /// shown to the caller.
+    /// `run` is `None` only for `create`, `edit_flow`, `edit_part`, `read_flows`, `read_flow`,
+    /// `list_runs` and `dry_run`. `Err` carries the reason shown to the caller.
     fn check(&self, op: &Op, by: &Actor, run: Option<&RunRecord>) -> Result<(), String>;
 }
 

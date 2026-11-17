@@ -6,7 +6,7 @@
 //! state.rs     what the extension's methods, scenes, topics and host share
 //! host.rs      HarnixSessionHost: the runner's sessions, through the hub
 //! scenes.rs    the scene wrappers: flow-* (flow_state, flow_submit, flow_propose)
-//! author.rs    flow-author: writing flows in conversation
+//! author.rs    flow-author: the library's authoring tools in a scene, a conversation's focus
 //! methods.rs   flow.* — the device methods
 //! publish.rs   the topics: `run`, `runs`, `defs`, `focus`, `dry_runs`
 //! ```
@@ -618,6 +618,9 @@ impl Extension for Flow {
         let _ = self.sh.cx.set(cx.clone());
         let host = host::HarnixSessionHost::new(self.sh.clone());
         let runner = Runner::new(engine, host.clone(), cfg);
+        let sandbox = self.sh.sandbox().map_err(|e| anyhow::anyhow!(e.message))?;
+        let author = crate::author::AuthorTools::new(&runner, sandbox, author::HarnixAuthorHost::new(self.sh.clone()));
+        let _ = self.sh.author.set(Arc::new(author));
         let _ = self.sh.runner.set(runner.clone());
         for scene in self.sh.cfg.scenes.iter().map(String::as_str).chain([AUTHOR_SCENE]) {
             if let Err(e) = cx.call("engine.scene.activate", json!({"instance": FLOW_INSTANCE, "scene": scene})).await {

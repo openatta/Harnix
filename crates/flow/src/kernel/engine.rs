@@ -359,7 +359,9 @@ impl Engine {
         &self.clock
     }
 
-    fn authorize(&self, op: &Op, by: &Actor, run: Option<&RunRecord>) -> Result<()> {
+    /// Ask the authorizer whether `by` may do `op` (on `run`): what every operation here asks
+    /// first, for a host to ask before what it does itself (the authoring tools' reads).
+    pub fn authorize(&self, op: &Op, by: &Actor, run: Option<&RunRecord>) -> Result<()> {
         self.auth.check(op, by, run).map_err(FlowError::Denied)
     }
 

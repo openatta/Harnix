@@ -26,6 +26,7 @@ crates/flow/
     mod.rs             Runner、RunnerConfig、Changed、CatalogPacks
     testing.rs         ScriptedHost：按脚本答话的宿主
     …                  派发、会话任务、轮、主会话、门禁、钩子、worktree、git、过程目录、信任、流程自己的工具
+  src/author.rs        编写工具（feature `runner`）：在对话里编写流程、操作运行
   src/conformance.rs   每个 SessionHost 都要做到的事，对着真宿主查
   packs/examples/      一个示例流程包（example-review）：拷走库的宿主能加载、校验、跑它；Harnix 把它编进应用
   docs/guide.*.md      流程指南（GUIDE_EN、GUIDE_ZH 就是它）
@@ -79,7 +80,7 @@ Feature：
 |---|---|---|
 | `RunStore` | 运行记录与历史的读写；`commit` 必须原子、按 rev 比较 | `MemStore`、`FileStore::new(dir)`；`Hooked` 包一层，测试里改 id、拦提交 |
 | `Packs` | 流程包：流程、skill、规则、策略、门禁、钩子，以及目录（`Catalog`：这里认识哪些 scene、程序、门禁、工具……） | `MemPacks`（代码里给）、`DirPacks`（目录分层，`with_builtin`、`with_writable`）、`ProjectPacks`（项目自带的流程包，项目受信才读） |
-| `Authorizer` | 谁能做什么（确认、认领、交付、编辑流程……），`Actor` 由宿主解释 | `AllowAll` |
+| `Authorizer` | 谁能做什么（确认、认领、交付、编辑流程……，以及编写工具读什么），`Actor` 由宿主解释 | `AllowAll` |
 | `Tools` | `tool` 门禁调的只读工具 | `NoTools` |
 | `Gates` | `host` 门禁：应用自己的检查，按名字 | — |
 | `Programs` | `kind: program` 的工作项：应用代码 | — |
@@ -218,6 +219,27 @@ Harnix 把它的每个场景包成 `flow-<场景>`，加上这三个工具；走
 `SessionHost::answer` 答——`allow` 放行，`deny` 带原因拒绝，`ask` 留给人（运行等 `approval`；宿主照常把问句给人看）。
 没有任务拥有的轮（人在和主 Agent 说话）的问句派工器不答。
 
+### 编写工具：`author`
+
+在对话里编写流程、操作运行的是另一组工具，在 `harnix_flow::author`（feature `runner`）：`flow_list`、`flow_show`、
+`flow_schema`、`flow_validate`、`flow_create`、`flow_update`、`flow_delete`、`flow_part_set`、`flow_part_delete`、
+`flow_dry_run`、`flow_start`、`flow_guide`、`flow_runs`、`flow_run`，以及操作运行的 `flow_pause`、`flow_resume`、`flow_cancel`、
+`flow_confirm`、`flow_force`、`flow_rework`、`flow_retry`、`flow_release`（`RUN_TOOLS`）。宿主把 `author::tool_specs()` 注册给
+允许编写流程的会话——每个宿主里名字、参数、文字都一样——每次调用转给 `AuthorTools::call(session, tool, input, &by)`；
+`AuthorTools::new(&runner, sandbox, host)` 在派工器建好之后建。工具经引擎、派工器（真的启动、项目的信任）和试运行的
+`Sandbox` 做事，用文本答（`ToolReply`）。
+
+- **目标**：作用于流程的工具在 `flow` 里给出流程，作用于运行的在 `run` 里给出运行。不给时用宿主的「当前」
+  （`AuthorHost::current`、`current_run`）；都没有就拒绝，文字是 `AuthorHost::no_current`。把一个对话绑在一个流程上的宿主
+  用 `AuthorHost::pinned` 说明：点名的不是当前流程、运行属于别的流程，都拒绝（Harnix：对话旁边选中的流程）。
+- **作用域**：工具动手之前，以 `by`（宿主给的 `Actor`，带着调用的会话）问引擎的 `Authorizer`：`read_flows`（列表、
+  schema、校验）、`read_flow`（查看）、`list_runs`、`read_run`（带运行）、`dry_run`、`edit_flow`/`edit_part`（写任何东西之前），
+  以及照旧在引擎里问的——启动的 `create`、带运行的各个运行操作。要把流程运行里的会话限制在它自己的运行上，宿主在这里查 `run`。
+- **宿主的事**（`AuthorHost`）：对话的当前流程和项目（`current`、`project`；`flow_create` 给了 `project_root` 时 `set_project`）、
+  它新建的流程怎么处理（`created`，可以把它设为当前，返回给模型的一句说明），以及 `notice`（流程包变了、删了流程、试运行
+  往前走了），宿主拿去告诉自己的人。项目自己的流程在 `ProjectLayout::pack_dir` 里读写，只在项目受信时。
+- `flow_guide` 就是 `GUIDE_EN`/`GUIDE_ZH`；`catalog_json`、`part_schemas`、`parts_used` 是这些工具答的形状，宿主自己的方法也可以用。
+
 ## 5. 试运行、`flowctl` 与一致性套件
 
 试运行（`Sandbox::new(packs, config)`）只要流程包：真内核跑在内存里（`MemStore`），会话、程序、门禁、工具一个都不调，结果由调用方模拟（`Mocks`）或取契约的示例。
@@ -285,6 +307,10 @@ cargo run -p harnix-flow --example flowctl -- show <state-dir> <run>
   `DEFAULT_GUARDED`、`withheld`、`worktree_info`、`EndError`、`redact_url`；trait **`SessionHost`** 和 `OpenSpec`、`Opened`、
   `SessionInfo`、`Watch`、`Frame`、`TurnEnd`、`Decision`、`Note`、`HostError`、`ToolSpec`、`SessionId`；`HookTransport` 与
   `Webhooks`（feature `webhooks`）；`ScriptedHost` 与 `Turn`；`conformance::{Subject, Failure, run_all}`；`wire::defs_list`。
+- **编写工具**（`author`，feature `runner`）：`AuthorTools`、`tool_specs`，trait **`AuthorHost`** 和 `Notice`，22 个工具的名字、
+  `RUN_TOOLS`、`CONVERSATION_KIND`、`NO_CURRENT`、`project_root`、`catalog_json`、`part_schemas`、`parts_used`——从
+  `harnix-ext-flow` 搬来，每个工具都可以显式给出流程或运行。`Op` 标上 `#[non_exhaustive]`，加了 `ReadFlows`、`ReadFlow`、
+  `ListRuns`、`ReadRun`、`DryRun`；`Engine::authorize` 公开。
 - **`ProjectLayout`**（新，在根上）：项目数据目录、worktree 的根和分支前缀，由宿主给——`Engine::with_layout`、`Engine::layout`
   （代替写死的 `kernel::refs::worktree_dir`、`worktree_branch`，两个都删了）；`project_pack_dir(root, &layout)`、
   `ProjectPacks::new(base, root, &layout, trusted)` 收它。`.gitignore` 只写 `runs/`；worktree 不再放在项目里。

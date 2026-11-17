@@ -1778,7 +1778,7 @@ worktree、过程目录）也在库里，只通过 trait `SessionHost` 认识会
 | `.packs(impl Packs)` / `.packs_arc(Arc<dyn Packs>)` / `.packs_with(\|data_dir\| …)` | 流程包：`MemPacks`（代码里给）、`DirPacks`（目录分层，`with_builtin` + `with_writable`）；`packs_with` 在启动时从扩展的数据目录建。项目自带的流程包（`<项目>/.harnix/flows/`，`ProjectPacks`）由扩展自己叠在上面，只给这个项目的任务，项目受信才读，应用不用配 |
 | `.store(impl RunStore)` / `.store_with(…)` | 运行存在哪；缺省扩展数据目录下 `runs/` 的 `FileStore` |
 | `.scene(SceneBase)` | 给流程用的 scene 底，包装成 `flow-<id>`（带 `flow_submit`、`flow_state`、`flow_propose`）。一个都不给时用内置的 `harnix`、`code`、`mini`（`flow-harnix`、`flow-code`、`flow-mini`） |
-| `.author_scene(SceneBase)` | 流程的对话（`flow-author`）包装的 scene；缺省 `harnix` |
+| `.author_scene(SceneBase)` | 流程的对话（`flow-author`）包装的 scene，加上库的编写工具（`harnix_flow::author`）；缺省 `harnix` |
 | `.main_scene(id)` | 运行主会话缺省的 scene（缺省第一个；不给 scene 时是 `harnix`）。流程定义里 `main: {scene: flow-code}`、站点的 `scene:` 可各自另选 |
 | `.template(InstanceTemplate)` | 站可以放上去的模板（`flow.<id>`） |
 | `.ensure_ms(ms)` | 站的模板实例等它 ready 的上限，缺省 60000，至少 1000 |
@@ -1786,7 +1786,7 @@ worktree、过程目录）也在库里，只通过 trait `SessionHost` 认识会
 | `.lease_ms(ms)` / `.tick_ms(ms)` | 扩展自己执行工作项时持的租约（干活时续），缺省 600000、至少 1000；多久找一次过期的租约，缺省 1000、至少 50 |
 | `.command_gates(bool)` | 让 `command` 门禁在本机跑命令（缺省关） |
 | `.guarded_tools(…)` | 受限工具：没有权限说话时由流程的执行语义 `guard` 定（`auto`，缺省：在项目里放行；`strict`：拒绝），缺省引擎的 shell、文件编辑、notebook、解释器 |
-| `.authorizer(impl Authorizer)` | 谁能做什么（确认、认领、交付、编辑流程……），`who` 交给它解释 |
+| `.authorizer(impl Authorizer)` | 谁能做什么（确认、认领、交付、编辑流程……，以及 `flow-author` 的工具读流程、读运行、试运行），`who` 交给它解释 |
 | `.space(id)` | 流程会话所在的 space，缺省 `flow` |
 | `.recording(…)` / `.main_recording(…)` / `.conversation_recording(…)` | 回放时工作项的会话、主会话、流程会话用哪份录像（只在 `--replay-dir` 下有意义） |
 

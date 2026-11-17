@@ -31,6 +31,7 @@ crates/flow/
     testing.rs         ScriptedHost: a host played from a script
     …                  dispatch, sessions, turns, the main session, gates, hooks, worktrees, git,
                        the process directory, trust, the flow's tools
+  src/author.rs        the authoring tools (feature `runner`): writing flows, working runs in a conversation
   src/conformance.rs   what every SessionHost must do, checked against a live one
   packs/examples/      an example pack (example-review): a host that copies the library can load,
                        validate and run it; Harnix builds it into its app
@@ -88,7 +89,7 @@ runs: those are the traits in `kernel::host`, and the host hands them in.
 |---|---|---|
 | `RunStore` | reads and writes run records and their history; `commit` is atomic and compares revs | `MemStore`, `FileStore::new(dir)`; `Hooked` wraps one, to change ids or refuse commits in tests |
 | `Packs` | the flow pack: flows, skills, rules, policies, gates, hooks, and the catalog (`Catalog`: the scenes, programs, gates, tools… known here) | `MemPacks` (given in code), `DirPacks` (layered directories, `with_builtin`, `with_writable`), `ProjectPacks` (a project's own pack, read only when the project is trusted) |
-| `Authorizer` | who may do what (confirm, claim, hand in, edit flows…); the host interprets `Actor` | `AllowAll` |
+| `Authorizer` | who may do what (confirm, claim, hand in, edit flows…, and what the authoring tools read); the host interprets `Actor` | `AllowAll` |
 | `Tools` | the read-only tools `tool` gates call | `NoTools` |
 | `Gates` | `host` gates: the application's own checks, by name | — |
 | `Programs` | `kind: program` tasks: the application's code | — |
@@ -284,6 +285,37 @@ works on — `allow` permitted, `deny` refused with the reason, `ask` left to a 
 waits for `approval`; the host shows the question to people as it would any other). A question of
 a turn no task owns (a person talking to the main Agent) is not answered by the runner.
 
+### The authoring tools: `author`
+
+Writing flows and working their runs in a conversation is a second set of tools, in
+`harnix_flow::author` (feature `runner`): `flow_list`, `flow_show`, `flow_schema`, `flow_validate`,
+`flow_create`, `flow_update`, `flow_delete`, `flow_part_set`, `flow_part_delete`, `flow_dry_run`,
+`flow_start`, `flow_guide`, `flow_runs`, `flow_run`, and the run tools `flow_pause`, `flow_resume`,
+`flow_cancel`, `flow_confirm`, `flow_force`, `flow_rework`, `flow_retry`, `flow_release` (`RUN_TOOLS`).
+The host registers `author::tool_specs()` to the conversations that may write flows — the same
+names, inputs and texts in every host — and routes each call to
+`AuthorTools::call(session, tool, input, &by)`; `AuthorTools::new(&runner, sandbox, host)` is made
+once the runner is. The tools work through the engine, the runner (a real start, a project's
+trust) and the dry runs' `Sandbox`, and answer in text (`ToolReply`).
+
+- **Targets.** A tool acting on a flow takes it in `flow`, one acting on a run in `run`. Absent,
+  the host's current one (`AuthorHost::current`, `current_run`); neither, the call is refused with
+  `AuthorHost::no_current`. A host that binds a conversation to one flow says so with
+  `AuthorHost::pinned`: a flow named that is not its current one, and a run of another flow, are
+  refused (Harnix: the flow selected beside the conversation).
+- **Scope.** Before a tool acts, the engine's `Authorizer` is asked as `by` (the host's `Actor`,
+  carrying the calling session): `read_flows` (list, schema, validate), `read_flow` (show),
+  `list_runs`, `read_run` (with the run), `dry_run`, `edit_flow`/`edit_part` (before anything is
+  written), and — inside the engine as ever — `create` for a start and the run operations with the
+  run. A host that keeps a session working in a run to its own run checks `run` there.
+- **What is the host's** (`AuthorHost`): the conversation's current flow and project
+  (`current`, `project`, `set_project` when `flow_create` names a `project_root`), what becomes of a
+  flow it created (`created`, which may make it current and returns a note for the model), and
+  `notice` (packs changed, a flow deleted, a dry run moved) to tell its own people. A project's own
+  flows are read and saved in `ProjectLayout::pack_dir`, only while the project is trusted.
+- `flow_guide` is `GUIDE_EN`/`GUIDE_ZH`; `catalog_json`, `part_schemas` and `parts_used` are the
+  shapes the tools answer with, for a host's own methods.
+
 ## 5. Dry runs, `flowctl` and the conformance suite
 
 A dry run (`Sandbox::new(packs, config)`) needs only the flow pack: the real kernel runs in memory
@@ -371,6 +403,11 @@ The library's first version: the kernel, stores, packs and dry runs move out of 
   `Watch`, `Frame`, `TurnEnd`, `Decision`, `Note`, `HostError`, `ToolSpec`, `SessionId`;
   `HookTransport` and `Webhooks` (feature `webhooks`); `ScriptedHost` and `Turn`;
   `conformance::{Subject, Failure, run_all}`; `wire::defs_list`.
+- **The authoring tools** (`author`, feature `runner`): `AuthorTools`, `tool_specs`, the trait
+  **`AuthorHost`** with `Notice`, the 22 tools' names, `RUN_TOOLS`, `CONVERSATION_KIND`, `NO_CURRENT`,
+  `project_root`, `catalog_json`, `part_schemas`, `parts_used` — moved from `harnix-ext-flow`, each
+  tool taking its flow or run explicitly. `Op` is `#[non_exhaustive]` and gains `ReadFlows`,
+  `ReadFlow`, `ListRuns`, `ReadRun` and `DryRun`; `Engine::authorize` is public.
 - **`ProjectLayout`** (new, at the root): the project's data directory, the worktrees' root and
   their branch prefix, given by the host — `Engine::with_layout`, `Engine::layout` (in place of the
   fixed `kernel::refs::worktree_dir` and `worktree_branch`, both removed); `project_pack_dir(root,
