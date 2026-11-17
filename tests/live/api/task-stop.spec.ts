@@ -107,6 +107,7 @@ test("a person stops a running task in its session's space: the topics say so lo
 
     const started = Date.now();
     expect(await api.call("observability.tasks.stop", { ...s, task_id: monitor.task_id })).toEqual({ stopped: true });
+    // Stopped at once, and said at once — not when its work has wound down.
     const ended = await api.waitFor(
       (f) =>
         f.method === "harnix.topic" &&

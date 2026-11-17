@@ -15,7 +15,7 @@
 import type { Page } from "@playwright/test";
 import { type Backend, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-import { connected, open, settingsSection, toSessions } from "./page";
+import { connected, open, settingsSection, toSessions, toSpace } from "./page";
 
 const FIRST_RUN = { tag: ["@feature:session-space", "@layer:ui"] };
 
@@ -171,6 +171,7 @@ test("the home page, where a page lands, has the first run while unfinished: the
   try {
     await page.reload();
     await connected(page);
+    await toSpace(page, "home");
     await expect(page.getByTestId("home")).toBeVisible();
     await expect(block).toHaveCount(1);
     await expect(block).toBeHidden();

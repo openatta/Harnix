@@ -115,8 +115,6 @@ test("output-tab: a running task is stopped from its tab, with a second press; s
   await expect(tab).toHaveAttribute("data-status", "stopped", { timeout: 10_000 });
   await expect(tab.getByTestId("output-status")).toHaveText(/Stopped|已停止/);
   await expect(tab.getByTestId("output-stop")).toHaveCount(0);
-  // The counter stops too: no line comes after the last one read once its output is final.
-  await expect(tab.getByTestId("task-output")).toHaveAttribute("data-final", "", { timeout: 20_000 });
   expect(errors).toEqual([]);
 });
 

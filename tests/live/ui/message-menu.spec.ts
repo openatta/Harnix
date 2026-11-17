@@ -47,12 +47,12 @@ async function answered(page: Page): Promise<string> {
   return sid;
 }
 
-/** What the engine's history holds as the person's first message, as text. */
+/** What the engine's history holds as the first thing the person said (not what the engine put before it), as text. */
 async function firstSaid(page: Page, sid: string): Promise<string> {
   return page.evaluate(async (sid) => {
     const { app } = (window as any).harnix;
     const history = await app.call("engine.session.history", { instance: "main", session_id: sid, space: "sessions" });
-    const message = history.messages.find((m: any) => m.role === "user");
+    const message = history.messages.find((m: any) => m.origin === "user");
     const content = message?.content;
     return typeof content === "string" ? content : (content ?? []).map((b: any) => b.text ?? "").join("");
   }, sid);

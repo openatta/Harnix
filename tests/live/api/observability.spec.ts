@@ -192,12 +192,14 @@ test.describe("on", () => {
     expect(JSON.stringify(after.messages[at].content)).toContain("Say exactly: edited");
     expect(after.total).toBe(total);
 
-    // On the record: the device's call, and under it the engine's change asked as observability.
+    // On the record: the device's call, and under it the engine's change asked as observability —
+    // twice, the stale count's included (the engine refused that one); the call without a count and
+    // the one claiming another space stopped before the engine was asked.
     const { entries } = await api.call("harnix.audit", { limit: 200 });
-    const asked = entries.filter((e: any) => e.method === "observability.messages.edit" && e.decision === "allow");
+    const asked = entries.filter((e: any) => e.method === "observability.messages.edit" && e.decision === "allow" && e.session === s.session_id);
     const edited = entries.filter((e: any) => e.method === "engine.session.editMessage" && asked.some((a: any) => a.call_id === e.parent));
-    expect(edited).toHaveLength(1);
-    expect(edited[0]).toMatchObject({ subject: "ext:observability", decision: "allow" });
+    expect(edited).toHaveLength(2);
+    for (const e of edited) expect(e).toMatchObject({ subject: "ext:observability", decision: "allow" });
   });
 
   test("a person's message is taken out of the context, its place kept; the model's own is not", TAGS, async () => {
