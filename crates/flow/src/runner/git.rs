@@ -191,7 +191,9 @@ pub(crate) fn snapshot(dir: &Path, own: Option<&str>, message: &str) -> Result<O
     if let Some(own) = own {
         for entry in std::fs::read_dir(dir.join(own)).into_iter().flatten().flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
-            if name != FLOWS_DIR {
+            // What git ignores already (the engine's own `.gitignore` there names its local
+            // directories) is not added, and naming it in a pathspec makes `git add` fail.
+            if name != FLOWS_DIR && !holds(dir, &["check-ignore", "-q", &format!("{own}/{name}")])? {
                 args.push(format!(":(exclude,literal){own}/{name}"));
             }
         }
@@ -371,6 +373,9 @@ pub(crate) mod tests {
         assert_eq!(snapshot(&wt, Some(".harnix"), "m").unwrap(), None);
         std::fs::write(wt.join("new.txt"), "new\n").unwrap();
         std::fs::create_dir_all(wt.join(".harnix/scratchpad/x")).unwrap();
+        std::fs::write(wt.join(".harnix/scratchpad/x/notes.md"), "mine\n").unwrap();
+        // The engine's `.gitignore` there names its local directories.
+        std::fs::write(wt.join(".harnix/.gitignore"), "scratchpad/\nruns/\n").unwrap();
         std::fs::write(wt.join(".harnix/settings.local.json"), "{}\n").unwrap();
         std::fs::create_dir_all(wt.join(".harnix/flows")).unwrap();
         std::fs::write(wt.join(".harnix/flows/f.yaml"), "name: f\n").unwrap();
