@@ -100,7 +100,8 @@ impl Hub {
         self.redraw_rewound(key, done.conversation.as_ref().map(|c| c.messages_after)).await;
     }
 
-    /// What the hub drew past a rewind's point is gone: the buffer is emptied, and the session's
+    /// What the hub drew past a rewind's point is gone — or a message it drew was changed in place
+    /// (`engine.session.editMessage`, `dropMessages`): the buffer is emptied, and the session's
     /// watchers attach again and read the history the engine answers now.
     pub(crate) async fn redraw_rewound(self: &Arc<Self>, key: &SessionKey, messages: Option<u64>) {
         let watchers = {

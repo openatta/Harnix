@@ -8,6 +8,13 @@
 //! usage tab read them for the open session. `context` and `tasks.output` ask the engine itself
 //! (`engine.inspect`): the right column's context tab and output tab read them.
 //!
+//! And a person's few changes to a session's inside, where the product grants `engine.control`:
+//! stopping a background task (`tasks.stop`, the output tab's), rewriting one of their messages or
+//! taking messages out of the context (`messages.edit`, `messages.drop`, the message menu's). Each
+//! is the engine's own operation, asked as this extension once the engine has answered for the
+//! session as the caller; the messages only while the history still has the `total` the person
+//! saw. Without the grant they are refused, and nothing else changes.
+//!
 //! A session's rows are a device's for the sessions of the space it claims (`RowScope::Session`):
 //! before a recording is read, the session is asked of the engine as the caller, and the hub judges
 //! the claim as it does for every read of a session (concept §5.4). `usage` names many
@@ -39,6 +46,29 @@ const MAX_DAYS: u64 = 366;
 /// connections change without an event to say so.
 const PROCESS_EVERY: Duration = Duration::from_secs(5);
 
+/// A person's changes to a session's inside: the method, the engine's operation it asks, the
+/// parameters it passes on besides the session, and what it does.
+const CHANGES: &[(&str, &str, &[&str], &str)] = &[
+    (
+        "tasks.stop",
+        "engine.session.stopTask",
+        &["task_id"],
+        "stop one of a session's background tasks: a command with its process group, a sub-agent at its next checkpoint; `{stopped}`, false when it was over",
+    ),
+    (
+        "messages.edit",
+        "engine.session.editMessage",
+        &["at", "text", "total"],
+        "rewrite a message a person wrote in a session (text alone), by its place in the history, if the history still has `total` messages; `{edited}`",
+    ),
+    (
+        "messages.drop",
+        "engine.session.dropMessages",
+        &["at", "total"],
+        "take messages a person wrote, or tool results, out of a session's context from here on, by their places, if the history still has `total` messages; `{dropped}`",
+    ),
+];
+
 #[derive(Default)]
 pub struct Observability;
 
@@ -49,10 +79,12 @@ impl Extension for Observability {
     fn manifest(&self) -> Manifest {
         Manifest::new("observability", env!("CARGO_PKG_VERSION"))
             .title("Observability")
-            .disclosure("读本机的模型调用录像：每次调用的请求与应答、每轮的汇总、会话的用量、请求信封的变化；读会话下一次调用的上下文、任务的输出；读本进程的版本、内存、线程与连接，读各扩展的日志")
+            .disclosure("读本机的模型调用录像：每次调用的请求与应答、每轮的汇总、会话的用量、请求信封的变化；读会话下一次调用的上下文、任务的输出；替人停止会话的后台任务、改写或从上下文去掉人说的话；读本进程的版本、内存、线程与连接，读各扩展的日志")
             .requires([caps::RECORDINGS_READ, caps::ENGINE_INSPECT])
-            // This process's figures (`process`). Without it they are refused, and nothing else changes.
-            .optional([caps::PROCESS_OBSERVE])
+            // This process's figures (`process`), and a person's changes to a session's inside
+            // (`tasks.stop`, `messages.*`). Without either, what needs it is refused, and nothing
+            // else changes.
+            .optional([caps::PROCESS_OBSERVE, caps::ENGINE_CONTROL])
     }
 
     fn register(&self, r: &mut Registrar<'_, ()>) {
@@ -117,6 +149,13 @@ impl Extension for Observability {
                 }
                 call.call("engine.session.taskOutput", target).await
             });
+        // A person's changes to a session's inside: each the engine's own, passed only what it names.
+        for &(name, method, keys, describe) in CHANGES {
+            r.method(name)
+                .access(session())
+                .describe(describe)
+                .raw(move |call, params| async move { change(&call, &params, method, keys).await });
+        }
         r.method("process")
             .access(Access::device())
             .describe("this process's versions, uptime, memory, threads and who is connected")
@@ -266,6 +305,32 @@ fn session_target(params: &Value) -> Rpc<Value> {
     Ok(target)
 }
 
+/// One of [`CHANGES`]: the session asked of the engine as the caller first — the engine's
+/// operation knows nothing of spaces, so one the caller may not see is refused by the hub's own
+/// words — then the operation, passed the session and `keys` alone. A message is changed only
+/// against the history its person saw: `total` is required, and the engine refuses it when the
+/// history has changed since.
+async fn change(call: &Call, params: &Value, method: &str, keys: &[&str]) -> Rpc<Value> {
+    let target = session_target(params)?;
+    let ask = change_params(&target, params, keys)?;
+    call.call("engine.session.get", target).await?;
+    call.call(method, ask).await
+}
+
+/// What a change passes on: the session, and the keys it names from what the caller sent.
+fn change_params(target: &Value, params: &Value, keys: &[&str]) -> Rpc<Value> {
+    if keys.contains(&"total") && !params.get("total").is_some_and(Value::is_u64) {
+        return Err(RpcError::invalid_params("`total` is how many messages the history had when the message was seen"));
+    }
+    let mut out = target.clone();
+    for key in keys {
+        if let Some(value) = params.get(*key) {
+            out[*key] = value.clone();
+        }
+    }
+    Ok(out)
+}
+
 /// `context {instance?, session_id, space?}`: the engine's `engine.session.inspectContext` — what the
 /// next call will carry, per block, its token counts estimated — with `measured`: what the provider
 /// counted for the last call that was made (`engine.session.get`'s `context`, read before the
@@ -317,7 +382,8 @@ mod tests {
     use super::*;
     use harnix_ext::{ErasedExtension, ExtId};
 
-    /// The rows about one session are a device's, narrowed to the sessions of the space it claims;
+    /// The rows about one session — reads and changes alike — are a device's, narrowed to the
+    /// sessions of the space it claims;
     /// `usage`, which names many sessions, and `process` and `extensions.log`, about none, are a
     /// device's and open.
     #[test]
@@ -333,7 +399,17 @@ mod tests {
                 .access()
                 .clone()
         };
-        for name in ["observability.trace", "observability.trace.call", "observability.turns", "observability.calls", "observability.context", "observability.tasks.output"] {
+        for name in [
+            "observability.trace",
+            "observability.trace.call",
+            "observability.turns",
+            "observability.calls",
+            "observability.context",
+            "observability.tasks.output",
+            "observability.tasks.stop",
+            "observability.messages.edit",
+            "observability.messages.drop",
+        ] {
             let row = access(name);
             assert!(row.opens_devices(), "{name} is a device's");
             assert!(!row.opens_every_extension(), "{name} is not an extension's");
@@ -343,6 +419,28 @@ mod tests {
             assert!(access(name).opens_devices(), "{name} is a device's");
             assert_eq!(access(name).scope(), RowScope::Open, "{name} is about no one session");
         }
+    }
+
+    /// A change passes on the session and what it names, nothing else the caller sent; a message is
+    /// changed only against the count of messages its person saw.
+    #[test]
+    fn a_change_passes_on_only_what_it_names() {
+        let sent = json!({"session_id": "S1", "instance": "side", "space": "acme", "task_id": "T", "at": 3, "text": "x", "total": 8, "extra": 1});
+        let target = session_target(&sent).unwrap();
+        assert_eq!(
+            change_params(&target, &sent, &["task_id"]).unwrap(),
+            json!({"session_id": "S1", "instance": "side", "space": "acme", "task_id": "T"})
+        );
+        assert_eq!(
+            change_params(&target, &sent, &["at", "text", "total"]).unwrap(),
+            json!({"session_id": "S1", "instance": "side", "space": "acme", "at": 3, "text": "x", "total": 8})
+        );
+        for without in [json!({"session_id": "S1", "at": [3]}), json!({"session_id": "S1", "at": [3], "total": "8"})] {
+            let target = session_target(&without).unwrap();
+            assert!(change_params(&target, &without, &["at", "total"]).is_err(), "{without}");
+        }
+        let names: Vec<&str> = CHANGES.iter().map(|(n, ..)| *n).collect();
+        assert_eq!(names, ["tasks.stop", "messages.edit", "messages.drop"]);
     }
 
     /// A read of the extension log passes on its filter and nothing else.
