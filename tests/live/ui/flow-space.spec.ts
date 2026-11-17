@@ -111,7 +111,7 @@ test("a flow picked on the left: its conversation in the middle, its details bes
   const main = async () =>
     page.evaluate(async (r) => {
       const v = await (window as any).harnix.app.call("flow.get", { run: r });
-      return ((v.record.session_keys ?? {})["@main"] as string | undefined)?.split("/")[1] ?? null;
+      return ((v.record.session_keys ?? {})["@main"]?.id as string | undefined)?.split("/")[1] ?? null;
     }, run);
   await expect.poll(main, { timeout: 15_000 }).not.toBeNull();
   await expect.poll(() => current(page), { timeout: 15_000 }).toBe(await main());

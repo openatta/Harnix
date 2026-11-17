@@ -240,7 +240,7 @@ test("the composer's model menu is worked by keyboard alone, where the profile l
   }
 });
 
-/** The model: the options, then the field for a name of one's own — reached with ↓ like an item. */
+/** The model: the options, then the field for a name of one's own — reached with ↓ like an item — then the session's effort and thinking. */
 async function modelMenuByKeyboard(page: Page): Promise<void> {
   const model = page.getByTestId("conv-model");
   await expect(model).toHaveAttribute("aria-haspopup", "menu");
@@ -254,7 +254,12 @@ async function modelMenuByKeyboard(page: Page): Promise<void> {
   expect(await focused(page)).toBe("conv-model");
   await page.keyboard.press("Enter");
   await expect(models.getByTestId("conv-model-option").first()).toBeFocused();
+  // End: the last thing in the menu, the session's thinking switch below the field.
   await page.keyboard.press("End");
+  await expect.poll(() => focused(page)).toMatch(/^conv-thinking_mode-/);
+  // The field is reached with ↓ from the models, as an item is.
+  await page.keyboard.press("Home");
+  for (let i = 0; i < 20 && (await focused(page)) !== "conv-model-custom"; i += 1) await page.keyboard.press("ArrowDown");
   await expect(models.getByTestId("conv-model-custom")).toBeFocused();
   await page.keyboard.type("claude-keyboard-model");
   await page.keyboard.press("Enter");
