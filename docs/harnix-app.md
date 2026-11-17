@@ -518,7 +518,7 @@ transcript 里没有 diff。所以**一轮结束时，中枢把这一轮写过�
 | 部分 | 从哪来 |
 |---|---|
 | 系统、工具、消息的比例，实测（上一次调用）与估算（下一次），压缩阈值；每个系统块的来源与正文，工具表（`@harnix/react` 的 `ContextReport`） | `observability.context` |
-| 生效的技能与钩子 | `harnix.session.skills`、`harnix.session.hooks` |
+| 生效的技能与钩子；技能标来源层，引擎用户层的分开标「全局」「场景」（`user_tier`），悬停是说明和读它的目录 | `harnix.session.skills`、`harnix.session.hooks` |
 | 每个 MCP 服务器的工具与指令 | `settings.mcp.context` |
 | 被项目信任扣下的项，带「信任这个项目」（§3.1） | `harnix-app.sessions.projectStatus` |
 

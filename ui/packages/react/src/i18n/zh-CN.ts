@@ -1342,6 +1342,8 @@ const zhCN: Record<string, string> = {
   "context.tier.plugin": "插件",
   "context.tier.user": "用户",
   "context.tier.builtin": "内建",
+  "context.tier.global": "全局",
+  "context.tier.scene": "场景",
   "context.hooks": "钩子（{count}）",
   "context.noHooks": "没有钩子。",
   "context.hooksUnread": "读不到 {tiers} 层的设置，它们的钩子未知。",

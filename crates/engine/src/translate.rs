@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use harnix_contract::wire::{ModelChoice, RemovedTurn, RewindParams, RewindResult, RewindScope, RewindTo, RewoundConversation, RewoundFiles};
-use harnix_contract::wire::{HookRow, HookSource, SessionHooks, SessionSkills, ShadowedSkill, SkillDirRow, SkillRow, SkillTier};
+use harnix_contract::wire::{HookRow, HookSource, SessionHooks, SessionSkills, ShadowedSkill, SkillDirRow, SkillRow, SkillTier, SkillUserTier};
 use harnix_contract::RpcError;
 use harnix_engine_link::events::{Completion, DaemonEventKind, EngineEvent, FileWrite, Fragment, Joins, Prompt, SessionEventKind, Waiting};
 use harnix_engine_link::ops::{codes, Answer, EngineOps, Entry, HistoryPage, Message, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
@@ -431,6 +431,7 @@ fn skills_of(session: &Value, commands: Option<&Value>, status: Option<&Value>, 
             description: command.get("description").and_then(Value::as_str).unwrap_or_default().to_string(),
             tier,
             dir: None,
+            user_tier: None,
             package: None,
             plugin: None,
             withheld: false,
@@ -447,7 +448,17 @@ fn skills_of(session: &Value, commands: Option<&Value>, status: Option<&Value>, 
                     row.dir = plugin.get("root").and_then(Value::as_str).map(str::to_string);
                 }
             }
-            SkillTier::User | SkillTier::Builtin => {}
+            SkillTier::User => {
+                row.user_tier = match command.get("tier").and_then(Value::as_str) {
+                    Some("global") => Some(SkillUserTier::Global),
+                    Some("scene") => Some(SkillUserTier::Scene),
+                    _ => None,
+                };
+                // The engine names the skill's own folder; the row names the tier's directory.
+                let own = command.get("dir").and_then(Value::as_str).map(std::path::Path::new);
+                row.dir = own.and_then(std::path::Path::parent).map(|d| d.display().to_string());
+            }
+            SkillTier::Builtin => {}
         }
         skills.push(row);
     }
@@ -1699,7 +1710,8 @@ mod seen_tests {
             {"name": "deploy", "description": "ship it", "kind": "prompt", "source": "project"},
             {"name": "lint", "description": "", "kind": "prompt", "source": "project"},
             {"name": "board", "description": "", "kind": "prompt", "source": "plugin"},
-            {"name": "mine", "description": "", "kind": "prompt", "source": "user"},
+            {"name": "mine", "description": "", "kind": "prompt", "source": "user", "tier": "global", "dir": "/e/skills/mine"},
+            {"name": "ours", "description": "", "kind": "prompt", "source": "user", "tier": "scene", "dir": "/e/scenes/code/skills/ours"},
             {"name": "clear", "description": "", "kind": "local", "source": "builtin"},
             {"name": "srv:ask", "description": "", "kind": "mcp-prompt", "source": "mcp"},
         ]});
@@ -1714,13 +1726,16 @@ mod seen_tests {
         let names: Vec<(&str, SkillTier)> = out.skills.iter().map(|s| (s.name.as_str(), s.tier)).collect();
         assert_eq!(
             names,
-            [("tour", SkillTier::Space), ("deploy", SkillTier::Project), ("lint", SkillTier::Project), ("board", SkillTier::Plugin), ("mine", SkillTier::User)]
+            [("tour", SkillTier::Space), ("deploy", SkillTier::Project), ("lint", SkillTier::Project), ("board", SkillTier::Plugin), ("mine", SkillTier::User), ("ours", SkillTier::User)]
         );
         assert_eq!((out.skills[0].dir.as_deref(), out.skills[0].package.as_deref()), (Some("/state/ext/acme.notes/skills"), None));
         assert_eq!(out.skills[1].dir.as_deref(), Some("/p/.agents/skills"));
         assert!(out.skills[1].withheld, "a project skill the engine holds back until trust");
         assert!(!out.skills[2].withheld);
         assert_eq!((out.skills[3].plugin.as_deref(), out.skills[3].dir.as_deref()), (Some("boards"), Some("/plug/boards")));
+        let user: Vec<(Option<SkillUserTier>, Option<&str>)> = out.skills[4..].iter().map(|s| (s.user_tier, s.dir.as_deref())).collect();
+        assert_eq!(user, [(Some(SkillUserTier::Global), Some("/e/skills")), (Some(SkillUserTier::Scene), Some("/e/scenes/code/skills"))]);
+        assert_eq!(out.skills[0].user_tier, None, "only a user tier's skill says which");
         assert_eq!(out.dirs[0].shadowed, vec![ShadowedSkill { skill: "x".into(), by: "user".into() }]);
     }
 

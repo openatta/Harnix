@@ -1344,6 +1344,8 @@ const en: Record<string, string> = {
   "context.tier.plugin": "plugin",
   "context.tier.user": "user",
   "context.tier.builtin": "built in",
+  "context.tier.global": "global",
+  "context.tier.scene": "scene",
   "context.hooks": "Hooks ({count})",
   "context.noHooks": "No hooks.",
   "context.hooksUnread": "The {tiers} settings could not be read: their hooks are unknown.",

@@ -1199,10 +1199,22 @@ pub enum SkillTier {
     Project,
     /// An engine plugin package's.
     Plugin,
-    /// The engine's user tiers: its global skills or its scene's — the engine does not say which.
+    /// The engine's user tiers: its global skills or its scene's ([`SkillRow::user_tier`] says
+    /// which).
     User,
     /// Built into the engine.
     Builtin,
+}
+
+/// Which of the engine's user tiers a skill of [`SkillTier::User`] was read from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "snake_case")]
+pub enum SkillUserTier {
+    /// The instance's global skills, in every scene.
+    Global,
+    /// The session's scene's own.
+    Scene,
 }
 
 /// One skill a session sees: `harnix.session.skills`'s row.
@@ -1213,10 +1225,14 @@ pub struct SkillRow {
     pub description: String,
     pub tier: SkillTier,
     /// The directory it was read from, when it can be said: a space tier's package directory, the
-    /// project's `.agents/skills`, a plugin package's root.
+    /// project's `.agents/skills`, a plugin package's root, the user tier's skills directory.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub dir: Option<String>,
+    /// The user tier it is of — global or the scene's — when the engine says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub user_tier: Option<SkillUserTier>,
     /// The extension package that brought it (the space tier).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]

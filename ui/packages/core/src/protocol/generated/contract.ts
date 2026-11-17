@@ -931,14 +931,23 @@ thinking_mode?: string | null, };
 export type SkillTier = "space" | "project" | "plugin" | "user" | "builtin";
 
 /**
+ * Which of the engine's user tiers a skill of [`SkillTier::User`] was read from.
+ */
+export type SkillUserTier = "global" | "scene";
+
+/**
  * One skill a session sees: `harnix.session.skills`'s row.
  */
 export type SkillRow = { name: string, description: string, tier: SkillTier, 
 /**
  * The directory it was read from, when it can be said: a space tier's package directory, the
- * project's `.agents/skills`, a plugin package's root.
+ * project's `.agents/skills`, a plugin package's root, the user tier's skills directory.
  */
 dir?: string, 
+/**
+ * The user tier it is of — global or the scene's — when the engine says.
+ */
+user_tier?: SkillUserTier, 
 /**
  * The extension package that brought it (the space tier).
  */

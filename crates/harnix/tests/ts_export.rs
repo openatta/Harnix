@@ -173,7 +173,7 @@ fn contract(cfg: &Config) -> Generated {
         // `harnix.session.setModel`.
         SessionModelParams, ModelChoice,
         // What a session sees: its skills and hooks.
-        SkillTier, SkillRow, ShadowedSkill, SkillDirRow, SessionSkills, HookSource, HookRow, SessionHooks,
+        SkillTier, SkillUserTier, SkillRow, ShadowedSkill, SkillDirRow, SessionSkills, HookSource, HookRow, SessionHooks,
         // Each extension's log.
         ExtensionLogOrigin, ExtensionLogLine, ExtensionLogCount, ExtensionLog,
     ]);

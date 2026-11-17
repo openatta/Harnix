@@ -137,8 +137,15 @@ export function SessionContext({ observed, session, visible = true }: { observed
           skills.value.skills.length ? (
             <ul className="obs-list">
               {skills.value.skills.map((skill) => (
-                <li key={`${skill.tier}/${skill.name}`} data-testid="context-skill" data-withheld={skill.withheld ? "true" : undefined} title={skill.description}>
-                  <span className="kd2">{tr(`context.tier.${skill.tier}`)}</span>
+                <li
+                  key={`${skill.tier}/${skill.user_tier ?? ""}/${skill.name}`}
+                  data-testid="context-skill"
+                  data-tier={skill.user_tier ?? skill.tier}
+                  data-withheld={skill.withheld ? "true" : undefined}
+                  title={[skill.description, skill.dir].filter(Boolean).join("\n")}
+                >
+                  {/* A user tier's skill says which: the instance's global skills or the scene's. */}
+                  <span className="kd2">{tr(`context.tier.${skill.user_tier ?? skill.tier}`)}</span>
                   <span className="txt">{skill.name}</span>
                   {skill.withheld ? <span className="kd warn">{tr("context.withheldTag")}</span> : null}
                 </li>
