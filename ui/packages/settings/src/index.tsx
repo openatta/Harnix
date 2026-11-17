@@ -147,7 +147,7 @@ interface Described extends FieldDoc {
         api_key?: unknown;
         api_key_env?: string | null;
         default_model?: string | null;
-        models?: string[];
+        models?: ModelEntry[];
         thinking_toggle?: string | null;
         reasoning_passback?: boolean;
       }
@@ -157,6 +157,11 @@ interface Described extends FieldDoc {
 }
 
 let tier = "global";
+
+/** A provider's `models` entry: a model's id, or an object with its id and what the engine knows of it. */
+type ModelEntry = string | ({ id: string } & Record<string, unknown>);
+
+const modelId = (m: ModelEntry): string => (typeof m === "string" ? m : m.id);
 
 /** What a write is about: the open session's scene and project, else the engine's first active
  *  scene and no project. */
@@ -506,7 +511,7 @@ function ProviderCard({
       .call("settings.setProvider", { provider_id: id, ...params })
       .then(onChanged)
       .catch((e: unknown) => host.shell.notice(t("settings.writeFailed", { error: errorText(e) }), "error"));
-  const models = [provider.default_model, ...(provider.models ?? [])].filter((m, i, all): m is string => Boolean(m) && all.indexOf(m) === i);
+  const models = [provider.default_model, ...(provider.models ?? []).map(modelId)].filter((m, i, all): m is string => Boolean(m) && all.indexOf(m) === i);
   return (
     <div className={`provider-card${isDefault ? " default" : ""}`} data-provider={id} data-state={isDefault ? "default" : undefined}>
       <div className="pc-head">
@@ -596,7 +601,7 @@ function ProviderForm({
     api_key: "",
     api_key_env: provider.api_key_env ?? "",
     default_model: provider.default_model ?? "",
-    models: (provider.models ?? []).join(", "),
+    models: (provider.models ?? []).map(modelId).join(", "),
     thinking_toggle: provider.thinking_toggle ?? "",
     reasoning_passback: provider.reasoning_passback === true,
     make_default: isDefault,
@@ -627,7 +632,9 @@ function ProviderForm({
       host.shell.notice(t("settings.providerIdRequired"));
       return;
     }
-    const models = fields.models.split(/[,，\s]+/).map((m) => m.trim()).filter(Boolean);
+    // An id still listed keeps the object it was written as, with what that says of the model.
+    const written = new Map((provider.models ?? []).map((m) => [modelId(m), m] as const));
+    const models = fields.models.split(/[,，\s]+/).map((m) => m.trim()).filter(Boolean).map((m) => written.get(m) ?? m);
     const config: Record<string, unknown> = {
       api_type: fields.api_type,
       base_url: fields.base_url.trim(),

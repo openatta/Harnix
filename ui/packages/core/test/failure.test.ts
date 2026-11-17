@@ -20,6 +20,7 @@ describe("failureClass", () => {
   });
 
   it("no credentials is no model, whatever kind the engine put on it", () => {
+    expect(failureClass(failureFacts(engine("no_credentials", "provider `default` has no key")))).toBe("no_model");
     expect(failureClass(failureFacts(engine("model_error", "missing api_key")))).toBe("no_model");
     expect(failureClass(failureFacts(engine("auth", "missing api_key: none of X is set")))).toBe("no_model");
   });

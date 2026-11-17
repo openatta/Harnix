@@ -91,9 +91,10 @@ fn model_choices(answer: Option<Value>) -> Option<EngineProviders> {
         .into_iter()
         .flatten()
         .map(|(id, p)| {
+            // An entry is a model's id, or an object with its id and what the engine knows of it.
             let models = p["models"]
                 .as_array()
-                .map(|m| m.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                .map(|m| m.iter().filter_map(|e| e.as_str().or_else(|| e.get("id")?.as_str())).map(str::to_string).collect())
                 .unwrap_or_default();
             (id.clone(), ProviderModels { default_model: string(p.get("default_model")), models })
         })
@@ -110,7 +111,7 @@ mod tests {
         let answer = json!({
             "default_provider": "acme",
             "providers": {
-                "acme": {"api_type": "openai_compatible", "base_url": "https://acme.invalid/v1", "api_key": "sk-…", "default_model": "m-1", "models": ["m-2"]},
+                "acme": {"api_type": "openai_compatible", "base_url": "https://acme.invalid/v1", "api_key": "sk-…", "default_model": "m-1", "models": ["m-2", {"id": "m-3", "max_output": 8192}]},
                 "bare": {"api_type": "anthropic"},
             },
         });
@@ -118,7 +119,7 @@ mod tests {
             wire::params(&model_choices(Some(answer))),
             json!({
                 "default_provider": "acme",
-                "providers": {"acme": {"default_model": "m-1", "models": ["m-2"]}, "bare": {"default_model": null, "models": []}},
+                "providers": {"acme": {"default_model": "m-1", "models": ["m-2", "m-3"]}, "bare": {"default_model": null, "models": []}},
             })
         );
         assert!(model_choices(None).is_none());

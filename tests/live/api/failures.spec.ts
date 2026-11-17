@@ -61,11 +61,11 @@ function classOf(error: unknown): FailureClass | undefined {
 
 test("no provider and no key: a message fails as a classed failure that sends to the model settings, not as a bare code", TAGS, async () => {
   const error = await failureOfATurn();
-  // The engine still builds its default client with no key and lets the turn reach the service,
-  // which refuses it as `auth`; an engine that refuses first says `missing api_key`. Either way the
-  // person is sent to the model settings.
+  // The engine sends nothing without a key: the turn ends as `no_credentials`, which is "no model",
+  // and the person is sent to the model settings.
+  expect(failureFacts(error).kind, JSON.stringify(error)).toBe("no_credentials");
   const cls = classOf(error);
-  expect(["no_model", "auth"], JSON.stringify(error)).toContain(cls);
+  expect(cls, JSON.stringify(error)).toBe("no_model");
   expect(failureAction(cls!)).toBe("settings.models");
   // The engine's own words stay, for whoever supports it.
   expect(failureFacts(error).raw).not.toBe("");

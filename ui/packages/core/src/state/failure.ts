@@ -47,6 +47,8 @@ export function failureFacts(e: unknown): FailureFacts {
 }
 
 const KINDS: Record<string, FailureClass> = {
+  // 引擎拿不到这个 provider 的密钥，什么也没发出去。
+  no_credentials: "no_model",
   auth: "auth",
   billing: "billing",
   model_rejected: "model_rejected",
@@ -59,7 +61,7 @@ const KINDS: Record<string, FailureClass> = {
   engine_unreachable: "engine_down",
 };
 
-/** 没有配模型服务或密钥时引擎的原话（`missing api_key`），归 `no_model`，不论它标的是哪一种。 */
+/** 没有配模型服务或密钥时引擎的原话（`missing api_key`），归 `no_model`，不论它标的是哪一种；引擎自己标的是 `no_credentials`。 */
 const NO_MODEL = /missing api_key|no api[ _-]?key|no provider|no model|not configured/i;
 
 /** 账户没钱时服务的原话（Anthropic 答 400 `credit balance is too low`，引擎归成 `model_rejected`）：归 `billing`。 */

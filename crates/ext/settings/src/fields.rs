@@ -349,7 +349,9 @@ pub(crate) fn offers(field: &Field, providers: &Value) -> Map<String, Value> {
     let models_of = |provider: &Value| -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
         let named = provider.get("default_model").into_iter().chain(provider.get("models").and_then(Value::as_array).into_iter().flatten());
-        for model in named.filter_map(Value::as_str).filter(|m| !m.trim().is_empty()) {
+        // A `models` entry is an id, or an object with its id and the model's limits.
+        let ids = named.filter_map(|m| m.as_str().or_else(|| m.get("id")?.as_str()));
+        for model in ids.filter(|m| !m.trim().is_empty()) {
             if !out.iter().any(|m| m == model) {
                 out.push(model.to_string());
             }
@@ -680,7 +682,7 @@ mod tests {
     fn the_configured_models_are_offered() {
         let providers = json!({"providers": {
             "a": {"default_model": "a-1", "models": ["a-1", "a-2"]},
-            "b": {"default_model": null, "models": ["a-2", "b-1"]},
+            "b": {"default_model": null, "models": ["a-2", {"id": "b-1", "context_window": 128000}]},
         }});
         let fallback = offers(find("model.fallback_model").unwrap(), &providers);
         assert_eq!(fallback["suggestions"], json!(["a-1", "a-2", "b-1"]));

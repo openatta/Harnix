@@ -281,6 +281,22 @@ describe("@harnix/settings", () => {
     expect((params.config as Record<string, unknown>).api_key).toBeUndefined();
   });
 
+  it("a model written as an object shows as its id and is written back as it was", async () => {
+    const calls: [string, Record<string, unknown>][] = [];
+    const big = { id: "m-big", max_output: 8192 };
+    const { container } = models({ a: { api_type: "anthropic", api_key: "***abcd", default_model: "m", models: ["m", big] } }, calls);
+    await screen.findByTestId("providers");
+    expect(container.querySelector('[data-provider="a"] .pc-meta')!.textContent).toContain("m · m-big");
+    fireEvent.click(container.querySelector('[data-provider="a"] [data-testid="provider-edit"]')!);
+    const form = await screen.findByTestId("provider-form");
+    expect((form.querySelector('[data-testid="provider-models"]') as HTMLInputElement).value).toBe("m, m-big");
+    fireEvent.change(form.querySelector('[data-testid="provider-models"]')!, { target: { value: "m-big, m-new" } });
+    fireEvent.click(form.querySelector('[data-testid="provider-save"]')!);
+    await waitFor(() => expect(calls.some(([m]) => m === "settings.setProvider")).toBe(true));
+    const config = calls.find(([m]) => m === "settings.setProvider")![1].config as Record<string, unknown>;
+    expect(config.models).toEqual([big, "m-new"]);
+  });
+
   it("an Anthropic provider is not sent the OpenAI-compatible thinking fields", async () => {
     const calls: [string, Record<string, unknown>][] = [];
     const { container } = models({ a: { api_type: "anthropic", api_key: "***abcd", default_model: "m" } }, calls);
