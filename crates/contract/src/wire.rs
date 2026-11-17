@@ -492,6 +492,9 @@ pub struct SpaceRow {
     /// The space a call that claims none is checked as.
     #[serde(rename = "default")]
     pub default_space: bool,
+    /// A page of its own: no session is created in it, and it lists none.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_sessions: bool,
 }
 
 /// `harnix.spaces.list`'s answer and the topic `harnix.spaces`'s value.
@@ -1346,7 +1349,7 @@ pub struct ExtensionLogCount {
     pub lines: usize,
 }
 
-/// `harnix.extensions.log` (and `system.extensions.log`): the lines kept, oldest first.
+/// `harnix.extensions.log` (and `observability.extensions.log`): the lines kept, oldest first.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ExtensionLog {
@@ -1506,12 +1509,13 @@ mod tests {
     #[test]
     fn the_space_rows_default_flag_is_named_as_the_wire_says() {
         let row = SpaceRow {
-            id: "system".into(),
+            id: "debug".into(),
             instance: "main".into(),
             built: None,
             scene: None,
             cross_space: true,
             default_space: true,
+            no_sessions: false,
         };
         assert_eq!(params(&row)["default"], json!(true));
     }
