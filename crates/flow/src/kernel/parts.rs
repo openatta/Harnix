@@ -262,6 +262,9 @@ pub struct Call<'a> {
     /// (`ProjectLayout::reserved`), the host's and not the task's. Only an `allow` whose own
     /// `paths` point into one lets a call touch it.
     pub reserved: &'a [String],
+    /// Directories inside the reserved ones that are the task's after all
+    /// (`ProjectLayout::agent_dirs_in`): a path in one is judged as any path in the project.
+    pub agent_dirs: &'a [String],
 }
 
 /// What becomes of a call.
@@ -290,7 +293,7 @@ pub fn judge(granted: &[Granted], guarded: &[String], call: &Call, station: &str
 /// `strict` and refused under `auto` — unless an `allow` whose own `paths` cover it matched: that
 /// is the author saying so. A path in one of the call's `reserved` directories is outside too,
 /// and an `allow` speaks for it only when one of its patterns points into that directory
-/// (`${workspace}/**` does not).
+/// (`${workspace}/**` does not) — but for the call's `agent_dirs` in it, which are the task's.
 pub fn judge_under(guard: Guard, granted: &[Granted], guarded: &[String], call: &Call, station: &str) -> Verdict {
     let paths = call_paths(call);
     let mut best: Option<(&Granted, bool)> = None;
@@ -313,7 +316,10 @@ pub fn judge_under(guard: Guard, granted: &[Granted], guarded: &[String], call: 
         }
     }
     let reserved: Vec<String> = call.reserved.iter().map(|r| normalize(r, call.root)).collect();
-    let reserved_of = |path: &str| reserved.iter().find(|r| within(path, r));
+    let agent_dirs: Vec<String> = call.agent_dirs.iter().map(|r| normalize(r, call.root)).collect();
+    let reserved_of = |path: &str| {
+        reserved.iter().find(|r| within(path, r)).filter(|_| !agent_dirs.iter().any(|a| within(path, a)))
+    };
     let outside: Vec<&String> = paths
         .iter()
         .filter(|path| {
@@ -846,6 +852,7 @@ mod tests {
             workspace: Some("/ws/r-1"),
             root: Some("/ws/r-1"),
             reserved: &[],
+            agent_dirs: &[],
         }
     }
 
@@ -1000,6 +1007,19 @@ mod tests {
         assert_ne!(judged(Guard::Auto, &named, &at("/ws/r-1/.harnix/settings.json")).effect, Effect::Allow);
         // Without reserved directories, as before.
         assert_eq!(judge_under(Guard::Auto, &[], &[], &call("Write", Some(&at("/ws/r-1/.harnix/x"))), "s").effect, Effect::Allow);
+        // The directories the host's sandbox lets a session write in there are the task's.
+        let agent_dirs = ["/ws/r-1/.harnix/scratchpad".to_string(), "/ws/r-1/.harnix/memory".to_string()];
+        let own = |guard: Guard, g: &[Granted], input: &Value| {
+            let c = Call { reserved: &reserved, agent_dirs: &agent_dirs, ..call("Write", Some(input)) };
+            judge_under(guard, g, &["Write".to_string()], &c, "s")
+        };
+        for guard in [Guard::Auto, Guard::Strict] {
+            assert_eq!(own(guard, &wide, &at("/ws/r-1/.harnix/scratchpad/notes.md")).effect, Effect::Allow, "{guard:?}");
+            assert_eq!(own(guard, &wide, &at(".harnix/memory/MEMORY.md")).effect, Effect::Allow, "{guard:?}");
+            assert_ne!(own(guard, &wide, &at("/ws/r-1/.harnix/settings.json")).effect, Effect::Allow, "{guard:?}");
+            assert_ne!(own(guard, &wide, &at("/ws/r-1/.harnix/scratchpad-not/x")).effect, Effect::Allow, "{guard:?}");
+        }
+        assert_eq!(own(Guard::Auto, &[], &at("/ws/r-1/.harnix/scratchpad/x")).effect, Effect::Allow);
     }
 
     /// Permissions with `${workspace}` put in, as a task's are.

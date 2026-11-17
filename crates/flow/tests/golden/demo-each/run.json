@@ -1,0 +1,313 @@
+{
+  "created_at": 1794787200000,
+  "created_by": {
+    "id": "golden",
+    "kind": "device"
+  },
+  "def": {
+    "description": "主 Agent 列出模块，每个模块一个子 Agent 分析（最多两个同时），再写报告。",
+    "name": "demo-each",
+    "rules": [
+      "cite-sources",
+      "plain-chinese"
+    ],
+    "stations": [
+      {
+        "executor": {
+          "kind": "session"
+        },
+        "exit": [
+          {
+            "kind": "output"
+          }
+        ],
+        "id": "list",
+        "output": {
+          "properties": {
+            "modules": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "modules"
+          ],
+          "type": "object"
+        },
+        "skill": "list-modules",
+        "title": "列出模块"
+      },
+      {
+        "executor": {
+          "kind": "agent"
+        },
+        "exit": [
+          {
+            "kind": "output"
+          }
+        ],
+        "foreach": "${stations.list.output.modules}",
+        "id": "analyze",
+        "max_parallel": 2,
+        "output": {
+          "properties": {
+            "risk": {
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ]
+            }
+          },
+          "required": [
+            "risk"
+          ],
+          "type": "object"
+        },
+        "policies": [
+          "read-only"
+        ],
+        "skill": "analyze",
+        "title": "逐个分析"
+      },
+      {
+        "executor": {
+          "kind": "session"
+        },
+        "exit": [
+          {
+            "kind": "output"
+          }
+        ],
+        "id": "report",
+        "output": {
+          "properties": {
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "type": "object"
+        },
+        "skill": "report",
+        "title": "写报告"
+      }
+    ],
+    "title": "示例：逐个模块分析"
+  },
+  "def_digest": "d75a04d5da5cfa8a5072b6bacd789e2d335f97c1364ba22fe941a57e4b181e0d",
+  "finished_at": 1794787202000,
+  "flow": "demo-each",
+  "format": 1,
+  "id": "demo-each-1",
+  "inputs": {},
+  "parts": {
+    "policies": {
+      "read-only": {
+        "description": "评审与分析只读，不改工作区里的任何东西。",
+        "name": "read-only",
+        "permissions": [
+          {
+            "effect": "deny",
+            "message": "这一站只评审，不改东西；要改的写进发现里",
+            "tools": [
+              "Write",
+              "Edit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "effect": "deny",
+            "message": "这一站不跑命令",
+            "tools": [
+              "Bash"
+            ]
+          }
+        ],
+        "title": "只看不改"
+      }
+    }
+  },
+  "rev": 6,
+  "seq": 17,
+  "session_keys": {
+    "@main": {
+      "id": "s1",
+      "opened_with": {
+        "delivery": "flow_submit",
+        "main": true,
+        "scene": "flow-harnix"
+      }
+    }
+  },
+  "stations": {
+    "analyze": {
+      "auto_reworks": 0,
+      "checks": [
+        {
+          "at": 1794787201500,
+          "cond": 0,
+          "kind": "output",
+          "label": "output",
+          "round": 1,
+          "status": "pass"
+        }
+      ],
+      "entered_at": 1794787201000,
+      "left_at": 1794787201500,
+      "round": 1,
+      "rounds_total": 1,
+      "rule_digest": {
+        "cite-sources": "7a638b38cc42a1245cba77fa41fedff5b7781c8b9b261f34d7b0fa350de3bd9b",
+        "plain-chinese": "906fe73fb444491e0726fb26a474a8f0d2a7cfa9efda9305f925730f19cbcb3a"
+      },
+      "skill_digest": {
+        "analyze": "f0fd5a638c4cc18a9d77c7d140e17d9fd56bbc9dff60ce8e5ad3fa6abe16f4f2"
+      },
+      "status": "passed",
+      "tasks": [
+        {
+          "attempt": 1,
+          "ended_at": 1794787201500,
+          "id": "core",
+          "item": "core",
+          "lease": {
+            "by": {
+              "id": "dispatch",
+              "kind": "flow"
+            },
+            "until": 1794787801000
+          },
+          "output": {
+            "risk": "low"
+          },
+          "started_at": 1794787201000,
+          "status": "submitted"
+        },
+        {
+          "attempt": 1,
+          "ended_at": 1794787201500,
+          "id": "ui",
+          "item": "ui",
+          "lease": {
+            "by": {
+              "id": "dispatch",
+              "kind": "flow"
+            },
+            "until": 1794787801000
+          },
+          "output": {
+            "risk": "medium"
+          },
+          "started_at": 1794787201000,
+          "status": "submitted"
+        }
+      ]
+    },
+    "list": {
+      "auto_reworks": 0,
+      "checks": [
+        {
+          "at": 1794787201000,
+          "cond": 0,
+          "kind": "output",
+          "label": "output",
+          "round": 1,
+          "status": "pass"
+        }
+      ],
+      "entered_at": 1794787200000,
+      "left_at": 1794787201000,
+      "round": 1,
+      "rounds_total": 1,
+      "rule_digest": {
+        "cite-sources": "7a638b38cc42a1245cba77fa41fedff5b7781c8b9b261f34d7b0fa350de3bd9b",
+        "plain-chinese": "906fe73fb444491e0726fb26a474a8f0d2a7cfa9efda9305f925730f19cbcb3a"
+      },
+      "skill_digest": {
+        "list-modules": "24a2da7ccee78c86c9a0d7af5f14ca02a19ede349a8ed54b6f7f7f49f07055f5"
+      },
+      "status": "passed",
+      "tasks": [
+        {
+          "attempt": 1,
+          "ended_at": 1794787201000,
+          "id": "list",
+          "lease": {
+            "by": {
+              "id": "dispatch",
+              "kind": "flow"
+            },
+            "until": 1794787800000
+          },
+          "output": {
+            "modules": [
+              "core",
+              "ui"
+            ]
+          },
+          "started_at": 1794787200000,
+          "status": "submitted"
+        }
+      ]
+    },
+    "report": {
+      "auto_reworks": 0,
+      "checks": [
+        {
+          "at": 1794787202000,
+          "cond": 0,
+          "kind": "output",
+          "label": "output",
+          "round": 1,
+          "status": "pass"
+        }
+      ],
+      "entered_at": 1794787201500,
+      "left_at": 1794787202000,
+      "round": 1,
+      "rounds_total": 1,
+      "rule_digest": {
+        "cite-sources": "7a638b38cc42a1245cba77fa41fedff5b7781c8b9b261f34d7b0fa350de3bd9b",
+        "plain-chinese": "906fe73fb444491e0726fb26a474a8f0d2a7cfa9efda9305f925730f19cbcb3a"
+      },
+      "skill_digest": {
+        "report": "2793d5c6704a450e3266f4c5d88f76ee766d65b846ec5935fe5178a9923e3394"
+      },
+      "status": "passed",
+      "tasks": [
+        {
+          "attempt": 1,
+          "ended_at": 1794787202000,
+          "id": "report",
+          "lease": {
+            "by": {
+              "id": "dispatch",
+              "kind": "flow"
+            },
+            "until": 1794787801500
+          },
+          "output": {
+            "text": "core is fine; ui has a medium risk"
+          },
+          "started_at": 1794787201500,
+          "status": "submitted"
+        }
+      ]
+    }
+  },
+  "status": "finished",
+  "subject": "the repo",
+  "trigger": {
+    "by": {
+      "id": "golden",
+      "kind": "device"
+    },
+    "kind": "manual"
+  },
+  "workspace": "scratch"
+}

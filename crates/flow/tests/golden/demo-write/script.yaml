@@ -1,0 +1,21 @@
+# The demo's draft → review → sign: the main Agent drafts (a command gate checks the draft is
+# there), a sub-agent of the main session reviews, a person signs after sending it back once.
+pack: /tests/golden/packs/demo
+catalog: {scenes: [flow-harnix], submit_scenes: [flow-harnix], main_scene: flow-harnix, command_gates: true}
+flow: demo-write
+subject: the release notes
+steps:
+  - main: {session: s1, opened_with: {scene: flow-harnix, delivery: flow_submit, main: true}}
+  - advance: {ms: 1000}
+  - submit: {station: draft, output: {summary: a first draft}}
+  - gate: {station: draft, gate: draft-exists, pass: true, detail: drafts/draft.md is there}
+  - advance: {ms: 1000}
+  - submit: {station: review, output: {findings: [no sources cited]}}
+  - confirm: {station: sign, pass: false, reason: cite the sources}
+  - rework: {to: draft, reason: cite the sources}
+  - advance: {ms: 1000}
+  - submit: {station: draft, output: {summary: a second draft, with sources}}
+  - gate: {station: draft, gate: draft-exists, pass: true}
+  - submit: {station: review, output: {findings: []}}
+  - confirm: {station: sign, pass: true}
+status: finished

@@ -859,7 +859,7 @@ S1 与 S3 的界线是依赖图：`harnix-ext`、`harnix` 门面、`harnix-host-
 ```text
 harnix::{App, AppBuilder, ExtensionSlot, ExtensionStatus, HARNIX_VERSION, SHUTDOWN_GRACE,
          caps, codes, Capability, CapabilitySpec, ExtId, RpcError, Subject, MAIN_INSTANCE,
-         Access, Attachment, Call, CredentialRef, Credentials, Entry, EnvCredentials,
+         Access, Attachment, Call, Created, CredentialRef, Credentials, Entry, EnvCredentials,
          Extension, ExtensionContext, ExtensionSet, Manifest, MigrateContext, MigrationReport,
          OnBusy, Registrar, RowScope, Secret, SendOptions, SessionRef, SessionSpec, SpaceDecl, Tap, TapEvent,
          CONTRIB_API_VERSION, EXT_API_VERSION, SETTLED_HELD, TAP_CAPACITY,
@@ -1036,6 +1036,7 @@ pub trait Extension: Send + Sync + 'static {
 | 方法 | 说明 |
 |---|---|
 | `create(SessionSpec) -> SessionRef` | `SessionSpec::new()` 再 `.space(..)`、`.instance(..)`、`.scene(..)`、`.project_root(..)`、`.provider(..)`、`.model(..)`、`.effort(..)`（会话自己的推理强度，`low` … `max`）、`.permission_mode(..)`、`.permission_rules(..)`、`.output_schema(..)`、`.recording(..)` |
+| `open_or_create(SessionSpec) -> Created {session, existed}` | 同 `create`，并说会话是不是本来就有：`SessionSpec::session_id(..)` 给的 id（引擎自己的写法，BASE58 的 UUID）已经是一个会话时答它本身，`existed: true`；场景、项目或选项不同则拒（`SESSION_EXISTS`）。流程扩展用它让开运行的会话幂等 |
 | `open(instance, session_id)` | 已有的会话（内存里的或只在磁盘上的） |
 | `send(&s, text, OnBusy)` | `OnBusy::{Queue（默认）, Reject, Interrupt, Steer}` |
 | `send_with(&s, text, SendOptions)` | `SendOptions::new().on_busy(..).attachment(..).reference(SessionRef)`；`Attachment::{file(path), text(path, content), image(media_type, base64)}`；`reference` 同输入框的 `@session`（那个会话的转录作为文本附件）；带附件的不 steer |
@@ -1765,9 +1766,11 @@ Harnix 自己的二进制注册了它（`crates/cli/src/main.rs`）。
 （流程 space 右栏的「参考」就是它，`flow.guide {lang}` 也给它）。
 
 流程本身是一个库，`harnix-flow`（`crates/flow`）：定义、运行记录、内核、存储、流程包、试运行，不链 Harnix 的任何 crate，也不链 Agix，
-整个目录可以拷进别的 workspace。`harnix-ext-flow` 是它在 Harnix 里的宿主，把它整个转出（`harnix_ext_flow::Engine` 就是
-`harnix_flow::Engine`）。宿主要实现的 trait、版本号（`FLOW_API_VERSION`，§16）与格式号、依赖表、怎么拷走、每一版的迁移，
-见嵌入指南 [`crates/flow/docs/embed.zh-CN.md`](../crates/flow/docs/embed.zh-CN.md)。
+整个目录可以拷进别的 workspace。派工器（`harnix_flow::runner::Runner`：开会话、发 skill、收交付、按权限答审批、门禁、钩子、
+worktree、过程目录）也在库里，只通过 trait `SessionHost` 认识会话。`harnix-ext-flow` 是它在 Harnix 里的宿主，把它整个转出
+（`harnix_ext_flow::Engine` 就是 `harnix_flow::Engine`），用中枢实现 `SessionHost`（`crates/ext/flow/src/module/host.rs`），
+再把 `flow.*` 方法、主题、场景、授权接上。宿主要实现的 trait、`SessionHost` 的契约、版本号（`FLOW_API_VERSION`，§16）与格式号、
+依赖表、怎么拷走、每一版的迁移，见嵌入指南 [`crates/flow/docs/embed.zh-CN.md`](../crates/flow/docs/embed.zh-CN.md)。
 
 | 构建器 | 意思 |
 |---|---|
@@ -1790,7 +1793,7 @@ Harnix 自己的二进制注册了它（`crates/cli/src/main.rs`）。
 交付物在它的输出目录（`${output_dir}`），过程在 `<项目>/.harnix/runs/<运行>/`（流程指南「执行与运行」一节）。不带项目的运行，主会话的 scene 需要项目时，
 扩展给它建工作目录（扩展数据目录下 `workspaces/<run>`），不往里写任何东西。`start` 的 `shown_in`（旧名 `show_in_space` 也认）让扩展把主会话展示到那个 space（`cx.sessions().expose`，可对话，§17.6）：项目 space 的「新任务」传它列会话的 space，
 任务就在项目 space 里打开；扩展不认识任何 space 的名字，展示失败只记日志，运行照跑。记录与 `flow.runs` 的行带 `shown_in`；记录的 `session_keys` 是会话键 → `{id, opened_with}`（会话、开它时用的场景、模型、推理强度、放哪），按键共享的工作项开得不一样就不进那个会话。
-会话站和流程的 `main` 可以写 `effort`，扩展照它开会话（`SessionSpec::effort`）。任务的工具碰项目的 `.harnix/` 算碰项目之外（只有 `paths` 指到它里面的 `allow` 放开）；编写会话的 `flow_create` 是扩展自己的工具，不受这条限制。
+会话站和流程的 `main` 可以写 `effort`，扩展照它开会话（`SessionSpec::effort`）。任务的工具碰项目的 `.harnix/` 算碰项目之外（只有 `paths` 指到它里面的 `allow` 放开），其中引擎沙箱让会话写的 `scratchpad/`、`memory/`、`worktrees/` 除外（`ProjectLayout::agent_dirs`）；编写会话的 `flow_create` 是扩展自己的工具，不受这条限制。
 `start` 的 `from_session {instance?, session_id, space}` 是发起它的对话（`/flow`，[Harnix app](harnix-app.md) §3.2）：扩展声称那个 space、往对话里写一条条目
 `task_started {run, flow, flow_title, title, subject, project_root}`，界面把它画成链到任务的卡；对话本身不变成任务，写不进去只记日志，运行照跑。没写 `agent_type` 的子 Agent 站用引擎不带类型的子 Agent：跑在主会话的 scene 上、用它的工具。钩子是流程包里的文件（`hooks/`），扩展自己投递，没有 `Hooks` trait。
 

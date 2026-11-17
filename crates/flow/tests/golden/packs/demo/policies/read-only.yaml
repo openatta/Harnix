@@ -1,0 +1,10 @@
+name: read-only
+title: 只看不改
+description: 评审与分析只读，不改工作区里的任何东西。
+permissions:
+  - effect: deny
+    tools: [Write, Edit, NotebookEdit]
+    message: 这一站只评审，不改东西；要改的写进发现里
+  - effect: deny
+    tools: [Bash]
+    message: 这一站不跑命令

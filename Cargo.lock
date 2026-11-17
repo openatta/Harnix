@@ -1769,9 +1769,11 @@ name = "harnix-flow"
 version = "0.4.5-2026111601"
 dependencies = [
  "async-trait",
+ "futures",
  "jsonschema",
  "libc",
  "quote",
+ "reqwest 0.12.28",
  "schemars",
  "serde",
  "serde_json",
@@ -1780,6 +1782,7 @@ dependencies = [
  "syn 2.0.119",
  "tempfile",
  "tokio",
+ "tokio-util",
  "tracing",
  "ts-rs",
  "uuid",
@@ -4239,6 +4242,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha1_smol"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
+
+[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5085,6 +5094,7 @@ dependencies = [
  "getrandom 0.4.3",
  "js-sys",
  "serde_core",
+ "sha1_smol",
  "wasm-bindgen",
 ]
 

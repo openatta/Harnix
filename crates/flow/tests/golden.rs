@@ -7,13 +7,15 @@
 //! tests/golden/<case>/script.yaml   pack, catalog, flow, subject, inputs, steps
 //! tests/golden/<case>/run.json      the record when the steps are done (tokens left out)
 //! tests/golden/<case>/history.jsonl its history, one entry a line (tokens left out)
+//! tests/golden/packs/<name>/        a pack several cases share (`pack: /tests/golden/packs/<name>`)
 //! ```
 //!
 //! `FLOW_GOLDEN=write cargo test -p harnix-flow --test golden` writes the files again.
 //!
 //! The steps stand in for the host's dispatcher and for the people: `main` binds the run's main
 //! session; `submit` hands in a task's output (binding its session first when the step names one,
-//! claiming an external task first); `confirm`, `rework` and `advance` do what they say.
+//! claiming an external task first); `gate` hands in a gate's result; `confirm`, `rework` and
+//! `advance` do what they say.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -58,6 +60,7 @@ enum Step {
     Confirm { station: String, pass: bool, #[serde(default)] reason: Option<String> },
     Rework { to: String, reason: String },
     Advance { ms: u64 },
+    Gate { station: String, gate: String, pass: bool, #[serde(default)] detail: String },
 }
 
 fn crate_dir() -> PathBuf {
@@ -143,6 +146,10 @@ async fn play(case: &Path) -> (Value, String) {
                 eng.rework(&run, to, None, reason, by()).await.expect(&at);
             }
             Step::Advance { ms } => clock.advance(*ms),
+            Step::Gate { station, gate, pass, detail } => {
+                let round = eng.record(&run).await.unwrap().stations[station].round;
+                eng.gate_result(&run, station, round, gate, GateResult { pass: *pass, detail: detail.clone() }).await.expect(&at);
+            }
         }
     }
     let rec = eng.record(&run).await.unwrap();

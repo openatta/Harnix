@@ -1,0 +1,26 @@
+{"at":1794787200000,"by":{"id":"golden","kind":"device"},"detail":{"flow":"demo-handoff","parent":null,"subject":"the vendor's materials"},"op":"create","run":"demo-handoff-1","seq":1}
+{"at":1794787200000,"by":{"id":"golden","kind":"device"},"detail":{"round":1,"tasks":["prepare"]},"op":"enter","run":"demo-handoff-1","seq":2,"station":"prepare"}
+{"at":1794787200000,"by":{"id":"dispatch","kind":"flow"},"detail":{"session":"s1"},"op":"attach_main","run":"demo-handoff-1","seq":3}
+{"at":1794787201000,"by":{"id":"golden","kind":"device"},"detail":{"attempt":1,"by":{"id":"golden","kind":"device"},"until":1794787261000},"op":"claim","run":"demo-handoff-1","seq":4,"station":"prepare","task":"prepare"}
+{"at":1794787201000,"by":{"id":"dispatch","kind":"flow"},"op":"submit","run":"demo-handoff-1","seq":5,"station":"prepare","task":"prepare"}
+{"at":1794787201000,"by":{"id":"gate","kind":"flow"},"detail":{"detail":"the link is not https","gate":"link-reachable","pass":false,"round":1},"op":"gate_result","run":"demo-handoff-1","seq":6,"station":"prepare"}
+{"at":1794787201000,"by":{"id":"gate","kind":"flow"},"detail":{"round":1,"unmet":[{"at":1794787201000,"cond":1,"detail":"the link is not https","kind":"gate","label":"gate link-reachable","round":1,"status":"fail"}]},"op":"unmet","run":"demo-handoff-1","seq":7,"station":"prepare"}
+{"at":1794787201000,"by":{"id":"golden","kind":"device"},"detail":{"reason":"the link is not https","stale":[],"tasks":null},"op":"rework","run":"demo-handoff-1","seq":8,"station":"prepare"}
+{"at":1794787201000,"by":{"id":"golden","kind":"device"},"detail":{"round":2,"tasks":["prepare"]},"op":"enter","run":"demo-handoff-1","seq":9,"station":"prepare"}
+{"at":1794787202000,"by":{"id":"golden","kind":"device"},"detail":{"attempt":1,"by":{"id":"golden","kind":"device"},"until":1794787262000},"op":"claim","run":"demo-handoff-1","seq":10,"station":"prepare","task":"prepare"}
+{"at":1794787202000,"by":{"id":"dispatch","kind":"flow"},"op":"submit","run":"demo-handoff-1","seq":11,"station":"prepare","task":"prepare"}
+{"at":1794787202000,"by":{"id":"gate","kind":"flow"},"detail":{"detail":"","gate":"link-reachable","pass":true,"round":2},"op":"gate_result","run":"demo-handoff-1","seq":12,"station":"prepare"}
+{"at":1794787202000,"by":{"id":"gate","kind":"flow"},"detail":{"forced":false,"round":2},"op":"pass","run":"demo-handoff-1","seq":13,"station":"prepare"}
+{"at":1794787202000,"by":{"id":"gate","kind":"flow"},"detail":{"round":1,"tasks":[]},"op":"enter","run":"demo-handoff-1","seq":14,"station":"approve"}
+{"at":1794787202000,"by":{"id":"golden","kind":"device"},"detail":{"pass":false,"reason":"the wrong version","round":1},"op":"confirm","run":"demo-handoff-1","seq":15,"station":"approve"}
+{"at":1794787202000,"by":{"id":"golden","kind":"device"},"detail":{"round":1,"unmet":[{"at":1794787202000,"cond":0,"detail":"rejected by device:golden: the wrong version","kind":"confirm","label":"confirm by manager","round":1,"status":"fail"}]},"op":"unmet","run":"demo-handoff-1","seq":16,"station":"approve"}
+{"at":1794787202000,"by":{"id":"golden","kind":"device"},"detail":{"reason":"the wrong version","stale":["approve"],"tasks":null},"op":"rework","run":"demo-handoff-1","seq":17,"station":"prepare"}
+{"at":1794787202000,"by":{"id":"golden","kind":"device"},"detail":{"round":3,"tasks":["prepare"]},"op":"enter","run":"demo-handoff-1","seq":18,"station":"prepare"}
+{"at":1794787203000,"by":{"id":"golden","kind":"device"},"detail":{"attempt":1,"by":{"id":"golden","kind":"device"},"until":1794787263000},"op":"claim","run":"demo-handoff-1","seq":19,"station":"prepare","task":"prepare"}
+{"at":1794787203000,"by":{"id":"dispatch","kind":"flow"},"op":"submit","run":"demo-handoff-1","seq":20,"station":"prepare","task":"prepare"}
+{"at":1794787203000,"by":{"id":"gate","kind":"flow"},"detail":{"detail":"","gate":"link-reachable","pass":true,"round":3},"op":"gate_result","run":"demo-handoff-1","seq":21,"station":"prepare"}
+{"at":1794787203000,"by":{"id":"gate","kind":"flow"},"detail":{"forced":false,"round":3},"op":"pass","run":"demo-handoff-1","seq":22,"station":"prepare"}
+{"at":1794787203000,"by":{"id":"gate","kind":"flow"},"detail":{"round":2,"tasks":[]},"op":"enter","run":"demo-handoff-1","seq":23,"station":"approve"}
+{"at":1794787203000,"by":{"id":"golden","kind":"device"},"detail":{"pass":true,"reason":null,"round":2},"op":"confirm","run":"demo-handoff-1","seq":24,"station":"approve"}
+{"at":1794787203000,"by":{"id":"golden","kind":"device"},"detail":{"forced":false,"round":2},"op":"pass","run":"demo-handoff-1","seq":25,"station":"approve"}
+{"at":1794787203000,"by":{"id":"golden","kind":"device"},"op":"finish","run":"demo-handoff-1","seq":26}

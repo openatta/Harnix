@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use crate::kernel::run::Workspace;
 
-pub use harnix_flow::wire::DefRow;
+pub use harnix_flow::wire::{defs_list, DefRow};
 
 /// `flow.start`'s params.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

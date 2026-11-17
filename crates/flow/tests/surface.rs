@@ -1,8 +1,9 @@
 //! The library's public surface, written down: what a host implements (the traits in
-//! `kernel::host`), the types those traits hand it, the names `lib.rs` re-exports, and how the
-//! stores and packs are built. A change that removes or alters an entry breaks the hosts that use
-//! it, and `FLOW_API_VERSION` goes up with it; an addition goes on the list, with a line in the
-//! version section of `docs/embed.en.md` and `docs/embed.zh-CN.md`.
+//! `kernel::host` and the runner's `SessionHost`), the types those traits hand it and take from it
+//! (the runner's `OpenSpec`, `Frame` and the rest among them), the names `lib.rs` re-exports, how
+//! the stores and packs are built, and what the runner offers. A change that removes or alters an
+//! entry breaks the hosts that use it, and `FLOW_API_VERSION` goes up with it; an addition goes on
+//! the list, with a line in the version section of `docs/embed.en.md` and `docs/embed.zh-CN.md`.
 //!
 //! The source is read as text and parsed (`syn`), so the check holds wherever the directory is
 //! copied to. `FLOW_SURFACE=print cargo test -p harnix-flow --test surface` prints what is found,
@@ -90,9 +91,11 @@ const EXPORTS: &[(&str, &str)] = &[
     ("FLOW_API_VERSION", "const:u32"),
     ("DEFINITION_FORMAT", "const:u32"),
     ("RUN_FORMAT", "const:u32"),
+    ("conformance", "mod"),
     ("dryrun", "mod"),
     ("kernel", "mod"),
     ("packs", "mod"),
+    ("runner", "mod"),
     ("store", "mod"),
     ("wire", "mod"),
     ("Mocks", "dryrun"),
@@ -274,12 +277,14 @@ const BUILDERS: &[(&str, &str)] = &[
         "ProjectLayout::new",
         "fnnew(dir:implInto<String>,worktrees_root:implInto<PathBuf>,branch_prefix:implInto<String>)->Self",
     ),
+    ("ProjectLayout::with_agent_dirs", "fnwith_agent_dirs<I,S>(mutself,dirs:I)->SelfwhereI:IntoIterator<Item=S>,S:Into<String>,"),
     ("ProjectLayout::data_dir", "fndata_dir(&self,project:&Path)->PathBuf"),
     ("ProjectLayout::pack_dir", "fnpack_dir(&self,project:&Path)->PathBuf"),
     ("ProjectLayout::runs_dir", "fnruns_dir(&self,base:&Path)->PathBuf"),
     ("ProjectLayout::worktree_dir", "fnworktree_dir(&self,run:&str)->PathBuf"),
     ("ProjectLayout::worktree_branch", "fnworktree_branch(&self,run:&str)->String"),
     ("ProjectLayout::reserved", "fnreserved(&self,root:&str)->Vec<String>"),
+    ("ProjectLayout::agent_dirs_in", "fnagent_dirs_in(&self,root:&str)->Vec<String>"),
 ];
 
 /// The types whose inherent impls [`BUILDERS`] lists, and the file each is in.
@@ -294,7 +299,149 @@ const BUILT: &[(&str, &str)] = &[
     ("ProjectLayout", "src/kernel/layout.rs"),
 ];
 
+/// The runner's host trait and what crosses it (`src/runner/host.rs`): each method of
+/// `SessionHost`, and each public field and variant of the types.
+const SESSION_HOST: &[(&str, &str)] = &[
+    ("SessionHost", "#[async_trait]pubtraitSessionHost:Send+Sync"),
+    ("SessionHost::open", "asyncfnopen(&self,spec:OpenSpec)->Result<Opened,HostError>"),
+    ("SessionHost::lookup", "asyncfnlookup(&self,id:&SessionId)->Result<Option<SessionInfo>,HostError>"),
+    ("SessionHost::watch", "asyncfnwatch(&self,id:&SessionId)->Result<Watch,HostError>"),
+    ("SessionHost::send", "asyncfnsend(&self,id:&SessionId,text:&str)->Result<(),HostError>"),
+    ("SessionHost::interrupt", "asyncfninterrupt(&self,id:&SessionId)->Result<(),HostError>"),
+    ("SessionHost::close", "asyncfnclose(&self,id:&SessionId)->Result<(),HostError>"),
+    ("SessionHost::answer", "asyncfnanswer(&self,id:&SessionId,ask:&str,decision:Decision)->Result<(),HostError>"),
+    ("SessionHost::note", "asyncfnnote(&self,id:&SessionId,note:Note)->Result<(),HostError>"),
+    ("SessionHost::project_trusted", "asyncfnproject_trusted(&self,root:&Path)->Result<bool,HostError>"),
+    ("SessionHost::run_over", "asyncfnrun_over(&self,_run:&str) = default"),
+    ("SessionId", "type=String"),
+    ("OpenSpec", "#[non_exhaustive]"),
+    ("OpenSpec.key", "String"),
+    ("OpenSpec.run", "String"),
+    ("OpenSpec.main", "bool"),
+    ("OpenSpec.profile", "String"),
+    ("OpenSpec.title", "Option<String>"),
+    ("OpenSpec.project_root", "Option<PathBuf>"),
+    ("OpenSpec.placement", "Placement"),
+    ("OpenSpec.asks", "Vec<String>"),
+    ("OpenSpec.output_schema", "Option<Value>"),
+    ("OpenSpec.delivery", "Delivery"),
+    ("OpenSpec.shown_in", "Option<String>"),
+    ("OpenSpec.recording", "Option<String>"),
+    ("OpenSpec.tools", "Vec<ToolSpec>"),
+    ("ToolSpec.name", "String"),
+    ("ToolSpec.description", "String"),
+    ("ToolSpec.input_schema", "Value"),
+    ("ToolSpec.read_only", "bool"),
+    ("Opened.id", "SessionId"),
+    ("Opened.existed", "bool"),
+    ("SessionInfo.project_root", "Option<PathBuf>"),
+    ("SessionInfo.turn_running", "bool"),
+    ("Watch.frames", "Pin<Box<dynStream<Item=Frame>+Send>>"),
+    ("Watch.info", "SessionInfo"),
+    ("Frame", "#[non_exhaustive]"),
+    ("Frame::TurnStarted", "{turn:String,text:String}"),
+    ("Frame::ToolCall", "{turn:String,call:String,tool:String,input:Value,agent:Option<SessionId>}"),
+    ("Frame::ToolResult", "{turn:String,call:String,agent:Option<SessionId>}"),
+    ("Frame::Asked", "{turn:String,ask:String,call:Option<String>,tool:String,paths:Vec<String>,agent:Option<SessionId>}"),
+    ("Frame::AgentStarted", "{turn:String,call:Option<String>,agent:SessionId,agent_type:Option<String>}"),
+    ("Frame::AgentEnded", "{turn:String,agent:SessionId,ok:bool}"),
+    ("Frame::TurnSettled", "{turn:String,end:TurnEnd,output:Option<Value>,usage:Option<Usage>}"),
+    ("Frame::Lagged", ""),
+    ("TurnEnd::Done", ""),
+    ("TurnEnd::Interrupted", ""),
+    ("TurnEnd::Error", "{retryable:bool,kind:String,message:String}"),
+    ("Decision::Allow", ""),
+    ("Decision::Deny", "{reason:String}"),
+    ("Note.event", "String"),
+    ("Note.payload", "Value"),
+    ("HostError::Gone", "(String)"),
+    ("HostError::Refused", "(String)"),
+    ("HostError::Unavailable", "(String)"),
+    ("HostError::Other", "(String)"),
+];
+
+/// What the runner offers a host (`src/runner/mod.rs`, `tools.rs`): the public methods of
+/// `Runner`, `CatalogPacks` and `FlowTools`, and `RunnerConfig`'s and `Changed`'s fields.
+const RUNNER: &[(&str, &str)] = &[
+    ("Runner::new", "fnnew(engine:Arc<Engine>,host:Arc<dynSessionHost>,cfg:RunnerConfig)->Arc<Self>"),
+    ("Runner::start", "asyncfnstart(self:&Arc<Self>)"),
+    ("Runner::stop", "asyncfnstop(&self,grace:Duration)->bool"),
+    ("Runner::apply", "asyncfnapply(self:&Arc<Self>,outcome:Outcome)"),
+    ("Runner::apply_for", "asyncfnapply_for(self:&Arc<Self>,run:&str,outcome:Outcome)"),
+    ("Runner::settle", "asyncfnsettle(self:&Arc<Self>,result:crate::Result<Outcome>)->crate::Result<Value>"),
+    ("Runner::start_run", "asyncfnstart_run(self:&Arc<Self>,input:CreateIn,by:Actor)->crate::Result<Outcome>"),
+    ("Runner::end_worktree", "asyncfnend_worktree(&self,run:&str,how:WorktreeEnd,by:Actor)->Result<Outcome,EndError>"),
+    ("Runner::ensure_main", "asyncfnensure_main(self:&Arc<Self>,run:&str)->Result<SessionId,String>"),
+    ("Runner::events", "fnevents(&self)->broadcast::Receiver<Event>"),
+    ("Runner::changes", "fnchanges(&self)->broadcast::Receiver<Changed>"),
+    ("Runner::tools", "fntools(&self)->&FlowTools"),
+    ("Runner::set_trust", "fnset_trust(&self,root:&Path,trusted:bool)"),
+    ("Runner::hear", "asyncfnhear(&self,root:&str)->bool"),
+    ("Runner::engine", "fnengine(&self)->&Arc<Engine>"),
+    ("Runner::host", "fnhost(&self)->&Arc<dynSessionHost>"),
+    ("Runner::config", "fnconfig(&self)->&RunnerConfig"),
+    ("Runner::trust", "fntrust(&self)->&Arc<ProjectTrust>"),
+    ("Runner::hook_status", "fnhook_status(&self)->Vec<Value>"),
+    ("Runner::agents_of", "fnagents_of(&self,run:&str)->Vec<Value>"),
+    ("Runner::run_of_session", "asyncfnrun_of_session(&self,id:&SessionId)->Option<String>"),
+    ("Runner::binding", "fnbinding(&self,id:&SessionId)->Option<Binding>"),
+    ("Runner::stopping", "fnstopping(&self)->bool"),
+    ("Runner::tasks_left", "fntasks_left(&self)->usize"),
+    ("CatalogPacks::new", "fnnew(cfg:&RunnerConfig,templates:Vec<String>)->Self"),
+    ("CatalogPacks::over", "fnover(cfg:&RunnerConfig,templates:Vec<String>,packs:Arc<dynPacks>)->Self"),
+    ("CatalogPacks::set_inner", "fnset_inner(&self,packs:Arc<dynPacks>)"),
+    ("CatalogPacks::set_layout", "fnset_layout(&self,layout:ProjectLayout)"),
+    ("FlowTools::specs", "fnspecs(&self)->&[ToolSpec]"),
+    ("FlowTools::call", "asyncfncall(&self,session:&SessionId,tool:&str,input:Value)->ToolReply"),
+    ("ScriptedHost::new", "fnnew()->Arc<Self>"),
+    ("ScriptedHost::station", "fnstation(&self,station:&str,turns:Vec<Turn>)->&Self"),
+    ("ScriptedHost::main", "fnmain(&self,turns:Vec<Turn>)->&Self"),
+    ("ScriptedHost::shared", "fnshared(&self,key:&str,turns:Vec<Turn>)->&Self"),
+    ("ScriptedHost::on_send", "fnon_send(&self,f:implFnMut(&SessionId,&str)+Send+'static)->&Self"),
+    ("ScriptedHost::trust", "fntrust(&self,root:&Path,trusted:bool)->&Self"),
+    ("ScriptedHost::refuse", "fnrefuse(&self,why:Option<&str>)->&Self"),
+    ("ScriptedHost::unavailable", "fnunavailable(&self,on:bool)->&Self"),
+    ("ScriptedHost::opened", "fnopened(&self)->Vec<OpenSpec>"),
+    ("ScriptedHost::sent", "fnsent(&self)->Vec<(SessionId,String)>"),
+    ("ScriptedHost::sent_to", "fnsent_to(&self,id:&str)->Vec<String>"),
+    ("ScriptedHost::answers", "fnanswers(&self)->Vec<(SessionId,String,Decision)>"),
+    ("ScriptedHost::interrupts", "fninterrupts(&self)->Vec<SessionId>"),
+    ("ScriptedHost::notes", "fnnotes(&self)->Vec<(SessionId,Note)>"),
+    ("ScriptedHost::over", "fnover(&self)->Vec<String>"),
+    ("ScriptedHost::session_of", "fnsession_of(&self,key:&str)->Option<SessionId>"),
+    ("ScriptedHost::running", "fnrunning(&self,id:&str)->bool"),
+    ("ScriptedHost::push", "fnpush(&self,id:&str,frame:Frame)"),
+    ("RunnerConfig.profiles", "Vec<String>"),
+    ("RunnerConfig.submit_profiles", "BTreeSet<String>"),
+    ("RunnerConfig.main_profile", "Option<String>"),
+    ("RunnerConfig.project_profiles", "BTreeSet<String>"),
+    ("RunnerConfig.guarded", "Vec<String>"),
+    ("RunnerConfig.command_gates", "bool"),
+    ("RunnerConfig.lease_ms", "u64"),
+    ("RunnerConfig.tick_ms", "u64"),
+    ("RunnerConfig.hook_headers", "String"),
+    ("RunnerConfig.recording", "Option<RecordingFn>"),
+    ("RunnerConfig.main_recording", "Option<MainRecordingFn>"),
+    ("RunnerConfig.programs", "Option<Arc<dynPrograms>>"),
+    ("RunnerConfig.gates", "Option<Arc<dynGates>>"),
+    ("RunnerConfig.hook_transport", "Option<Arc<dynHookTransport>>"),
+    ("RunnerConfig.trust", "Arc<ProjectTrust>"),
+    ("Changed.runs", "BTreeSet<String>"),
+    ("Changed.substantive", "bool"),
+    ("ToolReply.text", "String"),
+    ("ToolReply.is_error", "bool"),
+    ("Turn::Ends", "{output:Option<Value>}"),
+    ("Turn::Runs", ""),
+    ("Turn::Asks", "{tool:String,paths:Vec<String>,input:Value,then:Box<Turn>}"),
+    ("Turn::Errors", "{retryable:bool,message:String}"),
+    ("EndError::Flow", "(FlowError)"),
+    ("EndError::Conflict", "{files:Vec<String>,branch:String,worktree:String}"),
+    ("EndError::Git", "{message:String,branch:String}"),
+    ("EndError::Lost", "(String)"),
+];
+
 const HOST: &str = "src/kernel/host.rs";
+const RUNNER_HOST: &str = "src/runner/host.rs";
 const LIB: &str = "src/lib.rs";
 
 fn root() -> PathBuf {
@@ -351,8 +498,12 @@ fn compare(what: &str, table: &str, expected: &[(&str, &str)], found: &[(String,
 }
 
 fn traits() -> Vec<(String, String)> {
+    traits_in(HOST)
+}
+
+fn traits_in(file: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
-    for item in parse(HOST).items {
+    for item in parse(file).items {
         let syn::Item::Trait(t) = item else { continue };
         if !public(&t.vis) {
             continue;
@@ -388,29 +539,82 @@ fn fields(fields: &syn::Fields) -> String {
 }
 
 fn types() -> Vec<(String, String)> {
-    const NAMES: &[&str] = &["StoreError", "ChangeSet", "Event", "WorkItem", "Outcome"];
+    types_in(HOST, &["StoreError", "ChangeSet", "Event", "WorkItem", "Outcome"])
+}
+
+/// The public fields and variants of the named structs and enums in `file`; a struct marked
+/// `#[non_exhaustive]` says so.
+fn types_in(file: &str, names: &[&str]) -> Vec<(String, String)> {
     let mut out = Vec::new();
-    for item in parse(HOST).items {
+    for item in parse(file).items {
         match item {
-            syn::Item::Struct(s) if NAMES.contains(&s.ident.to_string().as_str()) => {
+            syn::Item::Struct(s) if names.contains(&s.ident.to_string().as_str()) => {
+                if s.attrs.iter().any(|a| a.path().is_ident("non_exhaustive")) {
+                    out.push((format!("{}", s.ident), "#[non_exhaustive]".into()));
+                }
                 for f in s.fields.iter().filter(|f| public(&f.vis)) {
                     out.push((format!("{}.{}", s.ident, f.ident.as_ref().unwrap()), squash(&f.ty)));
                 }
             }
-            syn::Item::Enum(e) if NAMES.contains(&e.ident.to_string().as_str()) => {
+            syn::Item::Enum(e) if names.contains(&e.ident.to_string().as_str()) => {
+                if e.attrs.iter().any(|a| a.path().is_ident("non_exhaustive")) {
+                    out.push((format!("{}", e.ident), "#[non_exhaustive]".into()));
+                }
                 for v in &e.variants {
                     out.push((format!("{}::{}", e.ident, v.ident), fields(&v.fields)));
                 }
             }
+            syn::Item::Type(t) if names.contains(&t.ident.to_string().as_str()) && public(&t.vis) => {
+                out.push((format!("{}", t.ident), format!("type={}", squash(&t.ty))));
+            }
             _ => {}
         }
     }
-    for name in NAMES {
+    for name in names {
         assert!(
-            out.iter().any(|(n, _)| n.starts_with(&format!("{name}.")) || n.starts_with(&format!("{name}::"))),
-            "`{name}` is not in {HOST}"
+            out.iter().any(|(n, _)| n == name || n.starts_with(&format!("{name}.")) || n.starts_with(&format!("{name}::"))),
+            "`{name}` is not in {file}"
         );
     }
+    out
+}
+
+/// The runner's host interface: the trait's methods, then what crosses it.
+fn session_host() -> Vec<(String, String)> {
+    let mut out = traits_in(RUNNER_HOST);
+    out.extend(types_in(
+        RUNNER_HOST,
+        &["SessionId", "OpenSpec", "ToolSpec", "Opened", "SessionInfo", "Watch", "Frame", "TurnEnd", "Decision", "Note", "HostError"],
+    ));
+    out
+}
+
+/// What the runner offers: the public methods of its types, and its config's fields.
+fn runner() -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for (ty, file) in [("Runner", "src/runner/mod.rs"), ("CatalogPacks", "src/runner/mod.rs"), ("FlowTools", "src/runner/tools.rs"), ("ScriptedHost", "src/runner/testing.rs")] {
+        for item in parse(file).items {
+            let syn::Item::Impl(i) = item else { continue };
+            if i.trait_.is_some() || i.attrs.iter().any(|a| a.path().is_ident("cfg")) {
+                continue;
+            }
+            let syn::Type::Path(p) = &*i.self_ty else { continue };
+            if p.path.segments.last().map(|s| s.ident.to_string()).as_deref() != Some(ty) {
+                continue;
+            }
+            for item in &i.items {
+                if let syn::ImplItem::Fn(f) = item {
+                    if public(&f.vis) {
+                        out.push((format!("{ty}::{}", f.sig.ident), squash(&f.sig)));
+                    }
+                }
+            }
+        }
+    }
+    out.extend(types_in("src/runner/mod.rs", &["RunnerConfig", "Changed"]));
+    out.extend(types_in("src/runner/tools.rs", &["ToolReply"]));
+    out.extend(types_in("src/runner/testing.rs", &["Turn"]));
+    out.extend(types_in("src/runner/worktree.rs", &["EndError"]));
     out
 }
 
@@ -486,5 +690,17 @@ fn the_root_keeps_its_names() {
 #[test]
 fn the_stores_and_packs_are_built_as_they_were() {
     let problems = compare("method", "BUILDERS", BUILDERS, &builders());
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+#[test]
+fn the_session_host_keeps_its_shape() {
+    let problems = compare("session host item", "SESSION_HOST", SESSION_HOST, &session_host());
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+#[test]
+fn the_runner_offers_what_it_did() {
+    let problems = compare("runner item", "RUNNER", RUNNER, &runner());
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }

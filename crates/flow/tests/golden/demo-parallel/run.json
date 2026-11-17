@@ -1,0 +1,328 @@
+{
+  "created_at": 1794787200000,
+  "created_by": {
+    "id": "golden",
+    "kind": "device"
+  },
+  "def": {
+    "description": "主 Agent 收集材料，两个子 Agent 分别评审代码与文档，最后由人汇总确认。",
+    "name": "demo-parallel",
+    "policies": [
+      "read-only"
+    ],
+    "rules": [
+      "no-secrets",
+      "cite-sources"
+    ],
+    "stations": [
+      {
+        "executor": {
+          "kind": "session"
+        },
+        "exit": [
+          {
+            "kind": "output"
+          }
+        ],
+        "id": "collect",
+        "output": {
+          "properties": {
+            "files": {
+              "type": "array"
+            }
+          },
+          "required": [
+            "files"
+          ],
+          "type": "object"
+        },
+        "skill": "collect",
+        "title": "收集"
+      },
+      {
+        "executor": {
+          "kind": "agent"
+        },
+        "exit": [
+          {
+            "kind": "output"
+          }
+        ],
+        "id": "code",
+        "needs": [
+          "collect"
+        ],
+        "output": {
+          "type": "object"
+        },
+        "skill": "review-code",
+        "title": "评审代码"
+      },
+      {
+        "executor": {
+          "kind": "agent"
+        },
+        "exit": [
+          {
+            "kind": "output"
+          }
+        ],
+        "id": "docs",
+        "needs": [
+          "collect"
+        ],
+        "output": {
+          "type": "object"
+        },
+        "skill": "review-docs",
+        "title": "评审文档"
+      },
+      {
+        "exit": [
+          {
+            "kind": "confirm"
+          }
+        ],
+        "id": "join",
+        "needs": [
+          "code",
+          "docs"
+        ],
+        "rework_to": [
+          "code",
+          "docs"
+        ],
+        "title": "汇总确认"
+      }
+    ],
+    "title": "示例：并行评审再汇合"
+  },
+  "def_digest": "18b2402ca170123ad016c01158337848a0d25cf791b73561194d254c81d01cb5",
+  "finished_at": 1794787201500,
+  "flow": "demo-parallel",
+  "format": 1,
+  "id": "demo-parallel-1",
+  "inputs": {},
+  "parts": {
+    "policies": {
+      "read-only": {
+        "description": "评审与分析只读，不改工作区里的任何东西。",
+        "name": "read-only",
+        "permissions": [
+          {
+            "effect": "deny",
+            "message": "这一站只评审，不改东西；要改的写进发现里",
+            "tools": [
+              "Write",
+              "Edit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "effect": "deny",
+            "message": "这一站不跑命令",
+            "tools": [
+              "Bash"
+            ]
+          }
+        ],
+        "title": "只看不改"
+      }
+    }
+  },
+  "rev": 6,
+  "seq": 18,
+  "session_keys": {
+    "@main": {
+      "id": "s1",
+      "opened_with": {
+        "delivery": "flow_submit",
+        "main": true,
+        "scene": "flow-harnix"
+      }
+    }
+  },
+  "stations": {
+    "code": {
+      "auto_reworks": 0,
+      "checks": [
+        {
+          "at": 1794787201500,
+          "cond": 0,
+          "kind": "output",
+          "label": "output",
+          "round": 1,
+          "status": "pass"
+        }
+      ],
+      "entered_at": 1794787201000,
+      "left_at": 1794787201500,
+      "round": 1,
+      "rounds_total": 1,
+      "rule_digest": {
+        "cite-sources": "7a638b38cc42a1245cba77fa41fedff5b7781c8b9b261f34d7b0fa350de3bd9b",
+        "no-secrets": "c8af8adcc31d7f55b734693fc5e5fcf579c3cb02fe691bd3df208e9cccb5d905"
+      },
+      "skill_digest": {
+        "review-code": "68192c0316a439655b0bc0b3dc3d94fb779e545971115ecff24700d468446112"
+      },
+      "status": "passed",
+      "tasks": [
+        {
+          "attempt": 1,
+          "ended_at": 1794787201500,
+          "id": "code",
+          "lease": {
+            "by": {
+              "id": "dispatch",
+              "kind": "flow"
+            },
+            "until": 1794787801000
+          },
+          "output": {
+            "notes": [
+              "one unwrap"
+            ],
+            "ok": true
+          },
+          "started_at": 1794787201000,
+          "status": "submitted"
+        }
+      ]
+    },
+    "collect": {
+      "auto_reworks": 0,
+      "checks": [
+        {
+          "at": 1794787201000,
+          "cond": 0,
+          "kind": "output",
+          "label": "output",
+          "round": 1,
+          "status": "pass"
+        }
+      ],
+      "entered_at": 1794787200000,
+      "left_at": 1794787201000,
+      "round": 1,
+      "rounds_total": 1,
+      "rule_digest": {
+        "cite-sources": "7a638b38cc42a1245cba77fa41fedff5b7781c8b9b261f34d7b0fa350de3bd9b",
+        "no-secrets": "c8af8adcc31d7f55b734693fc5e5fcf579c3cb02fe691bd3df208e9cccb5d905"
+      },
+      "skill_digest": {
+        "collect": "6968916bae03d7ee9675b0a5e8c68232e6d16a9c235a149f78182a0f755a8282"
+      },
+      "status": "passed",
+      "tasks": [
+        {
+          "attempt": 1,
+          "ended_at": 1794787201000,
+          "id": "collect",
+          "lease": {
+            "by": {
+              "id": "dispatch",
+              "kind": "flow"
+            },
+            "until": 1794787800000
+          },
+          "output": {
+            "files": [
+              "src/a.rs",
+              "docs/a.md"
+            ]
+          },
+          "started_at": 1794787200000,
+          "status": "submitted"
+        }
+      ]
+    },
+    "docs": {
+      "auto_reworks": 0,
+      "checks": [
+        {
+          "at": 1794787201500,
+          "cond": 0,
+          "kind": "output",
+          "label": "output",
+          "round": 1,
+          "status": "pass"
+        }
+      ],
+      "entered_at": 1794787201000,
+      "left_at": 1794787201500,
+      "round": 1,
+      "rounds_total": 1,
+      "rule_digest": {
+        "cite-sources": "7a638b38cc42a1245cba77fa41fedff5b7781c8b9b261f34d7b0fa350de3bd9b",
+        "no-secrets": "c8af8adcc31d7f55b734693fc5e5fcf579c3cb02fe691bd3df208e9cccb5d905"
+      },
+      "skill_digest": {
+        "review-docs": "5848afa67c7d8e0979e7984529b9b135bb0e16578e93af06521838ced3ecc223"
+      },
+      "status": "passed",
+      "tasks": [
+        {
+          "attempt": 1,
+          "ended_at": 1794787201500,
+          "id": "docs",
+          "lease": {
+            "by": {
+              "id": "dispatch",
+              "kind": "flow"
+            },
+            "until": 1794787801000
+          },
+          "output": {
+            "ok": true
+          },
+          "started_at": 1794787201000,
+          "status": "submitted"
+        }
+      ]
+    },
+    "join": {
+      "auto_reworks": 0,
+      "checks": [
+        {
+          "at": 1794787201500,
+          "cond": 0,
+          "kind": "confirm",
+          "label": "confirm",
+          "round": 1,
+          "status": "pass"
+        }
+      ],
+      "confirms": [
+        {
+          "at": 1794787201500,
+          "by": {
+            "id": "golden",
+            "kind": "device"
+          },
+          "pass": true,
+          "round": 1
+        }
+      ],
+      "entered_at": 1794787201500,
+      "left_at": 1794787201500,
+      "round": 1,
+      "rounds_total": 1,
+      "rule_digest": {
+        "cite-sources": "7a638b38cc42a1245cba77fa41fedff5b7781c8b9b261f34d7b0fa350de3bd9b",
+        "no-secrets": "c8af8adcc31d7f55b734693fc5e5fcf579c3cb02fe691bd3df208e9cccb5d905"
+      },
+      "status": "passed"
+    }
+  },
+  "status": "finished",
+  "subject": "the pull request",
+  "trigger": {
+    "by": {
+      "id": "golden",
+      "kind": "device"
+    },
+    "kind": "manual"
+  },
+  "workspace": "scratch"
+}
