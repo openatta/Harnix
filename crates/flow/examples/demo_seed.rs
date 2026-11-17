@@ -2,7 +2,7 @@
 //! by the real kernel through a few states, written where the flow module keeps its runs.
 //!
 //! ```sh
-//! cargo run --release -p harnix-ext-flow --example demo_seed -- <pack dir> <runs dir>
+//! cargo run --release -p harnix-flow --example demo_seed -- <pack dir> <runs dir>
 //! ```
 //!
 //! Nothing is called outside the kernel: session and sub-agent tasks are handed in here, as a
@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use harnix_ext_flow::{
+use harnix_flow::{
     Actor, CreateIn, DirPacks, Engine, FileStore, GateResult, ManualClock, MemPacks, Outcome,
     Usage, WorkItem,
 };

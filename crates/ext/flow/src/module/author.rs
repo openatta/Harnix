@@ -73,8 +73,8 @@ pub const TOOL_RETRY: &str = "flow_retry";
 pub const TOOL_RELEASE: &str = "flow_release";
 
 /// The flow guide (xops-03 §6): what `flow_guide` gives and the reference tab shows.
-pub const GUIDE_EN: &str = include_str!("../../docs/guide.en.md");
-pub const GUIDE_ZH: &str = include_str!("../../docs/guide.zh-CN.md");
+pub const GUIDE_EN: &str = harnix_flow::GUIDE_EN;
+pub const GUIDE_ZH: &str = harnix_flow::GUIDE_ZH;
 
 /// Who acted when a run tool acts in a conversation: the conversation, `<instance>/<session>`.
 pub const CONVERSATION_KIND: &str = "conversation";

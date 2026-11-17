@@ -109,7 +109,7 @@
 ## 5. 流程
 
 流程是 Harnix 内置的应用开发工具链（第一方扩展 `flow`，界面 `@harnix/flow`）。这个页签不是系统 space 的：`@harnix/flow` 把它注册进 `system.console.tab`，
-产品链了 `flow` 才有——Harnix 自己的二进制 `harnix` 链了，二开的产品 `.extension(flow)` 了才有。流程是什么、怎么写见流程指南（`crates/ext/flow/docs/guide.*.md`，
+产品链了 `flow` 才有——Harnix 自己的二进制 `harnix` 链了，二开的产品 `.extension(flow)` 了才有。流程是什么、怎么写见流程指南（`crates/flow/docs/guide.*.md`，
 这里右栏的「参考」就是它）。
 
 **页签本身**：流程列表，下面是全部运行与试运行。

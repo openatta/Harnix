@@ -33,6 +33,7 @@ harnix-engine-link = { path = "harnix/crates/engine-link" }
 harnix-ext       = { path = "harnix/crates/ext/api" }
 harnix-ext-devices = { path = "harnix/crates/ext/devices" }
 harnix-ext-flow    = { path = "harnix/crates/ext/flow" }
+harnix-flow        = { path = "harnix/crates/flow" }
 harnix-ext-harnix-app = { path = "harnix/crates/ext/harnix-app" }
 harnix-ext-observability = { path = "harnix/crates/ext/observability" }
 harnix-ext-packages = { path = "harnix/crates/ext/packages" }

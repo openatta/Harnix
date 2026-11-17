@@ -219,13 +219,15 @@ fn packages(cfg: &Config) -> Generated {
     }
 }
 
-/// `harnix-ext-flow`: the definitions and run records `flow.*` answers with and its topics carry,
-/// and the module's own rows and params. Only `@harnix/flow` reads them.
+/// `harnix-flow` and `harnix-ext-flow`: the library's definitions, run records and rows that
+/// `flow.*` answers with and its topics carry, and the module's own params. Only `@harnix/flow`
+/// reads them.
 fn flow(cfg: &Config) -> Generated {
-    use harnix_ext_flow::dryrun::{DryRunSummary, Progress, Stepped};
-    use harnix_ext_flow::kernel::run::RunQuery;
-    use harnix_ext_flow::wire::{DefRow, StartParams, StartTrigger, StartedFrom};
-    use harnix_ext_flow::*;
+    use harnix_ext_flow::wire::{StartParams, StartTrigger, StartedFrom};
+    use harnix_flow::dryrun::{DryRunSummary, Progress, Stepped};
+    use harnix_flow::kernel::run::RunQuery;
+    use harnix_flow::wire::DefRow;
+    use harnix_flow::*;
     Generated {
         path: "flow/src/generated/flow.ts",
         text: joined(

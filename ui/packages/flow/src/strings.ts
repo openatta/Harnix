@@ -441,7 +441,7 @@ const en: Record<string, string> = {
   "flowui.guide.group.4": "4 · Interfaces to the outside",
   "flowui.guide.group.5": "5 · Writing and trying",
   // The guide's term each element of the framework picture is about: its row's first cell, bold
-  // (crates/ext/flow/docs/guide.*.md), so a click finds the row. A run waiting, said whole per reason.
+  // (crates/flow/docs/guide.*.md), so a click finds the row. A run waiting, said whole per reason.
   "flowui.fw.pack.term": "The pack and its parts",
   "flowui.fw.authoring.term": "Flow conversation / general conversation",
   "flowui.fw.flow.term": "Flow",
@@ -912,7 +912,7 @@ const zhCN: Record<string, string> = {
   "flowui.guide.group.4": "四 · 对外接口",
   "flowui.guide.group.5": "五 · 编写与试用",
   // The guide's term each element of the framework picture is about: its row's first cell, bold
-  // (crates/ext/flow/docs/guide.*.md), so a click finds the row. A run waiting, said whole per reason.
+  // (crates/flow/docs/guide.*.md), so a click finds the row. A run waiting, said whole per reason.
   "flowui.fw.pack.term": "流程包与件",
   "flowui.fw.authoring.term": "流程会话 / 通用会话",
   "flowui.fw.flow.term": "流程",

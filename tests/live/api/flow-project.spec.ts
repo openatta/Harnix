@@ -1,5 +1,5 @@
 /**
- * A project's own flows (crates/ext/flow/docs/guide.en.md, "A project's own flows";
+ * A project's own flows (crates/flow/docs/guide.en.md, "A project's own flows";
  * docs/harnix-app.md §3.1): `<project>/.harnix/flows/`, committed with the project, offered to its
  * tasks over every other layer, and read only while the project is trusted.
  *

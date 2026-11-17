@@ -186,7 +186,7 @@ pub(crate) fn prepare(engine: &Engine, input: &mut CreateIn, worktree: Option<&W
         .filter(|d| !d.trim().is_empty())
         .or_else(|| def.output_dir.clone())
         .unwrap_or_else(|| DEFAULT_OUTPUT_DIR.to_string());
-    let inputs = crate::kernel::txn::apply_inputs(&def, &input.inputs).unwrap_or_else(|_| input.inputs.clone());
+    let inputs = def.apply_inputs(&input.inputs).unwrap_or_else(|_| input.inputs.clone());
     let date = local_date(engine.clock().now_ms());
     let vars = OutputVars {
         flow: &def.name,

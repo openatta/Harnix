@@ -169,7 +169,7 @@ agent 类型、skill、规则），没有时是 `null`。主题 `harnix-app.trus
 设置页的「项目层写了但不生效」照旧由 `settings.describe` 的 `withheld` 逐个字段说，和这里互不重复：那里说某个值没用上，这里说为什么、
 怎么放开。
 
-**项目自带的流程**也等信任：`<项目>/.harnix/flows/` 里的流程和件随仓库提交（[流程指南](../crates/ext/flow/docs/guide.zh-CN.md)
+**项目自带的流程**也等信任：`<项目>/.harnix/flows/` 里的流程和件随仓库提交（[流程指南](../crates/flow/docs/guide.zh-CN.md)
 「项目自带的流程」），只对这个项目的任务生效，同名时项目的优先。流程扩展自己持 `engine.control`，直接读引擎的
 `engine.project.status`，不经 `harnix-app`。没受信时 `flow.defs {project}` 照样列出它们，但不读内容：`origin: "project"`、
 `valid: false`、`reason: "untrusted"`，界面显示「信任项目后可用」；`flow.start {project_root}` 启动它答 `REFUSED`。
@@ -266,7 +266,7 @@ r.register("harnix-app.project.items", {
 `.harnix/runs/<运行>/`。运行结束后右栏「流程」页签的 worktree 一行给出三个操作：**合回**（`flow.worktree.merge {run}`，按钮写「合回 <当前分支>」，先确认）、
 **保留分支**（`flow.worktree.keep {run}`，缺省，不用确认）、**丢弃**（`flow.worktree.discard {run}`，确认、标成危险操作）；合回有冲突时答 `CONFLICT`，
 `data.files` 是冲突的文件，项目里什么都不变，页签照实写出来。做过的决定记在运行上（`worktree.outcome: {kind: merged|kept|discarded, at, by, into?, commit?, how?}`），
-保留之后还可以合回或丢弃。细节见[流程指南](../crates/ext/flow/docs/guide.zh-CN.md)第二节。
+保留之后还可以合回或丢弃。细节见[流程指南](../crates/flow/docs/guide.zh-CN.md)第二节。
 
 ### 3.3 待我处理：`harnix-app.inbox`
 

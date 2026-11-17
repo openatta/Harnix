@@ -15,8 +15,8 @@ use serde_json::{json, Value};
 use super::def::{ExitCond, FlowDef};
 use super::parts::PartKind;
 use super::host::{
-    AllowAll, Authorizer, Clock, GateResult, NoTools, Op, Outcome, Packs, RunStore, SystemClock,
-    Tools,
+    AllowAll, Authorizer, Clock, GateResult, NoTools, Op, Outcome, Packs, Placement, RunStore,
+    SystemClock, Tools,
 };
 use super::run::{
     Actor, CheckRec, CheckStatus, ConfirmRec, ForcedRec, History, ParentRef, RunQuery, RunRecord,
@@ -270,6 +270,12 @@ impl Engine {
     /// That scene.
     pub fn main_scene(&self) -> Option<&str> {
         self.main_scene.as_deref()
+    }
+
+    /// Where `rec`'s main session goes and the scene it is opened on: its flow's `main`, the
+    /// `params` resolved against the run, and [`Engine::main_scene`] when it names none.
+    pub fn main_placement(&self, rec: &RunRecord) -> (Placement, Option<String>) {
+        crate::kernel::work::main_of(rec, self.main_scene())
     }
 
     /// The tools the host refuses as writes unless a station lists them.
