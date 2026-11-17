@@ -18,9 +18,9 @@ pub(crate) enum Command {
     ///
     /// What a `spawn` instance runs: this binary links Agix already, so the
     /// daemon is the same build and speaks the same protocol. Not for
-    /// starting by hand, though nothing stops it.
+    /// starting by hand, though nothing stops it. Boxed: it is far larger than the other.
     #[command(hide = true)]
-    Daemon(DaemonCommand),
+    Daemon(Box<DaemonCommand>),
 }
 
 #[derive(clap::Args, Debug)]
