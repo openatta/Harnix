@@ -60,7 +60,7 @@ pub(super) fn register(entries: Vec<Entry>, profile: &Profile, roots: &Roots) ->
     let book = Arc::new(pairing::DeviceBook::new(paired.clone(), disconnect));
     let behind = Behind::default();
     let mut table = kernel_rows::table(&behind);
-    if profile.shell.model_switch {
+    if profile.shell.switches_model() {
         let (owner, row) = kernel_rows::hub_row(harnix_hub::Hub::model_switch_row(&behind.hub));
         table.install(&owner, vec![row]).map_err(|e| anyhow::anyhow!("{e}"))?;
     }
@@ -117,7 +117,7 @@ mod tests {
         let mut profile = Profile::default();
         let registered = register(Vec::new(), &profile, &roots).unwrap();
         assert!(registered.table.row("harnix.session.setModel").is_none());
-        profile.shell.model_switch = true;
+        profile.shell.model_switch = Some(true);
         let registered = register(Vec::new(), &profile, &roots).unwrap();
         assert!(registered.table.row("harnix.session.setModel").is_some());
     }

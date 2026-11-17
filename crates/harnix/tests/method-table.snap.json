@@ -2428,6 +2428,19 @@
     },
     {
       "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix.session.setModel",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
         "device": false,
         "extensions": [
           "*"
@@ -2607,6 +2620,32 @@
         "hub_owned": false,
         "refused": null,
         "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "observability.messages.drop",
+      "owner": "ext:observability"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "observability.messages.edit",
+      "owner": "ext:observability"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
         "scope": "open"
       },
       "kind": "method",
@@ -2624,6 +2663,19 @@
       },
       "kind": "method",
       "name": "observability.tasks.output",
+      "owner": "ext:observability"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "observability.tasks.stop",
       "owner": "ext:observability"
     },
     {

@@ -27,6 +27,12 @@ enum After {
     Goal,
     /// What the session list shows changed, and the engine sends no event for it.
     Relisted,
+    /// The session's task list changed at once — a task stopped is `stopped` before its work has
+    /// wound down, and the frame saying it is over may come seconds later: its watchers are told now.
+    Tasks,
+    /// What the conversation said is changed in place, and the engine sends no event for it: its
+    /// watchers read it again, as after a rewind, and the session list is told.
+    Redrawn,
     /// The answer is one session: held to what a session can say, from an extension's engine.
     OneSession,
     /// The answer lists sessions: each held so, from an extension's engine.
@@ -66,8 +72,9 @@ const DEVICE: &[(&str, RowScope, After, bool)] = &[
 const SETTINGS: &[Capability] = &[caps::ENGINE_CONFIG_READ, caps::ENGINE_CONFIG_WRITE, caps::ENGINE_PLUGINS, caps::ENGINE_MCP];
 
 /// What no device calls directly, open to the kernel and an extension holding the capability:
-/// looking into a session and changing its context (a device reaches those through the system
-/// space's own methods, which say what they are doing), reading settings, managing packages.
+/// looking into a session and changing its context (a device reaches those through an extension's
+/// own methods, which say what they are doing — `observability.*`), reading settings, managing
+/// packages.
 /// Reaching Agix's own `engine.plugin.install` and friends is not opened to devices, because changing
 /// what is installed changes what this host serves, and going around the host would leave a
 /// disabled package's interface module still being served with nothing to notice it.
@@ -76,10 +83,10 @@ const BY_CAPABILITY: &[(&str, Capability, After)] = &[
     ("engine.session.taskOutput", caps::ENGINE_INSPECT, After::Nothing),
     ("engine.session.inspectContext", caps::ENGINE_INSPECT, After::Nothing),
     ("engine.session.goal", caps::ENGINE_INSPECT, After::Goal),
-    ("engine.session.stopTask", caps::ENGINE_CONTROL, After::Nothing),
+    ("engine.session.stopTask", caps::ENGINE_CONTROL, After::Tasks),
     ("engine.session.messageTask", caps::ENGINE_CONTROL, After::Nothing),
-    ("engine.session.dropMessages", caps::ENGINE_CONTROL, After::Relisted),
-    ("engine.session.editMessage", caps::ENGINE_CONTROL, After::Relisted),
+    ("engine.session.dropMessages", caps::ENGINE_CONTROL, After::Redrawn),
+    ("engine.session.editMessage", caps::ENGINE_CONTROL, After::Redrawn),
     ("engine.session.compact", caps::ENGINE_CONTROL, After::Relisted),
     ("engine.session.clear", caps::ENGINE_CONTROL, After::Relisted),
     ("engine.session.rename", caps::ENGINE_CONTROL, After::Relisted),
@@ -400,6 +407,15 @@ impl Hub {
                 }
             }
             After::Relisted => self.refresh("harnix.instances.sessions", json!({"instance": instance})),
+            After::Tasks => {
+                if let Some(session) = session {
+                    self.refresh("harnix.session.tasks", json!({"instance": instance, "session_id": session}));
+                }
+            }
+            After::Redrawn => match session {
+                Some(session) => self.redraw_rewound(&(instance.clone(), session), None).await,
+                None => self.refresh("harnix.instances.sessions", json!({"instance": instance})),
+            },
         }
         Ok(answer)
     }

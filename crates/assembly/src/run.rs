@@ -143,7 +143,7 @@ pub(crate) async fn run(app: AppBuilder) -> anyhow::Result<()> {
     }
 
     // ── 1. Profile ──────────────────────────────────────────────────────
-    let basis = Basis::read(&cli, app.default_engine.as_ref())?;
+    let basis = Basis::read(&cli, app.default_engine.as_ref(), app.model_switch)?;
     let started = start_process(app, &cli, &basis).await?;
 
     // ── 6. Serve ────────────────────────────────────────────────────────
@@ -277,8 +277,8 @@ pub(crate) struct Basis {
 }
 
 impl Basis {
-    pub(crate) fn read(cli: &Cli, default_engine: Option<&EngineProfile>) -> anyhow::Result<Self> {
-        let profile = cli::resolve_profile(cli, default_engine)?;
+    pub(crate) fn read(cli: &Cli, default_engine: Option<&EngineProfile>, model_switch: bool) -> anyhow::Result<Self> {
+        let profile = cli::resolve_profile(cli, default_engine, model_switch)?;
         let host: IpAddr = profile.transport.host.parse().map_err(|e| {
             anyhow::anyhow!("[transport] host = {:?} is not an IP address: {e}", profile.transport.host)
         })?;

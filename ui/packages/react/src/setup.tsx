@@ -123,6 +123,24 @@ export function SetupStep({
   );
 }
 
+/**
+ * Said wherever a conversation would start while no model is configured: what is missing, and the
+ * way to it. Not a step: it cannot be closed, and it goes once a model is there. The shell draws it
+ * over the composer; the Harnix app's home page, at the top of its first-run block.
+ */
+export function ModelSetupNote({ onOpen }: { onOpen(): void }) {
+  const t = useT();
+  return (
+    <div className="hx-cmp-note hx-cmp-note-warn model-setup" data-testid="model-setup">
+      <Glyph name="key" className="glyph" />
+      <span className="text">{t("model.setupNeeded")}</span>
+      <button type="button" className="btn sm primary" data-testid="model-setup-open" onClick={onOpen}>
+        {t("model.setupAction")}
+      </button>
+    </div>
+  );
+}
+
 /** For tests: forget what this page saw. */
 export function resetSetupSteps(): void {
   seenOpen.clear();

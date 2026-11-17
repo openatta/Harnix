@@ -101,3 +101,69 @@ describe("the output tab type", () => {
     expect(screen.getByText("exit 2")).toBeTruthy();
   });
 });
+
+describe("stopping a task from its output tab", () => {
+  function drawn(answer: (method: string) => unknown) {
+    const { s, r, notices } = registered(answer);
+    const type = sidebarTypeOfKind(r.at("sidebar.tab"), "output")!;
+    const info = { tab: { id: "t", kind: "output", address: outputAddress(session, "t-1"), visible: true, navigation: { params: {}, revision: 1 }, signal: new AbortController().signal, actions: {} } } as unknown as TabInfo;
+    render(
+      <RegistryProvider registry={r}>
+        <TabInfoProvider value={info}>{type.render()}</TabInfoProvider>
+      </RegistryProvider>,
+    );
+    return { s, notices };
+  }
+  const slice = { output: "", from_byte: 0, next_byte: 0, dropped: 0, final: false };
+
+  it("takes two presses: the first only arms it, the second stops it, claiming the front space's", async () => {
+    const { s } = drawn((method) => (method === "observability.tasks.output" ? slice : method === "observability.tasks.stop" ? { stopped: true } : {}));
+    await act(async () => {
+      s.push("harnix.session.tasks", { tasks: [monitor] });
+      await tick();
+    });
+    const stop = screen.getByTestId("output-stop");
+    expect(stop.textContent).toBe("Stop");
+    await act(async () => {
+      stop.click();
+      await tick();
+    });
+    expect(s.calls.some((c) => c.method === "observability.tasks.stop")).toBe(false);
+    expect(screen.getByTestId("output-stop").dataset.armed).toBe("true");
+    expect(screen.getByTestId("output-stop").textContent).toBe("Press again to stop");
+    await act(async () => {
+      screen.getByTestId("output-stop").click();
+      await tick();
+    });
+    expect(s.calls.find((c) => c.method === "observability.tasks.stop")?.params).toEqual({ instance: "main", session_id: "s/1", space: "sessions", task_id: "t-1" });
+    // Over, it has nothing to stop.
+    await act(async () => {
+      s.push("harnix.session.tasks", { tasks: [{ ...monitor, status: "stopped" }] });
+      await tick();
+    });
+    expect(screen.queryByTestId("output-stop")).toBeNull();
+  });
+
+  it("says when the task had already ended, and says a refusal", async () => {
+    let answer: unknown = { stopped: false };
+    const { s, notices } = drawn((method) => (method === "observability.tasks.output" ? slice : method === "observability.tasks.stop" ? answer : {}));
+    await act(async () => {
+      s.push("harnix.session.tasks", { tasks: [monitor] });
+      await tick();
+    });
+    const twice = async () => {
+      for (let i = 0; i < 2; i += 1) {
+        await act(async () => {
+          screen.getByTestId("output-stop").click();
+          await tick();
+        });
+      }
+    };
+    await twice();
+    expect(notices).toEqual(["The task had already ended."]);
+    answer = Object.assign(new Error("refused"), { code: -31000 });
+    await twice();
+    expect(notices).toHaveLength(2);
+  });
+});
+

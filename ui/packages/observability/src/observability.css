@@ -923,3 +923,12 @@
 .obs-extlog .lv-warn {
   color: var(--state-warn);
 }
+
+/* A person's message, rewritten from its menu: the whole width, the conversation's own type. */
+.obs-message-text {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.5;
+}

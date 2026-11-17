@@ -122,3 +122,27 @@
   border-radius: 50%;
   background: var(--accent);
 }
+
+/* The first-run block: the missing model, then the steps side by side. A step done or closed draws
+ * nothing and takes no place; with nothing left, neither does the block. */
+.hx-home-setup {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  gap: 10px;
+}
+
+.hx-home-setup > .model-setup {
+  grid-column: 1 / -1;
+}
+
+.hx-home-setup > .hx-home-card {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-l2);
+  border-radius: var(--radius-card);
+}
+
+.hx-home-setup > .hx-home-card:empty,
+.hx-home-block:has(> .hx-home-setup):not(:has(> .hx-home-setup > :not(:empty))) {
+  display: none;
+}

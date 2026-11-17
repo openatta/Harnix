@@ -95,7 +95,7 @@ export {
   type UseLayer,
 } from "./layers";
 export { MenuBox, type MenuBoxProps } from "./menu";
-export { SetupStep, dismissSetupStep, resetSetupSteps, setupStepDismissed, setupStepState, useSetupStep, type SetupStepState } from "./setup";
+export { ModelSetupNote, SetupStep, dismissSetupStep, resetSetupSteps, setupStepDismissed, setupStepState, useSetupStep, type SetupStepState } from "./setup";
 export {
   POINTS,
   SETTINGS_HOSTS,

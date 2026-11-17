@@ -46,7 +46,7 @@ function answering(method: string, params: unknown): unknown {
 }
 
 describe("what is registered", () => {
-  it("the trajectory view; the context tab standing, the usage tab with a guide entry, the output tab one a task; and nothing else", () => {
+  it("the trajectory view; the context tab standing, the usage tab with a guide entry, the output tab one a task; a person's message's two changes; and nothing else", () => {
     const alone = new Registry();
     alone.activate("observability", () => register(alone, scripted(() => ({})).host));
     alone.settle();
@@ -56,7 +56,11 @@ describe("what is registered", () => {
       ["usage", "builtin", false, 1, false],
       ["output", "builtin", false, 0, true],
     ]);
-    expect(alone.at("session.action").map((a) => [a.id, a.at])).toEqual([["observability.output", ["tool"]]]);
+    expect(alone.at("session.action").map((a) => [a.id, a.at])).toEqual([
+      ["observability.output", ["tool"]],
+      ["observability.message.edit", ["message"]],
+      ["observability.message.drop", ["message"]],
+    ]);
     expect(alone.definitions().map((d) => d.name)).toEqual(["observability.usage.section"]);
     expect(alone.refusals()).toEqual([]);
   });

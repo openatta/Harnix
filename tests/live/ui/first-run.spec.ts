@@ -1,7 +1,8 @@
 /**
  * The first run, on a fresh profile (docs/harnix-app.md §4.1): the new conversation's empty page has
  * three steps — a model (the settings'), a project and the scene and permissions (the Harnix
- * app's) — each drawn until it is done or closed. Done is read from what is really there: a
+ * app's) — each drawn until it is done or closed; the home page, where a new page lands, has them
+ * too, with the "no model configured" note, in a block that goes once nothing is left (§10). Done is read from what is really there: a
  * provider configured, a project listed. A step done while the page is open shows as done; one
  * already done when the page comes up is not drawn. Nothing of trust is said here: that is the
  * banner over a conversation's.
@@ -14,7 +15,7 @@
 import type { Page } from "@playwright/test";
 import { type Backend, expect, launchFor, startHarnix, test } from "@harnix/testkit";
 
-import { connected, open, settingsSection, toSessions } from "./page";
+import { connected, open, settingsSection, toSessions, toSpace } from "./page";
 
 const FIRST_RUN = { tag: ["@feature:session-space", "@layer:ui"] };
 
@@ -139,3 +140,45 @@ test("the project step adds one, is done once it is listed, opens it in the proj
     for (const w of workspaces.filter((w) => (w.title ?? w.path).includes(name))) await call(page, "harnix-app.workspaces.remove", { id: w.id });
   }
 });
+
+test("the home page, where a page lands, has the first run while unfinished: the missing model said, the three steps; with a model and every step closed, the block goes", FIRST_RUN, async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await open(page, fresh.url);
+  await expect(page.locator("#main")).toHaveAttribute("data-space", "home");
+  const block = page.locator('[data-testid="home-block"][data-block="harnix-app.setup"]');
+  await expect(block).toBeVisible();
+  // First on the page: before the figures and lists.
+  expect(await page.getByTestId("home-block").first().getAttribute("data-block")).toBe("harnix-app.setup");
+  await expect(block.getByTestId("model-setup")).toBeVisible();
+  const steps = block.locator("[data-testid=setup-step]");
+  await expect(steps).toHaveCount(3);
+  expect(await steps.evaluateAll((all) => all.map((e) => (e as HTMLElement).dataset.step))).toEqual([MODEL, PROJECT, SCENE]);
+  // The note's way to a model: Settings · Models.
+  await block.getByTestId("model-setup-open").click();
+  await expect(settingsSection(page, "models")).toHaveAttribute("data-state", "current");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#modal")).toHaveCount(0);
+
+  // Every step closed: the note stays while there is no model, and the block with it.
+  for (const id of [MODEL, PROJECT, SCENE]) await block.locator(`[data-step="${id}"]`).getByTestId("setup-dismiss").click();
+  await expect(steps).toHaveCount(0);
+  await expect(block).toBeVisible();
+  await expect(block.getByTestId("model-setup")).toBeVisible();
+
+  // A model set up: nothing is left to do, and the block is not shown.
+  await call(page, "settings.setProvider", { provider_id: "first-run-home", config: { api_type: "anthropic", base_url: "http://127.0.0.1:9/", api_key: "sk-live-test-first-run", default_model: "model-first-run" } });
+  try {
+    await page.reload();
+    await connected(page);
+    await toSpace(page, "home");
+    await expect(page.getByTestId("home")).toBeVisible();
+    await expect(block).toHaveCount(1);
+    await expect(block).toBeHidden();
+    await expect(page.getByTestId("model-setup")).toHaveCount(0);
+  } finally {
+    await call(page, "settings.setProvider", { provider_id: "first-run-home", delete: true }).catch(() => undefined);
+  }
+  expect(errors).toEqual([]);
+});
+

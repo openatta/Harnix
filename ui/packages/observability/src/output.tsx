@@ -7,11 +7,15 @@
  * The tail is read first (`observability.tasks.output`, the engine's `taskOutput`), then the
  * session's `task_progress` frames are taken as they are pushed; a gap between the two is read
  * again. The task itself comes from the session's task list (`harnix.session.tasks`).
+ *
+ * While the task runs, the head has a way to stop it (`observability.tasks.stop`, the engine's
+ * `stopTask`): pressed twice within a few seconds, as a running turn is interrupted, so a stray
+ * click stops nothing. How it ended comes back on the task list.
  */
 
 import { useEffect, useRef, useState } from "react";
 import type { TaskRow } from "@harnix/core";
-import { clip, parseResource, resourceAddress, useT, useTabInfo, type HostApi, type HostSessionRef as SessionKey } from "@harnix/react";
+import { clip, explainError, parseResource, resourceAddress, useT, useTabInfo, type HostApi, type HostSessionRef as SessionKey } from "@harnix/react";
 
 import { sessionParams, type Observed } from "./shared.tsx";
 
@@ -27,6 +31,8 @@ const LIVE = new Set(["running", "waiting", "pending"]);
 const OUTPUT_KEPT = 256 * 1024;
 /** How far from the end (px) still counts as at the end. */
 const TAIL_SLACK = 8;
+/** How long a first press of "stop" waits for the second. */
+const STOP_ARMED_MS = 3000;
 
 /** What a title can say of a task before its tab has read the list: the label the opener knew. */
 const labels = new Map<string, string>();
@@ -126,10 +132,57 @@ export function OutputTab({ observed }: { observed: Observed }) {
         <span className="when" data-testid="output-status">
           {tr(`obs.taskStatus.${task.status}`)}
         </span>
+        {LIVE.has(task.status) ? <StopTask observed={observed} session={session} task={task} /> : null}
       </div>
       {task.error ? <div className="hint err">{task.error}</div> : null}
       <TaskOutput observed={observed} session={session} task={task} />
     </div>
+  );
+}
+
+/**
+ * Stop the task: a first press arms it for a few seconds, a second stops it. One already over is
+ * said so; a refusal (the product does not let this be done, the session is another space's) is
+ * said in the shell's words.
+ */
+export function StopTask({ observed, session, task }: { observed: Observed; session: SessionKey; task: TaskRow }) {
+  const tr = useT();
+  const host = observed.host;
+  const [armed, setArmed] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const timer = setTimeout(() => setArmed(false), STOP_ARMED_MS);
+    return () => clearTimeout(timer);
+  }, [armed]);
+  const press = async () => {
+    if (!armed) {
+      setArmed(true);
+      return;
+    }
+    setArmed(false);
+    setStopping(true);
+    try {
+      const done = await host.call<{ stopped?: boolean }>("observability.tasks.stop", { ...sessionParams(observed, session), task_id: task.task_id });
+      if (done?.stopped === false) host.shell.notice(tr("obs.output.notStopped"));
+    } catch (e) {
+      host.shell.notice(explainError(e), "error");
+    } finally {
+      setStopping(false);
+    }
+  };
+  return (
+    <button
+      type="button"
+      className={`btn sm ${armed ? "danger" : "outline"}`}
+      data-testid="output-stop"
+      data-armed={armed ? "true" : undefined}
+      disabled={stopping}
+      title={tr("obs.output.stopTitle")}
+      onClick={() => void press()}
+    >
+      {tr(armed ? "obs.output.stopAgain" : "obs.output.stop")}
+    </button>
   );
 }
 

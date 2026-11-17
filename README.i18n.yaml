@@ -4,5 +4,5 @@
 #   node tests/readme-pairing.mjs --write
 README.md: 9ea098ddb1ba70ad7559ccbe076a37c3072d764a
 docs/README.zh-CN.md: 9cb17fed1ce8e23bca5e324f5825c3256cc33dcc
-user-guide/README.md: bc59df561d259e66d1c6dbce14ff7ac92a1a1809
-user-guide/README.zh-CN.md: debbc82506e09e12ba948a779952f7c48576bf2c
+user-guide/README.md: 61e1cd97021438f158463a68ec046b8c63a87381
+user-guide/README.zh-CN.md: 5a7386fc15c58f19cca4ba7cf8aa9aaaa0e9e35a

@@ -391,3 +391,24 @@ async fn a_rewind_somebody_else_made_is_followed_up_too() {
     rig.link.tx.send(frame).await.unwrap();
     until(&sink, "harnix.session_resync", 1).await;
 }
+
+/// A message changed in place — rewritten, or taken out of the context — is redrawn as a rewind's
+/// point is: the engine sends no frame for it, so the hub has every watcher read the session again,
+/// with nothing of the old drawing left to replay. Nothing else is: a read of the context is not a
+/// change.
+#[tokio::test]
+async fn a_message_changed_in_place_has_every_watcher_read_the_session_again() {
+    let rig = Rig::new().await;
+    let (sink, cx) = rig.watcher().await;
+    rig.call(device(), "engine.session.inspectContext", json!({"session_id": "s1"})).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(sink.frames("harnix.session_resync").is_empty(), "a read changes nothing");
+    rig.call(device(), "engine.session.editMessage", json!({"session_id": "s1", "at": 0, "text": "fix b", "total": 2})).await.unwrap();
+    until(&sink, "harnix.session_resync", 1).await;
+    rig.call(device(), "engine.session.dropMessages", json!({"session_id": "s1", "at": [0], "total": 2})).await.unwrap();
+    until(&sink, "harnix.session_resync", 2).await;
+    let resync = &sink.frames("harnix.session_resync")[0];
+    assert_eq!(resync["params"]["session_id"], "s1");
+    let attached = rig.call(cx, "harnix.session.attach", json!({"session_id": "s1", "space": "a"})).await.unwrap();
+    assert_eq!(attached["replay"], json!([]));
+}

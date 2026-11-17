@@ -4,8 +4,9 @@
  * at the bottom of the left column, beside the avatar, not among the spaces. In it the left column
  * is the general conversation and every flow, the one selected open on its runs; what is picked
  * there is the middle's conversation — the general one, a flow's own, a run's main session — and
- * the right column comes along to the list it is in (flows · runs · reference); what is selected
- * is shown beside the conversation.
+ * the right column comes along to the list it is in (flows · runs · reference); a run picked in the
+ * right column's list selects its flow on the left too; what is selected is shown beside the
+ * conversation.
  *
  * The flow-author conversations are in the backend space `flow`: a session of it opened from
  * elsewhere, or kept as the front one, opens here, in its flow's context.
@@ -128,6 +129,31 @@ test("a flow picked on the left: its conversation in the middle, its details bes
   await flowEntry(page).click();
   await expect(page.locator("#main")).toHaveAttribute("data-space", "flow");
   await expect.poll(() => current(page)).toBe(await conversationOf(page));
+  await page.evaluate((r) => (window as any).harnix.app.call("flow.cancel", { run: r, reason: "done" }), run);
+  expect(errors).toEqual([]);
+});
+
+test("a run picked in the right column's run list selects its flow on the left, the run under it current", TAGS, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, backend.url);
+  await toSpace(page, "flow");
+  const run = await page.evaluate(async () => (await (window as any).harnix.app.call("flow.start", { flow: "example-review", subject: "picked on the right" })).run as string);
+  // Nothing selected: the general conversation is the left column's context.
+  await page.getByTestId("flow-context-conversation").click();
+  await expect(page.getByTestId("flow-context")).toHaveAttribute("data-flow", "");
+  await expect(page.getByTestId("flow-context-runs")).toHaveCount(0);
+
+  await detailsTab(page, "flow.runs").click();
+  const listed = page.locator(`#details [data-testid="flow-run-list"] [data-testid="flow-run-${run}"]`);
+  await expect(listed).toBeVisible();
+  await listed.click();
+  await expect(listed).toHaveAttribute("aria-current", "true");
+  // The left column follows: its flow selected, open on its runs, this one current.
+  await expect(page.getByTestId("flow-context")).toHaveAttribute("data-flow", "example-review");
+  await expect(page.getByTestId("flow-context-flow-example-review")).toHaveAttribute("aria-current", "true");
+  await expect(page.getByTestId("flow-context-conversation")).not.toHaveAttribute("aria-current", "true");
+  await expect(page.getByTestId("flow-context-runs").getByTestId(`flow-run-${run}`)).toHaveAttribute("aria-current", "true");
+  await expect(page.locator('#secondary [data-testid="flow-run-detail"]')).toHaveAttribute("data-run", run);
   await page.evaluate((r) => (window as any).harnix.app.call("flow.cancel", { run: r, reason: "done" }), run);
   expect(errors).toEqual([]);
 });

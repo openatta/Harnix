@@ -10,7 +10,7 @@
  */
 
 import type { Page } from "@playwright/test";
-import { expect, launchFor, startHarnix, test } from "@harnix/testkit";
+import { expect, test } from "@harnix/testkit";
 
 import { modKey, newSession, open, openSettings, say, sessionRow, spaceEntry, toSessions } from "./page";
 
@@ -228,16 +228,12 @@ test("the composer's + menu is worked by keyboard alone, like the shell's", SESS
 });
 
 test("the composer's model menu is worked by keyboard alone, where the profile lets a model be changed", SESSIONS, async ({ page }) => {
-  // The menu changes nothing without `[shell] model_switch` (harnix-app.md §4): its options are not
-  // there to be reached.
-  const switching = await startHarnix(launchFor("replay", { profile: "[shell]\nmodel_switch = true\n" }));
-  try {
-    await open(page, switching.url);
-    await newSession(page, "says-ready");
-    await modelMenuByKeyboard(page);
-  } finally {
-    await switching.dispose();
-  }
+  // The menu changes nothing without `harnix.session.setModel` (harnix-app.md §4): its options are
+  // not there to be reached. The `harnix` binary opens it unless its profile closes it, so the
+  // worker's shared backend has it.
+  await open(page, URL);
+  await newSession(page, "says-ready");
+  await modelMenuByKeyboard(page);
 });
 
 /** The model: the options, then the field for a name of one's own — reached with ↓ like an item — then the session's effort and thinking. */

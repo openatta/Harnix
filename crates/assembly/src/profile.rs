@@ -154,9 +154,10 @@ pub(crate) struct TransportProfile {
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct ShellProfile {
     /// Whether the composer may change a session's model:
-    /// `harnix.session.setModel`, scoped to the space the caller claims (ipdrun-12). Off unless
-    /// written, so a product that left model choice to the settings page keeps it there.
-    pub model_switch: bool,
+    /// `harnix.session.setModel`, scoped to the space the caller claims (ipdrun-12). Unwritten, the
+    /// product's own default (`AppBuilder::model_switch`), which is off unless the product turns it
+    /// on: a product that left model choice to the settings page keeps it there.
+    pub model_switch: Option<bool>,
     /// Whether the shell draws its "New session" button and takes ⌘K to start one (ipdrun-46).
     /// On unless written: `false` hides both in every space; a space's own `newSession` still
     /// applies on top. Only the interface; the hub still takes `harnix.session.create`.
@@ -167,13 +168,21 @@ pub(crate) struct ShellProfile {
     pub narrow_details: NarrowDetails,
 }
 
+impl ShellProfile {
+    /// `[shell] model_switch` as it stands: written, or the product's default once the profile is
+    /// resolved; off when neither said.
+    pub fn switches_model(&self) -> bool {
+        self.model_switch.unwrap_or(false)
+    }
+}
+
 /// `[shell] narrow_details` (ipdrun-50): the wire's enum, read from the profile as it is told at hello.
 pub(crate) use harnix_contract::wire::NarrowDetails;
 
 impl Default for ShellProfile {
     fn default() -> Self {
         Self {
-            model_switch: false,
+            model_switch: None,
             new_session: true,
             narrow_details: NarrowDetails::Over,
         }
@@ -262,10 +271,13 @@ mod tests {
     fn the_shell_draws_and_switches_as_written() {
         let profile = Profile::parse("").unwrap();
         assert!(profile.ui.runtime_modules);
-        assert!(!profile.shell.model_switch);
+        assert_eq!(profile.shell.model_switch, None, "unwritten: the product's default");
+        assert!(!profile.shell.switches_model());
         assert!(profile.shell.new_session);
         let profile = Profile::parse("[shell]\nmodel_switch = true\n").unwrap();
-        assert!(profile.shell.model_switch);
+        assert!(profile.shell.switches_model());
+        let profile = Profile::parse("[shell]\nmodel_switch = false\n").unwrap();
+        assert_eq!(profile.shell.model_switch, Some(false));
         // Which spaces there are is which extensions are: `[extensions] off`, not the shell's.
         assert!(Profile::parse("[shell]\nspaces = [\"sessions\"]\n").is_err());
     }

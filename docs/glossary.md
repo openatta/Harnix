@@ -17,7 +17,7 @@
 | **骨架** | — | 传输、路由与准入、中枢、装配四件事。写死，不可插拔 |
 | **应用** | `App::builder()` | 在 Harnix 上做出来的产品，例如 Helm、IPDrun。一个应用 = 一个二进制 + 一份界面产物 |
 | **Harnix app** | 扩展 `harnix-app`、UI 包 `@harnix/harnix-app` | Harnix 自带的一个第一方扩展：首页、会话 space、项目 space，新建会话、按时间看、按项目管理。不叫「最小应用」。见 [Harnix app](harnix-app.md) |
-| **首页** | space `home`，点 `harnix-app.home.panels` | Harnix app 的落地处（`landing`）：新开的页面先到这里。一页区块——全局统计、待我处理、最近的会话与任务、全部定时、30 天的用量——各由拥有那份数据的包注册。不持有对话（`no_sessions()`）。见 [Harnix app](harnix-app.md) §10 |
+| **首页** | space `home`，点 `harnix-app.home.panels` | Harnix app 的落地处（`landing`）：新开的页面先到这里。一页区块——没做完时的首次运行、全局统计、待我处理、最近的会话与任务、全部定时、30 天的用量——各由拥有那份数据的包注册。不持有对话（`no_sessions()`）。见 [Harnix app](harnix-app.md) §10 |
 | **诊断** | 设置 → 诊断，`settings.section` 的 `within: "diagnostics"` | 设置里外壳内建的一节：引擎、界面模块、扩展、被拒的贡献、自检，之后是别的包放进来的区块（扩展包运行状况、扩展日志）。见 [Harnix app](harnix-app.md) §12 |
 | **定时** | 扩展 `schedule`（`harnix-ext-schedule`），`Schedule`、`Receipt` | 到点由 Harnix 投递的一件事：往已有会话发一轮、在项目里新建会话发一轮、或起一个项目任务；时间按它的 IANA 时区算。每个到点留一条**投递回执**（已投递、跳过、失败），只说明交出去了。Harnix 没在跑时不投递，起来后按「错过」策略补最近一次或跳过。模型用引擎的 `CronCreate` 建的是「**模型建的定时**」：存在引擎里、按会话、按 UTC，这里只能看和删。不叫「定时任务」：「任务」另有所指。见 [Harnix app](harnix-app.md) §9 |
 | **二开** | — | 在 Harnix 上做应用，不 fork Harnix |

@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { HostProvider, Registry, setLocale, type HostSessionRef, type HostApi } from "@harnix/react";
 
 import { toolTarget } from "../src/model";
+import { FlowSidebar } from "../src/sidebar";
 import { registerFlowSpace } from "../src/space";
 import { ToolTargetLine } from "../src/ToolTarget";
 import { FlowSpaceState } from "../src/state";
@@ -509,6 +510,40 @@ describe("运行", () => {
     fireEvent.change(screen.getByTestId("flow-filter-flow"), { target: { value: "" } });
     fireEvent.change(screen.getByTestId("flow-filter-state"), { target: { value: "waiting" } });
     expect(rows()).toEqual(["example-review-1"]);
+  });
+
+  it("a run picked in the list selects its flow with it, so the left column opens on that flow with the run in it", async () => {
+    const fake = fakeHost({
+      "flow.session": conversations,
+      "flow.get": { record: { id: "other-1", flow: "other", session_keys: { "@main": { id: "main/main-o" } } } },
+    });
+    fake.push("flow.defs", {}, [...DEFS, { name: "other", title: "Other", digest: "c", origin: "user", valid: true, inputs: { type: "object", properties: {}, required: [] } }]);
+    fake.push("flow.runs", {}, RUNS);
+    fake.push("flow.dry_runs", {}, []);
+    const state = new FlowSpaceState();
+    state.attach(fake.host);
+    state.selectFlow("example-review");
+    act(() => fake.tab("flow.runs"));
+    await settle();
+    render(
+      <HostProvider host={fake.host}>
+        <RunsTab state={state} tabs={TABS} />
+        <FlowSidebar state={state} />
+      </HostProvider>,
+    );
+    // Another flow's run: that flow is selected, the run under it on the left, current.
+    fireEvent.click(screen.getByTestId("flow-run-list").querySelector('[data-testid="flow-run-other-1"]')!);
+    await settle();
+    expect(state.get()).toMatchObject({ flow: "other", run: "other-1" });
+    expect(screen.getByTestId("flow-context").getAttribute("data-flow")).toBe("other");
+    expect(screen.getByTestId("flow-context-flow-other").getAttribute("aria-current")).toBe("true");
+    const left = screen.getByTestId("flow-context-runs").querySelector('[data-testid="flow-run-other-1"]')!;
+    expect(left.getAttribute("aria-current")).toBe("true");
+    expect(fake.opened.at(-1)).toEqual({ instance: "main", sessionId: "main-o" });
+    // Picked again: the run is let go, the flow stays.
+    fireEvent.click(screen.getByTestId("flow-run-list").querySelector('[data-testid="flow-run-other-1"]')!);
+    await settle();
+    expect(state.get()).toMatchObject({ flow: "other", run: null });
   });
 
   it("a run: its state, time and tokens per station, pause, and its sub-agents and tasks to open", async () => {

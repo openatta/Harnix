@@ -8,7 +8,10 @@
  *   every session's strip (`pinned`): what the next call carries, block by block with its source
  *   and size, the tools, the skills and hooks in force, the MCP servers' tools, what trust holds
  *   back, the model; **usage** (this run's figures, with the way into the trajectory); and
- *   **output**, one tab per background command or monitor, opened from the tool's row.
+ *   **output**, one tab per background command or monitor, opened from the tool's row, with the way
+ *   to stop it while it runs (`observability.tasks.stop`).
+ * - A person's message's menu (`session.action` at `message`): rewrite it, or take it out of the
+ *   context (`observability.messages.edit`, `.drop`).
  * - Two blocks of the home page (`harnix-app.home.panels`), where the product has the Harnix app:
  *   the process at a glance (`observability.process`, the instances and their Agents, what waits),
  *   and the usage summary (`UsageSummaryTab`: every session's figures over the last 30 days by
@@ -18,7 +21,7 @@
  *   extension's log (`observability.extensions.log`), filtered, followed live, copied.
  *
  * Read through the host API alone: `observability.*` (the recording, the context, a task's
- * output, the process, the extensions' log), `harnix.session.outline`, `.skills`, `.hooks`,
+ * output and stopping it, a message changed, the process, the extensions' log), `harnix.session.outline`, `.skills`, `.hooks`,
  * `.tasks`, `engine.session.entries` (the feedback), `settings.mcp.context` and
  * `harnix-app.sessions.projectStatus` where the product has them.
  */
@@ -28,6 +31,7 @@ import { t, type ActionTarget, type HostApi, type Registry } from "@harnix/react
 import { ContextTab } from "./context.tsx";
 import { EXTLOG, ExtensionLogView } from "./extlog.tsx";
 import { GlobalStats, HOME_PANELS, type HomeContext } from "./home.tsx";
+import { registerMessageActions } from "./messages.tsx";
 import { OUTPUT_KIND, OUTPUT_TOOLS, OutputTab, openToolOutput, outputTitle } from "./output.tsx";
 import { TRAJECTORY_VIEW, type Observed } from "./shared.tsx";
 import { Trajectory } from "./trajectory/Trajectory.tsx";
@@ -134,4 +138,5 @@ export function register(r: Registry, host: HostApi): void {
     },
     extension,
   );
+  registerMessageActions(r, host, extension);
 }

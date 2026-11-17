@@ -387,21 +387,17 @@ test("composer.steer: a space that asks for it has a deliver-now switch, and a m
   await expect(page.locator('[data-testid="conv-message"]', { hasText: "and this now" }).getByTestId("conv-steered")).toBeVisible();
 });
 
-test("model_switch: the composer changes the model through harnix.session.setModel", SHELL, async ({ page }) => {
-  const backend = await startHarnix(launchFor("replay", { profile: "[shell]\nmodel_switch = true\n[extensions]\noff = [\"flow\"]\n" }));
-  try {
-    await open(page, backend.url);
-    const reachable = await page.evaluate(() => (window as any).harnix.app.snapshot.reachable as string[]);
-    expect(reachable).toContain("harnix.session.setModel");
-    await newSession(page, "says-ready");
-    await page.getByTestId("conv-model").click();
-    await page.getByTestId("conv-model-custom").fill("claude-switched-model");
-    await page.getByTestId("conv-model-custom").press("Enter");
-    await expect(page.getByTestId("conv-model")).toContainText("claude-switched-model");
-  } finally {
-    await backend.dispose();
-  }
-  const without = await startHarnix(launchFor("replay", { profile: "[extensions]\noff = [\"flow\"]\n" }));
+test("model_switch: the composer changes the model through harnix.session.setModel; the harnix binary's profile closes it with the line false", SHELL, async ({ page }) => {
+  // The `harnix` binary opens it with nothing written: the worker's shared backend has it.
+  await open(page, URL);
+  const reachable = await page.evaluate(() => (window as any).harnix.app.snapshot.reachable as string[]);
+  expect(reachable).toContain("harnix.session.setModel");
+  await newSession(page, "says-ready");
+  await page.getByTestId("conv-model").click();
+  await page.getByTestId("conv-model-custom").fill("claude-switched-model");
+  await page.getByTestId("conv-model-custom").press("Enter");
+  await expect(page.getByTestId("conv-model")).toContainText("claude-switched-model");
+  const without = await startHarnix(launchFor("replay", { profile: "[shell]\nmodel_switch = false\n[extensions]\noff = [\"flow\"]\n" }));
   try {
     await open(page, without.url);
     await newSession(page, "says-ready");

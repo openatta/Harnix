@@ -25,7 +25,7 @@ The file is named `harnix-<release>-<target>.tar.gz`, where `<release>` is the r
 
 **Start.** Run `harnix` in a terminal. Open <http://127.0.0.1:4080/> in your browser. That is all: no environment variable is needed. To use another port, start it with `harnix --port <port>`. With no model set up, Harnix still starts and tells you so.
 
-**The empty page and its three cards.** A new conversation shows a greeting, the input box, and three cards under it. A card whose step is already done is not shown; one you finish while the page is open turns into a tick. Close a card with its "Don't show again" button.
+**The empty page and its three cards.** A new conversation shows a greeting, the input box, and three cards under it. A card whose step is already done is not shown; one you finish while the page is open turns into a tick. Close a card with its "Don't show again" button. Harnix opens on the home page (section 8), which shows the same three cards in its "Get started" block, with "No model is configured yet" above them until you set one up.
 
 1. **Model.** "Open model settings" takes you to Settings, "Models & credentials" (section 2). Once a model is ready the card says which one new sessions use.
 2. **Project.** A project is a folder the agent reads and writes in. "Create or choose a project…" opens the "Add project" dialog: type a name to make a new folder under the projects directory (`~/Documents` unless Harnix was started with another), or pick an existing one.
@@ -93,13 +93,15 @@ Each project row has two buttons. The "+" ("New in this project…") offers "New
 - "Changes": which files each turn changed, with each file's diff. The card "Files changed: N" in the conversation opens it.
 - "Context": always the last tab of every session. What the next model call carries (system blocks with their source and size, tools, skills, hooks, MCP servers and their tools), and what trust holds back. It reads again when a turn ends.
 - "Usage": tokens, calls, cache hits and time of this session, with "Open the trajectory".
-- "Output": the live output of a background shell command or monitor the agent started, read-only, one tab for each. Open it with "View output" on that tool call. The engine keeps only the last twenty finished ones.
+- "Output": the live output of a background shell command or monitor the agent started, read-only, one tab for each. Open it with "View output" on that tool call. While it runs, "Stop" ends it: press it once, it says "Press again to stop", and a second press within three seconds stops the task. The engine keeps only the last twenty finished ones.
 - "Flow": in a task's conversation, the task (section 5).
 - "Guide": lists the pages the column can open; the "+" ("Open a page…") at the top of the column opens it.
 
 The button at the right end of the header above the conversation opens and closes the column ("Expand the right column" / "Collapse the right column"). At the top of the column, "Maximize" widens it and the × closes it. The command "Open or close the right column" has no key by default; you can give it one in "Keyboard shortcuts".
 
 **Rewind ("Rewind to here").** On a message, choose "Rewind to here". Harnix first shows what would change: the turns taken out, the files restored, and files changed outside the session since. Optionally tick "Fork first" to keep the removed turns in a fork. Then "Rewind". The prompt you took back is put into the input box. Only what the file tools wrote is put back; what shell commands did (git, installs) is not. You cannot rewind while a turn is running.
+
+**Rewrite or take out a message.** The same menu on your message has "Rewrite this message" and "Take out of the context". Rewriting changes the words in place; taking out keeps the message in its place in the conversation, its words replaced by `[removed by the host]`, so the model no longer sees what it said. Either way the model sees the change from its next call on, and what it already answered stays as it was. Neither is possible while a turn is running or waiting.
 
 **Fork, archive, export, import.** The session menu ("Session actions": the "⋯" beside a session, or the session's title above the conversation) has "Open", "Rename", "Fork from here", "Close" (frees the runtime, keeps the history), "Archive", "Export", "Schedule…" (section 6) and "Delete". Export gives Markdown (to read) or a zip archive (the session, its sub-agents' sessions, images and entries). "Include the recorded model calls" adds the full prompts; use it only to investigate. To bring a session back, use "Import…" in the left column and choose a `.zip`. It becomes a new session; if its project is not on this machine, it has no project.
 
@@ -199,13 +201,15 @@ Click your avatar at the bottom of the left column and choose **Settings**. The 
 
 **Home** is the first entry of the left column. A new tab, or Harnix started again, opens on it; reloading the page keeps you where you were. It holds no conversation: "New session" takes you to a space where you can talk. Its blocks:
 
+- **Get started**: while something is left to do, "No model is configured yet" with "Set up a model", and the first-run cards (section 1). Once a model is set up and every card is done or closed, the block is gone.
+
 - **At a glance**: the Harnix and Agix versions, uptime, peak memory, threads, connected users (point at it to see who), instances, agents active of all, sessions running, background tasks running, and how many things wait for you (click it for the list).
 - **Waiting for you**: the questions and approvals waiting in every session, and the tasks waiting to be confirmed, released or claimed. Click one to go where you can answer it.
 - **Recent sessions** and **Recent tasks**: the latest of each, with their project; click to open. "All sessions" goes to the sessions space.
 - **Schedules**: every schedule, with **New schedule** (section 6).
 - **Usage**: what every session used in the last 30 days, by project, by day and by model, and the flows by flow. A recording covers only a session's latest run.
 
-**Flows** is at the bottom of the left column, above your avatar. It is where flows are managed. The left column has the general conversation (for writing new flows and asking questions) and every flow; click a flow to open its own conversation, with its runs and dry runs under it, and click a run to see its main conversation. The details of what you picked open beside the conversation; closing them keeps your pick. The right column has three tabs: "Flows" (filter by source and validity, search, sort), "Runs" (every run and dry run, including runs not in a project; filter and sort) and "Reference" (the flow guide). When you opened a task from a project, "Back to Projects" at the top of the left column takes you back there.
+**Flows** is at the bottom of the left column, above your avatar. It is where flows are managed. The left column has the general conversation (for writing new flows and asking questions) and every flow; click a flow to open its own conversation, with its runs and dry runs under it, and click a run to see its main conversation. Clicking a run in the "Runs" tab selects its flow in the left column too, with the run under it. The details of what you picked open beside the conversation; closing them keeps your pick. The right column has three tabs: "Flows" (filter by source and validity, search, sort), "Runs" (every run and dry run, including runs not in a project; filter and sort) and "Reference" (the flow guide). When you opened a task from a project, "Back to Projects" at the top of the left column takes you back there.
 
 ---
 

@@ -3,7 +3,8 @@
  * seconds (`streams-output`), started by a turn that ends at once. The session's row counts it as
  * running while no turn is, and once it is over both topics say so without being asked — to a
  * client that is no longer watching the conversation. Its output is read by offset through
- * `observability.tasks.output` (harnix-app.md §6.1), in the session's own space only.
+ * `observability.tasks.output` (harnix-app.md §6.1), in the session's own space only; a person stops
+ * it through `observability.tasks.stop`, in that space only too.
  *
  * Monitor is a tool of the `code` scene, so this backend activates it beside the default.
  */
@@ -69,6 +70,55 @@ test("a task running after its turn is counted on its session's row until it is 
       (f) => f.method === "harnix.topic" && f.params.topic === "harnix.instances.sessions" && row(f)?.tasks === 0,
       { timeout: 5_000, describe: "the row to count no running task" },
     );
+  } finally {
+    api.close();
+  }
+});
+
+test("a person stops a running task in its session's space: the topics say so long before its ten seconds", TAGS, async () => {
+  const api = await connect(backend);
+  try {
+    const created = await api.call("harnix.session.create", {
+      scene: "code",
+      project_root: api.project,
+      options: { recorder: { name: "streams-output" }, permission_mode: "default" },
+    });
+    const s = { instance: "main", session_id: created.session_id };
+    await api.call("harnix.session.attach", s);
+    await api.call("harnix.topics.subscribe", { topic: "harnix.session.tasks", params: s });
+    await api.call("harnix.session.send", { ...s, message: "Start watching the counter" });
+    const ask = await api.waitFor((f) => f.method === "harnix.event" && f.params.session_id === s.session_id && f.params.event.kind === "prompt", {
+      timeout: 30_000,
+      describe: "the Monitor call to ask",
+    });
+    await api.call("harnix.session.respond", { ...s, prompt_id: ask.params.event.prompt_id, decision: { type: "permit" } });
+    let monitor: any;
+    await expect
+      .poll(async () => {
+        monitor = (await api.call("harnix.session.tasks", s)).tasks.find((t: any) => t.kind === "monitor");
+        return monitor?.status;
+      }, { timeout: 15_000 })
+      .toBe("running");
+
+    // Claiming another space, the hub refuses it before the engine is asked: it runs on.
+    const across = await api.refused("observability.tasks.stop", { ...s, space: "flow", task_id: monitor.task_id });
+    expect(across?.code).toBe(SPACE_MISMATCH);
+    expect((await api.call("harnix.session.tasks", s)).tasks.find((t: any) => t.task_id === monitor.task_id).status).toBe("running");
+
+    const started = Date.now();
+    expect(await api.call("observability.tasks.stop", { ...s, task_id: monitor.task_id })).toEqual({ stopped: true });
+    // Stopped at once, and said at once — not when its work has wound down.
+    const ended = await api.waitFor(
+      (f) =>
+        f.method === "harnix.topic" &&
+        f.params.topic === "harnix.session.tasks" &&
+        f.params.value.tasks.some((t: any) => t.task_id === monitor.task_id && t.status === "stopped"),
+      { timeout: 5_000, describe: "the task's stop to be pushed on harnix.session.tasks" },
+    );
+    expect(ended).toBeTruthy();
+    expect(Date.now() - started, "stopped, not run out").toBeLessThan(8_000);
+    // Over, there is nothing to stop.
+    expect(await api.call("observability.tasks.stop", { ...s, task_id: monitor.task_id })).toEqual({ stopped: false });
   } finally {
     api.close();
   }
