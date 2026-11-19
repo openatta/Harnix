@@ -63,7 +63,9 @@ pub struct EngineConfig {
     pub groups_file: Option<PathBuf>,
     /// The directory it keeps in each project and the name it goes by — what the model is told it
     /// is, the `User-Agent` of its requests, its worktrees' branch prefix (`<name>/worktree-`):
-    /// the product's (`[brand]`), Harnix's own (`.harnix`, `Harnix`) when it names none.
+    /// the product's (`[brand]`), Harnix's own (`.harnix`, `Harnix`) when it names none. The
+    /// engine's own name is left at its default (`agix`): a plugin written for Agix finds its
+    /// script library where it looks.
     pub names: ProductNames,
 }
 
@@ -438,6 +440,18 @@ mod tests {
         here.shutdown().await;
     }
 
+    /// A product's names are the engine's project directory and `product`; the engine's own name
+    /// stays its default whatever the product is called.
+    #[test]
+    fn the_product_names_the_engine_and_its_own_name_stays() {
+        let dir = tempfile::tempdir().unwrap();
+        let names = ProductNames::new(".acme", "Acme").unwrap();
+        let embed = config(dir.path()).named(&names).embed();
+        assert_eq!((embed.project_dir.as_deref(), embed.product.as_str()), (Some(".acme"), "Acme"));
+        assert_eq!(embed.engine, EmbedConfig::new(dir.path()).engine);
+        assert_eq!(embed.engine, "agix");
+    }
+
     /// Harnix checks a product's names by the engine's rules: what it refuses the engine refuses,
     /// naming the same field, and what it takes the engine takes. The engine checks them before it
     /// reads anything, so an unknown scene stands in for a start that went past the check.
@@ -456,9 +470,10 @@ mod tests {
             assert!(harnix_contract::product::check_project_dir(bad).is_err(), "{bad:?}");
             assert!(matches!(start(bad, "Acme").await, EmbedError::InvalidProjectDir { .. }), "{bad:?}");
         }
-        for bad in samples::BAD_PRODUCT_NAMES {
-            assert!(harnix_contract::product::check_product_name(bad).is_err(), "{bad:?}");
-            assert!(matches!(start(".acme", bad).await, EmbedError::InvalidProductName { .. }), "{bad:?}");
+        let reserved = samples::RESERVED_PRODUCT_NAMES.iter().flat_map(|n| [n.to_string(), n.to_ascii_uppercase()]);
+        for bad in samples::BAD_PRODUCT_NAMES.iter().map(|n| n.to_string()).chain(reserved) {
+            assert!(harnix_contract::product::check_product_name(&bad).is_err(), "{bad:?}");
+            assert!(matches!(start(".acme", &bad).await, EmbedError::InvalidProductName { .. }), "{bad:?}");
         }
         for (dir, name) in samples::GOOD_PROJECT_DIRS.iter().zip(samples::GOOD_PRODUCT_NAMES) {
             assert!(ProductNames::new(dir, name).is_ok(), "{dir:?} {name:?}");

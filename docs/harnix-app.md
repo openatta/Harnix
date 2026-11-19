@@ -586,7 +586,7 @@ name = "Harnix"           # 页面标题、左栏产品名；不写是 Harnix
 icon = "brand/icon.svg"   # SVG，相对 profile；服务在 /brand/icon.svg
 product_id = "harnix"     # 程序自己的目录 ~/.<product_id>，也是项目数据目录 .<product_id>；小写字母、数字、-，字母开头；不写是 harnix
 # project_dir = ".harnix"   # 项目数据目录另起名；不写是 .<product_id>
-# product_name = "Harnix"   # 引擎自称的名字；不写是 name，再不写是 product_id；name 有空格、中文时必须写（ASCII 字母开头，字母数字 - _，至多 32）
+# product_name = "Harnix"   # 引擎自称的名字；不写是 name，再不写是 product_id；name 有空格、中文时必须写（ASCII 字母开头，字母数字 - _，至多 32；小写后不能是 memory、history 这类引擎在 state/ 里用的名字）
 ```
 
 带品牌的应用（写了 `product_id`）在每个项目里用 `.<product_id>/`，不用 `.harnix/`：本文说到 `<项目>/.harnix/` 的地方（项目层的设置、

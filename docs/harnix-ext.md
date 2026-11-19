@@ -1143,7 +1143,9 @@ icon = "brand/helm.svg"        # 品牌图标（SVG），相对 profile 所在�
 product_id = "helm"            # 程序自己的目录 ~/.helm（§20），也是项目里的目录 .helm（§5.4）；小写字母、数字、`-`，字母开头；不写是 harnix
 # project_dir = ".helm"        # 项目数据目录，不写是 .<product_id>（再不写是 .harnix）；`.` 开头、小写字母数字与 . _ -，不能是别的工具的（.git、.claude、.github…）
 # product_name = "Helm"        # 引擎自称的名字（模型看到的、请求的 User-Agent、worktree 的分支前缀），不写是 name（再不写是 product_id、Harnix）；
-                               # ASCII 字母开头、至多 32 个字母数字 - _。name 不合这条（有空格、中文）就必须写它，否则启动时报错，指明该写哪个键
+                               # ASCII 字母开头、至多 32 个字母数字 - _，小写后不能是引擎在项目 state/ 里用的名字（memory、scratchpad、history…）。
+                               # name 不合这条（有空格、中文）就必须写它，否则启动时报错，指明该写哪个键。它是引擎的 product；
+                               # 引擎自己的名字（插件脚本里的全局名 agix）不归产品改，没有键
 
 [shell]
 model_switch = true            # 加 harnix.session.setModel，能在输入框换模型（只限调用方声称的 space 的会话）；false 不加。不写是产品的 .model_switch（§17.1），它不说是 false

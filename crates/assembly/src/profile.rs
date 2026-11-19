@@ -208,7 +208,9 @@ pub(crate) struct BrandProfile {
     pub project_dir: Option<String>,
     /// The name the engine goes by — what the model is told it is, the `User-Agent` of its
     /// requests, its worktrees' branches — in place of `name` (`Harnix` with neither): an ASCII
-    /// letter, then up to 31 ASCII letters, digits, `-` or `_`. Needed when `name` is not one.
+    /// letter, then up to 31 ASCII letters, digits, `-` or `_`, not in lowercase one of the names
+    /// the engine keeps in a project's `state/` (`memory`, `history`…). Needed when `name` is not
+    /// one. The engine's `product`; its own name (`agix`) is not the product's to change.
     pub product_name: Option<String>,
 }
 
@@ -351,6 +353,11 @@ mod tests {
         assert!(err.contains("[brand] project_dir") && err.contains("start with `.`"), "{err}");
         let err = names("[brand]\nproduct_name = \"1acme\"\n").unwrap_err().to_string();
         assert!(err.contains("[brand] product_name"), "{err}");
+        // The engine keeps its own state under that name in a project's `state/`.
+        let err = names("[brand]\nproduct_id = \"memory\"\n").unwrap_err().to_string();
+        assert!(err.contains("[brand] product_id") && err.contains("state/") && err.contains("product_name"), "{err}");
+        let n = names("[brand]\nproduct_id = \"memory\"\nproduct_name = \"Memo\"\n").unwrap();
+        assert_eq!((n.project_dir(), n.product_name()), (".memory", "Memo"));
     }
 
     #[test]

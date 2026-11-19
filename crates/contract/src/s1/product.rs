@@ -4,6 +4,10 @@
 //!
 //! Both are checked here by the engine's own rules, so a profile that names one the engine would
 //! refuse stops the start before anything is built, saying which and why.
+//!
+//! The product's name is the engine's `product`. The engine's own name is another (`agix`: its
+//! script library's global, its errors' name, the state directory under `$HOME` it guards as its
+//! own); Harnix leaves it at the engine's default, so a plugin written for Agix runs as it is.
 
 use std::path::{Path, PathBuf};
 
@@ -20,6 +24,12 @@ const OTHER_TOOLS_DIRS: &[&str] = &[".git", ".agents", ".claude", ".codex", ".cu
 
 /// Where the engine puts its worktrees, at a repository's root: not a project directory either.
 const ENGINE_WORKTREES_DIR: &str = ".wkts";
+
+/// What the engine keeps in a project directory's `state/` under its own names: a product's name
+/// in lowercase is none of them, as `state/<product id>/` is the product's. The engine's list;
+/// `crates/engine` checks the engine refuses each.
+const STATE_RESERVED_NAMES: &[&str] =
+    &["memory", "scratchpad", "teams", "telemetry", "tool-results", "history", "imported", "sessions", "cache", "tmp"];
 
 /// The directory the engine keeps in each project, and the name it goes by.
 #[non_exhaustive]
@@ -51,12 +61,14 @@ impl ProductNames {
     }
 
     /// The name the engine goes by, `Harnix` in Harnix: the model's prompts, the `User-Agent` of
-    /// its requests, its worktrees' branches (`<lowercase name>/worktree-`).
+    /// its requests, its worktrees' branches (`<lowercase name>/worktree-`). The engine's
+    /// `product`, not its own name (`agix`).
     pub fn product_name(&self) -> &str {
         &self.product_name
     }
 
-    /// The name as a machine reads it — a branch prefix, a path component: lowercase.
+    /// The name as a machine reads it — a branch prefix, a path component (the product's own
+    /// `<project_dir>/state/<product id>/`, which the engine neither reads nor writes): lowercase.
     pub fn product_id(&self) -> String {
         self.product_name.to_ascii_lowercase()
     }
@@ -119,7 +131,8 @@ pub fn check_project_dir(name: &str) -> Result<(), &'static str> {
 }
 
 /// Whether `name` can be the name the engine goes by: an ASCII letter, then up to 31 ASCII
-/// letters, digits, `-` or `_` — a path component, a git ref component and an HTTP token as is.
+/// letters, digits, `-` or `_` — a path component, a git ref component and an HTTP token as is —
+/// whose lowercase is none of the names the engine keeps in a project's `state/`.
 pub fn check_product_name(name: &str) -> Result<(), &'static str> {
     let mut chars = name.chars();
     match chars.next() {
@@ -133,6 +146,9 @@ pub fn check_product_name(name: &str) -> Result<(), &'static str> {
     if !chars.all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
         return Err("only ASCII letters, digits, `-` and `_` are allowed");
     }
+    if STATE_RESERVED_NAMES.contains(&name.to_ascii_lowercase().as_str()) {
+        return Err("the engine keeps its own state under that name in a project's `state/`");
+    }
     Ok(())
 }
 
@@ -142,8 +158,10 @@ pub fn check_product_name(name: &str) -> Result<(), &'static str> {
 pub mod samples {
     pub const BAD_PROJECT_DIRS: &[&str] = &["", "harnix", ".", "..", ".Acme", ".a/b", ".git", ".claude", ".agents", ".github", ".wkts"];
     pub const GOOD_PROJECT_DIRS: &[&str] = &[".harnix", ".acme", ".hello-app", ".a.b_c-1"];
-    pub const BAD_PRODUCT_NAMES: &[&str] = &["", "1acme", "Acme Desk", "Acme/1", "Héllo"];
+    pub const BAD_PRODUCT_NAMES: &[&str] = &["", "1acme", "Acme Desk", "Acme/1", "Héllo", "Memory", "scratchpad", "History", "tool-results"];
     pub const GOOD_PRODUCT_NAMES: &[&str] = &["Harnix", "Acme", "hello-app", "Helm_2"];
+    /// The names the engine keeps in a project's `state/`: no product's, in any case.
+    pub const RESERVED_PRODUCT_NAMES: &[&str] = super::STATE_RESERVED_NAMES;
 }
 
 #[cfg(test)]
@@ -170,6 +188,11 @@ mod tests {
         }
         assert!(check_project_dir(&format!(".{}", "a".repeat(64))).is_err());
         assert!(check_product_name(&format!("A{}", "b".repeat(32))).is_err());
+        for reserved in samples::RESERVED_PRODUCT_NAMES {
+            assert!(check_product_name(reserved).is_err(), "{reserved}");
+            assert!(check_product_name(&reserved.to_ascii_uppercase()).is_err(), "{reserved}");
+        }
+        assert!(check_product_name("State").is_ok(), "`state` itself is not one of the names in it");
         assert_eq!(
             ProductNames::new(".git", "Acme").unwrap_err().to_string(),
             "project_dir `.git`: that directory belongs to another tool"

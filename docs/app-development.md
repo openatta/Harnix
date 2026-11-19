@@ -113,7 +113,8 @@ Harnix 本身是**框架 + 第一方扩展**：Harnix app（首页、会话 spac
 - **品牌用自己的名字，连项目里的目录和引擎的自称一起。** profile 写了 `[brand] product_id` 的应用，状态在 `~/.<product_id>/`，
   项目数据目录是 `<项目>/.<product_id>/`（引擎的项目层、流程的 `runs/` 与 `flows/` 都在这里），引擎自称 `[brand] name`
   （模型看到的、请求的 User-Agent、worktree 的分支前缀）；`harnix` 自己仍是 `.harnix` 与 Harnix。两个名字都可以在 `[brand]` 里另写
-  （`project_dir`、`product_name`），不合引擎的规则就启动不了，报错说该写哪个键（[原生扩展](harnix-ext.md) §18）。扩展从
+  （`project_dir`、`product_name`），不合引擎的规则就启动不了，报错说该写哪个键（[原生扩展](harnix-ext.md) §18）。`product_name` 就是引擎的 `product`；
+  引擎自己的名字（插件脚本里的全局名、`AgixError`）保持引擎的缺省 `agix`，不随品牌变，写给 Agix 的插件原样能用。扩展从
   `cx.product()` 读这两个名字，不写死 `.harnix`。模式 3 的扩展进程自带的引擎这一版仍用 `.harnix` 与 Harnix。
 - **信任按出身，特权按授予。** 编进二进制的扩展都是可信的源码，但它能做的特权只是 `main.rs` 里写下的那几项能力；少授、多授、授了没定义的都拒绝启动。
   第一方扩展也一样，没有「内建」这种特权。
