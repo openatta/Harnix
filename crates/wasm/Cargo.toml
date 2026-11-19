@@ -1,6 +1,6 @@
 [package]
 name = "harnix-wasm"
-version      = "0.4.6-2026111701"
+version      = "0.4.7-2026111901"
 edition      = "2021"
 rust-version = "1.88"
 license      = "Apache-2.0"

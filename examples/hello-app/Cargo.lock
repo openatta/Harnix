@@ -1407,7 +1407,7 @@ dependencies = [
 
 [[package]]
 name = "harnix"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1435,7 +1435,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-assembly"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1474,7 +1474,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-authz"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "base64 0.22.1",
  "harnix-contract",
@@ -1489,7 +1489,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-carrier-proc"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1506,7 +1506,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-carrier-shared"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "async-trait",
  "harnix-ext",
@@ -1520,7 +1520,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-carrier-wasm"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1540,7 +1540,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-cli"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "anyhow",
  "harnix",
@@ -1550,7 +1550,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-client"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "harnix-contract",
  "serde_json",
@@ -1559,7 +1559,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-contract"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "async-trait",
  "libc",
@@ -1570,7 +1570,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-engine"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "agix",
  "anyhow",
@@ -1589,7 +1589,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-engine-api"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "async-trait",
  "harnix-contract",
@@ -1602,7 +1602,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-engine-link"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "async-trait",
  "harnix-contract",
@@ -1615,7 +1615,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-ext"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1635,7 +1635,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-ext-devices"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "async-trait",
  "harnix-ext",
@@ -1644,7 +1644,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-ext-flow"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1666,7 +1666,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-ext-harnix-app"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1682,7 +1682,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-ext-observability"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "async-trait",
  "harnix-ext",
@@ -1692,7 +1692,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-ext-packages"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1710,7 +1710,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-ext-plugins"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1724,7 +1724,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-ext-schedule"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1740,7 +1740,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-ext-settings"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1757,7 +1757,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-flow"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "async-trait",
  "futures",
@@ -1781,7 +1781,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-host-api"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "async-trait",
  "harnix-contract",
@@ -1794,7 +1794,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-hub"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1812,7 +1812,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-instance"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1835,7 +1835,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-kernel"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "async-trait",
  "harnix-contract",
@@ -1846,7 +1846,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-package"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1869,7 +1869,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-proc"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1891,7 +1891,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-router"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "async-trait",
  "harnix-authz",
@@ -1903,7 +1903,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-supervise"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "libc",
  "tempfile",
@@ -1913,7 +1913,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-transport"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1941,7 +1941,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-wasm"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1959,7 +1959,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-wasm-host"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1978,7 +1978,7 @@ dependencies = [
 
 [[package]]
 name = "harnix-wasm-port"
-version = "0.4.6-2026111701"
+version = "0.4.7-2026111901"
 dependencies = [
  "async-trait",
  "harnix-contract",
