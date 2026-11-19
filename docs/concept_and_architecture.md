@@ -12,9 +12,9 @@
 | Harnix 自带的 Harnix app（首页、会话、项目）、流程 space、诊断 | [Harnix app](harnix-app.md) |
 | 贡献点的完整目录 | [contribution_points.md](contribution_points.md)，由代码生成 |
 | 测试怎么跑、怎么写 | [testing.md](testing.md) |
-| 下游项目提的需求 | [GitHub issue](https://github.com/openatta/Harnix/issues)，每个项目一个标签；代码里的编号（`ipdrun-NN`、`xops-NN`……）对照见 [issues](issues/README.md) |
+| 下游项目提的需求 | [GitHub issue](https://github.com/harnixai/Harnix/issues)，每个项目一个标签；代码里的编号（`ipdrun-NN`、`xops-NN`……）对照见 [issues](issues/README.md) |
 
-Harnix 建立在 [Agix](https://github.com/openatta/agix) 之上。引擎相关的概念（轮次循环、扩展点、场景、
+Harnix 建立在 [Agix](https://github.com/harnixai/Agix) 之上。引擎相关的概念（轮次循环、扩展点、场景、
 权限、压缩、Agix 插件）以 Agix 自己的文档为准，这里只在需要说明边界时引用。
 
 **代码和本文不一致时，以代码为准**，并且本文是错的，要改。

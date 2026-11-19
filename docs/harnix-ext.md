@@ -77,7 +77,7 @@ Harnix 自己发布的二进制缺省就带模式 2；你的产品用 `harnix::f
 
 ### 2.1 问题与需求：只提 Harnix 的 issue
 
-缺一个能力、碰到一个缺陷，不管它最后落在哪一层，都在 [Harnix 的 GitHub issue](https://github.com/openatta/Harnix/issues)
+缺一个能力、碰到一个缺陷，不管它最后落在哪一层，都在 [Harnix 的 GitHub issue](https://github.com/harnixai/Harnix/issues)
 里提：标题 `<项目>-NN：一句话`，打上你项目的标签，正文写现象或需求（带代码位置）、想要的接口、验收方式。
 在哪一层实现、要不要改引擎、什么时候进哪个版本，由 Harnix 决定；落地后 issue 里回复提交与版本标签，你升级 `harnix/` 子仓就拿到。
 应用不跟踪引擎的版本，也不在引擎那边开分支。
@@ -1853,7 +1853,7 @@ worktree、过程目录）也在库里，只通过 trait `SessionHost` 认识会
 | `harnix/scripts/check-lock.mjs <app>` | 构建后：应用的锁文件里 Harnix 的依赖是否和 Harnix 的一致 |
 | `harnix/scripts/set-version.sh` | 不是给应用的：Harnix 自己发布用 |
 
-仓库地址：`https://github.com/openatta/Harnix.git`（GitHub 上已从 `openatta/harnix` 改名，旧地址会转）。问题与需求都提到
+仓库地址：`https://github.com/harnixai/Harnix.git`（GitHub 上已从 `openatta/Harnix` 迁到组织 `harnixai`，旧地址会转）。问题与需求都提到
 这里的 issue（§2.1）。
 
 ---

@@ -2,7 +2,7 @@
 
 [English](../README.md) | 简体中文
 
-**[Agix](https://github.com/openatta/agix) 应用的公共底座。** 在 Harnix 上做的应用是一个 Rust 二进制：Agent 引擎、
+**[Agix](https://github.com/harnixai/Agix) 应用的公共底座。** 在 Harnix 上做的应用是一个 Rust 二进制：Agent 引擎、
 Web 服务、应用自己的原生扩展和界面编译在一起。这类产品需要、又不值得各自去造的东西由 Harnix 提供——由服务端持有的会话、
 引擎实例、授权、传输、外壳与 space、每次调用带了什么的视图、可选的流程引擎，以及跑在 WebAssembly 沙箱里的扩展包的宿主——它自己保持薄，
 产品是应用自己的。Harnix 本身就是这个框架加上第一方扩展：Harnix app（首页、会话 space 与项目 space）、流程 space 都在其中。
@@ -15,7 +15,7 @@ Web 服务、应用自己的原生扩展和界面编译在一起。这类产品�
 ## 快速开始
 
 ```sh
-git clone --recurse-submodules https://github.com/openatta/Harnix.git
+git clone --recurse-submodules https://github.com/harnixai/Harnix.git
 cd Harnix
 pnpm install && pnpm --filter @harnix/shell build   # 界面；二进制把它嵌进去
 cargo build --release
@@ -191,7 +191,7 @@ off = ["flow"]                      # 链进来、但要关掉的扩展，连同
 | [流程库的嵌入指南](../crates/flow/docs/embed.zh-CN.md) | 把流程库接进别的宿主：它要什么、`SessionHost`、写在哪、版本与格式、怎么拷走 |
 | [术语](glossary.md) | 用词，一个词一个意思 |
 
-在 Harnix 上做应用的项目提的需求记在 [GitHub issue](https://github.com/openatta/Harnix/issues) 里，每个项目一个标签
+在 Harnix 上做应用的项目提的需求记在 [GitHub issue](https://github.com/harnixai/Harnix/issues) 里，每个项目一个标签
 （代码里用的编号与 issue 的对照在 [docs/issues](issues/README.md)）。
 
 ## 测试

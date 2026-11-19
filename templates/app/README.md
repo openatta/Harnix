@@ -2,7 +2,7 @@
 
 ```sh
 cp -R harnix/templates/app <your-app> && cd <your-app> && git init
-git submodule add https://github.com/openatta/harnix.git harnix
+git submodule add https://github.com/harnixai/Harnix.git harnix
 git submodule update --init --recursive        # Harnix brings everything it is built on
 node harnix/scripts/sync-app-deps.mjs .       # writes the [workspace.dependencies] block
 node harnix/scripts/check-pins.mjs .

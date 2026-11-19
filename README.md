@@ -2,7 +2,7 @@
 
 English | [简体中文](docs/README.zh-CN.md)
 
-**The common base for [Agix](https://github.com/openatta/agix) applications.** An application on
+**The common base for [Agix](https://github.com/harnixai/Agix) applications.** An application on
 Harnix is one Rust binary: the Agent engine, the web server, the application's own native extensions
 and its interface, compiled together. Harnix supplies what such a product needs and cannot sensibly
 build alone — sessions held by the server, engine instances, authorization, transport, the shell and
@@ -20,7 +20,7 @@ and the protocol only grow from 0.4.4 on; pin a tag (`Harnix-v<x.y.z>-<date><n>`
 ## Quick start
 
 ```sh
-git clone --recurse-submodules https://github.com/openatta/Harnix.git
+git clone --recurse-submodules https://github.com/harnixai/Harnix.git
 cd Harnix
 pnpm install && pnpm --filter @harnix/shell build   # the interface; the binary embeds it
 cargo build --release
@@ -222,7 +222,7 @@ a project's own settings and data in its `.harnix/`.
 | [docs/glossary.md](docs/glossary.md) | The words, used one way |
 
 *The documents are written in Chinese.* Requests from applications built on Harnix are
-[GitHub issues](https://github.com/openatta/Harnix/issues), one label per project
+[GitHub issues](https://github.com/harnixai/Harnix/issues), one label per project
 ([docs/issues](docs/issues/README.md) maps the numbers used in code to them).
 
 ## Tests
