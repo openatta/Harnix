@@ -80,7 +80,7 @@ Feature：
 | trait | 做什么 | 库里现成的 |
 |---|---|---|
 | `RunStore` | 运行记录与历史的读写；`commit` 必须原子、按 rev 比较 | `MemStore`、`FileStore::new(dir)`；`Hooked` 包一层，测试里改 id、拦提交 |
-| `Packs` | 流程包：流程、skill、规则、策略、门禁、钩子，以及目录（`Catalog`：这里认识哪些 scene、程序、门禁、工具……） | `MemPacks`（代码里给）、`DirPacks`（目录分层，`with_builtin`、`with_writable`）、`ProjectPacks`（项目自带的流程包，项目受信才读） |
+| `Packs` | 流程包：流程、skill、规则、策略、门禁、钩子，以及目录（`Catalog`：这里认识哪些 scene、程序、门禁、工具……） | `MemPacks`（代码里给）、`DirPacks`（目录分层，`with_builtin`、`with_plugin`、`with_writable`）、`ProjectPacks`（项目自带的流程包，项目受信才读） |
 | `Authorizer` | 谁能做什么（确认、认领、交付、编辑流程……，以及编写工具读什么），`Actor` 由宿主解释 | `AllowAll` |
 | `Tools` | `tool` 门禁调的只读工具 | `NoTools` |
 | `Gates` | `host` 门禁：应用自己的检查，按名字 | — |
@@ -194,7 +194,7 @@ opened_with)`。运行把它记在键上（`BoundSession { id, opened_with }`）
   `MemStore` 给测试和试运行。
 - **流程包**：一个 `Packs`——`DirPacks::new([dirs…])` 从分层目录读 `flows/*.yaml`、`skills/<name>/SKILL.md`、`rules/*.md`、
   `policies/*.yaml`、`gates/*.yaml`、`hooks/*.yaml`（`with_writable` 指定可写的一层，`with_builtin` 垫一个 `MemPacks`，
-  `with_catalog` 给宿主认识的名字）；派工器用 `CatalogPacks` 再包一层。
+  `with_plugin` 挂插件的只读一层，`with_catalog` 给宿主认识的名字）；派工器用 `CatalogPacks` 再包一层。
 - **没有项目的运行**：`Engine::with_workspaces(dir)`——需要目录的（`project_profiles` 场景上的会话、门禁、输出目录）得到 `<dir>/<运行>`。
 - **在项目里**（`ProjectLayout`，见上）：项目自己的流程包在 `<项目>/<dir>/flows/`，受信时才读；每个运行的过程目录
   `<项目>/<dir>/runs/<运行>/`——`task.json`（运行现状，每次变化重写）、`flow.yaml`（启动时钉住的定义与件）、`stations/<站>/`
@@ -204,6 +204,14 @@ opened_with)`。运行把它记在键上（`BoundSession { id, opened_with }`）
 - **worktree**（`workspace: worktree`）：从项目的 `HEAD` 建 `<worktrees_root>/<运行>`，分支 `<branch_prefix>/<运行>`；运行结束后
   `Runner::end_worktree(run, how, by)` 把分支合进项目当前分支（能快进就快进，否则合并提交；冲突是 `EndError::Conflict { files, .. }`，
   项目不动）、保留分支，或丢弃。worktree 里的项目数据目录不提交，只有它的 `flows/` 提交。
+- **插件**：`DirPacks::with_plugin(名字, 目录)` 挂一个插件带来的流程包（布局同上），只读。叠加顺序从上到下：项目自己的
+  （`ProjectPacks`）> 可写层 > 插件（按插件名排序）> `DirPacks::new` 的目录 > `with_builtin`。插件的流程和件的来源是
+  `Origin::Plugin`，插件名由 `Packs::source(flow)`、`Packs::part_source(kind, name)` 给（`DefRow::source`、各行的 `source`）；
+  可写层存了同名的是 `Origin::Override`（`source` 仍是那个插件：删掉覆盖回到它那份）。两个插件有同名的流程或件，插件名排在前面的
+  胜出；输了的流程记在 `withheld_flows` 里（`Withheld::Shadowed`，一个名字一条；这个名字照常提供、照常能启动，列表里也只有胜出的
+  那一行），流程和件的明细在 `DirPacks::shadowed()`（`Shadowing { kind, name, plugin, by }`）。同一个插件名再挂一次，换掉它的目录。
+  插件停用或卸载（目录没了，或宿主不带它重建流程包）之后，它的流程不再提供；已经在跑的运行照常跑完——定义、策略、门禁启动时就钉在
+  运行记录里；skill 和规则在派活时才读（进站时只钉摘要），插件带走的那份在之后的任务消息里就没有了。Harnix 自己这一版不挂插件。
 - **钩子**：运行的每个事件告诉流程包（和项目的）里想要它的钩子，经 `HookTransport` `POST` 出去，头是 `<前缀>-Event`、`-Delivery`、
   `-Timestamp`，有 `secret_env` 时还有 `-Signature`（`<timestamp>.<body>` 的 HMAC-SHA256）；`Runner::hook_status()` 列出每个钩子和
   它最近一次投递。
@@ -325,6 +333,13 @@ cargo run -p harnix-flow --example flowctl -- show <state-dir> <run>
 - **`effort`**：会话执行者、`MainSession`、`Placement` 上；`EFFORTS`（新，在根上）。
 - 示例流程包（`packs/examples`）和金样运行（`tests/golden.rs`）；**`MemPacks::examples()`**（新）：库自己带上的示例包，目录里的
   每个文件都在里面。
+
+首次发布（Harnix 0.4.7）之后又加了：
+
+- **插件的流程包**：`DirPacks::with_plugin(name, dir)`、`DirPacks::shadowed()` 与 `Shadowing`（新，在根上）；`Origin::Plugin`；
+  `Packs::source`、`Packs::part_source`（缺省 `None`）；`Withheld::Shadowed`；`wire::DefRow::source`。
+- **`Origin`、`Withheld` 标上 `#[non_exhaustive]`**，变体进了 `tests/surface.rs` 的表：穷举匹配它们的宿主加一个 `_` 分支，
+  以后再加变体就不再破坏。线上仍是一个字符串（`"plugin"`、`"shadowed"`）。
 
 迁移：从 `harnix-ext-flow` 用过来的宿主，`harnix_ext_flow::X` 仍然可用（它转出了整个库）；直接依赖本库的写 `harnix_flow::X`。
 这些改动之前写下的运行状态不再读：`show_in_space` 和光秃秃的会话 id 没有了，没有 `FORMAT` 的存储目录会被拒——清掉，或自己迁。

@@ -89,7 +89,7 @@ runs: those are the traits in `kernel::host`, and the host hands them in.
 | trait | does | ready in the library |
 |---|---|---|
 | `RunStore` | reads and writes run records and their history; `commit` is atomic and compares revs | `MemStore`, `FileStore::new(dir)`; `Hooked` wraps one, to change ids or refuse commits in tests |
-| `Packs` | the flow pack: flows, skills, rules, policies, gates, hooks, and the catalog (`Catalog`: the scenes, programs, gates, tools… known here) | `MemPacks` (given in code), `DirPacks` (layered directories, `with_builtin`, `with_writable`), `ProjectPacks` (a project's own pack, read only when the project is trusted) |
+| `Packs` | the flow pack: flows, skills, rules, policies, gates, hooks, and the catalog (`Catalog`: the scenes, programs, gates, tools… known here) | `MemPacks` (given in code), `DirPacks` (layered directories, `with_builtin`, `with_plugin`, `with_writable`), `ProjectPacks` (a project's own pack, read only when the project is trusted) |
 | `Authorizer` | who may do what (confirm, claim, hand in, edit flows…, and what the authoring tools read); the host interprets `Actor` | `AllowAll` |
 | `Tools` | the read-only tools `tool` gates call | `NoTools` |
 | `Gates` | `host` gates: the application's own checks, by name | — |
@@ -248,7 +248,8 @@ session. `opened_with` is the host's own JSON; the kernel only keeps it.
 - **Packs**: a `Packs` — `DirPacks::new([dirs…])` reads `flows/*.yaml`, `skills/<name>/SKILL.md`,
   `rules/*.md`, `policies/*.yaml`, `gates/*.yaml`, `hooks/*.yaml` from layered directories
   (`with_writable` for one that is saved into, `with_builtin` for a `MemPacks` underneath,
-  `with_catalog` for the names the host knows); `CatalogPacks` over it for the runner.
+  `with_plugin` for a plugin's read-only layer, `with_catalog` for the names the host knows);
+  `CatalogPacks` over it for the runner.
 - **Runs of no project**: `Engine::with_workspaces(dir)` — a run of no project that needs a
   directory (a session on a `project_profiles` profile, a gate, its output directory) gets
   `<dir>/<run>`.
@@ -264,6 +265,21 @@ session. `opened_with` is the host's own JSON; the kernel only keeps it.
   merges the branch into the project's current branch (fast-forward or a merge commit; a conflict
   is `EndError::Conflict { files, .. }` with the project untouched), keeps it, or discards it. The
   project's data directory in the worktree is not committed, but for its `flows/`.
+- **Plugins**: `DirPacks::with_plugin(name, dir)` mounts the pack a plugin brings (laid out as
+  above), read-only. Top down: the project's own (`ProjectPacks`) > the writable layer > plugins (by
+  plugin name) > the directories of `DirPacks::new` > `with_builtin`. A plugin's flows and parts are
+  `Origin::Plugin`, the plugin named by `Packs::source(flow)` and `Packs::part_source(kind, name)`
+  (`DefRow::source`, the rows' `source`); one saved again in the writable layer is an
+  `Origin::Override` (`source` still that plugin: deleting the override brings its back). Of two
+  plugins with a flow or part of one name, the plugin whose name sorts first wins; the other's flow
+  is in `withheld_flows` (`Withheld::Shadowed`, once a name — the name is offered and started as
+  usual, and the listing has the winner's row alone), and the details of flows and parts are in
+  `DirPacks::shadowed()` (`Shadowing { kind, name, plugin, by }`). The same plugin name mounted again
+  replaces its directory. A plugin disabled or uninstalled (its directory gone, or the packs built
+  again without it) takes its flows off offer; runs already started finish as they would — their
+  definition, policies and gates are pinned in the run record at start; skills and rules are read
+  when a task is sent (only their digests are pinned on station entry), so one the plugin took with
+  it is missing from later tasks' messages. Harnix itself mounts no plugin in this release.
 - **Hooks**: each event of a run goes to the hooks of the pack (and of the project's) that want it,
   as `POST`s through the `HookTransport` with the headers `<prefix>-Event`, `-Delivery`,
   `-Timestamp` and, with `secret_env`, `-Signature` (HMAC-SHA256 of `<timestamp>.<body>`);
@@ -426,6 +442,15 @@ The library's first version: the kernel, stores, packs and dry runs move out of 
 - **`effort`** on a session executor, `MainSession` and `Placement`; `EFFORTS` (new, at the root).
 - The example pack (`packs/examples`) and the golden runs (`tests/golden.rs`); **`MemPacks::examples()`**
   (new): the example pack as the library carries it, every file of the directory in it.
+
+Added since it was first released (Harnix 0.4.7):
+
+- **Plugins' packs**: `DirPacks::with_plugin(name, dir)`, `DirPacks::shadowed()` and `Shadowing`
+  (new, at the root); `Origin::Plugin`; `Packs::source` and `Packs::part_source` (default `None`);
+  `Withheld::Shadowed`; `wire::DefRow::source`.
+- **`Origin` and `Withheld` are `#[non_exhaustive]`**, their variants in the tables of
+  `tests/surface.rs`: a host that matches them exhaustively adds a `_` arm, and later variants break
+  nothing. On the wire each is still one string (`"plugin"`, `"shadowed"`).
 
 Migration: a host that used the kernel from `harnix-ext-flow` keeps `harnix_ext_flow::X` (it
 re-exports the whole library); one that depends on the library directly writes `harnix_flow::X`.

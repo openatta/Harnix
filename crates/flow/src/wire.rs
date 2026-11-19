@@ -16,15 +16,20 @@ pub struct DefRow {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub description: String,
     pub digest: String,
-    /// Where it comes from: built in, saved over a built-in one, saved here, or the project's own
-    /// (listed for a project: `flow.defs {project}`).
+    /// Where it comes from: built in, saved over a built-in or plugin's one, saved here, the
+    /// project's own (listed for a project: `flow.defs {project}`), or a plugin's.
     pub origin: Origin,
+    /// The plugin it is of (`Packs::source`): for a plugin's, and for an override of one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub source: Option<String>,
     /// Whether it validates against this application's catalog; one that does not cannot be
     /// started.
     pub valid: bool,
     /// Why it is not valid without being read, when that is so: `untrusted` — the project's
     /// own, waiting on the project being trusted (title, digest and inputs are not read until
-    /// then); `unreadable` — its file is not a definition of this name.
+    /// then); `unreadable` — its file is not a definition of this name. (`shadowed` is not on a
+    /// row: the name is listed once, as the flow offered under it.)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub reason: Option<Withheld>,
@@ -35,7 +40,8 @@ pub struct DefRow {
 }
 
 /// The flows on offer, as a host's listing carries them; and, for a project, the project's own
-/// that are withheld (not valid, with the reason), in name order with the rest.
+/// that are withheld (not valid, with the reason), in name order with the rest. One row a name: a
+/// withheld flow whose name is offered all the same (`Withheld::Shadowed`) has none of its own.
 pub fn defs_list(packs: &dyn crate::kernel::host::Packs) -> Vec<DefRow> {
     let mut rows: Vec<DefRow> = packs
         .flows()
@@ -45,6 +51,7 @@ pub fn defs_list(packs: &dyn crate::kernel::host::Packs) -> Vec<DefRow> {
             let valid = crate::kernel::validate::validate(&def, packs).is_empty();
             Some(DefRow {
                 origin: packs.origin(&n),
+                source: packs.source(&n),
                 inputs: def.inputs_schema(),
                 name: n,
                 title: def.title,
@@ -55,12 +62,15 @@ pub fn defs_list(packs: &dyn crate::kernel::host::Packs) -> Vec<DefRow> {
             })
         })
         .collect();
-    let withheld = packs.withheld_flows();
+    let offered: std::collections::BTreeSet<String> = rows.iter().map(|r| r.name.clone()).collect();
+    let withheld: Vec<(String, Withheld)> =
+        packs.withheld_flows().into_iter().filter(|(n, _)| !offered.contains(n)).collect();
     if withheld.is_empty() {
         return rows;
     }
     rows.extend(withheld.into_iter().map(|(name, why)| DefRow {
         origin: packs.origin(&name),
+        source: packs.source(&name),
         title: String::new(),
         description: String::new(),
         digest: String::new(),

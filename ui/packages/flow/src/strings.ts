@@ -105,6 +105,8 @@ const en: Record<string, string> = {
   "flowui.origin.override": "changed",
   "flowui.origin.user": "written here",
   "flowui.origin.project": "this project's",
+  "flowui.origin.plugin": "a plugin's",
+  "flowui.origin.pluginNamed": "Plugin: {name}",
   "flowui.target.create": "Creates the flow {flow} ({title})",
   "flowui.target.update": "Changes the flow {flow}",
   "flowui.target.updateTitled": "Changes the flow {flow} (title: {title})",
@@ -171,6 +173,7 @@ const en: Record<string, string> = {
   "flowui.def.invalid": "invalid",
   "flowui.def.untrusted": "trust the project first",
   "flowui.def.unreadable": "not a flow definition",
+  "flowui.def.shadowed": "another plugin's of this name is offered",
 
   "flowui.act.confirm": "Confirm",
   "flowui.act.reject": "Reject",
@@ -576,6 +579,8 @@ const zhCN: Record<string, string> = {
   "flowui.origin.override": "已改",
   "flowui.origin.user": "自建",
   "flowui.origin.project": "项目自带",
+  "flowui.origin.plugin": "插件",
+  "flowui.origin.pluginNamed": "插件：{name}",
   "flowui.target.create": "新建流程 {flow}（{title}）",
   "flowui.target.update": "修改流程 {flow}",
   "flowui.target.updateTitled": "修改流程 {flow}（标题：{title}）",
@@ -642,6 +647,7 @@ const zhCN: Record<string, string> = {
   "flowui.def.invalid": "无效",
   "flowui.def.untrusted": "信任项目后可用",
   "flowui.def.unreadable": "不是流程定义",
+  "flowui.def.shadowed": "另一个插件的同名流程优先",
 
   "flowui.act.confirm": "确认",
   "flowui.act.reject": "驳回",

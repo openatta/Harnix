@@ -382,6 +382,20 @@ describe("流程", () => {
     expect(fake.inserted).toEqual([["Create a new flow: ", { session: { instance: "main", sessionId: "general" } }]]);
   });
 
+  it("names the plugin a plugin's flow comes from, and filters by it", () => {
+    const fake = fakeHost({ "flow.session": conversations });
+    fake.push("flow.defs", {}, [...DEFS, { name: "plugged", title: "Plugged", digest: "p", origin: "plugin", source: "acme-review", valid: true, inputs: { type: "object" } }]);
+    render(
+      <HostProvider host={fake.host}>
+        <FlowsTab state={new FlowSpaceState()} tabs={TABS} />
+      </HostProvider>,
+    );
+    expect(screen.getByTestId("flow-def-plugged").dataset.origin).toBe("plugin");
+    expect(screen.getByTestId("flow-def-origin-plugged").textContent).toBe("Plugin: acme-review");
+    fireEvent.change(screen.getByTestId("flow-filter-origin"), { target: { value: "plugin" } });
+    expect([...screen.getByTestId("flow-def-list").querySelectorAll("button")].map((b) => b.dataset.testid)).toEqual(["flow-def-plugged"]);
+  });
+
   it("draws the selected one beside: diagram, definition, parts and hooks, read-only YAML; a dry run started here is shown in the runs tab", async () => {
     const fake = fakeHost({
       "flow.def": INFO,

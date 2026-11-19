@@ -739,14 +739,15 @@ unmet: { [key in string]: Array<CheckRec> },
 phase?: Phase | null, };
 
 /**
- * Where the flow a pack offers under a name comes from.
+ * Where the flow a pack offers under a name comes from. One word on the wire; which plugin a
+ * `Plugin` flow is of is said beside it ([`Packs::source`]). More may come.
  */
-export type Origin = "builtin" | "override" | "user" | "project";
+export type Origin = "builtin" | "override" | "user" | "project" | "plugin";
 
 /**
- * Why a flow the packs have is not offered (`Packs::withheld_flows`).
+ * Why a flow the packs have is not offered (`Packs::withheld_flows`). More may come.
  */
-export type Withheld = "untrusted" | "unreadable";
+export type Withheld = "untrusted" | "unreadable" | "shadowed";
 
 /**
  * How a session task hands in its output.
@@ -764,10 +765,14 @@ station?: string | null, message: string, };
  */
 export type DefRow = { name: string, title: string, description?: string, digest: string, 
 /**
- * Where it comes from: built in, saved over a built-in one, saved here, or the project's own
- * (listed for a project: `flow.defs {project}`).
+ * Where it comes from: built in, saved over a built-in or plugin's one, saved here, the
+ * project's own (listed for a project: `flow.defs {project}`), or a plugin's.
  */
 origin: Origin, 
+/**
+ * The plugin it is of (`Packs::source`): for a plugin's, and for an override of one.
+ */
+source?: string, 
 /**
  * Whether it validates against this application's catalog; one that does not cannot be
  * started.
@@ -776,7 +781,8 @@ valid: boolean,
 /**
  * Why it is not valid without being read, when that is so: `untrusted` — the project's
  * own, waiting on the project being trusted (title, digest and inputs are not read until
- * then); `unreadable` — its file is not a definition of this name.
+ * then); `unreadable` — its file is not a definition of this name. (`shadowed` is not on a
+ * row: the name is listed once, as the flow offered under it.)
  */
 reason?: Withheld, 
 /**

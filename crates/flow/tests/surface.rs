@@ -38,6 +38,8 @@ const TRAITS: &[(&str, &str)] = &[
     ("Packs::writable", "fnwritable(&self)->bool = default"),
     ("Packs::origin", "fnorigin(&self,_flow:&str)->Origin = default"),
     ("Packs::part_origin", "fnpart_origin(&self,_kind:PartKind,_name:&str)->Origin = default"),
+    ("Packs::source", "fnsource(&self,_flow:&str)->Option<String> = default"),
+    ("Packs::part_source", "fnpart_source(&self,_kind:PartKind,_name:&str)->Option<String> = default"),
     ("Packs::save_flow", "fnsave_flow(&self,_yaml:&str)->Result<String,String> = default"),
     ("Packs::delete_flow", "fndelete_flow(&self,_name:&str)->Result<(),String> = default"),
     ("Packs::save_part", "fnsave_part(&self,_kind:PartKind,_name:&str,_text:&str)->Result<String,String> = default"),
@@ -106,6 +108,16 @@ const TYPES: &[(&str, &str)] = &[
     ("Op::ListRuns", "{flow:Option<String>}"),
     ("Op::ReadRun", ""),
     ("Op::DryRun", "{flow:String}"),
+    ("Origin", "#[non_exhaustive]"),
+    ("Origin::Builtin", ""),
+    ("Origin::Override", ""),
+    ("Origin::User", ""),
+    ("Origin::Project", ""),
+    ("Origin::Plugin", ""),
+    ("Withheld", "#[non_exhaustive]"),
+    ("Withheld::Untrusted", ""),
+    ("Withheld::Unreadable", ""),
+    ("Withheld::Shadowed", ""),
 ];
 
 /// What `lib.rs` offers at the root: each re-exported name with the module it comes from, the
@@ -244,6 +256,7 @@ const EXPORTS: &[(&str, &str)] = &[
     ("MemPacks", "packs"),
     ("ProjectPacks", "packs"),
     ("ProjectTrust", "packs"),
+    ("Shadowing", "packs"),
     ("FileStore", "store"),
     ("Hooked", "store"),
     ("MemStore", "store"),
@@ -289,7 +302,9 @@ const BUILDERS: &[(&str, &str)] = &[
     ("DirPacks::writable", "fnwritable(dir:implInto<PathBuf>)->Self"),
     ("DirPacks::with_writable", "fnwith_writable(mutself,dir:implInto<PathBuf>)->Self"),
     ("DirPacks::with_builtin", "fnwith_builtin(mutself,packs:MemPacks)->Self"),
+    ("DirPacks::with_plugin", "fnwith_plugin(mutself,name:implInto<String>,dir:implInto<PathBuf>)->Self"),
     ("DirPacks::with_catalog", "fnwith_catalog(mutself,catalog:Catalog)->Self"),
+    ("DirPacks::shadowed", "fnshadowed(&self)->Vec<Shadowing>"),
     ("DirPacks::writable_dir", "fnwritable_dir(&self)->Option<&Path>"),
     ("DirPacks::flow_text", "fnflow_text(&self,name:&str)->Option<String>"),
     ("ProjectPacks::new", "fnnew(base:Arc<dynPacks>,root:implInto<PathBuf>,layout:&ProjectLayout,trusted:bool)->Self"),
@@ -615,7 +630,7 @@ fn fields(fields: &syn::Fields) -> String {
 }
 
 fn types() -> Vec<(String, String)> {
-    types_in(HOST, &["StoreError", "ChangeSet", "Event", "WorkItem", "Outcome", "Op"])
+    types_in(HOST, &["StoreError", "ChangeSet", "Event", "WorkItem", "Outcome", "Op", "Origin", "Withheld"])
 }
 
 /// The public fields and variants of the named structs and enums in `file`; a struct marked

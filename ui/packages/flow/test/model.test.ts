@@ -9,6 +9,7 @@ import {
   usageByFlow,
   defBlockedKey,
   ORIGINS,
+  originLabel,
   guideGroupOf,
   guideSections,
   guideTermOf,
@@ -155,6 +156,17 @@ describe("flows on offer", () => {
       expect(STRINGS.en[key], key).toBeTruthy();
     }
     expect(STRINGS["zh-CN"]["flowui.def.untrusted"]).toBe("信任项目后可用");
+  });
+
+  it("names the plugin a plugin's flow is of", () => {
+    const t = (key: string, vars?: Record<string, string>) =>
+      Object.entries(vars ?? {}).reduce((s, [k, v]) => s.replace(`{${k}}`, v), (STRINGS["zh-CN"] as Record<string, string>)[key] ?? key);
+    expect(originLabel(t, { origin: "plugin", source: "codix-review" })).toBe("插件：codix-review");
+    expect(originLabel(t, { origin: "plugin" })).toBe("插件");
+    expect(originLabel(t, { origin: "override", source: "codix-review" })).toBe("已改");
+    expect(originLabel(t, {})).toBe("内置");
+    expect(STRINGS.en["flowui.origin.pluginNamed"]).toBe("Plugin: {name}");
+    expect(STRINGS.en["flowui.def.shadowed"]).toBeTruthy();
   });
 });
 

@@ -59,6 +59,7 @@ export {
   focusTopic,
   defBlockedKey,
   ORIGINS,
+  originLabel,
   isDryRun,
   problemText,
   toolTarget,
