@@ -298,8 +298,10 @@ Harnix 只管什么时候迁、失败了怎么办，不管用什么迁。数据�
 - 项目里，项目自己的数据与配置一律放项目数据目录 `<项目>/.harnix/`（引擎的项目层也在这里），不另开别的目录。带品牌的应用的是
   `<项目>/.<product_id>/`（`[brand] project_dir` 可另起名，§18），引擎、Harnix 和扩展都用它：扩展从 `cx.product().project_dir()`
   读名字、`cx.product().data_dir_of(项目)` 拿路径，不写死 `.harnix`（`harnix::engine::PROJECT_DIR` 只是 Harnix 自己的名字）。
-  引擎在里面占着设置、agents、hooks、rules、memory、`teams/` 等，扩展用自己的子目录（流程用 `runs/`、`flows/`）；
-  沙箱里的命令在这里只写得了引擎的 `scratchpad/`、`memory/`，扩展的子目录由扩展自己（宿主进程）写。引擎的 worktree 不在这里，在仓库根的 `.wkts/`。
+  引擎在里面占着设置、agents、hooks、rules 等，它这台机器、这个用户的数据（记忆、scratchpad、`teams/`、遥测、超长工具结果）都在 `state/` 下，
+  `.gitignore` 里它只维护 `state/`、`settings.local.json`、`mcp.local.json` 三行；扩展用自己的子目录（流程用 `runs/`、`flows/`，与 `state/` 平级）。
+  `state/<product_id>/` 是引擎留给产品的，Harnix 这一版不用。沙箱里的命令在这里只写得了引擎的 `state/scratchpad/`、`state/memory/`，
+  扩展的子目录由扩展自己（宿主进程）写。引擎的 worktree 不在这里，在仓库根的 `.wkts/`。
 
 ## 6. Agent 侧
 
@@ -494,7 +496,7 @@ while let Some(item) = tap.next().await {
   一个会话在哪个 space 里建，就永远属于它。
 - **展示到别的 space**：你建的会话可以让另一个 space 的界面打开——`cx.sessions().expose(&s, "sessions", Exposure::interactive()).await?`
   （`harnix.session.expose`；`Exposure::view()` 只给看）。声称那个 space 的调用就能 attach、读历史，`interactive` 时还能发话、答问、中断、回退、评价；
-  关闭、删除、分叉、改名、改模型与提示词仍只能从它自己的 space 做。归属、实例、启动者都不变，列表里的行带 `exposed_to`，在那个 space 的列表里带 `exposed_from`；
+  关闭、删除、分叉、改名、改模型、权限模式与提示词仍只能从它自己的 space 做。归属、实例、启动者都不变，列表里的行带 `exposed_to`，在那个 space 的列表里带 `exposed_from`；
   重启不丢，`unexpose` 收回，会话删了就没了。只有建它的扩展能展示，设备不能；目标不能是它自己的、关掉的或 `cross_space()` 的 space
   （[概念与架构](concept_and_architecture.md) §5.4 第 6 条）。流程扩展就这样把任务的主会话展示到项目 space 列的 space（`flow.start` 的 `shown_in`，§23）。
 
@@ -983,7 +985,7 @@ pub trait Extension: Send + Sync + 'static {
 |---|---|---|---|---|
 | `instances.admin` | 停、重启任何非内核拥有的实例；按任何模板建实例、列出全部模板 | ✔ | | —（应用自己的调试面） |
 | `engine.inspect` | 读**任何**会话的内部：`inspectContext`、`tasks`、`taskOutput`、`goal`、`history`；引擎里模型建的定时 `engine.schedule.list` | ✔ | | observability（会话的上下文、后台任务的输出）、flow、settings（会话的 MCP 上下文，可选）、schedule（可选） |
-| `engine.control` | 改任何会话的内部：`stopTask`、`messageTask`、`dropMessages`、`editMessage`、`compact`、`clear`、`setModel`、`rename`、`setGoal`、`updateGoal`；读、改项目的信任：`engine.project.status`、`engine.project.trust`；删引擎里模型建的定时 `engine.schedule.delete` | ✔ | | flow、harnix-app（项目信任，可选）、schedule（可选）、observability（替人停后台任务、改写或去掉人说的话：`stopTask`、`editMessage`、`dropMessages`，可选） |
+| `engine.control` | 改任何会话的内部：`stopTask`、`messageTask`、`dropMessages`、`editMessage`、`compact`、`clear`、`setModel`、`setPermissionMode`、`rename`、`setGoal`、`updateGoal`；读、改项目的信任：`engine.project.status`、`engine.project.trust`；删引擎里模型建的定时 `engine.schedule.delete` | ✔ | | flow、harnix-app（项目信任，可选）、schedule（可选）、observability（替人停后台任务、改写或去掉人说的话：`stopTask`、`editMessage`、`dropMessages`，可选） |
 | `engine.config.read` / `engine.config.write` | 读 / 写引擎设置与 provider；后者含 `engine.config.reload`、`harnix.instances.inheritProviders`、宿主服务 `SettingsTiers`（§17.8） | ✔ | | settings、packages（写，可选） |
 | `engine.plugins` | Agix 插件的装、卸、启停、重读；往实例里放 skill | ✔ | | plugins、packages |
 | `engine.export` | `engine.session.export`、`harnix.session.import` | ✔ | | harnix-app |
@@ -1143,7 +1145,9 @@ icon = "brand/helm.svg"        # 品牌图标（SVG），相对 profile 所在�
 product_id = "helm"            # 程序自己的目录 ~/.helm（§20），也是项目里的目录 .helm（§5.4）；小写字母、数字、`-`，字母开头；不写是 harnix
 # project_dir = ".helm"        # 项目数据目录，不写是 .<product_id>（再不写是 .harnix）；`.` 开头、小写字母数字与 . _ -，不能是别的工具的（.git、.claude、.github…）
 # product_name = "Helm"        # 引擎自称的名字（模型看到的、请求的 User-Agent、worktree 的分支前缀），不写是 name（再不写是 product_id、Harnix）；
-                               # ASCII 字母开头、至多 32 个字母数字 - _。name 不合这条（有空格、中文）就必须写它，否则启动时报错，指明该写哪个键
+                               # ASCII 字母开头、至多 32 个字母数字 - _，小写后不能是引擎在项目 state/ 里用的名字（memory、scratchpad、history…）。
+                               # name 不合这条（有空格、中文）就必须写它，否则启动时报错，指明该写哪个键。它是引擎的 product；
+                               # 引擎自己的名字（插件脚本里的全局名 agix）不归产品改，没有键
 
 [shell]
 model_switch = true            # 加 harnix.session.setModel，能在输入框换模型（只限调用方声称的 space 的会话）；false 不加。不写是产品的 .model_switch（§17.1），它不说是 false
@@ -1297,13 +1301,14 @@ cookie。一帧最大 16 MiB（`MAX_FRAME_BYTES`），一次上传最大 32 MiB�
 | 回退（中枢） | `harnix.session.rewind {instance?, session_id, space?, to: "start" \| {turn} \| {before_turn} \| {tool_use}, scope?, dry_run?, fork_first?, force?, allow_partial?}`：文件、对话或两者回到之前一点，先 `dry_run` 看计划（[Harnix app](harnix-app.md) §5.1）；答 `RewindResult`。设备只对它声称的 space 的会话，不跨 space（同 `setModel`）；做完向每个观看者推 `harnix.session_resync` | 设备、`engine.control` |
 | 导入（中枢） | `harnix.session.import {path, space?, project_root?}`：把一份会话数据包装成调用方声称的 space 里的新会话（引擎的 `engine.session.import`），`path` 是扩展核对过的文件；界面经 `harnix-app.sessions.importUpload` / `.import` 走它 | `engine.export` |
 | 会话看得到的（中枢） | `harnix.session.skills {instance?, session_id, space?}`：会话看得到的 skill（`engine.commands.list` 里展开成提示词的那些），每个带来源层 `tier`（`space`：Harnix 按 space 给会话列的扩展包目录，带 `package`；`project`：项目的 `.agents/skills`；`plugin`：Agix 插件包，带 `plugin`；`user`：引擎的全局层或场景层，`user_tier` 说是哪一层（`global` / `scene`）；`builtin`）、`dir`（读它的目录；`user` 的是那一层的 skills 目录）、`withheld`（项目未受信时被扣下一部分：内联命令不跑、`allowed-tools` 不给）；另有 `dirs`（Harnix 列的目录、状态、被遮住的同名 skill）、`listed`（会话不在引擎内存里时为 `false`、`skills` 为空）、`trust`。`harnix.session.hooks {instance?, session_id, space?}`：会话的轮次跑的 hook，`source` 是 `global` / `scene` / `project`（设置三层的 `hooks_config`）或 `host`（本进程在连接上登记的，带 `providers`），每条只有 `event`、`kind`（`command` / `prompt` / `http` / `agent` / `host` / `other`）、`matcher`（`if` 或工具模式，至多 80 字）、`label`、`on_error`、`in_force`、`withheld`（项目未受信）、`replaced_by`（同一事件被高层的列表整个替换）——**不带命令、地址、请求头、提示词**；`unread` 列出读不到的层。类型在 `harnix_contract::wire`（`SessionSkills`、`SessionHooks`） | 设备 |
+| 权限模式（中枢） | `harnix.session.setPermissionMode {instance?, session_id, mode, space?}`（`SessionPermissionModeParams`）：会话从此刻起的权限模式（`default`、`acceptEdits`、`plan`、`dontAsk`、`bypassPermissions`；程序专用的 `bubble` 引擎答 `INVALID_PARAMS`），正在跑的一轮后面的工具调用也照新模式判；按会话所在项目与场景的设置夹紧，同建会话时的 `options.permission_mode`。答 `PermissionModeSet {instance, session_id, mode, requested, clamped}`：`mode` 是会话此刻所在的模式，`clamped` 说设置把它夹窄了。切进 `plan` 等于从当前模式进入，模型的 `ExitPlanMode` 获准时回到那个模式。只作用于调用方声称的 space 的会话，会话属别的 space 答 `SPACE_MISMATCH`（同 `setModel`，展示出去的会话也只能从它自己的 space 改）。每个观看者都从引擎的事件听到变化（`permission_mode_changed {mode, source}`，`source` 为 `host` 或 `model`：模型自己 `EnterPlanMode` / `ExitPlanMode` 也推）；`harnix.instances.sessions` 的行与 attach 的 `session` 带中枢听到的 `permission_mode`（attach 时没听到过就向引擎读一次）。扩展改它用 `engine.session.setPermissionMode` | 设备 |
 | 扩展日志（装配） | `harnix.extensions.log {extension?, level?, after?, limit?}`（§17.9） | `process.observe` |
 | `[shell] model_switch` 开着时（profile 写的，或产品的 `.model_switch`，§17.1） | `harnix.session.setModel {instance?, session_id, model?, provider?, effort?, thinking_mode?, space?}`（`SessionModelParams`）：至少给一样，没给的不动；`effort`（`low` … `max`）、`thinking_mode`（`auto` / `off` / `on`）是这个会话自己的推理强度与思考开关，给 `null` 回到设置的值。只作用于调用方声称的 space 的会话，会话属别的 space 答 `SPACE_MISMATCH`；扩展改模型用 `engine.session.setModel`（要 `engine.control`） | 设备 |
 | 实例（登记表） | `harnix.instances.list / templates / create / ensure / stop / restart / wait`。`create` / `ensure` 可带 `wait: "ready"`、`timeout_ms`（缺省 60000）：等这台变成 `ready` 再答，变成 `down` 立即以 `-31004` 报错（带理由），超时同样；`wait {instance, timeout_ms?}` 是对已有实例的同一种等。并发 `ensure` 同名同模板都拿到同一台。`templates` 只列调用方能建的 | 设备、扩展（`create` 只认 `ui` 模板；跨拥有者要 `instances.admin`） |
 | 　 | `harnix.instances.inheritProviders`：把 `main` 的 provider 并进所有 `inherit_providers` 模板的实例并让变了的重读，答 `{reloaded: [id…]}` | `engine.config.write` |
 | 引擎直通 | `engine.session.list / get / history / entries / resume`、`engine.scene.list / describe / activate`、`engine.commands.list`、`engine.mcp.status`、`engine.plugin.list`、`engine.daemon.status / ping / doctor` | 设备、扩展 |
 | 　 | `engine.session.tasks / taskOutput / inspectContext / goal` | `engine.inspect` |
-| 　 | `engine.session.stopTask / messageTask / dropMessages / editMessage / compact / clear / setModel / rename / setGoal / updateGoal` | `engine.control` |
+| 　 | `engine.session.stopTask / messageTask / dropMessages / editMessage / compact / clear / setModel / setPermissionMode / rename / setGoal / updateGoal` | `engine.control` |
 | 　 | `engine.project.status / trust`（项目信任；信任记在引擎的全局设置里，所以扩展的引擎上同它的设置一样拒绝） | `engine.control` |
 | 　 | `engine.schedule.list` · `engine.schedule.delete`（引擎自己的定时：模型建的，按会话、按 UTC；经这里只能读、删，建不了） | `engine.inspect` · `engine.control` |
 | 　 | `engine.session.export` · `engine.config.get / getProvider` · `engine.config.set / setProvider / update / reload` · `engine.plugin.install / uninstall / enable / disable / reload` · `engine.mcp.addServer / updateServer / auth.start / auth.complete / auth.cancel / auth.logout` | `engine.export` · `engine.config.read` · `engine.config.write`（设备永远不能） · `engine.plugins` · `engine.mcp`（设备永远不能；扩展的引擎上同它的设置一样拒绝） |
@@ -1801,7 +1806,7 @@ worktree、过程目录）也在库里，只通过 trait `SessionHost` 认识会
 交付物在它的输出目录（`${output_dir}`），过程在 `<项目>/.harnix/runs/<运行>/`（流程指南「执行与运行」一节）。不带项目的运行，主会话的 scene 需要项目时，
 扩展给它建工作目录（扩展数据目录下 `workspaces/<run>`），不往里写任何东西。`start` 的 `shown_in` 让扩展把主会话展示到那个 space（`cx.sessions().expose`，可对话，§17.6）：项目 space 的「新任务」传它列会话的 space，
 任务就在项目 space 里打开；扩展不认识任何 space 的名字，展示失败只记日志，运行照跑。记录与 `flow.runs` 的行带 `shown_in`；记录的 `session_keys` 是会话键 → `{id, opened_with}`（会话、开它时用的场景、模型、推理强度、放哪），按键共享的工作项开得不一样就不进那个会话。
-会话站和流程的 `main` 可以写 `effort`，扩展照它开会话（`SessionSpec::effort`）。任务的工具碰项目的 `.harnix/` 算碰项目之外（只有 `paths` 指到它里面的 `allow` 放开），其中引擎沙箱让会话写的 `scratchpad/`、`memory/` 除外（`ProjectLayout::agent_dirs`）；编写会话的 `flow_create` 是扩展自己的工具，不受这条限制。
+会话站和流程的 `main` 可以写 `effort`，扩展照它开会话（`SessionSpec::effort`）。任务的工具碰项目的 `.harnix/` 算碰项目之外（只有 `paths` 指到它里面的 `allow` 放开），其中引擎沙箱让会话写的 `state/scratchpad/`、`state/memory/` 除外（`ProjectLayout::agent_dirs`）；编写会话的 `flow_create` 是扩展自己的工具，不受这条限制。
 `start` 的 `from_session {instance?, session_id, space}` 是发起它的对话（`/flow`，[Harnix app](harnix-app.md) §3.2）：扩展声称那个 space、往对话里写一条条目
 `task_started {run, flow, flow_title, title, subject, project_root}`，界面把它画成链到任务的卡；对话本身不变成任务，写不进去只记日志，运行照跑。没写 `agent_type` 的子 Agent 站用引擎不带类型的子 Agent：跑在主会话的 scene 上、用它的工具。钩子是流程包里的文件（`hooks/`），扩展自己投递，没有 `Hooks` trait。
 

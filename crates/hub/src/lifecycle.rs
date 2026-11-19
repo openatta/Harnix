@@ -68,6 +68,7 @@ impl Hub {
                 | SessionEventKind::ToolResult { .. }
                 | SessionEventKind::TurnComplete(_)
                 | SessionEventKind::GoalChanged { .. }
+                | SessionEventKind::PermissionModeChanged { .. }
         );
         let task = match &kind {
             SessionEventKind::Task { task_id, started, session, live } => {
@@ -302,6 +303,8 @@ impl Hub {
             let state = guard.sessions.entry(key.clone()).or_default();
             state.subscribed = false;
             state.replay.clear();
+            // What changed while the link was away went unheard: read afresh at the next attach.
+            state.permission_mode = None;
             !state.watchers.is_empty()
         };
         // Only sessions somebody was watching are subscribed again; the rest

@@ -134,8 +134,11 @@ test("a task's deliverables go in flows/<flow>-<date>01, its progress in .harnix
   // The project's own flows (`flows/`) are committed, and worktrees are not in the project at all.
   const ignored = readFileSync(join(project, ".harnix", ".gitignore"), "utf8").split("\n");
   expect(ignored).toContain("runs/");
-  // The engine's are what is this machine's and this user's; its worktrees are not here at all.
-  expect(ignored).toEqual(expect.arrayContaining(["settings.local.json", "memory/", "scratchpad/"]));
+  // The engine's are what is this machine's and this user's: its local data, all in `state/`, and one
+  // user's own configuration beside the shared settings. Its worktrees are not here at all.
+  expect(ignored).toEqual(expect.arrayContaining(["state/", "settings.local.json", "mcp.local.json"]));
+  expect(ignored).not.toContain("memory/");
+  expect(ignored).not.toContain("scratchpad/");
   expect(ignored).not.toContain("worktrees/");
   expect(ignored).not.toContain("flows/");
   // Nothing else in the project: the engine's project tier is in the same `.harnix/`.

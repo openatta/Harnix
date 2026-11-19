@@ -85,6 +85,18 @@ describe("归约", () => {
     expect(lost.blocks[1]).toMatchObject({ kind: "note", tone: "error", text: "没写进日志" });
   });
 
+  it("permission_mode_changed：记在会话上，不成块；模型自己进出 plan 也一样，同一个模式不换引用", () => {
+    const base = { ...emptySession("S"), loading: false, session: { session_id: "S", permission_mode: "default" } };
+    const s1 = run([{ kind: "permission_mode_changed", mode: "plan", source: "model" }], base);
+    expect(s1.session?.permission_mode).toBe("plan");
+    expect(s1.blocks).toHaveLength(0);
+    const s2 = run([{ kind: "permission_mode_changed", mode: "plan", source: "host" }], s1);
+    expect(s2).toBe(s1);
+    const s3 = run([{ kind: "permission_mode_changed", mode: "acceptEdits", source: "host" }], s2);
+    expect(s3.session?.permission_mode).toBe("acceptEdits");
+    expect(run([{ kind: "permission_mode_changed" }], s3)).toBe(s3);
+  });
+
   it("notification 帧：引擎的原话成一条提示，空的不成块", () => {
     const s = run([{ kind: "notification", message: "x not saved", status: null }]);
     expect(s.blocks).toEqual([expect.objectContaining({ kind: "note", tone: "info", text: "x not saved" })]);

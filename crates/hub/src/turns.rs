@@ -429,6 +429,31 @@ impl Hub {
         self.engine(&key.0)?.ops().set_model(&key.1, &choice).await
     }
 
+    /// `harnix.session.setPermissionMode {instance?, session_id, mode, space?}`: the permission mode
+    /// a session of the space the caller claims is in from now on — the rest of a running turn
+    /// too — held to what its settings allow. Never across spaces, as a model is not changed
+    /// across them. The answer says the mode it is in, the one asked for, and whether the settings
+    /// narrowed it; every watcher hears the change from the engine.
+    pub(crate) async fn set_permission_mode(self: &Arc<Self>, params: Value) -> Result<Value, RpcError> {
+        let key = self.key_of(&params)?;
+        let given: harnix_contract::wire::SessionPermissionModeParams = serde_json::from_value(params.clone())
+            .map_err(|e| RpcError::invalid_params(format!("harnix.session.setPermissionMode: {e}")))?;
+        let mode = given.mode.trim();
+        if mode.is_empty() {
+            return Err(RpcError::invalid_params("missing mode: name a permission mode"));
+        }
+        self.within_own_space(&key, &params, "a session's permission mode is changed")?;
+        let set = self.engine(&key.0)?.ops().set_permission_mode(&key.1, mode).await?;
+        self.permission_mode_heard(&key, set.mode.clone()).await;
+        Ok(harnix_contract::wire::params(&harnix_contract::wire::PermissionModeSet {
+            instance: key.0,
+            session_id: key.1,
+            mode: set.mode,
+            requested: set.requested,
+            clamped: set.clamped,
+        }))
+    }
+
     /// A session of the space the call claims (the default space when it claims none), and never
     /// across spaces: what a device decides about a session from where it is shown. `what` says
     /// what is done, for the refusal.

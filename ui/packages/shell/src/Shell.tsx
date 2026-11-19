@@ -25,8 +25,9 @@ import {
   type RefObject,
 } from "react";
 import { errorText, type SessionReasoning } from "@harnix/core";
+import type { PermissionModeSet } from "@harnix/core/protocol";
 import type { BlockOf, SessionController, SessionState } from "@harnix/core/state";
-import { CONVERSATION_VIEW, ChatComposer, ChatPanel, ContextRing, Contributed, listenForLayers, modalUp, ringValue, t, useLayer, useRegistry, useT, ComposerNote, ModelSetupNote, askedTool, rowTitle, toolAsks, type Attached, type ChatIds, type ComposerApi, type MentionItem, type ModelOption, type ReasoningChange, type SpaceContribution, type SpaceSecondary, type ToolRowContribution, Glyph, useDisplay, explainError } from "@harnix/react";
+import { CONVERSATION_VIEW, ChatComposer, ChatPanel, ContextRing, Contributed, listenForLayers, modalUp, ringValue, t, useLayer, useRegistry, useT, ComposerNote, ModelSetupNote, askedTool, rowTitle, toolAsks, type Attached, type ChatIds, type ComposerApi, type MentionItem, type ModelOption, type ReasoningChange, type SpaceContribution, type SpaceSecondary, type ToolRowContribution, Glyph, useDisplay, useStrings, explainError } from "@harnix/react";
 
 import { ask, detailsWidthOf, keyOf, later, secondaryWidthOf, type App, type OpenModal, type ShellState, type Widths } from "./app.ts";
 import { useBrand } from "./brand.ts";
@@ -435,6 +436,8 @@ function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app:
   const [picked, setPicked] = useState<ModelOption | null>(null);
   // The new session's own reasoning, given when it is created (`options.effort`, `options.thinking_mode`).
   const [reasoning, setReasoningPicked] = useState<SessionReasoning>({});
+  // The mode it starts in (`options.permission_mode`); none picked is the settings'.
+  const [permission, setPermission] = useState<string | null>(null);
   const upload = useUpload(app);
   const bind = useBindComposer(app);
   const mention = useMemo(
@@ -450,6 +453,7 @@ function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app:
       const options: Record<string, unknown> = {};
       if (reasoning.effort_source === "session" && reasoning.effort) options.effort = reasoning.effort;
       if (reasoning.thinking_mode_source === "session" && reasoning.thinking_mode) options.thinking_mode = reasoning.thinking_mode;
+      if (permission) options.permission_mode = permission;
       const key = await app.create(Object.keys(options).length ? { options } : {});
       if (Object.keys(options).length) chosenReasoning.set(keyOf(key.instance, key.sessionId), reasoning);
       const target = { instance: key.instance, session_id: key.sessionId };
@@ -490,6 +494,9 @@ function FirstMessage({ app, onSent, variant = "composer", placeholder }: { app:
         onModel={switchable ? setPicked : undefined}
         reasoning={switchable ? reasoning : null}
         onReasoning={switchable ? (change) => setReasoningPicked(reasoningAfter(reasoning, change, {})) : undefined}
+        permissionMode={permission}
+        permissionFollows
+        onPermissionMode={setPermission}
         draftKey={`new:${space}:${variant}`}
         bind={bind}
       />
@@ -527,6 +534,24 @@ function useBindComposer(app: App, session?: string): (api: ComposerApi | null) 
  */
 function setModelMethod(app: App): string | null {
   return app.snapshot.reachable.includes("harnix.session.setModel") ? "harnix.session.setModel" : null;
+}
+
+/**
+ * The method a session's permission mode is changed by: `harnix.session.setPermissionMode`, for a
+ * session of the front space. Null when it is not reachable: the composer shows no mode.
+ */
+function setPermissionModeMethod(app: App): string | null {
+  return app.snapshot.reachable.includes("harnix.session.setPermissionMode") ? "harnix.session.setPermissionMode" : null;
+}
+
+/**
+ * A session's permission mode changed, for the front space's session: the mode it is in now, the
+ * one asked for and whether its settings narrowed it. Null when the method is not reachable.
+ */
+export async function setPermissionMode(app: App, target: { instance: string; session_id: string }, mode: string): Promise<PermissionModeSet | null> {
+  const method = setPermissionModeMethod(app);
+  if (!method) return null;
+  return (await app.call<PermissionModeSet>(method, { ...target, mode, space: app.claim() })) ?? null;
 }
 
 async function setModel(app: App, target: { instance: string; session_id: string }, option: ModelOption): Promise<void> {
@@ -878,6 +903,32 @@ function Conversation({ app, s, onController, hidden = false }: { app: App; s: S
     [app, current.instance, current.sessionId, sessionKey, reasoning],
   );
 
+  // The session's permission mode: changed at once, a running turn's too; what is shown is what the
+  // session is in (`session.permission_mode`, following the engine's changes, the model's plan mode
+  // among them). When the settings held a change narrower, the menu and its button say so until
+  // the mode moves again.
+  const strings = useStrings();
+  const modeMethod = setPermissionModeMethod(app);
+  const currentMode = sessionState?.session?.permission_mode ?? null;
+  const [clamped, setClamped] = useState<{ mode: string; requested: string } | null>(null);
+  useEffect(() => {
+    if (clamped && currentMode !== null && currentMode !== clamped.mode) setClamped(null);
+  }, [clamped, currentMode]);
+  const onPermissionMode = useCallback(
+    async (mode: string | null) => {
+      if (!modeMethod || !mode) return;
+      try {
+        const set = await setPermissionMode(app, { instance: current.instance, session_id: current.sessionId }, mode);
+        setClamped(set?.clamped ? { mode: set.mode, requested: set.requested } : null);
+        if (set?.clamped) app.notice(strings.permissionClamped(set.mode, set.requested), "info");
+      } catch (e) {
+        app.notice(explainError(e), "error");
+        throw e;
+      }
+    },
+    [app, modeMethod, current.instance, current.sessionId, strings],
+  );
+
   const commands = useCommands(app);
   const asked = useRef(0);
   // `@` offers what the `command` contributions at `@` give (a project's files, say) and — after
@@ -1018,6 +1069,8 @@ function Conversation({ app, s, onController, hidden = false }: { app: App; s: S
         onModel={switchable ? onModel : undefined}
         reasoning={switchable ? reasoning : null}
         onReasoning={switchable ? onReasoning : undefined}
+        onPermissionMode={modeMethod && !readOnly ? onPermissionMode : undefined}
+        permissionNote={clamped ? strings.permissionClamped(clamped.mode, clamped.requested) : undefined}
         features={{ voice: false, contextRing: true, options: false }}
         renderers={{ flowBlocks, toolRows, userExtras }}
       />

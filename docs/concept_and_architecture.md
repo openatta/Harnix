@@ -1125,7 +1125,7 @@ space 自己的会话。这件事错一次就是把消息发进了别的产品�
 6. **展示（exposure）是第 3 条的另一个例外，由拥有者开**：建了会话的扩展可以把它展示到另一个 space（`harnix.session.expose {to, interact?}`，
    `cx.sessions().expose(&s, space, Exposure)`），声称那个 space 的调用就能够到它——`interact: false` 只能**看**（attach、history、entries、outline、tasks、
    skills、hooks、会话主题、`engine.session.get / resume`），`interact: true` 还能**说**（send、respond、队列、interrupt、rewind、feedback、扩展条目）；
-   会话的**生命与身份**（close、delete、fork、rename、setModel、setPrompt、move）无论怎样展示都只能从它自己的 space 做，新加的方法没登记前也算这一类。
+   会话的**生命与身份**（close、delete、fork、rename、setModel、setPermissionMode、setPrompt、move）无论怎样展示都只能从它自己的 space 做，新加的方法没登记前也算这一类。
    归属、实例、谁启动的、审计都不变（展示不是跨 space，不写跨 space 审计：是拥有者开的门）；`harnix.sessions.list {space}` 和按 space 裁的会话主题里，
    被展示来的行带 `exposed_from: <它的 space>`，每一行都带 `exposed_to: [{space, interact}]`。展示记在账本里，随会话一起删，重启不丢；`unexpose` 收回。
    设备不能展示（会话在哪里出现是应用定的，同归属）；不是建它的扩展也不能；目标要是这个应用有的 space（只有界面的也算），不能是它自己的、
@@ -1331,7 +1331,7 @@ profile 的 `[brand]`：`name`（页面标题、左栏产品名）、`icon`（SV
 | 其余路径 | 是什么 |
 |---|---|
 | `~/Documents/`（`--data-dir` / `HARNIX_DATA_DIR`） | **只放项目**。选项目从这里开始，新建项目建在这里；里面没有隐藏目录 |
-| `<项目>/.harnix/`（带品牌的应用 `.<product_id>/`） | 项目数据目录：项目自己的数据与配置，**一律**放这里，不另开：引擎的项目层（设置、agents、hooks、rules、memory）与 Harnix 写的（流程的 `runs/`、项目的 `flows/`）同在一处。它是工具的，不是任务的：流程任务的会话写它算写项目之外，引擎沙箱让会话写的 `scratchpad/`、`memory/` 除外；引擎往它的 `.gitignore` 里加本机的条目，流程只加 `runs/`。引擎的 worktree 不在这里，在仓库根的 `.wkts/` |
+| `<项目>/.harnix/`（带品牌的应用 `.<product_id>/`） | 项目数据目录：项目自己的数据与配置，**一律**放这里，不另开：引擎的项目层（设置、agents、hooks、rules；本机数据在其中的 `state/`：记忆、scratchpad、遥测）与 Harnix 写的（流程的 `runs/`、项目的 `flows/`，与 `state/` 平级）同在一处。它是工具的，不是任务的：流程任务的会话写它算写项目之外，引擎沙箱让会话写的 `state/scratchpad/`、`state/memory/` 除外；引擎往它的 `.gitignore` 里加本机的条目（`state/`、`settings.local.json`、`mcp.local.json`），流程只加 `runs/`。引擎的 worktree 不在这里，在仓库根的 `.wkts/` |
 
 为什么这样分：状态目录按产品 id 命名，同一台机器上装两个产品不会抢令牌和账本；每一处一个所有者，一个扩展停用或卸载时清掉的就是它自己那一处；
 Documents 是用户的，不该藏着程序的东西；项目里只有一个属于工具的目录，引擎与 Harnix 共用它（引擎启动时带 `project_dir = ".harnix"`、`product_name = "Harnix"`；带品牌的应用带 `.<product_id>` 与它的名字，二开的产品在用户的项目里留下的是自己的名字，不是 Harnix 的）。流程的 worktree 不在项目里：引擎会清掉它的 worktree 目录（仓库根的 `.wkts/`）下它不认识的目录，所以它们在流程扩展的数据目录里。Harnix 只认这一种布局，不读、不迁移别的布局留下的文件。

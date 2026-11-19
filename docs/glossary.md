@@ -47,8 +47,9 @@
 | **实例** | `instance` | 一台 Agix 引擎（一个会话池）。**隔离单位**：数据根、设置、provider、MCP、Agix 插件、场景都是它自己的 |
 | **`main` 实例** | `main` | profile 的 `[engine]` 建的缺省实例，内核拥有，谁都不能停 |
 | **引擎根** / **数据根** | `data_root`；`main` 的是 `<状态目录>/engine`（`--engine-dir`） | 一台实例的引擎读写的目录：设置分层、transcript、记忆、技能、录像。`main` 的在 Harnix 自己的状态目录里，别的引擎客户端的目录（`~/.agix`）不读 |
-| **项目数据目录** | `.harnix`；带品牌的应用 `.<product_id>`（`ExtensionContext::product().project_dir()`） | 项目里属于工具的那一个目录：引擎的项目层（设置、agents、hooks、规则、记忆、它的 worktree）与 Harnix 写的（流程的 `runs/`、项目的 `flows/`）同在一处。引擎启动时带这个 `project_dir` 和产品的引擎名；`.agix` 不读 |
-| **引擎名** / **产品名** | `ProductNames::product_name()`，`[brand] product_name` | 引擎自称的名字：模型的提示词、请求的 User-Agent、worktree 的分支前缀。`harnix` 是 `Harnix`，带品牌的应用缺省是 `[brand] name`。与界面上的品牌名不同，只能是 ASCII 字母开头的字母、数字、`-`、`_` |
+| **项目数据目录** | `.harnix`；带品牌的应用 `.<product_id>`（`ExtensionContext::product().project_dir()`） | 项目里属于工具的那一个目录：引擎的项目层（设置、agents、hooks、规则、记忆、它的 worktree）与 Harnix 写的（流程的 `runs/`、项目的 `flows/`）同在一处。引擎启动时带这个 `project_dir` 和产品名；`.agix` 不读。引擎自己的本机数据在它下面的 `state/`（记忆、scratchpad、遥测、超长工具结果），不进仓库 |
+| **产品名** | `ProductNames::product_name()`，`[brand] product_name`；引擎的 `EmbedConfig.product` | 引擎自称的名字：模型的提示词、请求的 User-Agent、worktree 的分支前缀。`harnix` 是 `Harnix`，带品牌的应用缺省是 `[brand] name`。与界面上的品牌名不同，只能是 ASCII 字母开头的字母、数字、`-`、`_`，小写后不能是引擎在项目 `state/` 里用的名字（`memory`、`history`…） |
+| **引擎名** | 引擎的 `EmbedConfig.engine`，Harnix 不设 | 引擎在脚本与文件名里的名字：插件脚本里基础库的全局名、错误名 `AgixError`、`~/.agix`。Harnix 与带品牌的应用都用引擎的缺省 `agix`，写给 Agix 的插件原样能用；不是产品名，profile 里没有它的键 |
 | **实例载体** | `InstanceCarrier` | 一台实例怎么跑：**进程内**（经 `agix::embed` 起在本进程里，经内存双工连）、**spawn**（Harnix 起子进程并看护）、**attach**（连一台只给这个 Harnix 用的 daemon）、**收养**（扩展进程里的引擎） |
 | **实例登记表** | `harnix-instance` | 建、确保、停、重启实例，模板、账本、拥有者都在这里；中枢只经 `InstanceBook` 问它 |
 | **模板** | `InstanceTemplate` | 建实例的规格：实例载体、场景、数据根规则、允许填的参数、能不能由界面用。扩展与界面都只能按模板建实例 |
@@ -223,7 +224,7 @@
 | **流程库** | crate `harnix-flow`（`crates/flow`），`FLOW_API_VERSION` | 流程本身：定义、运行记录、内核、派工器、存储、流程包、试运行。不链 Harnix 也不链 Agix，别的宿主可以整个拷走；见它的嵌入指南 `crates/flow/docs/embed.zh-CN.md` |
 | **派工器** | runner，`harnix_flow::runner::Runner` | 流程库里把内核交出的工作项做掉的那一层：开会话、发消息、判权限询问、跑门禁、投钩子、开收 worktree。只经 `SessionHost` 认识会话 |
 | **宿主**（流程库的） | `SessionHost`；Harnix 的是 `HarnixSessionHost`（`harnix-ext-flow`） | 把会话交给派工器的那一方：开（同一个键再开是同一个会话）、看帧、发、打断、答权限。Harnix 的经中枢；测试与 `flowctl` 用按脚本答话的 `ScriptedHost`，每个宿主都要过一致性测试 `harnix_flow::conformance` |
-| **项目布局** | `ProjectLayout {dir, worktrees_root, branch_prefix, agent_dirs}` | 宿主告诉流程库它在项目里写到哪：项目数据目录的名字（Harnix `.harnix`，带品牌的应用 `.<product_id>`；库只用里面的 `flows/`、`runs/`）、worktree 的根（Harnix：流程扩展的数据目录下 `worktrees/`）、分支前缀（Harnix `harnix/flow`，带品牌的应用 `<引擎名小写>/flow`）、数据目录里任务的会话能当作自己的写的子目录（Harnix：`scratchpad`、`memory`）。库里没有缺省 |
+| **项目布局** | `ProjectLayout {dir, worktrees_root, branch_prefix, agent_dirs}` | 宿主告诉流程库它在项目里写到哪：项目数据目录的名字（Harnix `.harnix`，带品牌的应用 `.<product_id>`；库只用里面的 `flows/`、`runs/`）、worktree 的根（Harnix：流程扩展的数据目录下 `worktrees/`）、分支前缀（Harnix `harnix/flow`，带品牌的应用 `<产品名小写>/flow`）、数据目录里任务的会话能当作自己的写的子目录（Harnix：`state/scratchpad`、`state/memory`）。库里没有缺省 |
 | **格式号** | `format`；`DEFINITION_FORMAT`、`RUN_FORMAT`，存储目录的 `FORMAT` 文件 | 定义与件、运行记录各自的格式，缺省 1；比库新的整份拒读，不读半份。没有 `FORMAT` 却有运行的存储目录也拒 |
 | **流程 space** | space `flow`（场景 `flow-author`），`registerFlowSpace` | 流程自己的 space，入口在左栏底部（`place: "bottom"`）：左栏是通用会话、流程与它们的运行，中区是选中项的对话，右栏是流程、运行、参考。见 [Harnix app](harnix-app.md) §11 |
 | **流程** | `FlowDef` | 站组成的有向无环图，一份 YAML，随流程包分发 |

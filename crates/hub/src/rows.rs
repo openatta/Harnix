@@ -168,6 +168,20 @@ impl Hub {
         }
     }
 
+    /// `harnix.session.setPermissionMode`: a session's permission mode changed from where it is
+    /// shown, within its own space — for the rest of a running turn too, held to its settings as a
+    /// mode given at its creation is. A person's choice, so a device's alone: an extension changes
+    /// it with `engine.session.setPermissionMode`, holding `engine.control`.
+    fn permission_mode_row(hub: &HubCell) -> HubRow {
+        let name = "harnix.session.setPermissionMode";
+        HubRow::Method {
+            name,
+            owner: Owner::Kernel(KernelPart::Hub),
+            access: Access::device().scoped(RowScope::Session),
+            handler: Some(answer(hub, name, true, |h, _, p| async move { h.set_permission_mode(p).await })),
+        }
+    }
+
     /// `harnix.session.skills` and `harnix.session.hooks`: what a session sees beyond its
     /// conversation, by where each comes from. A person's to look at, so a device's alone: a
     /// package has no need of what the settings tiers configure.
@@ -257,6 +271,7 @@ impl Hub {
         // granted it, and never a device's — the page has the log.
         rows.push(HubRow::Topic { name: FEEDBACK_TOPIC, access: Access::capability(caps::FEEDBACK_READ).scoped(RowScope::Open) });
         rows.extend(Self::seen_rows(hub));
+        rows.push(Self::permission_mode_row(hub));
         rows.extend(crate::engine_rows::rows(hub));
         rows
     }

@@ -50,6 +50,9 @@ pub enum SessionEventKind {
     AskResolved { prompt_id: String, answered: bool },
     /// The session's goal, as it now is (`Null`: none).
     GoalChanged { goal: Value },
+    /// The session's permission mode changed — a host set it, or the model went into or out of
+    /// plan mode: the mode it is in now.
+    PermissionModeChanged { mode: String },
     /// Where one of the session's teams stands.
     TeamProgress { team_id: String },
     /// One of the session's tasks started (or finished): work that outlives the turn. `session`

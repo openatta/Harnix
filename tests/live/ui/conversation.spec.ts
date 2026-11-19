@@ -296,6 +296,45 @@ test("the composer's model menu sets the session's own effort and thinking, and 
   await expect(effort).toHaveAttribute("data-current", "");
 });
 
+// The session's permission mode (`harnix.session.setPermissionMode`): the composer's button shows
+// the mode the session is in, a change applies at once, and one the settings hold narrower is said
+// so — in a banner, and on the button until the mode moves again. No turn is run: no recording.
+test("the composer's permission button changes the session's mode at once, and says when the settings held it narrower", TAGS, async ({ page, api }) => {
+  await open(page, URL);
+  await newSession(page, "says-ready");
+  const button = page.getByTestId("conv-permission");
+  await expect(button).not.toHaveAttribute("data-mode", "");
+  await button.click();
+  await page.getByTestId("conv-permission-plan").click();
+  await expect(button).toHaveAttribute("data-mode", "plan");
+  await expect(button).not.toHaveAttribute("data-clamped", "true");
+  // The engine has it.
+  const mode = await page.evaluate(async () => {
+    const { host } = (window as any).harnix;
+    const current = host.session.current();
+    const attached = await host.call("harnix.session.attach", { instance: current.instance, session_id: current.sessionId });
+    return attached?.session?.permission_mode ?? null;
+  });
+  expect(mode).toBe("plan");
+
+  await api.call("settings.write", { tier: "global", changes: { permission_mode: "default", allow_client_permission_override: false } });
+  try {
+    await button.click();
+    await page.getByTestId("conv-permission-bypassPermissions").click();
+    await expect(button).toHaveAttribute("data-mode", "default");
+    await expect(button).toHaveAttribute("data-clamped", "true");
+    await expect(page.locator("#banner")).toHaveAttribute("data-state", "open");
+    await expect(page.locator("#banner")).toContainText(/settings|设置/);
+    await button.click();
+    await expect(page.getByTestId("conv-permission-note")).not.toBeEmpty();
+    await page.getByTestId("conv-permission-plan").click();
+    await expect(button).toHaveAttribute("data-mode", "plan");
+    await expect(button).not.toHaveAttribute("data-clamped", "true");
+  } finally {
+    await api.call("settings.write", { tier: "global", changes: { permission_mode: null, allow_client_permission_override: null } });
+  }
+});
+
 // A module that refuses some of what a person says (ipdrun-13): `harnix-testapp`'s `probe` gives
 // every session of `main` a prompt middleware that refuses anything with `blocked-word` in it.
 test.describe("a message a module refuses", () => {

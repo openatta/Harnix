@@ -19,7 +19,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "agents"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -45,7 +45,7 @@ dependencies = [
 
 [[package]]
 name = "agix"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "assembly",
  "base",
@@ -178,8 +178,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "arraydeque"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d902e3d592a523def97af8f317b08ce16b7ab854c1985a0c671e6f15cebc236"
+
+[[package]]
 name = "assembly"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "agents",
  "anyhow",
@@ -357,7 +363,7 @@ dependencies = [
 
 [[package]]
 name = "base"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -636,7 +642,7 @@ dependencies = [
 
 [[package]]
 name = "compaction"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "async-trait",
  "base",
@@ -2032,7 +2038,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "history"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "async-trait",
  "base",
@@ -2049,7 +2055,7 @@ dependencies = [
 
 [[package]]
 name = "hooks"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "async-trait",
  "base",
@@ -2560,6 +2566,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "js-lib"
+version = "0.3.20-2026111802"
+dependencies = [
+ "base",
+ "globset",
+ "hex",
+ "jsonschema",
+ "rquickjs",
+ "saphyr-parser",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "uuid",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2748,7 +2770,7 @@ checksum = "4facc753ae494aeb6e3c22f839b158aebd4f9270f55cd3c79906c45476c47ab4"
 
 [[package]]
 name = "mcp"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2795,7 +2817,7 @@ dependencies = [
 
 [[package]]
 name = "memory"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "async-trait",
  "base",
@@ -2860,7 +2882,7 @@ dependencies = [
 
 [[package]]
 name = "model"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -3083,10 +3105,11 @@ checksum = "1a80800c0488c3a21695ea981a54918fbb37abf04f4d0720c453632255e2ff0e"
 
 [[package]]
 name = "packages"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "base",
  "hex",
+ "jsonschema",
  "libc",
  "platform",
  "prompt-files",
@@ -3134,11 +3157,12 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "permissions"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "async-trait",
  "base",
  "globset",
+ "libc",
  "thiserror 2.0.20",
  "tokio",
  "tracing",
@@ -3211,7 +3235,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "platform"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "async-trait",
  "base",
@@ -3311,7 +3335,7 @@ dependencies = [
 
 [[package]]
 name = "prompt-files"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "base",
  "tokio",
@@ -3320,16 +3344,22 @@ dependencies = [
 
 [[package]]
 name = "ptc"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "async-trait",
  "base",
+ "hex",
+ "js-lib",
+ "jsonschema",
+ "libc",
  "rquickjs",
  "schemars",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tokio",
  "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -3793,7 +3823,7 @@ dependencies = [
 
 [[package]]
 name = "runtime"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "async-trait",
  "base",
@@ -3973,8 +4003,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "saphyr-parser"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c98d2738e44a25e6ba2e6d83d91805648df204768abc96f4f1278cb3d5c90bbe"
+dependencies = [
+ "arraydeque",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "scene"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "base",
  "serde",
@@ -4024,10 +4064,11 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "script-host"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "async-trait",
  "base",
+ "js-lib",
  "rquickjs",
  "runtime",
  "serde",
@@ -4170,7 +4211,7 @@ dependencies = [
 
 [[package]]
 name = "session"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "base",
  "history",
@@ -4182,9 +4223,10 @@ dependencies = [
 
 [[package]]
 name = "session-state"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "base",
+ "serde",
  "serde_json",
  "tokio",
  "tokio-util",
@@ -4192,7 +4234,7 @@ dependencies = [
 
 [[package]]
 name = "settings"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "base",
  "globset",
@@ -4310,7 +4352,7 @@ checksum = "8ee5873ec9cce0195efcb7a4e9507a04cd49aec9c83d0389df45b1ef7ba2e649"
 
 [[package]]
 name = "skills"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "async-trait",
  "base",
@@ -4488,7 +4530,7 @@ checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
 
 [[package]]
 name = "team"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4507,7 +4549,7 @@ dependencies = [
 
 [[package]]
 name = "telemetry"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "async-trait",
  "base",
@@ -4789,7 +4831,7 @@ checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 
 [[package]]
 name = "tools"
-version = "0.3.18-2026111701"
+version = "0.3.20-2026111802"
 dependencies = [
  "anyhow",
  "async-trait",

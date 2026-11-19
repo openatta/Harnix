@@ -101,7 +101,7 @@ export interface ContextRingConfig {
   testId?: string;
 }
 
-type PopKind = "plus" | "tools" | "model" | "ctx";
+type PopKind = "plus" | "tools" | "model" | "permission" | "ctx";
 
 /** 已经传上去、等着随下一条消息发出的一个附件。 */
 export interface Attached {
@@ -129,6 +129,9 @@ export interface ReasoningChange {
   effort?: string | null;
   thinking_mode?: string | null;
 }
+
+/** 权限菜单可选的模式（引擎的 `permission_mode`，次序同设置页）；程序专用的 `bubble` 不在里面。 */
+export const PERMISSION_MODES = ["default", "acceptEdits", "plan", "dontAsk", "bypassPermissions"] as const;
 
 /** 推理强度与思考开关可选的值（引擎的 `model.effort`、`model.thinking_mode`）。 */
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
@@ -180,6 +183,16 @@ export interface ChatComposerProps {
   reasoning?: SessionReasoning | null;
   /** 改它们；给了才可选。reject ⇒ 没改（调用方自己报错） */
   onReasoning?: (change: ReasoningChange) => Promise<void> | void;
+  /**
+   * 会话的权限模式（中枢听到的；`null`：还不知道，或新会话随设置）。给了它或 `onPermissionMode` 才画权限按钮
+   */
+  permissionMode?: string | null;
+  /** 换权限模式；给了菜单才可选。`null` = 随设置（只有 `permissionFollows` 时有这一行）。reject ⇒ 没换（调用方自己报错） */
+  onPermissionMode?: (mode: string | null) => Promise<void> | void;
+  /** 菜单第一行是「随设置」：新会话没选时用设置的模式 */
+  permissionFollows?: boolean;
+  /** 权限菜单底下的小字（例如设置把它夹窄了）；缺省说何时生效。给了按钮也标出来 */
+  permissionNote?: ReactNode;
   /** 底栏右侧、模型前面的额外控件 */
   tools?: ReactNode;
   /** 草稿的键：同一个键的输入框共用未发送的内容（卸载再挂上仍在，见 drafts.ts）；不给 ⇒ 不保留 */
@@ -202,6 +215,7 @@ export function ChatComposer(props: ChatComposerProps) {
   const [customModel, setCustomModel] = useState("");
   const plusButton = useRef<HTMLButtonElement>(null);
   const modelButton = useRef<HTMLButtonElement>(null);
+  const permissionButton = useRef<HTMLButtonElement>(null);
   const closePop = useCallback(() => setPop(null), []);
   const mentionRequest = useRef(0);
   const running = props.running ?? state?.turn != null;
@@ -407,6 +421,20 @@ export function ChatComposer(props: ChatComposerProps) {
       .finally(() => setSwitching(false));
   };
 
+  const choosePermission = (mode: string | null) => {
+    const change = props.onPermissionMode;
+    if (!change || switching) return;
+    if (mode === (props.permissionMode ?? null)) {
+      setPop(null);
+      return;
+    }
+    setSwitching(true);
+    Promise.resolve(change(mode))
+      .then(() => setPop(null))
+      .catch(() => undefined)
+      .finally(() => setSwitching(false));
+  };
+
   const chooseReasoning = (change: ReasoningChange) => {
     const set = props.onReasoning;
     if (!set || switching) return;
@@ -500,6 +528,10 @@ export function ChatComposer(props: ChatComposerProps) {
   const canSend = Boolean(text.trim()) && !props.disabled && !sending && !uploading;
   const showStop = props.sendMode === "stop" && running && !text.trim();
   const ring = props.contextRing ? ringValue(props.contextRing, state) : null;
+  const showPermission = props.permissionMode != null || props.onPermissionMode != null;
+  // Not known yet (a session still opening): the control's name, not a mode it may not be in.
+  const permissionWord =
+    props.permissionMode != null ? strings.permissionLevel(props.permissionMode) : props.permissionFollows ? strings.followSettings(null) : strings.permissionMode;
 
   return (
     <div className="hx-cmp" data-testid="conv-composer" data-state={running ? "running" : props.disabled ? "disabled" : "idle"}>
@@ -701,6 +733,40 @@ export function ChatComposer(props: ChatComposerProps) {
             {props.reasoning || props.onReasoning ? <ReasoningRows strings={strings} reasoning={props.reasoning ?? null} disabled={!props.onReasoning || switching} choose={chooseReasoning} /> : null}
             <div className="hx-pop-f">{props.onModel ? strings.modelFootSwitch : strings.modelFoot}</div>
           </MenuBox>
+        ) : pop === "permission" && showPermission ? (
+          <MenuBox
+            label={strings.permissionMode}
+            className="hx-pop right"
+            testId="conv-permission-menu"
+            busy={switching}
+            onClose={closePop}
+            within={permissionButton}
+            returnTo={permissionButton.current}
+          >
+            <div className="hx-pop-h">{strings.permissionMode}</div>
+            {props.permissionFollows ? (
+              <PopRow
+                title={strings.followSettings(null)}
+                on={props.permissionMode == null}
+                disabled={!props.onPermissionMode || switching}
+                testId="conv-permission-settings"
+                onClick={() => choosePermission(null)}
+              />
+            ) : null}
+            {permissionChoices(props.permissionMode ?? null).map((mode) => (
+              <PopRow
+                key={mode}
+                title={strings.permissionLevel(mode)}
+                on={mode === props.permissionMode}
+                disabled={!props.onPermissionMode || switching}
+                testId={`conv-permission-${mode}`}
+                onClick={() => choosePermission(mode)}
+              />
+            ))}
+            <div className="hx-pop-f" data-testid="conv-permission-note">
+              {props.permissionNote ?? (props.permissionFollows ? strings.permissionFootNew : strings.permissionFoot)}
+            </div>
+          </MenuBox>
         ) : pop === "ctx" && ring ? (
           <div className="hx-pop" role="menu" data-testid="conv-context-menu">
             <div className="hx-pop-h">{strings.context}</div>
@@ -798,6 +864,26 @@ export function ChatComposer(props: ChatComposerProps) {
           ) : null}
           <span className="hx-spacer" />
           {props.tools}
+          {showPermission ? (
+            <button
+              ref={permissionButton}
+              type="button"
+              className={`hx-cmp-model${pop === "permission" ? " on" : ""}`}
+              data-testid="conv-permission"
+              data-mode={props.permissionMode ?? ""}
+              data-clamped={props.permissionNote != null ? "true" : undefined}
+              title={strings.permissionMode}
+              aria-label={props.permissionMode != null ? strings.permissionModeOf(props.permissionMode) : strings.permissionMode}
+              aria-haspopup="menu"
+              aria-expanded={pop === "permission"}
+              onClick={() => toggle("permission")}
+            >
+              <Icon.shield />
+              <span>{permissionWord}</span>
+              {props.permissionNote != null ? <span aria-hidden="true">!</span> : null}
+              <Icon.down />
+            </button>
+          ) : null}
           {props.modelUnset ? (
             <button type="button" className="hx-cmp-model" data-testid="conv-model" data-state="unset" disabled title={strings.modelUnsetHint} aria-label={strings.modelUnsetHint}>
               <Icon.cube />
@@ -898,6 +984,11 @@ function ReasoningRows({ strings, reasoning, disabled, choose }: { strings: Harn
       {row("thinking_mode", strings.thinkingMode, THINKING_MODES, thinking, settingsThinking, strings.thinkingLevel)}
     </>
   );
+}
+
+/** 权限菜单的行：引擎的几种模式，当前的不在里面（引擎新加的）就放在最前 */
+function permissionChoices(current: string | null): readonly string[] {
+  return current == null || (PERMISSION_MODES as readonly string[]).includes(current) ? PERMISSION_MODES : [current, ...PERMISSION_MODES];
 }
 
 /** 模型菜单的行：给的列表，当前模型不在里面就放在最前 */

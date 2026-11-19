@@ -353,6 +353,12 @@ turn_started_ms: number | null, started_by: StartedBy, state: SessionActivity,
  */
 goal?: Goal | null, 
 /**
+ * The permission mode it is in as the hub last heard it (from the engine when it was opened,
+ * a `harnix.session.setPermissionMode` answer, or the engine's event for a change, the
+ * model's own plan mode included); absent when the hub has heard nothing of it.
+ */
+permission_mode?: string, 
+/**
  * The scene layer it was created in, when it was: shown in place of `scene`.
  */
 scene_layer?: string, 
@@ -929,6 +935,19 @@ effort?: string | null,
  * settings' `model.thinking_mode`.
  */
 thinking_mode?: string | null, };
+
+/**
+ * `harnix.session.setPermissionMode`'s params: the permission mode a session is in from now on,
+ * for the rest of a running turn too — one of the engine's (`default`, `acceptEdits`, `plan`,
+ * `dontAsk`, `bypassPermissions`), held to what its settings allow.
+ */
+export type SessionPermissionModeParams = { instance?: string, session_id: string, space?: string, mode: string, };
+
+/**
+ * `harnix.session.setPermissionMode`'s answer: the mode the session is in now, the one asked
+ * for, and whether its settings held it to a narrower one than that.
+ */
+export type PermissionModeSet = { instance: string, session_id: string, mode: string, requested: string, clamped: boolean, };
 
 /**
  * Where a skill a session sees comes from.
