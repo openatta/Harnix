@@ -24,6 +24,10 @@
 //! `harnix_builtin::plugins`). Anything here that read a manifest would be a
 //! second truth about what an extension may do.
 
+// The futures that start an engine and spawn its tasks nest deeper than the default limit lets
+// the compiler prove `Send` through.
+#![recursion_limit = "256"]
+
 // A daemon's unix socket, the session it leads (`setsid`), the `flock` on its data root: the
 // instance layer is built on unix, and says so once, here, rather than in fallbacks for a platform
 // nothing builds it for.

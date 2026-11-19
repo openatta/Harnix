@@ -102,8 +102,8 @@ impl EngineConfig {
     /// Agix's settings for it.
     fn embed(&self) -> EmbedConfig {
         let mut config = EmbedConfig::new(self.data_root.clone());
-        config.project_dir = self.names.project_dir().into();
-        config.product_name = self.names.product_name().into();
+        config.project_dir = Some(self.names.project_dir().into());
+        config.product = self.names.product_name().into();
         config.cwd = self.cwd.clone();
         config.scene = self.scene.clone();
         config.scenes = Vec::new();
@@ -448,8 +448,8 @@ mod tests {
         let start = |project_dir: &str, product_name: &str| {
             let mut embed = config(dir.path()).embed();
             embed.scene = "no-such-scene".into();
-            embed.project_dir = project_dir.into();
-            embed.product_name = product_name.into();
+            embed.project_dir = Some(project_dir.into());
+            embed.product = product_name.into();
             async move { Embedded::start(embed).await.err().expect("an unknown scene does not start") }
         };
         for bad in samples::BAD_PROJECT_DIRS {
