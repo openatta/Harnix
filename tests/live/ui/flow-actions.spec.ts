@@ -139,7 +139,9 @@ test("a run is cancelled from its header, and only with a reason", TAGS, async (
   await page.getByTestId("flow-cancel-reason").fill("started by mistake");
   await page.getByTestId("flow-cancel-submit").click();
   await expect(page.getByTestId("flow-run-phase")).toHaveAttribute("data-phase", "cancelled", { timeout: 15_000 });
-  await expect(page.getByTestId(`flow-run-${run}`)).toHaveAttribute("data-phase", "cancelled");
+  // In the runs list; the run's flow is picked in the left column too, which lists it again.
+  await expect(page.locator(`#details [data-testid="flow-run-${run}"]`)).toHaveAttribute("data-phase", "cancelled");
+  await expect(page.getByTestId("flow-context-runs").getByTestId(`flow-run-${run}`)).toHaveAttribute("data-phase", "cancelled");
   await expect(page.getByTestId("flow-cancel-run")).toBeDisabled();
   // The reason is on the record of what happened to the run.
   const history = await page.evaluate(async (r) => (window as any).harnix.app.call("flow.history", { run: r }), run);
