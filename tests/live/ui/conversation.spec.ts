@@ -323,7 +323,8 @@ test("the composer's permission button changes the session's mode at once, and s
     await page.getByTestId("conv-permission-bypassPermissions").click();
     await expect(button).toHaveAttribute("data-mode", "default");
     await expect(button).toHaveAttribute("data-clamped", "true");
-    await expect(page.getByTestId("conv-banner")).toBeVisible();
+    await expect(page.locator("#banner")).toHaveAttribute("data-state", "open");
+    await expect(page.locator("#banner")).toContainText(/settings|设置/);
     await button.click();
     await expect(page.getByTestId("conv-permission-note")).not.toBeEmpty();
     await page.getByTestId("conv-permission-plan").click();
