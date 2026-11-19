@@ -91,6 +91,8 @@ const BY_CAPABILITY: &[(&str, Capability, After)] = &[
     ("engine.session.clear", caps::ENGINE_CONTROL, After::Relisted),
     ("engine.session.rename", caps::ENGINE_CONTROL, After::Relisted),
     ("engine.session.setModel", caps::ENGINE_CONTROL, After::Nothing),
+    // Every watcher hears the change from the engine, and the hub with them.
+    ("engine.session.setPermissionMode", caps::ENGINE_CONTROL, After::Nothing),
     ("engine.session.setGoal", caps::ENGINE_CONTROL, After::Goal),
     ("engine.session.updateGoal", caps::ENGINE_CONTROL, After::Goal),
     ("engine.session.export", caps::ENGINE_EXPORT, After::Nothing),

@@ -139,6 +139,13 @@ export interface ChatPanelProps {
   reasoning?: SessionReasoning | null;
   /** 改它们；给了模型菜单里才可选 */
   onReasoning?: (change: ReasoningChange) => Promise<void> | void;
+  /**
+   * 换会话的权限模式（见 ChatComposer 的 `onPermissionMode`）；给了才画权限按钮，显示的模式取会话的
+   * `session.permission_mode`（attach 时中枢给的，之后跟着 `permission_mode_changed` 帧）
+   */
+  onPermissionMode?: (mode: string | null) => Promise<void> | void;
+  /** 权限菜单底下的小字，按钮也标出来（例如设置把它夹窄了） */
+  permissionNote?: ReactNode;
   /** 底栏右侧、模型前面的额外控件（例如工位的"立即送达"） */
   composerTools?: ReactNode;
   /** 有一轮在跑时发送的话怎么办：queue（缺省）排到这一轮结束；steer 在下一个步骤边界送进这一轮。给了 `send` 时不用它 */
@@ -509,6 +516,9 @@ function ChatFrame(props: ChatPanelProps & { state: SessionState | null; control
             onModel={props.onModel}
             reasoning={props.reasoning !== undefined ? props.reasoning : props.onReasoning ? (state?.session?.reasoning ?? null) : null}
             onReasoning={props.onReasoning}
+            permissionMode={props.onPermissionMode ? (state?.session?.permission_mode ?? null) : undefined}
+            onPermissionMode={props.onPermissionMode}
+            permissionNote={props.permissionNote}
             tools={props.composerTools}
           />
         )}

@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import type { Hello } from "@harnix/core";
 
-import { reasoningAfter } from "../src/Shell";
+import { reasoningAfter, setPermissionMode } from "../src/Shell";
 import { openSettingsFor } from "../src/settings";
 import { scriptedApp, tick } from "./scripted";
 
@@ -70,5 +70,22 @@ describe("a session's reasoning after a change", () => {
     expect(reasoningAfter(own, { effort: null }, {})).toEqual({ effort: null, effort_source: "settings" });
     // A new session's, chosen before it exists: what was picked.
     expect(reasoningAfter(null, { thinking_mode: "off" }, {})).toEqual({ thinking_mode: "off", thinking_mode_source: "session" });
+  });
+});
+
+describe("a session's permission mode", () => {
+  it("is changed for the front space's session, and the answer says what it is in and whether the settings narrowed it", async () => {
+    const { app, client } = scriptedApp();
+    const target = { instance: "main", session_id: "s1" };
+    // Not reachable: nothing is asked.
+    expect(await setPermissionMode(app, target, "plan")).toBeNull();
+    expect(client.calls).toEqual([]);
+
+    app.set({ reachable: ["harnix.session.setPermissionMode"] });
+    client.answer = (method, params) =>
+      method === "harnix.session.setPermissionMode" ? { ...target, mode: "acceptEdits", requested: params.mode, clamped: true } : {};
+    const set = await setPermissionMode(app, target, "bypassPermissions");
+    expect(client.calls).toEqual([{ method: "harnix.session.setPermissionMode", params: { ...target, mode: "bypassPermissions", space: "sessions" } }]);
+    expect(set).toEqual({ ...target, mode: "acceptEdits", requested: "bypassPermissions", clamped: true });
   });
 });

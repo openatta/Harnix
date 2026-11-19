@@ -1,1 +1,0 @@
-{"role":"assistant","content":[{"type":"thinking","text":"The user wants me to call the config tool.","signature":"a560b791-6115-4b1c-a9ab-75443c563d67"},{"type":"tool_use","id":"call_00_PYk9dCFqaaQTs1FUTq208871","name":"ext__example_showcase__config","input":{}}]}

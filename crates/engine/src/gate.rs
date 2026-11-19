@@ -9,7 +9,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use harnix_contract::wire::{RewindParams, RewindResult};
 use harnix_contract::RpcError;
-use harnix_engine_link::ops::{Answer, EngineOps, Entry, HistoryPage, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
+use harnix_engine_link::ops::{Answer, EngineOps, Entry, HistoryPage, PermissionModeChoice, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
 use serde_json::Value;
 
 use crate::translate::AgixOps;
@@ -138,6 +138,14 @@ impl EngineOps for GatedOps {
     async fn live_turns(&self, session: &str) -> Answer<Vec<String>> {
         self.awake().await?;
         self.agix.live_turns(session).await
+    }
+    async fn set_permission_mode(&self, session: &str, mode: &str) -> Answer<PermissionModeChoice> {
+        self.awake().await?;
+        self.agix.set_permission_mode(session, mode).await
+    }
+    async fn permission_mode(&self, session: &str, from: &SessionInfo) -> Answer<Option<String>> {
+        self.awake().await?;
+        self.agix.permission_mode(session, from).await
     }
     async fn session_skills(&self, session: &str) -> Answer<harnix_contract::wire::SessionSkills> {
         self.awake().await?;

@@ -89,7 +89,7 @@ runs: those are the traits in `kernel::host`, and the host hands them in.
 | trait | does | ready in the library |
 |---|---|---|
 | `RunStore` | reads and writes run records and their history; `commit` is atomic and compares revs | `MemStore`, `FileStore::new(dir)`; `Hooked` wraps one, to change ids or refuse commits in tests |
-| `Packs` | the flow pack: flows, skills, rules, policies, gates, hooks, and the catalog (`Catalog`: the scenes, programs, gates, tools… known here) | `MemPacks` (given in code), `DirPacks` (layered directories, `with_builtin`, `with_writable`), `ProjectPacks` (a project's own pack, read only when the project is trusted) |
+| `Packs` | the flow pack: flows, skills, rules, policies, gates, hooks, and the catalog (`Catalog`: the scenes, programs, gates, tools… known here) | `MemPacks` (given in code), `DirPacks` (layered directories, `with_builtin`, `with_plugin`, `with_writable`), `ProjectPacks` (a project's own pack, read only when the project is trusted) |
 | `Authorizer` | who may do what (confirm, claim, hand in, edit flows…, and what the authoring tools read); the host interprets `Actor` | `AllowAll` |
 | `Tools` | the read-only tools `tool` gates call | `NoTools` |
 | `Gates` | `host` gates: the application's own checks, by name | — |
@@ -202,22 +202,47 @@ it the runner drives a whole pack from start to finish with no model (`tests/run
 ### Where it writes for a project: `ProjectLayout`
 
 The library has no name of its own for a project's data directory, and no place for worktrees: the
-host says, with `ProjectLayout { dir, worktrees_root, branch_prefix, agent_dirs }`
-(`Engine::with_layout`; there is no default). Harnix gives `.harnix`, its flow extension's data
-directory's `worktrees`, `harnix/flow`, and `scratchpad`, `memory` as the directories of `.harnix/`
-its engine's sandbox lets a session write (`with_agent_dirs`); a branded application built on Harnix
-gives its own `.<product_id>` and `<name>/flow`.
+host says, with `ProjectLayout { dir, worktrees_root, branch_prefix, agent_dirs, runs }`
+(`Engine::with_layout`; there is no default; built with `ProjectLayout::new` and the `with_*`
+methods). Harnix gives `.harnix`, its flow extension's data directory's `worktrees`, `harnix/flow`,
+and the directories of `.harnix/` its engine's sandbox lets a session write (`with_agent_dirs`), and
+keeps the default `runs` for process directories; a branded application built on Harnix gives its
+own `.<product_id>` and `<name>/flow`. Codix gives
+`ProjectLayout::new(".codix", <repository root>/.wkts, "codix/flow").with_agent_dirs(["state/scratchpad", "state/memory"]).with_runs_dir("state/codix/runs")`.
 
 ```text
-<project>/<dir>/flows/        the project's own pack, committed with it (ProjectPacks::new takes the
-                              layout; read only while the project is trusted)
-<project>/<dir>/runs/<run>/   a run's process directory; `<dir>/.gitignore` gets the one line `runs/`
-<worktrees_root>/<run>/       a run's worktree, outside every project, on <branch_prefix>/<run>
+<project>/<dir>/flows/          the project's own pack, committed with it (ProjectPacks::new takes
+                                the layout; read only while the project is trusted)
+<project>/<dir>/<runs>/<run>/   a run's process directory (<runs>: `runs` unless `with_runs_dir`
+                                says, relative to the data directory)
+<worktrees_root>/<run>/         a run's worktree, on <branch_prefix>/<run>: in the host's state, or
+                                in the project where git ignores it
 ```
 
 The data directory may be shared with others — Harnix shares `.harnix` with its engine, which keeps
-its settings, memory and its own worktrees there — so the library uses `flows/` and `runs/` in it
-and nothing else, adds only its own line to the `.gitignore`, and keeps its worktrees out of it.
+its settings, memory and its own worktrees there — so the library uses `flows/` and the runs
+directory in it and nothing else, and adds only its own line to the `.gitignore`.
+
+**Process directories stay out of the repository.** When the first task starts (for a worktree run,
+before its worktree is made) the library asks git whether the repository's rules ignore the runs
+directory already (`git check-ignore`, on `<dir>/<runs>/`): if they do — it is under the engine's
+`state/`, say — nothing is written; if they do not, or git cannot say (not installed, no
+repository), `<dir>/.gitignore` gets one line, the runs directory's relative path (`runs/` by
+default), the rest of the file untouched. The file comes with a cloned repository, so: a `<dir>`
+that is a symbolic link, or resolves out of the project, is not written in; the `.gitignore` is
+opened with `O_NOFOLLOW`, and one that is a link is left alone, as is what it points at. What cannot
+be written is logged; the run goes on.
+
+**Worktrees may be inside the project** (`<repository root>/.wkts/<run>`, beside the engine's own):
+the repository must ignore that directory (Agix adds `.wkts/` to the repository root's
+`.gitignore`) — the library does not add the line, and logs it when the directory is not ignored.
+Nothing in the library depends on worktrees being outside: a process directory follows the project
+the run records, wherever its worktree is; when a worktree's changes are committed, the worktrees
+root's place in the repository (`.wkts/`, where an engine's sub-agents keep theirs) is left out like
+the project's data directory; a worktree directory git no longer knows is removed as a run's only
+when it is under `worktrees_root` (links resolved, not the root itself, not holding the project),
+and nowhere else. The library does not count `worktrees_root` among the `reserved` directories: a
+task in the project writing into another run's worktree is for the engine's guard to stop.
 
 Judging a call (`judge_under`) takes the directories that count as outside the project although
 they are in it (`Call::reserved`; `ProjectLayout::reserved(root)` gives the data directory): a
@@ -248,15 +273,18 @@ session. `opened_with` is the host's own JSON; the kernel only keeps it.
 - **Packs**: a `Packs` — `DirPacks::new([dirs…])` reads `flows/*.yaml`, `skills/<name>/SKILL.md`,
   `rules/*.md`, `policies/*.yaml`, `gates/*.yaml`, `hooks/*.yaml` from layered directories
   (`with_writable` for one that is saved into, `with_builtin` for a `MemPacks` underneath,
-  `with_catalog` for the names the host knows); `CatalogPacks` over it for the runner.
+  `with_plugin` for a plugin's read-only layer, `with_catalog` for the names the host knows);
+  `CatalogPacks` over it for the runner.
 - **Runs of no project**: `Engine::with_workspaces(dir)` — a run of no project that needs a
   directory (a session on a `project_profiles` profile, a gate, its output directory) gets
   `<dir>/<run>`.
 - **In a project** (`ProjectLayout`, above): its own pack in `<project>/<dir>/flows/`, read while
-  trusted; each run's process directory `<project>/<dir>/runs/<run>/` — `task.json` (the run as
+  trusted; each run's process directory `<project>/<dir>/<runs>/<run>/` — `task.json` (the run as
   it stands, rewritten after each change), `flow.yaml` (the definition and parts pinned at start),
   `stations/<station>/` with each hand-in (`output.json`, or `<task>.json` each), a command gate's
-  `context.json` and `gate-<gate>.log`; `<dir>/.gitignore` gets the one line `runs/`. A run's
+  `context.json` and `gate-<gate>.log`; unless the repository ignores it already, `<dir>/.gitignore`
+  gets a line with its relative path (`runs/` by default). A run of no project has the same
+  `<dir>/<runs>/<run>/` under its own directory. A run's
   output directory (the start's `output_dir`, the flow's, or `flows/${flow}-${date}${seq}`) is
   made at start, inside the project (inside its worktree for a worktree run).
 - **Worktrees** (`workspace: worktree`): `<worktrees_root>/<run>` on `<branch_prefix>/<run>` from
@@ -264,6 +292,21 @@ session. `opened_with` is the host's own JSON; the kernel only keeps it.
   merges the branch into the project's current branch (fast-forward or a merge commit; a conflict
   is `EndError::Conflict { files, .. }` with the project untouched), keeps it, or discards it. The
   project's data directory in the worktree is not committed, but for its `flows/`.
+- **Plugins**: `DirPacks::with_plugin(name, dir)` mounts the pack a plugin brings (laid out as
+  above), read-only. Top down: the project's own (`ProjectPacks`) > the writable layer > plugins (by
+  plugin name) > the directories of `DirPacks::new` > `with_builtin`. A plugin's flows and parts are
+  `Origin::Plugin`, the plugin named by `Packs::source(flow)` and `Packs::part_source(kind, name)`
+  (`DefRow::source`, the rows' `source`); one saved again in the writable layer is an
+  `Origin::Override` (`source` still that plugin: deleting the override brings its back). Of two
+  plugins with a flow or part of one name, the plugin whose name sorts first wins; the other's flow
+  is in `withheld_flows` (`Withheld::Shadowed`, once a name — the name is offered and started as
+  usual, and the listing has the winner's row alone), and the details of flows and parts are in
+  `DirPacks::shadowed()` (`Shadowing { kind, name, plugin, by }`). The same plugin name mounted again
+  replaces its directory. A plugin disabled or uninstalled (its directory gone, or the packs built
+  again without it) takes its flows off offer; runs already started finish as they would — their
+  definition, policies and gates are pinned in the run record at start; skills and rules are read
+  when a task is sent (only their digests are pinned on station entry), so one the plugin took with
+  it is missing from later tasks' messages. Harnix itself mounts no plugin in this release.
 - **Hooks**: each event of a run goes to the hooks of the pack (and of the project's) that want it,
   as `POST`s through the `HookTransport` with the headers `<prefix>-Event`, `-Delivery`,
   `-Timestamp` and, with `secret_env`, `-Signature` (HMAC-SHA256 of `<timestamp>.<body>`);
@@ -426,6 +469,22 @@ The library's first version: the kernel, stores, packs and dry runs move out of 
 - **`effort`** on a session executor, `MainSession` and `Placement`; `EFFORTS` (new, at the root).
 - The example pack (`packs/examples`) and the golden runs (`tests/golden.rs`); **`MemPacks::examples()`**
   (new): the example pack as the library carries it, every file of the directory in it.
+
+Added in Harnix 0.4.7, after it was first released (Harnix 0.4.6):
+
+- **Plugins' packs**: `DirPacks::with_plugin(name, dir)`, `DirPacks::shadowed()` and `Shadowing`
+  (new, at the root); `Origin::Plugin`; `Packs::source` and `Packs::part_source` (default `None`);
+  `Withheld::Shadowed`; `wire::DefRow::source`.
+- **`Origin` and `Withheld` are `#[non_exhaustive]`**, their variants in the tables of
+  `tests/surface.rs`: a host that matches them exhaustively adds a `_` arm, and later variants break
+  nothing. On the wire each is still one string (`"plugin"`, `"shadowed"`).
+- **`ProjectLayout::runs`** (`with_runs_dir`, default `RUNS_DIR`): the process directories' place in
+  the data directory, relative; `runs_dir`, process and station directories, worktree runs and runs
+  of no project all follow it. A host that builds a `ProjectLayout` as a struct literal adds the
+  field (the documented way is `new` and the `with_*` methods).
+- `<dir>/.gitignore`: nothing written when the repository ignores the runs directory already; the
+  line is its actual relative path; links are not followed. `worktrees_root` may be inside the
+  project.
 
 Migration: a host that used the kernel from `harnix-ext-flow` keeps `harnix_ext_flow::X` (it
 re-exports the whole library); one that depends on the library directly writes `harnix_flow::X`.

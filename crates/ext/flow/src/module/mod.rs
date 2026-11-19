@@ -68,8 +68,9 @@ pub const MODULE_ID: &str = "flow";
 pub const BRANCH_PREFIX: &str = "harnix/flow";
 
 /// The directories of a project's data directory (`.harnix/`) the engine's sandbox lets a session
-/// write: a task's own there, where the rest of the directory is the application's.
-pub const AGENT_DIRS: &[&str] = &["scratchpad", "memory"];
+/// write, in the engine's `state/`: a task's own there, where the rest of the directory is the
+/// application's.
+pub const AGENT_DIRS: &[&str] = &["state/scratchpad", "state/memory"];
 
 /// The prefix of the HTTP headers a webhook delivery carries: `X-Harnix-Event`, `-Delivery`,
 /// `-Timestamp`, `-Signature`.
@@ -764,7 +765,7 @@ mod tests {
         assert_eq!(l.dir, harnix_ext::engine::PROJECT_DIR);
         assert_eq!(l.worktree_dir("f-1"), Path::new("/state/ext/flow/data/worktrees/f-1"));
         assert_eq!(l.worktree_branch("f-1"), format!("{BRANCH_PREFIX}/f-1"));
-        assert_eq!(l.agent_dirs_in("/p"), ["/p/.harnix/scratchpad", "/p/.harnix/memory"]);
+        assert_eq!(l.agent_dirs_in("/p"), ["/p/.harnix/state/scratchpad", "/p/.harnix/state/memory"]);
     }
 
     /// A branded product's projects keep its own directory, and its runs' branches its own name.
@@ -775,6 +776,6 @@ mod tests {
         assert_eq!(l.dir, ".acme");
         assert_eq!(l.worktree_branch("f-1"), "acme/flow/f-1");
         assert_eq!(l.runs_dir(Path::new("/p")), Path::new("/p/.acme/runs"));
-        assert_eq!(l.agent_dirs_in("/p"), ["/p/.acme/scratchpad", "/p/.acme/memory"]);
+        assert_eq!(l.agent_dirs_in("/p"), ["/p/.acme/state/scratchpad", "/p/.acme/state/memory"]);
     }
 }

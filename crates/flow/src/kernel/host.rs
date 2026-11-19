@@ -116,20 +116,26 @@ pub struct Catalog {
     pub main_scene: Option<String>,
 }
 
-/// Where the flow a pack offers under a name comes from.
+/// Where the flow a pack offers under a name comes from. One word on the wire; which plugin a
+/// `Plugin` flow is of is said beside it ([`Packs::source`]). More may come.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Origin {
     /// Shipped with the application; read-only.
     Builtin,
-    /// A built-in flow saved again in the writable layer: deleting it brings the built-in back.
+    /// A built-in or plugin's flow saved again in the writable layer: deleting it brings the
+    /// one below back.
     Override,
     /// Only in the writable layer.
     User,
     /// The project's own, in `<project>/<dir>/flows/` (`ProjectLayout`): offered to runs in that
     /// project, over every other layer, and read only while the project is trusted.
     Project,
+    /// A plugin's, read-only, as the host mounted it (`DirPacks::with_plugin`): over what the
+    /// application ships, under the writable layer. Its name is [`Packs::source`].
+    Plugin,
 }
 
 /// Where flows and the other parts of a pack (skills, rules, policies, gates, hooks) come from.
@@ -199,6 +205,16 @@ pub trait Packs: Send + Sync {
     fn part_origin(&self, _kind: PartKind, _name: &str) -> Origin {
         Origin::Builtin
     }
+    /// The plugin the flow offered as `flow` is of: for [`Origin::Plugin`], and for an
+    /// [`Origin::Override`] of a plugin's flow (the one deleting the override brings back).
+    /// `None` for every other.
+    fn source(&self, _flow: &str) -> Option<String> {
+        None
+    }
+    /// The plugin a part is of (as [`Packs::source`]).
+    fn part_source(&self, _kind: PartKind, _name: &str) -> Option<String> {
+        None
+    }
     /// Save a definition under the name it declares; the digest of the saved text.
     fn save_flow(&self, _yaml: &str) -> Result<String, String> {
         Err("read-only".into())
@@ -226,21 +242,28 @@ pub trait Packs: Send + Sync {
     }
     /// The flows these packs have but do not offer, and why: a project's own while it is not
     /// trusted (named by their files alone, unread), or one whose file is not a definition of
-    /// that name. Each hides a flow of the same name below it.
+    /// that name — each hides a flow of the same name below it; or a plugin's that another
+    /// plugin's of the same name is offered over ([`Withheld::Shadowed`], once a name) — that one
+    /// hides nothing: the name is offered.
     fn withheld_flows(&self) -> Vec<(String, Withheld)> {
         vec![]
     }
 }
 
-/// Why a flow the packs have is not offered (`Packs::withheld_flows`).
+/// Why a flow the packs have is not offered (`Packs::withheld_flows`). More may come.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Withheld {
     /// The project is not trusted: its own flows are not read, nor run, until it is.
     Untrusted,
     /// Its file is not a flow definition, or defines a flow of another name than the file's.
     Unreadable,
+    /// More than one plugin has a flow of this name: the one of the plugin whose name sorts first
+    /// is offered ([`Packs::source`] names it), the others are not. The name is not withheld,
+    /// only their flows of it.
+    Shadowed,
 }
 
 /// Hex SHA-256 of a text: the digest pinned for definitions and skills.

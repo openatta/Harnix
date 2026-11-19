@@ -1,39 +1,47 @@
 //! Where the library keeps what it writes for a project, as the host says: the name of the
-//! project's data directory, where runs' worktrees go, and what their branches are named under.
+//! project's data directory, where in it runs' process directories go, where runs' worktrees go,
+//! and what their branches are named under.
 //!
 //! ```text
 //! <project>/<dir>/flows/             the project's own packs, committed with it
-//! <project>/<dir>/runs/<run>/        a run's process directory (ignored: `<dir>/.gitignore`)
-//! <worktrees_root>/<run>/            a run's worktree, outside every project
-//!                                    on the branch <branch_prefix>/<run>
+//! <project>/<dir>/<runs>/<run>/      a run's process directory (`runs` unless the host says;
+//!                                    ignored: by the repository's rules, else `<dir>/.gitignore`)
+//! <worktrees_root>/<run>/            a run's worktree, on the branch <branch_prefix>/<run>: in the
+//!                                    host's state, or in the project where git ignores it
 //! ```
 //!
 //! The data directory may be shared with others (Harnix shares `.harnix` with its engine): the
-//! library uses `flows/` and `runs/` in it and nothing else. It is the host's, not a task's: a
-//! session's write into it is judged as one outside the project — except into the directories the
-//! host names as its sessions' own there (`agent_dirs`: the engine's scratchpad, memory and
-//! worktrees in Harnix). There is no default: the library does not know whose application it is in.
+//! library uses `flows/` and the runs directory in it and nothing else. It is the host's, not a
+//! task's: a session's write into it is judged as one outside the project — except into the
+//! directories the host names as its sessions' own there (`agent_dirs`: the engine's
+//! `state/scratchpad` and `state/memory` in Harnix). There is no default: the library does not know whose
+//! application it is in.
 
 use std::path::{Path, PathBuf};
 
 /// The project's flows in its data directory.
 pub const FLOWS_DIR: &str = "flows";
-/// Runs' process directories in its data directory.
+/// Runs' process directories in its data directory, unless the host says otherwise
+/// ([`ProjectLayout::with_runs_dir`]).
 pub const RUNS_DIR: &str = "runs";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProjectLayout {
     /// The project's data directory, by name (`.harnix`): `<project>/<dir>`.
     pub dir: String,
-    /// Where runs' worktrees go, in the host's state and outside every project:
-    /// `<worktrees_root>/<run>`.
+    /// Where runs' worktrees go: `<worktrees_root>/<run>`. In the host's state (Harnix), or inside
+    /// the project (`<repo>/.wkts`) when the repository ignores that directory — the library
+    /// does not add the line; it never commits there, and removes only what is under this root.
     pub worktrees_root: PathBuf,
     /// What a run's worktree branch is named under: `<branch_prefix>/<run>`.
     pub branch_prefix: String,
     /// Directories in the data directory a task's session writes as its own, by name
-    /// (`scratchpad`, `memory` in Harnix: what its sandbox lets a session write
-    /// there). The rest of the data directory is the host's, outside what the task works in.
+    /// (`state/scratchpad`, `state/memory` in Harnix: what its sandbox lets a session
+    /// write there). The rest of the data directory is the host's, outside what the task works in.
     pub agent_dirs: Vec<String>,
+    /// Where runs' process directories go in the data directory, as a relative path (`runs`,
+    /// [`RUNS_DIR`]; Codix: `state/codix/runs`): `<project>/<dir>/<runs>/<run>`.
+    pub runs: String,
 }
 
 impl ProjectLayout {
@@ -43,7 +51,20 @@ impl ProjectLayout {
             worktrees_root: worktrees_root.into(),
             branch_prefix: branch_prefix.into(),
             agent_dirs: vec![],
+            runs: RUNS_DIR.into(),
         }
+    }
+
+    /// Where runs' process directories go in the data directory: a relative path, `/`-separated.
+    /// Only its plain names are kept — no `..`, no root — and nothing at all leaves it [`RUNS_DIR`].
+    pub fn with_runs_dir(mut self, dir: impl Into<String>) -> Self {
+        let dir = dir.into();
+        let names: Vec<&str> = dir
+            .split(['/', '\\'])
+            .filter(|n| !n.is_empty() && *n != "." && *n != "..")
+            .collect();
+        self.runs = if names.is_empty() { RUNS_DIR.into() } else { names.join("/") };
+        self
     }
 
     /// The directories in the data directory a task's session may write as its own.
@@ -66,9 +87,10 @@ impl ProjectLayout {
         self.data_dir(project).join(FLOWS_DIR)
     }
 
-    /// Where the process directories of runs in `base` go: `<base>/<dir>/runs`.
+    /// Where the process directories of runs in `base` go: `<base>/<dir>/<runs>` (`runs` unless
+    /// the host said otherwise).
     pub fn runs_dir(&self, base: &Path) -> PathBuf {
-        self.data_dir(base).join(RUNS_DIR)
+        self.data_dir(base).join(&self.runs)
     }
 
     /// Where a run's worktree goes: `<worktrees_root>/<run>` (the run's id made safe as a name).
@@ -112,5 +134,19 @@ mod tests {
         assert!(l.agent_dirs_in("/work/app").is_empty(), "nothing in it is a task's unless the host says");
         let l = l.with_agent_dirs(["scratchpad", "memory/"]);
         assert_eq!(l.agent_dirs_in("/work/app/"), ["/work/app/.codix/scratchpad", "/work/app/.codix/memory"]);
+    }
+
+    #[test]
+    fn the_runs_directory_is_where_the_host_says_inside_the_data_directory() {
+        let l = ProjectLayout::new(".codix", "/work/app/.wkts", "codix/flow");
+        assert_eq!(l.runs, RUNS_DIR);
+        let l = l.with_runs_dir("state/codix/runs/");
+        assert_eq!(l.runs, "state/codix/runs");
+        assert_eq!(l.runs_dir(Path::new("/work/app")), Path::new("/work/app/.codix/state/codix/runs"));
+        // Nothing leads out of the data directory.
+        assert_eq!(l.clone().with_runs_dir("/../../x/./y").runs, "x/y");
+        assert_eq!(l.clone().with_runs_dir("..").runs, RUNS_DIR);
+        // The worktrees root may be in the project.
+        assert_eq!(l.worktree_dir("f/1"), Path::new("/work/app/.wkts/f-1"));
     }
 }

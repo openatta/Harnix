@@ -20,7 +20,7 @@
 import { Glyph, t, useT, type CommandCandidate, type CommandContext, type HostApi, type HostSessionRef as SessionRef, type MenuItem, type Registry, type SpaceContribution } from "@harnix/react";
 
 import { errorText, useRunView } from "./hooks";
-import { defBlockedKey, defsOf, methodName, phaseOf, projectDir, type BlockShape } from "./model";
+import { defBlockedKey, defsOf, methodName, originLabel, phaseOf, projectDir, type BlockShape } from "./model";
 import { fieldsOf, newTaskDialog } from "./NewTask";
 import { PhaseBadge, taskStep } from "./RunPanel";
 import type { FlowSpace } from "./space";
@@ -142,7 +142,7 @@ export function slashCandidates(defs: DefSummary[], submit: CommandCandidate["su
       .map((d) => ({
         replacement: `/${SLASH_FLOW} ${d.name}`,
         label: `${SLASH_FLOW} ${d.name}`,
-        description: d.title && d.title !== d.name ? d.title : t("flowui.origin." + (d.origin ?? "builtin")),
+        description: d.title && d.title !== d.name ? d.title : originLabel(t, d),
       })),
   ];
 }

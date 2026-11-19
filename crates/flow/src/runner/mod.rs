@@ -492,6 +492,12 @@ impl Packs for CatalogPacks {
     fn part_origin(&self, kind: crate::PartKind, name: &str) -> Origin {
         self.inner().part_origin(kind, name)
     }
+    fn source(&self, flow: &str) -> Option<String> {
+        self.inner().source(flow)
+    }
+    fn part_source(&self, kind: crate::PartKind, name: &str) -> Option<String> {
+        self.inner().part_source(kind, name)
+    }
     fn save_part(&self, kind: crate::PartKind, name: &str, text: &str) -> Result<String, String> {
         self.inner().save_part(kind, name, text)
     }

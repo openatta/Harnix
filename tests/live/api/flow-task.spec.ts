@@ -12,6 +12,9 @@
  *   `allow Write` over `${workspace}/**` — refused, saying why: the project's data directory is the
  *   application's, outside what a task works in.
  *
+ * - `demo-task` in a project whose repository ignores `.harnix/runs/` already: Harnix adds no line
+ *   to `.harnix/.gitignore`; in one whose `.harnix/.gitignore` is a link: the link and what it points
+ *   at are left alone.
  * - `demo-task` with `workspace: worktree`, in a project made a git repository: the same write lands
  *   in its worktree out of the project, on `harnix/flow/<run>`; merged, it is in the project;
  *   discarded, gone;
@@ -24,7 +27,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -134,8 +137,11 @@ test("a task's deliverables go in flows/<flow>-<date>01, its progress in .harnix
   // The project's own flows (`flows/`) are committed, and worktrees are not in the project at all.
   const ignored = readFileSync(join(project, ".harnix", ".gitignore"), "utf8").split("\n");
   expect(ignored).toContain("runs/");
-  // The engine's are what is this machine's and this user's; its worktrees are not here at all.
-  expect(ignored).toEqual(expect.arrayContaining(["settings.local.json", "memory/", "scratchpad/"]));
+  // The engine's are what is this machine's and this user's: its local data, all in `state/`, and one
+  // user's own configuration beside the shared settings. Its worktrees are not here at all.
+  expect(ignored).toEqual(expect.arrayContaining(["state/", "settings.local.json", "mcp.local.json"]));
+  expect(ignored).not.toContain("memory/");
+  expect(ignored).not.toContain("scratchpad/");
   expect(ignored).not.toContain("worktrees/");
   expect(ignored).not.toContain("flows/");
   // Nothing else in the project: the engine's project tier is in the same `.harnix/`.
@@ -156,6 +162,35 @@ test("a task's output directory: the start's own over the flow's, never outside 
     expect(e?.code, output_dir).toBe(INVALID);
   }
   expect((await api.call("flow.list", { project })).length).toBe(1);
+});
+
+test("a project whose repository ignores the runs already gets no line of Harnix's in .harnix/.gitignore", TAGS, async () => {
+  gitProject();
+  writeFileSync(join(project, ".gitignore"), ".harnix/runs/\n");
+  const run = await start("demo-task");
+  const done = await until(run, (v) => v.record.status !== "active", "the run finishes");
+  expect(done.record.status).toBe("finished");
+  expect(existsSync(join(project, ".harnix", "runs", run, "task.json"))).toBe(true);
+  // The repository's rule covers it: Harnix adds nothing (the engine keeps its own lines there).
+  const own = join(project, ".harnix", ".gitignore");
+  expect(existsSync(own) ? readFileSync(own, "utf8").split("\n") : []).not.toContain("runs/");
+  expect(gitIn(project, "check-ignore", `.harnix/runs/${run}/task.json`)).toBe(`.harnix/runs/${run}/task.json`);
+});
+
+test("a .harnix/.gitignore that is a link is left alone, and what it points at", TAGS, async () => {
+  const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), "harnix-elsewhere-")));
+  try {
+    writeFileSync(join(elsewhere, "theirs"), "# not the project's\n");
+    mkdirSync(join(project, ".harnix"));
+    symlinkSync(join(elsewhere, "theirs"), join(project, ".harnix", ".gitignore"));
+    const run = await start("demo-task");
+    const done = await until(run, (v) => v.record.status !== "active", "the run finishes");
+    expect(done.record.status).toBe("finished");
+    expect(readFileSync(join(elsewhere, "theirs"), "utf8")).toBe("# not the project's\n");
+    expect(lstatSync(join(project, ".harnix", ".gitignore")).isSymbolicLink()).toBe(true);
+  } finally {
+    rmSync(elsewhere, { recursive: true, force: true });
+  }
 });
 
 test("under auto a write outside the project is refused, not asked, and the task goes on", TAGS, async () => {

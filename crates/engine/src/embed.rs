@@ -63,7 +63,9 @@ pub struct EngineConfig {
     pub groups_file: Option<PathBuf>,
     /// The directory it keeps in each project and the name it goes by — what the model is told it
     /// is, the `User-Agent` of its requests, its worktrees' branch prefix (`<name>/worktree-`):
-    /// the product's (`[brand]`), Harnix's own (`.harnix`, `Harnix`) when it names none.
+    /// the product's (`[brand]`), Harnix's own (`.harnix`, `Harnix`) when it names none. The
+    /// engine's own name is left at its default (`agix`): a plugin written for Agix finds its
+    /// script library where it looks.
     pub names: ProductNames,
 }
 
@@ -102,8 +104,8 @@ impl EngineConfig {
     /// Agix's settings for it.
     fn embed(&self) -> EmbedConfig {
         let mut config = EmbedConfig::new(self.data_root.clone());
-        config.project_dir = self.names.project_dir().into();
-        config.product_name = self.names.product_name().into();
+        config.project_dir = Some(self.names.project_dir().into());
+        config.product = self.names.product_name().into();
         config.cwd = self.cwd.clone();
         config.scene = self.scene.clone();
         config.scenes = Vec::new();
@@ -438,6 +440,18 @@ mod tests {
         here.shutdown().await;
     }
 
+    /// A product's names are the engine's project directory and `product`; the engine's own name
+    /// stays its default whatever the product is called.
+    #[test]
+    fn the_product_names_the_engine_and_its_own_name_stays() {
+        let dir = tempfile::tempdir().unwrap();
+        let names = ProductNames::new(".acme", "Acme").unwrap();
+        let embed = config(dir.path()).named(&names).embed();
+        assert_eq!((embed.project_dir.as_deref(), embed.product.as_str()), (Some(".acme"), "Acme"));
+        assert_eq!(embed.engine, EmbedConfig::new(dir.path()).engine);
+        assert_eq!(embed.engine, "agix");
+    }
+
     /// Harnix checks a product's names by the engine's rules: what it refuses the engine refuses,
     /// naming the same field, and what it takes the engine takes. The engine checks them before it
     /// reads anything, so an unknown scene stands in for a start that went past the check.
@@ -448,17 +462,18 @@ mod tests {
         let start = |project_dir: &str, product_name: &str| {
             let mut embed = config(dir.path()).embed();
             embed.scene = "no-such-scene".into();
-            embed.project_dir = project_dir.into();
-            embed.product_name = product_name.into();
+            embed.project_dir = Some(project_dir.into());
+            embed.product = product_name.into();
             async move { Embedded::start(embed).await.err().expect("an unknown scene does not start") }
         };
         for bad in samples::BAD_PROJECT_DIRS {
             assert!(harnix_contract::product::check_project_dir(bad).is_err(), "{bad:?}");
             assert!(matches!(start(bad, "Acme").await, EmbedError::InvalidProjectDir { .. }), "{bad:?}");
         }
-        for bad in samples::BAD_PRODUCT_NAMES {
-            assert!(harnix_contract::product::check_product_name(bad).is_err(), "{bad:?}");
-            assert!(matches!(start(".acme", bad).await, EmbedError::InvalidProductName { .. }), "{bad:?}");
+        let reserved = samples::reserved_product_names().into_iter().flat_map(|n| [n.to_string(), n.to_ascii_uppercase()]);
+        for bad in samples::BAD_PRODUCT_NAMES.iter().map(|n| n.to_string()).chain(reserved) {
+            assert!(harnix_contract::product::check_product_name(&bad).is_err(), "{bad:?}");
+            assert!(matches!(start(".acme", &bad).await, EmbedError::InvalidProductName { .. }), "{bad:?}");
         }
         for (dir, name) in samples::GOOD_PROJECT_DIRS.iter().zip(samples::GOOD_PRODUCT_NAMES) {
             assert!(ProductNames::new(dir, name).is_ok(), "{dir:?} {name:?}");
@@ -495,6 +510,33 @@ mod tests {
         here.shutdown().await;
         assert!(matches!(*here.status().borrow(), LinkStatus::Down { .. }));
         assert!(link.ops().passthrough("daemon.status", json!({})).await.is_err());
+    }
+
+    /// A live session's permission mode changes at once and says so: the answer is the mode it is
+    /// in, the change is an event of its own, and reading the mode back gives the same.
+    #[tokio::test]
+    async fn a_sessions_permission_mode_changes_and_says_so() {
+        use harnix_engine_link::events::SessionEventKind;
+        let dir = tempfile::tempdir().unwrap();
+        let here = started(dir.path()).await;
+        let link = here.link().clone();
+        let mut events = link.take_events().unwrap();
+        let created = link.ops().passthrough("session.create", json!({})).await.unwrap();
+        let session = created["session_id"].as_str().unwrap().to_string();
+        assert!(link.ops().subscribe(&session).await.unwrap().is_some());
+        let set = link.ops().set_permission_mode(&session, "plan").await.unwrap();
+        assert_eq!((set.mode.as_str(), set.requested.as_str(), set.clamped), ("plan", "plan", false));
+        let heard = loop {
+            match tokio::time::timeout(Duration::from_secs(10), events.recv()).await.unwrap().unwrap() {
+                EngineEvent::Session { kind: SessionEventKind::PermissionModeChanged { mode }, session: s, .. } if s == session => break mode,
+                _ => continue,
+            }
+        };
+        assert_eq!(heard, "plan");
+        let info = link.ops().get(&session).await.unwrap();
+        assert_eq!(link.ops().permission_mode(&session, &info).await.unwrap().as_deref(), Some("plan"));
+        assert!(link.ops().set_permission_mode(&session, "bubble").await.is_err(), "the engine's own mode is not a host's to set");
+        here.shutdown().await;
     }
 
     /// The process keeps one record of its commands' process groups: a second engine beside the

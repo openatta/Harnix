@@ -55,6 +55,7 @@ import {
   tokensOf,
   defBlockedKey,
   ORIGINS,
+  originLabel,
   type GuideBlock,
   type GuideGroup,
 } from "./model";
@@ -206,7 +207,11 @@ export function FlowsTab({ state, tabs, onPick }: ListProps) {
               >
                 <span className="hx-flow-row-title">
                   {d.title || d.name}
-                  {d.origin ? <span className="hx-flow-badge">{t("flowui.origin." + d.origin)}</span> : null}
+                  {d.origin ? (
+                    <span className="hx-flow-badge" data-testid={`flow-def-origin-${d.name}`}>
+                      {originLabel(t, d)}
+                    </span>
+                  ) : null}
                   {defBlockedKey(d) ? (
                     <span className="hx-flow-badge hx-flow-tone-error" data-testid={`flow-def-blocked-${d.name}`} data-reason={d.reason ?? undefined}>
                       {t(defBlockedKey(d)!)}

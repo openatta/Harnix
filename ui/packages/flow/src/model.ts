@@ -17,6 +17,7 @@ import type {
   FlowDef,
   FlowMethod,
   Granted,
+  Origin,
   Permission,
   PartKind,
   PolicyDef,
@@ -76,7 +77,20 @@ export function defsOf(value: unknown): DefSummary[] {
 }
 
 /** Where a flow on offer may come from, in the order a filter lists them. */
-export const ORIGINS = ["builtin", "override", "user", "project"] as const;
+export const ORIGINS = ["builtin", "override", "user", "project", "plugin"] as const;
+
+/**
+ * How a flow's or part's origin is shown, in `t`'s words: a plugin's names the plugin it is of
+ * ("Plugin: <name>", from the row's `source`); no origin is built in.
+ */
+export function originLabel(
+  t: (key: string, vars?: Record<string, string>) => string,
+  d: { origin?: Origin | null; source?: string | null },
+): string {
+  const origin = d.origin ?? "builtin";
+  if (origin === "plugin" && d.source) return t("flowui.origin.pluginNamed", { name: d.source });
+  return t(`flowui.origin.${origin}`);
+}
 
 /**
  * Why a flow on offer cannot be started, as a string key: the project's own while the project

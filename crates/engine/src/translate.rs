@@ -14,7 +14,7 @@ use harnix_contract::wire::{ModelChoice, RemovedTurn, RewindParams, RewindResult
 use harnix_contract::wire::{HookRow, HookSource, SessionHooks, SessionSkills, ShadowedSkill, SkillDirRow, SkillRow, SkillTier, SkillUserTier};
 use harnix_contract::RpcError;
 use harnix_engine_link::events::{Completion, DaemonEventKind, EngineEvent, FileWrite, Fragment, Joins, Prompt, SessionEventKind, Waiting};
-use harnix_engine_link::ops::{codes, Answer, EngineOps, Entry, HistoryPage, Message, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
+use harnix_engine_link::ops::{codes, Answer, EngineOps, Entry, HistoryPage, Message, PermissionModeChoice, Said, SessionCreated, SessionInfo, SessionSetup, Subscribed, Tasks, TurnInput};
 use harnix_engine_api::{Delivery, ToolError, ToolOutput, ToolSpec};
 use serde_json::{json, Value};
 
@@ -31,6 +31,7 @@ pub const SESSION_RENAME: &str = "session.rename";
 pub const SESSION_SET_MODEL: &str = "session.setModel";
 pub const SESSION_SET_PROMPT: &str = "session.setPrompt";
 pub const SESSION_SET_SKILL_DIRS: &str = "session.setSkillDirs";
+pub const SESSION_SET_PERMISSION_MODE: &str = "session.setPermissionMode";
 pub const SESSION_CLOSE: &str = "session.close";
 pub const SESSION_DELETE: &str = "session.delete";
 pub const SESSION_FORK: &str = "session.fork";
@@ -89,6 +90,8 @@ const SUBAGENT_PROGRESS: &str = "subagent_progress";
 /// The kind of ask a permission is.
 const PERMISSION: &str = "permission";
 const GOAL_CHANGED: &str = "goal_changed";
+/// A host set the session's permission mode, or the model went into or out of plan mode.
+const PERMISSION_MODE_CHANGED: &str = "permission_mode_changed";
 const TEAM_PROGRESS: &str = "team_progress";
 const TASK_STARTED: &str = "task_started";
 const TASK_FINISHED: &str = "task_finished";
@@ -186,14 +189,7 @@ impl EngineOps for AgixOps {
     /// A session that recorded options of its own keeps them (its scene layer's tools, prompt and
     /// naming among them); one created before sessions had any is attended, as every session is.
     async fn resume(&self, session: &str, from: &SessionInfo) -> Answer<()> {
-        let mut params = json!({"session_id": session, "options": {"attended": true}});
-        if let Some(scene) = from.scene() {
-            params["scene"] = json!(scene);
-        }
-        if let Some(root) = from.project_root() {
-            params["project_root"] = root.clone();
-        }
-        self.call(SESSION_RESUME, params).await.map(|_| ())
+        self.call(SESSION_RESUME, resume_params(session, from)).await.map(|_| ())
     }
 
     async fn history_len(&self, session: &str) -> Answer<u64> {
@@ -319,6 +315,18 @@ impl EngineOps for AgixOps {
         let params = rewind_params(session, ask)?;
         let answer = self.call(SESSION_REWIND, params).await?;
         Ok(rewound(session, ask, &answer))
+    }
+
+    async fn set_permission_mode(&self, session: &str, mode: &str) -> Answer<PermissionModeChoice> {
+        let answer = self.call(SESSION_SET_PERMISSION_MODE, json!({"session_id": session, "mode": mode})).await?;
+        permission_mode_choice(&answer, mode)
+    }
+
+    /// Only `session.resume` says which mode a session is in; for a session in memory it changes
+    /// nothing, and the hub asks only of one it has just subscribed to.
+    async fn permission_mode(&self, session: &str, from: &SessionInfo) -> Answer<Option<String>> {
+        let answer = self.call(SESSION_RESUME, resume_params(session, from)).await?;
+        Ok(answer.pointer("/permission/mode").and_then(Value::as_str).map(str::to_string))
     }
 
     async fn live_turns(&self, session: &str) -> Answer<Vec<String>> {
@@ -637,6 +645,27 @@ fn set_up(mut params: Value, setup: &SessionSetup) -> Value {
 
 /// `harnix.session.respond`'s answer as the engine takes it: a question's `decline` gives a
 /// reason (the model reads "has not answered: <reason>"), an MCP server's gives none.
+/// `session.resume`'s params for a session as `from` describes it.
+fn resume_params(session: &str, from: &SessionInfo) -> Value {
+    let mut params = json!({"session_id": session, "options": {"attended": true}});
+    if let Some(scene) = from.scene() {
+        params["scene"] = json!(scene);
+    }
+    if let Some(root) = from.project_root() {
+        params["project_root"] = root.clone();
+    }
+    params
+}
+
+/// `session.setPermissionMode`'s answer: the mode the session is in now, the one asked for (`asked`
+/// when the answer does not say), and whether the settings held it to a narrower one.
+fn permission_mode_choice(answer: &Value, asked: &str) -> Answer<PermissionModeChoice> {
+    let text = |k: &str| answer.get(k).and_then(Value::as_str);
+    let mode = text("mode").ok_or_else(|| RpcError::new(harnix_contract::codes::INTERNAL_ERROR, "the engine did not say which permission mode the session is in"))?;
+    let clamped = answer.get("clamped").and_then(Value::as_bool).unwrap_or(false);
+    Ok(PermissionModeChoice::new(mode, text("requested").unwrap_or(asked), clamped))
+}
+
 /// `session.setModel`'s params: the session, and each key the choice says — `null` for effort or
 /// thinking gives the session's own back to the settings'.
 fn set_model_params(session: &str, choice: &ModelChoice) -> Value {
@@ -738,6 +767,10 @@ fn session_event(mut params: Value) -> Option<EngineEvent> {
             None => SessionEventKind::Other,
         },
         GOAL_CHANGED => SessionEventKind::GoalChanged { goal: event.get("goal").cloned().unwrap_or(Value::Null) },
+        PERMISSION_MODE_CHANGED => match event.get("mode").and_then(Value::as_str) {
+            Some(mode) => SessionEventKind::PermissionModeChanged { mode: mode.to_string() },
+            None => SessionEventKind::Other,
+        },
         TEAM_PROGRESS => match event.get("team_id").and_then(Value::as_str) {
             Some(team) => SessionEventKind::TeamProgress { team_id: team.to_string() },
             None => SessionEventKind::Other,
@@ -1563,6 +1596,49 @@ mod tests {
         assert_eq!(sent, json!({"method": "session.setPrompt", "params": {"session_id": "s", "append": "a"}}));
         let sent = ops.set_prompt("s", Some(None), Some(Some("o".into()))).await.unwrap();
         assert_eq!(sent["params"], json!({"session_id": "s", "append": null, "override": "o"}));
+    }
+
+    /// A permission mode is set by name and answered with the mode the session is in, the one
+    /// asked for and whether the settings narrowed it; only `session.resume` reads which mode a
+    /// session is in, for one of the scene and project the hub knows it by.
+    #[tokio::test]
+    async fn a_permission_mode_is_set_and_read_in_the_engines_terms() {
+        struct Engine(std::sync::Mutex<Vec<(String, Value)>>);
+        #[async_trait::async_trait]
+        impl Rpc for Engine {
+            async fn call(&self, method: &str, params: Value) -> Result<Value, RpcError> {
+                self.0.lock().unwrap().push((method.to_string(), params.clone()));
+                Ok(match method {
+                    SESSION_SET_PERMISSION_MODE => json!({"session_id": "s", "mode": "default", "requested": "bypassPermissions", "clamped": true}),
+                    SESSION_RESUME => json!({"session_id": "s", "status": "already_active", "permission": {"mode": "plan", "prompts": true}}),
+                    _ => json!({}),
+                })
+            }
+        }
+        let engine = Arc::new(Engine(Default::default()));
+        let ops = AgixOps(engine.clone());
+        let set = ops.set_permission_mode("s", "bypassPermissions").await.unwrap();
+        assert_eq!(set, PermissionModeChoice::new("default", "bypassPermissions", true));
+        let info = SessionInfo::new(json!({"session_id": "s", "scene": "code", "project_root": "/p"}));
+        assert_eq!(ops.permission_mode("s", &info).await.unwrap().as_deref(), Some("plan"));
+        let calls = engine.0.lock().unwrap().clone();
+        assert_eq!(calls[0], ("session.setPermissionMode".to_string(), json!({"session_id": "s", "mode": "bypassPermissions"})));
+        assert_eq!(calls[1].0, "session.resume");
+        assert_eq!(calls[1].1, json!({"session_id": "s", "scene": "code", "project_root": "/p", "options": {"attended": true}}));
+
+        assert_eq!(permission_mode_choice(&json!({"mode": "plan"}), "plan").unwrap(), PermissionModeChoice::new("plan", "plan", false));
+        assert!(permission_mode_choice(&json!({}), "plan").is_err(), "no mode said");
+    }
+
+    /// A change of a session's permission mode, by its host or by the model's plan mode, is the
+    /// mode it is in now; one that names none is nothing the hub acts on.
+    #[test]
+    fn a_permission_mode_frame_is_the_mode_the_session_is_in() {
+        for source in ["host", "model"] {
+            let frame = session(json!({"kind": "permission_mode_changed", "mode": "plan", "source": source}));
+            assert_eq!(kind(frame), SessionEventKind::PermissionModeChanged { mode: "plan".into() });
+        }
+        assert_eq!(kind(session(json!({"kind": "permission_mode_changed"}))), SessionEventKind::Other);
     }
 
     fn ask(to: RewindTo) -> RewindParams {

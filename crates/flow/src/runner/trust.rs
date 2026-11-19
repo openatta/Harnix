@@ -42,16 +42,17 @@ pub(crate) async fn hear_active(rn: &Runner) {
 }
 
 /// Refuse a flow of the project's own while the project is not trusted: in a project its name
-/// means the project's, which is not run until then.
+/// means the project's, which is not run until then. A plugin's flow another plugin's is offered
+/// over withholds nothing: the name runs the one offered.
 pub fn withheld(packs: &dyn Packs, flow: &str) -> crate::Result<()> {
-    match packs.withheld_flows().into_iter().find(|(n, _)| n == flow) {
+    match packs.withheld_flows().into_iter().find(|(n, why)| n == flow && *why != crate::Withheld::Shadowed) {
         Some((_, crate::Withheld::Untrusted)) => Err(crate::FlowError::Denied(format!(
             "flow {flow} is the project's own, and the project is not trusted: trust the project first"
         ))),
         Some((_, crate::Withheld::Unreadable)) => Err(crate::FlowError::Invalid(format!(
             "flow {flow} is the project's own, and its file is not a definition of that name"
         ))),
-        None => Ok(()),
+        _ => Ok(()),
     }
 }
 

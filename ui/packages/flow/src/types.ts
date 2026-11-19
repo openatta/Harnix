@@ -168,6 +168,8 @@ export interface PartInfo {
   text: string;
   digest?: string | null;
   origin?: Origin | null;
+  /** The plugin it is of, for a plugin's (and an override of one). */
+  source?: string | null;
   title?: string | null;
   description?: string | null;
   parsed?: unknown;
@@ -197,6 +199,8 @@ export interface DefInfo {
   /** The protocol layer each station's sessions get, by station id, when the module gives it. */
   protocol?: Record<string, string> | null;
   origin?: Origin | null;
+  /** The plugin it is of, for a plugin's (and an override of one). */
+  source?: string | null;
   valid?: boolean | null;
   /** What keeps it from validating; empty when valid. */
   problems?: (Problem | string)[] | null;

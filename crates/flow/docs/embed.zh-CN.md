@@ -80,7 +80,7 @@ Feature：
 | trait | 做什么 | 库里现成的 |
 |---|---|---|
 | `RunStore` | 运行记录与历史的读写；`commit` 必须原子、按 rev 比较 | `MemStore`、`FileStore::new(dir)`；`Hooked` 包一层，测试里改 id、拦提交 |
-| `Packs` | 流程包：流程、skill、规则、策略、门禁、钩子，以及目录（`Catalog`：这里认识哪些 scene、程序、门禁、工具……） | `MemPacks`（代码里给）、`DirPacks`（目录分层，`with_builtin`、`with_writable`）、`ProjectPacks`（项目自带的流程包，项目受信才读） |
+| `Packs` | 流程包：流程、skill、规则、策略、门禁、钩子，以及目录（`Catalog`：这里认识哪些 scene、程序、门禁、工具……） | `MemPacks`（代码里给）、`DirPacks`（目录分层，`with_builtin`、`with_plugin`、`with_writable`）、`ProjectPacks`（项目自带的流程包，项目受信才读） |
 | `Authorizer` | 谁能做什么（确认、认领、交付、编辑流程……，以及编写工具读什么），`Actor` 由宿主解释 | `AllowAll` |
 | `Tools` | `tool` 门禁调的只读工具 | `NoTools` |
 | `Gates` | `host` 门禁：应用自己的检查，按名字 | — |
@@ -160,18 +160,32 @@ Feature：
 
 ### 它在项目里写在哪：`ProjectLayout`
 
-库没有自己的项目数据目录名，也不知道 worktree 放哪：由宿主给，`ProjectLayout { dir, worktrees_root, branch_prefix, agent_dirs }`
-（`Engine::with_layout`；没有缺省值）。Harnix 给的是 `.harnix`、流程扩展数据目录下的 `worktrees`、`harnix/flow`，以及引擎沙箱
-允许会话写的 `.harnix/` 子目录 `scratchpad`、`memory`（`with_agent_dirs`）；在 Harnix 上做的带品牌的应用给的是它自己的 `.<product_id>` 与 `<名字>/flow`。
+库没有自己的项目数据目录名，也不知道 worktree 放哪：由宿主给，`ProjectLayout { dir, worktrees_root, branch_prefix, agent_dirs, runs }`
+（`Engine::with_layout`；没有缺省值；用 `ProjectLayout::new` 和 `with_*` 建）。Harnix 给的是 `.harnix`、流程扩展数据目录下的
+`worktrees`、`harnix/flow`，以及引擎沙箱允许会话写的 `.harnix/` 子目录（`with_agent_dirs`），过程目录用缺省的 `runs`；在 Harnix
+上做的带品牌的应用给的是它自己的 `.<product_id>` 与 `<名字>/flow`。Codix 给的是
+`ProjectLayout::new(".codix", <仓库根>/.wkts, "codix/flow").with_agent_dirs(["state/scratchpad", "state/memory"]).with_runs_dir("state/codix/runs")`。
 
 ```text
-<项目>/<dir>/flows/          项目自己的流程包，随项目提交（ProjectPacks::new 收这个布局；项目受信才读）
-<项目>/<dir>/runs/<运行>/    运行的过程目录；`<dir>/.gitignore` 只加一行 `runs/`
-<worktrees_root>/<运行>/     运行的 worktree，在所有项目之外，分支 <branch_prefix>/<运行>
+<项目>/<dir>/flows/            项目自己的流程包，随项目提交（ProjectPacks::new 收这个布局；项目受信才读）
+<项目>/<dir>/<runs>/<运行>/    运行的过程目录（<runs> 缺省 runs，`with_runs_dir` 改；相对数据目录）
+<worktrees_root>/<运行>/       运行的 worktree，分支 <branch_prefix>/<运行>：在宿主的状态目录里，或在项目里（git 忽略它时）
 ```
 
 项目数据目录可以和别人共用——Harnix 的 `.harnix` 也是它的引擎放设置、记忆、引擎自己的 worktree 的地方——所以库在里面只用
-`flows/` 和 `runs/`，`.gitignore` 只加自己那一行，worktree 不放进去。
+`flows/` 和过程目录，`.gitignore` 只加自己那一行。
+
+**过程目录不进仓库。** 第一个任务启动时（worktree 运行在建 worktree 之前），库先问 git 过程目录是否已被仓库的规则忽略
+（`git check-ignore`，对着 `<dir>/<runs>/`）：已忽略的——比如落在引擎的 `state/` 下——什么都不写；没被忽略、或者问不了 git
+（没装、不是仓库）时，往 `<dir>/.gitignore` 补一行过程目录的相对路径（缺省就是 `runs/`），文件里别的行不动。这个文件来自克隆的
+仓库，所以：`<dir>` 本身是符号链接、或解析到项目外的，不写；`.gitignore` 用 `O_NOFOLLOW` 打开，是符号链接的不动，也不碰它指向的
+文件。写不了只记日志，运行照常。
+
+**worktree 可以放在项目里**（如 `<仓库根>/.wkts/<运行>`，和引擎自己的 worktree 放一起）：仓库要忽略那个目录（Agix 把 `.wkts/`
+加进仓库根的 `.gitignore`）——库不替它加，没忽略时只在日志里说一声。库不依赖 worktree 在项目外：过程目录按运行记下的项目推算，
+不看 worktree 在哪；提交 worktree 里的改动时，worktrees_root 在仓库里的那个位置（`.wkts/`，引擎的子 Agent 的 worktree）和项目
+数据目录一样不提交；git 已经不认识的 worktree 目录，只有在 `worktrees_root` 下面（解析符号链接之后、不是根本身、不含项目）才
+当作运行的删掉，别处一概不删。库不把 `worktrees_root` 算进 `reserved`：项目里的任务写到别的运行的 worktree 里，由引擎的守卫管。
 
 判定一次调用（`judge_under`）时还要给出「在项目里、但算项目外」的目录（`Call::reserved`；`ProjectLayout::reserved(root)`
 给的就是项目数据目录）：任务的工具碰不得，除非有一条 `allow` 的 `paths` 指到它里面——写 `${workspace}/**` 的不算。其中宿主
@@ -194,16 +208,24 @@ opened_with)`。运行把它记在键上（`BoundSession { id, opened_with }`）
   `MemStore` 给测试和试运行。
 - **流程包**：一个 `Packs`——`DirPacks::new([dirs…])` 从分层目录读 `flows/*.yaml`、`skills/<name>/SKILL.md`、`rules/*.md`、
   `policies/*.yaml`、`gates/*.yaml`、`hooks/*.yaml`（`with_writable` 指定可写的一层，`with_builtin` 垫一个 `MemPacks`，
-  `with_catalog` 给宿主认识的名字）；派工器用 `CatalogPacks` 再包一层。
+  `with_plugin` 挂插件的只读一层，`with_catalog` 给宿主认识的名字）；派工器用 `CatalogPacks` 再包一层。
 - **没有项目的运行**：`Engine::with_workspaces(dir)`——需要目录的（`project_profiles` 场景上的会话、门禁、输出目录）得到 `<dir>/<运行>`。
 - **在项目里**（`ProjectLayout`，见上）：项目自己的流程包在 `<项目>/<dir>/flows/`，受信时才读；每个运行的过程目录
-  `<项目>/<dir>/runs/<运行>/`——`task.json`（运行现状，每次变化重写）、`flow.yaml`（启动时钉住的定义与件）、`stations/<站>/`
-  里每次交付（`output.json`，或每个任务一个 `<任务>.json`）、命令门禁的 `context.json` 和 `gate-<门禁>.log`；`<dir>/.gitignore`
-  只加一行 `runs/`。运行的输出目录（启动给的 `output_dir`，否则流程的，否则 `flows/${flow}-${date}${seq}`）启动时建在项目里
+  `<项目>/<dir>/<runs>/<运行>/`——`task.json`（运行现状，每次变化重写）、`flow.yaml`（启动时钉住的定义与件）、`stations/<站>/`
+  里每次交付（`output.json`，或每个任务一个 `<任务>.json`）、命令门禁的 `context.json` 和 `gate-<门禁>.log`；仓库没忽略它时
+  `<dir>/.gitignore` 补一行它的相对路径（缺省 `runs/`）。没有项目的运行在自己的目录下同样是 `<dir>/<runs>/<运行>/`。运行的输出目录（启动给的 `output_dir`，否则流程的，否则 `flows/${flow}-${date}${seq}`）启动时建在项目里
   （worktree 运行建在它的 worktree 里）。
 - **worktree**（`workspace: worktree`）：从项目的 `HEAD` 建 `<worktrees_root>/<运行>`，分支 `<branch_prefix>/<运行>`；运行结束后
   `Runner::end_worktree(run, how, by)` 把分支合进项目当前分支（能快进就快进，否则合并提交；冲突是 `EndError::Conflict { files, .. }`，
   项目不动）、保留分支，或丢弃。worktree 里的项目数据目录不提交，只有它的 `flows/` 提交。
+- **插件**：`DirPacks::with_plugin(名字, 目录)` 挂一个插件带来的流程包（布局同上），只读。叠加顺序从上到下：项目自己的
+  （`ProjectPacks`）> 可写层 > 插件（按插件名排序）> `DirPacks::new` 的目录 > `with_builtin`。插件的流程和件的来源是
+  `Origin::Plugin`，插件名由 `Packs::source(flow)`、`Packs::part_source(kind, name)` 给（`DefRow::source`、各行的 `source`）；
+  可写层存了同名的是 `Origin::Override`（`source` 仍是那个插件：删掉覆盖回到它那份）。两个插件有同名的流程或件，插件名排在前面的
+  胜出；输了的流程记在 `withheld_flows` 里（`Withheld::Shadowed`，一个名字一条；这个名字照常提供、照常能启动，列表里也只有胜出的
+  那一行），流程和件的明细在 `DirPacks::shadowed()`（`Shadowing { kind, name, plugin, by }`）。同一个插件名再挂一次，换掉它的目录。
+  插件停用或卸载（目录没了，或宿主不带它重建流程包）之后，它的流程不再提供；已经在跑的运行照常跑完——定义、策略、门禁启动时就钉在
+  运行记录里；skill 和规则在派活时才读（进站时只钉摘要），插件带走的那份在之后的任务消息里就没有了。Harnix 自己这一版不挂插件。
 - **钩子**：运行的每个事件告诉流程包（和项目的）里想要它的钩子，经 `HookTransport` `POST` 出去，头是 `<前缀>-Event`、`-Delivery`、
   `-Timestamp`，有 `secret_env` 时还有 `-Signature`（`<timestamp>.<body>` 的 HMAC-SHA256）；`Runner::hook_status()` 列出每个钩子和
   它最近一次投递。
@@ -325,6 +347,16 @@ cargo run -p harnix-flow --example flowctl -- show <state-dir> <run>
 - **`effort`**：会话执行者、`MainSession`、`Placement` 上；`EFFORTS`（新，在根上）。
 - 示例流程包（`packs/examples`）和金样运行（`tests/golden.rs`）；**`MemPacks::examples()`**（新）：库自己带上的示例包，目录里的
   每个文件都在里面。
+
+首次发布（Harnix 0.4.6）之后，0.4.7 又加了：
+
+- **插件的流程包**：`DirPacks::with_plugin(name, dir)`、`DirPacks::shadowed()` 与 `Shadowing`（新，在根上）；`Origin::Plugin`；
+  `Packs::source`、`Packs::part_source`（缺省 `None`）；`Withheld::Shadowed`；`wire::DefRow::source`。
+- **`Origin`、`Withheld` 标上 `#[non_exhaustive]`**，变体进了 `tests/surface.rs` 的表：穷举匹配它们的宿主加一个 `_` 分支，
+  以后再加变体就不再破坏。线上仍是一个字符串（`"plugin"`、`"shadowed"`）。
+- **`ProjectLayout::runs`**（`with_runs_dir`，缺省 `RUNS_DIR`）：过程目录在数据目录里的相对路径；`runs_dir`、过程目录、站目录、
+  worktree 运行和没有项目的运行都按它。用结构体字面量建 `ProjectLayout` 的宿主补上这个字段（文档里的建法是 `new` 加 `with_*`）。
+- `<dir>/.gitignore`：仓库已忽略过程目录就不写；写的是实际的相对路径；不跟随符号链接。`worktrees_root` 可以在项目里。
 
 迁移：从 `harnix-ext-flow` 用过来的宿主，`harnix_ext_flow::X` 仍然可用（它转出了整个库）；直接依赖本库的写 `harnix_flow::X`。
 这些改动之前写下的运行状态不再读：`show_in_space` 和光秃秃的会话 id 没有了，没有 `FORMAT` 的存储目录会被拒——清掉，或自己迁。

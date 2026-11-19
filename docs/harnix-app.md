@@ -315,6 +315,11 @@ r.register("harnix-app.project.items", {
   写 `model_switch = false` 关掉；库的缺省是关，应用不说就把换模型留给设置页。
   同一个菜单下面是这个会话的推理强度（`low` … `max`）与思考开关（`auto` / `off` / `on`），「随设置」是没有会话自己的值；
   新会话的输入框里选的，建会话时经 `options.effort`、`options.thinking_mode` 给。
+- **权限模式**：输入框里模型前面的权限按钮显示会话此刻所在的模式（询问、自动接受编辑、规划：只读、不询问、完全放行），菜单里换一个
+  经 `harnix.session.setPermissionMode` **立即生效**，正在跑的一轮后面的工具调用也照新模式判，只对前台 space 的会话。设置不允许那么宽时
+  引擎把它夹到设置允许的最宽处：页面说一句「设置只允许这个会话到……」，按钮与菜单也标出来，直到模式再变。显示的模式跟着引擎的变化走，
+  模型自己进出 plan（`EnterPlanMode` / `ExitPlanMode`）、别的页面换的都一样。新会话的输入框里也有它，「随设置」是不另给，选了的建会话时经
+  `options.permission_mode` 给。
 
 ### 4.1 首次运行
 
@@ -586,7 +591,7 @@ name = "Harnix"           # 页面标题、左栏产品名；不写是 Harnix
 icon = "brand/icon.svg"   # SVG，相对 profile；服务在 /brand/icon.svg
 product_id = "harnix"     # 程序自己的目录 ~/.<product_id>，也是项目数据目录 .<product_id>；小写字母、数字、-，字母开头；不写是 harnix
 # project_dir = ".harnix"   # 项目数据目录另起名；不写是 .<product_id>
-# product_name = "Harnix"   # 引擎自称的名字；不写是 name，再不写是 product_id；name 有空格、中文时必须写（ASCII 字母开头，字母数字 - _，至多 32）
+# product_name = "Harnix"   # 引擎自称的名字；不写是 name，再不写是 product_id；name 有空格、中文时必须写（ASCII 字母开头，字母数字 - _，至多 32；小写后不能是 memory、history 这类引擎在 state/ 里用的名字）
 ```
 
 带品牌的应用（写了 `product_id`）在每个项目里用 `.<product_id>/`，不用 `.harnix/`：本文说到 `<项目>/.harnix/` 的地方（项目层的设置、
@@ -625,7 +630,7 @@ Harnix app 的项目在项目根 `projects_dir`（`--data-dir`，缺省 `$HARNIX
 **设置文件**：「引擎」「隐私」「高级」节列出各层 `settings.json` 的路径并带「复制路径」。没有新增在系统里定位文件的特权接口，
 由人用自己的编辑器或文件管理器打开。
 
-**隐私**：遥测是引擎对自己做了什么的记录，每个会话一个 JSONL，写在引擎数据目录的 `telemetry/` 下，不含提示词、消息文本和工具的输入输出
+**隐私**：遥测是引擎对自己做了什么的记录，每个会话一个 JSONL，有项目的会话写在项目的 `.harnix/state/telemetry/` 下（随 `state/` 不进仓库），没有项目的写在引擎数据目录的 `telemetry/` 下，不含提示词、消息文本和工具的输入输出
 （`agix/docs/telemetry.md`）。字段 `telemetry_enabled` 与 `telemetry_url`（OTLP 端点，只有带导出支持的引擎才用）只写全局层，项目没有发言权。
 引擎自己的缺省是开；**Harnix 的缺省是关**：实例建起来（非 attach 的承载方式，主实例 `main` 也在内）时，`harnix-instance` 在该实例全局层的 `settings.json`
 里缺 `telemetry_enabled` 就写 `false`（`crates/instance/src/defaults.rs`），已有值（开或关）不动，其余内容不动。

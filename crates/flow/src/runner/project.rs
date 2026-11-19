@@ -5,9 +5,11 @@
 //! <project>/flows/<flow>-<YYYYMMDD><NN>/   the output directory (the default template): the user's
 //! <project>/<dir>/                        the project's data directory (Harnix: .harnix, shared with
 //!                                         its engine: settings, agents, rules, memory, its own worktrees)
-//!   .gitignore                            runs/, added on the first task (the engine adds its own)
+//!   .gitignore                            runs/, added on the first task unless the repository ignores
+//!                                         the runs directory already (the engine adds its own lines)
 //!   flows/                                the project's own flows, committed with it
-//!   runs/<run>/
+//!   runs/<run>/                           (the runs directory: `ProjectLayout::runs`, `runs` unless
+//!                                         the host says)
 //!     task.json                           the run as it stands (its worktree's branch and end
 //!                                         too), rewritten after each change
 //!     flow.yaml                           the definition and the parts pinned when it started
@@ -15,8 +17,9 @@
 //!                                         gate-<gate>.log, context.json (a command gate's)
 //! ```
 //!
-//! A worktree run's worktree is out of the project, where the host's `ProjectLayout` says
-//! (`worktree.rs`): its output directory is in there; its process directory is not. Where all of
+//! A worktree run's worktree is where the host's `ProjectLayout` says (`worktree.rs`) — out of the
+//! project, or in it where git ignores it: its output directory is in there; its process directory
+//! is not, it is the project's. Where all of
 //! these are is the engine's `ProjectLayout`: without one, nothing is projected.
 //!
 //! The process directory is a projection: the store is what counts, and a projection that cannot
@@ -39,11 +42,6 @@ use crate::kernel::run::Actor;
 use crate::kernel::FlowError;
 
 use super::Runner;
-
-/// The line `<project>/<dir>/.gitignore` holds for the runner: its process directories are not the
-/// project's. The project's own flows (`flows/`) are, to commit; the rest there is whoever shares
-/// the directory's, who adds their own lines.
-const IGNORED: &str = "runs/";
 
 /// The highest `${seq}` looked for.
 const MAX_SEQ: u32 = 999;
@@ -91,7 +89,7 @@ pub(crate) async fn start(rn: &Arc<Runner>, mut input: CreateIn, by: Actor) -> c
         Ok(c) => c,
         Err(e) => {
             if let (Some(root), Some(w)) = (&root, &prepared.worktree) {
-                super::worktree::unmake(root, w).await;
+                super::worktree::unmake(engine, root, w).await;
             }
             return Err(e);
         }
@@ -108,7 +106,7 @@ pub(crate) async fn start(rn: &Arc<Runner>, mut input: CreateIn, by: Actor) -> c
                 let _ = std::fs::remove_dir(dir);
             }
             if let (Some(root), Some(w)) = (&root, &prepared.worktree) {
-                super::worktree::unmake(root, w).await;
+                super::worktree::unmake(engine, root, w).await;
             }
         }
     }
@@ -283,31 +281,67 @@ fn inside(real_base: &Path, dir: &Path) -> Result<(), String> {
     Err(format!("output_dir {} leads outside the project", dir.display()))
 }
 
-/// `<project>/<dir>/.gitignore` with `runs/`: written when there is none, the missing line added
-/// to one that is there.
+/// Keep the runner's process directories out of the project's repository: they are not the
+/// project's. The project's own flows (`flows/`) are, to commit; the rest of the data directory is
+/// whoever shares it's, who keeps their own lines.
+///
+/// Nothing is written when the repository's rules ignore the runs directory already (it is under
+/// the engine's `state/`, say; `git check-ignore`). Otherwise `<project>/<dir>/.gitignore` gets the
+/// runs directory's line (`runs/` by default), written when there is none, added to one that is
+/// there, the rest of it untouched. A data directory that is a link, or leads out of the project,
+/// is not written in, nor a `.gitignore` that is a link (a cloned repository may point either
+/// anywhere): the file is opened without following links.
 pub(crate) fn ensure_gitignore(project: &Path, layout: &ProjectLayout) -> std::io::Result<()> {
     let dir = layout.data_dir(project);
     std::fs::create_dir_all(&dir)?;
-    let file = dir.join(".gitignore");
-    let had = match std::fs::read_to_string(&file) {
-        Ok(t) => t,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(e),
+    let own_dir = dir.symlink_metadata().is_ok_and(|m| m.is_dir());
+    let inside = match (dir.canonicalize(), project.canonicalize()) {
+        (Ok(d), Ok(p)) => d.starts_with(p),
+        _ => false,
     };
-    if had.lines().map(str::trim).any(|l| l == IGNORED) {
+    if !own_dir || !inside {
+        return Err(std::io::Error::other(format!(
+            "{} is a link or leads out of the project: left alone",
+            dir.display()
+        )));
+    }
+    // Relative to the project: git says nothing of an absolute path spelled other than it knows
+    // the repository's (a link on the way, `/var` and `/private/var`).
+    let runs = format!("{}/{}/", layout.dir.trim_end_matches('/'), layout.runs);
+    if super::git::ignored(project, &runs) == Some(true) {
         return Ok(());
     }
-    let mut text = had.clone();
-    if !text.is_empty() && !text.ends_with('\n') {
-        text.push('\n');
-    }
-    text.push_str(IGNORED);
-    text.push('\n');
-    std::fs::write(&file, text)
+    append_line(&dir.join(".gitignore"), &format!("{}/", layout.runs))
 }
 
-/// Where the runner shows what a run is doing: `<project>/<dir>/runs/<run>/` — the project's own,
-/// a worktree's run's too — or the same under a run of no project's own directory.
+/// `line` at the end of the file at `path` unless one of its lines is it already; the file made
+/// when there is none. Never through a link.
+fn append_line(path: &Path, line: &str) -> std::io::Result<()> {
+    use std::io::{Read, Write};
+    if path.symlink_metadata().is_ok_and(|m| m.file_type().is_symlink()) {
+        return Err(std::io::Error::other(format!("{} is a link: left alone", path.display())));
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true).append(true).create(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::custom_flags(&mut options, libc::O_NOFOLLOW);
+    let mut file = options.open(path)?;
+    let mut had = String::new();
+    file.read_to_string(&mut had)?;
+    if had.lines().map(str::trim).any(|l| l == line) {
+        return Ok(());
+    }
+    let mut added = String::new();
+    if !had.is_empty() && !had.ends_with('\n') {
+        added.push('\n');
+    }
+    added.push_str(line);
+    added.push('\n');
+    file.write_all(added.as_bytes())
+}
+
+/// Where the runner shows what a run is doing: `<project>/<dir>/<runs>/<run>/` — the project's
+/// own, a worktree's run's too — or the same under a run of no project's own directory.
 pub(crate) fn process_dir(engine: &Engine, rec: &RunRecord) -> Option<PathBuf> {
     let base = match &rec.project_root {
         Some(root) => PathBuf::from(root),
@@ -512,6 +546,52 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "# mine\nsettings.local.json\nruns/\n");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_gitignore_or_data_directory_that_is_a_link_is_left_alone() {
+        let p = tempfile::tempdir().unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let theirs = elsewhere.path().join("theirs");
+        std::fs::write(&theirs, "# not the project's\n").unwrap();
+        std::fs::create_dir_all(p.path().join(".harnix")).unwrap();
+        std::os::unix::fs::symlink(&theirs, p.path().join(".harnix/.gitignore")).unwrap();
+        assert!(ensure_gitignore(p.path(), &layout(p.path())).is_err());
+        assert_eq!(std::fs::read_to_string(&theirs).unwrap(), "# not the project's\n");
+        assert!(p.path().join(".harnix/.gitignore").symlink_metadata().unwrap().file_type().is_symlink());
+        // A data directory that is a link, out of the project or not, is not written in.
+        let q = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(elsewhere.path(), q.path().join(".harnix")).unwrap();
+        assert!(ensure_gitignore(q.path(), &layout(q.path())).is_err());
+        assert!(!elsewhere.path().join(".gitignore").exists());
+    }
+
+    #[test]
+    fn a_runs_directory_the_repository_ignores_already_adds_no_line() {
+        if !crate::runner::git::tests::have_git() {
+            return;
+        }
+        let r = crate::runner::git::tests::repo();
+        let p = r.path();
+        // As Agix keeps it: the engine's `.gitignore` names its `state/`, and the host's runs are in it.
+        std::fs::create_dir_all(p.join(".codix")).unwrap();
+        std::fs::write(p.join(".codix/.gitignore"), "state/\nsettings.local.json\n").unwrap();
+        let codix = ProjectLayout::new(".codix", p.join(".wkts"), "codix/flow").with_runs_dir("state/codix/runs");
+        ensure_gitignore(p, &codix).unwrap();
+        assert_eq!(std::fs::read_to_string(p.join(".codix/.gitignore")).unwrap(), "state/\nsettings.local.json\n");
+        // Ignored by the repository's own rules: the same.
+        std::fs::write(p.join(".gitignore"), ".harnix/runs/\n").unwrap();
+        ensure_gitignore(p, &layout(p)).unwrap();
+        assert!(!p.join(".harnix/.gitignore").exists());
+        // Not ignored: the line it needs, its own path, the rest of the file untouched.
+        std::fs::write(p.join(".codix/.gitignore"), "settings.local.json").unwrap();
+        ensure_gitignore(p, &codix).unwrap();
+        assert_eq!(std::fs::read_to_string(p.join(".codix/.gitignore")).unwrap(), "settings.local.json\nstate/codix/runs/\n");
+        let o = std::process::Command::new("git").arg("-C").arg(p).args(["check-ignore", "-q", ".codix/state/codix/runs/x/task.json"]).status().unwrap();
+        assert!(o.success(), "the line written keeps the runs out");
+        ensure_gitignore(p, &codix).unwrap();
+        assert_eq!(std::fs::read_to_string(p.join(".codix/.gitignore")).unwrap(), "settings.local.json\nstate/codix/runs/\n");
+    }
+
     /// The project's own flows are where the packs read them: in its data directory, shared with
     /// whoever else uses it; its worktrees are where the host says, on branches of its own.
     #[test]
@@ -625,6 +705,12 @@ mod tests {
         assert!(out.is_dir());
         project_run(&engine, &rec);
         assert!(own.join(".harnix/runs").join(&run).join("task.json").is_file());
+        // Where the host says the runs go, there too.
+        let elsewhere = Engine::new(Arc::new(MemStore::new()), Arc::new(MemPacks::new()))
+            .with_workspaces(data.path().join("workspaces"))
+            .with_layout(layout(data.path()).with_runs_dir("state/app/runs"));
+        assert_eq!(process_dir(&elsewhere, &rec), Some(own.join(".harnix/state/app/runs").join(&run)));
+        assert_eq!(station_dir(&elsewhere, &rec, "a"), Some(own.join(".harnix/state/app/runs").join(&run).join("stations/a")));
         let absolute = CreateIn { flow: "solo".into(), subject: "s".into(), output_dir: Some("/tmp/x".into()), ..Default::default() };
         assert_eq!(start(&rn, absolute, Actor::device("d")).await.unwrap_err().code(), "invalid");
     }

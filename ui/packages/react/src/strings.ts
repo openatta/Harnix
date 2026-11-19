@@ -31,6 +31,9 @@ const FAIL_KEYS: Record<FailureClass, string> = {
   deadline: "deadline",
 };
 
+/** The permission modes the dictionaries name (`chat.permission.<mode>`). */
+const PERMISSION_LEVELS = ["default", "acceptEdits", "plan", "dontAsk", "bypassPermissions"];
+
 export interface HarnixUiStrings {
   untitled: string;
   connOpen: string;
@@ -224,6 +227,18 @@ export interface HarnixUiStrings {
   effortLevel: (level: string) => string;
   /** 一种思考开关的名字（`auto`、`off`、`on`） */
   thinkingLevel: (mode: string) => string;
+  /** 权限模式按钮与菜单的名字 */
+  permissionMode: string;
+  /** 按钮的无障碍名：会话此刻的权限模式 */
+  permissionModeOf: (mode: string) => string;
+  /** 一种权限模式的名字（`default`、`acceptEdits`、`plan`、`dontAsk`、`bypassPermissions`）；不认识的照原样 */
+  permissionLevel: (mode: string) => string;
+  /** 权限菜单的小字：对在跑的会话立即生效 */
+  permissionFoot: string;
+  /** 权限菜单的小字：新会话从选的模式开始 */
+  permissionFootNew: string;
+  /** 设置把会话夹在了比要的更窄的模式：它在 `mode`，要的是 `requested` */
+  permissionClamped: (mode: string, requested: string) => string;
   screenshot: string;
   mentionItem: string;
   mentionItemHint: string;
@@ -360,6 +375,16 @@ export function uiStrings(locale: Locale): HarnixUiStrings {
     followSettings: (value) => (value ? s("followSettingsValue", { value }) : s("followSettings")),
     effortLevel: (level) => (["low", "medium", "high", "xhigh", "max"].includes(level) ? s(`effort.${level}`) : level),
     thinkingLevel: (mode) => (["auto", "off", "on"].includes(mode) ? s(`thinking.${mode}`) : mode),
+    permissionMode: s("permissionMode"),
+    permissionModeOf: (mode) => s("permissionModeOf", { mode: PERMISSION_LEVELS.includes(mode) ? s(`permission.${mode}`) : mode }),
+    permissionLevel: (mode) => (PERMISSION_LEVELS.includes(mode) ? s(`permission.${mode}`) : mode),
+    permissionFoot: s("permissionFoot"),
+    permissionFootNew: s("permissionFootNew"),
+    permissionClamped: (mode, requested) =>
+      s("permissionClamped", {
+        mode: PERMISSION_LEVELS.includes(mode) ? s(`permission.${mode}`) : mode,
+        requested: PERMISSION_LEVELS.includes(requested) ? s(`permission.${requested}`) : requested,
+      }),
     screenshot: s("screenshot"),
     mentionItem: s("mentionItem"),
     mentionItemHint: s("mentionItemHint"),

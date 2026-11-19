@@ -73,6 +73,9 @@ pub(crate) struct SessionState {
     /// The session's goal as the hub last heard it (`goal_changed`, or a goal call's answer):
     /// `None` is not heard, `Some(Value::Null)` is no goal.
     pub goal: Option<Value>,
+    /// The permission mode it is in as the hub last heard it (read when it was first opened, a
+    /// change's answer, or the engine's event for a change): `None` is not heard.
+    pub permission_mode: Option<String>,
     /// Each team's latest `team_progress` frame, by `team_id`: where its run stands.
     pub teams: std::collections::BTreeMap<String, Value>,
     /// The running turn is not driven by a loop of ours: the engine started
@@ -181,6 +184,7 @@ pub(crate) async fn route_event(
         }
         SessionEventKind::Asked(prompt) => state.pending_prompts.push(prompt.clone()),
         SessionEventKind::GoalChanged { goal } => state.goal = Some(goal.clone()),
+        SessionEventKind::PermissionModeChanged { mode } => state.permission_mode = Some(mode.clone()),
         SessionEventKind::TeamProgress { team_id } => {
             state.teams.insert(team_id.clone(), event.clone());
         }
@@ -245,6 +249,7 @@ impl Hub {
             info.harden();
         }
         self.ensure_subscribed(&key, &info).await?;
+        self.read_permission_mode(&key, &info).await;
         let total = self.history_total(&key).await;
         let compactions = info.compactions();
         let mut session = info.into_value();
@@ -253,6 +258,9 @@ impl Hub {
         let mut guard = self.inner.lock().await;
         let state = guard.sessions.entry(key).or_default();
         state.watchers.insert(client);
+        if let (Some(mode), Some(obj)) = (&state.permission_mode, session.as_object_mut()) {
+            obj.insert("permission_mode".into(), json!(mode));
+        }
         // What the client draws from history, and what from the buffer, must
         // not overlap. A running turn is written to the transcript step by
         // step, so part of it is already in history — history is therefore
@@ -350,6 +358,36 @@ impl Hub {
             state.watchers.remove(&client);
         }
         Ok(json!({"detached": true}))
+    }
+
+    /// The permission mode of a session the hub is subscribed to, read from the engine when the hub
+    /// has not heard it: what the engine says of a session (`EngineOps::get`) does not say it. A
+    /// change heard meanwhile is newer than what was read, and stays. Not read is not known:
+    /// nothing is shown.
+    async fn read_permission_mode(&self, key: &SessionKey, info: &SessionInfo) {
+        let known = self.inner.lock().await.sessions.get(key).is_some_and(|s| s.permission_mode.is_some());
+        if known {
+            return;
+        }
+        let read = match self.engine(&key.0) {
+            Ok(linked) => linked.ops().permission_mode(&key.1, info).await,
+            Err(e) => Err(e),
+        };
+        match read {
+            Ok(Some(mode)) => {
+                let mut guard = self.inner.lock().await;
+                let state = guard.sessions.entry(key.clone()).or_default();
+                state.permission_mode.get_or_insert(mode);
+            }
+            Ok(None) => {}
+            Err(e) => tracing::debug!(instance = %key.0, session = %key.1, error = %e.message, "the session's permission mode was not read"),
+        }
+    }
+
+    /// A permission mode heard in an answer: kept for the session's row.
+    pub(crate) async fn permission_mode_heard(self: &Arc<Self>, key: &SessionKey, mode: String) {
+        self.inner.lock().await.sessions.entry(key.clone()).or_default().permission_mode = Some(mode);
+        self.refresh("harnix.instances.sessions", json!({"instance": key.0}));
     }
 
     /// A goal heard in an answer: kept for the session's row.

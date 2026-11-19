@@ -1,10 +1,10 @@
 /**
  * The cards beside the permission card, driven as a person drives them: the model's question
  * (choose an option, or say it in your own words), a plan's review (read the plan, ask for changes,
- * approve), and a question answered on another device.
+ * approve), a question answered on another device; and the model entering plan mode by itself.
  *
- * Replayed (`asks-a-question`, `reviews-a-plan`, made as `api/recorded.ts` says). Both tools are the
- * `code` scene's, so this backend activates it beside the default.
+ * Replayed (`asks-a-question`, `reviews-a-plan`, `enters-plan-mode`, made as `api/recorded.ts`
+ * says). The tools are the `code` scene's, so this backend activates it beside the default.
  */
 
 import type { Page } from "@playwright/test";
@@ -112,5 +112,19 @@ test("a plan is read as markdown, sent back with changes, and the next one appro
   await second.getByTestId("conv-ask-plan-approve").click();
   await expect(page.locator('[data-testid="conv-ask"][data-kind="plan"]').last()).toHaveAttribute("data-answer", "allow");
   await expect(page.locator('[data-testid="conv-message"]', { hasText: /plan approved/i }).last()).toBeVisible({ timeout: 30_000 });
+  expect(errors).toEqual([]);
+});
+
+// The model putting its own session in plan mode (`EnterPlanMode`): the engine says so in a
+// `permission_mode_changed` frame, and the composer's permission button follows without a click.
+test("the model entering plan mode shows on the composer's permission button", TAGS, async ({ page }) => {
+  const errors = watchConsole(page);
+  await open(page, backend.url);
+  await codeSession(page, "enters-plan-mode");
+  const button = page.getByTestId("conv-permission");
+  await expect(button).not.toHaveAttribute("data-mode", "plan");
+  await say(page, "Enter plan mode.");
+  await expect(page.locator('[data-testid="conv-message"]', { hasText: /in plan mode/i }).last()).toBeVisible({ timeout: 30_000 });
+  await expect(button).toHaveAttribute("data-mode", "plan");
   expect(errors).toEqual([]);
 });

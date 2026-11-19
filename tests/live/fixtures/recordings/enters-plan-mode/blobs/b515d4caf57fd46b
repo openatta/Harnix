@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"thinking","text":"The user wants me to call EnterPlanMode with no arguments, no other tools, no prose first. Then reply exactly \"In plan mode.\"","signature":"998c1250-673d-459f-8ac1-0cada95cc025"},{"type":"tool_use","id":"call_00_YWHX6qv5emPG95qyAaZT1534","name":"EnterPlanMode","input":{}}]}

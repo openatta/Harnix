@@ -942,6 +942,23 @@
     {
       "access": {
         "device": false,
+        "extensions": [
+          "*"
+        ],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [
+          "engine.control"
+        ],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "engine.session.setPermissionMode",
+      "owner": "engine"
+    },
+    {
+      "access": {
+        "device": false,
         "extensions": [],
         "hub_owned": true,
         "refused": "use harnix.session.setPrompt — the hub keeps the scene's text in front of yours",
@@ -2437,6 +2454,19 @@
       },
       "kind": "method",
       "name": "harnix.session.setModel",
+      "owner": "kernel:hub"
+    },
+    {
+      "access": {
+        "device": true,
+        "extensions": [],
+        "hub_owned": false,
+        "refused": null,
+        "requires": [],
+        "scope": "session"
+      },
+      "kind": "method",
+      "name": "harnix.session.setPermissionMode",
       "owner": "kernel:hub"
     },
     {
