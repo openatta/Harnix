@@ -470,7 +470,7 @@ The library's first version: the kernel, stores, packs and dry runs move out of 
 - The example pack (`packs/examples`) and the golden runs (`tests/golden.rs`); **`MemPacks::examples()`**
   (new): the example pack as the library carries it, every file of the directory in it.
 
-Added since it was first released (Harnix 0.4.7):
+Added in Harnix 0.4.7, after it was first released (Harnix 0.4.6):
 
 - **Plugins' packs**: `DirPacks::with_plugin(name, dir)`, `DirPacks::shadowed()` and `Shadowing`
   (new, at the root); `Origin::Plugin`; `Packs::source` and `Packs::part_source` (default `None`);

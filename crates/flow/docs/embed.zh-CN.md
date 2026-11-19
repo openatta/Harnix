@@ -348,7 +348,7 @@ cargo run -p harnix-flow --example flowctl -- show <state-dir> <run>
 - 示例流程包（`packs/examples`）和金样运行（`tests/golden.rs`）；**`MemPacks::examples()`**（新）：库自己带上的示例包，目录里的
   每个文件都在里面。
 
-首次发布（Harnix 0.4.7）之后又加了：
+首次发布（Harnix 0.4.6）之后，0.4.7 又加了：
 
 - **插件的流程包**：`DirPacks::with_plugin(name, dir)`、`DirPacks::shadowed()` 与 `Shadowing`（新，在根上）；`Origin::Plugin`；
   `Packs::source`、`Packs::part_source`（缺省 `None`）；`Withheld::Shadowed`；`wire::DefRow::source`。
