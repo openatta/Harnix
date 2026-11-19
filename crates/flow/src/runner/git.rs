@@ -179,15 +179,35 @@ pub(crate) fn has_branch(project: &Path, branch: &str) -> Result<bool, String> {
     holds(project, &["show-ref", "--verify", "-q", &format!("refs/heads/{branch}")])
 }
 
+/// Whether git ignores `path` (absolute, or relative to `dir`; a trailing `/` says it is a
+/// directory) by the rules of the repository `dir` is in. `None` when git cannot say: no git, no
+/// repository, a path outside it.
+pub(crate) fn ignored(dir: &Path, path: &str) -> Option<bool> {
+    let mut c = git(dir);
+    c.args(["check-ignore", "-q", "--", path]);
+    match output(c).ok()?.status.code() {
+        Some(0) => Some(true),
+        Some(1) => Some(false),
+        _ => None,
+    }
+}
+
 /// What the worktree at `dir` holds that is not committed, committed on its branch: every change,
 /// new files too, but what is in the project's data directory (`own`, `.harnix`) besides the
-/// project's flows (the engine's own). Answers the new commit,
+/// project's flows (the engine's own), and what is at `wkts` (the worktrees root's place in the
+/// repository, when it is inside: other worktrees, never the run's work). Answers the new commit,
 /// `None` when there was nothing to commit or no worktree any more.
-pub(crate) fn snapshot(dir: &Path, own: Option<&str>, message: &str) -> Result<Option<String>, String> {
+pub(crate) fn snapshot(dir: &Path, own: Option<&str>, wkts: Option<&str>, message: &str) -> Result<Option<String>, String> {
     if !dir.is_dir() {
         return Ok(None);
     }
     let mut args = vec!["add".to_string(), "-A".into(), "--".into(), ".".into()];
+    if let Some(wkts) = wkts.filter(|w| dir.join(w).exists()) {
+        // As below: what git ignores already is not named.
+        if !holds(dir, &["check-ignore", "-q", &format!("{wkts}/")])? {
+            args.push(format!(":(exclude,literal){wkts}"));
+        }
+    }
     if let Some(own) = own {
         for entry in std::fs::read_dir(dir.join(own)).into_iter().flatten().flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
@@ -214,19 +234,29 @@ pub(crate) fn snapshot(dir: &Path, own: Option<&str>, message: &str) -> Result<O
 
 /// Remove the worktree at `path` of `project`'s repository, whatever it still holds, and forget
 /// worktrees whose directories are gone (a delegate's inside it among them). A worktree already
-/// gone is fine.
-pub(crate) fn remove_worktree(project: &Path, path: &Path) -> Result<(), String> {
+/// gone is fine. One git does not know any more is removed as a directory only when it is under
+/// `ours` (`ProjectLayout::worktrees_root`), which may be inside the project.
+pub(crate) fn remove_worktree(project: &Path, path: &Path, ours: Option<&Path>) -> Result<(), String> {
     if path.exists() {
         let p = path.to_string_lossy();
         if let Err(e) = run(project, &["worktree", "remove", "--force", "--force", &p]) {
-            // Not a worktree git knows any more: the directory is only ours, under the module's `worktrees`.
-            if !path.components().any(|c| c.as_os_str() == "worktrees") {
+            if !ours.is_some_and(|root| only_ours(root, path, project)) {
                 return Err(e);
             }
             std::fs::remove_dir_all(path).map_err(|io| format!("{e}; {}: {io}", path.display()))?;
         }
     }
     run(project, &["worktree", "prune"]).map(drop)
+}
+
+/// Whether `path` is a directory under the worktrees root `root` — not the root, links resolved —
+/// and holds no part of the project: a run's, the library's to remove.
+fn only_ours(root: &Path, path: &Path, project: &Path) -> bool {
+    let (Ok(root), Ok(real)) = (root.canonicalize(), path.canonicalize()) else {
+        return false;
+    };
+    let holds_project = project.canonicalize().is_ok_and(|p| p.starts_with(&real));
+    real != root && real.starts_with(&root) && !holds_project
 }
 
 /// Delete `branch`: only once it is merged unless `force`. A branch already gone is fine.
@@ -246,7 +276,7 @@ pub(crate) fn tip(project: &Path, branch: &str) -> Result<String, String> {
 /// fast-forward when it can be, else a merge commit made in a scratch worktree at `scratch` and
 /// the project's branch fast-forwarded to it. On a conflict, or local changes in the way, nothing
 /// in the project changes.
-pub(crate) fn merge(project: &Path, branch: &str, scratch: &Path, message: &str) -> Result<Merged, MergeFailed> {
+pub(crate) fn merge(project: &Path, branch: &str, scratch: &Path, ours: Option<&Path>, message: &str) -> Result<Merged, MergeFailed> {
     let other = MergeFailed::Other;
     let into = run(project, &["symbolic-ref", "--short", "-q", "HEAD"])
         .ok()
@@ -263,11 +293,11 @@ pub(crate) fn merge(project: &Path, branch: &str, scratch: &Path, message: &str)
         return Ok(done("fast_forward", theirs));
     }
     // A merge commit: made beside the project, then the project's branch moved to it.
-    let _ = remove_worktree(project, scratch);
+    let _ = remove_worktree(project, scratch, ours);
     let s = scratch.to_string_lossy();
     run(project, &["worktree", "add", "-q", "--detach", &s, &head]).map_err(other)?;
     let made = merge_in(scratch, &theirs, message);
-    let _ = remove_worktree(project, scratch);
+    let _ = remove_worktree(project, scratch, ours);
     let commit = made?;
     run(project, &["merge", "--ff-only", "-q", &commit]).map_err(|e| {
         other(format!("{e} (the project's branch was left as it was)"))
@@ -370,7 +400,7 @@ pub(crate) mod tests {
         assert!(wt.join("a.txt").is_file());
         assert_eq!(probe(&wt).unwrap().branch.as_deref(), Some("harnix/flow/f-1"));
         // Nothing changed: nothing committed.
-        assert_eq!(snapshot(&wt, Some(".harnix"), "m").unwrap(), None);
+        assert_eq!(snapshot(&wt, Some(".harnix"), None, "m").unwrap(), None);
         std::fs::write(wt.join("new.txt"), "new\n").unwrap();
         std::fs::create_dir_all(wt.join(".harnix/scratchpad/x")).unwrap();
         std::fs::write(wt.join(".harnix/scratchpad/x/notes.md"), "mine\n").unwrap();
@@ -379,7 +409,7 @@ pub(crate) mod tests {
         std::fs::write(wt.join(".harnix/settings.local.json"), "{}\n").unwrap();
         std::fs::create_dir_all(wt.join(".harnix/flows")).unwrap();
         std::fs::write(wt.join(".harnix/flows/f.yaml"), "name: f\n").unwrap();
-        let c = snapshot(&wt, Some(".harnix"), "the task's work").unwrap().unwrap();
+        let c = snapshot(&wt, Some(".harnix"), None, "the task's work").unwrap().unwrap();
         assert_eq!(tip(p, "harnix/flow/f-1").unwrap(), c);
         let files = run(p, &["ls-tree", "-r", "--name-only", "harnix/flow/f-1"]).unwrap();
         assert_eq!(
@@ -387,15 +417,35 @@ pub(crate) mod tests {
             [".harnix/flows/f.yaml", "a.txt", "new.txt"],
             "the engine's own left out, the project's flows in"
         );
-        remove_worktree(p, &wt).unwrap();
+        remove_worktree(p, &wt, Some(out.path())).unwrap();
         assert!(!wt.exists());
         assert!(has_branch(p, "harnix/flow/f-1").unwrap());
         assert!(!p.join("new.txt").exists(), "the project's tree untouched");
         // A worktree already gone is fine.
-        remove_worktree(p, &wt).unwrap();
+        remove_worktree(p, &wt, Some(out.path())).unwrap();
         delete_branch(p, "harnix/flow/f-1", true).unwrap();
         assert!(!has_branch(p, "harnix/flow/f-1").unwrap());
         delete_branch(p, "harnix/flow/f-1", true).unwrap();
+    }
+
+    /// The worktrees root's place in the repository is never committed, ignored there or not.
+    #[test]
+    fn a_snapshot_leaves_out_the_worktrees_root() {
+        if !have_git() {
+            return;
+        }
+        let r = repo();
+        let p = r.path();
+        let wt = p.join(".wkts/f-1");
+        add_worktree(p, &wt, "codix/flow/f-1", &probe(p).unwrap().head).unwrap();
+        std::fs::create_dir_all(wt.join(".wkts/agent-1")).unwrap();
+        std::fs::write(wt.join(".wkts/agent-1/x.txt"), "x\n").unwrap();
+        std::fs::write(wt.join("work.txt"), "w\n").unwrap();
+        snapshot(&wt, Some(".codix"), Some(".wkts"), "work").unwrap().unwrap();
+        let files = run(p, &["ls-tree", "-r", "--name-only", "codix/flow/f-1"]).unwrap();
+        assert_eq!(files.lines().collect::<Vec<_>>(), ["a.txt", "work.txt"]);
+        remove_worktree(p, &wt, Some(&p.join(".wkts"))).unwrap();
+        assert!(!wt.exists());
     }
 
     #[test]
@@ -410,22 +460,22 @@ pub(crate) mod tests {
         let out = tempfile::tempdir().unwrap();
         let wt = out.path().join("f-1");
         add_worktree(p, &wt, "harnix/flow/f-1", &head).unwrap();
-        let m = merge(p, "harnix/flow/f-1", &scratch_for(&wt), "merge").unwrap();
+        let m = merge(p, "harnix/flow/f-1", &scratch_for(&wt), Some(out.path()), "merge").unwrap();
         assert_eq!((m.how, m.into.as_str(), m.commit.as_str()), ("up_to_date", "main", head.as_str()));
         // Ahead: a fast-forward brings the file.
         std::fs::write(wt.join("b.txt"), "b\n").unwrap();
-        let c = snapshot(&wt, Some(".harnix"), "b").unwrap().unwrap();
-        let m = merge(p, "harnix/flow/f-1", &scratch_for(&wt), "merge").unwrap();
+        let c = snapshot(&wt, Some(".harnix"), None, "b").unwrap().unwrap();
+        let m = merge(p, "harnix/flow/f-1", &scratch_for(&wt), Some(out.path()), "merge").unwrap();
         assert_eq!((m.how, m.commit.as_str()), ("fast_forward", c.as_str()));
         assert_eq!(std::fs::read_to_string(p.join("b.txt")).unwrap(), "b\n");
         // The project moved on meanwhile, elsewhere: a merge commit, both sides kept.
         let wt2 = out.path().join("f-2");
         add_worktree(p, &wt2, "harnix/flow/f-2", &probe(p).unwrap().head).unwrap();
         std::fs::write(wt2.join("c.txt"), "c\n").unwrap();
-        snapshot(&wt2, Some(".harnix"), "c").unwrap().unwrap();
+        snapshot(&wt2, Some(".harnix"), None, "c").unwrap().unwrap();
         std::fs::write(p.join("d.txt"), "d\n").unwrap();
         commit_all(p, "d");
-        let m = merge(p, "harnix/flow/f-2", &scratch_for(&wt2), "Merge harnix/flow/f-2").unwrap();
+        let m = merge(p, "harnix/flow/f-2", &scratch_for(&wt2), Some(out.path()), "Merge harnix/flow/f-2").unwrap();
         assert_eq!(m.how, "merge");
         assert_eq!(run(p, &["rev-parse", "HEAD"]).unwrap(), m.commit);
         assert_eq!(run(p, &["log", "-1", "--format=%P"]).unwrap().split(' ').count(), 2);
@@ -445,11 +495,11 @@ pub(crate) mod tests {
         let wt = out.path().join("f-1");
         add_worktree(p, &wt, "harnix/flow/f-1", &probe(p).unwrap().head).unwrap();
         std::fs::write(wt.join("a.txt"), "one\nTWO (task)\nthree\n").unwrap();
-        snapshot(&wt, Some(".harnix"), "task").unwrap().unwrap();
+        snapshot(&wt, Some(".harnix"), None, "task").unwrap().unwrap();
         std::fs::write(p.join("a.txt"), "one\nTWO (person)\nthree\n").unwrap();
         commit_all(p, "person");
         let before = run(p, &["rev-parse", "HEAD"]).unwrap();
-        let e = merge(p, "harnix/flow/f-1", &scratch_for(&wt), "merge").unwrap_err();
+        let e = merge(p, "harnix/flow/f-1", &scratch_for(&wt), Some(out.path()), "merge").unwrap_err();
         assert_eq!(e, MergeFailed::Conflict(vec!["a.txt".into()]));
         assert_eq!(run(p, &["rev-parse", "HEAD"]).unwrap(), before);
         assert_eq!(run(p, &["status", "--porcelain"]).unwrap(), "", "no merge state, no conflict markers");
@@ -461,9 +511,9 @@ pub(crate) mod tests {
         let wt2 = out.path().join("f-2");
         add_worktree(p, &wt2, "harnix/flow/f-2", &before).unwrap();
         std::fs::write(wt2.join("a.txt"), "task\n").unwrap();
-        snapshot(&wt2, Some(".harnix"), "task").unwrap().unwrap();
+        snapshot(&wt2, Some(".harnix"), None, "task").unwrap().unwrap();
         std::fs::write(p.join("a.txt"), "uncommitted\n").unwrap();
-        let e = merge(p, "harnix/flow/f-2", &scratch_for(&wt2), "merge").unwrap_err();
+        let e = merge(p, "harnix/flow/f-2", &scratch_for(&wt2), Some(out.path()), "merge").unwrap_err();
         assert!(matches!(e, MergeFailed::Other(ref m) if m.contains("overwritten")), "{e}");
         assert_eq!(run(p, &["rev-parse", "HEAD"]).unwrap(), before);
         assert_eq!(std::fs::read_to_string(p.join("a.txt")).unwrap(), "uncommitted\n");

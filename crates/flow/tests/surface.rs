@@ -318,6 +318,7 @@ const BUILDERS: &[(&str, &str)] = &[
         "fnnew(dir:implInto<String>,worktrees_root:implInto<PathBuf>,branch_prefix:implInto<String>)->Self",
     ),
     ("ProjectLayout::with_agent_dirs", "fnwith_agent_dirs<I,S>(mutself,dirs:I)->SelfwhereI:IntoIterator<Item=S>,S:Into<String>,"),
+    ("ProjectLayout::with_runs_dir", "fnwith_runs_dir(mutself,dir:implInto<String>)->Self"),
     ("ProjectLayout::data_dir", "fndata_dir(&self,project:&Path)->PathBuf"),
     ("ProjectLayout::pack_dir", "fnpack_dir(&self,project:&Path)->PathBuf"),
     ("ProjectLayout::runs_dir", "fnruns_dir(&self,base:&Path)->PathBuf"),

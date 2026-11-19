@@ -3,13 +3,17 @@
 //! ```text
 //! <worktrees_root>/<run>/          the worktree, on the branch <branch_prefix>/<run> from HEAD at
 //!                                  start: the run's sessions, gates and output directory are here
-//! <project>/<dir>/runs/<run>/      its process directory stays in the project's own tree, with
+//! <project>/<dir>/<runs>/<run>/    its process directory stays in the project's own tree, with
 //!                                  every other run's
 //! ```
 //!
-//! The worktree is out of the project, where the host's `ProjectLayout` says (Harnix: its flow
-//! extension's state, apart from its engine's own worktrees in the repository's `.wkts/`, which
-//! the engine takes away what it does not know in, and from its branches `harnix/worktree-*`).
+//! The worktree is where the host's `ProjectLayout` says. Harnix keeps it out of the project, in
+//! its flow extension's state, apart from its engine's own worktrees in the repository's `.wkts/`
+//! (which the engine takes away what it does not know in) and from its branches
+//! `harnix/worktree-*`. A host may put it inside the project instead (Codix: `<repo>/.wkts/<run>`,
+//! beside its engine's): the repository must ignore that directory — the library says so in its
+//! log when it does not — and the library neither commits what is there nor removes anything
+//! outside the worktrees root.
 //!
 //! Once the run is over a person decides: merge the branch into the project's current branch,
 //! keep the branch, or discard both ([`end`]). The worktree's uncommitted changes are committed
@@ -77,6 +81,12 @@ pub(crate) async fn make(engine: &Engine, root: &str, flow: &str) -> crate::Resu
     if let Err(e) = super::project::ensure_gitignore(&project, layout) {
         tracing::warn!(root, error = %e, "the project's data directory's .gitignore not written");
     }
+    if let Ok(rel) = layout.worktrees_root.strip_prefix(&project) {
+        let rel = format!("{}/", rel.display());
+        if rel != "/" && git::ignored(&project, &rel) == Some(false) {
+            tracing::warn!(root, worktrees = rel, "the runs' worktrees are in the project and its repository does not ignore them");
+        }
+    }
     for _ in 0..TRIES {
         let id = engine.alloc_id(flow, Some(root)).await?;
         let path = layout.worktree_dir(&id);
@@ -102,7 +112,7 @@ pub(crate) async fn make(engine: &Engine, root: &str, flow: &str) -> crate::Resu
             // A project in a directory of its repository that git does not track yet: made, so
             // the run has its place in the worktree.
             if let Err(e) = std::fs::create_dir_all(w.dir()) {
-                unmake(root, &w).await;
+                unmake(engine, root, &w).await;
                 return Err(FlowError::Invalid(format!("the run's worktree has no {}: {e}", w.dir().display())));
             }
             return Ok((id, w));
@@ -115,10 +125,11 @@ pub(crate) async fn make(engine: &Engine, root: &str, flow: &str) -> crate::Resu
 }
 
 /// Take back a worktree made for a run that was not started: the directory and the branch.
-pub(crate) async fn unmake(root: &str, w: &WorktreeRec) {
+pub(crate) async fn unmake(engine: &Engine, root: &str, w: &WorktreeRec) {
     let (project, path, branch) = (PathBuf::from(root), PathBuf::from(&w.path), w.branch.clone());
+    let ours = engine.layout().map(|l| l.worktrees_root.clone());
     let r = blocking(move || {
-        git::remove_worktree(&project, &path)?;
+        git::remove_worktree(&project, &path, ours.as_deref())?;
         git::delete_branch(&project, &branch, true)
     })
     .await
@@ -186,9 +197,15 @@ pub(crate) async fn end(engine: &Engine, run: &str, how: WorktreeEnd, by: Actor)
     let (project, path, branch) = (PathBuf::from(&root), PathBuf::from(&w.path), w.branch.clone());
     // The project's data directory in the worktree is the engine's, but for the project's flows.
     let own = engine.layout().map(|l| l.dir.clone());
-    let done = blocking(move || carry_out(&project, &path, &branch, own.as_deref(), how, &message, &merge_message))
-        .await
-        .map_err(EndError::Lost)?;
+    let ours = engine.layout().map(|l| l.worktrees_root.clone());
+    let prefix = w.prefix.clone();
+    let done = blocking(move || {
+        let wkts = ours.as_deref().and_then(|r| root_in_repo(&project, &prefix, r));
+        let places = Places { own: own.as_deref(), ours: ours.as_deref(), wkts: wkts.as_deref() };
+        carry_out(&project, &path, &branch, &places, how, &message, &merge_message)
+    })
+    .await
+    .map_err(EndError::Lost)?;
     let (into, commit, merged_how) = match done {
         Ok(d) => d,
         Err(MergeFailed::Conflict(files)) => {
@@ -209,12 +226,31 @@ pub(crate) async fn end(engine: &Engine, run: &str, how: WorktreeEnd, by: Actor)
 
 type Done = (Option<String>, Option<String>, Option<&'static str>);
 
+/// The worktrees root's place in the project's repository (`.wkts`), when it is inside it.
+fn root_in_repo(project: &Path, prefix: &str, root: &Path) -> Option<String> {
+    let mut top = project.canonicalize().ok()?;
+    for _ in Path::new(prefix).components() {
+        top.pop();
+    }
+    let rel = root.canonicalize().ok()?.strip_prefix(&top).ok()?.to_string_lossy().replace('\\', "/");
+    (!rel.is_empty()).then_some(rel)
+}
+
+/// Where [`carry_out`] leaves things alone: the project's data directory by name (`own`), the
+/// worktrees root (`ours`, under which alone it removes directories git has forgotten) and that
+/// root's place in the repository, when it is inside (`wkts`, never committed).
+struct Places<'a> {
+    own: Option<&'a str>,
+    ours: Option<&'a Path>,
+    wkts: Option<&'a str>,
+}
+
 /// The git side of [`end`]: what to record — the branch merged into, a commit, how it merged.
 fn carry_out(
     project: &Path,
     path: &Path,
     branch: &str,
-    own: Option<&str>,
+    at: &Places,
     how: WorktreeEnd,
     message: &str,
     merge_message: &str,
@@ -222,21 +258,21 @@ fn carry_out(
     let other = MergeFailed::Other;
     match how {
         WorktreeEnd::Kept => {
-            git::snapshot(path, own, message).map_err(other)?;
-            git::remove_worktree(project, path).map_err(other)?;
+            git::snapshot(path, at.own, at.wkts, message).map_err(other)?;
+            git::remove_worktree(project, path, at.ours).map_err(other)?;
             let tip = git::tip(project, branch).ok();
             Ok((None, tip, None))
         }
         WorktreeEnd::Discarded => {
-            git::remove_worktree(project, path).map_err(other)?;
+            git::remove_worktree(project, path, at.ours).map_err(other)?;
             git::delete_branch(project, branch, true).map_err(other)?;
             Ok((None, None, None))
         }
         WorktreeEnd::Merged => {
-            git::snapshot(path, own, message).map_err(other)?;
-            let m = git::merge(project, branch, &git::scratch_for(path), merge_message)?;
+            git::snapshot(path, at.own, at.wkts, message).map_err(other)?;
+            let m = git::merge(project, branch, &git::scratch_for(path), at.ours, merge_message)?;
             // Merged: the worktree and the branch have nothing left the project lacks.
-            if let Err(e) = git::remove_worktree(project, path).and_then(|()| git::delete_branch(project, branch, false)) {
+            if let Err(e) = git::remove_worktree(project, path, at.ours).and_then(|()| git::delete_branch(project, branch, false)) {
                 tracing::warn!(branch, error = %e, "a merged worktree or branch not removed");
             }
             Ok((Some(m.into), Some(m.commit), Some(m.how)))
@@ -510,6 +546,89 @@ mod tests {
         assert_eq!(git_out(p, &["branch", "--list", &format!("harnix/flow/{run}")]), "");
         assert!(!p.join("gone.txt").exists());
         assert_eq!(e.record(&run).await.unwrap().worktree.unwrap().outcome.unwrap().kind, WorktreeEnd::Discarded);
+    }
+
+    /// As Codix lays it out: the runs' worktrees in the repository's `.wkts/` (which it ignores),
+    /// beside the engine's own, and the process directories under the engine's `state/`.
+    #[tokio::test]
+    async fn worktrees_inside_the_repository_are_made_committed_and_taken_away_as_any() {
+        if !have_git() {
+            return;
+        }
+        let r = repo();
+        let p = r.path();
+        std::fs::write(p.join(".gitignore"), ".wkts/\n").unwrap();
+        commit_all(p, "ignore the worktrees");
+        let data = tempfile::tempdir().unwrap();
+        let packs = MemPacks::new().flow("{name: f, stations: [{id: a, exit: [{kind: confirm}]}]}");
+        let layout = ProjectLayout::new(".codix", p.join(".wkts"), "codix/flow").with_runs_dir("state/codix/runs");
+        let e = Arc::new(
+            Engine::new(Arc::new(MemStore::new()), Arc::new(packs))
+                .with_clock(Arc::new(ManualClock::new(1_794_787_200_000)))
+                .with_workspaces(data.path().join("workspaces"))
+                .with_layout(layout),
+        );
+        std::fs::create_dir_all(p.join(".codix")).unwrap();
+        std::fs::write(p.join(".codix/.gitignore"), "state/\n").unwrap();
+        let (run, wt) = finished_with(&e, p, "b.txt", "b\n").await;
+        assert_eq!(wt, p.join(".wkts").join(&run));
+        // The process directory is the project's, under the engine's `state/`: no line added.
+        let rec = e.record(&run).await.unwrap();
+        super::super::project::project_run(&e, &rec);
+        assert!(p.join(".codix/state/codix/runs").join(&run).join("task.json").is_file());
+        assert_eq!(std::fs::read_to_string(p.join(".codix/.gitignore")).unwrap(), "state/\n");
+        assert_eq!(git_out(p, &["status", "--porcelain"]), "?? .codix/");
+        // Another worktree inside this one's place for them (an engine's delegate): never committed.
+        std::fs::create_dir_all(wt.join(".wkts/agent-1")).unwrap();
+        std::fs::write(wt.join(".wkts/agent-1/x.txt"), "x\n").unwrap();
+        end(&e, &run, WorktreeEnd::Merged, by()).await.unwrap();
+        assert_eq!(std::fs::read_to_string(p.join("b.txt")).unwrap(), "b\n");
+        assert_eq!(git_out(p, &["show", "--name-only", "--format=", "HEAD"]), "b.txt");
+        assert!(!wt.exists());
+        assert!(p.join(".wkts").is_dir(), "the worktrees root stays");
+
+        // Kept and discarded alike; a worktree git has forgotten is taken away under the root.
+        let (run, wt) = finished_with(&e, p, "k.txt", "k\n").await;
+        end(&e, &run, WorktreeEnd::Kept, by()).await.unwrap();
+        assert!(!wt.exists());
+        assert_eq!(git_out(p, &["show", &format!("codix/flow/{run}:k.txt")]), "k");
+        let (run, wt) = finished_with(&e, p, "d.txt", "d\n").await;
+        std::fs::remove_file(wt.join(".git")).unwrap();
+        end(&e, &run, WorktreeEnd::Discarded, by()).await.unwrap();
+        assert!(!wt.exists());
+        assert!(p.join("a.txt").is_file() && !p.join("d.txt").exists(), "the project untouched");
+    }
+
+    /// A directory git does not know is removed only under the worktrees root, and never one
+    /// holding the project.
+    #[test]
+    fn what_git_has_forgotten_is_removed_only_under_the_worktrees_root() {
+        if !have_git() {
+            return;
+        }
+        let r = repo();
+        let p = r.path();
+        let root = p.join(".wkts");
+        let lost = root.join("f-1");
+        std::fs::create_dir_all(&lost).unwrap();
+        git::remove_worktree(p, &lost, Some(&root)).unwrap();
+        assert!(!lost.exists());
+        // Outside it, or with no root: git's refusal stands.
+        let other = p.join("src");
+        std::fs::create_dir_all(&other).unwrap();
+        assert!(git::remove_worktree(p, &other, Some(&root)).is_err());
+        assert!(git::remove_worktree(p, &other, None).is_err());
+        assert!(git::remove_worktree(p, &root, Some(&root)).is_err(), "not the root itself");
+        assert!(git::remove_worktree(p, p, Some(p.parent().unwrap())).is_err(), "never the project");
+        assert!(other.is_dir() && root.is_dir() && p.join("a.txt").is_file());
+        // A link under the root that leads elsewhere is not followed out.
+        #[cfg(unix)]
+        {
+            let elsewhere = tempfile::tempdir().unwrap();
+            std::os::unix::fs::symlink(elsewhere.path(), root.join("f-2")).unwrap();
+            assert!(git::remove_worktree(p, &root.join("f-2"), Some(&root)).is_err());
+            assert!(elsewhere.path().is_dir());
+        }
     }
 
     #[tokio::test]
