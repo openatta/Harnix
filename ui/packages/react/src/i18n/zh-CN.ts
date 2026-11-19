@@ -1260,7 +1260,7 @@ const zhCN: Record<string, string> = {
   "settings.nav.privacy": "隐私",
   "settings.nav.advanced": "高级",
   "settings.privacy": "隐私",
-  "settings.privacyExplain": "遥测是引擎对自己做了什么的结构化记录：每次模型调用（token、耗时）、工具调用（名称、耗时）、权限判定和每一轮的结束各一行。里面没有提示词、没有消息文本、没有工具的输入与输出。它按会话写成文件，放在引擎数据目录下，就在这台机器上；除非在下面填了端点，不会送到别处。Harnix 缺省关闭。",
+  "settings.privacyExplain": "遥测是引擎对自己做了什么的结构化记录：每次模型调用（token、耗时）、工具调用（名称、耗时）、权限判定和每一轮的结束各一行。里面没有提示词、没有消息文本、没有工具的输入与输出。它按会话写成文件，放在项目数据目录的 state/ 下（不进仓库），没有项目的会话放在引擎数据目录下，都在这台机器上；除非在下面填了端点，不会送到别处。Harnix 缺省关闭。",
   "settings.field.telemetry_enabled": "记录遥测",
   "settings.hint.telemetry_enabled": "这里缺省关闭（引擎自己的缺省是开）；对新会话生效",
   "settings.field.telemetry_url": "导出端点",

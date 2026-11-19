@@ -1262,7 +1262,7 @@ const en: Record<string, string> = {
   "settings.nav.privacy": "Privacy",
   "settings.nav.advanced": "Advanced",
   "settings.privacy": "Privacy",
-  "settings.privacyExplain": "Telemetry is the engine\u0027s own record of what it did: one line per model call (tokens, time), tool call (name, time), permission decision and turn ending. It holds no prompts, no message text and no tool input or output. It is written to a file per session under the engine\u0027s data directory, on this machine, and goes nowhere else unless an endpoint is set below. Harnix starts with it off.",
+  "settings.privacyExplain": "Telemetry is the engine\u0027s own record of what it did: one line per model call (tokens, time), tool call (name, time), permission decision and turn ending. It holds no prompts, no message text and no tool input or output. It is written to a file per session, in the project\u0027s data directory (its state/, which is not committed) or, for a session of no project, the engine\u0027s data directory, on this machine, and goes nowhere else unless an endpoint is set below. Harnix starts with it off.",
   "settings.field.telemetry_enabled": "Record telemetry",
   "settings.hint.telemetry_enabled": "Off here by default; the engine\u0027s own default is on. Applies to new sessions",
   "settings.field.telemetry_url": "Export endpoint",

@@ -298,8 +298,10 @@ Harnix 只管什么时候迁、失败了怎么办，不管用什么迁。数据�
 - 项目里，项目自己的数据与配置一律放项目数据目录 `<项目>/.harnix/`（引擎的项目层也在这里），不另开别的目录。带品牌的应用的是
   `<项目>/.<product_id>/`（`[brand] project_dir` 可另起名，§18），引擎、Harnix 和扩展都用它：扩展从 `cx.product().project_dir()`
   读名字、`cx.product().data_dir_of(项目)` 拿路径，不写死 `.harnix`（`harnix::engine::PROJECT_DIR` 只是 Harnix 自己的名字）。
-  引擎在里面占着设置、agents、hooks、rules、memory、`teams/` 等，扩展用自己的子目录（流程用 `runs/`、`flows/`）；
-  沙箱里的命令在这里只写得了引擎的 `scratchpad/`、`memory/`，扩展的子目录由扩展自己（宿主进程）写。引擎的 worktree 不在这里，在仓库根的 `.wkts/`。
+  引擎在里面占着设置、agents、hooks、rules 等，它这台机器、这个用户的数据（记忆、scratchpad、`teams/`、遥测、超长工具结果）都在 `state/` 下，
+  `.gitignore` 里它只维护 `state/`、`settings.local.json`、`mcp.local.json` 三行；扩展用自己的子目录（流程用 `runs/`、`flows/`，与 `state/` 平级）。
+  `state/<product_id>/` 是引擎留给产品的，Harnix 这一版不用。沙箱里的命令在这里只写得了引擎的 `state/scratchpad/`、`state/memory/`，
+  扩展的子目录由扩展自己（宿主进程）写。引擎的 worktree 不在这里，在仓库根的 `.wkts/`。
 
 ## 6. Agent 侧
 
@@ -1803,7 +1805,7 @@ worktree、过程目录）也在库里，只通过 trait `SessionHost` 认识会
 交付物在它的输出目录（`${output_dir}`），过程在 `<项目>/.harnix/runs/<运行>/`（流程指南「执行与运行」一节）。不带项目的运行，主会话的 scene 需要项目时，
 扩展给它建工作目录（扩展数据目录下 `workspaces/<run>`），不往里写任何东西。`start` 的 `shown_in` 让扩展把主会话展示到那个 space（`cx.sessions().expose`，可对话，§17.6）：项目 space 的「新任务」传它列会话的 space，
 任务就在项目 space 里打开；扩展不认识任何 space 的名字，展示失败只记日志，运行照跑。记录与 `flow.runs` 的行带 `shown_in`；记录的 `session_keys` 是会话键 → `{id, opened_with}`（会话、开它时用的场景、模型、推理强度、放哪），按键共享的工作项开得不一样就不进那个会话。
-会话站和流程的 `main` 可以写 `effort`，扩展照它开会话（`SessionSpec::effort`）。任务的工具碰项目的 `.harnix/` 算碰项目之外（只有 `paths` 指到它里面的 `allow` 放开），其中引擎沙箱让会话写的 `scratchpad/`、`memory/` 除外（`ProjectLayout::agent_dirs`）；编写会话的 `flow_create` 是扩展自己的工具，不受这条限制。
+会话站和流程的 `main` 可以写 `effort`，扩展照它开会话（`SessionSpec::effort`）。任务的工具碰项目的 `.harnix/` 算碰项目之外（只有 `paths` 指到它里面的 `allow` 放开），其中引擎沙箱让会话写的 `state/scratchpad/`、`state/memory/` 除外（`ProjectLayout::agent_dirs`）；编写会话的 `flow_create` 是扩展自己的工具，不受这条限制。
 `start` 的 `from_session {instance?, session_id, space}` 是发起它的对话（`/flow`，[Harnix app](harnix-app.md) §3.2）：扩展声称那个 space、往对话里写一条条目
 `task_started {run, flow, flow_title, title, subject, project_root}`，界面把它画成链到任务的卡；对话本身不变成任务，写不进去只记日志，运行照跑。没写 `agent_type` 的子 Agent 站用引擎不带类型的子 Agent：跑在主会话的 scene 上、用它的工具。钩子是流程包里的文件（`hooks/`），扩展自己投递，没有 `Hooks` trait。
 

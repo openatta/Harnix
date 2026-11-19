@@ -99,7 +99,10 @@ test("a branded product keeps its own directory in each project: the engine's pr
     }
     const task = JSON.parse(readFileSync(join(project, ".acme", "runs", run, "task.json"), "utf8"));
     expect(task).toMatchObject({ run, flow: "demo-task", status: "finished" });
-    expect(readFileSync(join(project, ".acme", ".gitignore"), "utf8").split("\n")).toContain("runs/");
+    const ignored = readFileSync(join(project, ".acme", ".gitignore"), "utf8").split("\n");
+    expect(ignored).toContain("runs/");
+    // The engine's local data is in the product's directory too, under its `state/`.
+    expect(ignored).toContain("state/");
     // Nothing of Harnix's own name in the project.
     expect(readdirSync(project).sort()).toEqual([".acme", "flows", "notes.txt"]);
     api.close();
