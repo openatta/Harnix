@@ -288,3 +288,89 @@ async fn a_session_the_host_refuses_fails_the_attempt_with_why() {
     assert!(error.contains("no session: refused: no such profile here"), "{error}");
     assert!(rn.stop(Duration::from_secs(5)).await);
 }
+
+/// A run started on a plugin's flow runs on once the plugin is gone (uninstalled: its directory
+/// taken away): it pinned the definition and the plugin's policy when it started. The flow is no
+/// longer offered.
+#[tokio::test(start_paused = true)]
+async fn a_run_of_a_plugins_flow_outlives_the_plugin() {
+    let data = tempfile::tempdir().unwrap();
+    let plugin = data.path().join("plugins/acme");
+    std::fs::create_dir_all(plugin.join("flows")).unwrap();
+    std::fs::create_dir_all(plugin.join("policies")).unwrap();
+    std::fs::write(
+        plugin.join("flows/plugged.yaml"),
+        "name: plugged\nstations:\n  - {id: review, executor: {kind: session}, skill: review, policies: [acme-only], output: {type: object}, exit: [{kind: output}]}\n  - {id: approve, exit: [{kind: confirm}], rework_to: [review]}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        plugin.join("policies/acme-only.yaml"),
+        "name: acme-only\npermissions: [{effect: deny, tools: [WebFetch], message: not in acme's runs}]\n",
+    )
+    .unwrap();
+    let host = ScriptedHost::new();
+    host.main(vec![Turn::Ends { output: Some(json!({"first": true})) }, Turn::Ends { output: Some(json!({"again": true})) }]);
+    let cfg = RunnerConfig {
+        profiles: vec!["flow-harnix".into()],
+        submit_profiles: ["flow-harnix".to_string()].into(),
+        main_profile: Some("flow-harnix".into()),
+        lease_ms: 60_000,
+        tick_ms: 1000,
+        ..Default::default()
+    };
+    let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("packs/examples");
+    let with_plugin = DirPacks::new([examples]).with_plugin("acme", &plugin);
+    assert_eq!((with_plugin.origin("plugged"), with_plugin.source("plugged").as_deref()), (Origin::Plugin, Some("acme")));
+    let packs = Arc::new(CatalogPacks::over(&cfg, vec![], Arc::new(with_plugin)));
+    let engine = Arc::new(
+        Engine::new(Arc::new(MemStore::new()), packs.clone())
+            .with_clock(Arc::new(ManualClock::new(T0)))
+            .with_lease_ms(60_000)
+            .with_submit_scenes(cfg.profiles.clone())
+            .with_main_scene("flow-harnix")
+            .with_workspaces(data.path().join("workspaces")),
+    );
+    let rn = Runner::new(engine.clone(), host.clone(), cfg);
+    rn.start().await;
+    let run = start(&rn, "plugged", None).await;
+    let reviewed = |n: usize| {
+        let engine = engine.clone();
+        let run = run.clone();
+        async move {
+            tokio::time::timeout(Duration::from_secs(60), async {
+                loop {
+                    let rec = engine.record(&run).await.unwrap();
+                    let review = &rec.stations["review"];
+                    if review.round as usize >= n && review.status == StationStatus::Passed
+                        && rec.stations.get("approve").is_some_and(|s| s.status == StationStatus::Working)
+                    {
+                        return;
+                    }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            })
+            .await
+            .expect("the review handed in and approve waits")
+        }
+    };
+    reviewed(1).await;
+
+    // The plugin goes.
+    std::fs::remove_dir_all(&plugin).unwrap();
+    assert!(!engine.packs().flows().contains(&"plugged".to_string()));
+    assert!(wire::defs_list(engine.packs().as_ref()).iter().all(|d| d.name != "plugged"));
+    let rec = engine.record(&run).await.unwrap();
+    assert_eq!(rec.def.name, "plugged");
+    assert!(rec.parts.policies.contains_key("acme-only"), "pinned when it started");
+
+    // It runs on: sent back, handed in again under the pinned policy, approved.
+    let by = Actor::device("d");
+    rn.settle(engine.confirm(&run, "approve", false, Some("again"), by.clone()).await).await.unwrap();
+    rn.settle(engine.rework(&run, "review", None, "again", by.clone()).await).await.unwrap();
+    reviewed(2).await;
+    let main = host.opened().into_iter().find(|s| s.main).unwrap();
+    assert!(main.asks.iter().any(|a| a == "WebFetch"), "{:?}", main.asks);
+    rn.settle(engine.confirm(&run, "approve", true, None, by).await).await.unwrap();
+    let done = settled(&engine, &run, RunStatus::Finished).await;
+    assert_eq!(done.stations["review"].task("review").unwrap().output.as_ref().unwrap()["again"], true);
+}

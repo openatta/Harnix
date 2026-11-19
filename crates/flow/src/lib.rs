@@ -24,7 +24,7 @@
 //! kernel/protocol.rs  the protocol layer put before a session task's skill
 //! kernel/schema.rs    a minimal value for a JSON Schema (dry runs)
 //! store.rs            MemStore, FileStore
-//! packs.rs            MemPacks, DirPacks (both can be writable)
+//! packs.rs            MemPacks, DirPacks (both can be writable; DirPacks takes plugins), ProjectPacks
 //! dryrun.rs           dry runs: the kernel in a sandbox, everything outside it mocked
 //! wire.rs             the library's own rows (`DefRow`)
 //! runner/             the runner (feature `runner`): a run's work carried out in a host's sessions
@@ -88,7 +88,7 @@ pub use kernel::run::{
 pub use kernel::schema::minimal;
 pub use kernel::validate::{part_problems, validate, validate_yaml, Problem};
 pub use kernel::{FlowError, Result};
-pub use packs::{project_pack_dir, DirPacks, MemPacks, ProjectPacks, ProjectTrust};
+pub use packs::{project_pack_dir, DirPacks, MemPacks, ProjectPacks, ProjectTrust, Shadowing};
 pub use store::{FileStore, Hooked, MemStore};
 
 /// The flow guide (`docs/guide.*.md`): what a flow is and how one is written, for the people who

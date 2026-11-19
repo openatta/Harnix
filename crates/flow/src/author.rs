@@ -224,7 +224,7 @@ fn run_input(required: &[&str], more: Value) -> Value {
 const TOOLS: &[Row] = &[
     Row {
         name: TOOL_LIST,
-        description: "The flows on offer: name, title, origin (builtin, override, user, project) and whether each is valid; which one is current; and the project the conversation works in, if any.",
+        description: "The flows on offer: name, title, origin (builtin, override, user, project, plugin — with the plugin's name as source) and whether each is valid; which one is current; and the project the conversation works in, if any.",
         schema: no_input,
         read_only: true,
         does: Does::List,
@@ -498,10 +498,16 @@ impl Cx<'_> {
                 self.authorize(&Op::ReadFlows, None)?;
                 Ok(json!({
                     // What the conversation needs of each: its inputs are in the definition `flow_show` gives.
-                    "flows": defs_list(packs).into_iter().map(|d| json!({
-                        "name": d.name, "title": d.title, "digest": d.digest,
-                        "origin": d.origin, "valid": d.valid,
-                    })).collect::<Vec<_>>(),
+                    "flows": defs_list(packs).into_iter().map(|d| {
+                        let mut row = json!({
+                            "name": d.name, "title": d.title, "digest": d.digest,
+                            "origin": d.origin, "valid": d.valid,
+                        });
+                        if let Some(source) = d.source {
+                            row["source"] = json!(source);
+                        }
+                        row
+                    }).collect::<Vec<_>>(),
                     "current": current,
                     "writable": packs.writable(),
                     "project": project,
@@ -521,13 +527,17 @@ impl Cx<'_> {
                 self.authorize(&Op::ReadFlow { flow: name.clone() }, None)?;
                 let (def, digest) = packs.flow(&name).ok_or_else(|| format!("flow {name} is gone"))?;
                 let used = parts_used(packs, &def);
-                Ok(json!({
+                let mut shown = json!({
                     "name": name, "title": def.title, "origin": packs.origin(&name), "digest": digest,
                     "yaml": packs.flow_text(&name).unwrap_or_default(),
                     "problems": validate(&def, packs),
                     "stations": stations_of(&def),
                     "parts": used["parts"], "hooks": used["hooks"],
-                }))
+                });
+                if let Some(source) = packs.source(&name) {
+                    shown["source"] = json!(source);
+                }
+                Ok(shown)
             }
             Does::Save { creating } => self.save(creating, input, packs, current.as_deref()).await,
             Does::Delete => {

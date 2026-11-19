@@ -1,9 +1,9 @@
-//! Three [`Packs`]: [`MemPacks`] (built in code), [`DirPacks`] (layered directories), and
-//! [`ProjectPacks`] (a project's own, over either, for runs in that project).
+//! Three [`Packs`]: [`MemPacks`] (built in code), [`DirPacks`] (layered directories, plugins'
+//! among them), and [`ProjectPacks`] (a project's own, over either, for runs in that project).
 //!
 //! Both can be made writable (xops-02): a writable layer on top of what was shipped. Saving a
 //! flow that a lower layer has stores an override (`Origin::Override`); deleting the override
-//! brings the shipped one back. What is saved has been validated by the caller
+//! brings the shipped one — or the plugin's — back. What is saved has been validated by the caller
 //! (`Engine::save_flow`); the packs check only that it parses and that its name can be stored.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -362,13 +362,29 @@ fn yaml_name(yaml: &str) -> String {
 /// (built-in first, project last). Read on every call: an edit shows up in the next run.
 ///
 /// Below the directories there may be packs built into the binary ([`DirPacks::with_builtin`]);
-/// above them a writable directory ([`DirPacks::with_writable`], or [`DirPacks::writable`] for
-/// one alone), where saving and deleting happen.
+/// above them plugins' packs, read-only and named ([`DirPacks::with_plugin`]); above those a
+/// writable directory ([`DirPacks::with_writable`], or [`DirPacks::writable`] for one alone),
+/// where saving and deleting happen. A name is looked up top down: writable, plugins (by name),
+/// the directories (last first), built in.
 pub struct DirPacks {
     dirs: Vec<PathBuf>,
     builtin: Option<MemPacks>,
+    /// By name, sorted: the first that has a name offers it.
+    plugins: Vec<(String, PathBuf)>,
     top: Option<PathBuf>,
     catalog: Catalog,
+}
+
+/// A plugin's flow or part that another plugin's of the same name hides ([`DirPacks::shadowed`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Shadowing {
+    /// The part's kind; `None` for a flow.
+    pub kind: Option<PartKind>,
+    pub name: String,
+    /// The plugin whose flow or part is not offered.
+    pub plugin: String,
+    /// The plugin whose is, its name sorting first.
+    pub by: String,
 }
 
 impl DirPacks {
@@ -376,6 +392,7 @@ impl DirPacks {
         Self {
             dirs: dirs.into_iter().map(Into::into).collect(),
             builtin: None,
+            plugins: vec![],
             top: None,
             catalog: Catalog::default(),
         }
@@ -400,10 +417,56 @@ impl DirPacks {
         self
     }
 
+    /// A plugin's pack, read-only, under the plugin's name: over the directories and the built-in
+    /// packs, under the writable directory. What it offers is `Origin::Plugin`, `Packs::source`
+    /// naming the plugin; saved again in the writable directory it is an override, and deleting
+    /// that brings the plugin's back. Of two plugins with a flow or part of one name, the one
+    /// whose name sorts first is offered and the other's reported (`Packs::withheld_flows`,
+    /// [`DirPacks::shadowed`]). The same name again replaces the plugin's directory.
+    ///
+    /// A plugin uninstalled — its directory gone, or the packs built again without it — takes its
+    /// flows and parts off offer: runs already started keep the definition, policies and gates
+    /// they pinned, and run on (a skill or rule is read when a task is sent: one the plugin took
+    /// with it is missing from that task's message).
+    pub fn with_plugin(mut self, name: impl Into<String>, dir: impl Into<PathBuf>) -> Self {
+        let name = name.into();
+        self.plugins.retain(|(n, _)| *n != name);
+        self.plugins.push((name, dir.into()));
+        self.plugins.sort_by(|a, b| a.0.cmp(&b.0));
+        self
+    }
+
     /// The names the application registered (directories cannot say).
     pub fn with_catalog(mut self, catalog: Catalog) -> Self {
         self.catalog = catalog;
         self
+    }
+
+    /// What one plugin has that another plugin's of the same name hides: flows (`kind: None`),
+    /// then parts kind by kind, each in name order.
+    pub fn shadowed(&self) -> Vec<Shadowing> {
+        let mut out = vec![];
+        let mut each = |kind: Option<PartKind>, names_in: &dyn Fn(&Path) -> BTreeSet<String>| {
+            let mut first: BTreeMap<String, &str> = BTreeMap::new();
+            let mut found = vec![];
+            for (plugin, dir) in &self.plugins {
+                for name in names_in(dir) {
+                    match first.get(&name) {
+                        Some(by) => found.push(Shadowing { kind, name, plugin: plugin.clone(), by: by.to_string() }),
+                        None => {
+                            first.insert(name, plugin);
+                        }
+                    }
+                }
+            }
+            found.sort_by(|a, b| a.name.cmp(&b.name));
+            out.extend(found);
+        };
+        each(None, &flow_names);
+        for kind in PartKind::ALL {
+            each(Some(kind), &|d: &Path| part_names(d, kind));
+        }
+        out
     }
 
     /// The directory saving writes to.
@@ -411,9 +474,44 @@ impl DirPacks {
         self.top.as_deref()
     }
 
-    /// Read-only directories, lowest first.
-    fn read_dirs(&self) -> impl DoubleEndedIterator<Item = &PathBuf> {
-        self.dirs.iter()
+    /// Every directory, in no order that matters: for listing names.
+    fn all_dirs(&self) -> impl Iterator<Item = &Path> {
+        self.dirs
+            .iter()
+            .chain(self.plugins.iter().map(|(_, d)| d))
+            .chain(self.top.iter())
+            .map(PathBuf::as_path)
+    }
+
+    /// The read-only directories in the order a name is looked up in: the plugins by name, then
+    /// the directories, last given first.
+    fn lookup_dirs(&self) -> impl Iterator<Item = &Path> {
+        self.plugins
+            .iter()
+            .map(|(_, d)| d.as_path())
+            .chain(self.dirs.iter().rev().map(PathBuf::as_path))
+    }
+
+    /// The plugin that offers the flow `name` below the writable layer.
+    fn flow_plugin(&self, name: &str) -> Option<&str> {
+        if !safe(name) {
+            return None;
+        }
+        self.plugins
+            .iter()
+            .find(|(_, d)| Self::text_in(d, name).is_some())
+            .map(|(n, _)| n.as_str())
+    }
+
+    /// The plugin that offers a part below the writable layer.
+    fn part_plugin(&self, kind: PartKind, name: &str) -> Option<&str> {
+        if !safe(name) {
+            return None;
+        }
+        self.plugins
+            .iter()
+            .find(|(_, d)| Self::part_in(d, kind, name).is_some())
+            .map(|(n, _)| n.as_str())
     }
 
     fn text_in(dir: &Path, name: &str) -> Option<String> {
@@ -424,7 +522,7 @@ impl DirPacks {
 
     /// Whether a layer below the writable one offers `name`.
     fn shipped(&self, name: &str) -> bool {
-        self.read_dirs().any(|d| Self::text_in(d, name).is_some())
+        self.lookup_dirs().any(|d| Self::text_in(d, name).is_some())
             || self
                 .builtin
                 .as_ref()
@@ -437,8 +535,9 @@ impl DirPacks {
             return None;
         }
         self.top
-            .iter()
-            .chain(self.read_dirs().rev())
+            .as_deref()
+            .into_iter()
+            .chain(self.lookup_dirs())
             .find_map(|d| Self::text_in(d, name))
             .or_else(|| self.builtin.as_ref().and_then(|b| b.flow_text(name)))
     }
@@ -454,6 +553,40 @@ impl DirPacks {
 
 fn safe(name: &str) -> bool {
     !name.is_empty() && !name.contains(['/', '\\']) && !name.starts_with('.')
+}
+
+/// The names of the flow files in a pack directory's `flows/`, unread.
+fn flow_names(dir: &Path) -> BTreeSet<String> {
+    let Ok(entries) = std::fs::read_dir(dir.join("flows")) else {
+        return BTreeSet::new();
+    };
+    entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| matches!(p.extension().and_then(|x| x.to_str()), Some("yaml" | "yml")))
+        .filter_map(|p| p.file_stem().and_then(|s| s.to_str()).map(String::from))
+        .filter(|n| !n.starts_with('.'))
+        .collect()
+}
+
+/// The names of the parts of a kind in a pack directory, unread.
+fn part_names(dir: &Path, kind: PartKind) -> BTreeSet<String> {
+    let Ok(entries) = std::fs::read_dir(dir.join(kind.dir())) else {
+        return BTreeSet::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|e| {
+            let n = e.file_name().to_str().map(String::from)?;
+            match kind {
+                PartKind::Skill => e.path().join("SKILL.md").is_file().then_some(n),
+                _ => {
+                    let ext = if kind == PartKind::Rule { ".md" } else { ".yaml" };
+                    n.strip_suffix(ext).filter(|s| !s.starts_with('.')).map(String::from)
+                }
+            }
+        })
+        .collect()
 }
 
 /// Write a file whole: to a temporary beside it, then renamed over it.
@@ -475,20 +608,8 @@ fn write_atomic(path: &Path, text: &str) -> Result<(), String> {
 impl Packs for DirPacks {
     fn flows(&self) -> Vec<String> {
         let mut names = BTreeSet::new();
-        for d in self.read_dirs().chain(self.top.iter()) {
-            let Ok(entries) = std::fs::read_dir(d.join("flows")) else {
-                continue;
-            };
-            for e in entries.flatten() {
-                let p = e.path();
-                if matches!(p.extension().and_then(|x| x.to_str()), Some("yaml" | "yml")) {
-                    if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
-                        if !stem.starts_with('.') {
-                            names.insert(stem.to_string());
-                        }
-                    }
-                }
-            }
+        for d in self.all_dirs() {
+            names.extend(flow_names(d));
         }
         if let Some(b) = &self.builtin {
             names.extend(b.flows());
@@ -511,8 +632,9 @@ impl Packs for DirPacks {
         }
         let body = self
             .top
-            .iter()
-            .chain(self.read_dirs().rev())
+            .as_deref()
+            .into_iter()
+            .chain(self.lookup_dirs())
             .find_map(|d| Self::part_in(d, kind, name))
             .or_else(|| {
                 self.builtin
@@ -550,23 +672,8 @@ impl Packs for DirPacks {
 
     fn parts(&self, kind: PartKind) -> Vec<String> {
         let mut names = BTreeSet::new();
-        for d in self.read_dirs().chain(self.top.iter()) {
-            let Ok(entries) = std::fs::read_dir(d.join(kind.dir())) else {
-                continue;
-            };
-            for e in entries.flatten() {
-                let Some(n) = e.file_name().to_str().map(String::from) else {
-                    continue;
-                };
-                let name = match kind {
-                    PartKind::Skill => e.path().join("SKILL.md").is_file().then_some(n),
-                    _ => {
-                        let ext = if kind == PartKind::Rule { ".md" } else { ".yaml" };
-                        n.strip_suffix(ext).filter(|s| !s.starts_with('.')).map(String::from)
-                    }
-                };
-                names.extend(name);
-            }
+        for d in self.all_dirs() {
+            names.extend(part_names(d, kind));
         }
         if let Some(b) = &self.builtin {
             names.extend(b.parts(kind));
@@ -580,7 +687,7 @@ impl Packs for DirPacks {
                 .top
                 .as_ref()
                 .is_some_and(|t| Self::part_in(t, kind, name).is_some());
-        let shipped = self.read_dirs().any(|d| Self::part_in(d, kind, name).is_some())
+        let shipped = self.lookup_dirs().any(|d| Self::part_in(d, kind, name).is_some())
             || self
                 .builtin
                 .as_ref()
@@ -588,8 +695,13 @@ impl Packs for DirPacks {
         match (saved, shipped) {
             (true, true) => Origin::Override,
             (true, false) => Origin::User,
+            _ if self.part_plugin(kind, name).is_some() => Origin::Plugin,
             _ => Origin::Builtin,
         }
+    }
+
+    fn part_source(&self, kind: PartKind, name: &str) -> Option<String> {
+        self.part_plugin(kind, name).map(String::from)
     }
 
     fn writable(&self) -> bool {
@@ -605,8 +717,20 @@ impl Packs for DirPacks {
         match (saved, self.shipped(flow)) {
             (true, true) => Origin::Override,
             (true, false) => Origin::User,
+            _ if self.flow_plugin(flow).is_some() => Origin::Plugin,
             _ => Origin::Builtin,
         }
+    }
+
+    fn source(&self, flow: &str) -> Option<String> {
+        self.flow_plugin(flow).map(String::from)
+    }
+
+    /// A plugin's flow another plugin's of the same name is offered over, once a name.
+    fn withheld_flows(&self) -> Vec<(String, Withheld)> {
+        let names: BTreeSet<String> =
+            self.shadowed().into_iter().filter(|s| s.kind.is_none()).map(|s| s.name).collect();
+        names.into_iter().map(|n| (n, Withheld::Shadowed)).collect()
     }
 
     fn save_flow(&self, yaml: &str) -> Result<String, String> {
@@ -791,22 +915,7 @@ impl ProjectPacks {
         if !self.trusted {
             return BTreeSet::new();
         }
-        let Ok(entries) = std::fs::read_dir(self.dir.join(kind.dir())) else {
-            return BTreeSet::new();
-        };
-        entries
-            .flatten()
-            .filter_map(|e| {
-                let n = e.file_name().to_str().map(String::from)?;
-                match kind {
-                    PartKind::Skill => e.path().join("SKILL.md").is_file().then_some(n),
-                    _ => {
-                        let ext = if kind == PartKind::Rule { ".md" } else { ".yaml" };
-                        n.strip_suffix(ext).filter(|s| !s.starts_with('.')).map(String::from)
-                    }
-                }
-            })
-            .collect()
+        part_names(&self.dir, kind)
     }
 
     /// Why nothing is written: the project is not trusted.
@@ -902,6 +1011,22 @@ impl Packs for ProjectPacks {
         }
     }
 
+    fn source(&self, flow: &str) -> Option<String> {
+        if self.flow_file(flow).is_some() {
+            None
+        } else {
+            self.base.source(flow)
+        }
+    }
+
+    fn part_source(&self, kind: PartKind, name: &str) -> Option<String> {
+        if self.own_part(kind, name).is_some() {
+            None
+        } else {
+            self.base.part_source(kind, name)
+        }
+    }
+
     fn save_flow(&self, yaml: &str) -> Result<String, String> {
         self.must_trust()?;
         let name = name_to_save(yaml)?;
@@ -951,17 +1076,25 @@ impl Packs for ProjectPacks {
         r.map_err(|e| format!("{}: {e}", path.display()))
     }
 
+    /// The project's own it does not offer; and what the packs below withhold of the names the
+    /// project has no file of.
     fn withheld_flows(&self) -> Vec<(String, Withheld)> {
-        self.own_names()
+        let own = self.own_names();
+        let mut out: Vec<(String, Withheld)> = self
+            .base
+            .withheld_flows()
             .into_iter()
-            .filter_map(|n| {
-                if !self.trusted {
-                    Some((n, Withheld::Untrusted))
-                } else {
-                    self.own_flow(&n).is_none().then_some((n, Withheld::Unreadable))
-                }
-            })
-            .collect()
+            .filter(|(n, _)| !own.contains(n))
+            .collect();
+        out.extend(own.into_iter().filter_map(|n| {
+            if !self.trusted {
+                Some((n, Withheld::Untrusted))
+            } else {
+                self.own_flow(&n).is_none().then_some((n, Withheld::Unreadable))
+            }
+        }));
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
     }
 }
 
@@ -1158,5 +1291,133 @@ mod project_tests {
         assert!(trust.trusted(&at));
         trust.set(&at, false);
         assert!(!trust.trusted(&format!("{at}/")));
+    }
+}
+
+#[cfg(test)]
+mod plugin_tests {
+    use super::*;
+
+    fn flow(name: &str, title: &str) -> String {
+        format!("name: {name}\ntitle: {title}\nstations: [{{id: a, exit: [{{kind: confirm}}]}}]")
+    }
+
+    /// A pack directory with these flows and rules.
+    fn pack(at: &Path, flows: &[(&str, &str)], rules: &[(&str, &str)]) -> PathBuf {
+        std::fs::create_dir_all(at.join("flows")).unwrap();
+        std::fs::create_dir_all(at.join("rules")).unwrap();
+        for (name, title) in flows {
+            std::fs::write(at.join("flows").join(format!("{name}.yaml")), flow(name, title)).unwrap();
+        }
+        for (name, text) in rules {
+            std::fs::write(at.join("rules").join(format!("{name}.md")), text).unwrap();
+        }
+        at.to_path_buf()
+    }
+
+    /// Built in: `base` and `shared`; plugin `beta`: `shared`, `both`, `beta-own`; plugin `alpha`:
+    /// `both`; the application's directory: `dir-own`. Rules alike.
+    fn layered(tmp: &Path) -> DirPacks {
+        let builtin = MemPacks::new()
+            .flow(&flow("base", "Built in"))
+            .flow(&flow("shared", "Built in"))
+            .rule("tone", "# Built in");
+        let shipped = pack(&tmp.join("shipped"), &[("dir-own", "Shipped")], &[]);
+        let beta = pack(
+            &tmp.join("beta"),
+            &[("shared", "Beta's"), ("both", "Beta's"), ("beta-own", "Beta's")],
+            &[("tone", "# Beta"), ("house", "# Beta house")],
+        );
+        let alpha = pack(&tmp.join("alpha"), &[("both", "Alpha's")], &[("house", "# Alpha house")]);
+        DirPacks::new([shipped])
+            .with_builtin(builtin)
+            .with_plugin("beta", beta)
+            .with_plugin("alpha", alpha)
+            .with_writable(tmp.join("mine"))
+    }
+
+    #[test]
+    fn a_plugins_flows_are_over_what_is_shipped_and_said_whose() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = layered(tmp.path());
+        assert_eq!(p.flows(), ["base", "beta-own", "both", "dir-own", "shared"]);
+        // Over the built-in flow of the same name, and said so.
+        assert_eq!(p.flow("shared").unwrap().0.title, "Beta's");
+        assert_eq!((p.origin("shared"), p.source("shared").as_deref()), (Origin::Plugin, Some("beta")));
+        assert_eq!((p.origin("beta-own"), p.source("beta-own").as_deref()), (Origin::Plugin, Some("beta")));
+        assert_eq!((p.origin("base"), p.source("base")), (Origin::Builtin, None));
+        assert_eq!((p.origin("dir-own"), p.source("dir-own")), (Origin::Builtin, None));
+        // Two plugins with one name: the one sorting first offers it, the other is reported.
+        assert_eq!(p.flow("both").unwrap().0.title, "Alpha's");
+        assert_eq!(p.source("both").as_deref(), Some("alpha"));
+        assert_eq!(p.withheld_flows(), [("both".to_string(), Withheld::Shadowed)]);
+        // Parts the same way.
+        assert_eq!(p.rule("tone").unwrap().0, "# Beta");
+        assert_eq!((p.part_origin(PartKind::Rule, "tone"), p.part_source(PartKind::Rule, "tone").as_deref()), (Origin::Plugin, Some("beta")));
+        assert_eq!(p.rule("house").unwrap().0, "# Alpha house");
+        assert_eq!(p.part_source(PartKind::Rule, "house").as_deref(), Some("alpha"));
+        assert_eq!(p.parts(PartKind::Rule), ["house", "tone"]);
+        let shadow = |kind, name: &str| Shadowing { kind, name: name.into(), plugin: "beta".into(), by: "alpha".into() };
+        assert_eq!(p.shadowed(), [shadow(None, "both"), shadow(Some(PartKind::Rule), "house")]);
+        // The listing has one row a name: the shadowed flow has none of its own.
+        let rows = crate::wire::defs_list(&p);
+        assert_eq!(rows.iter().filter(|r| r.name == "both").count(), 1);
+        let both = rows.iter().find(|r| r.name == "both").unwrap();
+        assert_eq!((both.origin, both.source.as_deref(), both.reason), (Origin::Plugin, Some("alpha"), None));
+    }
+
+    #[test]
+    fn saving_a_plugins_flow_overrides_it_and_deleting_brings_it_back() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = layered(tmp.path());
+        p.save_flow(&flow("shared", "Mine")).unwrap();
+        assert_eq!(p.flow("shared").unwrap().0.title, "Mine");
+        // An override, of the plugin's: what deleting brings back.
+        assert_eq!((p.origin("shared"), p.source("shared").as_deref()), (Origin::Override, Some("beta")));
+        p.delete_flow("shared").unwrap();
+        assert_eq!((p.origin("shared"), p.flow("shared").unwrap().0.title), (Origin::Plugin, "Beta's".to_string()));
+        assert!(p.delete_flow("shared").is_err(), "the plugin's flow is not deleted");
+        // A flow of the writable layer alone is the user's, of no plugin.
+        p.save_flow(&flow("fresh", "Mine")).unwrap();
+        assert_eq!((p.origin("fresh"), p.source("fresh")), (Origin::User, None));
+        // Parts the same way.
+        p.save_part(PartKind::Rule, "tone", "# Mine").unwrap();
+        assert_eq!(p.part_origin(PartKind::Rule, "tone"), Origin::Override);
+        assert_eq!(p.part_source(PartKind::Rule, "tone").as_deref(), Some("beta"));
+        p.delete_part(PartKind::Rule, "tone").unwrap();
+        assert_eq!((p.part_origin(PartKind::Rule, "tone"), p.rule("tone").unwrap().0), (Origin::Plugin, "# Beta".to_string()));
+        assert!(!tmp.path().join("beta/flows/fresh.yaml").exists(), "nothing is written in a plugin");
+    }
+
+    #[test]
+    fn a_plugin_mounted_again_under_its_name_replaces_its_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let one = pack(&tmp.path().join("one"), &[("f", "One")], &[]);
+        let two = pack(&tmp.path().join("two"), &[("f", "Two")], &[]);
+        let p = DirPacks::new(Vec::<PathBuf>::new()).with_plugin("acme", one).with_plugin("acme", two);
+        assert_eq!(p.flow("f").unwrap().0.title, "Two");
+        assert!(p.shadowed().is_empty());
+        // Unmounted: built without it, it is gone.
+        assert!(DirPacks::new(Vec::<PathBuf>::new()).flow("f").is_none());
+    }
+
+    /// A project's own flows are over a plugin's; the rest of the plugin's show through.
+    #[test]
+    fn a_projects_own_are_over_a_plugins() {
+        let tmp = tempfile::tempdir().unwrap();
+        let base: Arc<dyn Packs> = Arc::new(layered(tmp.path()));
+        let root = tmp.path().join("project");
+        let layout = ProjectLayout::new(".harnix", "/state/worktrees", "harnix/flow");
+        let dir = project_pack_dir(&root, &layout);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("shared.yaml"), flow("shared", "The project's")).unwrap();
+        let p = ProjectPacks::new(base, &root, &layout, true);
+        assert_eq!((p.origin("shared"), p.source("shared")), (Origin::Project, None));
+        assert_eq!((p.origin("beta-own"), p.source("beta-own").as_deref()), (Origin::Plugin, Some("beta")));
+        assert_eq!(p.withheld_flows(), [("both".to_string(), Withheld::Shadowed)]);
+        // A shadowed name is still offered, and may be started.
+        assert!(p.flow("both").is_some());
+        #[cfg(feature = "runner")]
+        assert!(crate::runner::withheld(&p, "both").is_ok());
     }
 }

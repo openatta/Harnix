@@ -617,7 +617,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         sh,
         packs,
         "defs",
-        "the flows on offer, as the `defs` topic has them: [{name, title, description?, digest, origin, valid, reason?, inputs}]; inputs: a JSON Schema of what a run is started with. {project?}: the flows a task of that project may run, the project's own (origin project, <project>/.harnix/flows/) over the rest; while the project is not trusted its own are listed unread, valid false, reason untrusted",
+        "the flows on offer, as the `defs` topic has them: [{name, title, description?, digest, origin, source?, valid, reason?, inputs}]; source: the plugin of a plugin's flow (origin plugin) or of the one an override is over; inputs: a JSON Schema of what a run is started with. {project?}: the flows a task of that project may run, the project's own (origin project, <project>/.harnix/flows/) over the rest; while the project is not trusted its own are listed unread, valid false, reason untrusted",
         |sh, packs, _, p: Value| async move {
             let project = p.get("project").and_then(Value::as_str).filter(|r| !r.trim().is_empty());
             match project {
@@ -631,7 +631,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         sh,
         packs,
         "def",
-        "one flow: {name, project?} → {def, yaml, digest, origin, valid, problems, writable, skills: {name: body}, protocol: {station: text}}; project: as a task of that project reads it",
+        "one flow: {name, project?} → {def, yaml, digest, origin, source?, valid, problems, writable, skills: {name: body}, protocol: {station: text}}; project: as a task of that project reads it",
         |sh, packs, _, p: DefIn| async move {
             let packs = match p.project.as_deref() {
                 Some(root) if !root.trim().is_empty() => sh.packs_in(Some(root)).await?,
@@ -712,7 +712,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         sh,
         packs,
         "parts",
-        "the parts of a kind on offer: {kind: skill|rule|policy|gate|hook} → [{name, title, description, origin, flows}] (flows: the flows that use it)",
+        "the parts of a kind on offer: {kind: skill|rule|policy|gate|hook} → [{name, title, description, origin, source?, flows}] (flows: the flows that use it)",
         |_, packs, _, p: KindIn| async move { Ok(Value::Array(parts_list(packs.as_ref(), p.kind))) },
     );
     method(
@@ -720,7 +720,7 @@ pub(crate) fn register<C>(m: &mut Registrar<'_, C>, sh: &Arc<Shared>, packs: &Ar
         sh,
         packs,
         "part",
-        "one part: {kind, name} → {kind, name, text, digest, origin, title, description, parsed?, problems, flows}",
+        "one part: {kind, name} → {kind, name, text, digest, origin, source?, title, description, parsed?, problems, flows}",
         |_, packs, _, p: PartIn| async move { part_info(packs.as_ref(), p.kind, &p.name) },
     );
     method(
@@ -1345,11 +1345,22 @@ fn def_info(engine: &Engine, packs: &dyn Packs, name: &str) -> Answer {
     }
     let problems = validate(&def, packs);
     let used = crate::author::parts_used(packs, &def);
-    Ok(json!({
-        "def": def, "yaml": yaml, "digest": digest, "origin": packs.origin(name),
-        "valid": problems.is_empty(), "problems": problems, "writable": packs.writable(),
-        "parts": used["parts"], "hooks": used["hooks"], "stations": stations, "protocol": proto,
-    }))
+    Ok(with_source(
+        json!({
+            "def": def, "yaml": yaml, "digest": digest, "origin": packs.origin(name),
+            "valid": problems.is_empty(), "problems": problems, "writable": packs.writable(),
+            "parts": used["parts"], "hooks": used["hooks"], "stations": stations, "protocol": proto,
+        }),
+        packs.source(name),
+    ))
+}
+
+/// A row with the plugin it is of (`Packs::source`), when it is a plugin's.
+fn with_source(mut row: Value, source: Option<String>) -> Value {
+    if let Some(source) = source {
+        row["source"] = json!(source);
+    }
+    row
 }
 
 /// A part's title and description: a YAML part's fields, a rule's heading, a skill's front matter.
@@ -1411,10 +1422,13 @@ fn parts_list(packs: &dyn Packs, kind: crate::PartKind) -> Vec<Value> {
         .filter_map(|n| {
             let (text, _) = packs.part(kind, &n)?;
             let (title, description) = part_heading(kind, &n, &text);
-            Some(json!({
-                "name": n, "title": title, "description": description,
-                "origin": packs.part_origin(kind, &n), "flows": users_of(packs, kind, &n),
-            }))
+            Some(with_source(
+                json!({
+                    "name": n, "title": title, "description": description,
+                    "origin": packs.part_origin(kind, &n), "flows": users_of(packs, kind, &n),
+                }),
+                packs.part_source(kind, &n),
+            ))
         })
         .collect()
 }
@@ -1430,12 +1444,15 @@ fn part_info(packs: &dyn Packs, kind: crate::PartKind, name: &str) -> Answer {
         crate::PartKind::Hook => packs.hook(name).and_then(|h| serde_json::to_value(h).ok()),
         _ => None,
     };
-    Ok(json!({
-        "kind": kind, "name": name, "text": text, "digest": digest,
-        "origin": packs.part_origin(kind, name), "title": title, "description": description,
-        "parsed": parsed, "problems": crate::kernel::validate::part_problems(kind, name, &text, packs),
-        "flows": users_of(packs, kind, name), "writable": packs.writable(),
-    }))
+    Ok(with_source(
+        json!({
+            "kind": kind, "name": name, "text": text, "digest": digest,
+            "origin": packs.part_origin(kind, name), "title": title, "description": description,
+            "parsed": parsed, "problems": crate::kernel::validate::part_problems(kind, name, &text, packs),
+            "flows": users_of(packs, kind, name), "writable": packs.writable(),
+        }),
+        packs.part_source(kind, name),
+    ))
 }
 
 #[cfg(test)]
@@ -1549,5 +1566,24 @@ mod tests {
                 "additionalProperties": false,
             })
         );
+        assert!(row.get("source").is_none(), "only a plugin's says whose");
+    }
+
+    /// A plugin's flow and parts say which plugin they are of, on every row that carries an origin.
+    #[test]
+    fn a_plugins_rows_name_the_plugin() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("acme");
+        std::fs::create_dir_all(dir.join("flows")).unwrap();
+        std::fs::create_dir_all(dir.join("rules")).unwrap();
+        std::fs::write(dir.join("flows/p.yaml"), "name: p\nstations: [{id: a, rules: [r], exit: [{kind: confirm}]}]").unwrap();
+        std::fs::write(dir.join("rules/r.md"), "# R").unwrap();
+        let packs = crate::DirPacks::new(Vec::<std::path::PathBuf>::new()).with_plugin("acme", &dir);
+        let row = serde_json::to_value(&super::publish::defs_list(&packs)[0]).unwrap();
+        assert_eq!((row["origin"].as_str(), row["source"].as_str()), (Some("plugin"), Some("acme")));
+        let part = &parts_list(&packs, crate::PartKind::Rule)[0];
+        assert_eq!((part["origin"].as_str(), part["source"].as_str()), (Some("plugin"), Some("acme")));
+        let one = part_info(&packs, crate::PartKind::Rule, "r").unwrap();
+        assert_eq!(one["source"], "acme");
     }
 }
