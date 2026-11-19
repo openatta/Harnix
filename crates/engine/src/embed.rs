@@ -470,7 +470,7 @@ mod tests {
             assert!(harnix_contract::product::check_project_dir(bad).is_err(), "{bad:?}");
             assert!(matches!(start(bad, "Acme").await, EmbedError::InvalidProjectDir { .. }), "{bad:?}");
         }
-        let reserved = samples::RESERVED_PRODUCT_NAMES.iter().flat_map(|n| [n.to_string(), n.to_ascii_uppercase()]);
+        let reserved = samples::reserved_product_names().into_iter().flat_map(|n| [n.to_string(), n.to_ascii_uppercase()]);
         for bad in samples::BAD_PRODUCT_NAMES.iter().map(|n| n.to_string()).chain(reserved) {
             assert!(harnix_contract::product::check_product_name(&bad).is_err(), "{bad:?}");
             assert!(matches!(start(".acme", &bad).await, EmbedError::InvalidProductName { .. }), "{bad:?}");

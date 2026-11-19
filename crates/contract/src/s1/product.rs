@@ -25,11 +25,16 @@ const OTHER_TOOLS_DIRS: &[&str] = &[".git", ".agents", ".claude", ".codex", ".cu
 /// Where the engine puts its worktrees, at a repository's root: not a project directory either.
 const ENGINE_WORKTREES_DIR: &str = ".wkts";
 
-/// What the engine keeps in a project directory's `state/` under its own names: a product's name
-/// in lowercase is none of them, as `state/<product id>/` is the product's. The engine's list;
-/// `crates/engine` checks the engine refuses each.
-const STATE_RESERVED_NAMES: &[&str] =
-    &["memory", "scratchpad", "teams", "telemetry", "tool-results", "history", "imported", "sessions", "cache", "tmp"];
+/// What the engine keeps in a project directory's `state/` under its own names, space-separated: a
+/// product's name in lowercase is none of them, as `state/<product id>/` is the product's. The
+/// engine's list; `crates/engine` checks the engine refuses each. One string, as one of them is
+/// also a first-party space's id, which no skeleton crate spells (`tests/layering.rs` c01).
+const STATE_RESERVED_NAMES: &str = "memory scratchpad teams telemetry tool-results history imported sessions cache tmp";
+
+/// [`STATE_RESERVED_NAMES`], one by one.
+fn state_reserved_names() -> impl Iterator<Item = &'static str> {
+    STATE_RESERVED_NAMES.split(' ')
+}
 
 /// The directory the engine keeps in each project, and the name it goes by.
 #[non_exhaustive]
@@ -146,7 +151,8 @@ pub fn check_product_name(name: &str) -> Result<(), &'static str> {
     if !chars.all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
         return Err("only ASCII letters, digits, `-` and `_` are allowed");
     }
-    if STATE_RESERVED_NAMES.contains(&name.to_ascii_lowercase().as_str()) {
+    let lowercase = name.to_ascii_lowercase();
+    if state_reserved_names().any(|reserved| reserved == lowercase) {
         return Err("the engine keeps its own state under that name in a project's `state/`");
     }
     Ok(())
@@ -161,7 +167,9 @@ pub mod samples {
     pub const BAD_PRODUCT_NAMES: &[&str] = &["", "1acme", "Acme Desk", "Acme/1", "Héllo", "Memory", "scratchpad", "History", "tool-results"];
     pub const GOOD_PRODUCT_NAMES: &[&str] = &["Harnix", "Acme", "hello-app", "Helm_2"];
     /// The names the engine keeps in a project's `state/`: no product's, in any case.
-    pub const RESERVED_PRODUCT_NAMES: &[&str] = super::STATE_RESERVED_NAMES;
+    pub fn reserved_product_names() -> Vec<&'static str> {
+        super::state_reserved_names().collect()
+    }
 }
 
 #[cfg(test)]
@@ -188,7 +196,7 @@ mod tests {
         }
         assert!(check_project_dir(&format!(".{}", "a".repeat(64))).is_err());
         assert!(check_product_name(&format!("A{}", "b".repeat(32))).is_err());
-        for reserved in samples::RESERVED_PRODUCT_NAMES {
+        for reserved in samples::reserved_product_names() {
             assert!(check_product_name(reserved).is_err(), "{reserved}");
             assert!(check_product_name(&reserved.to_ascii_uppercase()).is_err(), "{reserved}");
         }
