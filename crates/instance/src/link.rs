@@ -138,6 +138,9 @@ impl EngineOps for DownLink {
     async fn rewind(&self, _: &str, _: &harnix_contract::wire::RewindParams) -> Answer<harnix_contract::wire::RewindResult> {
         Err(self.unavailable())
     }
+    async fn set_permission_mode(&self, _: &str, _: &str) -> Answer<harnix_engine_link::ops::PermissionModeChoice> {
+        Err(self.unavailable())
+    }
     async fn live_turns(&self, _: &str) -> Answer<Vec<String>> {
         Err(self.unavailable())
     }

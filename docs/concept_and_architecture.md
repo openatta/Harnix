@@ -1125,7 +1125,7 @@ space 自己的会话。这件事错一次就是把消息发进了别的产品�
 6. **展示（exposure）是第 3 条的另一个例外，由拥有者开**：建了会话的扩展可以把它展示到另一个 space（`harnix.session.expose {to, interact?}`，
    `cx.sessions().expose(&s, space, Exposure)`），声称那个 space 的调用就能够到它——`interact: false` 只能**看**（attach、history、entries、outline、tasks、
    skills、hooks、会话主题、`engine.session.get / resume`），`interact: true` 还能**说**（send、respond、队列、interrupt、rewind、feedback、扩展条目）；
-   会话的**生命与身份**（close、delete、fork、rename、setModel、setPrompt、move）无论怎样展示都只能从它自己的 space 做，新加的方法没登记前也算这一类。
+   会话的**生命与身份**（close、delete、fork、rename、setModel、setPermissionMode、setPrompt、move）无论怎样展示都只能从它自己的 space 做，新加的方法没登记前也算这一类。
    归属、实例、谁启动的、审计都不变（展示不是跨 space，不写跨 space 审计：是拥有者开的门）；`harnix.sessions.list {space}` 和按 space 裁的会话主题里，
    被展示来的行带 `exposed_from: <它的 space>`，每一行都带 `exposed_to: [{space, interact}]`。展示记在账本里，随会话一起删，重启不丢；`unexpose` 收回。
    设备不能展示（会话在哪里出现是应用定的，同归属）；不是建它的扩展也不能；目标要是这个应用有的 space（只有界面的也算），不能是它自己的、

@@ -356,6 +356,12 @@ pub struct HubSessionRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional, type = "Goal | null"))]
     pub goal: Option<Value>,
+    /// The permission mode it is in as the hub last heard it (from the engine when it was opened,
+    /// a `harnix.session.setPermissionMode` answer, or the engine's event for a change, the
+    /// model's own plan mode included); absent when the hub has heard nothing of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub permission_mode: Option<String>,
     /// The scene layer it was created in, when it was: shown in place of `scene`.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
@@ -1043,6 +1049,34 @@ pub struct SessionModelParams {
     #[serde(flatten)]
     #[cfg_attr(feature = "ts", ts(flatten))]
     pub choice: ModelChoice,
+}
+
+/// `harnix.session.setPermissionMode`'s params: the permission mode a session is in from now on,
+/// for the rest of a running turn too — one of the engine's (`default`, `acceptEdits`, `plan`,
+/// `dontAsk`, `bypassPermissions`), held to what its settings allow.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct SessionPermissionModeParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub instance: Option<String>,
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub space: Option<String>,
+    pub mode: String,
+}
+
+/// `harnix.session.setPermissionMode`'s answer: the mode the session is in now, the one asked
+/// for, and whether its settings held it to a narrower one than that.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct PermissionModeSet {
+    pub instance: String,
+    pub session_id: String,
+    pub mode: String,
+    pub requested: String,
+    pub clamped: bool,
 }
 
 /// What a session's next model call is: each key left out is left as it is.

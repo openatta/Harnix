@@ -512,6 +512,33 @@ mod tests {
         assert!(link.ops().passthrough("daemon.status", json!({})).await.is_err());
     }
 
+    /// A live session's permission mode changes at once and says so: the answer is the mode it is
+    /// in, the change is an event of its own, and reading the mode back gives the same.
+    #[tokio::test]
+    async fn a_sessions_permission_mode_changes_and_says_so() {
+        use harnix_engine_link::events::SessionEventKind;
+        let dir = tempfile::tempdir().unwrap();
+        let here = started(dir.path()).await;
+        let link = here.link().clone();
+        let mut events = link.take_events().unwrap();
+        let created = link.ops().passthrough("session.create", json!({})).await.unwrap();
+        let session = created["session_id"].as_str().unwrap().to_string();
+        assert!(link.ops().subscribe(&session).await.unwrap().is_some());
+        let set = link.ops().set_permission_mode(&session, "plan").await.unwrap();
+        assert_eq!((set.mode.as_str(), set.requested.as_str(), set.clamped), ("plan", "plan", false));
+        let heard = loop {
+            match tokio::time::timeout(Duration::from_secs(10), events.recv()).await.unwrap().unwrap() {
+                EngineEvent::Session { kind: SessionEventKind::PermissionModeChanged { mode }, session: s, .. } if s == session => break mode,
+                _ => continue,
+            }
+        };
+        assert_eq!(heard, "plan");
+        let info = link.ops().get(&session).await.unwrap();
+        assert_eq!(link.ops().permission_mode(&session, &info).await.unwrap().as_deref(), Some("plan"));
+        assert!(link.ops().set_permission_mode(&session, "bubble").await.is_err(), "the engine's own mode is not a host's to set");
+        here.shutdown().await;
+    }
+
     /// The process keeps one record of its commands' process groups: a second engine beside the
     /// first starts all the same, and neither leaves a record behind once both are shut down.
     #[tokio::test]

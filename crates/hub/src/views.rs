@@ -223,6 +223,7 @@ impl Hub {
                     },
                     // What the hub last heard of its goal; absent when it has heard nothing.
                     goal: state.and_then(|s| s.goal.clone()),
+                    permission_mode: state.and_then(|s| s.permission_mode.clone()),
                     scene_layer,
                     prompt_append,
                     trust: extension.then_some(wire::EngineTrust::Extension),

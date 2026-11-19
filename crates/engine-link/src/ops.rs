@@ -148,10 +148,42 @@ pub trait EngineOps: Send + Sync {
         Err(RpcError::new(harnix_contract::codes::METHOD_NOT_FOUND, "this engine does not rewind"))
     }
 
+    /// Put the session in permission mode `mode` from now on — the rest of a running turn too —
+    /// held to what its settings allow. An engine that cannot answers so.
+    async fn set_permission_mode(&self, session: &str, mode: &str) -> Answer<PermissionModeChoice> {
+        let _ = (session, mode);
+        Err(RpcError::new(harnix_contract::codes::METHOD_NOT_FOUND, "this engine does not change a session's permission mode"))
+    }
+
+    /// The permission mode a live session is in now; `None` when the engine does not say.
+    /// `from` is what [`EngineOps::get`] said of it.
+    async fn permission_mode(&self, session: &str, from: &SessionInfo) -> Answer<Option<String>> {
+        let _ = (session, from);
+        Ok(None)
+    }
+
     /// The turns still in the session's conversation, oldest first: what a rewind can go back to.
     async fn live_turns(&self, session: &str) -> Answer<Vec<String>> {
         let _ = session;
         Err(RpcError::new(harnix_contract::codes::METHOD_NOT_FOUND, "this engine does not rewind"))
+    }
+}
+
+/// What a change of a session's permission mode left it in.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PermissionModeChoice {
+    /// The mode it is in now.
+    pub mode: String,
+    /// The mode asked for.
+    pub requested: String,
+    /// Its settings held it to a narrower mode than the one asked for.
+    pub clamped: bool,
+}
+
+impl PermissionModeChoice {
+    pub fn new(mode: impl Into<String>, requested: impl Into<String>, clamped: bool) -> Self {
+        Self { mode: mode.into(), requested: requested.into(), clamped }
     }
 }
 
