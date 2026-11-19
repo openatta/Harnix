@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"thinking","text":"The user wants me to call the slow tool with steps 3, ms 300, then reply exactly \"The slow tool finished.\"","signature":"70b389dc-4776-44f9-b52c-491612257271"},{"type":"tool_use","id":"call_00_aHMK8jV2GQ0cXT96kExg7906","name":"ext__example_showcase__slow","input":{"ms":300,"steps":3}}]}

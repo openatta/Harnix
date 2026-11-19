@@ -1,0 +1,1 @@
+{"role":"assistant","content":[{"type":"thinking","text":"The user wants me to call the vetoed tool. It's a tool the showcase's own event hook refuses. Let me call it.","signature":"d4b010cf-0801-499d-b135-3c8462da30fc"},{"type":"tool_use","id":"call_00_scnA44i8OxXr8hnn9OCv8938","name":"ext__example_showcase__vetoed","input":{}}]}

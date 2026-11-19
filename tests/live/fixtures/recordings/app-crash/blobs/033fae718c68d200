@@ -1,1 +1,0 @@
-{"role":"assistant","content":[{"type":"thinking","text":"First crash failed. Now second call.","signature":"5d334033-48c6-4dff-86d0-d37c3505dfdd"},{"type":"text","text":"First call failed with a wasm trap. Calling again."},{"type":"tool_use","id":"call_00_RZNl6MaF3c22fs1ZPR8n9428","name":"ext__example_showcase__crash","input":{}}]}

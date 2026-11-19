@@ -65,7 +65,8 @@ something.
 | `thinks-first` | "fixture ready" after a line of thinking that names it: the thinking row. The `says-ready` of before it was recorded again (Agix 0.1.0, the `code` scene), kept as it was because the provider of the recorded ones streams no thinking text. Hand-made in that sense: its requests are another scene's |
 | `says-markdown` | A reply in markdown: a `sh` code block, a table and a link — what the conversation draws of a reply. Recorded |
 | `asks-a-question` | The `code` scene's `AskUserQuestion` (header Color, options `r` red and `b` blue), answered `b`; then the model says "blue": the question card, and the answer told to every watcher (`ask_answered`). Recorded, its answer given by `api/recorded.ts` |
-| `reviews-a-plan` | `permission_mode: plan`: a plan under the heading Plan, then `ExitPlanMode`; changes asked for (`PLAN_FEEDBACK` in `api/recorded.ts`), a revised plan and `ExitPlanMode` again, approved; then "plan approved". The plan's review card. Recorded, its answers given by `api/recorded.ts` |
+| `reviews-a-plan` | `permission_mode: plan`: a plan (the line Plan and a list under it), then `ExitPlanMode`; changes asked for (`PLAN_FEEDBACK` in `api/recorded.ts`), a revised plan and `ExitPlanMode` again, approved; then "plan approved". The plan's review card. Recorded, its answers given by `api/recorded.ts` |
+| `enters-plan-mode` | An `EnterPlanMode` call (a `code`-scene tool, allowed without an ask), then "In plan mode.": the model putting its own session in plan mode, which the engine says in a `permission_mode_changed` frame and the composer's permission button follows. Recorded |
 
 ### Still made by hand, and why
 

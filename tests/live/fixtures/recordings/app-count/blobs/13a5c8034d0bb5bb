@@ -1,1 +1,0 @@
-{"role":"assistant","content":[{"type":"thinking","text":"The user wants me to call the count tool with key visits. Then reply exactly \"Counted.\"","signature":"a41af52d-f42d-4e00-be8e-ebb8aba61840"},{"type":"tool_use","id":"call_00_tQMuoIfRuj6NTMZGioU16874","name":"ext__example_showcase__count","input":{"key":"visits"}}]}
