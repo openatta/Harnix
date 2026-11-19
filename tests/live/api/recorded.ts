@@ -128,6 +128,13 @@ export const RECORDED: Recorded[] = [
       };
     },
   },
+  {
+    name: "enters-plan-mode",
+    scene: "code",
+    profile: CODE,
+    message:
+      "Use the EnterPlanMode tool now, with no arguments, and no other tool. Do not answer in prose first. When it returns, reply with exactly: In plan mode.",
+  },
   { name: "app-echo", scene: null, apps: true, message: callThen(`Use the ${tool("echo")} tool with the text showcase-echo-42.`, "The showcase said it back.") },
   { name: "app-count", scene: null, apps: true, message: callThen(`Use the ${tool("count")} tool with the key visits.`, "Counted.") },
   { name: "app-config", scene: null, apps: true, message: callThen(`Use the ${tool("config")} tool, with no arguments.`, "That is the showcase's configuration.") },
