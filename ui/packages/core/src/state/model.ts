@@ -21,6 +21,7 @@ import type {
   ErrorEvent,
   HistoryMessage,
   NotificationEvent,
+  PermissionModeChangedEvent,
   PromptEvent,
   PromptResolvedEvent,
   QueueItem,
@@ -588,6 +589,13 @@ export function applyEvent(state: SessionState, event: EngineEvent, options: App
       const how: AskAnswer =
         resolved.resolution === "answered" ? "answered" : resolved.reason === "timed_out" ? "timeout" : "withdrawn";
       return update(state, block.key, (b) => (b.kind === "ask" ? { ...b, answered: how, elsewhere: true } : b));
+    }
+
+    // 会话的权限模式变了：宿主切的（这里或别的页面），或模型自己进出 plan。不成块，记在会话上，输入框照它显示。
+    case "permission_mode_changed": {
+      const mode = (event as PermissionModeChangedEvent).mode;
+      if (typeof mode !== "string" || !mode || !state.session || state.session.permission_mode === mode) return state;
+      return { ...state, session: { ...state.session, permission_mode: mode } };
     }
 
     // 引擎的提示（模型要人回来看，或引擎自己的提醒）：原文说出来

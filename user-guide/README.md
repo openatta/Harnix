@@ -46,6 +46,7 @@ Click your avatar at the bottom of the left column, then **Settings**, then **Mo
 - **Reasoning effort.** "Model parameters" has "Reasoning effort" (how much work the model puts into a reply), "Thinking", the most output tokens and a "Fallback model" used while the main model is overloaded. They apply to every session that does not set its own (below).
 - **Models by task.** In "Models by task" you can send some jobs to another provider and model: "Conversations" (a session's own turns), "Sub-agents", "Compaction", "Memory", "Session titles", "Web search" and "Reading fetched pages". A job you leave unset uses the default provider.
 - **Switch model in a conversation.** The model menu of the input box switches to any model you listed. Below the models, "Effort" and "Thinking" set this session's own; "As set" leaves them to the settings.
+- **Permission mode in a conversation.** The button before the model shows the mode the session is in: "Ask", "Accept edits", "Plan: read only", "Don't ask" or "Full access". Pick another and it applies at once, to a turn that is running too. If the settings do not allow that much, the session gets the widest mode they do allow, and the page says so. When the model goes into plan mode or out of it by itself, the button follows. In a new conversation, "As set" starts it in the mode the settings give.
 
 ---
 

@@ -51,8 +51,11 @@ export interface EngineSession {
 /** `harnix.sessions.list` 与 `harnix.instances.sessions` 的一行：引擎的 SessionInfo 加上中枢折叠进来的字段。 */
 export type SessionRow = EngineSession & HubSessionRow;
 
-/** `engine.session.get` 的结果（attach 原样带回，中枢折进 `scene_layer` 与 `prompt_append`）。 */
-export interface SessionInfo extends EngineSession, Pick<HubSessionRow, "scene_layer" | "prompt_append"> {
+/**
+ * `engine.session.get` 的结果（attach 原样带回，中枢折进 `scene_layer`、`prompt_append`，以及中枢听到的权限模式
+ * `permission_mode`：之后跟着 `permission_mode_changed` 帧变）。
+ */
+export interface SessionInfo extends EngineSession, Pick<HubSessionRow, "scene_layer" | "prompt_append" | "permission_mode"> {
   /** `rebuilding`（原地重建）与 `operating`（对上下文的操作独占）时没有轮可打断。 */
   turn_state?: "idle" | "running" | "rebuilding" | "operating" | string;
   usage?: Usage | null;
@@ -332,6 +335,15 @@ export interface SubagentProgressEvent {
   agent_type?: string;
   event?: EngineEvent;
 }
+/**
+ * 会话的权限模式变了（daemon_rpc_protocol §7）：`mode` 是变成的模式。`source` 为 `host`（宿主切的，`harnix.session.setPermissionMode`）
+ * 或 `model`（模型自己 `EnterPlanMode` / `ExitPlanMode`）。切到会话已经所在的模式不推。
+ */
+export interface PermissionModeChangedEvent {
+  kind: "permission_mode_changed";
+  mode: string;
+  source?: "host" | "model" | (string & {});
+}
 /** 没见过的 kind：必须忽略，不报错（daemon_rpc_protocol §7）。 */
 export interface UnknownEvent {
   kind: string;
@@ -359,4 +371,5 @@ export type EngineEvent =
   | TurnCompleteEvent
   | ErrorEvent
   | SubagentProgressEvent
+  | PermissionModeChangedEvent
   | UnknownEvent;

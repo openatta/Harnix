@@ -315,6 +315,11 @@ r.register("harnix-app.project.items", {
   写 `model_switch = false` 关掉；库的缺省是关，应用不说就把换模型留给设置页。
   同一个菜单下面是这个会话的推理强度（`low` … `max`）与思考开关（`auto` / `off` / `on`），「随设置」是没有会话自己的值；
   新会话的输入框里选的，建会话时经 `options.effort`、`options.thinking_mode` 给。
+- **权限模式**：输入框里模型前面的权限按钮显示会话此刻所在的模式（询问、自动接受编辑、规划：只读、不询问、完全放行），菜单里换一个
+  经 `harnix.session.setPermissionMode` **立即生效**，正在跑的一轮后面的工具调用也照新模式判，只对前台 space 的会话。设置不允许那么宽时
+  引擎把它夹到设置允许的最宽处：页面说一句「设置只允许这个会话到……」，按钮与菜单也标出来，直到模式再变。显示的模式跟着引擎的变化走，
+  模型自己进出 plan（`EnterPlanMode` / `ExitPlanMode`）、别的页面换的都一样。新会话的输入框里也有它，「随设置」是不另给，选了的建会话时经
+  `options.permission_mode` 给。
 
 ### 4.1 首次运行
 
