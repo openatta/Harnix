@@ -13,8 +13,8 @@
 //! The data directory may be shared with others (Harnix shares `.harnix` with its engine): the
 //! library uses `flows/` and the runs directory in it and nothing else. It is the host's, not a
 //! task's: a session's write into it is judged as one outside the project — except into the
-//! directories the host names as its sessions' own there (`agent_dirs`: the engine's scratchpad,
-//! memory and worktrees in Harnix). There is no default: the library does not know whose
+//! directories the host names as its sessions' own there (`agent_dirs`: the engine's
+//! `state/scratchpad` and `state/memory` in Harnix). There is no default: the library does not know whose
 //! application it is in.
 
 use std::path::{Path, PathBuf};
@@ -36,8 +36,8 @@ pub struct ProjectLayout {
     /// What a run's worktree branch is named under: `<branch_prefix>/<run>`.
     pub branch_prefix: String,
     /// Directories in the data directory a task's session writes as its own, by name
-    /// (`scratchpad`, `memory` in Harnix: what its sandbox lets a session write
-    /// there). The rest of the data directory is the host's, outside what the task works in.
+    /// (`state/scratchpad`, `state/memory` in Harnix: what its sandbox lets a session
+    /// write there). The rest of the data directory is the host's, outside what the task works in.
     pub agent_dirs: Vec<String>,
     /// Where runs' process directories go in the data directory, as a relative path (`runs`,
     /// [`RUNS_DIR`]; Codix: `state/codix/runs`): `<project>/<dir>/<runs>/<run>`.
